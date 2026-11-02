@@ -356,45 +356,38 @@ gitignored.
 
 ## CI
 
-A separate step in `.github/workflows/ci.yml`, after the D1 step and for the
-same reason: it needs a dependency the default path doesn't, and splitting it
-keeps the fast tier fast.
+The `browser` job in `.github/workflows/ci.yml`, beside the unit tests rather
+than after them, runs the tier in three legs, each on its own runner:
 
-```yaml
-- name: Cache Chromium
-  uses: actions/cache@v4
-  with:
-    path: ~/.cache/ms-playwright
-    key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
-    restore-keys: |
-      ${{ runner.os }}-playwright-
+| Leg | Packages |
+|---|---|
+| `cire-invites` | `@cire/invites` |
+| `cire-host` | `@cire/host` |
+| `rest` | `@musubi/social`, `@pulse/web`, `@shared/ui` |
 
-- name: Install Chromium's system libraries
-  timeout-minutes: 10
-  working-directory: cire/host
-  run: bunx --no-install playwright install-deps chromium
+Within a leg the packages still run one at a time (`--concurrency=1`): each
+starts its own Vite server and Chromium, and several at once on one runner
+contend. A package that adds a `test:browser` script joins a leg in the same
+pull request: `scripts/tests/deploy-workflows.test.ts` fails while any package
+with the script is missing from the legs, and each leg checks before it runs
+that turbo found as many packages as it names.
 
-- name: Install Chromium for browser tests
-  timeout-minutes: 10
-  working-directory: cire/host
-  run: bunx --no-install playwright install chromium
-
-- name: Browser tests
-  run: bun run test:browser
-```
-
-`install-deps` is required on `ubuntu-latest`: the browser alone won't launch
-without its shared libraries, which live in the image and are installed on
-every run. The browser download is cached on the lockfile. Both installs run
-from `cire/host`, because at the repo root `bunx` fetches npm's latest
-Playwright and the build it wants instead of ours ([[#Running it locally]]).
-Only `chromium` is installed: the tier pins a single instance, so pulling
-Firefox and WebKit too would triple the download for nothing.
+Each leg installs Chromium's system libraries and the browser as two steps,
+each with a 10-minute limit. `install-deps` is required on `ubuntu-latest`: the
+browser alone won't launch without its shared libraries, which live in the
+image and are installed on every run. The browser download is cached on the
+lockfile. Both installs run from `cire/host`, because at the repo root `bunx`
+fetches npm's latest Playwright and the build it wants instead of ours
+([[#Running it locally]]). Only `chromium` is installed: the tier pins a single
+instance, so pulling Firefox and WebKit too would triple the download for
+nothing.
 
 The E2E job installs the same way from `tools/e2e` under the same cache key,
 so every `playwright` pin and `tools/e2e`'s `@playwright/test` stay on one
 version. Two versions would want two builds, the cache would hold whichever
 job saved it first, and the other job would download its build on every run.
+
+Locally, `bun run test:browser` still runs every package, one after another.
 
 ## Current coverage
 

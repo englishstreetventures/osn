@@ -22,6 +22,16 @@ env:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the longest jobs of the run it
+# supersedes, whose results nobody will read: each of those jobs below carries a
+# `concurrency` group of its own, named for the pull request's ref and the job
+# (and the leg, so the browser legs never cancel each other). Every other event
+# gets the run id in place of the ref, so runs on main and in the merge queue
+# are never cancelled or held back. The workflow has no group of its own on
+# purpose: the secret scan must finish on every pushed commit, including one a
+# later force-push takes off the branch, because the next run scans only the
+# commits still on it.
+
 jobs:
   lint:
     name: Lint & Format
@@ -199,6 +209,9 @@ jobs:
 
   build-test:
     name: Build & Test
+    concurrency:
+      group: ${{ format('ci-{0}-build-test', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     # The backstop under the per-step timeouts below. Without it the job's
     # ceiling is GitHub's six hours, which is long enough for one stuck runner
@@ -223,8 +236,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Cache turbo
-        uses: actions/cache@v4
+      # Restored here and saved by the last step, so a merge-queue run can skip
+      # the save: each queue group runs on a `gh-readonly-queue/*` ref that no
+      # later run can restore from, and the entry is over 800 MB.
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-build-${{ github.sha }}
@@ -265,8 +281,11 @@ jobs:
       - name: Build
         run: bun run build
 
+      # Every package's unit tests but `@cire/api`'s, which run in the job of
+      # their own below: they are the longest suite, and on this runner's four
+      # cores they compete with every other package's.
       - name: Test
-        run: bun run test
+        run: bun run test --filter='!@cire/api'
 
       # A bundle can grow by a whole library with nobody noticing: the
       # cire/invites SSR Worker bundle once reached 470 KB gzip, with an
@@ -325,21 +344,123 @@ jobs:
           path: test-artifacts/
           if-no-files-found: warn
 
-      # Each API's d1-integration.test.ts lives under `tests/d1/` (cire's under
-      # `tests/db/`); `@shared/realtime`'s tests/d1/hub.test.ts joins this lane
-      # for the same reason, though it covers TopicHub on workerd rather than
-      # D1. The vitest packages EXCLUDE that path, so the step above never
-      # reaches them — they import `bun:test` and boot a real workerd, neither
-      # of which vitest can load. cire/api runs a bare `bun test`, which takes
-      # no exclude and discovers recursively, so its copy runs in both steps;
-      # that is pre-existing and harmless. The D1 files are the only coverage
-      # of the ASYNCHRONOUS D1 driver that dev/staging/prod actually run on,
-      # and going unrun let zap's rot into a stale fixture that had been
-      # failing silently. Serial by necessity — concurrent Miniflare workerd
-      # instances contend and fail spuriously (the root script pins
-      # --concurrency=1).
+      - name: Save turbo cache
+        if: github.event_name != 'merge_group'
+        uses: actions/cache/save@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ github.sha }}
+
+  # `@cire/api`'s unit suite: 217 files under `bun test`, the longest suite in
+  # the repository. On a runner of its own it gets every core, and `--parallel`
+  # spreads its files over one worker process per core. The flag is passed here
+  # rather than in the package's `test` script, so the deploy and release
+  # workflows' `bun run test` keep the one-process run. Each worker loads
+  # `--preload`, so the metrics harness is installed in every worker before its
+  # files run.
+  cire-api-tests:
+    name: Unit tests (@cire/api)
+    concurrency:
+      group: ${{ format('ci-{0}-cire-api-tests', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Restore bun dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-noinfra-
+
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
+
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo/cire-api
+          key: ${{ runner.os }}-turbo-cire-api-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-cire-api-
+
+      - name: Test
+        run: bun run test --filter=@cire/api --cache-dir=.turbo/cire-api -- --parallel
+
+      - name: Save turbo cache
+        if: github.event_name != 'merge_group'
+        uses: actions/cache/save@v4
+        with:
+          path: .turbo/cire-api
+          key: ${{ runner.os }}-turbo-cire-api-${{ github.sha }}
+
+  # Each API's d1-integration.test.ts lives under `tests/d1/` (cire's under
+  # `tests/db/`); `@shared/realtime`'s tests/d1/hub.test.ts joins this lane
+  # for the same reason, though it covers TopicHub on workerd rather than
+  # D1. The vitest packages EXCLUDE that path, so their unit tests never
+  # reach them — they import `bun:test` and boot a real workerd, neither
+  # of which vitest can load. cire/api runs a bare `bun test`, which takes
+  # no exclude and discovers recursively, so its copy also runs in the
+  # `cire-api-tests` job; that is pre-existing and harmless. The D1 files are
+  # the only coverage of the ASYNCHRONOUS D1 driver that dev/staging/prod
+  # actually run on, and going unrun let zap's rot into a stale fixture that
+  # had been failing silently. Serial by necessity — concurrent Miniflare
+  # workerd instances contend and fail spuriously (the root script pins
+  # --concurrency=1). A job of its own, so it runs beside the unit tests
+  # rather than after them; no package in this lane depends on a workspace
+  # package with a build step, so it needs no Build.
+  d1:
+    name: D1 integration tests
+    concurrency:
+      group: ${{ format('ci-{0}-d1', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # osn-api's worker E2E test bundles the Worker with wrangler, which needs
+      # Node 22 or later.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Restore bun dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-noinfra-
+
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
+
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo/d1
+          key: ${{ runner.os }}-turbo-d1-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-d1-
+
       - name: D1 integration tests
-        run: bun run test:d1
+        run: bun run test:d1 --cache-dir=.turbo/d1
 
       # osn-api's Worker on workerd, end to end, from that step
       # (osn/api/tests/d1/worker-e2e.test.ts): each request's method, path and
@@ -355,33 +476,99 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # The browser tier (`*.browser.test.tsx`) runs in a real Chromium, because
-      # jsdom computes no CSS and no layout — so stacking order, sticky
-      # positioning, Tailwind's compiled output and the reduced-motion clamp are
-      # all invisible to `bun run test`. Split out for the same reason as the D1
-      # step above: it needs a dependency the default path doesn't, and keeping
-      # it separate leaves the fast tier fast.
-      #
+      - name: Save turbo cache
+        if: github.event_name != 'merge_group'
+        uses: actions/cache/save@v4
+        with:
+          path: .turbo/d1
+          key: ${{ runner.os }}-turbo-d1-${{ github.sha }}
+
+  # The browser tier (`*.browser.test.tsx`) runs in a real Chromium, because
+  # jsdom computes no CSS and no layout — so stacking order, sticky
+  # positioning, Tailwind's compiled output and the reduced-motion clamp are
+  # all invisible to the unit tests.
+  #
+  # One leg per runner. Each package starts its own Vite server and its own
+  # Chromium, and several at once on one four-core runner took down a
+  # different one on three of six runs (turbo.json's comment on
+  # `test:browser`), so within a leg they still run one at a time. The two
+  # longest packages get a leg each; the rest share one.
+  # `scripts/tests/deploy-workflows.test.ts` fails when the legs' filters stop
+  # naming exactly the packages with a `test:browser` script, and each leg
+  # checks, before it runs, that turbo found the number of packages it names.
+  browser:
+    name: Browser tests (${{ matrix.leg }})
+    concurrency:
+      group: ${{ format('ci-{0}-browser-{1}', github.event_name == 'pull_request' && github.ref || github.run_id, matrix.leg) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: cire-invites
+            filters: --filter=@cire/invites
+            expect: 1
+          - leg: cire-host
+            filters: --filter=@cire/host
+            expect: 1
+          - leg: rest
+            filters: --filter=@musubi/social --filter=@pulse/web --filter=@shared/ui
+            expect: 3
+    env:
+      LEG: ${{ matrix.leg }}
+      FILTERS: ${{ matrix.filters }}
+      EXPECT: ${{ matrix.expect }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # `@cire/invites` runs vitest on Node, and `@pulse/web`'s dependency
+      # `@pulse/api` builds with wrangler; both need Node 22 or later.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Restore bun dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-noinfra-
+
+      - name: Install dependencies except the infra packages
+        run: bun install --frozen-lockfile --filter '!@*/infra'
+
+      # A filter that matches nothing makes turbo run nothing and pass.
+      - name: Check the leg's filters find its packages
+        shell: bash
+        run: |
+          # shellcheck disable=SC2086 # FILTERS holds several flags.
+          found=$(bunx --no-install turbo run test:browser $FILTERS --dry=json | jq '[.tasks[] | select(.task == "test:browser")] | length')
+          echo "leg $LEG: turbo found $found test:browser tasks, expected $EXPECT"
+          test "$found" = "$EXPECT"
+
       # `--with-deps` used to do both halves of the install in one line: an apt
       # install of Chromium's shared libraries, and a ~150MB download of the
       # browser itself. On ubuntu-latest the browser alone is not enough, so
       # both have to happen — but neither half had a timeout, and a step with no
-      # timeout inherits the job's, which is six hours. On 2026-08-19 one of them
-      # stalled and every open PR's Build & Test sat in `pending` behind it for
-      # most of a day, with no log to read because a job's logs only appear once
-      # it ends. Three changes, all aimed at that:
+      # timeout inherits the job's. On 2026-08-19 one of them stalled and every
+      # open PR's checks sat in `pending` behind it for most of a day, with no
+      # log to read because a job's logs only appear once it ends. So the halves
+      # are separate steps, so a stall names which half stalled; each is
+      # bounded, so a stall is a red X in ten minutes; and the download half is
+      # cached on the lockfile. The system libraries are not cacheable (apt
+      # writes into the image, not the workspace) and are reinstalled each run.
       #
-      #   * the halves are separate steps, so a stall names which half stalled;
-      #   * each is bounded, so a stall is a red X in ten minutes instead of a
-      #     wedged runner;
-      #   * the download half is cached on the lockfile, so the usual run never
-      #     makes it. The system libraries are not cacheable (apt writes into the
-      #     image, not the workspace) and are reinstalled each run.
-      #
-      # Only chromium is installed — the tier pins a single instance, so pulling
-      # Firefox and WebKit too would be ~3x the download for nothing.
-      - name: Cache Chromium
-        uses: actions/cache@v4
+      # Restore only: the E2E job installs the same revision and saves this key.
+      # Only chromium is installed — the tier pins a single instance.
+      - name: Restore Chromium
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
@@ -412,8 +599,26 @@ jobs:
         working-directory: cire/host
         run: bunx --no-install playwright install chromium
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo/browser
+          key: ${{ runner.os }}-turbo-browser-${{ matrix.leg }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-browser-${{ matrix.leg }}-
+
       - name: Browser tests
-        run: bun run test:browser
+        shell: bash
+        run: |
+          # shellcheck disable=SC2086 # FILTERS holds several flags.
+          bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
+
+      - name: Save turbo cache
+        if: github.event_name != 'merge_group'
+        uses: actions/cache/save@v4
+        with:
+          path: .turbo/browser
+          key: ${{ runner.os }}-turbo-browser-${{ matrix.leg }}-${{ github.sha }}
 
   script-tests:
     name: Scripts
@@ -655,6 +860,9 @@ jobs:
   # earns trust; promote it once it has a record of staying green.
   e2e:
     name: E2E
+    concurrency:
+      group: ${{ format('ci-{0}-e2e', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
     # group, and the push to main that follows runs it on the same commit.
     if: github.event_name != 'merge_group'
@@ -685,8 +893,8 @@ jobs:
       - name: Install dependencies except the infra packages
         run: bun install --frozen-lockfile --filter '!@*/infra'
 
-      # The same cache and the same two bounded halves as the browser tier in
-      # `build-test`, for the same reasons (see the comments there). Run from
+      # The same cache and the same two bounded halves as the `browser` job,
+      # for the same reasons (see the comments there). Run from
       # `tools/e2e`, whose pinned `@playwright/test` decides which Chromium
       # revision gets installed. The two jobs share one cache key, so that pin
       # and every workspace's `playwright` stay on one version, or one job
@@ -734,6 +942,9 @@ jobs:
   # schemas and verdicts they end with to e2e-artifacts/migrations/.
   migration-flow:
     name: Migration workflow
+    concurrency:
+      group: ${{ format('ci-{0}-migration-flow', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -836,7 +1047,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, script-tests, openapi-freshness, migration-flow, secrets]
+    needs: [lint, typecheck, build-test, cire-api-tests, d1, browser, script-tests, openapi-freshness, migration-flow, secrets]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

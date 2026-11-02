@@ -84,9 +84,16 @@ interface Job {
   readonly needs?: string | readonly string[];
   readonly if?: string;
   readonly environment?: string | { readonly name: string };
-  readonly concurrency?: { readonly group: string; readonly "cancel-in-progress"?: boolean };
+  readonly concurrency?: {
+    readonly group: string;
+    readonly "cancel-in-progress"?: boolean | string;
+  };
   readonly permissions?: Record<string, string>;
   readonly outputs?: Record<string, string>;
+  readonly strategy?: {
+    readonly "fail-fast"?: boolean;
+    readonly matrix?: { readonly include?: readonly Record<string, string | number>[] };
+  };
 }
 
 interface Workflow {
@@ -94,7 +101,10 @@ interface Workflow {
   readonly permissions?: Record<string, string>;
   readonly env?: Record<string, string | boolean>;
   readonly defaults?: unknown;
-  readonly concurrency?: { readonly group: string; readonly "cancel-in-progress"?: boolean };
+  readonly concurrency?: {
+    readonly group: string;
+    readonly "cancel-in-progress"?: boolean | string;
+  };
   readonly jobs: Record<string, Job>;
 }
 
@@ -761,6 +771,108 @@ describe("PR2: ci.yml's Build & Test job runs the guest route comparison's refer
     expect(existsSync(join(root, WRANGLER_TEST))).toBe(true);
     expect(scripts["test:scripts"]).toBe("bun test ./scripts/");
     expect(WRANGLER_TEST).not.toMatch(BUN_TEST_NAME);
+  });
+});
+
+describe("ci.yml's `CI` gate, the one required check, covers every job beside Build & Test", () => {
+  const ci = load(".github/workflows/ci.yml");
+  const needs = [ci.jobs.ci?.needs ?? []].flat();
+
+  // A job missing from `needs` can be red while the merge goes through.
+  test("the gate needs every job but E2E, which reports without gating", () => {
+    const gated = Object.keys(ci.jobs)
+      .filter((id) => id !== "ci" && id !== "e2e")
+      .toSorted();
+    expect(needs.toSorted()).toEqual(gated);
+  });
+
+  // A filter that names no package matches nothing, and turbo passes.
+  test("`@cire/api`'s unit tests are left out of Build & Test by the name of a real workspace, and run in their own job", () => {
+    const runsOf = (id: string) => stepsOf(ci.jobs[id]).map((step) => step.run ?? "");
+    const name = (
+      JSON.parse(readFileSync(join(root, "cire/api/package.json"), "utf8")) as { name: string }
+    ).name;
+    expect(name).toBe("@cire/api");
+    expect(runsOf("build-test")).toContain(`bun run test --filter='!${name}'`);
+    expect(runsOf("cire-api-tests")).toContain(
+      `bun run test --filter=${name} --cache-dir=.turbo/cire-api -- --parallel`,
+    );
+  });
+
+  // A merge-queue group runs on a `gh-readonly-queue/*` ref that no later run
+  // can restore from, so a turbo cache saved there is space and nothing else.
+  test("no turbo cache is saved on a merge-queue run", () => {
+    const saves = Object.values(ci.jobs)
+      .flatMap((job) => stepsOf(job))
+      .filter((step) => step.uses === "actions/cache/save@v4");
+    expect(saves.length).toBeGreaterThan(0);
+    for (const step of saves) {
+      expect({ path: step.with?.path, if: step.if }).toEqual({
+        path: step.with?.path,
+        if: "github.event_name != 'merge_group'",
+      });
+    }
+  });
+
+  // The secret scan must finish on every pushed commit, so nothing that cancels
+  // a superseded run may reach it: no workflow group, and none on the job.
+  test("no concurrency group can cancel the secret scan", () => {
+    expect(ci.concurrency).toBeUndefined();
+    expect(ci.jobs.secrets?.concurrency).toBeUndefined();
+  });
+
+  // A newer push cancels only a pull request's superseded jobs, one group per
+  // job and leg, so jobs of one run never queue behind each other; a run on
+  // main or in the merge queue takes its run id and is never cancelled.
+  test("each cancellable job is grouped by its own name, and only a pull request cancels", () => {
+    const grouped = Object.entries(ci.jobs).filter(([, job]) => job.concurrency !== undefined);
+    expect(grouped.map(([id]) => id).toSorted()).toEqual(
+      ["browser", "build-test", "cire-api-tests", "d1", "e2e", "migration-flow"].toSorted(),
+    );
+    for (const [id, job] of grouped) {
+      const [key, extra] = id === "browser" ? [`${id}-{1}`, ", matrix.leg"] : [id, ""];
+      expect({ id, concurrency: job.concurrency }).toEqual({
+        id,
+        concurrency: {
+          group: `\${{ format('ci-{0}-${key}', github.event_name == 'pull_request' && github.ref || github.run_id${extra}) }}`,
+          "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+        },
+      });
+    }
+  });
+});
+
+describe("ci.yml's browser legs run every package with a `test:browser` script, once", () => {
+  const legs = load(".github/workflows/ci.yml").jobs.browser?.strategy?.matrix?.include ?? [];
+  const named = (leg: Record<string, string | number>) =>
+    [...String(leg.filters ?? "").matchAll(/--filter=(\S+)/g)].map((match) => match[1] ?? "");
+
+  // A package left out of every leg runs no browser test in CI, and nothing
+  // turns red.
+  test("the legs' filters name exactly the workspace packages that have the script", () => {
+    const readJson = <T>(path: string) => JSON.parse(readFileSync(join(root, path), "utf8")) as T;
+    const withScript = readJson<{ workspaces: string[] }>("package.json")
+      .workspaces.flatMap((pattern) =>
+        Array.from(new Bun.Glob(`${pattern}/package.json`).scanSync({ cwd: root })),
+      )
+      .map((path) => readJson<{ name: string; scripts?: Record<string, string> }>(path))
+      .filter((pkg) => pkg.scripts?.["test:browser"] !== undefined)
+      .map((pkg) => pkg.name)
+      .toSorted();
+    expect(withScript.length).toBeGreaterThan(0);
+    expect(legs.flatMap(named).toSorted()).toEqual(withScript);
+  });
+
+  // Each leg checks at run time that turbo found `expect` packages, so the
+  // number must be the count its filters name.
+  test("each leg's `expect` is the number of packages its filters name", () => {
+    expect(legs.length).toBeGreaterThan(0);
+    for (const leg of legs) {
+      expect({ leg: leg.leg, expect: Number(leg.expect) }).toEqual({
+        leg: leg.leg,
+        expect: named(leg).length,
+      });
+    }
   });
 });
 

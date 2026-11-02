@@ -134,10 +134,14 @@ describe("CoordinationStore", () => {
     "reads a value before its TTL and null after, even while the entry is still stored",
     async () => {
       const name = "do3";
-      await call(name, "write", "v1", 300);
+      // The read and the alarm's cancel must both land inside the TTL, and a
+      // first call to a new object on a fresh CI runner has taken over 300 ms,
+      // so this TTL leaves a second for them. The wait past it needs no such
+      // room: a slow call only lands later still.
+      await call(name, "write", "v1", 1_000);
       expect(await call<string | null>(name, "read")).toBe("v1");
       await call(name, "cancelAlarm");
-      await elapse(450);
+      await elapse(1_150);
       expect(await call<string | null>(name, "read")).toBeNull();
       // Nothing removed it: the read itself honoured the TTL.
       expect((await dump(name)).keys).toEqual(["entry"]);
@@ -224,9 +228,12 @@ describe("CoordinationStore", () => {
   it(
     "empties the object once its entry has expired and the alarm has run",
     async () => {
-      await call("do7-value", "write", "v", 300);
-      await call("do7-count", "increment", 300);
-      await call("do7-claim", "claim", 300);
+      // Three first calls to new objects, then three dumps, all inside the TTL
+      // while each alarm is still set: a second leaves room for them on a
+      // fresh CI runner.
+      await call("do7-value", "write", "v", 1_000);
+      await call("do7-count", "increment", 1_000);
+      await call("do7-claim", "claim", 1_000);
       for (const name of ["do7-value", "do7-count", "do7-claim"]) {
         expect((await dump(name)).alarm).not.toBeNull();
       }
