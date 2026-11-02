@@ -138,12 +138,15 @@ export const ENVELOPE_BOOT_SCRIPT = `(function () {
  * from a request reaches this text.
  *
  * - While `sealed` or `ready`: the page is covered in its own ground colour,
- *   cannot scroll, and the hero's animations hold at their start. So do the
+ *   cannot scroll (nor be pulled to refresh), and the hero's animations hold
+ *   at their start. So do the
  *   animations of the card's clone inside the overlay, so the two match at the
  *   hand-over. `scrollbar-gutter: stable` keeps the hero's width when
  *   scrolling unlocks. The cover is painted over the page; nothing on it is
  *   made inert or hidden, so the consent dialog in it works as ever.
- * - The overlay (`[data-envelope-overlay]`), built by `./scene`. It is painted
+ * - The overlay (`[data-envelope-overlay]`), built by `./scene`. Its button
+ *   takes taps with `touch-action: manipulation`, so the quick second tap
+ *   that speeds the opening up is never read as a double-tap zoom. It is painted
  *   from the moment it is added, because a drawable canvas child that is not
  *   painted has nothing to upload; before the reveal it looks exactly like the
  *   cover beneath it and takes no taps. It disappears the instant
@@ -154,7 +157,7 @@ export function envelopeStyle(z: number): string {
   const layer = Number.isFinite(z) ? Math.trunc(z) : 0;
   const live = `html[${ENVELOPE_ATTR}]:not([${ENVELOPE_ATTR}="open"])`;
   return [
-    `${live}{overflow:hidden;scrollbar-gutter:stable}`,
+    `${live}{overflow:hidden;scrollbar-gutter:stable;overscroll-behavior:none}`,
     `${live} body::before{content:"";position:fixed;inset:0;z-index:${layer};background:var(--color-bg,#14261b)}`,
     `${live} [data-edge-hero],${live} [data-edge-hero] *,[data-envelope-overlay] *{animation-play-state:paused!important}`,
     `[data-envelope-overlay]{position:fixed;inset:0;z-index:${layer};background:var(--color-bg,#14261b);transition:opacity .2s ease-out}`,
@@ -162,7 +165,7 @@ export function envelopeStyle(z: number): string {
     `html:not([${ENVELOPE_ATTR}]) [data-envelope-overlay]{display:none}`,
     `[data-envelope-overlay][data-state="leaving"]{opacity:0;pointer-events:none}`,
     `[data-envelope-overlay] canvas{position:absolute;inset:0;width:100%;height:100%;display:block}`,
-    `[data-envelope-overlay] button{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent}`,
+    `[data-envelope-overlay] button{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;border:0;background:transparent;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}`,
     `[data-envelope-overlay][data-phase="sealed"] button:focus-visible{outline:2px solid var(--color-gold-ink,#c9a86a);outline-offset:-6px}`,
     `[data-envelope-overlay] button:focus{outline:none}`,
     `[data-envelope-overlay] [data-envelope-prompt]{position:absolute;left:0;right:0;bottom:max(2.5rem,calc(env(safe-area-inset-bottom) + 1.5rem));margin:0;text-align:center;font-family:var(--font-body,"Lato",system-ui,sans-serif);font-size:.8125rem;letter-spacing:.2em;text-transform:uppercase;color:var(--color-text-muted,rgba(255,255,255,.6));opacity:0;transition:opacity .6s ease-out;pointer-events:none}`,
