@@ -432,7 +432,10 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
 
     viewport = measure();
     ColorManagement.enabled = false;
-    renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true });
+    // Multisampling only where a pixel is big enough for its edges to show:
+    // at 2x and above they are already sub-pixel, and the buffers it adds
+    // are several times the drawing buffer's size.
+    renderer = new WebGLRenderer({ canvas, alpha: true, antialias: viewport.dpr < 2 });
     renderer.outputColorSpace = LinearSRGBColorSpace;
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(viewport.dpr);
