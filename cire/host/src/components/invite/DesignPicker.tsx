@@ -29,9 +29,14 @@ export default function DesignPicker(props: {
   // card is currently tabbable — it starts in sync with the server-selected
   // design and moves independently of the in-flight save, so keyboard focus
   // never stalls waiting on the network. Falls back to the server value
-  // whenever nothing has moved focus yet.
+  // whenever nothing has moved focus yet, and to the first card when the
+  // stored design is not in this build's catalog (a newer bundle saved it), so
+  // the group always has one tab stop.
   const [activeDesignId, setActiveDesignId] = createSignal<string | null>(null);
-  const activeDesignIdOrDefault = () => activeDesignId() ?? props.currentId;
+  const activeDesignIdOrDefault = (): string | undefined => {
+    const wanted = activeDesignId() ?? props.currentId;
+    return DESIGNS.some((d) => d.id === wanted) ? wanted : DESIGNS[0]?.id;
+  };
 
   // Imperative refs so keyboard navigation can move DOM focus onto the next
   // card — Solid has no built-in roving-tabindex primitive.
