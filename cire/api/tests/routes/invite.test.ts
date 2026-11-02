@@ -16,6 +16,7 @@ import type { RateLimiterBackend } from "@shared/rate-limit";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
+import { CIRE_METRICS } from "../../src/metrics";
 import { createAssetsStub } from "../../src/services/invite-assets";
 import { VARIANT_BLUR } from "../../src/services/invite-image-transform";
 import type {
@@ -27,6 +28,7 @@ import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers
 import type { RecordedStatement } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { fullWeddingCode, fullWeddingStatements } from "../test-helpers/full-wedding";
+import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -3190,6 +3192,15 @@ describe("PUT /invite/envelope (organiser)", () => {
       expect(res.status).toBe(401);
     }
     expect(db.select().from(weddingInviteCustomisations).all()).toEqual([]);
+  });
+
+  it("counts a successful save on cire.invite.saved", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const before = await counterValue(CIRE_METRICS.inviteSaved, { result: "ok" });
+    const res = await putEnvelope(app, { envelopeId: WAX_SEAL });
+    expect(res.status).toBe(200);
+    expect(await counterValue(CIRE_METRICS.inviteSaved, { result: "ok" })).toBe(before + 1);
   });
 
   it("422s an id the catalog does not hold, and stores nothing", async () => {
