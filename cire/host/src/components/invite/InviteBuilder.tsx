@@ -989,7 +989,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           const closingSlot = createMemo(() => closingPreviewProps(d));
 
           return (
-            <form onSubmit={(e) => void saveInvite(e)} class="flex flex-col gap-6">
+            <form
+              onSubmit={(e) => void saveInvite(e)}
+              class={`flex flex-col gap-6 ${CLEAR_OF_SAVE_BAR}`}
+            >
               {/* ── Section tabs — sticky, one section shown at a time, a hidden
                 section's label faded with an eye-off icon (`sectionTabTone`) — plus,
                 below `@4xl/builder` (where there's no room for the sticky side
@@ -1644,7 +1647,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               />
 
               {/* ── Save bar — sticky so it's reachable from any section ── */}
-              <div class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur">
+              <div
+                ref={trackSaveBarHeight}
+                class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur"
+              >
                 <Show when={error()}>
                   <Notice tone="danger" alert>
                     {error()}
@@ -1684,6 +1690,33 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       </Show>
     </section>
   );
+}
+
+/** A control that takes focus in the form stops clear of the sticky save bar
+ *  at the foot of the page: the bar's measured height (`--save-bar-h`, written
+ *  by `trackSaveBarHeight`) plus half a rem. */
+const CLEAR_OF_SAVE_BAR =
+  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mb-[calc(var(--save-bar-h,0px)+0.5rem)]";
+
+/**
+ * Writes the save bar's height as `--save-bar-h` on its form, and again
+ * whenever it changes (an error row appears, the line wraps). The offset is
+ * measured, never a guess: the bar's content grows. Runs as the bar's `ref`, so
+ * the observer ends with the bar.
+ */
+function trackSaveBarHeight(bar: HTMLElement) {
+  const form = bar.closest("form");
+  if (!form || typeof ResizeObserver === "undefined") return;
+  const write = () => {
+    form.style.setProperty("--save-bar-h", `${bar.getBoundingClientRect().height}px`);
+  };
+  queueMicrotask(write);
+  const observer = new ResizeObserver(write);
+  observer.observe(bar, { box: "border-box" });
+  onCleanup(() => {
+    observer.disconnect();
+    form.style.removeProperty("--save-bar-h");
+  });
 }
 
 /** Plain-English names for the three surfaces a section can sit on. */

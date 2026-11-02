@@ -1797,15 +1797,19 @@ describe("InviteBuilder section menu (narrow containers)", () => {
   it("collapses the menu when the container grows past the static-row threshold", async () => {
     // A resizable stub: happy-dom runs no layout, so the only way to exercise a
     // container CROSSING the threshold is to drive the callback by hand.
-    let report: ((width: number) => void) | undefined;
+    // The builder watches its width and its save bar's height, so there is
+    // more than one observer to drive.
+    const reporters: ((width: number) => void)[] = [];
+    const report = (width: number) => reporters.forEach((r) => r(width));
     class ResizableObserver {
       constructor(private readonly callback: ResizeObserverCallback) {}
       observe() {
-        report = (width) =>
+        reporters.push((width) =>
           this.callback(
             [{ contentRect: { width } } as unknown as ResizeObserverEntry],
             this as unknown as ResizeObserver,
-          );
+          ),
+        );
         report(600); // narrow: the menu surface
       }
       unobserve() {}
@@ -1821,7 +1825,7 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     // row, which the open menu must not outlive. Left `true`, `selectSection`
     // would "close" it on every wide tab click, focusing a `display: none`
     // trigger and dropping focus to the body.
-    report!(900);
+    report(900);
     await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
 
     // The tab click that the stale state would have broken: focus stays put.
@@ -1833,10 +1837,10 @@ describe("InviteBuilder section menu (narrow containers)", () => {
 
     // 48rem at the 16px root `global.css` pins — the same content box
     // `@3xl/builder` measures, so the JS collapse can't drift from the CSS swap.
-    report!(767);
+    report(767);
     fireEvent.click(trigger());
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
-    report!(768);
+    report(768);
     await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
   });
 
