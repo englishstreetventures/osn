@@ -30,7 +30,7 @@ export interface Viewport {
 export interface Card {
   /** The texture the card mesh samples; its pixels change at each upload. */
   readonly texture: ExternalTexture;
-  /** Resolves at the first upload. */
+  /** Resolves at the first upload, or when the card is disposed before it. */
   readonly firstUpload: Promise<void>;
   /** Clones the live hero again; resolves at the upload of that clone. */
   refresh(viewport: Viewport): Promise<void>;
@@ -167,6 +167,9 @@ export function createCard(input: {
       canvas.onpaint = null;
       clone?.remove();
       clone = null;
+      // Nothing waits for a paint that will not come: the scene's `ready`
+      // then finds itself disposed and rejects.
+      firstResolve();
       for (const resolve of waiting) resolve();
       waiting = [];
       texture.dispose();
