@@ -97,9 +97,38 @@ let root: string;
 /** Every process and server a test starts, stopped after the file even when a test times out. */
 const started: { kill: () => void }[] = [];
 
-beforeAll(() => {
+/** How long the warm-up's Node start took, in ms. */
+let nodeWarmUpMs = 0;
+
+/** PF33's and PF16's failure message: the warm-up's time, which shows whether it took Node's slow first start. */
+const nodeWarmUp = () =>
+  `Node's first start in this file, the warm-up before any test, took ${nodeWarmUpMs} ms`;
+
+beforeAll(async () => {
   // Real path, so it matches the working directory the stand-in reports.
   root = realpathSync(mkdtempSync(join(tmpdir(), "guest-route-parity-cli-")));
+  // Node's first start in a run is paid here, before any test opens a time
+  // window. PF33's 1.5 s and PF16's 3 s readiness windows open when the
+  // reference child is spawned, so they time that child's start alone. On a
+  // fresh GitHub runner the Scripts job's first Node start took about 3 s,
+  // later ones 31–35 ms, and nothing earlier in that job starts Node. Once
+  // warm, the stand-in's first write came 0.05–0.2 s after the spawn on a
+  // laptop, 1.4 s at most at background priority. With no arguments the child
+  // exits 2 at its usage check, before it loads wrangler, so exit 2 shows
+  // Node ran it. Awaited, so the file's 30 s limit cuts a start that hangs.
+  const from = performance.now();
+  const warmUp = Bun.spawn(["node", join(SCRIPTS, "guest-route-parity-reference.js")], {
+    cwd: root,
+    env: { PATH: Bun.env.PATH ?? "" },
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  const [stderr, exitCode] = await Promise.all([new Response(warmUp.stderr).text(), warmUp.exited]);
+  nodeWarmUpMs = Math.round(performance.now() - from);
+  expect(
+    { exitCode, usage: stderr.includes("usage: guest-route-parity-reference.js") },
+    `the warm-up's Node start, after ${nodeWarmUpMs} ms: ${stderr}`,
+  ).toEqual({ exitCode: 2, usage: true });
 });
 
 afterAll(() => {
@@ -1045,7 +1074,15 @@ describe.concurrent("guest-route-parity.ts", () => {
         { root: t.dir, deadlineMs: 20_000, readyMs: 1_500 },
       );
       expect(result.result).toBe("refused");
-      expect(result.refusals[0]).toContain("the reference did not serve the build within 1.5 s");
+      // Whether the stand-in started inside the window, beside every refusal,
+      // so a failure says which of the two went wrong.
+      expect(
+        { started: existsSync(join(t.state, "reference.pid")), refusals: result.refusals },
+        nodeWarmUp(),
+      ).toEqual({
+        started: true,
+        refusals: [expect.stringContaining("the reference did not serve the build within 1.5 s")],
+      });
       // The control pair, asked while the reference started, is in the report all the same.
       expect(result.cireApi.control).toEqual(CONTROL_PAIR);
     } finally {
@@ -1071,7 +1108,9 @@ describe.concurrent("guest-route-parity.ts", () => {
         { root: t.dir, deadlineMs: 4_000, readyMs: 3_000 },
       );
       expect(result.result).toBe("refused");
-      expect(result.refusals.some((line) => line.includes("passed its 4 s deadline"))).toBe(true);
+      expect(result.refusals, nodeWarmUp()).toContainEqual(
+        expect.stringContaining("passed its 4 s deadline"),
+      );
       expect(result.probes.length).toBeLessThan(5);
     } finally {
       host.stop();
