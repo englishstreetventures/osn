@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-02
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -290,7 +290,8 @@ screen shows even when consent is on record (pinned in
 ## Open questions (decide at build time, none block starting)
 
 - Localisation — the scope descriptions are the only user-facing strings
-  with security weight; keep them in one map.
+  with security weight; keep them in one map. Translation files are
+  checked with x18n ([[i18n]]).
 - Whether `reason=consent` with an existing narrower grant should show a
   "you already allow X; this adds Y" diff — the server merges scopes on
   live grants, so the diff is computable from `linkedProfileId` +
