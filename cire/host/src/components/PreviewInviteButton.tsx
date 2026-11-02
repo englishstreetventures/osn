@@ -12,7 +12,8 @@ import { CIRE_WEB_URL } from "../lib/osn";
  * including a read-only `viewer`, may mint one, because seeing the invite as a
  * guest sees it is part of the read experience — then opens the guest
  * invite in a new tab with `?code=<publicId>` so the organiser sees every
- * event exactly as a guest would. The host code is preview-only — the API
+ * event exactly as a guest would, and with `envelope=1` so the wedding's
+ * envelope opens first if it has one. The host code is preview-only — the API
  * blocks it from submitting RSVPs.
  */
 export default function PreviewInviteButton(props: { weddingId: string }) {
@@ -53,8 +54,10 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
       }
       const body = (await res.json()) as { publicId: string; slug: string };
       // The fixed guest route uses a slug query parameter. The host preview code
-      // auto-claims so the host lands straight on the events view.
-      const guestUrl = `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(body.slug)}&code=${encodeURIComponent(body.publicId)}`;
+      // auto-claims so the host lands straight on the events view. `envelope=1`
+      // asks for the wedding's envelope even though a code is in the address,
+      // which otherwise skips it; a wedding with no envelope shows none.
+      const guestUrl = `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(body.slug)}&code=${encodeURIComponent(body.publicId)}&envelope=1`;
       if (win) {
         win.location.href = guestUrl;
       } else {
