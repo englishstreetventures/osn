@@ -825,10 +825,13 @@ jobs:
       # config production still deploys (scripts/guest-route-parity.ts): P3's
       # evidence for moving production's upload to the stack. The script
       # starts that local runtime with no Cloudflare credential, and this
-      # step holds none. A difference fails the job. The record jobs read
-      # the smoke checks alone, so each site's record still lands, but the
-      # job leaves no successful dev record of the cire stack itself, and a
-      # release that changes the stack's own paths holds the cire stack
+      # step holds none. PARITY_API_ORIGIN is the cire-api origin the guest
+      # build was given as PUBLIC_API_URL: the script relays the local
+      # runtime's calls to it with the CI user agent, so Bot Fight Mode lets
+      # them through from the runner. A difference fails the job. The record
+      # jobs read the smoke checks alone, so each site's record still lands,
+      # but the job leaves no successful dev record of the cire stack itself,
+      # and a release that changes the stack's own paths holds the cire stack
       # until a dev run of it passes (scripts/release-plan.ts).
       - name: Compare the guest site's routes with the build served locally
         id: parity_cire_invites
@@ -838,6 +841,7 @@ jobs:
         run: bun run scripts/guest-route-parity.ts --out "$RUNNER_TEMP/route-parity/cire-invites.json"
         env:
           PARITY_ORIGIN: ${{ steps.hosts.outputs.cire_invites_origin }}
+          PARITY_API_ORIGIN: ${{ steps.hosts.outputs.cire_api_origin }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 

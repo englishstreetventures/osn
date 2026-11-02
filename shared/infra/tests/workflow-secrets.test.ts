@@ -138,8 +138,8 @@ describe("W3: no install or build step holds a secret", () => {
         // coordination probe, and to no other host.
         return step.id === "smoke_osn_api" ? access.concat(["INTERNAL_SERVICE_SECRET"]) : access;
       }
-      // The Access token alone: it starts `wrangler dev`, which must never
-      // hold a Cloudflare credential.
+      // The Access token alone: it starts Wrangler's local runtime, which
+      // must never hold a Cloudflare credential.
       if (step.id === "parity_cire_invites") {
         return ["CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"];
       }

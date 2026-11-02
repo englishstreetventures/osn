@@ -1,7 +1,7 @@
 {
-  "//": "scripts/ is not a workspace, so `turbo typecheck` never reaches it. Without this, a type error here ships and no gate sees it. The `typecheck` CI job runs `bun check -p scripts/tsconfig.json` after its install. The only package it needs is `bun-types`, because everything under scripts/ imports only bun:test, Bun and Node built-ins, and each other.",
+  "//": "scripts/ is not a workspace, so `turbo typecheck` never reaches it. Without this, a type error here ships and no gate sees it. The `typecheck` CI job runs `bun check -p scripts/tsconfig.json` after its install. The only package it needs is `bun-types`, because everything under scripts/ imports only bun:test, Bun and Node built-ins, and each other. It checks `.ts` files only: guest-route-parity-reference.js runs on Node, so it stays JavaScript, and guest-route-parity-reference.d.ts types it for the files that import it.",
   "extends": "../tsconfig.json",
-  "//lib": "The root sets ES2022 because its packages build for workerd and for browsers. Nothing under scripts/ does — every file here runs under the repo's pinned Bun and nowhere else — so the library is raised one year to cover the copying array methods (`toSorted`), which `unicorn/no-array-sort` asks for in place of the mutating `sort`.",
+  "//lib": "The root sets ES2022 because its packages build for workerd and for browsers. Nothing under scripts/ does — every `.ts` file here runs under the repo's pinned Bun and nowhere else; the one `.js` file, which runs on Node, is outside this project — so the library is raised one year to cover the copying array methods (`toSorted`), which `unicorn/no-array-sort` asks for in place of the mutating `sort`.",
   "compilerOptions": {
     "lib": ["ES2023"]
   },

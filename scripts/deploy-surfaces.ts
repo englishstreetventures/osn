@@ -35,8 +35,9 @@
  * this file. On dev, a change to scripts/smoke-check.ts or
  * scripts/worker-deployments.ts, which check every dev deploy, redeploys every
  * dev surface, so a change to the check runs there before a release runs it
- * against production; a change to scripts/guest-route-parity.ts, which checks
- * the guest site's, redeploys that surface.
+ * against production; a change to scripts/guest-route-parity.ts or its Node
+ * child, scripts/guest-route-parity-reference.js, which check the guest
+ * site's, redeploys that surface.
  *
  * The job ids and names are load-bearing. A GitHub Deployment record does not
  * say which surface it deployed; the name of the job that made it does, and
@@ -301,11 +302,13 @@ const DEV_CHECK_FILES: ReadonlySet<string> = new Set([
 
 /**
  * Checks one surface's stack job runs after its dev deploy, each by the
- * surface it checks: the guest site's route comparison. A change to one
- * redeploys that surface on dev, so the change runs there, and nothing else.
+ * surface it checks: the guest site's route comparison and the Node child it
+ * starts Wrangler's runtime through. A change to one redeploys that surface
+ * on dev, so the change runs there, and nothing else.
  */
 const SURFACE_CHECK_FILES: ReadonlyMap<string, SurfaceKey> = new Map([
   ["scripts/guest-route-parity.ts", "cire_invites"],
+  ["scripts/guest-route-parity-reference.js", "cire_invites"],
 ]);
 
 /**

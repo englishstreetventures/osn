@@ -156,6 +156,89 @@ index 0c393f7ac21dd128ae2422513ca85d8f6d575110..4b094be6038114a6342932acab4f483c
  const importEndpoint = (apiBaseUrl, accountId, databaseId) => `${apiBaseUrl}/accounts/${accountId}/d1/database/${databaseId}/import`;
  //# sourceMappingURL=ImportDatabase.js.map
 \ No newline at end of file
+diff --git a/lib/Cloudflare/Workers/Assets.js b/lib/Cloudflare/Workers/Assets.js
+index 4d1f34487f0b8beaa0ccf5aa26f67dc413cd8ffd..fdafa6ddada3f5e337686e34df9acd26aae02321 100644
+--- a/lib/Cloudflare/Workers/Assets.js
++++ b/lib/Cloudflare/Workers/Assets.js
+@@ -30,12 +30,17 @@ export class FailedToReadAssetError extends Data.TaggedError("FailedToReadAssetE
+ }
+ export class AssetUploadSessionError extends Data.TaggedError("AssetUploadSessionError") {
+ }
+-const contentTypesByExtension = {
++/**
++ * The type each extension uploads with: the one Wrangler gives it, mime
++ * 4.0.7's (workers-shared's `getContentType`), so an Alchemy upload of a build
++ * serves the types a Wrangler upload of it does.
++ */
++export const contentTypesByExtension = {
+     html: "text/html",
+     htm: "text/html",
+     txt: "text/plain",
+     md: "text/markdown",
+-    sql: "text/sql",
++    sql: "application/sql",
+     json: "application/json",
+     // Source maps are JSON; serving them as such lets devtools consume them.
+     map: "application/json",
+@@ -58,7 +63,7 @@ const contentTypesByExtension = {
+     webp: "image/webp",
+     avif: "image/avif",
+     svg: "image/svg+xml",
+-    ico: "image/x-icon",
++    ico: "image/vnd.microsoft.icon",
+     bmp: "image/bmp",
+     // fonts
+     woff: "font/woff",
+@@ -75,10 +80,20 @@ const contentTypesByExtension = {
+     // app manifests
+     webmanifest: "application/manifest+json",
+ };
+-const getContentType = (name) => {
+-    const dot = name.lastIndexOf(".");
+-    const ext = dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+-    return contentTypesByExtension[ext] ?? "application/octet-stream";
++/**
++ * The type `name` uploads with, chosen as Wrangler chooses it: by the
++ * extension after the last dot of the file's own name (none for a name whose
++ * only dot leads it), with `; charset=utf-8` added to a `text/*` type that has
++ * no charset, and `application/null`, which Cloudflare serves with no
++ * Content-Type, for a name with no extension in the table.
++ */
++export const getContentType = (name) => {
++    const base = name.replace(/^.*[/\\]/s, "");
++    const dot = base.lastIndexOf(".");
++    const type = dot <= 0 ? undefined : contentTypesByExtension[base.slice(dot + 1).toLowerCase()];
++    if (type === undefined)
++        return "application/null";
++    return type.startsWith("text/") && !type.includes("charset") ? `${type}; charset=utf-8` : type;
+ };
+ const maybeReadString = Effect.fn(function* (file) {
+     const fs = yield* FileSystem.FileSystem;
+@@ -177,16 +192,18 @@ export const readAssets = Effect.fn(function* ({ directory, base, ...config }) {
+                 size,
+             });
+         }
+-        // Hash content + extension (matching wrangler): the upload API stores
+-        // one blob + content type per hash, so two identical bodies under
++        // Hash content + extension + upload type: the upload API stores one
++        // blob + content type per hash, so two identical bodies under
+         // different extensions must not collapse into a single entry — the
+-        // second file would serve with the first file's content type.
++        // second file would serve with the first file's content type — and a
++        // file whose type changes is a new blob, uploaded again with that type.
+         const extension = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
++        const type = getContentType(name);
+         const hash = yield* fs.readFile(file).pipe(Effect.flatMap((content) => Effect.sync(() => {
+-            const extBytes = new TextEncoder().encode(extension);
+-            const hashed = new Uint8Array(content.length + extBytes.length);
++            const suffix = new TextEncoder().encode(`${extension}${type}`);
++            const hashed = new Uint8Array(content.length + suffix.length);
+             hashed.set(content);
+-            hashed.set(extBytes, content.length);
++            hashed.set(suffix, content.length);
+             return hashed;
+         })), Effect.flatMap(sha256), Effect.map((hash) => hash.slice(0, 32)));
+         count++;
 diff --git a/src/Cloudflare/D1/ImportDatabase.ts b/src/Cloudflare/D1/ImportDatabase.ts
 index d01958b4601a7cba01644b41d4c361d3f5dacc0f..a24dc0299091d89db808574f3e74e9be91c88a13 100644
 --- a/src/Cloudflare/D1/ImportDatabase.ts
@@ -342,3 +425,88 @@ index d01958b4601a7cba01644b41d4c361d3f5dacc0f..a24dc0299091d89db808574f3e74e9be
    });
  
  const importEndpoint = (apiBaseUrl: string, accountId: string, databaseId: string) =>
+diff --git a/src/Cloudflare/Workers/Assets.ts b/src/Cloudflare/Workers/Assets.ts
+index 645b736964f0c0ba9141042395ae6c08cda2f63a..3858e6041929444a3572bf858ee5ec69691e76c9 100644
+--- a/src/Cloudflare/Workers/Assets.ts
++++ b/src/Cloudflare/Workers/Assets.ts
+@@ -166,12 +166,17 @@ export class AssetUploadSessionError extends Data.TaggedError("AssetUploadSessio
+   workerName: string;
+ }> {}
+ 
+-const contentTypesByExtension: Record<string, string> = {
++/**
++ * The type each extension uploads with: the one Wrangler gives it, mime
++ * 4.0.7's (workers-shared's `getContentType`), so an Alchemy upload of a build
++ * serves the types a Wrangler upload of it does.
++ */
++export const contentTypesByExtension: Record<string, string> = {
+   html: "text/html",
+   htm: "text/html",
+   txt: "text/plain",
+   md: "text/markdown",
+-  sql: "text/sql",
++  sql: "application/sql",
+   json: "application/json",
+   // Source maps are JSON; serving them as such lets devtools consume them.
+   map: "application/json",
+@@ -194,7 +199,7 @@ const contentTypesByExtension: Record<string, string> = {
+   webp: "image/webp",
+   avif: "image/avif",
+   svg: "image/svg+xml",
+-  ico: "image/x-icon",
++  ico: "image/vnd.microsoft.icon",
+   bmp: "image/bmp",
+   // fonts
+   woff: "font/woff",
+@@ -212,10 +217,20 @@ const contentTypesByExtension: Record<string, string> = {
+   webmanifest: "application/manifest+json",
+ };
+ 
+-const getContentType = (name: string) => {
+-  const dot = name.lastIndexOf(".");
+-  const ext = dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+-  return contentTypesByExtension[ext] ?? "application/octet-stream";
++/**
++ * The type `name` uploads with, chosen as Wrangler chooses it: by the
++ * extension after the last dot of the file's own name (none for a name whose
++ * only dot leads it), with `; charset=utf-8` added to a `text/*` type that has
++ * no charset, and `application/null`, which Cloudflare serves with no
++ * Content-Type, for a name with no extension in the table.
++ */
++export const getContentType = (name: string): string => {
++  const base = name.replace(/^.*[/\\]/s, "");
++  const dot = base.lastIndexOf(".");
++  const type =
++    dot <= 0 ? undefined : contentTypesByExtension[base.slice(dot + 1).toLowerCase()];
++  if (type === undefined) return "application/null";
++  return type.startsWith("text/") && !type.includes("charset") ? `${type}; charset=utf-8` : type;
+ };
+ 
+ const maybeReadString = Effect.fn(function* (file: string) {
+@@ -334,18 +349,20 @@ export const readAssets = Effect.fn(function* ({ directory, base, ...config }: A
+           size,
+         });
+       }
+-      // Hash content + extension (matching wrangler): the upload API stores
+-      // one blob + content type per hash, so two identical bodies under
++      // Hash content + extension + upload type: the upload API stores one
++      // blob + content type per hash, so two identical bodies under
+       // different extensions must not collapse into a single entry — the
+-      // second file would serve with the first file's content type.
++      // second file would serve with the first file's content type — and a
++      // file whose type changes is a new blob, uploaded again with that type.
+       const extension = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
++      const type = getContentType(name);
+       const hash = yield* fs.readFile(file).pipe(
+         Effect.flatMap((content) =>
+           Effect.sync(() => {
+-            const extBytes = new TextEncoder().encode(extension);
+-            const hashed = new Uint8Array(content.length + extBytes.length);
++            const suffix = new TextEncoder().encode(`${extension}${type}`);
++            const hashed = new Uint8Array(content.length + suffix.length);
+             hashed.set(content);
+-            hashed.set(extBytes, content.length);
++            hashed.set(suffix, content.length);
+             return hashed;
+           }),
+         ),
