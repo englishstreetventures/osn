@@ -15,9 +15,10 @@ related:
   - "[[cire-vendors]]"
   - "[[cire-plus-ones]]"
   - "[[cire-invite-designs]]"
+  - "[[cire-invite-builder]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-02
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -87,14 +88,24 @@ that one-off capability. Primary key `(wedding_id, entitlement)`; `source` is
 purchase.
 
 **The only key the API reads is `premium_templates`.** A wedding below Crimson
-may hold it as a one-off; Crimson includes every premium design anyway.
-`tierService.hasPremiumTemplates` answers "Crimson, or the row". The invite
-design route hands it the tier `weddingEditor` already read, so a Crimson
-wedding costs no statement and one below Crimson only the primary-key probe of
-its row; called without a tier it reads both in one statement.
-`premiumTemplateHolders` reads the key for the wedding list. It
-is comp-only: nothing sells it today, and every design is free while the
-premium designs are dormant ([[cire-invite-designs]]).
+may hold it as a one-off; Crimson includes every premium design and every
+envelope anyway. The rule, "Crimson, or the row", is one function,
+`mayUsePremiumTemplates(tier, holdsRow)` in `cire/api/src/services/tiers.ts`,
+and every check below decides through it:
+
+| Where | When | How it reads the tier and the row |
+|---|---|---|
+| `PUT …/invite/design` (a premium design) and `PUT …/invite/envelope` (any envelope; `null` reads nothing) | On save; 403 `premium_design` or `premium_envelope` | `tierService.hasPremiumTemplates`, handed the tier `weddingEditor` already read: no statement on Crimson, the primary-key probe of the row below it. Called without a tier it reads both in one statement |
+| The guest read `GET /api/invite/:slug` (and `POST /api/invite/resolve`) | On every guest load: a wedding not allowed serves `envelopeId: null` | The tier and an `EXISTS` on the row (`holdsPremiumTemplatesSql`), inside the read's one statement |
+| The organiser read `GET …/invite` | On every load, as `envelopeEntitled` | The same columns, in its one statement |
+
+So an envelope is gated on read as well as on write: a wedding whose tier is
+lowered (`grant-tier.ts --lower`) and holds no row stops showing guests its
+envelope at once, while the organiser still sees the stored choice, switched
+off. A premium design is gated on save only. `premiumTemplateHolders` reads the
+key for the wedding list. It is comp-only: nothing sells it today, and every
+design is free while the premium designs are dormant ([[cire-invite-designs]]).
+Every envelope is premium ([[cire-invite-builder#API surface]]).
 
 The other keys in the enum (`vendors`, `registry`, `capacity_500`,
 `capacity_1000`, `ai`) are what 0073 read to set each wedding's tier. Their rows

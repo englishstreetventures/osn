@@ -9,7 +9,8 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-28
+  - "[[cire-entitlements]]"
+last-reviewed: 2026-11-02
 ---
 # Cire invite builder
 
@@ -853,7 +854,9 @@ booleans; 0063 also back-fills each existing row from its emptiness check, and
 `0065_invite_sections_switched_on.sql` then sets all three to 1 on every row
 that has one off (see [[#Conditional segments and visibility switches]]). The FAQ's switch
 `faq_visible` (`0064_invite_faq.sql`) is the same kind of column, with no
-backfill. Image columns store **R2
+backfill. `envelope_id` (`20261102053336_add_envelope_id.sql`) is the envelope
+guests open before the invite, an id from the `@cire/envelope` catalog;
+nullable with no default, NULL meaning none. Image columns store **R2
 object keys**, not URLs (mirrors how `imports` stores its CSV keys). The theme + hero-display ride the **same row + same read
 query** — no extra table, no extra round-trip. LOCKSTEP DDL mirror lives in
 `cire/api/src/db/setup.ts` (kept in sync with the migration + schema).
@@ -887,7 +890,11 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
   - `GET /api/invite/:slug` → text + image URL paths for the guest site, plus the
     hero and story switches; a switched-off section's own words are left out,
     and so is the organiser-only `inviteMessage` (`publicView` in
-    `cire/api/src/services/invite.ts`).
+    `cire/api/src/services/invite.ts`). `envelopeId` is the stored envelope, or
+    `null` when there is none, when the id is not in the `@cire/envelope`
+    catalog, or when the wedding may not use premium templates (every envelope
+    is premium; [[cire-entitlements]]). That check is inside the read's one
+    statement.
   - `POST /api/invite/resolve` with `{ "slug": "…" }` → the same payload, for the
     guest site's fixed-path pages, so the outbound URL names no wedding. Its own
     instance (`createInviteResolveRoutes`), mounted before the CSRF origin guard
@@ -906,7 +913,11 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
   the writes behind `weddingEditor()` (owner or editor co-host; a viewer gets 403
   `read_only_role`):
   - `GET /invite` → current customisation (text + image URLs + theme +
-    `heroDisplay`). With `?include=faqs` it also carries `faqs`, the FAQ entries
+    `heroDisplay` + the stored `envelopeId`, `null` for an id the catalog does
+    not hold), plus `envelopeEntitled`: whether the wedding may use premium
+    envelopes now, read in the same statement. A stored envelope with
+    `envelopeEntitled: false` is one guests are no longer shown. With
+    `?include=faqs` it also carries `faqs`, the FAQ entries
     in order, read concurrently with the customisation. Only the builder's first
     load asks; the getting-started checklist and the guest table leave it out.
   - `PUT /invite/text` → upsert the copy fields (total body — the builder always
@@ -924,6 +935,12 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     `heroTitleBackdrop ∈ {none,solid}` — both required, total body). A bad colour,
     unknown font, or unknown hero-display literal ⇒ 400 (whole body rejected,
     nothing persisted).
+  - `PUT /invite/envelope` → `{ envelopeId }`, a catalog id or `null` for none
+    (the key is required; a missing key or a non-string is a 400). `null`
+    always saves and reads no entitlement. An id outside `@cire/envelope` is a
+    422 `Unknown envelope`; an envelope on a wedding without Crimson or the
+    `premium_templates` row is a 403 `premium_envelope`. Writes `envelope_id`
+    and `updatedAt` only, never the image version.
   - `POST /invite/faqs` → add an entry at the end (`{ question, answer }`,
     both required). The 31st is a 409 `faq_limit_reached`, decided inside the
     INSERT. Returns `{ faq }`.
@@ -942,9 +959,11 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     browser refuses a PATCH preflight.
   - `POST /invite/image/:slot` → upload an image.
   - `DELETE /invite/image/:slot` → reset slot to default.
-  - The text, theme, design, visibility, crop and image-delete writes answer
-    with the whole customisation, built from the row the write's `RETURNING`
-    clause hands back — they never read the row again. The image URLs in it
+  - The text, theme, design, envelope, visibility, crop and image-delete writes
+    answer with the whole customisation, built from the row the write's
+    `RETURNING` clause hands back — they never read the row again. They leave
+    out `envelopeEntitled`, which no invite write changes; it rides the
+    `GET /invite` alone. The image URLs in it
     and in the upload answers take the wedding id and slug from
     `weddingEditor()`, which read them with the caller's role.
   - Ownership mismatch returns **403, never 401** (a 401 makes `@osn/client`
@@ -1879,7 +1898,7 @@ cire/api uses `@shared/observability` (workerd-safe subpaths) — see
 redacting logger, and metrics:
 
 - **Spans**: `cire.invite.{getForWeddingId,getForSlug,sessionOwnsWedding,
-  imageKeyForSlug,upsertText,upsertTheme,setDesign,setVisibility,setImage,
+  imageKeyForSlug,upsertText,upsertTheme,setDesign,setEnvelope,setVisibility,setImage,
   removeImage,setCrop}` +
   `cire.invite.{storeAsset,fetchAsset,deleteAsset}` +
   `cire.invite.faq.{list,listForGuests,create,update,remove,reorder}` (the
