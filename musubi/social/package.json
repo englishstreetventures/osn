@@ -32,7 +32,7 @@
     "@shared/toast": "workspace:*",
     "@shared/ui": "workspace:*",
     "@simplewebauthn/browser": "^14.0.0",
-    "@solidjs/router": "^1.0.0",
+    "@solidjs/router": "^1.0.1",
     "@tailwindcss/vite": "^4.3.3",
     "solid-js": "^1.9.18",
     "tailwindcss": "^4.3.3"
