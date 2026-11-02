@@ -3203,6 +3203,16 @@ describe("PUT /invite/envelope (organiser)", () => {
     expect(statements.filter((s) => s.sql.includes("wedding_entitlements"))).toEqual([]);
     expect((await envelopeReads(app)).organiser.envelopeId).toBeNull();
   });
+
+  it("answers a failed write with a plain 500", async () => {
+    const { app, db } = buildApp();
+    // A D1 error reaches the handler as a defect; dropping the table is the
+    // cheapest way to raise one here.
+    db.$client.exec("DROP TABLE wedding_invite_customisations");
+    const res = await putEnvelope(app, { envelopeId: null });
+    expect(res.status).toBe(500);
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+  });
 });
 
 describe("the envelope on the invite reads", () => {
