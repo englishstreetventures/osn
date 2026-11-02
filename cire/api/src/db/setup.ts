@@ -14,6 +14,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { DEFAULT_RSVP_DEADLINE_TIMEZONE, resolveRsvpDeadline } from "../lib/rsvp-deadline";
+import type { AssetsBucket } from "../services/invite-assets";
 import type { Db } from "./index";
 
 // Re-exported for the seed path + tests. The single source of truth lives in
@@ -1559,14 +1560,51 @@ export function seedE2eOrganiser(db: TestDb): void {
 }
 
 /**
- * `wed_e2e_envelope`, for {@link seedE2eOrganiser}: on Crimson, so its guests
- * are served its premium envelope, the Wax seal, over a hero that shows (it has
- * a title). No seat: guests open it, and no organiser flow changes it. Its own
- * wedding, so no other flow's invite gains an envelope.
+ * The R2 key of `wed_e2e_envelope`'s hero image. The seed stores only the key;
+ * the local server puts the bytes behind it (`applyE2eOrganiserAssets`).
+ */
+export const E2E_ENVELOPE_HERO_KEY =
+  "assets/wed_e2e_envelope/hero-e0000000-0000-4000-8000-0000000000e1";
+
+/**
+ * Three weddings for the envelope E2E flow (`cire-invite-envelope.flow.ts`),
+ * for {@link seedE2eOrganiser}. None has a seat: guests open them, and no
+ * organiser flow changes them. Their own weddings, so no other flow's invite
+ * gains an envelope.
  *
- * Read by the envelope E2E flow that englishstreetventures/osn#1857 adds.
+ * - `wed_e2e_envelope`: on Crimson, so its guests are served its premium
+ *   envelope, the Wax seal, over a hero with a title, a subtitle and an image
+ *   cropped for both breakpoints, so the opening draws the hero's text and its
+ *   crop layers.
+ * - `wed_e2e_envelope_plain`: the same envelope over a hero with a title and
+ *   no image, the path where the opening fetches no picture.
+ * - `wed_e2e_no_envelope`: a shown hero and no envelope, so the flow can see
+ *   the browser able to play one and the page asking for none.
  */
 function seedE2eEnvelope(db: TestDb, now: Date): void {
+  const plain = (weddingId: string, slug: string, title: string, envelope: boolean) => {
+    db.insert(schema.weddings)
+      .values({
+        id: weddingId,
+        slug,
+        displayName: title,
+        tier: envelope ? "crimson" : "gold",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(schema.weddingInviteCustomisations)
+      .values({
+        weddingId,
+        heroTitle: title,
+        envelopeId: envelope ? ("wax-seal" satisfies EnvelopeId) : null,
+        updatedAt: now,
+      })
+      .run();
+  };
+  plain("wed_e2e_envelope_plain", "plain-envelope-wedding", "Plain Envelope Wedding", true);
+  plain("wed_e2e_no_envelope", "no-envelope-wedding", "No Envelope Wedding", false);
+
   const weddingId = "wed_e2e_envelope";
   db.insert(schema.weddings)
     .values({
@@ -1582,8 +1620,13 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
     .values({
       weddingId,
       heroTitle: "Envelope Wedding",
+      heroSubtitle: "20 June 2099 · Sydney",
+      heroImageKey: E2E_ENVELOPE_HERO_KEY,
+      heroImageCrop: JSON.stringify({ x: 0, y: 0.1, w: 1, h: 0.7 }),
+      heroImageCropMobile: JSON.stringify({ x: 0.3, y: 0, w: 0.45, h: 1 }),
       envelopeId: "wax-seal" satisfies EnvelopeId,
       updatedAt: now,
+      imagesUpdatedAt: now,
     })
     .run();
 }
@@ -1728,4 +1771,19 @@ export function applyE2eOrganiser(
   env: Readonly<Record<string, string | undefined>>,
 ): void {
   if (env.CIRE_E2E_ORGANISER === "1") seedE2eOrganiser(db);
+}
+
+/**
+ * The image bytes behind the organiser weddings' keys, for the local server's
+ * assets stub, under the same `CIRE_E2E_ORGANISER` reading as
+ * {@link applyE2eOrganiser}. Today that is one picture: the envelope wedding's
+ * hero, a generated bokeh backdrop committed beside this file.
+ */
+export async function applyE2eOrganiserAssets(
+  assets: AssetsBucket,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<void> {
+  if (env.CIRE_E2E_ORGANISER !== "1") return;
+  const bytes = await Bun.file(new URL("./e2e-envelope-hero.jpg", import.meta.url)).arrayBuffer();
+  await assets.put(E2E_ENVELOPE_HERO_KEY, bytes, { httpMetadata: { contentType: "image/jpeg" } });
 }

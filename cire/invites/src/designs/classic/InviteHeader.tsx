@@ -179,6 +179,9 @@ export default function InviteHeader(props: InviteHeaderProps) {
           // to grow the hero rather than be clipped by it. The gradient and
           // photo layers below are absolute inset-0, so they stretch with it.
           data-edge-hero
+          // The backdrop's load state, or `none` without an image: the
+          // envelope opening waits for it to settle before drawing the hero.
+          data-hero-backdrop={heroBackdropSrc() ? heroBackdrop.state() : "none"}
           class="relative min-h-dvh overflow-hidden"
           style={{ ...filterThemeVars(heroVars()), ...SECTION_SURFACE }}
         >

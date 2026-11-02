@@ -8,6 +8,7 @@ import { localD1Binding } from "./db/local-d1";
 import {
   applyE2eGiftList,
   applyE2eOrganiser,
+  applyE2eOrganiserAssets,
   applyE2eRsvpDeadline,
   createDb,
   repointDevOwnerSeat,
@@ -67,6 +68,7 @@ const port = Number(process.env.PORT ?? 8787);
 
 const r2 = createR2Stub();
 const assets = createAssetsStub();
+await applyE2eOrganiserAssets(assets, process.env);
 
 // Stripe, key-optional exactly as the Worker is (see index.ts): no
 // `STRIPE_SECRET_KEY` and the organiser Connect routes are not mounted, no

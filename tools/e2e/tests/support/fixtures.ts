@@ -108,8 +108,23 @@ export interface Flow {
   finalPage: Page;
 }
 
-export const test = base.extend<{ flow: Flow }>({
-  flow: async ({ page, context }, use, testInfo) => {
+/**
+ * Takes the HTML-in-Canvas API away before any page script runs, so the cire
+ * invite's boot script finds the browser unable to play an envelope opening
+ * and the page is the page without one. Every flow's contexts get it unless
+ * the flow sets `envelope: true`; the envelope flow adds it itself to the one
+ * context that checks an unsupported browser.
+ */
+export const NO_HTML_IN_CANVAS = "delete HTMLCanvasElement.prototype.requestPaint;";
+
+export const test = base.extend<{ flow: Flow; envelope: boolean }>({
+  /**
+   * Whether the cire invite may play its envelope opening in this flow's
+   * contexts. Off by default, so no flow meets the envelope by accident once
+   * the bundled Chromium has the API on.
+   */
+  envelope: [false, { option: true }],
+  flow: async ({ page, context, envelope }, use, testInfo) => {
     const steps: string[] = [];
     const lines: string[] = [];
     const assertions: Assertion[] = [];
@@ -118,6 +133,7 @@ export const test = base.extend<{ flow: Flow }>({
     const watch = async (ctx: BrowserContext): Promise<void> => {
       if (watched.has(ctx)) return;
       watched.add(ctx);
+      if (!envelope) await ctx.addInitScript(NO_HTML_IN_CANVAS);
       ctx.on("response", (response) => {
         const request = response.request();
         const line = requestLine(request.method(), request.url(), response.status(), API_LABELS);

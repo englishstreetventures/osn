@@ -8,7 +8,9 @@ import InvitePage from './InvitePage'
 import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../../components/invite-theme'
 import { heroState } from '../../components/invite-emptiness'
 import { EDGE_BOOT_SCRIPT, EDGE_STRIP_CLASS, edgeStyle, serverEdgeColours } from '../../components/edge-boot'
-import { Z_CLASS } from '../../lib/z-index'
+import { ENVELOPE_BOOT_SCRIPT, envelopeStyle } from '@cire/envelope/boot'
+import { envelopeKeyFor } from '../../components/envelope-key'
+import { Z_CLASS, Z_LAYER } from '../../lib/z-index'
 import { GiftRegistryTeaserIsland } from '../../components/gift-registry/GiftRegistryTeaserIsland'
 import SiteFooter from '../../components/SiteFooter.astro'
 import { ConsentBanner } from '../../components/consent/ConsentBanner'
@@ -44,6 +46,11 @@ const heroShown =
 const edgeColours = serverEdgeColours(palette, heroShown)
 const edgeInline = edgeStyle(edgeColours)
 
+// The envelope opening's key: set only for a wedding with a catalog envelope
+// over a shown hero (`envelopeKeyFor`). With none, the boot script below never
+// seals the page and the page is exactly the page without an envelope.
+const envelopeKey = await envelopeKeyFor({ slug, envelopeId: initialInvite?.envelopeId, heroShown })
+
 // Warm the browser's connection to cire-api. See `lib/api-origin.ts` for why
 // this is separate from the hero preload and why it carries no `crossorigin`.
 const apiPreconnect = apiPreconnectHref(apiUrl)
@@ -55,7 +62,7 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
 const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, 'registry'))
 ---
 <!DOCTYPE html>
-<html lang="en" style={`${paletteStyle};${edgeInline}`}>
+<html lang="en" style={`${paletteStyle};${edgeInline}`} data-envelope-key={envelopeKey ?? undefined}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -63,6 +70,12 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
     {/* Sets the safe-area classes before first paint. Runs after the viewport meta:
         iOS reports the insets as 0 until viewport-fit=cover is in effect. */}
     <script is:inline set:html={EDGE_BOOT_SCRIPT}></script>
+    {/* The envelope opening: its stylesheet and boot script before first paint,
+        so a sealed page is covered from its first frame and an unsealed one
+        never is. Both are constants; the only per-request input is the
+        `data-envelope-key` attribute above. */}
+    <style is:inline set:html={envelopeStyle(Z_LAYER.ENVELOPE)}></style>
+    <script is:inline set:html={ENVELOPE_BOOT_SCRIPT}></script>
     {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{pageTitle}</title>
@@ -123,6 +136,12 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
     {/* Site-wide chrome: the couple's name over the legal links. Always here,
         on the invite and on the legal pages alike. The couple's own sign-off is
         a section INSIDE InvitePage above — it sits behind the claim gate. */}
+    {/* Plays the envelope opening again. Hidden unless this browser can play
+        it and this invite has one (the head stylesheet); beside the footer,
+        since the guest site has no menu. */}
+    <div class="text-center">
+      <button type="button" data-envelope-replay>Open the envelope again</button>
+    </div>
     <SiteFooter closing={initialInvite?.hero.title ?? null} />
     {/* Site-wide consent surface. `client:idle` so it never competes with the
         invite's first paint — nothing third-party can load before it hydrates
@@ -134,5 +153,7 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
 
 <script>
   import { startEdgeColours } from '../../components/edge-boot'
+  import { startEnvelope } from '../../components/envelope-mount'
   startEdgeColours()
+  startEnvelope()
 </script>

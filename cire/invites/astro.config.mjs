@@ -139,5 +139,10 @@ export default defineConfig({
     // the runner imports a chunk the optimiser has just deleted, and `astro dev`
     // exits — on a cold cache and a warm one alike.
     ssr: { optimizeDeps: { include: ["astro/assets/services/noop", "astro/app/manifest"] } },
+    // The envelope scene's dependencies, pre-bundled for the browser at
+    // start-up. Found on first use instead, they make `astro dev` re-optimise
+    // and reload the page in the middle of an opening. Named through
+    // `@cire/envelope`, which depends on them; this app does not.
+    optimizeDeps: { include: ["@cire/envelope > three", "@cire/envelope > web-haptics"] },
   },
 });

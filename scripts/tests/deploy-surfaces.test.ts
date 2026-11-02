@@ -3,6 +3,8 @@
 // repositories in deploy-surfaces.cli.test.ts.
 
 import { describe, expect, test } from "bun:test";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import {
   changesContent,
@@ -144,7 +146,7 @@ describe("which surfaces a change redeploys", () => {
     ["cire/guest-email/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
     ["cire/theme/src/index.ts", ["cire_api", "cire_invites", "cire_host", "cire_vendor"]],
     ["cire/invite-designs/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
-    ["cire/envelope/src/index.ts", ["cire_api", "cire_host"]],
+    ["cire/envelope/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
     ["cire/build-tools/src/index.ts", ["cire_invites", "cire_host", "cire_vendor"]],
     ["osn/api/src/index.ts", ["osn_api"]],
     ["osn/db/drizzle/0009_x.sql", ["osn_api"]],
@@ -333,5 +335,56 @@ describe("devDecisions: the dev tier's push diff", () => {
     const decisions = devDecisions({ event: "push", files: undefined });
     expect(decisions.every((d) => d.deploy)).toBe(true);
     expect(decisions[0]?.reason).toContain("could not be diffed");
+  });
+});
+
+describe("a cire surface redeploys for every cire workspace it is built from", () => {
+  // A cire workspace a surface depends on but its regex leaves out is one
+  // whose own merges never reach that surface. Walked from each surface's
+  // package.json, transitively, through `workspace:` dependencies under
+  // `cire/`; `shared/` changes already redeploy every surface.
+  const repo = resolve(import.meta.dirname, "..", "..");
+  const SURFACE_DIRS: Partial<Record<SurfaceKey, string>> = {
+    cire_api: "cire/api",
+    cire_invites: "cire/invites",
+    cire_host: "cire/host",
+    cire_vendor: "cire/vendor",
+    cire_landing: "cire/landing",
+  };
+  const dirOf = new Map<string, string>(
+    readdirSync(join(repo, "cire"), { withFileTypes: true })
+      .filter((d) => d.isDirectory() && existsSync(join(repo, "cire", d.name, "package.json")))
+      .map((d) => {
+        const manifest = JSON.parse(
+          readFileSync(join(repo, "cire", d.name, "package.json"), "utf8"),
+        ) as { name: string };
+        return [manifest.name, `cire/${d.name}`] as const;
+      }),
+  );
+  const workspaceDeps = (dir: string): string[] => {
+    const manifest = JSON.parse(readFileSync(join(repo, dir, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    return Object.entries({ ...manifest.dependencies, ...manifest.devDependencies })
+      .filter(([name, range]) => range.startsWith("workspace:") && dirOf.has(name))
+      .map(([name]) => dirOf.get(name)!);
+  };
+  const builtFrom = (dir: string): string[] => {
+    const seen = new Set<string>();
+    const queue = workspaceDeps(dir);
+    while (queue.length > 0) {
+      const next = queue.shift()!;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(...workspaceDeps(next));
+    }
+    return [...seen].toSorted();
+  };
+
+  test.each(Object.entries(SURFACE_DIRS))("%s", (key, dir) => {
+    const own = surface(key as SurfaceKey);
+    const missing = builtFrom(dir!).filter((dep) => !own.paths.test(`${dep}/src/index.ts`));
+    expect(missing).toEqual([]);
   });
 });

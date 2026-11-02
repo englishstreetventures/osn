@@ -155,7 +155,7 @@ export const SURFACES: readonly Surface[] = [
   {
     key: "cire_invites",
     paths:
-      /^(cire\/invites\/|cire\/build-tools\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
+      /^(cire\/invites\/|cire\/build-tools\/|cire\/dietary\/|cire\/envelope\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
     stack: "cire",
     production: ownJob("deploy-cire-invites", "Deploy cire/invites — production"),
     dev: { id: "deploy-cire-invites-dev", name: "Deploy cire/invites — dev" },

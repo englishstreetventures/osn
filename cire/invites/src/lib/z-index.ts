@@ -16,6 +16,7 @@
  * | `HERO_CUE`      | 31  | The hero's scroll cue, painted over the edge strip.     |
  * | `MODAL_POPOVER` | 110 | A link menu: Add to calendar, Open in maps.             |
  * | `TOAST`         | 150 | Confirmation toasts (`@shared/toast` `<Toaster>`).       |
+ * | `ENVELOPE`      | 160 | The envelope opening and the cover before it.           |
  * | `CONSENT`       | 200 | Consent banner, legal pages only (`ConsentBanner`).     |
  *
  * There is no modal layer. The details and RSVP sheets are `@shared/ui`'s
@@ -111,6 +112,15 @@ export const Z_LAYER = {
    * `InvitePage.browser.test.tsx` is what keeps it honest.
    */
   TOAST: 150,
+  /**
+   * The envelope opening (`@cire/envelope`): the cover the head stylesheet
+   * paints from first paint, and the scene's overlay after it. It covers the
+   * whole page, so it sits above every page layer, a menu and a toast
+   * included, and below CONSENT. The consent prompt on the invite's pages is
+   * a modal dialog in the top layer, above the envelope whatever this number
+   * is: the guest answers it first.
+   */
+  ENVELOPE: 160,
   /** The consent banner on the legal pages. Above every page overlay. */
   CONSENT: 200,
 } as const;
@@ -129,5 +139,6 @@ export const Z_CLASS = {
   HERO_CUE: "z-31",
   MODAL_POPOVER: "z-110",
   TOAST: "z-150",
+  ENVELOPE: "z-160",
   CONSENT: "z-200",
 } as const satisfies Record<ZLayer, string>;
