@@ -166,6 +166,9 @@ describe("InviteBuilder envelope picker, refusals", () => {
     expect(seal.tabIndex).toBe(0);
     expect((await findCard(/None/)).tabIndex).toBe(-1);
     expect(screen.getByText(/Your Wax seal is switched off/)).toBeTruthy();
+    // Switched off, the envelope opens onto nothing, so no hero note shows.
+    expect(screen.queryByText(/opens onto the hero/)).toBeNull();
+    expect(screen.queryByText(/Add a title, a subtitle or an image/)).toBeNull();
 
     fireEvent.click(seal);
     expect(envelopeSaves()).toBe(0);
