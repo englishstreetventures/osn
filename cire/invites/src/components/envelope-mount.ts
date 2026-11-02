@@ -71,6 +71,7 @@ async function play(doc: Document): Promise<void> {
   playing = true;
   const sealed = () => root.getAttribute(ENVELOPE_ATTR) === "sealed";
   let dispose: (() => void) | null = null;
+  let disarm: (() => void) | null = null;
   let blobUrl: string | null = null;
   // Thrown away the moment the page stops being sealed before the reveal,
   // whatever the scene is doing then.
@@ -107,7 +108,7 @@ async function play(doc: Document): Promise<void> {
     }
     scene.reveal();
     root.setAttribute(ENVELOPE_ATTR, "ready");
-    armAfterConsent(win, doc, consent.value, scene.arm);
+    disarm = armAfterConsent(win, doc, consent.value, scene.arm);
     await scene.landed;
     root.setAttribute(ENVELOPE_ATTR, "open");
     writeSeen(key, "1");
@@ -118,28 +119,40 @@ async function play(doc: Document): Promise<void> {
     writeSeen(key, "failed");
   } finally {
     watch.disconnect();
+    disarm?.();
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     playing = false;
   }
 }
 
+/**
+ * Arms the scene once the consent prompt has an answer, or after the fallback.
+ * Returns the teardown `play` calls when the opening ends, so a guest who
+ * never answers does not keep the scene alive through the consent effect, and
+ * a replay never adds a second one.
+ */
 function armAfterConsent(
   win: Window,
   doc: Document,
   { consentRecord, hydrateConsent }: ConsentReader,
   arm: () => void,
-): void {
+): () => void {
   hydrateConsent();
-  createRoot((dispose) => {
+  const disposeRoot = createRoot((dispose) => {
     createEffect(() => {
       if (consentRecord() === null) return;
       arm();
       dispose();
     });
+    return dispose;
   });
-  win.setTimeout(() => {
+  const fallback = win.setTimeout(() => {
     if (consentRecord() === null && !doc.querySelector("dialog[open]")) arm();
   }, CONSENT_FALLBACK_MS);
+  return () => {
+    disposeRoot();
+    win.clearTimeout(fallback);
+  };
 }
 
 /**

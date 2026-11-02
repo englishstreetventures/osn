@@ -470,7 +470,11 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
     cardEdge.material.dispose();
     cardFace.geometry.dispose();
     cardFace.material.dispose();
+    // `dispose` frees three's programs and textures, not the context and its
+    // drawing buffer; those would wait for the detached canvas to be collected.
+    const lost = renderer?.getContext().isContextLost() ?? true;
     renderer?.dispose();
+    if (!lost) renderer?.forceContextLoss();
     overlay.remove();
     rejectLanded(new Error("envelope: disposed"));
   };
