@@ -125,7 +125,7 @@ export const publicKeyCredentialRequestOptions = t.Object({
  * `PublicKeyCredentialCreationOptionsJSON` — the registration ceremony
  * options handed to `navigator.credentials.create()`.
  *
- * Every field `@simplewebauthn/server@13` can emit is declared, because a
+ * Every field `@simplewebauthn/server@14` can emit is declared, because a
  * field this schema omits is DELETED from the response and the ceremony
  * then fails in the browser rather than in a test. Checked against
  * `generateRegistrationOptions`' literal return: `challenge`, `rp`, `user`,
