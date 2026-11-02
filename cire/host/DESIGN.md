@@ -838,7 +838,7 @@ radiogroup:
   focus and the arrows land on it and a screen reader hears it; clicking or
   arriving on it chooses nothing. It shows at half opacity and says "Locked"
   in tiny caps. The server refuses it anyway.
-- **A stored choice the plan no longer allows stays checked.** The organiser
+- **A stored choice the plan does not allow stays checked.** The organiser
   chose it, so the card keeps the gold border and says "Switched off" where a
   current card says "Current", and a note under the cards says what guests get
   instead and which tier brings it back.

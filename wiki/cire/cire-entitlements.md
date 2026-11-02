@@ -391,7 +391,7 @@ predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
   which Crimson includes; the API answers `403 premium_design` regardless.
 - **Envelopes** lock in the invite builder's envelope picker by
   `envelopeEntitled` from `GET …/invite`, the same rule read with the invite.
-  A stored envelope the wedding may no longer use shows as switched off; the
+  A stored envelope the wedding may not use shows as switched off; the
   API answers `403 premium_envelope` regardless, and the picker then locks the
   card. See [[cire-invite-builder#Organiser UI]].
 

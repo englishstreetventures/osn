@@ -1816,7 +1816,7 @@ where the seal sits), not the seal's art. A choice saves at once
   write answers carry no `envelopeEntitled`, so the builder keeps it, and the
   "has envelopes" flag, apart from the customisation it replaces on each
   write, and sets both on every read.
-- **A stored envelope the wedding may no longer use stays checked**, says
+- **A stored envelope the wedding may not use stays checked**, says
   "Locked" and "Switched off", and a note says guests open the invite without
   it. "None" still saves.
 - **A save answered 403 `premium_envelope`** locks the card at once, so the
