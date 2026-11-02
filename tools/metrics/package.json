@@ -1,6 +1,6 @@
 {
   "name": "@tools/metrics",
-  "version": "0.2.37",
+  "version": "0.2.38",
   "private": true,
   "description": "Session-metrics dashboard — charts over the pull-request cards in .claude/metrics, local only",
   "type": "module",

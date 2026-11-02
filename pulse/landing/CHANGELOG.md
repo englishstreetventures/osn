@@ -1,5 +1,16 @@
 # @pulse/landing
 
+## 0.1.31
+
+### Patch Changes
+
+- a471666: Move `solid-js` from 1.9.15 to 1.9.18. In 1.9.18 a module-level `lazy()`
+  keeps its loaded component across an unmount, so a remounted lazy panel
+  renders at once instead of a microtask later. The Settings tab test now waits
+  for the router to write the fragment, which lands when the navigation's
+  transition settles rather than with the panel. `@solidjs/router` stays at
+  1.0.0: 1.0.1 is newer than the install's minimum release age.
+
 ## 0.1.30
 
 ### Patch Changes
