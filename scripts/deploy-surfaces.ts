@@ -147,7 +147,7 @@ export const SURFACES: readonly Surface[] = [
   {
     key: "cire_api",
     paths:
-      /^(cire\/api\/|cire\/db\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|scripts\/(cire-db-|check-d1-database-id|migration-files))/,
+      /^(cire\/api\/|cire\/db\/|cire\/dietary\/|cire\/guest-email\/|cire\/envelope\/|cire\/invite-designs\/|cire\/theme\/|scripts\/(cire-db-|check-d1-database-id|migration-files))/,
     stack: "cire",
     production: ownJob("deploy-cire-api", "Deploy cire/api — production"),
     dev: { id: "deploy-cire-api-dev", name: "Deploy cire/api — dev" },
@@ -155,7 +155,7 @@ export const SURFACES: readonly Surface[] = [
   {
     key: "cire_invites",
     paths:
-      /^(cire\/invites\/|cire\/build-tools\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
+      /^(cire\/invites\/|cire\/build-tools\/|cire\/dietary\/|cire\/guest-email\/|cire\/envelope\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
     stack: "cire",
     production: ownJob("deploy-cire-invites", "Deploy cire/invites — production"),
     dev: { id: "deploy-cire-invites-dev", name: "Deploy cire/invites — dev" },
@@ -163,7 +163,7 @@ export const SURFACES: readonly Surface[] = [
   {
     key: "cire_host",
     paths:
-      /^(cire\/host\/|cire\/build-tools\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
+      /^(cire\/host\/|cire\/build-tools\/|cire\/dietary\/|cire\/guest-email\/|cire\/envelope\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
     stack: "cire",
     production: siteDeploy(
       "cire_host",
