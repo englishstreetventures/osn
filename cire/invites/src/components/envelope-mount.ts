@@ -45,9 +45,11 @@ const findHero = (doc: Document) => () => doc.querySelector<HTMLElement>(`[${EDG
 
 /** The break style for this opening: `?envelope-break=` names one, otherwise one at random. */
 function breakStyle(win: Window) {
-  return pickBreak(new URLSearchParams(win.location.search), (array) =>
-    win.crypto.getRandomValues(array),
-  );
+  return pickBreak(new URLSearchParams(win.location.search), (array) => {
+    // `pickBreak` passes a fresh `Uint32Array`, always on an `ArrayBuffer`.
+    win.crypto.getRandomValues(array as Uint32Array<ArrayBuffer>);
+    return array;
+  });
 }
 
 let playing = false;

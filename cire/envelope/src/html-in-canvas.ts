@@ -3,8 +3,9 @@
  * `CanvasDrawElement` and Chrome 157 by default expose it. TypeScript's DOM
  * library has none of it yet. Only the names this package calls are declared,
  * each optional, because a browser without the API is the common case and
- * every caller tests for the name first. A script file, not a module, so
- * these merge with the DOM library's global interfaces.
+ * every caller tests for the name first. Types a caller casts to, not global
+ * augmentations, so every program that loads this package's source (the
+ * guest site's included) sees them through the import.
  *
  * - `<canvas content="drawable">` lays out its children; each child to draw
  *   carries the `drawable` attribute.
@@ -15,12 +16,14 @@
  *   are the size it is drawn at, in texels.
  */
 
-interface HTMLCanvasElement {
+/** A canvas whose drawable children can be drawn into its context. */
+export interface DrawableCanvas extends HTMLCanvasElement {
   requestPaint?(): void;
-  onpaint?: ((this: HTMLCanvasElement, event: Event) => void) | null;
+  onpaint: ((this: HTMLCanvasElement, event: Event) => void) | null;
 }
 
-interface WebGLCopyElementImageConfig {
+/** The source rectangle and drawn size of one element upload. */
+export interface CopyElementImageConfig {
   sx?: number;
   sy?: number;
   swidth?: number;
@@ -29,13 +32,14 @@ interface WebGLCopyElementImageConfig {
   height?: number;
 }
 
-interface WebGL2RenderingContext {
+/** A WebGL2 context that can upload a drawable element into a texture. */
+export interface ElementTextureContext extends WebGL2RenderingContext {
   texElementSubImage2D?(
     target: GLenum,
     level: GLint,
     xoffset: GLint,
     yoffset: GLint,
     element: Element,
-    config?: WebGLCopyElementImageConfig,
+    config?: CopyElementImageConfig,
   ): void;
 }

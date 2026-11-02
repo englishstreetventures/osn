@@ -17,6 +17,8 @@
 
 import { ExternalTexture, type WebGLRenderer } from "three";
 
+import type { DrawableCanvas, ElementTextureContext } from "../html-in-canvas";
+
 const IMAGE_ACCEPT = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 
 /** Marks the clone, so the head stylesheet holds its animations at their start, as it does the hero's. */
@@ -115,8 +117,9 @@ export function createCard(input: {
   /** Called after each upload, to draw a frame with it. */
   readonly onUpload: () => void;
 }): Card {
-  const { canvas, renderer, hero, blobUrl } = input;
-  const gl = renderer.getContext() as WebGL2RenderingContext;
+  const { renderer, hero, blobUrl } = input;
+  const canvas = input.canvas as DrawableCanvas;
+  const gl = renderer.getContext() as ElementTextureContext;
   const maxSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
   const glTexture = gl.createTexture();
   if (!glTexture) throw new Error("envelope: no texture");
