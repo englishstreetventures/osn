@@ -17,6 +17,8 @@ import "../../src/styles/global.css";
  * - the last section control, once focused, ends above the bar and its computed
  *   `scroll-margin-bottom` is the bar's height plus 8px;
  * - the same holds after a failed save grows the bar with an error row;
+ * - a control reached backwards (Shift+Tab) stops below the stuck stack (top
+ *   bar, view bar, section tabs), by its computed `scroll-margin-top`;
  * - "Unsaved changes" in the bar is text, so it clears the 4.5:1 WCAG asks;
  * - the bar's own Save button carries no such margin, so focusing it does not
  *   move the page.
@@ -185,5 +187,52 @@ describe("InviteBuilder save bar, as laid out", () => {
     save.focus();
     await settle();
     expect(window.scrollY).toBe(before);
+  });
+});
+
+describe("InviteBuilder stuck stack, as laid out", () => {
+  it("stops a control reached backwards below the top bar, view bar and section tabs", async () => {
+    // The page's own wrapper defines these (`.chrome-scope`, `ModuleShell`);
+    // stand-in bars of the same heights stick above the real section tabs.
+    render(() => (
+      <div style={{ "--chrome-h": "3.5rem", "--bar-h": "2.5rem" }}>
+        <div
+          class="bg-bg sticky top-0 z-30"
+          style={{ height: "var(--chrome-h)" }}
+          data-testid="top-bar"
+        />
+        <div
+          class="bg-bg sticky z-20"
+          style={{ top: "var(--chrome-h)", height: "var(--bar-h)" }}
+          data-testid="view-bar"
+        />
+        <InviteBuilder
+          weddingId="wed_1"
+          weddingSlug="anita-ben"
+          weddingName="Anita & Ben"
+          canEdit
+          entitlements={[]}
+        />
+      </div>
+    ));
+    await waitFor(() => screen.getByText("Save invite"));
+    await settle();
+    const tabs = screen.getAllByRole("tablist")[0]!.closest(".sticky")!;
+    const stackBottom = () => tabs.getBoundingClientRect().bottom;
+    const control = screen.getAllByRole("radio")[0]!;
+
+    // Scrolled to the foot, the first card is under the stack; Shift+Tab lands on it.
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    await settle();
+    expect(control.getBoundingClientRect().top, "control starts out of view").toBeLessThan(
+      stackBottom(),
+    );
+    (document.activeElement as HTMLElement | null)?.blur();
+    control.focus();
+    await settle();
+
+    // 3.5rem top bar + 2.5rem view bar + 3.5rem tabs and half a rem of air.
+    expect(parseFloat(getComputedStyle(control).scrollMarginTop)).toBeCloseTo(152, 1);
+    expect(control.getBoundingClientRect().top).toBeGreaterThanOrEqual(stackBottom() - 0.5);
   });
 });
