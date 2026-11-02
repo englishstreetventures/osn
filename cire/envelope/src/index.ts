@@ -26,7 +26,7 @@ export type EnvelopeId = (typeof ENVELOPES)[number]["id"];
 
 /** Whether `value` is a catalog envelope id. */
 export function isEnvelopeId(value: unknown): value is EnvelopeId {
-  return typeof value === "string" && ENVELOPES.some((e) => e.id === value);
+  return ENVELOPES.some((e) => e.id === value);
 }
 
 /** The ways the seal can break when the guest opens the envelope. */

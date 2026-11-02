@@ -34,10 +34,10 @@ describe("envelope catalog", () => {
 });
 
 describe("pickBreak", () => {
-  it("honours a break style named in the query", () => {
+  it("honours a break style named by ?envelope-break=", () => {
     for (const style of BREAK_STYLES) {
       const draw = fills();
-      expect(pickBreak(query({ [ENVELOPE_BREAK_PARAM]: style }), draw)).toBe(style);
+      expect(pickBreak(query({ "envelope-break": style }), draw)).toBe(style);
     }
   });
 
