@@ -119,8 +119,6 @@ describe("InviteBuilder save bar height", () => {
     const form = await findForm();
     await Promise.resolve();
     expect(form.style.getPropertyValue("--save-bar-h")).toBe("72px");
-    // Its controls scroll to stop that far above the page's foot.
-    expect(form.className).toContain("scroll-mb-[calc(var(--save-bar-h,0px)+0.5rem)]");
 
     // An error row joins the bar.
     barHeight = 128;

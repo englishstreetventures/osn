@@ -991,10 +991,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           const closingSlot = createMemo(() => closingPreviewProps(d));
 
           return (
-            <form
-              onSubmit={(e) => void saveInvite(e)}
-              class={`flex flex-col gap-6 ${CLEAR_OF_SAVE_BAR}`}
-            >
+            <form onSubmit={(e) => void saveInvite(e)} class="flex flex-col gap-6">
               {/* ── Section tabs — sticky, one section shown at a time, a hidden
                 section's label faded with an eye-off icon (`sectionTabTone`) — plus,
                 below `@4xl/builder` (where there's no room for the sticky side
@@ -1150,7 +1147,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 capped at 1100px, so the composed preview was effectively dead
                 code on the very screens it was written for. */}
               <div class="flex flex-col gap-8 @4xl/builder:flex-row @4xl/builder:items-start @6xl/builder:gap-10">
-                <div class={`flex min-w-0 flex-1 flex-col gap-8 ${CLEAR_OF_STUCK_STACK}`}>
+                <div
+                  class={`flex min-w-0 flex-1 flex-col gap-8 ${CLEAR_OF_STUCK_STACK} ${CLEAR_OF_SAVE_BAR}`}
+                >
                   {/* ── Design ─────────────────────────────────────────── */}
                   <SectionCard
                     id="invite-design"
@@ -1700,9 +1699,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 const CLEAR_OF_STUCK_STACK =
   "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+3.5rem)]";
 
-/** A control that takes focus in the form stops clear of the sticky save bar
- *  at the foot of the page: the bar's measured height (`--save-bar-h`, written
- *  by `trackSaveBarHeight`) plus half a rem. */
+/** A control that takes focus in the section cards stops clear of the sticky
+ *  save bar at the foot of the page: the bar's measured height (`--save-bar-h`,
+ *  written on the form by `trackSaveBarHeight`) plus half a rem. The bar's own
+ *  button, the tab row and the preview modal do not carry it. */
 const CLEAR_OF_SAVE_BAR =
   "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mb-[calc(var(--save-bar-h,0px)+0.5rem)]";
 
