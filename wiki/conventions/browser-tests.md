@@ -211,12 +211,22 @@ iframe's own CSS pixels — what `SeatingView.browser.test.tsx` and
 Only Vitest's browser UI (`browser.ui`) CSS-scales the iframe to fit its panel,
 and there those coordinates miss.
 
-Two rules, both cheap to get wrong:
+Three rules, all cheap to get wrong:
 
 - **Every `it` sets its own viewport.** It persists for the rest of the file, so
   otherwise the order tests happen to run in decides what they measure.
 - **Render after the resize, not before.** A component rendered at the previous
   width plays its entry transition against a box that is about to change.
+- **Scroll only after a frame has drawn what you mounted, at its final size.**
+  A `window.scrollTo` made before that can move the page with no `scroll`
+  event, so code waiting for the first scroll never sees it and `scrollY`
+  reads as if it had. `page.viewport()` resolves before the frame's `resize`
+  is delivered, and one `requestAnimationFrame` is not enough: its callback
+  can run in the same frame as the mount, before that frame lays anything out.
+  Wait for the `resize`, mount, then await two frames, as `mountToScroll` in
+  `InviteHeader.browser.test.tsx` does.
+
+*Measured 2026-11-02 — `bunx --bun vitest run --project browser tests/designs/InviteHeader.browser.test.tsx` and `bun run --cwd cire/invites test:browser`, macOS on Apple silicon, Chromium 151 (revision 1234) and 156 (revision 1248). With the scroll straight after the mount, the gala scroll cue's first-scroll test failed in 1 of 3 full runs on 151 and 5 of 7 on 156. Probes in the failing test logged `scrollY` at 200 and no `scroll` event in 10 s, and in another run none in 3 s while `requestAnimationFrame` fired 136 times; a second `scrollTo` fired its event at once. Over 8 runs of the file each: waiting for the `resize` then one frame after the mount failed 8 of 8; two frames failed 0 of 8. With two frames, 10 full runs in a row passed, 344 of 344 each, on 156.*
 
 And one that is not about the viewport at all but bites the same tests: **await
 `document.fonts.ready` before measuring anything text-shaped.** The invite's
