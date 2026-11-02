@@ -94,6 +94,8 @@ The **resolved version** of a range is the highest published version it admits; 
 
 `time[<version>]` gives the publish date. Mark each package **Ready** (passes), **Pending** (exists but too young — say when it becomes eligible) or **N/A** (already latest).
 
+**Fallback to the newest eligible version.** A too-young latest never blocks an older bump that has cleared its window. When the target version fails its window, walk the versions between the current range and the target, newest first, and take the first one that passes its own window (the `time` map gives each date). That version is **Ready**, and the report says so: `Ready at <fallback> (latest <target> is Pending until <date>)`. The Pending row still lists the target, so the later bump is not lost. Only when no version in the admitted range passes does the package become plain Pending. Apply the same walk to patch-level bumps that the installer floor blocks.
+
 The installer has a floor of its own: `bunfig.toml` sets `minimumReleaseAge = 259200`, so a version younger than three days will not install at all. Do not add a `minimumReleaseAgeExcludes` entry to get one in — an entry needs a `# DROP AFTER <name> <YYYY-MM-DD>` marker and a reason, and `scripts/check-release-age-excludes.ts` fails CI without one. Wait.
 
 ## Step 5 — Read the changelog of every Ready upgrade
