@@ -2,6 +2,7 @@
 title: Cire invite builder
 tags: [architecture, api, web, db, cire]
 related:
+  - "[[cire-envelope]]"
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[cire-invite-designs]]"
@@ -1827,8 +1828,9 @@ where the seal sits), not the seal's art. A choice saves at once
   changes included: switched off ("Turn the hero on to show it") or empty
   ("Add a title, a subtitle or an image to the hero to show it"). Guests are
   never shown an envelope over a hero that is not in the `shown` state.
-- **Its standing note** says guests won't see envelopes until the opening is
-  released, which holds while the guest site plays none.
+- **Its standing note** says who sees the envelope: each guest once, in
+  Chrome on Android or a computer; other browsers, and devices set to reduce
+  motion, show the invite without it ([[cire-envelope]]).
 
 `InviteBuilder.envelope.test.tsx` holds the refusals (the hidden picker, the
 lock by click and by every key, the switched-off card, the in-flight save, the

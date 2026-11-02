@@ -8,7 +8,8 @@ related:
   - "[[sessions]]"
   - "[[cire-auth]]"
   - "[[cire-consent]]"
-last-reviewed: 2026-10-28
+  - "[[cire-envelope]]"
+last-reviewed: 2026-11-02
 ---
 
 # EU ePrivacy Directive (Cookie Law)

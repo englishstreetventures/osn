@@ -118,6 +118,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-entitlements]] — the plan tiers (Ivory, Gold, Crimson): what each opens, the tier gate, guest caps, changing a tier by hand
 - [[cire-upgrades]] — self-serve purchase of a plan tier: catalogue, platform Stripe checkout, the webhook that raises the tier
 - [[cire-invite-designs]] — the invite design selector
+- [[cire-envelope]] — the wax-sealed envelope a guest opens before the invite: who sees it, the card drawn from the live hero, boot and failure rules
 - [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it
 - [[cire-plus-ones]] — a guest's plus-one: the organiser's permission, the household's naming, how the change pipeline treats them

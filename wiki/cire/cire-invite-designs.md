@@ -2,6 +2,7 @@
 title: Cire invite design selector
 tags: [systems, web, api, cire]
 related:
+  - "[[cire-envelope]]"
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-auth]]"
@@ -12,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-02
 ---
 # Invite design selector
 
@@ -48,6 +49,18 @@ round-trips.
   follow the pack** (2026-08-06): `invite/design-layout.ts` names each pack's
   structural signature and `HeroSample`/`SectionSample` render it, so switching
   designs visibly re-shapes the miniature. See [[cire-invite-builder]] §preview.
+
+## The envelope above the pack
+
+A wedding may also have an envelope (`wedding_invite_customisations.envelope_id`),
+a choice apart from its design. The envelope opening sits above whichever pack
+renders the page: each pack's `Document.astro` renders the same head boot
+script and stylesheet, the `data-envelope-key` on `<html>`, the replay button
+above the footer, and calls `startEnvelope()` from its module script; the scene
+clones the pack's own hero section (`data-edge-hero`), so it needs nothing from
+the pack's styles. Each pack's hero carries `data-hero-backdrop` (its backdrop's
+load state, or `none` with no image), which the opening waits on. A new pack
+does the same four things. How the opening works: [[cire-envelope]].
 
 ## The claim and welcome panel
 
