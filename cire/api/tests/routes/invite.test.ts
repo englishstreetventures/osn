@@ -3155,6 +3155,7 @@ describe("PUT /invite/envelope (organiser)", () => {
     for (const body of ["{", {}, { envelopeId: 42 }, { envelopeId: [WAX_SEAL] }]) {
       const res = await putEnvelope(app, body);
       expect(res.status).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
     }
   });
 
