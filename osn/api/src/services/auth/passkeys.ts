@@ -14,13 +14,7 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
-import type {
-  AuthenticationResponseJSON,
-  AuthenticatorTransportFuture,
-  PublicKeyCredentialCreationOptionsJSON,
-  PublicKeyCredentialRequestOptionsJSON,
-  RegistrationResponseJSON,
-} from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
@@ -58,6 +52,13 @@ import type {
   TokenSet,
 } from "./types";
 import { toPublicProfile } from "./types";
+import {
+  creationOptions,
+  type CreationOptions,
+  requestOptions,
+  type RequestOptions,
+  storedTransports,
+} from "./webauthn-options";
 
 // Hoisted — a TextEncoder is stateless, so one module-level instance
 // serves every registration ceremony instead of allocating per call.
@@ -178,7 +179,7 @@ export function createPasskeysModule(
      */
     caller?: { readonly recoverySessionHash: string },
   ): Effect.Effect<
-    { options: PublicKeyCredentialCreationOptionsJSON },
+    { options: CreationOptions },
     AuthError | DatabaseError | CoordinationError,
     Db
   > =>
@@ -277,9 +278,7 @@ export function createPasskeysModule(
             attestationType: "none",
             excludeCredentials: existingPasskeys.map((pk) => ({
               id: pk.credentialId,
-              transports: pk.transports
-                ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
-                : undefined,
+              transports: storedTransports(pk.transports),
             })),
             // `residentKey: "preferred"` admits FIDO2 security keys without
             // a resident-key slot (they register as non-discoverable and
@@ -293,7 +292,7 @@ export function createPasskeysModule(
               residentKey: "preferred",
               userVerification: "required",
             },
-          }),
+          }).then(creationOptions),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
@@ -664,7 +663,7 @@ export function createPasskeysModule(
     identifier: string | null,
   ): Effect.Effect<
     {
-      options: PublicKeyCredentialRequestOptionsJSON;
+      options: RequestOptions;
       challengeId?: string;
     },
     AuthError | DatabaseError | CoordinationError,
@@ -685,7 +684,7 @@ export function createPasskeysModule(
               allowCredentials: [],
               userVerification: "required",
               challenge: serverMac.mintChallenge(Date.now() + CHALLENGE_TTL_MS),
-            }),
+            }).then(requestOptions),
           catch: (cause) => new AuthError({ message: String(cause) }),
         });
         return { options, challengeId: options.challenge };
@@ -728,9 +727,7 @@ export function createPasskeysModule(
         profile && profilePasskeys.length > 0
           ? profilePasskeys.map((pk) => ({
               id: pk.credentialId,
-              transports: pk.transports
-                ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
-                : undefined,
+              transports: storedTransports(pk.transports),
             }))
           : null;
       const allowCredentials = realCredentials ?? [
@@ -757,7 +754,7 @@ export function createPasskeysModule(
             // passkey-primary. Registration only admits UV-capable
             // credentials, so this does not regress legitimate sign-ins.
             userVerification: "required",
-          }),
+          }).then(requestOptions),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
@@ -908,9 +905,7 @@ export function createPasskeysModule(
             id: pk.credentialId,
             publicKey: new Uint8Array(Buffer.from(pk.publicKey, "base64")),
             counter: pk.counter,
-            transports: pk.transports
-              ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
-              : undefined,
+            transports: storedTransports(pk.transports),
           },
         }).then(
           (v) => ({ ok: true as const, v }),
