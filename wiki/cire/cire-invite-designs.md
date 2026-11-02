@@ -59,8 +59,13 @@ script and stylesheet, the `data-envelope-key` on `<html>`, the replay button
 above the footer, and calls `startEnvelope()` from its module script; the scene
 clones the pack's own hero section (`data-edge-hero`), so it needs nothing from
 the pack's styles. Each pack's hero carries `data-hero-backdrop` (its backdrop's
-load state, or `none` with no image), which the opening waits on. A new pack
-does the same four things. How the opening works: [[cire-envelope]].
+load state, or `none` with no image), which the opening waits on, and takes the
+`Document`'s `imageCrossOrigin`: on a page with an envelope key the backdrop
+`<img>` gets `crossorigin`, and the crop layers render through `HeroCropLayer`
+as `<img>` elements, so the hero image is downloaded once
+([[cire-envelope#The hero image, once]]). Each `Document.astro` also marks
+`<html>` with `data-design`, its pack's id. A new pack does the same. How the
+opening works: [[cire-envelope]].
 
 ## The claim and welcome panel
 
