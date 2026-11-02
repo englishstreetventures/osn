@@ -1,5 +1,12 @@
 # @osn/social
 
+## 0.18.23
+
+### Patch Changes
+
+- a9123b5: Move `@solidjs/router` from 1.0.0 to 1.0.1, now past the install's minimum
+  release age.
+
 ## 0.18.22
 
 ### Patch Changes
