@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-02
 ---
 
 # OSN Wiki
@@ -35,6 +35,7 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[turnstile]] — Cloudflare Turnstile bot protection (key-optional, fail-closed; shipped inert)
 - [[email]] — transactional mail through `@shared/email`: the Resend, Cloudflare, log and no-op transports, and how one is chosen
 - [[feature-flags]] — GrowthBook flags via `@shared/feature-flags`, key-optional and fail-safe
+- [[i18n]] — translation: the x18n checker's root config, how to run it, and the steps for the first package that adds locale files
 - [[d1-limits]] — D1's 100 bound parameters and 5 compound-select terms, and why `bun:sqlite` never sees either
 - [[d1-read-replication]] — the Sessions API, why every request opens one `first-primary` session, and how to turn replicas on
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
