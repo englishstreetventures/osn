@@ -3923,7 +3923,12 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const updated = await run(
         inviteService.setVisibility(BOOTSTRAP_WEDDING_ID, "w", { footer: false }),
       );
-      expect(updated).toEqual(await run(inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID)));
+      // `envelopeEntitled` is the read's alone: no invite write changes it.
+      const { envelopeEntitled, ...read } = await run(
+        inviteService.getForWeddingId(BOOTSTRAP_WEDDING_ID),
+      );
+      expect(typeof envelopeEntitled).toBe("boolean");
+      expect(updated).toEqual(read);
       expect(updated.visibility).toEqual({
         hero: true,
         story: false,
