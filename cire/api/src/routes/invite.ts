@@ -307,7 +307,7 @@ export const createInvitePublicRoutes = (
       // Event images render SHARP (no blur override). The cache version is derived
       // SERVER-SIDE from the event's R2 key (events have no `updatedAt`), NEVER the
       // client `?v=` — so an attacker can't loop `?v=` to mint unbounded, per-call-
-      // billed transforms (S-M1).
+      // billed transforms.
       const variant = resolveVariant((query as Record<string, string | undefined>).variant);
       const format = negotiateFormat(request.headers.get("accept"));
       return runCire(

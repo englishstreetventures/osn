@@ -369,9 +369,8 @@ const PresetField = Schema.NullOr(Schema.Literals(PALETTE_PRESET_KEYS));
 
 /**
  * Strict CSS-colour allow-list — the write-time half of the CSS-injection
- * gate. The single source of truth lives in `@cire/theme` (IB-S-L1) and is
- * shared with the guest site's render-time check, so the two sides cannot
- * drift.
+ * gate. The single source of truth lives in `@cire/theme` and is shared
+ * with the guest site's render-time check, so the two sides cannot drift.
  */
 export const isThemeColor = isSafeCssColor;
 
