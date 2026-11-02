@@ -1,7 +1,7 @@
 import Button from "@cire/ui/button";
 import { Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
-import Cropper from "cropperjs";
+import { Cropper } from "cropperjs";
 import type { CropperImage, CropperSelection } from "cropperjs";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
