@@ -62,8 +62,10 @@ describe("InviteClosing crop layers (real CSS engine)", () => {
     // Chromium serialises the `1x` resolution as `1dppx`; accept either.
     expect(bg).toMatch(/variant=card[^)]*\)\s*(1x|1dppx)/);
 
-    // Crop framing is untouched by the split.
-    expect(getComputedStyle(narrow).backgroundSize).toBe("200%");
+    // Crop framing is untouched by the split. Chromium serialises the one-value
+    // size with or without its implied `auto` height; accept either and nothing
+    // else, since a second length is the stretch `image-crop.ts` rules out.
+    expect(getComputedStyle(narrow).backgroundSize).toMatch(/^200%( auto)?$/);
   });
 
   it("leaves the wide layer on a single plain hero url", () => {
