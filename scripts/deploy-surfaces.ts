@@ -25,7 +25,10 @@
  *
  * Each cire surface lists every `@cire/*` package it bundles, directly or
  * through another one; scripts/tests/deploy-surface-map.test.ts fails when a
- * package.json gains a `@cire/*` dependency this map lacks. cire-api owns the
+ * package.json gains a `@cire/*` dependency this map lacks. A surface that
+ * imports only a package's catalog entry names just that entry and the
+ * manifest: cire-api and cire-host read `@cire/envelope`'s `src/index.ts`, and
+ * its browser-only scene, seal and boot script ship in the guest site alone. cire-api owns the
  * D1 migrations and the seed scripts, so a change to either redeploys it.
  *
  * Anything every surface builds from — the shared/ packages, the dependency
@@ -147,7 +150,7 @@ export const SURFACES: readonly Surface[] = [
   {
     key: "cire_api",
     paths:
-      /^(cire\/api\/|cire\/db\/|cire\/dietary\/|cire\/guest-email\/|cire\/envelope\/|cire\/invite-designs\/|cire\/theme\/|scripts\/(cire-db-|check-d1-database-id|migration-files))/,
+      /^(cire\/api\/|cire\/db\/|cire\/dietary\/|cire\/guest-email\/|cire\/envelope\/(src\/index\.ts|package\.json)$|cire\/invite-designs\/|cire\/theme\/|scripts\/(cire-db-|check-d1-database-id|migration-files))/,
     stack: "cire",
     production: ownJob("deploy-cire-api", "Deploy cire/api — production"),
     dev: { id: "deploy-cire-api-dev", name: "Deploy cire/api — dev" },
@@ -163,7 +166,7 @@ export const SURFACES: readonly Surface[] = [
   {
     key: "cire_host",
     paths:
-      /^(cire\/host\/|cire\/build-tools\/|cire\/dietary\/|cire\/envelope\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
+      /^(cire\/host\/|cire\/build-tools\/|cire\/dietary\/|cire\/envelope\/(src\/index\.ts|package\.json)$|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
     stack: "cire",
     production: siteDeploy(
       "cire_host",

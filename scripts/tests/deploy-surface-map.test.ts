@@ -14,7 +14,9 @@ import { SURFACES } from "../deploy-surfaces";
  *
  * This holds the map to the package manifests: every `@cire/*` package a
  * surface depends on, directly or through another `@cire/*` package, must be a
- * path its filter matches.
+ * path its filter matches, at its manifest and at its entry (`src/index.ts`).
+ * A surface that imports only a package's entry may name just those two; one
+ * that imports more must name the package's directory.
  */
 
 const root = join(import.meta.dir, "..", "..");
@@ -71,6 +73,6 @@ test.each(surfaces)("%s redeploys when a cire package it bundles changes", (key)
   const missing = [...bundled(name!)]
     .map((pkg) => cire.get(pkg)?.dir)
     .filter((dir): dir is string => dir !== undefined)
-    .filter((dir) => !filter.test(`${dir}package.json`));
+    .filter((dir) => !filter.test(`${dir}package.json`) || !filter.test(`${dir}src/index.ts`));
   expect(missing).toEqual([]);
 });
