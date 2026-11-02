@@ -163,7 +163,7 @@ export const SURFACES: readonly Surface[] = [
   {
     key: "cire_host",
     paths:
-      /^(cire\/host\/|cire\/build-tools\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
+      /^(cire\/host\/|cire\/build-tools\/|cire\/dietary\/|cire\/envelope\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
     stack: "cire",
     production: siteDeploy(
       "cire_host",

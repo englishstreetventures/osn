@@ -144,7 +144,7 @@ describe("which surfaces a change redeploys", () => {
     ["cire/guest-email/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
     ["cire/theme/src/index.ts", ["cire_api", "cire_invites", "cire_host", "cire_vendor"]],
     ["cire/invite-designs/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
-    ["cire/envelope/src/index.ts", ["cire_api"]],
+    ["cire/envelope/src/index.ts", ["cire_api", "cire_host"]],
     ["cire/build-tools/src/index.ts", ["cire_invites", "cire_host", "cire_vendor"]],
     ["osn/api/src/index.ts", ["osn_api"]],
     ["osn/db/drizzle/0009_x.sql", ["osn_api"]],

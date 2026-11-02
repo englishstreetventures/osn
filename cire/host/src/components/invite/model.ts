@@ -137,6 +137,14 @@ export interface InviteCustomisation {
   // (the line above the auto-appended guest-site URL and labelled claim code).
   inviteMessage: string | null;
   designId?: string;
+  // The envelope guests open before the invite, or `null` for none. Optional:
+  // a read from an API older than envelopes has no key, and the builder then
+  // hides the envelope picker.
+  envelopeId?: string | null;
+  // Whether the wedding may use premium envelopes now. Only `GET /invite`
+  // carries it; the write answers that replace the loaded customisation leave
+  // it out, so the builder keeps it apart from them.
+  envelopeEntitled?: boolean;
 }
 
 /** Whether a catalog design is locked for this wedding: premium, with no

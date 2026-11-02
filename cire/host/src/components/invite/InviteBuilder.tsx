@@ -23,11 +23,12 @@
  *
  * Two persistence models coexist deliberately: text/theme and the section
  * visibility switches wait for Save;
- * images, crops, the design selection and the FAQ entries apply immediately (marked with an
+ * images, crops, the design and envelope selections and the FAQ entries apply immediately (marked with an
  * "applies immediately" badge, and image removal asks first). A draft→publish
  * model that would unify them needs API support — tracked in the cire wiki.
  */
 
+import type { EnvelopeId } from "@cire/envelope";
 import { DEFAULT_DESIGN_ID } from "@cire/invite-designs";
 import {
   derivePalette,
@@ -64,6 +65,7 @@ import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
 import { designLayout } from "./design-layout";
 import DesignPicker from "./DesignPicker";
+import EnvelopePicker from "./EnvelopePicker";
 import FaqEditor from "./FaqEditor";
 import {
   ChoiceField,
@@ -219,6 +221,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // dirty draft, but kept out of the save bar, which cannot save either.
   const [faqPending, setFaqPending] = createSignal(false);
 
+  // What only `GET /invite` says about envelopes: whether the API has them at
+  // all (an older one sends no `envelopeId` key, and the picker stays hidden)
+  // and whether the wedding may use one now. The write answers that replace
+  // `data` carry neither, so both are set from each read and never from a write.
+  const [envelopesOffered, setEnvelopesOffered] = createSignal(false);
+  const [envelopeEntitled, setEnvelopeEntitled] = createSignal(false);
+
   const [data, { mutate, refetch }] = createResource<InviteCustomisation>(async () => {
     const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
     if (res.status === 401) {
@@ -231,6 +240,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       faqsLoaded = true;
       setFaqs(body.faqs);
     }
+    setEnvelopesOffered("envelopeId" in body);
+    setEnvelopeEntitled(body.envelopeEntitled === true);
     return body;
   });
 
@@ -738,6 +749,43 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   };
 
+  // Like the design: one PUT per choice, outside the save bar.
+  const [savingEnvelope, setSavingEnvelope] = createSignal(false);
+
+  /** The server-acknowledged envelope, `null` for none. */
+  const currentEnvelope = () => data()?.envelopeId ?? null;
+
+  const selectEnvelope = async (envelopeId: EnvelopeId | null) => {
+    if (savingEnvelope() || currentEnvelope() === envelopeId) return;
+    setSavingEnvelope(true);
+    try {
+      const res = await authFetch(apiUrl(`${base()}/envelope`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ envelopeId }),
+      });
+      if (!res.ok) {
+        // The wedding has lost premium envelopes since this builder read it:
+        // lock the card rather than let the next click fail the same way.
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (body.error === "premium_envelope") setEnvelopeEntitled(false);
+        throw new Error(`Envelope save failed (${res.status})`);
+      }
+      mutate((await res.json()) as InviteCustomisation);
+      haptic("commit");
+      toast.success("Envelope updated");
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return;
+      }
+      haptic("reject");
+      toast.error("Could not update the envelope");
+    } finally {
+      setSavingEnvelope(false);
+    }
+  };
+
   // The wedding's public guest-invite URL, shared with generated messages.
   const guestBaseUrl = () =>
     `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(props.weddingSlug)}`;
@@ -1117,6 +1165,15 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       onSelect={(id) => void selectDesign(id)}
                       previewHref={designPreviewHref}
                     />
+                    <Show when={envelopesOffered()}>
+                      <EnvelopePicker
+                        entitled={envelopeEntitled()}
+                        currentId={currentEnvelope()}
+                        saving={savingEnvelope()}
+                        heroState={heroSectionState()}
+                        onSelect={(id) => void selectEnvelope(id)}
+                      />
+                    </Show>
                   </SectionCard>
 
                   {/* ── Look (global): typography + the colour scheme ──── */}
