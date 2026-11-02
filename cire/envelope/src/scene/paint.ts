@@ -41,16 +41,49 @@ function texture(ctx: CanvasRenderingContext2D): CanvasTexture {
   return tex;
 }
 
-/** Fine speckle over a filled area, so flat paper does not read as plastic. */
-function grain(ctx: CanvasRenderingContext2D, seed: number, alpha: number): void {
+/** The side of the square the paper grain repeats on, in texels. */
+const GRAIN_TILE = 128;
+/** One speck per this many texels. */
+const GRAIN_SPACING = 90;
+
+const grainTiles = new Map<string, HTMLCanvasElement>();
+
+/**
+ * A seeded tile of single-texel specks, dark and light, each at a random
+ * share of `alpha`. Written in one `ImageData` and kept, so each paper build
+ * and each replay reuses it.
+ */
+function grainTile(seed: number, alpha: number): HTMLCanvasElement {
+  const id = `${seed}:${alpha}`;
+  const kept = grainTiles.get(id);
+  if (kept) return kept;
+  const ctx = surface(GRAIN_TILE, GRAIN_TILE);
+  const image = ctx.createImageData(GRAIN_TILE, GRAIN_TILE);
   const rand = seeded(seed);
-  const { width, height } = ctx.canvas;
-  const count = Math.round((width * height) / 90);
+  const count = Math.round((GRAIN_TILE * GRAIN_TILE) / GRAIN_SPACING);
   for (let i = 0; i < count; i++) {
     const shade = rand() < 0.5 ? 0 : 255;
-    ctx.fillStyle = `rgba(${shade},${shade},${shade},${alpha * rand()})`;
-    ctx.fillRect(rand() * width, rand() * height, 1, 1);
+    const opacity = alpha * rand();
+    const at = (Math.floor(rand() * GRAIN_TILE) * GRAIN_TILE + Math.floor(rand() * GRAIN_TILE)) * 4;
+    image.data[at] = shade;
+    image.data[at + 1] = shade;
+    image.data[at + 2] = shade;
+    image.data[at + 3] = Math.round(opacity * 255);
   }
+  ctx.putImageData(image, 0, 0);
+  grainTiles.set(id, ctx.canvas);
+  return ctx.canvas;
+}
+
+/**
+ * Fine speckle over a filled area, so flat paper does not read as plastic:
+ * one fill with the seeded tile as a repeating pattern, inside the current clip.
+ */
+function grain(ctx: CanvasRenderingContext2D, seed: number, alpha: number): void {
+  const pattern = ctx.createPattern(grainTile(seed, alpha), "repeat");
+  if (!pattern) return;
+  ctx.fillStyle = pattern;
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 }
 
 function polygon(ctx: CanvasRenderingContext2D, points: ReadonlyArray<readonly [number, number]>) {
