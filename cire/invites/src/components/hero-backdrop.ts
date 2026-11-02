@@ -21,18 +21,21 @@ export function createHeroBackdrop(src: Accessor<string | null>): HeroBackdrop {
   const [state, setState] = createSignal<HeroBackdropState>("pending");
 
   // SSR-hydration fix: on an SSR page the browser starts loading the server-
-  // rendered <img> during HTML parse, and its `load` event commonly fires
-  // BEFORE the Solid island hydrates and attaches `onLoad` — so `onLoad` would
-  // never run and the image stays at opacity 0 forever. Hold a ref and, on
-  // mount, check `complete && naturalWidth > 0`: if the browser already
-  // finished loading, mark it loaded immediately. `onLoad`/`onError` still
-  // cover the not-yet-loaded path.
+  // rendered <img> during HTML parse, and its `load` or `error` event commonly
+  // fires BEFORE the Solid island hydrates and attaches `onLoad`/`onError` —
+  // so neither would run and the state would stay `pending` for ever. Hold a
+  // ref and, on mount, read the finished request off the element: `complete`
+  // with a width is loaded, `complete` with none failed. `onLoad`/`onError`
+  // still cover the not-yet-finished path.
   let imgEl: HTMLImageElement | undefined;
   const revealIfAlreadyLoaded = () => {
     const el = imgEl;
     if (el && el.complete && el.naturalWidth > 0) setState("loaded");
   };
-  onMount(revealIfAlreadyLoaded);
+  onMount(() => {
+    const el = imgEl;
+    if (el?.complete) setState(el.naturalWidth > 0 ? "loaded" : "error");
+  });
 
   // Re-arm the lifecycle ONLY when the resolved backdrop src actually changes
   // (a new upload or a variant flip). New invite data can carry the SAME url —
@@ -47,7 +50,7 @@ export function createHeroBackdrop(src: Accessor<string | null>): HeroBackdrop {
     const current = src();
     if (prevSrc === undefined) {
       // First run: adopt the SSR src without forcing pending (the onMount
-      // ref check owns the already-loaded case).
+      // ref check owns the already-finished case).
       prevSrc = current;
       return;
     }
@@ -55,7 +58,9 @@ export function createHeroBackdrop(src: Accessor<string | null>): HeroBackdrop {
       prevSrc = current;
       setState("pending");
       // The new src may already be in the browser cache (so no `load`
-      // fires); re-check the ref after the DOM updates.
+      // fires); re-check the ref after the DOM updates. Loaded only: after a
+      // failure the ref can still hold the unmounted failed element, which
+      // must not fail the new src.
       queueMicrotask(revealIfAlreadyLoaded);
     }
   });

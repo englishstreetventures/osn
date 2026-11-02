@@ -36,17 +36,29 @@ describe("createHeroBackdrop", () => {
     });
   });
 
-  it("marks loaded on mount when the ref'd image already completed", () => {
+  it("marks loaded on mount when the ref'd image already completed", async () => {
     // jsdom images are never complete-with-naturalWidth; simulate via a stub object.
-    createRoot((dispose) => {
+    await createRoot(async (dispose) => {
       const [src] = createSignal<string | null>("/a");
       const hb = createHeroBackdrop(src);
       hb.setImgRef({ complete: true, naturalWidth: 100 } as HTMLImageElement);
       // onMount runs after createRoot body in Solid's microtask; flush:
-      return Promise.resolve().then(() => {
-        expect(hb.state()).toBe("loaded");
-        dispose();
-      });
+      await Promise.resolve();
+      expect(hb.state()).toBe("loaded");
+      dispose();
+    });
+  });
+
+  it("marks error on mount when the ref'd image already failed", async () => {
+    // An image that fails before the island hydrates fires its `error` event
+    // before `onError` is attached; it is complete with no width.
+    await createRoot(async (dispose) => {
+      const [src] = createSignal<string | null>("/a");
+      const hb = createHeroBackdrop(src);
+      hb.setImgRef({ complete: true, naturalWidth: 0 } as HTMLImageElement);
+      await Promise.resolve();
+      expect(hb.state()).toBe("error");
+      dispose();
     });
   });
 });
