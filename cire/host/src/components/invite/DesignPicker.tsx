@@ -127,7 +127,9 @@ export default function DesignPicker(props: {
                     <span class="text-gold-ink text-ui-xs tracking-ui-wider uppercase">Locked</span>
                   </Show>
                   <Show when={checked()}>
-                    <span class="text-gold text-ui-xs tracking-ui-wider uppercase">Current</span>
+                    <span class="text-gold-ink text-ui-xs tracking-ui-wider uppercase">
+                      Current
+                    </span>
                   </Show>
                 </button>
                 <Show when={!isLocked()}>

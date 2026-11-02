@@ -958,7 +958,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       class="border-border bg-surface/30 @container/builder flex flex-col gap-8 rounded-sm border p-6"
     >
       <header class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Invite Builder</p>
+        <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest uppercase">
+          Invite Builder
+        </p>
         <h2 class="font-display text-text text-ui-lg font-light">Customise your invite</h2>
         <p class="font-body text-text-muted text-ui-sm">
           Use the tabs below to move between sections of the guest invite, in the order guests see
@@ -1674,7 +1676,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       <span class="font-body text-text-muted text-ui-sm">All changes saved</span>
                     }
                   >
-                    <span role="status" class="font-body text-gold text-ui-sm">
+                    <span role="status" class="font-body text-gold-ink text-ui-sm">
                       Unsaved changes
                     </span>
                   </Show>
