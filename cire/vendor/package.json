@@ -19,7 +19,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "@astrojs/solid-js": "^7.0.2",
+    "@astrojs/solid-js": "7.1.0",
     "@cire/theme": "workspace:*",
     "@cire/ui": "workspace:*",
     "@kobalte/core": "^0.13.14",
@@ -28,7 +28,7 @@
     "@shared/toast": "workspace:*",
     "@shared/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "^7.4.2",
+    "astro": "7.4.4",
     "solid-js": "^1.9.18",
     "tailwindcss": "^4.3.3",
     "web-haptics": "0.0.6"
@@ -44,7 +44,7 @@
     "typescript": "7.1.0-beta",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
-    "vitest": "5.0.3"
+    "vitest": "5.0.5"
   },
   "portless": {
     "name": "vendor.cire",

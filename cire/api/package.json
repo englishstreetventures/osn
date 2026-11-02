@@ -43,16 +43,16 @@
     "@shared/realtime": "workspace:*",
     "@shared/turnstile": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.0.5",
+    "effect": "4.0.7",
     "elysia": "^1.4.30"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/sdk-metrics": "^2.10.0",
+    "@opentelemetry/sdk-metrics": "2.12.0",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
-    "jose": "^6.2.12",
+    "jose": "6.2.14",
     "miniflare": "^4.20260730.0",
     "typescript": "7.1.0-beta",
     "wrangler": "4.149.0"

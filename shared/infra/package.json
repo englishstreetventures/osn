@@ -27,14 +27,14 @@
     "state:check": "DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.5",
-    "@effect/platform-node": "4.0.5",
+    "@effect/platform-bun": "4.0.7",
+    "@effect/platform-node": "4.0.7",
     "alchemy": "2.0.0-beta.83",
-    "effect": "4.0.5"
+    "effect": "4.0.7"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "mime": "4.0.7",
-    "vitest": "5.0.3"
+    "vitest": "5.0.5"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@osn/api",
-  "version": "3.31.1",
+  "version": "3.31.2",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -39,11 +39,11 @@
     "@shared/openapi-tools": "workspace:*",
     "@shared/rate-limit": "workspace:*",
     "@shared/turnstile": "workspace:*",
-    "@simplewebauthn/server": "^13.3.3",
+    "@simplewebauthn/server": "^14.0.3",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.0.5",
+    "effect": "4.0.7",
     "elysia": "^1.4.30",
-    "jose": "^6.2.12"
+    "jose": "6.2.14"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
@@ -52,7 +52,7 @@
     "@shared/osn-auth-client": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "miniflare": "^4.20260730.0",
-    "vitest": "5.0.3",
+    "vitest": "5.0.5",
     "wrangler": "4.149.0"
   }
 }

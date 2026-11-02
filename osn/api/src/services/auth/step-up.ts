@@ -20,11 +20,7 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
-import type {
-  AuthenticationResponseJSON,
-  AuthenticatorTransportFuture,
-  PublicKeyCredentialRequestOptionsJSON,
-} from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -56,6 +52,7 @@ import {
 import { recordAssertion } from "./passkey-counter";
 import { storeCall } from "./store-call";
 import type { AssertingCredential, PasskeyProvenance } from "./types";
+import { requestOptions, type RequestOptions, storedTransports } from "./webauthn-options";
 
 /**
  * What a gate hands {@link createStepUpModule}'s verifier so it can apply the
@@ -432,7 +429,7 @@ export function createStepUpModule(ctx: AuthContext) {
   const beginStepUpPasskey = (
     accountId: string,
   ): Effect.Effect<
-    { options: PublicKeyCredentialRequestOptionsJSON },
+    { options: RequestOptions },
     AuthError | DatabaseError | CoordinationError,
     Db
   > =>
@@ -453,12 +450,10 @@ export function createStepUpModule(ctx: AuthContext) {
             rpID: config.rpId,
             allowCredentials: accountPasskeys.map((pk) => ({
               id: pk.credentialId,
-              transports: pk.transports
-                ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
-                : undefined,
+              transports: storedTransports(pk.transports),
             })),
             userVerification: "preferred",
-          }),
+          }).then(requestOptions),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
       // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
@@ -524,9 +519,7 @@ export function createStepUpModule(ctx: AuthContext) {
               id: pk.credentialId,
               publicKey: new Uint8Array(Buffer.from(pk.publicKey, "base64")),
               counter: pk.counter,
-              transports: pk.transports
-                ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
-                : undefined,
+              transports: storedTransports(pk.transports),
             },
           }),
         catch: (cause) => new AuthError({ message: String(cause) }),
