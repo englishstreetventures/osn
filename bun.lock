@@ -882,7 +882,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.25",
+      "version": "0.3.26",
       "dependencies": {
         "@shared/color": "workspace:*",
         "@shared/design-tokens": "workspace:*",
