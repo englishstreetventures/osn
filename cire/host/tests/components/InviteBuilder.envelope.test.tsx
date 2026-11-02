@@ -117,6 +117,10 @@ describe("InviteBuilder envelope picker, refusals", () => {
     const seal = await findCard(/Wax seal/);
     expect(seal.getAttribute("aria-disabled")).toBe("true");
     expect(seal.textContent).toContain("Locked");
+    // Nothing stored, so nothing is switched off, and the tab stop is None's.
+    expect(screen.queryByText(/is switched off/)).toBeNull();
+    expect((await findCard(/None/)).tabIndex).toBe(0);
+    expect(seal.tabIndex).toBe(-1);
 
     fireEvent.click(seal);
     expect(envelopeSaves()).toBe(0);
@@ -130,11 +134,26 @@ describe("InviteBuilder envelope picker, refusals", () => {
       const none = await findCard(/None/);
       const seal = await findCard(/Wax seal/);
 
-      fireEvent.keyDown(none, { key });
+      // The group takes the key (no page scroll), and the tab stop follows
+      // focus onto the locked card while the choice stays None.
+      expect(fireEvent.keyDown(none, { key })).toBe(false);
       await waitFor(() => expect(document.activeElement).toBe(seal));
+      expect(seal.tabIndex).toBe(0);
+      expect(none.tabIndex).toBe(-1);
+      expect(none.getAttribute("aria-checked")).toBe("true");
       expect(envelopeSaves()).toBe(0);
     },
   );
+
+  it("leaves Enter and Space on the locked card to the button, which chooses nothing", async () => {
+    answer({ envelopeId: null, envelopeEntitled: false });
+    renderBuilder();
+    const seal = await findCard(/Wax seal/);
+    for (const key of ["Enter", " "]) {
+      expect(fireEvent.keyDown(seal, { key })).toBe(true);
+    }
+    expect(envelopeSaves()).toBe(0);
+  });
 
   it("shows a stored envelope the wedding may no longer use as chosen but switched off", async () => {
     answer({ envelopeId: "wax-seal", envelopeEntitled: false });
@@ -144,6 +163,8 @@ describe("InviteBuilder envelope picker, refusals", () => {
     expect(seal.getAttribute("aria-disabled")).toBe("true");
     expect(seal.textContent).toContain("Switched off");
     expect(seal.textContent).not.toContain("Current");
+    expect(seal.tabIndex).toBe(0);
+    expect((await findCard(/None/)).tabIndex).toBe(-1);
     expect(screen.getByText(/Your Wax seal is switched off/)).toBeTruthy();
 
     fireEvent.click(seal);
@@ -194,6 +215,8 @@ describe("InviteBuilder envelope picker, refusals", () => {
     expect(seal.getAttribute("aria-checked")).toBe("false");
     await waitFor(() => expect(seal.getAttribute("aria-disabled")).toBeNull());
     expect(seal.textContent).not.toContain("Locked");
+    // The tab stop stays on the card the organiser clicked.
+    expect(seal.tabIndex).toBe(0);
   });
 
   it("sends the organiser to sign in, with no error toast, when the save finds the session expired", async () => {

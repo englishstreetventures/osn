@@ -207,6 +207,8 @@ test("cire-checklist-holders", async ({ page, flow }) => {
     await expect(page.getByText("Envelope updated")).toBeVisible();
     // The holders wedding has no hero content, so guests would see no envelope.
     await expect(heroNote).toContainText("Add a title, a subtitle or an image");
+    // Allowed on this wedding, so nothing says it is switched off.
+    await expect(page.getByText("is switched off")).toHaveCount(0);
     return status;
   });
   flow.check("the Wax seal envelope saved", 200, picked);
@@ -218,6 +220,9 @@ test("cire-checklist-holders", async ({ page, flow }) => {
     await expect(envelopes).toBeVisible({ timeout: 60_000 });
     await expect(seal).toHaveAttribute("aria-checked", "true");
     await expect(none).toHaveAttribute("aria-checked", "false");
+    // One tab stop for the group, on the chosen card.
+    await expect(seal).toHaveAttribute("tabindex", "0");
+    await expect(none).toHaveAttribute("tabindex", "-1");
   });
 
   // The whole page, so the sticky save bar sits where it ends rather than
@@ -245,24 +250,39 @@ test("cire-checklist-holders", async ({ page, flow }) => {
     await page.emulateMedia({ colorScheme: "light" });
   });
 
-  await flow.step("switch the hero off: the picker says why", async () => {
-    const heroSwitch = page
-      .locator("#invite-hero")
-      .getByRole("checkbox", { name: "Show on the invite" });
-    // The builder's own tabs; the module's view bar has a "Design" tab too.
-    const sections = page.getByLabel("Invite sections");
-    await sections.getByRole("tab", { name: /^Hero/ }).click();
-    await heroSwitch.uncheck();
-    await sections.getByRole("tab", { name: /^Design/ }).click();
-    await expect(heroNote).toContainText("Turn the hero on to show it");
-    // Back on, so the draft is clean and no navigation below meets the
-    // unsaved-changes guard.
-    await sections.getByRole("tab", { name: /^Hero/ }).click();
-    await heroSwitch.check();
-    await sections.getByRole("tab", { name: /^Design/ }).click();
-    await expect(heroNote).toContainText("Add a title, a subtitle or an image");
-    await expect(unsaved).toHaveCount(0);
-  });
+  await flow.step(
+    "switch the hero off, then give it a title: the picker says why, then nothing",
+    async () => {
+      const heroSwitch = page
+        .locator("#invite-hero")
+        .getByRole("checkbox", { name: "Show on the invite" });
+      const heroTitle = page.locator("#invite-hero").getByLabel("Couple title");
+      // The builder's own tabs; the module's view bar has a "Design" tab too.
+      const sections = page.getByLabel("Invite sections");
+      await sections.getByRole("tab", { name: /^Hero/ }).click();
+      await heroSwitch.uncheck();
+      await sections.getByRole("tab", { name: /^Design/ }).click();
+      await expect(heroNote).toContainText("Turn the hero on to show it");
+      // Back on, so the draft is clean and no navigation below meets the
+      // unsaved-changes guard.
+      await sections.getByRole("tab", { name: /^Hero/ }).click();
+      await heroSwitch.check();
+      await sections.getByRole("tab", { name: /^Design/ }).click();
+      await expect(heroNote).toContainText("Add a title, a subtitle or an image");
+      // A hero with a title is shown, so the envelope has somewhere to open.
+      await sections.getByRole("tab", { name: /^Hero/ }).click();
+      await heroTitle.fill("Holders Wedding");
+      await sections.getByRole("tab", { name: /^Design/ }).click();
+      await expect(heroNote).toHaveCount(0);
+      // Cleared again, so the draft is clean and no navigation below meets the
+      // unsaved-changes guard.
+      await sections.getByRole("tab", { name: /^Hero/ }).click();
+      await heroTitle.fill("");
+      await sections.getByRole("tab", { name: /^Design/ }).click();
+      await expect(heroNote).toContainText("Add a title, a subtitle or an image");
+      await expect(unsaved).toHaveCount(0);
+    },
+  );
 
   const cleared = await flow.step("set the envelope back to None with Home", async () => {
     // A click on the card already chosen saves nothing; Home then moves to
