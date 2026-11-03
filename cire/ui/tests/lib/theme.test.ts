@@ -309,6 +309,12 @@ describe("themeBootScript", () => {
     );
   });
 
+  it("refuses a key that could close the script it is inlined in", () => {
+    expect(() => themeBootScript("x</script><script>alert(1)//")).toThrow(/plain dotted name/);
+    expect(() => themeBootScript('a"b')).toThrow(/plain dotted name/);
+    expect(() => themeBootScript("cire.vendor.theme")).not.toThrow();
+  });
+
   it("reads its own key and no other", () => {
     localStorage.setItem("other.theme", "light");
     // eslint-disable-next-line no-eval

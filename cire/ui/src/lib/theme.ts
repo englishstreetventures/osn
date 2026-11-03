@@ -84,9 +84,11 @@ export interface Preferences {
 }
 
 export function createPreferences(keys: PreferenceKeys): Preferences {
+  // `typeof localStorage` inside the `try` too: where a browser blocks site
+  // storage, reading the name itself throws.
   function readThemePreference(): ThemePreference {
-    if (typeof localStorage === "undefined") return "system";
     try {
+      if (typeof localStorage === "undefined") return "system";
       const stored = localStorage.getItem(keys.themeKey);
       return isTheme(stored) ? stored : "system";
     } catch {
@@ -95,8 +97,8 @@ export function createPreferences(keys: PreferenceKeys): Preferences {
   }
 
   function readHapticsPreference(): boolean {
-    if (typeof localStorage === "undefined") return true;
     try {
+      if (typeof localStorage === "undefined") return true;
       return localStorage.getItem(keys.hapticsKey) !== "off";
     } catch {
       return true;

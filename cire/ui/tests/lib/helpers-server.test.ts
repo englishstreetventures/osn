@@ -18,6 +18,26 @@ describe("the portal helpers with no browser", () => {
     expect(() => preferences.initTheme()()).not.toThrow();
   });
 
+  it("read every preference as a first visit where even naming localStorage throws", () => {
+    // A browser that blocks site storage throws on the name itself, which
+    // `typeof` does not stop.
+    const before = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError");
+      },
+    });
+    try {
+      const preferences = createPreferences({ themeKey: "t.theme", hapticsKey: "t.haptics" });
+      expect(preferences.readThemePreference()).toBe("system");
+      expect(preferences.readHapticsPreference()).toBe(true);
+    } finally {
+      if (before) Object.defineProperty(globalThis, "localStorage", before);
+      else Reflect.deleteProperty(globalThis, "localStorage");
+    }
+  });
+
   it("offer no haptics and play none", () => {
     const haptics = createHaptics({ enabled: () => true, names: ["commit"] });
     expect(haptics.hapticsAvailable()).toBe(false);

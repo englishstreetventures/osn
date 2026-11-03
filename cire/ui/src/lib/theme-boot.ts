@@ -30,6 +30,12 @@ export const LIGHT_QUERY = "(prefers-color-scheme: light)";
  * `matchMedia` is simply given the house dark.
  */
 export function themeBootScript(storageKey: string): string {
+  // The script is inlined in a page's <head>, so a key that could close the
+  // element or the string would write markup there. A portal's key is a plain
+  // dotted name; anything else stops the build that called this.
+  if (!/^[A-Za-z0-9._-]+$/.test(storageKey)) {
+    throw new Error(`themeBootScript: storage key must be a plain dotted name`);
+  }
   return (
     `(function(){var p=null;` +
     `try{p=localStorage.getItem(${JSON.stringify(storageKey)})}catch(e){}` +
