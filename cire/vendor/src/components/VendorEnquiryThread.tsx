@@ -1,14 +1,13 @@
 import Button from "@cire/ui/button";
 import Card, { cardBoxClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
-import Loading from "@cire/ui/loading";
+import MessageThread, { type MessageThreadItem } from "@cire/ui/message-thread";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
-import { Textarea } from "@shared/ui/ui/textarea";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal } from "solid-js";
 
 import {
   friendlyEnquiryError,
@@ -42,31 +41,38 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
     getEnquiryMessages(authFetch, props.enquiryId),
   );
 
-  // ── Reply box state ───────────────────────────────────────────────────────
-  const [draft, setDraft] = createSignal("");
-  const [sending, setSending] = createSignal(false);
+  // `latest`, and only once there is a value: reading the resource while it
+  // loads would suspend the view around the card, and reading it once it has
+  // failed would throw.
+  const thread = () =>
+    (messages.state === "ready" || messages.state === "refreshing"
+      ? (messages.latest ?? [])
+      : []
+    ).map((m): MessageThreadItem => ({
+      id: m.id,
+      from: m.senderProfileId === props.ownProfileId ? "me" : "them",
+      body: m.body,
+      sentAt: m.createdAt,
+      undelivered: m.id === "pending",
+    }));
+
+  // ── Reply ─────────────────────────────────────────────────────────────────
   const [replyError, setReplyError] = createSignal<string | null>(null);
 
-  const sendDisabled = () => sending() || draft().trim() === "";
-
-  async function handleSend() {
-    if (sendDisabled()) return;
-    const text = draft().trim();
-    setSending(true);
+  /** Rejects on failure, so the reply box keeps the words. */
+  async function send(text: string) {
     setReplyError(null);
     try {
       await replyToEnquiry(authFetch, props.enquiryId, text);
-      haptic("commit");
-      setDraft("");
-      void refetch();
     } catch (err) {
       haptic("reject");
       const message = friendlyEnquiryError(err);
       setReplyError(message);
       toast.error(message);
-    } finally {
-      setSending(false);
+      throw err;
     }
+    haptic("commit");
+    void refetch();
   }
 
   // ── Quote form state ──────────────────────────────────────────────────────
@@ -121,94 +127,13 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
         safe — please don't share passwords or card details.
       </Notice>
 
-      {/* ── Messages ─────────────────────────────────────────────────────── */}
-      <Show when={messages.loading}>
-        <Loading label="Loading messages…" />
-      </Show>
-
-      <Show when={messages.error}>
-        <Notice tone="danger" alert>
-          Could not load messages. Please refresh.
-        </Notice>
-      </Show>
-
-      <Show when={!messages.loading && !messages.error}>
-        <Show
-          when={(messages()?.length ?? 0) > 0}
-          fallback={
-            <p class="font-body text-text-muted text-ui-base">
-              No messages yet. Your reply will start the thread.
-            </p>
-          }
-        >
-          <div class="flex flex-col gap-3">
-            <For each={messages()}>
-              {(m) => {
-                const mine = m.senderProfileId === props.ownProfileId;
-                return (
-                  <div
-                    data-mine={String(mine)}
-                    class={`flex ${mine ? "justify-end" : "justify-start"}`}
-                  >
-                    <div
-                      class={`font-body text-ui-base rounded-ui-lg max-w-3/4 px-4 py-2.5 ${
-                        mine
-                          ? "bg-brand text-on-brand"
-                          : "border-border bg-surface/50 text-text border"
-                      }`}
-                    >
-                      {/* Who said it, for anyone who cannot see which side of
-                          the column the bubble is on. Alignment is the only
-                          thing that carried it before. */}
-                      <span class="sr-only">{mine ? "You wrote: " : "They wrote: "}</span>
-                      {m.body}
-                      <time
-                        datetime={new Date(m.createdAt).toISOString()}
-                        class="text-text-muted text-ui-xs mt-1 block"
-                      >
-                        {new Date(m.createdAt).toLocaleTimeString(undefined, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </time>
-                    </div>
-                  </div>
-                );
-              }}
-            </For>
-          </div>
-        </Show>
-      </Show>
-
-      {/* ── Reply box ────────────────────────────────────────────────────── */}
-      <div class="flex flex-col gap-2">
-        <Field label="Reply" labelHidden errors={replyError() ? [replyError()!] : undefined}>
-          {(field) => (
-            <Textarea
-              {...field}
-              rows={3}
-              // Inside VendorApp's createAutoSize() panel, same as
-              // ListingEditor's description box: the reflow guard keys off
-              // width alone, so a height-only resize reads as a content swap
-              // and restarts a transition per observer delivery. Keep this
-              // resize-none until that guard accounts for height too.
-              resize="none"
-              placeholder="Write a reply…"
-              value={draft()}
-              onInput={(e) => setDraft(e.currentTarget.value)}
-              disabled={sending()}
-            />
-          )}
-        </Field>
-        <Button
-          variant="primary"
-          onClick={() => void handleSend()}
-          disabled={sendDisabled()}
-          class="self-end"
-        >
-          {sending() ? "Sending…" : "Send"}
-        </Button>
-      </div>
+      <MessageThread
+        messages={thread()}
+        loading={messages.loading}
+        error={messages.error ? "Could not load messages. Please refresh." : null}
+        emptyHint="Your reply will start the thread."
+        reply={{ onSend: send, error: replyError() }}
+      />
 
       {/* ── Quote form ───────────────────────────────────────────────────── */}
       <div class={QUOTE_FORM_CLASS}>
