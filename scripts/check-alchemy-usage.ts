@@ -313,12 +313,14 @@ const scriptSegments = (
   );
 
 export function checkPackageScripts(where: string, manifestText: string): Finding[] {
-  return scriptSegments(where, manifestText).flatMap(({ at, segment }) => [
-    ...(inlineValue(segment, "DO_NOT_TRACK") === "1"
-      ? []
-      : [{ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" }]),
-    ...forbidden(at, segment),
-  ]);
+  const findings: Finding[] = [];
+  for (const { at, segment } of scriptSegments(where, manifestText)) {
+    if (inlineValue(segment, "DO_NOT_TRACK") !== "1") {
+      findings.push({ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" });
+    }
+    findings.push(...forbidden(at, segment));
+  }
+  return findings;
 }
 
 /**
