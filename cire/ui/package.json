@@ -27,7 +27,7 @@
     "./username-input": "./src/username-input.tsx"
   },
   "scripts": {
-    "typecheck": "bun check --no-script",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
     "test": "bunx --bun vitest --project unit",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:run": "bunx --bun vitest run --project unit",
