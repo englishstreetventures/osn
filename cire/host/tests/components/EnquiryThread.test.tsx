@@ -71,6 +71,22 @@ describe("EnquiryThread", () => {
     expect(theirsBubble).toHaveAttribute("data-mine", "false");
   });
 
+  it("marks the couple's waiting first message as not delivered, and no other", () => {
+    render(() => (
+      <EnquiryThread
+        {...base}
+        messages={[
+          msg({ id: "pending", body: "Are you free in March?" }),
+          msg({ id: "msg_sent", body: "Hello vendor" }),
+        ]}
+      />
+    ));
+    const waiting = screen.getByText("Are you free in March?").closest("[data-message-id]");
+    const sent = screen.getByText("Hello vendor").closest("[data-message-id]");
+    expect(waiting).toHaveTextContent(/not delivered yet/);
+    expect(sent).not.toHaveTextContent(/not delivered yet/);
+  });
+
   it("tags the vendor's name with its category's name, in sentence case", () => {
     render(() => <EnquiryThread {...base} />);
     expect(chipLook(screen.getByText("Florals"))).toEqual({
@@ -130,10 +146,17 @@ describe("EnquiryThread", () => {
     expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
   });
 
-  it("send button is disabled when draft is empty", () => {
+  it("send button is disabled and hidden while the box is blank", () => {
     render(() => <EnquiryThread {...base} />);
-    const sendBtn = screen.getByRole("button", { name: /send/i });
+    expect(screen.queryByRole("button", { name: /^send$/i })).not.toBeInTheDocument();
+    // Out of the accessibility tree while blank, so found by its label, not its role.
+    const sendBtn = document.querySelector('button[aria-label="Send"]');
     expect(sendBtn).toBeDisabled();
+    expect(sendBtn).toHaveAttribute("aria-hidden", "true");
+    fireEvent.input(screen.getByPlaceholderText(/write a reply/i), { target: { value: "   " } });
+    expect(sendBtn).toBeDisabled();
+    fireEvent.input(screen.getByPlaceholderText(/write a reply/i), { target: { value: "Hi" } });
+    expect(screen.getByRole("button", { name: /^send$/i })).toBeEnabled();
   });
 
   it("keeps text and calls toast.error when onSend rejects", async () => {
@@ -142,7 +165,9 @@ describe("EnquiryThread", () => {
     const box = screen.getByPlaceholderText(/write a reply/i) as HTMLTextAreaElement;
     fireEvent.input(box, { target: { value: "test message" } });
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
-    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Couldn't send your message. Please try again."),
+    );
     expect(box.value).toBe("test message");
   });
 });

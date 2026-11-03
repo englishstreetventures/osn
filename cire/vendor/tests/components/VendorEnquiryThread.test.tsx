@@ -112,6 +112,29 @@ describe("VendorEnquiryThread", () => {
     expect(theirBubble?.getAttribute("data-mine")).toBe("false");
   });
 
+  it("marks only the API's waiting message as not delivered", async () => {
+    mockGetEnquiryMessages.mockResolvedValue([
+      makeMessage({ id: "pending", senderProfileId: "p-couple", body: "Are you free?" }),
+      makeMessage({ id: "msg-2", senderProfileId: "p-vendor", body: "We are" }),
+    ]);
+    render(() => (
+      <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
+    ));
+    await waitFor(() => expect(screen.getByText("We are")).toBeInTheDocument());
+    const row = (text: string) => screen.getByText(text).closest("[data-message-id]");
+    expect(row("Are you free?")).toHaveTextContent(/not delivered yet/);
+    expect(row("We are")).not.toHaveTextContent(/not delivered yet/);
+  });
+
+  it("draws no message while the first read is out", async () => {
+    mockGetEnquiryMessages.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
+    ));
+    expect(await screen.findByText("Loading messages…")).toBeInTheDocument();
+    expect(document.querySelector("[data-message-id]")).toBeNull();
+  });
+
   // ── Reply box ─────────────────────────────────────────────────────────────
 
   it("calls replyToEnquiry and refetches on send", async () => {
@@ -138,6 +161,21 @@ describe("VendorEnquiryThread", () => {
     );
     // Refetch triggered — messages updated
     await waitFor(() => expect(mockGetEnquiryMessages).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText("Reply sent")).toBeInTheDocument());
+  });
+
+  it("keeps the thread on screen while it is read again after a send", async () => {
+    const msg = makeMessage({ body: "First message" });
+    mockGetEnquiryMessages.mockResolvedValueOnce([msg]).mockReturnValueOnce(new Promise(() => {}));
+    mockReplyToEnquiry.mockResolvedValue(makeMessage({ id: "msg-2", body: "Reply sent" }));
+    render(() => (
+      <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
+    ));
+    await waitFor(() => expect(screen.getByText("First message")).toBeInTheDocument());
+    fireEvent.input(screen.getByPlaceholderText(/write a reply/i), { target: { value: "Hi" } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+    await waitFor(() => expect(mockGetEnquiryMessages).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("First message")).toBeInTheDocument();
   });
 
   it("disables send button when textarea is empty", async () => {
@@ -146,9 +184,12 @@ describe("VendorEnquiryThread", () => {
       <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
     ));
     await waitFor(() => expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument());
-    // The Send button should be disabled while textarea is empty
-    const sendBtn = screen.getByRole("button", { name: /^send$/i });
+    // Disabled and out of the accessibility tree while the box is blank, so
+    // found by its label, not its role.
+    expect(screen.queryByRole("button", { name: /^send$/i })).not.toBeInTheDocument();
+    const sendBtn = document.querySelector('button[aria-label="Send"]');
     expect(sendBtn).toBeDisabled();
+    expect(sendBtn).toHaveAttribute("aria-hidden", "true");
   });
 
   it("shows toast.error and preserves text on reply failure", async () => {
@@ -170,6 +211,11 @@ describe("VendorEnquiryThread", () => {
     expect((screen.getByPlaceholderText(/write a reply/i) as HTMLTextAreaElement).value).toBe(
       "My text",
     );
+    // The reason shows under the box until the next send goes through.
+    expect(screen.getByText("network error")).toBeInTheDocument();
+    mockReplyToEnquiry.mockResolvedValue(makeMessage({ id: "msg-2", body: "My text" }));
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+    await waitFor(() => expect(screen.queryByText("network error")).not.toBeInTheDocument());
   });
 
   // ── Quote form ─────────────────────────────────────────────────────────────
