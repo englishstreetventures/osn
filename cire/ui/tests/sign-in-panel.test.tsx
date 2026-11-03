@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { cardClass } from "../src/card";
 import { signInCardClass } from "../src/sign-in-card-class";
-import SignInPanel, { SIGN_IN_PENDING_RESET_MS, type SignInAuth } from "../src/sign-in-panel";
+import SignInPanel, { type SignInAuth } from "../src/sign-in-panel";
+import { SIGN_IN_PENDING_RESET_MS } from "../src/sign-in-press";
 
 /**
  * The portals' sign-in is one hand-off through one door: a portal cannot run a

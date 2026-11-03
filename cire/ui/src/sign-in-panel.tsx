@@ -6,9 +6,10 @@ import {
   type RpAuthConfig,
 } from "@shared/rp-auth";
 import { Notice } from "@shared/ui/ui/notice";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 
 import Button from "./button";
+import { createSignInPress } from "./sign-in-press";
 
 /**
  * The portals' sign-in: one button that leaves for musubi, and the line that
@@ -33,15 +34,10 @@ import Button from "./button";
  * it.
  *
  * **After the press**, only the label changes, to "Connecting to musubi…", at
- * full strength, with no dimmed look. A second press does nothing,
- * since it would only cancel the first navigation and spend another of the
- * start leg's per-address requests. A status line, hidden but present from the
- * first paint, says "Connecting to musubi…" on the press and "Still connecting
- * to musubi…" on each press it ignores — emptied and refilled, so a screen
- * reader speaks it again rather than staying silent. The button never stays that way: a page
- * restored from the back-forward cache (Back from musubi) and a navigation
- * that never completes (Stop, Esc, a network that never answers) both put it
- * back after `SIGN_IN_PENDING_RESET_MS`, or at once on the restore.
+ * full strength; a second press is ignored and announced, and a back-forward
+ * restore or `SIGN_IN_PENDING_RESET_MS` puts the button back. That is
+ * `createSignInPress` (`sign-in-press.ts`), which the vendor's claim page
+ * shares; the panel renders its hidden status line.
  *
  * `auth` is the four `@shared/rp-auth` calls the panel makes, so a story or a
  * test can show each state without leaving the page. Every portal passes
@@ -62,14 +58,6 @@ const RP_AUTH: SignInAuth = {
   clearAuthError: () => clearAuthError(),
 };
 
-/**
- * How long a press waits for the browser to leave before the button answers
- * again. Longer than cire/api's start leg and musubi's first byte take on a
- * slow phone network; short enough that someone who pressed Stop is not left
- * looking at a button that does nothing.
- */
-export const SIGN_IN_PENDING_RESET_MS = 10_000;
-
 /** The line under each `?auth_error=` marker the start and callback legs send. */
 const FAILED = "Sign-in did not go through. Try again.";
 const ERROR_COPY = new Map([
@@ -84,13 +72,6 @@ const ERROR_COPY = new Map([
 function errorCopy(marker: string): string {
   return ERROR_COPY.get(marker) ?? FAILED;
 }
-
-const IDLE_LABEL = "Continue with musubi";
-const PENDING_LABEL = "Connecting to musubi…";
-const STILL_PENDING = "Still connecting to musubi…";
-
-/** How long the status line stays empty before it is refilled, so it is spoken again. */
-const REANNOUNCE_MS = 100;
 
 const COPY = "base:font-ui-body base:text-ui-ink-secondary base:text-ui-sm base:leading-ui-normal";
 
@@ -124,40 +105,9 @@ export default function SignInPanel(props: { apiBase: string; auth?: SignInAuth 
   const auth = () => props.auth ?? RP_AUTH;
   const config = (): RpAuthConfig => ({ apiBase: props.apiBase });
   const [error, setError] = createSignal<string | null>(null);
-  const [pending, setPending] = createSignal(false);
-
-  const [status, setStatus] = createSignal("");
-
-  let reset: ReturnType<typeof setTimeout> | undefined;
-  let reannounce: ReturnType<typeof setTimeout> | undefined;
-  const settle = () => {
-    clearTimeout(reset);
-    clearTimeout(reannounce);
-    setPending(false);
-    setStatus("");
-  };
-
-  const signIn = () => {
-    if (pending()) {
-      setStatus("");
-      clearTimeout(reannounce);
-      reannounce = setTimeout(() => setStatus(STILL_PENDING), REANNOUNCE_MS);
-      return;
-    }
-    setPending(true);
-    setStatus(PENDING_LABEL);
-    reset = setTimeout(settle, SIGN_IN_PENDING_RESET_MS);
-    auth().startSignIn(config(), resumeTarget());
-  };
-
-  // Back from musubi restores this page from the back-forward cache exactly as
-  // it was left, still connecting; a restore is the browser saying it did not.
-  const restored = (event: PageTransitionEvent) => {
-    if (event.persisted) settle();
-  };
+  const signIn = createSignInPress(() => auth().startSignIn(config(), resumeTarget()));
 
   onMount(() => {
-    window.addEventListener("pageshow", restored);
     const marker = auth().readAuthError();
     if (marker) {
       setError(errorCopy(marker));
@@ -166,12 +116,6 @@ export default function SignInPanel(props: { apiBase: string; auth?: SignInAuth 
     }
     // Behind the rendered page, so the button is usable straight away.
     void auth().resumeSession(config(), { home: resumeTarget() });
-  });
-
-  onCleanup(() => {
-    window.removeEventListener("pageshow", restored);
-    clearTimeout(reset);
-    clearTimeout(reannounce);
   });
 
   return (
@@ -191,10 +135,16 @@ export default function SignInPanel(props: { apiBase: string; auth?: SignInAuth 
         sees it.
       </p>
 
-      <Button variant="primary" size="lg" type="button" onClick={signIn} class="w-full">
-        {pending() ? PENDING_LABEL : IDLE_LABEL}
+      <Button
+        variant="primary"
+        size="lg"
+        type="button"
+        onClick={() => signIn.press()}
+        class="w-full"
+      >
+        {signIn.label()}
       </Button>
-      <output class="base:sr-only">{status()}</output>
+      <output class="base:sr-only">{signIn.status()}</output>
 
       <p class={COPY}>No musubi account yet? You can create one on the next screen.</p>
     </div>

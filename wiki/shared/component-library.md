@@ -133,6 +133,7 @@ cire/ui/src/
 ├── sign-in-panel.tsx       ← SignInPanel: the portals' one button to musubi and its error lines
 ├── sign-in-card-class.ts   ← signInCardClass: the sign-in card's opaque fill and lit edge
 ├── sign-in-card.astro      ← SignInCard: the sign-in page's label, heading and card around the panel
+├── sign-in-press.ts        ← createSignInPress: what a "Continue with musubi" button does once pressed
 ├── lib/sliding-pill.ts     ← createSlidingPill: one highlight that moves between items
 ├── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
 └── wordmark.tsx            ← Wordmark: the portals' "✦ Cire" way home; WordmarkPlaceholder, its still copy
@@ -509,10 +510,10 @@ Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
 exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its thirteen
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input` and `sign-in-card-class` are named,
+`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class` and `sign-in-press` are named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
 default, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL`,
-`sign-in-panel` a named `SIGN_IN_PENDING_RESET_MS` and the `SignInAuth` type, and
+`sign-in-panel` the `SignInAuth` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, and
 `wordmark` a named `WordmarkPlaceholder`. `sign-in-card.astro` is an Astro component, imported by default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
 ```typescript
@@ -1186,7 +1187,9 @@ it is a same-origin path with no `//`, no backslash and not `/login`, else to
 strength and a hidden status line says the same; a second press does
 nothing; a `pageshow` from the back-forward cache, or ten seconds
 (`SIGN_IN_PENDING_RESET_MS`) with the browser still on the page, puts the
-button back. `auth` is the four `@shared/rp-auth` calls, so a story or a test
+button back. That press is `createSignInPress` (`sign-in-press.ts`), which
+holds no markup, so any other "Continue with musubi" — the vendor's claim
+page's — shares it and renders its own status line. `auth` is the four `@shared/rp-auth` calls, so a story or a test
 can show every state without navigating; the portals pass nothing.
 
 `cire/ui/tests/sign-in-panel.test.tsx` holds the flow, each marker, the

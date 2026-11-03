@@ -26,6 +26,7 @@
     "./sign-in-card-class": "./src/sign-in-card-class.ts",
     "./sign-in-card.astro": "./src/sign-in-card.astro",
     "./sign-in-panel": "./src/sign-in-panel.tsx",
+    "./sign-in-press": "./src/sign-in-press.ts",
     "./sliding-pill": "./src/lib/sliding-pill.ts",
     "./username-input": "./src/username-input.tsx",
     "./wordmark": "./src/wordmark.tsx"

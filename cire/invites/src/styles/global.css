@@ -15,10 +15,11 @@
    gone. */
 @source not "../../../ui/src/wordmark.tsx";
 /* Nor the portals' sign-in page. A page that draws `SignInPanel` or
-   `SignInCard` needs these three lines gone. */
+   `SignInCard` needs these four lines gone. */
 @source not "../../../ui/src/sign-in-panel.tsx";
 @source not "../../../ui/src/sign-in-card.astro";
 @source not "../../../ui/src/sign-in-card-class.ts";
+@source not "../../../ui/src/sign-in-press.ts";
 /* Nor a Kobalte menu: its link menu takes its rows from
    `menu-touch-classes.ts`, which stays scanned. A page that draws
    `DropdownMenu` needs these two lines gone. */
