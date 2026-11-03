@@ -134,18 +134,25 @@ export function segmentMessages<T extends Timed>(
 ): T[][] {
   const segments: T[][] = [];
   let lastAt: number | undefined;
+  /** The last timed message's calendar day, kept so each day is read once. */
+  let lastDay: number | undefined;
   for (const message of ordered) {
     const current = segments.at(-1);
-    const timed = Number.isFinite(message.sentAt);
+    if (!Number.isFinite(message.sentAt)) {
+      if (current === undefined) segments.push([message]);
+      else current.push(message);
+      continue;
+    }
+    const day = calendarDay(message.sentAt, options.timeZone);
     const opens =
       current === undefined ||
-      (timed &&
-        (lastAt === undefined ||
-          message.sentAt - lastAt > SEGMENT_GAP_MS ||
-          calendarDay(message.sentAt, options.timeZone) !== calendarDay(lastAt, options.timeZone)));
+      lastAt === undefined ||
+      message.sentAt - lastAt > SEGMENT_GAP_MS ||
+      day !== lastDay;
     if (opens) segments.push([message]);
     else current.push(message);
-    if (timed) lastAt = message.sentAt;
+    lastAt = message.sentAt;
+    lastDay = day;
   }
   return segments;
 }

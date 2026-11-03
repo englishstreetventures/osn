@@ -1,6 +1,7 @@
 import { Notice } from "@shared/ui/ui/notice";
 import {
   createMemo,
+  createSelector,
   createSignal,
   createUniqueId,
   For,
@@ -120,6 +121,13 @@ export default function MessageThread(props: MessageThreadProps): JSX.Element {
     const chosen = chosenId();
     return chosen !== null && byId().has(chosen) ? chosen : (ordered().at(-1)?.id ?? null);
   });
+
+  /**
+   * Selectors, so a tap or an arrow key wakes the row switched off and the row
+   * switched on, not every row in the thread.
+   */
+  const isRevealed = createSelector(revealedId);
+  const isCurrent = createSelector(currentId);
 
   const [menuFor, setMenuFor] = createSignal<MessageThreadItem | null>(null);
   const [menuAt, setMenuAt] = createSignal({ x: 0, y: 0 });
@@ -319,8 +327,8 @@ export default function MessageThread(props: MessageThreadProps): JSX.Element {
                             <MessageBubble
                               message={message()}
                               spacing={spacingFor(segment(), index())}
-                              revealed={revealedId() === id}
-                              current={currentId() === id}
+                              revealed={isRevealed(id)}
+                              current={isCurrent(id)}
                             />
                           )}
                         </Show>
