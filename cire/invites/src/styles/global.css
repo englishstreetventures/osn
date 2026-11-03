@@ -8,6 +8,9 @@
 @source "../../../ui/src";
 /* This site draws no file picker, so `FileInput`'s button rules stay out. */
 @source not "../../../ui/src/file-input.tsx";
+/* Nor a segmented strip: its glass rules stay out. A page that draws
+   `SegmentedTabs` needs this line gone. */
+@source not "../../../ui/src/segmented-tabs.tsx";
 /* Nor a Kobalte menu: its link menu takes its rows from
    `menu-touch-classes.ts`, which stays scanned. A page that draws
    `DropdownMenu` needs these two lines gone. */

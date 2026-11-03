@@ -14,9 +14,9 @@ import { createSlidingPill } from "./lib/sliding-pill";
 
 /**
  * A strip of choices in one rounded glass track, with one highlight that
- * slides to the chosen one: the portals' segmented controls (owner,
- * englishstreetventures/osn#1845) — a module's views, the edit modes, the
- * vendor portal's two views, an RSVP list's events, the invite's sections.
+ * slides to the chosen one: the portals' segmented controls — a module's
+ * views, the edit modes, the vendor portal's two views, an RSVP list's events,
+ * the invite's sections.
  *
  * ## Look
  *
@@ -120,12 +120,10 @@ export const SEGMENTED_GLASS_FILL =
 const GLASS = `base:absolute base:top-0 base:left-0 base:rounded-ui-pill ${SEGMENTED_GLASS_FILL}`;
 
 /**
- * A choice. Chosen, its word is set at medium weight: the glass and the inks
- * alone read under 3:1 between the chosen choice and the rest, so the weight is
- * the cue that is not colour (owner, englishstreetventures/osn#1845). Halfway
- * under the pointer: the raised surface at 27.5% under the accent at 7%
- * (accent 21.5% into raised, at 32.6%), and an ink midway between the
- * secondary ink and the readable accent ink.
+ * A choice. Chosen, its word is set at medium weight, so the choice never
+ * rests on colour alone. Halfway under the pointer: the raised surface at
+ * 27.5% under the accent at 7% (accent 21.5% into raised, at 32.6%), and an
+ * ink midway between the secondary ink and the readable accent ink.
  */
 const ITEM =
   "base:relative base:inline-flex base:h-5.5 base:shrink-0 base:cursor-pointer base:items-center base:gap-1.5 base:rounded-ui-pill base:px-3 " +

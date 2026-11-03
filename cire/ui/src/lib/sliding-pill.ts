@@ -20,7 +20,7 @@
  *
  * Two easings: `out`, the default, for a mark arriving at a row (the module
  * rail), and `spring`, the house spring, for the glass of a segmented strip
- * (`segmented-tabs.tsx`; owner, englishstreetventures/osn#1845).
+ * (`segmented-tabs.tsx`).
  *
  * The consumer owns two rules the hook cannot enforce: the track must be a
  * containing block (`relative`), and the pill must be `absolute` with `inset-0`
