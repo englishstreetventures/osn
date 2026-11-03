@@ -507,12 +507,13 @@ RSVP table ([[cire-rsvp-table]]) and household tables, in page mode.
 
 Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
-exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its twelve
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its thirteen
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `reveal`, `segmented-tabs`, `wordmark` — are **default** exports, while `username-input` is named,
+`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input` and `sign-in-card-class` are named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
-default, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL` and
-`wordmark` a named `WordmarkPlaceholder`. So a named `Button` import from `@cire/ui/button` resolves to nothing:
+default, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL`,
+`sign-in-panel` a named `SIGN_IN_PENDING_RESET_MS` and the `SignInAuth` type, and
+`wordmark` a named `WordmarkPlaceholder`. `sign-in-card.astro` is an Astro component, imported by default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
 ```typescript
 import { Button } from "@shared/ui/ui/button";

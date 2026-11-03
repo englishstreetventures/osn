@@ -3,8 +3,8 @@
 cire's own component layer: the chrome `@shared/ui` should not carry, because it is
 this product's house style rather than anything a second product would want.
 
-Thirteen components: `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `SegmentedTabs`,
-`Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, and a combobox-shaped `UsernameInput`. Everything a cire surface needs that is not house style —
+Fourteen components: `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `SegmentedTabs`,
+`SignInPanel`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, and a combobox-shaped `UsernameInput`. Everything a cire surface needs that is not house style —
 `Field`, `Notice`, `EmptyState`, `Chip`, `Stat`, `Meter`, `Table`, `Modal`,
 `SafeProps` — is in `@shared/ui`, because none of it is cire-specific; it was
 only cire-_located_.
@@ -13,9 +13,11 @@ It also holds content two cire sites publish word for word, which belongs to
 neither app: the guest privacy notice (`src/guest-privacy-notice.astro`), which
 the guest site renders as its `/privacy` page and cireweddings.com as
 `/privacy/guests`, and the consent vendor registry the notice's cookie list is built
-from (`src/consent-categories.ts`, `src/consent-vendors.ts`). The notice is the
-one Astro component here; each app's Astro build compiles it, and its tests read
-its source (`tests/guest-privacy-notice.test.ts`). Any change under `src/`
+from (`src/consent-categories.ts`, `src/consent-vendors.ts`). The notice is one
+of two Astro components here, with the portals' sign-in page (`src/sign-in-card.astro`,
+which holds `SignInPanel` as an island); each app's Astro build compiles them, and
+their tests read their source (`tests/guest-privacy-notice.test.ts`,
+`tests/sign-in-card.test.ts`). Any change under `src/`
 redeploys all four cire frontends.
 
 `UsernameInput` is the one apparent duplicate, and the reason is the API rather
