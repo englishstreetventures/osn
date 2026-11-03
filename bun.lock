@@ -244,6 +244,7 @@
       "name": "@cire/ui",
       "dependencies": {
         "@cire/dietary": "workspace:*",
+        "@kobalte/core": "^0.13.14",
         "@shared/design-tokens": "workspace:*",
         "@shared/legal": "workspace:*",
         "@shared/rp-auth": "workspace:*",

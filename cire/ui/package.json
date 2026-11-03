@@ -21,6 +21,7 @@
     "./file-input": "./src/file-input.tsx",
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./loading": "./src/loading.tsx",
+    "./message-thread": "./src/message-thread.tsx",
     "./note": "./src/note.tsx",
     "./person-avatar": "./src/person-avatar.tsx",
     "./reveal": "./src/reveal.tsx",
@@ -42,6 +43,7 @@
   },
   "dependencies": {
     "@cire/dietary": "workspace:*",
+    "@kobalte/core": "^0.13.14",
     "@shared/design-tokens": "workspace:*",
     "@shared/legal": "workspace:*",
     "@shared/rp-auth": "workspace:*",
