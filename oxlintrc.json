@@ -402,7 +402,8 @@
       // suppressed on its line with the reason. Zero hits when turned on.
       "files": ["**/src/**"],
       "rules": {
-        "house/no-sequential-independent-await": "error"
+        "house/no-sequential-independent-await": "error",
+        "house/no-serial-effect-concurrency": "error"
       }
     },
     {
