@@ -67,7 +67,7 @@ export default function TopBar(props: {
   };
 
   return (
-    <header class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md">
+    <header class="border-border bg-bg/95 sticky top-0 z-30 border-b backdrop-blur-md">
       <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
         {/* ── Identity + place ─────────────────────────────────────────────── */}
         <Wordmark label="Cire — all weddings" onClick={() => props.onAll()} />

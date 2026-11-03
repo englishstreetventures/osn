@@ -118,7 +118,7 @@ export default function TopBar(props: {
   );
 
   return (
-    <header class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md">
+    <header class="border-border bg-bg/95 sticky top-0 z-30 border-b backdrop-blur-md">
       <div class="page-frame flex h-14 items-center gap-2 @2xl/frame:h-16">
         {/* The wordmark, which is a way home rather than an action, so it
             takes no button chrome: a hover wash and no frame. */}

@@ -1199,10 +1199,17 @@ asserted in `GuestsStack.browser.test.tsx`).
 
 | Layer                              | `top`                   | z   | Ground                                                |
 | ---------------------------------- | ----------------------- | --- | ----------------------------------------------------- |
-| 0 Top bar                          | 0                       | 30  | `--bg` at 85%, blurred                                |
+| 0 Top bar                          | 0                       | 30  | `--bg` at 95%, blurred                                |
 | 1 View bar                         | `var(--chrome-h)`       | 20  | `--bg`, hairline below                                |
 | 2 Column heads, or a card's header | `+ var(--bar-h, 0px)`   | 10  | `--bg`; a card header paints the card's ground opaque |
 | 3 Household bar                    | `+ var(--heads-h, 0px)` | 5   | `--surface`, hairline below                           |
+
+The top bar stops at 95% because every word in it must read 4.5:1 (ornament in
+`--text-faint`, 3:1) over the darkest and the lightest thing that can scroll
+beneath it: at 85% the readable-gold star and words read 3.70:1 on the light
+ramp over black. `TopBar.contrast.browser.test.tsx` composites each word over
+black and white in both themes, the glass under a chosen tab included; the
+vendor's bar takes the same ground, held by its `TopBar.browser.test.tsx`.
 
 Every offset is a sum of heights the page already knows, never a guess:
 

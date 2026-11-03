@@ -88,7 +88,7 @@ function renderPage(guests = 12, tier: Tier = "gold") {
       <div class="chrome-scope contents">
         <header
           data-top-bar
-          class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md"
+          class="border-border bg-bg/95 sticky top-0 z-30 border-b backdrop-blur-md"
         >
           <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
             <span class="font-display text-text text-ui-md leading-none font-light">Cire</span>
