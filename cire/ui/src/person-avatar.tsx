@@ -16,16 +16,22 @@ import { createSignal, Show } from "solid-js";
  * - **`initial`** — an account's own circle: the first letter of `name`, in
  *   readable gold (`--ui-accent-ink`; gold text is never the metal gold), in
  *   the display face at weight 600, sized at half the circle's inside width
- *   (`50cqi`, so 17px in a 36px circle and 19px in a 40px one), on the surface
- *   at 40% inside a hairline circle (owner, Stack 6 questions 38 A and 39 B).
- *   The circle is the account avatar's, so a photo sits inside it too; inside
- *   `avatarTriggerClass` its edge turns `--ui-accent-soft` under the pointer.
+ *   (`50cqi`, so 17px in a 36px circle and 19px in a 40px one), inside a
+ *   hairline circle (owner, Stack 6 questions 38 A and 39 B). The circle is the
+ *   account avatar's, so a photo sits inside it too. It lays no fill of its
+ *   own: the guest site lays no ground under a gold word, and
+ *   `avatarTriggerClass` lays the portals' 40% surface under it, where its edge
+ *   turns `--ui-accent-soft` under the pointer.
  *
  * ## The photo
  *
- * Drawn only from an absolute `https:` URL: the URL rides in from an OIDC
- * `picture` claim no earlier hop checks, and an `<img src>` is where a bad
- * scheme would do its harm. The request carries no `Referer`, so the photo's
+ * Drawn only from an absolute `https:` URL, since an `<img src>` is where a bad
+ * scheme does its harm. The part checks the scheme and nothing else: which
+ * hosts may serve a photo is the caller's and the page's. cire/api limits the
+ * faces on a task and the guest card's picture to musubi's own hosts; the
+ * account triggers pass the session's raw `picture` claim, which can name any
+ * https host, and rely on each portal's CSP `img-src`, which admits no avatar
+ * host (englishstreetventures/osn#1207). The request carries no `Referer`, so the photo's
  * host is not told which page loaded it. `alt=""`: the caller names the person
  * in text, and the whole part is `aria-hidden`.
  *
