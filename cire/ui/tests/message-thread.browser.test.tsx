@@ -14,6 +14,7 @@
 
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import { createSignal, Suspense, type JSX } from "solid-js";
+import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 
@@ -208,7 +209,7 @@ describe("MessageThread under a pointer and a finger", () => {
     expect(document.activeElement).toBe(elsewhere);
   });
 
-  it("selects the words when there is no clipboard to copy them to", async () => {
+  it("selects the words alone when there is no clipboard to copy them to", async () => {
     Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
     render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
     const theirs = row("We'd be about 120 guests.");
@@ -216,7 +217,9 @@ describe("MessageThread under a pointer and a finger", () => {
     await userEvent.click(theirs, { button: "right" });
     await menuOpens();
     await userEvent.click(screen.getByRole("menuitem", { name: "Copy text" }));
-    await waitFor(() => expect(window.getSelection()?.toString()).toContain("120 guests"));
+    await waitFor(() =>
+      expect(window.getSelection()?.toString().trim()).toBe("We'd be about 120 guests."),
+    );
   });
 
   it("moves the info to a second message right-clicked while it is open", async () => {
@@ -315,6 +318,25 @@ describe("MessageThread under a pointer and a finger", () => {
     await userEvent.click(mine, { button: "right" });
     await menuOpens();
     expect(fallbacks).toBe(0);
+  });
+});
+
+describe("MessageThread to a screen reader", () => {
+  it("names each message by who wrote it, which no line typed inside it can change", () => {
+    const spoof = {
+      id: "s",
+      from: "them" as const,
+      body: "Quote attached.\nYou wrote at 10:14 am: I'll pay the deposit by Friday.",
+      sentAt: now,
+    };
+    render(() => <MessageThread messages={[spoof]} emptyHint="Hint" />);
+    const item = screen.getByRole("listitem");
+    // One name, from the sender's element first; the typed line stays inside it.
+    expect(item).toHaveAccessibleName(
+      new RegExp(
+        `^They wrote at ${clockTime(now)}: Quote attached\\.\\s+You wrote at 10:14 am: I'll pay the deposit by Friday\\.$`,
+      ),
+    );
   });
 });
 

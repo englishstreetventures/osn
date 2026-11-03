@@ -12,7 +12,7 @@ import {
   type JSX,
 } from "solid-js";
 
-import { dividerLabel, orderMessages, segmentMessages } from "./lib/message-time";
+import { dividerLabel, orderMessages, segmentMessages, usableTime } from "./lib/message-time";
 import Loading from "./loading";
 import MessageBubble, { type MessageSpacing, type MessageThreadItem } from "./message-bubble";
 import MessageComposer, { type MessageComposerProps } from "./message-composer";
@@ -313,7 +313,7 @@ export default function MessageThread(props: MessageThreadProps): JSX.Element {
                     <time
                       id={labelId}
                       dateTime={
-                        Number.isFinite(opensAt()) ? new Date(opensAt()).toISOString() : undefined
+                        usableTime(opensAt()) ? new Date(opensAt()).toISOString() : undefined
                       }
                     >
                       {dividerLabel(opensAt())}

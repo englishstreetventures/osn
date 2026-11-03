@@ -20,9 +20,9 @@
  * owner approved it. Every function takes `now`, `locale` and `timeZone` so a
  * test can pin them; a component passes none.
  *
- * A time that is not a finite number reads as nothing at all — an empty label,
- * no divider of its own — rather than a `RangeError` that would take the whole
- * thread down with it.
+ * A time `Date` cannot hold — not a number, or beyond its ±8.64e15ms range —
+ * reads as nothing at all: an empty label, no divider of its own, rather than a
+ * `RangeError` that would take the whole thread down with it.
  */
 
 export interface TimeOptions {
@@ -37,6 +37,14 @@ export interface TimeOptions {
 /** What these functions need of a message. */
 export interface Timed {
   readonly sentAt: number;
+}
+
+/** The furthest from 1970 a `Date` reaches, either way, in milliseconds. */
+const DATE_LIMIT_MS = 8.64e15;
+
+/** Whether `at` is a time `Date` and `Intl` can read. */
+export function usableTime(at: number): boolean {
+  return Number.isFinite(at) && Math.abs(at) <= DATE_LIMIT_MS;
 }
 
 /** More than this since the message before, and a new segment opens. */
@@ -113,7 +121,7 @@ function calendarDay(at: number, timeZone: string | undefined): number {
  * guest site's browser floor, which has no `toSorted` or `toReversed`.
  */
 export function orderMessages<T extends Timed>(messages: readonly T[]): T[] {
-  const key = (m: T) => (Number.isFinite(m.sentAt) ? m.sentAt : Number.POSITIVE_INFINITY);
+  const key = (m: T) => (usableTime(m.sentAt) ? m.sentAt : Number.POSITIVE_INFINITY);
   const out: T[] = [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]!;
@@ -138,7 +146,7 @@ export function segmentMessages<T extends Timed>(
   let lastDay: number | undefined;
   for (const message of ordered) {
     const current = segments.at(-1);
-    if (!Number.isFinite(message.sentAt)) {
+    if (!usableTime(message.sentAt)) {
       if (current === undefined) segments.push([message]);
       else current.push(message);
       continue;
@@ -159,7 +167,7 @@ export function segmentMessages<T extends Timed>(
 
 /** The clock time alone: "9:12 am". */
 export function clockTime(at: number, options: TimeOptions = {}): string {
-  if (!Number.isFinite(at)) return "";
+  if (!usableTime(at)) return "";
   return formatter(options.locale, options.timeZone, {
     hour: "numeric",
     minute: "2-digit",
@@ -168,7 +176,7 @@ export function clockTime(at: number, options: TimeOptions = {}): string {
 
 /** The line that opens a segment. */
 export function dividerLabel(at: number, options: TimeOptions = {}): string {
-  if (!Number.isFinite(at)) return "";
+  if (!usableTime(at)) return "";
   const now = options.now ?? Date.now();
   const clock = clockTime(at, options);
   const daysBack = calendarDay(now, options.timeZone) - calendarDay(at, options.timeZone);
@@ -192,7 +200,7 @@ export function dividerLabel(at: number, options: TimeOptions = {}): string {
 
 /** The whole date and the time, for the message's info: "Thursday 29 October 2026 at 6:20 pm". */
 export function fullDateTime(at: number, options: TimeOptions = {}): string {
-  if (!Number.isFinite(at)) return "";
+  if (!usableTime(at)) return "";
   const p = parts(
     at,
     formatter(options.locale, options.timeZone, {

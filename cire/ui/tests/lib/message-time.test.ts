@@ -174,4 +174,12 @@ describe("clockTime and fullDateTime", () => {
     expect(clockTime(Number.NaN, ZONE)).toBe("");
     expect(fullDateTime(Number.POSITIVE_INFINITY, ZONE)).toBe("");
   });
+
+  it("gives empty strings for a finite time past the furthest a date reaches", () => {
+    const beyond = 8.64e15 + 1;
+    expect(clockTime(beyond, ZONE)).toBe("");
+    expect(dividerLabel(-beyond, { ...ZONE, now: NOW })).toBe("");
+    expect(fullDateTime(beyond, ZONE)).toBe("");
+    expect(segmentMessages([at(beyond), at(NOW)], ZONE).map((s) => s.length)).toEqual([1, 1]);
+  });
 });

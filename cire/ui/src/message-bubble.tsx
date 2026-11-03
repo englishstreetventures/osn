@@ -1,4 +1,4 @@
-import type { JSX } from "solid-js";
+import { createUniqueId, type JSX } from "solid-js";
 
 import { clockTime } from "./lib/message-time";
 import Reveal from "./reveal";
@@ -86,16 +86,24 @@ export interface MessageBubbleProps {
  */
 export default function MessageBubble(props: MessageBubbleProps): JSX.Element {
   const line = () => revealedLine(props.message);
+  const who = createUniqueId();
+  const words = createUniqueId();
   return (
     <li
       data-message-id={props.message.id}
       data-mine={String(props.message.from === "me")}
+      // Named from two elements: who wrote it, which only `from` decides, then
+      // the words. Inside the words, a line typed to read "You wrote at …" stays
+      // part of the other side's message for a screen reader, as it does on screen.
+      aria-labelledby={`${who} ${words}`}
       // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a roving tab stop over the thread's messages: exactly one row is in the tab order, and the arrow keys move between them, so a keyboard reaches each message's time and menu without a tab stop per message.
       tabindex={props.current ? 0 : -1}
       class={`${ROW} ${SIDE[props.message.from]} ${SPACING[props.spacing]}`}
     >
-      <div data-message-fill class={`${FILL_BASE} ${FILL[props.message.from]}`}>
-        <span class="base:sr-only">{spokenPrefix(props.message)}</span>
+      <span id={who} class="base:sr-only">
+        {spokenPrefix(props.message)}
+      </span>
+      <div id={words} data-message-fill class={`${FILL_BASE} ${FILL[props.message.from]}`}>
         {props.message.body}
       </div>
       <Reveal when={props.revealed && line() !== ""}>
