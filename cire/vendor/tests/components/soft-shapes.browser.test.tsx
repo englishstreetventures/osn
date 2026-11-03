@@ -44,6 +44,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 import VendorApp from "../../src/components/VendorApp";
 import { setThemePreference } from "../../src/lib/theme";
 import { LISTING, ORGS } from "../test-support/dashboard";
+import { useFallbackFonts } from "../test-support/fonts";
 
 const VIEWPORTS = [
   { name: "390", width: 390, height: 844 },
@@ -70,14 +71,11 @@ function expectPill(el: Element) {
 
 /**
  * The page the portal ships: `index.astro` wraps the island in the
- * `@container/frame` box every gutter and breakpoint measures. The fonts are
- * Astro's self-hosted faces, which only a build emits, so the two variables
- * they set name the fallbacks `astro.config.mjs` lists instead.
+ * `@container/frame` box every gutter and breakpoint measures, in the
+ * fallback faces (`useFallbackFonts`).
  */
 async function renderDashboard() {
-  const root = document.documentElement;
-  root.style.setProperty("--font-ui", 'system-ui, -apple-system, "Segoe UI", sans-serif');
-  root.style.setProperty("--font-flair", "Georgia, serif");
+  useFallbackFonts();
 
   render(() => (
     <div class="@container/frame">
