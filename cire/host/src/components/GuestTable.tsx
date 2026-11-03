@@ -1,11 +1,12 @@
 import Button from "@cire/ui/button";
-import { type MenuContextValue, useMenuContext } from "@kobalte/core/menu";
 import { tokeniseQuery, tokensPrefixName } from "@shared/db-utils/search";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuHandle,
+  type DropdownMenuHandleValue,
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@shared/ui/ui/dropdown-menu";
@@ -167,17 +168,6 @@ function GuestEmailLine(props: { member: FamilyMember }) {
       )}
     </Show>
   );
-}
-
-/**
- * Hands out the menu a `DropdownMenu` root holds, from inside it. The narrow
- * household list draws one menu for every household and opens it from plain
- * buttons, so it needs the menu's own `open(focusStrategy)` — the call
- * Kobalte's trigger makes — to put focus where a keyboard user expects it.
- */
-function MenuHandle(props: { ref: (menu: MenuContextValue) => void }) {
-  props.ref(useMenuContext());
-  return null;
 }
 
 const fullName = (person: { firstName: string; lastName: string }) =>
@@ -982,7 +972,7 @@ export default function GuestTable(props: GuestTableProps) {
     return id === null ? undefined : families.find((f) => f.familyId === id);
   };
   const isMenuFor = createSelector(() => (menuOpen() ? menuFamilyId() : null));
-  let householdMenu: MenuContextValue | undefined;
+  let householdMenu: DropdownMenuHandleValue | undefined;
   const actionsButton = (familyId: string) =>
     document.querySelector<HTMLElement>(`[data-actions-for="${CSS.escape(familyId)}"]`);
   createEffect(
@@ -1097,8 +1087,9 @@ export default function GuestTable(props: GuestTableProps) {
       }}
       onOpenChange={setMenuOpen}
     >
-      <MenuHandle ref={(menu) => (householdMenu = menu)} />
+      <DropdownMenuHandle ref={(menu) => (householdMenu = menu)} />
       <DropdownMenuContent
+        variant="accent"
         class="min-w-48"
         aria-label={`Actions for ${menuFamily()?.familyName ?? "this household"}`}
         // No trigger of Kobalte's to return to: focus goes back to the "⋯"

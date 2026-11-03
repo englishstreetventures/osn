@@ -1,6 +1,5 @@
 import Button, { type ButtonProps } from "@cire/ui/button";
 import { Popper } from "@kobalte/core/popper";
-import type { SafeProps } from "@shared/ui/ui/props";
 import { createSignal, type JSX, onCleanup, onMount, Show, splitProps } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -47,18 +46,6 @@ export function IconButton(
       data-tip={own.tipDisabled ? undefined : own.label}
     />
   );
-}
-
-/**
- * A plain button with the same tooltip, for a control whose look is its own —
- * a sub-tab, a mode switch. Its name comes from its contents or its own
- * `aria-label`; `label` is what the panel shows.
- */
-export function TipTrigger(
-  props: Omit<SafeProps<"button">, "type"> & { label: string; tipDisabled?: boolean },
-) {
-  const [own, rest] = splitProps(props, ["label", "tipDisabled"]);
-  return <button type="button" {...rest} data-tip={own.tipDisabled ? undefined : own.label} />;
 }
 
 /**

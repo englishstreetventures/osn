@@ -103,6 +103,9 @@
      rectangle — plus two drop shadows. */
   --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.045);
   --elev-1: 0 1px 2px oklch(0% 0 0 / 0.32);
+  /* The glass strip's light inner edge (`@cire/ui` SegmentedTabs): faint on
+     the dark ramp, bright on the light one, as a lit edge reads on each. */
+  --glass-edge: oklch(100% 0 0 / 0.1);
   --elev-2: 0 12px 32px -8px oklch(0% 0 0 / 0.55);
 }
 
@@ -152,6 +155,7 @@
 
     --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
     --elev-1: 0 1px 2px oklch(30% 0.02 340 / 0.12);
+    --glass-edge: oklch(100% 0 0 / 0.7);
     --elev-2: 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
   }
 }
@@ -198,6 +202,7 @@
 
   --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
   --elev-1: 0 1px 2px oklch(30% 0.02 340 / 0.12);
+  --glass-edge: oklch(100% 0 0 / 0.7);
   --elev-2: 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
 }
 
@@ -992,9 +997,11 @@
 }
 
 /* ── A menu or picker opening: menu-pop ─────────────────────────────────────
- * The plain Kobalte popovers and dropdown menus — the profile menu, the
- * wedding switcher, the date and colour pickers — scale up a little from the
- * side of the trigger they opened on and fade in. Short and with no
+ * The plain Kobalte popovers — the date and colour pickers, the rail's
+ * locked-module card — scale up a little from the side of the trigger they
+ * opened on and fade in, as the shared menu's accent look does for every
+ * portal menu (`@shared/ui` `menu-classes.ts`, on this file's `--dur-fast`
+ * and `--ease-out`). Short and with no
  * overshoot: a menu is reached for many times a session, and the droplet's
  * spring is kept for the checklist row it belongs to.
  *
@@ -1020,45 +1027,6 @@
 
   &[data-expanded] {
     animation: menu-pop-in var(--dur-fast) var(--ease-out);
-  }
-}
-
-/* ── The invite builder's section menu: in and out with no script ───────────
- * Below `@3xl/builder` the section tablist is a menu dropped under its
- * trigger, open while it carries `data-open` and `display: none` otherwise.
- * `display` is discrete, so a plain transition would drop the menu the instant
- * it closes; `allow-discrete` holds it at `grid` until the fade has run, and
- * `@starting-style` gives the opening a from-state. Neither needs the top
- * layer, so — unlike a dialog's exit, which needs `overlay` — this works in
- * every current engine. One older than Chrome 117, Safari 17.4 or Firefox 129
- * drops the `transition` declaration and toggles at once.
- *
- * Every rule sits inside the narrow container. From 48rem the tablist is the
- * always-visible row, `data-open` is never set, and a closed state applied
- * there would hide it. While it fades out the menu takes no tap.
- */
-@utility section-menu {
-  @container builder (width < 48rem) {
-    display: none;
-    opacity: 0;
-    translate: 0 -4px;
-    pointer-events: none;
-    transition:
-      opacity var(--dur-fast) var(--ease-out),
-      translate var(--dur-fast) var(--ease-out),
-      display var(--dur-fast) allow-discrete;
-
-    &[data-open] {
-      display: grid;
-      opacity: 1;
-      translate: none;
-      pointer-events: auto;
-
-      @starting-style {
-        opacity: 0;
-        translate: 0 -4px;
-      }
-    }
   }
 }
 

@@ -521,9 +521,9 @@ function Dashboard() {
   function setRoute(next: DashboardRoute, mode: "push" | "replace" = "replace") {
     // A mounted write surface with unsaved edits (the invite builder) gets to
     // veto in-app navigation — switching module/sub/view unmounts it and would
-    // silently discard the draft. Browser Back/Forward bypasses this (see
+    // silently discard the draft — unless it stays mounted on `next`. Browser Back/Forward bypasses this (see
     // lib/unsaved-guard); beforeunload covers tab close/reload.
-    if (serializeRoute(next) !== serializeRoute(route()) && !confirmNavigation()) return;
+    if (serializeRoute(next) !== serializeRoute(route()) && !confirmNavigation({ next })) return;
     setRouteSignal(next);
     if (typeof window === "undefined") return;
     const hash = serializeRoute(next);

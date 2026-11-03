@@ -1,6 +1,17 @@
-import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import type { RpSession } from "@shared/rp-auth";
-import { createSignal, For, Show } from "solid-js";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@shared/ui/ui/dropdown-menu";
+import { createSignal, For, type JSX, Show } from "solid-js";
 
 import { haptic, hapticsAvailable } from "../lib/haptics";
 import {
@@ -10,6 +21,26 @@ import {
   type ThemePreference,
   themePreference,
 } from "../lib/theme";
+
+/** "System" first because it is the default, and the only one that keeps
+ *  following the host's OS after they close the menu. */
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+
+/** The avatar circle the menu opens from: a control with its own look, which
+ *  the menu's trigger renders as (`as`), as it would a `Button`. */
+function AvatarButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      {...props}
+      class="border-border bg-surface/40 hover:border-gold-dim transition-ui-colors flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border duration-(--dur-fast) ease-(--ease-out)"
+    />
+  );
+}
 
 /**
  * The top bar's account affordance: an avatar button opening a menu with
@@ -22,26 +53,11 @@ import {
  * first letter of whatever identifies the account best (display name → handle →
  * email). The menu head names the account so a host juggling two OSN accounts
  * can tell which one is signed in before acting on it.
+ *
+ * The shared menu's accent look, as every portal menu draws it: full-ink rows,
+ * the highlighted one a gold wash with readable gold, a muted eyebrow over the
+ * theme choices, the shared `Switch`'s own track and thumb on the haptics row.
  */
-const itemClass =
-  "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-ui-sm " +
-  "outline-none transition-ui-colors duration-(--dur-fast) ease-(--ease-out) " +
-  "text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold";
-
-/** The same row, plus room for the indicator column the settings rows carry. */
-const settingClass = `${itemClass} justify-between gap-4`;
-
-const groupLabelClass =
-  "font-body text-text-faint px-3 pt-2 pb-1 text-ui-xs tracking-ui-widest uppercase";
-
-/** "System" first because it is the default, and the only one that keeps
- *  following the host's OS after they close the menu. */
-const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-];
-
 export default function ProfileMenu(props: {
   session: RpSession | null | undefined;
   onSecurity: () => void;
@@ -83,10 +99,7 @@ export default function ProfileMenu(props: {
 
   return (
     <DropdownMenu placement="bottom-end" gutter={8}>
-      <DropdownMenu.Trigger
-        aria-label="Account menu"
-        class="border-border bg-surface/40 hover:border-gold-dim transition-ui-colors flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border duration-(--dur-fast) ease-(--ease-out)"
-      >
+      <DropdownMenuTrigger as={AvatarButton} aria-label="Account menu">
         <Show
           when={avatarUrl()}
           fallback={
@@ -107,86 +120,60 @@ export default function ProfileMenu(props: {
             />
           )}
         </Show>
-      </DropdownMenu.Trigger>
+      </DropdownMenuTrigger>
 
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 min-w-52 rounded-md border p-1.5 shadow-(--elev-2) outline-none">
-          <div class="flex flex-col gap-0.5 px-3 pt-2 pb-2.5">
-            <span class="font-body text-text text-ui-sm truncate">{name()}</span>
-            <Show when={detail()}>
-              {(line) => (
-                <span class="font-body text-text-muted text-ui-xs truncate">{line()}</span>
-              )}
-            </Show>
-          </div>
-          <DropdownMenu.Separator class="bg-border/60 mx-1 my-1 h-px border-0" />
-
-          {/* Appearance and haptics stay open on select: both are things you
-              try, look at (or feel), and try again — closing the menu after
-              each one would make comparing them a three-click job. */}
-          <DropdownMenu.Group>
-            <DropdownMenu.GroupLabel class={groupLabelClass}>Appearance</DropdownMenu.GroupLabel>
-            <DropdownMenu.RadioGroup
-              value={themePreference()}
-              onChange={(next) => setThemePreference(next as ThemePreference)}
-            >
-              <For each={THEME_OPTIONS}>
-                {(option) => (
-                  <DropdownMenu.RadioItem
-                    value={option.value}
-                    closeOnSelect={false}
-                    class={settingClass}
-                  >
-                    {option.label}
-                    <DropdownMenu.ItemIndicator class="text-gold text-ui-xs shrink-0">
-                      ✓
-                    </DropdownMenu.ItemIndicator>
-                  </DropdownMenu.RadioItem>
-                )}
-              </For>
-            </DropdownMenu.RadioGroup>
-          </DropdownMenu.Group>
-
-          {/* Offered wherever the portal can deliver feedback — which includes
-              iOS, where the API check says no and the switch fallback says yes.
-              Feedback a host cannot turn off is the failure worth avoiding. */}
-          <Show when={hapticsAvailable()}>
-            <DropdownMenu.CheckboxItem
-              checked={hapticsEnabled()}
-              closeOnSelect={false}
-              onChange={(checked) => {
-                setHapticsEnabled(checked);
-                // Fire the confirmation *after* enabling, so turning it on
-                // demonstrates itself.
-                if (checked) haptic("commit");
-              }}
-              class={settingClass}
-            >
-              Haptics
-              <span
-                aria-hidden="true"
-                class={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-                  hapticsEnabled() ? "bg-gold" : "bg-border"
-                }`}
-              >
-                <span
-                  class={`bg-bg absolute top-0.5 h-3 w-3 rounded-full transition-[left] duration-(--dur-fast) ease-(--ease-out) ${
-                    hapticsEnabled() ? "left-3.5" : "left-0.5"
-                  }`}
-                />
-              </span>
-            </DropdownMenu.CheckboxItem>
+      <DropdownMenuContent variant="accent" class="min-w-52">
+        <div class="flex flex-col gap-0.5 px-3 pt-2 pb-2.5">
+          <span class="font-body text-text text-ui-sm truncate">{name()}</span>
+          <Show when={detail()}>
+            {(line) => <span class="font-body text-text-muted text-ui-xs truncate">{line()}</span>}
           </Show>
+        </div>
+        <DropdownMenuSeparator />
 
-          <DropdownMenu.Separator class="bg-border/60 mx-1 my-1 h-px border-0" />
-          <DropdownMenu.Item class={itemClass} onSelect={() => props.onSecurity()}>
-            Security &amp; passkeys
-          </DropdownMenu.Item>
-          <DropdownMenu.Item class={itemClass} onSelect={() => props.onSignOut()}>
-            Sign out
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+        {/* Appearance and haptics stay open on select: both are things you
+            try, look at (or feel), and try again — closing the menu after
+            each one would make comparing them a three-click job. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel tone="eyebrow">Appearance</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={themePreference()}
+            onChange={(next) => setThemePreference(next as ThemePreference)}
+          >
+            <For each={THEME_OPTIONS}>
+              {(option) => (
+                <DropdownMenuRadioItem value={option.value} closeOnSelect={false}>
+                  {option.label}
+                </DropdownMenuRadioItem>
+              )}
+            </For>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+
+        {/* Offered wherever the portal can deliver feedback — which includes
+            iOS, where the API check says no and the switch fallback says yes.
+            Feedback a host cannot turn off is the failure worth avoiding. */}
+        <Show when={hapticsAvailable()}>
+          <DropdownMenuCheckboxItem
+            checked={hapticsEnabled()}
+            indicator="switch"
+            onChange={(checked) => {
+              setHapticsEnabled(checked);
+              // Fire the confirmation *after* enabling, so turning it on
+              // demonstrates itself.
+              if (checked) haptic("commit");
+            }}
+          >
+            Haptics
+          </DropdownMenuCheckboxItem>
+        </Show>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => props.onSecurity()}>
+          Security &amp; passkeys
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => props.onSignOut()}>Sign out</DropdownMenuItem>
+      </DropdownMenuContent>
     </DropdownMenu>
   );
 }

@@ -44,6 +44,15 @@ export interface ViewBarContextValue {
    * once, on ready or on cleanup, whichever comes first.
    */
   hold: () => () => void;
+  /**
+   * Ask the shell to stop drawing its own sub-tabs while the view draws its
+   * own way between views in their place — the invite builder's one pill and
+   * menu on a phone. The tabs stay in the document, hidden, so the panel they
+   * name keeps its name. Returns the release; until a view asks, and if it
+   * never mounts, the tabs show, so a view still loading or one that failed
+   * can always be left.
+   */
+  replaceTabs: () => () => void;
 }
 
 export const ViewBarContext = createContext<ViewBarContextValue>();

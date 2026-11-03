@@ -1,7 +1,27 @@
-import { DropdownMenu } from "@kobalte/core/dropdown-menu";
-import { For, Show } from "solid-js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@shared/ui/ui/dropdown-menu";
+import { For, type JSX, Show } from "solid-js";
 
 import type { WeddingSummary } from "./CreateWeddingForm";
+
+/** The wedding's name the menu opens from: a control with its own look, which
+ *  the menu's trigger renders as (`as`), as it would a `Button`. */
+function NameButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      {...props}
+      class="group hover:bg-surface/60 transition-ui-colors flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 duration-(--dur-fast) ease-(--ease-out)"
+    />
+  );
+}
 
 /**
  * The top bar's wedding context — which wedding is open, and the way to any
@@ -14,7 +34,8 @@ import type { WeddingSummary } from "./CreateWeddingForm";
  *
  * A menu rather than a `<select>`: each entry carries its slug as a second
  * line, and the list ends with a way back to the list view, neither of which an
- * option element can hold.
+ * option element can hold. The shared menu's accent look, as every portal
+ * menu draws it, under a muted "Switch to" eyebrow.
  */
 export default function WeddingSwitcher(props: {
   current: WeddingSummary;
@@ -28,10 +49,7 @@ export default function WeddingSwitcher(props: {
 
   return (
     <DropdownMenu placement="bottom-start" gutter={8}>
-      <DropdownMenu.Trigger
-        aria-label="Switch wedding"
-        class="group hover:bg-surface/60 transition-ui-colors flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 duration-(--dur-fast) ease-(--ease-out)"
-      >
+      <DropdownMenuTrigger as={NameButton} aria-label="Switch wedding">
         {/* `truncate` clips at this box, and at this size Cormorant's g, j, p
             and y reach about 4.7px below the baseline, past the 3.7px a 1.1
             line leaves. The name keeps 2px of padding inside the clip, taken
@@ -45,39 +63,38 @@ export default function WeddingSwitcher(props: {
         >
           ▾
         </span>
-      </DropdownMenu.Trigger>
+      </DropdownMenuTrigger>
 
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-[min(24rem,70vh)] min-w-64 overflow-y-auto rounded-md border p-1.5 shadow-(--elev-2) outline-none">
-          <Show when={others().length > 0}>
-            <p class="font-body text-text-faint text-ui-xs tracking-ui-widest px-3 pt-1.5 pb-2 uppercase">
-              Switch to
-            </p>
+      <DropdownMenuContent
+        variant="accent"
+        class="max-h-[min(24rem,70vh)] min-w-64 overflow-y-auto"
+      >
+        <Show when={others().length > 0}>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel tone="eyebrow">Switch to</DropdownMenuLabel>
             <For each={others()}>
               {(wedding) => (
-                <DropdownMenu.Item
-                  class="font-body data-[highlighted]:bg-gold/10 transition-ui-colors flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out) outline-none"
-                  onSelect={() => props.onSelect(wedding)}
-                >
-                  <span class="text-text text-ui-sm w-full truncate">{wedding.displayName}</span>
-                  <span class="text-text-muted text-ui-xs tracking-ui-widest w-full truncate uppercase">
-                    {wedding.slug}
+                <DropdownMenuItem onSelect={() => props.onSelect(wedding)}>
+                  <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span class="truncate">{wedding.displayName}</span>
+                    <span class="text-text-muted text-ui-xs tracking-ui-widest truncate uppercase">
+                      {wedding.slug}
+                    </span>
                   </span>
-                </DropdownMenu.Item>
+                </DropdownMenuItem>
               )}
             </For>
-            <DropdownMenu.Separator class="bg-border/60 mx-1 my-1.5 h-px border-0" />
-          </Show>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+        </Show>
 
-          <DropdownMenu.Item
-            class="font-body text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold text-ui-sm transition-ui-colors flex w-full cursor-pointer items-center gap-2 rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out) outline-none"
-            onSelect={() => props.onAll()}
-          >
+        <DropdownMenuItem onSelect={() => props.onAll()}>
+          <span class="flex items-center gap-2">
             <span aria-hidden="true">←</span>
             All weddings
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
     </DropdownMenu>
   );
 }

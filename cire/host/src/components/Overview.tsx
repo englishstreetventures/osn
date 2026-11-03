@@ -488,7 +488,7 @@ export default function Overview(props: {
               // onto the module shell.
               if (tab === "events") props.onNavigate("events");
               else if (tab === "guests") props.onNavigate("guests", "list");
-              else if (tab === "invite") props.onNavigate("invite", "design");
+              else if (tab === "invite") props.onNavigate("invite", "template");
             }}
           />
         </Show>
