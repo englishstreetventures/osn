@@ -172,6 +172,7 @@ const MIGRATION_0076 = "0076_wedding_owners.sql";
 const MIGRATION_0091 = "0091_task_assignees.sql";
 const MIGRATION_TASK_RUN_TIME = "20261021153838_task_run_time.sql";
 const MIGRATION_SEATING_PLANS = "20261026040620_seating_plans.sql";
+const MIGRATION_CONTRIBUTION_CURRENCY = "20261103160929_contribution_currency_check.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -4717,6 +4718,65 @@ describe("cire/api over real D1 (Miniflare)", () => {
         expect((await chainD1.prepare("SELECT task_id FROM task_assignees").all()).results).toEqual(
           [{ task_id: "tsk_r1" }],
         );
+      } finally {
+        await chainMf.dispose();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 20261103160929_contribution_currency_check on D1's own SQLite: every gift kept, column for column, and a four-character currency refused",
+    async () => {
+      // Its own instance, holding the live chain up to the migration before it
+      // with two gifts, so the copy and the DROP TABLE run over rows that exist
+      // while D1 enforces foreign keys. `rct_full` sets every column to a value
+      // no other column holds; `rct_sparse` leaves every nullable one NULL.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = listMigrations(MIGRATIONS_DIR);
+        const cut = files.indexOf(MIGRATION_CONTRIBUTION_CURRENCY);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
+        }
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_c', 'c', 'C', 1, 1)",
+          "INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES ('fam_c', 'wed_c', 'GUEST-C', 'Guest', 1, 1)",
+          "INSERT INTO registry_items (id, wedding_id, kind, title, created_at, updated_at) VALUES ('it_c', 'wed_c', 'cash_fund', 'Honeymoon', 1, 1)",
+          "INSERT INTO registry_contributions (id, wedding_id, item_id, item_title, family_id, status, amount_minor, currency, primary_amount_minor, primary_currency, fx_rate, fx_rate_at, refunded_amount_minor, stripe_checkout_session_id, stripe_payment_intent_id, message, display_name, thanked_at, thanked_by, note_hidden_at, note_hidden_by_osn_profile_id, created_at, updated_at) VALUES ('rct_full', 'wed_c', 'it_c', 'Honeymoon fund', 'fam_c', 'refunded', 5000, 'aud', 3300, 'usd', '0.66', 1700000101, 1200, 'cs_full', 'pi_full', 'for the trip', 'Auntie Ros', 1700000102, 'usr_thanker', 1700000103, 'usr_hider', 1700000104, 1700000105)",
+          "INSERT INTO registry_contributions (id, wedding_id, family_id, status, amount_minor, currency, created_at, updated_at) VALUES ('rct_sparse', 'wed_c', 'fam_c', 'succeeded', 2500, 'NZD', 1700000201, 1700000202)",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+        const gifts = async () =>
+          (await chainD1.prepare("SELECT * FROM registry_contributions ORDER BY id").all()).results;
+        const before = await gifts();
+        expect(before.map((row) => (row as { id: string }).id)).toEqual(["rct_full", "rct_sparse"]);
+
+        for (const stmt of fileStatements(MIGRATION_CONTRIBUTION_CURRENCY, MIGRATIONS_DIR)) {
+          await chainD1.prepare(stmt).run();
+        }
+
+        expect(await gifts()).toEqual(before);
+        let refusal = "accepted";
+        try {
+          await chainD1
+            .prepare(
+              "INSERT INTO registry_contributions (id, wedding_id, family_id, amount_minor, currency, created_at, updated_at) VALUES ('rct_four', 'wed_c', 'fam_c', 100, 'AUDD', 1, 1)",
+            )
+            .run();
+        } catch (error) {
+          refusal = String(error);
+        }
+        expect(refusal).toContain("CHECK constraint failed: registry_contributions_currency_ck");
       } finally {
         await chainMf.dispose();
       }
