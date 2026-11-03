@@ -297,6 +297,7 @@ describe("GET /api/auth/oidc/callback", () => {
       ["a backslash path", "/\\evil.example/x"],
       ["the sign-in page itself", "/login?returnTo=%2Fx"],
       ["the sign-in page with a trailing slash", "/login/"],
+      ["the sign-in page with two trailing slashes", "/login//"],
     ])("carries no page for %s on a portal", async (_, path) => {
       // The origin is the allowlist's; the path is whoever started the sign-in.
       // The panel would refuse these too; the API does not hand them over.
@@ -352,6 +353,25 @@ describe("GET /api/auth/oidc/callback", () => {
       expect(location.searchParams.get("returnTo")).toBe("/#/w/w_1");
       expect(location.searchParams.get("auth_error")).toBe("sign_in_failed");
       expect(setCookie(res, ORGANISER_COOKIE_NAME)).toBeUndefined();
+    });
+
+    it("clears the transaction cookie as Secure on an https tier", async () => {
+      const config = portalConfig();
+      const { tx } = await startedTx(config, `${VENDOR}/`);
+      const app = mkApp(freshDb(), {
+        oidc: config,
+        webOrigin: "https://guest.cire.test",
+        organiserOrigin: HOST,
+        vendorPortalOrigin: VENDOR,
+        allowedOrigins: ["https://guest.cire.test", HOST, VENDOR],
+      });
+      const res = await appRequest(app, "/api/auth/oidc/callback?error=access_denied", {
+        headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+      });
+      expect(new URL(res.headers.get("location")!).origin).toBe(VENDOR);
+      const cleared = setCookie(res, OIDC_TX_COOKIE_NAME)!;
+      expect(cleared).toContain("Max-Age=0");
+      expect(cleared).toContain("Secure");
     });
 
     it("a guest-site sign-in keeps landing back on the guest page", async () => {

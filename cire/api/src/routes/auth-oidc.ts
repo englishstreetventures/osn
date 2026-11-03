@@ -34,14 +34,13 @@ const redirect = (location: string, cookies: string[]): Response => {
 
 /**
  * Whether a portal page is worth resuming on, by the rule the portals'
- * sign-in panel applies again: a same-origin path that is not protocol-
- * relative, holds no backslash, and is neither the root nor `/login`. The
+ * sign-in panel applies again: a path (a URL's always is) that is not
+ * protocol-relative, holds no backslash, and is neither the root nor `/login`. The
  * allowlist checked `return_to`'s origin only; its path is whoever started the
  * sign-in.
  */
 const isResumable = (pathname: string, page: string): boolean =>
   page !== "/" &&
-  page.startsWith("/") &&
   !page.startsWith("//") &&
   !page.includes("\\") &&
   pathname.replace(/\/+$/, "") !== "/login";
