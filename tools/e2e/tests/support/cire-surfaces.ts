@@ -19,7 +19,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import { CIRE_GUEST, CIRE_ORGANISER, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { expect, type Flow } from "./fixtures";
@@ -177,8 +177,49 @@ export async function loginSurfaces(flow: Flow, page: Page): Promise<void> {
     await probed(card, "base:bg-ui-surface", "background-color"),
     await computed(card, "background-color"),
   );
-  const label = page.getByText("Cire · Host Dashboard", { exact: true });
+  const label = page.getByText("Cire · Host portal", { exact: true });
   flow.check("sign-in: the label is 0.16em wide", "0.16", await trackingRatio(label));
+  flow.check(
+    "sign-in: the heading is roman",
+    "normal",
+    await computed(page.getByRole("heading", { name: "Sign in" }), "font-style"),
+  );
+  flow.check(
+    "sign-in: the card's top edge is lit",
+    "inset",
+    (await computed(card, "box-shadow")).includes("inset") ? "inset" : "none",
+  );
+  // The press, at a phone's width in the portal's own face: the label turns
+  // to "Connecting to musubi…" and the button keeps its box. The start leg is
+  // held, so the page stays to be measured.
+  await flow.step(
+    "surfaces: press the sign-in button at 390px with the start leg held",
+    async () => {
+      await page.setViewportSize(PHONE);
+      const held: Route[] = [];
+      await page.route("**/api/auth/oidc/start**", (route) => {
+        held.push(route);
+      });
+      const before = await proceed.boundingBox();
+      // Pressed and read in one script: while the press's navigation is held,
+      // Playwright's locators wait for it to finish, so none can look.
+      const after = await proceed.evaluate((button) => {
+        (button as HTMLButtonElement).click();
+        const box = button.getBoundingClientRect();
+        return { label: button.textContent, width: box.width, height: box.height };
+      });
+      flow.check("sign-in: the press says it is connecting", "Connecting to musubi…", after.label);
+      flow.check(
+        "sign-in: the press keeps the button's box at 390px",
+        `${before?.width}×${before?.height}`,
+        `${after.width}×${after.height}`,
+      );
+      for (const route of held) await route.abort();
+      await page.unroute("**/api/auth/oidc/start**");
+      await page.goto(`${ORIGINS.cireHost}/login`);
+      await expect(proceed).toBeVisible();
+    },
+  );
   // No island owns this page's chrome: its boot script sets the scheme once,
   // at load, so each scheme is a fresh load.
   await flow.step("surfaces: shoot the sign-in page", () =>
@@ -190,6 +231,51 @@ export async function loginSurfaces(flow: Flow, page: Page): Promise<void> {
     }),
   );
   await page.emulateMedia({ colorScheme: "light" });
+}
+
+/**
+ * The host top bar's first frame and the island's: the boot bar's wordmark
+ * copy and the real wordmark land in the same place, so the swap moves
+ * nothing. The island's script is held on a fresh load, so the boot bar can be
+ * measured before it goes.
+ */
+export async function wordmarkSwap(flow: Flow, page: Page): Promise<void> {
+  const star = (scope: string) =>
+    page.locator(`${scope} span[aria-hidden='true'] > span`, { hasText: "✦" }).first();
+  for (const size of WIDTHS) {
+    await flow.step(`surfaces: the wordmark swap at ${size.width}px`, async () => {
+      await page.setViewportSize(size);
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route("**/OrganiserApp*", async (route) => {
+        await held;
+        await route.continue();
+      });
+      // A fresh document: the sample's address differs from the page's only in
+      // its hash, which on its own would not reload it.
+      await page.goto("about:blank");
+      const loaded = page.goto(SAMPLE);
+      const boot = star("#boot-chrome");
+      await expect(boot).toBeVisible({ timeout: 60_000 });
+      const bootBox = await boot.boundingBox();
+      release();
+      await loaded;
+      await expect(page.locator("#boot-chrome")).toHaveCount(0, { timeout: 60_000 });
+      const island = page
+        .getByRole("button", { name: "Cire — all weddings" })
+        .locator("span")
+        .first();
+      const islandBox = await island.boundingBox();
+      await page.unroute("**/OrganiserApp*");
+      flow.check(
+        `wordmark: the boot bar's star and the island's share a left edge at ${size.width}px`,
+        `${bootBox?.x}`,
+        `${islandBox?.x}`,
+      );
+    });
+  }
 }
 
 /** The sample wedding's overview, already open: a card's label is `Eyebrow`. */

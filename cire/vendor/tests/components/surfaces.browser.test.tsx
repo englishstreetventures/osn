@@ -33,11 +33,13 @@ vi.mock("@shared/rp-auth/solid", async () => {
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   redirectToLogin: () => {},
+  leaveForLogin: () => {},
 }));
 
-import SignInPanel from "../../src/components/SignInPanel";
+import { signInCardClass } from "@cire/ui/sign-in-card-class";
+import SignInPanel, { type SignInAuth } from "@cire/ui/sign-in-panel";
+
 import VendorApp from "../../src/components/VendorApp";
-import { LOGIN_CARD_CLASS } from "../../src/lib/login-card";
 import { setThemePreference } from "../../src/lib/theme";
 import { ENQUIRY } from "../test-support/dashboard";
 
@@ -150,19 +152,26 @@ describe("the vendor portal's cards", () => {
         await page.viewport(viewport.width, viewport.height);
         setThemePreference(theme);
         useFonts();
-        // `login.astro`'s page, as it composes it: the same card class round
-        // the same panel, under the same header.
+        // `@cire/ui`'s `sign-in-card.astro`, as `login.astro` renders it: the
+        // same measure, header and card round the same panel, which a stub
+        // sign-in keeps on the page.
+        const stay: SignInAuth = {
+          startSignIn: () => {},
+          resumeSession: () => Promise.resolve(false),
+          readAuthError: () => null,
+          clearAuthError: () => {},
+        };
         render(() => (
           <div class="@container/frame">
-            <main class="page-frame flex min-h-dvh flex-col justify-center py-16 [--page-max:26rem]">
+            <main class="page-frame py-24 [--page-max:30rem]">
               <header class="mb-8 flex flex-col gap-1.5 text-center">
-                <p class={eyebrowClass()}>Vendor Portal</p>
-                <h1 class="font-display text-text leading-ui-none text-[clamp(1.9rem,5cqi,2.6rem)] font-light">
+                <p class={eyebrowClass()}>Cire · Vendor portal</p>
+                <h1 class="font-ui-display text-ui-ink leading-ui-none text-[clamp(1.9rem,5cqi,2.6rem)] font-light">
                   Sign in
                 </h1>
               </header>
-              <div data-testid="login-card" class={LOGIN_CARD_CLASS}>
-                <SignInPanel />
+              <div data-testid="login-card" class={signInCardClass}>
+                <SignInPanel apiBase="https://api.cire.test" auth={stay} />
               </div>
             </main>
           </div>
@@ -170,8 +179,9 @@ describe("the vendor portal's cards", () => {
         await settle();
         const card = screen.getByTestId("login-card");
         expect(box(card)).toMatchObject({ corner: "16px", padding: "32px" });
-        // The lip lights the card's top edge.
+        // The lip lights the card's top edge, over the opaque surface.
         expect(getComputedStyle(card).boxShadow).toContain("inset");
+        expect(box(card).fill).toBe(painted("--ui-surface", "backgroundColor"));
         await page.screenshot({ path: shot(`login-${viewport.name}-${theme}`) });
       });
     }

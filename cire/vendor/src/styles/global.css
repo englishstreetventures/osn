@@ -279,8 +279,8 @@
      defines `--font-ui` / `--font-flair` on :root (see astro.config.mjs); the
      aliases here are what components spell as `font-body` / `font-display`.
      Schibsted Grotesk carries the whole tool — a portal is read as data, not
-     as stationery — and Cormorant Garamond survives on the wordmark and an
-     organisation's name. Lato is gone: it was the guest site's face, and this
+     as stationery — and Cormorant Garamond survives on the wordmark, an
+     organisation's name and an account's initial. Lato is gone: it was the guest site's face, and this
      is not the guest site. */
   --font-body: var(--font-ui);
   --font-display: var(--font-flair);

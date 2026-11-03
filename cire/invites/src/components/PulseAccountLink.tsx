@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import PersonAvatar from "@cire/ui/person-avatar";
 import { createAuthFetch, isAuthExpired, startSignIn } from "@shared/rp-auth";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, Match, Show, Switch } from "solid-js";
@@ -59,48 +60,19 @@ interface PulseAccountLinkProps {
   class?: string;
 }
 
-/** The URL itself when it is an absolute https URL, else null. */
-function httpsUrl(raw: string | null): string | null {
-  if (!raw) return null;
-  try {
-    return new URL(raw).protocol === "https:" ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * The account's picture, or its initial when there is none, it is not an
- * absolute https URL, or it will not load.
+ * The account's picture, or its initial on the account circle when there is
+ * none, it is not an absolute https URL, or it will not load: `@cire/ui`'s
+ * `PersonAvatar`, which keeps those guards for every cire surface.
  */
 function AccountPicture(props: { account: SignedInAccount }) {
-  const [failed, setFailed] = createSignal(false);
-  const avatarUrl = () => httpsUrl(props.account.avatarUrl);
-  const initial = () =>
-    (props.account.displayName ?? props.account.handle ?? "?").trim().charAt(0).toUpperCase() ||
-    "?";
   return (
-    <Show
-      when={avatarUrl() !== null && !failed()}
-      fallback={
-        <span
-          class="text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
-          aria-hidden="true"
-        >
-          {initial()}
-        </span>
-      }
-    >
-      <img
-        src={avatarUrl() ?? undefined}
-        alt=""
-        width="40"
-        height="40"
-        referrerpolicy="no-referrer"
-        class="size-10 shrink-0 rounded-full object-cover"
-        onError={() => setFailed(true)}
-      />
-    </Show>
+    <PersonAvatar
+      fallback="initial"
+      name={props.account.displayName ?? props.account.handle ?? ""}
+      url={props.account.avatarUrl}
+      class="size-10"
+    />
   );
 }
 

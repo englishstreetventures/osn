@@ -20,7 +20,27 @@ export function isAuthExpired(err: unknown): boolean {
   return String(err).includes("AuthExpiredError");
 }
 
+/**
+ * Bounce to the login page on an expired session, remembering where the vendor
+ * was so the sign-in can send them back to it (a thread, an organisation)
+ * rather than to the dashboard. Only the same-origin path+query+hash is carried
+ * (as `returnTo`), never an absolute URL, and the sign-in panel checks it again
+ * before following it. `/login` itself is never remembered: it would loop.
+ */
 export function redirectToLogin(): void {
+  const here = window.location.pathname + window.location.search + window.location.hash;
+  const target =
+    window.location.pathname === "/login"
+      ? "/login"
+      : `/login?returnTo=${encodeURIComponent(here)}`;
+  window.location.href = target;
+}
+
+/**
+ * The login page with nothing to resume: after a sign-out, so the next person
+ * to sign in on this device does not land on the last one's page.
+ */
+export function leaveForLogin(): void {
   window.location.href = "/login";
 }
 

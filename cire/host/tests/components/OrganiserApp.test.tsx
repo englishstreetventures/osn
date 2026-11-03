@@ -247,7 +247,7 @@ import {
   type VendorRow,
 } from "../../src/lib/vendors-store";
 import { __resetWeddingScope } from "../../src/lib/wedding-scope";
-import { redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
+import { leaveSpy, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 
 /** A signal on the open wedding's topic, as the subscription hands it over. */
 const message = (kind: SignalKind): SignalEvent => ({
@@ -621,7 +621,10 @@ describe("OrganiserApp Dashboard", () => {
     fireEvent.pointerUp(item, { button: 0 });
 
     await waitFor(() => expect(logoutMock).toHaveBeenCalled());
-    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    // A plain login, so the next person on this device is not sent back to
+    // the page the last one left.
+    await waitFor(() => expect(leaveSpy).toHaveBeenCalled());
+    expect(redirectSpy).not.toHaveBeenCalled();
   });
 
   // ── Deep-linking + refresh persistence (the headline ask) ───────────────────

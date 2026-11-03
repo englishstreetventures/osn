@@ -20,7 +20,7 @@ import {
   untrack,
 } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, leaveForLogin, redirectToLogin } from "../lib/api";
 import { reloadOnRestore } from "../lib/bfcache";
 import { createCommandShortcut } from "../lib/command-shortcut";
 import {
@@ -941,7 +941,7 @@ function Dashboard() {
 
   async function signOut() {
     await logout();
-    redirectToLogin();
+    leaveForLogin();
   }
 
   /** What the top bar names when no wedding is open. With one open, the

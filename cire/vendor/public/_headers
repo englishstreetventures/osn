@@ -60,11 +60,11 @@
 #     cire/api's OIDC leg and account management links out to musubi — both
 #     navigations, which no `connect-src` governs.
 #
-# On avatars: `AccountAvatar` renders the OIDC `picture` claim, which can point
-# at ANY https host — it is unvalidated at every hop between osn-api and here,
-# so the sink (`httpsAvatarUrl`) is what enforces the scheme. `img-src` allows
-# no avatar host, so the browser blocks the request and files a report, and
-# `AccountAvatar` shows the initial instead. OSN hosts no avatars yet (osn-api
+# On avatars: `@cire/ui`'s `PersonAvatar` renders the OIDC `picture` claim,
+# which can point at ANY https host — it is unvalidated at every hop between
+# osn-api and here, so the sink (its https-only guard) is what enforces the
+# scheme. `img-src` allows no avatar host, so the browser blocks the request
+# and files a report, and `PersonAvatar` shows the initial instead. OSN hosts no avatars yet (osn-api
 # writes `avatarUrl` null on registration and on erasure, and has no update
 # path), so nothing populates the claim. Add OSN's avatar host here when it
 # exists: englishstreetventures/osn#1207.

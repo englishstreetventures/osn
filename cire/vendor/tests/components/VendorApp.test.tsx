@@ -57,6 +57,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
   return {
     ...actual,
     redirectToLogin: vi.fn(),
+    leaveForLogin: vi.fn(),
   };
 });
 

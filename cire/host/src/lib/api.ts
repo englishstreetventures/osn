@@ -66,6 +66,14 @@ export function redirectToLogin(): void {
 }
 
 /**
+ * The login page with nothing to resume: after a sign-out, so the next person
+ * to sign in on this device does not land on the last one's page.
+ */
+export function leaveForLogin(): void {
+  window.location.href = "/login";
+}
+
+/**
  * Leave the app for an external URL.
  *
  * A one-line wrapper, and it earns its place for the same reason

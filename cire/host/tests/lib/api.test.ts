@@ -6,6 +6,7 @@ import {
   allAuthFirst,
   apiUrl,
   isAuthExpired,
+  leaveForLogin,
   redirectToLogin,
   weddingPath,
 } from "../../src/lib/api";
@@ -175,5 +176,20 @@ describe("allAuthFirst", () => {
     );
     await expect(allAuthFirst([Promise.reject(new Error("fast")), slow])).rejects.toBe(expired);
     expect(settled).toBe(true);
+  });
+});
+
+describe("leaveForLogin", () => {
+  const ORIGIN = "http://localhost:4322";
+  const original = window.location.href;
+  afterEach(() => {
+    window.location.href = original;
+  });
+
+  it("goes to the login page with nothing to resume, after a sign-out", () => {
+    // The next person to sign in on this device must not land on this page.
+    window.location.href = `${ORIGIN}/#/w/w1/guests`;
+    leaveForLogin();
+    expect(window.location.href).toBe(`${ORIGIN}/login`);
   });
 });

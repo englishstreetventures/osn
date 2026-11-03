@@ -1,3 +1,5 @@
+import { avatarTriggerClass } from "@cire/ui/avatar-trigger-class";
+import PersonAvatar from "@cire/ui/person-avatar";
 import type { RpSession } from "@shared/rp-auth";
 import {
   DropdownMenu,
@@ -13,6 +15,7 @@ import {
 } from "@shared/ui/ui/dropdown-menu";
 import { createSignal, For, type JSX, onMount, Show } from "solid-js";
 
+import { accountName } from "../lib/account-name";
 import { haptic, hapticsAvailable } from "../lib/haptics";
 import { OSN_ACCOUNT_URL } from "../lib/osn";
 import {
@@ -22,7 +25,6 @@ import {
   type ThemePreference,
   themePreference,
 } from "../lib/theme";
-import AccountAvatar, { accountName, AVATAR_TRIGGER_CLASS } from "./AccountAvatar";
 
 /** "System" first because it is the default, and the only one that keeps
  *  following the vendor's OS after they close the menu. */
@@ -35,7 +37,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 /** The avatar circle the menu opens from: a control with its own look, which
  *  the menu's trigger renders as (`as`), as it would a `Button`. */
 function AvatarButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button type="button" {...props} class={AVATAR_TRIGGER_CLASS} />;
+  return <button type="button" {...props} class={avatarTriggerClass} />;
 }
 
 /**
@@ -100,7 +102,12 @@ export default function ProfileMenu(props: {
   return (
     <DropdownMenu placement="bottom-end" gutter={8} open={open()} onOpenChange={setOpen}>
       <DropdownMenuTrigger as={AvatarButton} aria-label="Account menu">
-        <AccountAvatar session={props.session} />
+        <PersonAvatar
+          fallback="initial"
+          name={name()}
+          url={props.session?.avatarUrl}
+          class="size-full"
+        />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent variant="accent" class="min-w-52">
