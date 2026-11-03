@@ -1488,8 +1488,13 @@ describe("InviteBuilder UX guards", () => {
   });
 
   it("says the invite could not load, in place of the builder, when the first read fails", async () => {
-    authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500)); // initial load
+    let answer: (response: Response) => void = () => {};
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
     render(() => <InviteBuilder {...WEDDING} />);
+    // Loading, and saying nothing has failed, until the read answers.
+    expect(screen.getByText("Loading invite…")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    answer(json({ error: "boom" }, 500));
     const alert = await waitFor(() => screen.getByRole("alert"));
     expect(alert.textContent).toContain("Could not load the invite. Is the API running?");
     expect(screen.queryByText("Save invite")).toBeNull();
@@ -1502,6 +1507,8 @@ describe("InviteBuilder UX guards", () => {
     authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500)); // reload
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
     await waitFor(() => screen.getByText("Save invite"));
+    // A read that answered draws no failure.
+    expect(screen.queryByText("Could not load the invite. Is the API running?")).toBeNull();
 
     const input = container.querySelector('#invite-hero input[type="file"]') as HTMLInputElement;
     Object.defineProperty(input, "files", {
