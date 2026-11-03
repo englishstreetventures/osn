@@ -41,13 +41,23 @@ describe("sync-plans script", () => {
     expect(out.join("\n")).toContain("dry run");
   });
 
-  it("refuses to run without a key, and to apply a live key without --live", async () => {
+  it("refuses to run without a key", async () => {
     const stripe = createFakeStripe();
     const { io: deps } = io(stripe);
     expect(await main(["--plans", plansModule()], {}, deps)).toBe(2);
-    expect(
-      await main(["--plans", plansModule(), "--apply"], { STRIPE_SECRET_KEY: "sk_live_x" }, deps),
-    ).toBe(2);
     expect(stripe.calls).toEqual([]);
   });
+
+  it.each(["sk_live_x", "rk_live_x"])(
+    "refuses to apply the live key %s without --live",
+    async (key) => {
+      const stripe = createFakeStripe();
+      const { out, io: deps } = io(stripe);
+      expect(
+        await main(["--plans", plansModule(), "--apply"], { STRIPE_SECRET_KEY: key }, deps),
+      ).toBe(2);
+      expect(out.join("\n")).toContain("without --live");
+      expect(stripe.calls).toEqual([]);
+    },
+  );
 });

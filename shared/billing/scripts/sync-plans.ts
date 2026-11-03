@@ -5,9 +5,9 @@
  *     --plans <path to a module that exports `plans`> [--apply] [--live]
  *
  * `--plans` resolves from the directory the command runs in (`shared/billing`
- * under `--cwd`). A live key (`sk_live_…`) also needs `--live` to apply. Prints
- * each plan's product and price diffs, and the portal configuration id the
- * consumer stores.
+ * under `--cwd`). A live key (`sk_live_…`, or a restricted `rk_live_…`) also
+ * needs `--live` to apply. Prints each plan's product and price diffs, and the
+ * portal configuration id the consumer stores.
  */
 
 import { isAbsolute, resolve } from "node:path";
@@ -27,6 +27,9 @@ export interface ScriptIo {
 
 const USAGE =
   "usage: STRIPE_SECRET_KEY=sk_test_… bun run sync-plans -- --plans <module exporting plans> [--apply] [--live]";
+
+/** A secret or restricted key for a live-mode account. */
+const LIVE_KEY = /^[sr]k_live_/;
 
 function flag(argv: readonly string[], name: string): string | undefined {
   const at = argv.indexOf(name);
@@ -62,7 +65,7 @@ export async function main(
     io.write(USAGE);
     return 2;
   }
-  if (apply && secretKey.startsWith("sk_live_") && !argv.includes("--live")) {
+  if (apply && LIVE_KEY.test(secretKey) && !argv.includes("--live")) {
     io.write(
       "refusing to apply with a live key without --live: tax_behavior cannot be changed once set",
     );
