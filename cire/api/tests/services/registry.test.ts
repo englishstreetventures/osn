@@ -331,6 +331,23 @@ describe("registry settings", () => {
     expect(second.headline).toBe("Our registry");
     expect(second.message).toBe("No boxed gifts please");
   });
+
+  it("reads the Stripe status of a wedding that is gone as no account, not a failure", async () => {
+    // The refresh route reads this after its gate: a wedding deleted in
+    // between answers "not connected" rather than a 500.
+    const db = db0();
+    const { accountId, status } = await ok(
+      db,
+      registryService.stripeStatus("wed_gone", PAYING_SITE),
+    );
+    expect(accountId).toBeNull();
+    expect(status).toEqual({
+      connected: false,
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      moneyGiftsBlockedBy: "stripe_not_ready",
+    });
+  });
 });
 
 describe("registry settings from two organisers at once", () => {

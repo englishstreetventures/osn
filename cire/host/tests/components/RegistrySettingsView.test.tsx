@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RegistrySettingsView from "../../src/components/RegistrySettingsView";
 import {
   __resetRegistryCache,
+  dropRegistry,
   peekCachedRegistry,
   type RegistryItem,
   type RegistrySnapshot,
@@ -824,7 +825,12 @@ describe("money gifts", () => {
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
       /pays out in a currency other than AUD/,
     );
-    expect(authFetch.mock.calls.filter(([, init]) => isEmptySave(init))).toHaveLength(1);
+    const rereads = authFetch.mock.calls.filter(([, init]) => isEmptySave(init));
+    expect(rereads).toHaveLength(1);
+    // Sent as JSON, or the API would not read `{}` as an empty save.
+    expect((rereads[0]?.[1] as RequestInit | undefined)?.headers).toEqual({
+      "Content-Type": "application/json",
+    });
     const urls = authFetch.mock.calls.map((c) => String(c[0]));
     expect(urls.some((u) => u.includes("/registry/stripe/refresh"))).toBe(false);
     // The list stays as it was: only the settings row was asked for.
@@ -853,10 +859,11 @@ describe("money gifts", () => {
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
   }
 
-  it("keeps what it holds when the re-read fails, and says nothing more", async () => {
-    await editorRefusedThenReread(() =>
-      Promise.resolve(json({ error: "Internal error", settings: null }, 500)),
-    );
+  it.each([
+    ["answers 500", () => Promise.resolve(json({ error: "Internal error", settings: null }, 500))],
+    ["cannot reach the API", () => Promise.reject(new TypeError("Failed to fetch"))],
+  ])("keeps what it holds when the re-read %s, and says nothing more", async (_case, reread) => {
+    await editorRefusedThenReread(reread);
     // The refusal's toast already said what is true; a failed read adds nothing,
     // and the panel keeps the row it had rather than one made of an error.
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
@@ -1171,6 +1178,40 @@ describe("checking on Stripe by hand", () => {
       expect(haptic).toHaveBeenLastCalledWith(feel);
     },
   );
+
+  it("still reports what Stripe said when the registry is let go while it asks", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "cash_gifts_off",
+        } as never,
+      }),
+    );
+    let answer: (res: Response) => void = () => {};
+    authFetch.mockReturnValue(new Promise<Response>((resolve) => (answer = resolve)));
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /Check again/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    // The organiser leaves the wedding mid-read: its snapshot is released.
+    dropRegistry("wed_1");
+    answer(
+      json({
+        connected: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        moneyGiftsBlockedBy: "currency_mismatch",
+      }),
+    );
+    // The answer is still Stripe's, in the currency the API falls back to —
+    // not a made-up "couldn't reach Stripe".
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(String(toastSuccess.mock.calls[0]?.[0])).toMatch(/a currency other than AUD,/);
+    expect(toastError).not.toHaveBeenCalled();
+  });
 
   it("says so when Stripe cannot be reached, and changes nothing", async () => {
     setCachedRegistry(
