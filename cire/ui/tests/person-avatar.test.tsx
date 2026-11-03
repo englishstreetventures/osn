@@ -94,6 +94,20 @@ describe("PersonAvatar", () => {
     expect(drawn.container.querySelector("img")).not.toBeNull();
   });
 
+  it("frames an account's circle, and never a face in a stack", () => {
+    const frame = (el: HTMLElement) =>
+      classesOf(el).filter((c) => /(^|:)(border|bg)(-|$)/.test(c) && !c.includes("group-hover"));
+    const face = render(() => <PersonAvatar fallback="blank" class="size-8" />);
+    expect(frame(root(face.container))).toEqual([]);
+    cleanup();
+    const account = render(() => <PersonAvatar fallback="initial" name="Ada" class="size-9" />);
+    expect(frame(root(account.container))).toEqual([
+      "base:border",
+      "base:border-ui-hairline",
+      "base:bg-ui-surface/40",
+    ]);
+  });
+
   it("draws the empty avatar, never a letter, for blank", () => {
     const { container } = render(() => <PersonAvatar fallback="blank" class="size-8" />);
     expect(container.querySelector("[data-blank-avatar]")).not.toBeNull();

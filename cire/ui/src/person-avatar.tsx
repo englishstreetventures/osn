@@ -110,17 +110,20 @@ function httpsOnly(url: string | null | undefined): string | null {
  * keeps it one letter: `ß` would become `SS`.
  */
 function initialOf(name: string): string {
-  const trimmed = name.trim();
-  const first =
-    typeof Intl.Segmenter === "function"
-      ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
-          .segment(trimmed)
-          [Symbol.iterator]()
-          .next().value?.segment
-      : Array.from(trimmed)[0];
+  const first = firstGrapheme(name.trim());
   if (!first) return "?";
   const upper = first.toUpperCase();
   return Array.from(upper).length === Array.from(first).length ? upper : first;
+}
+
+function firstGrapheme(text: string): string | undefined {
+  if (typeof Intl.Segmenter !== "function") return Array.from(text)[0];
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(
+    text,
+  )) {
+    return segment;
+  }
+  return undefined;
 }
 
 function BlankFigure() {
