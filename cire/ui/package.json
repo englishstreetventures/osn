@@ -21,6 +21,7 @@
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./loading": "./src/loading.tsx",
     "./note": "./src/note.tsx",
+    "./person-avatar": "./src/person-avatar.tsx",
     "./reveal": "./src/reveal.tsx",
     "./segmented-tabs": "./src/segmented-tabs.tsx",
     "./sign-in-card-class": "./src/sign-in-card-class.ts",
