@@ -22,7 +22,7 @@
  * the wash still has room around it, and never right: the focus ring is the
  * house ring, 2px at a 2px offset, and with a pull on the right too it would
  * land on the divider (or vendor's tabs) 8px along the bar's row. Left only,
- * it clears them by 4px (owner, Stack 6 question 40, A2).
+ * it clears them by 4px.
  *
  * Its own ring, from the contract's focus token, as `Button` draws one: a
  * library part cannot count on its app declaring a blanket `:focus-visible`.

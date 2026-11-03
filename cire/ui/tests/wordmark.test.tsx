@@ -15,7 +15,7 @@ import Wordmark, { WordmarkPlaceholder } from "../src/wordmark";
  * Three classes are read by name because they are the owner's choices, not a
  * refactor's: the star in readable gold ("gold text is always readable gold"),
  * and `Button`'s own focus ring on a box that pulls left only, so the ring
- * clears the divider beside it (Stack 6, question 40, A2).
+ * clears the divider beside it by 4px.
  */
 
 afterEach(cleanup);

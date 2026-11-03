@@ -1142,8 +1142,8 @@ and `--ease-out`. The focus ring is `Button`'s own, 2px at a 2px offset from
 `--ui-focus`, because a library part cannot count on its app's blanket
 `:focus-visible` rule. The box pulls 4px left (`-ml-1`) and never right: with
 a pull on both sides the ring lands on the divider (or vendor's tabs) 8px
-along the bar's `gap-2` row, and left only it clears them by 4px (the owner's
-answer to Stack 6's question 40). It takes no `class`, `size` or `variant`.
+along the bar's `gap-2` row, and left only it clears them by 4px. It takes no
+`class`, `size` or `variant`.
 
 `WordmarkPlaceholder` is the same box and glyphs with no role, no tab stop, no
 hover and `aria-hidden`, for the static bar a portal's `index.astro` paints
