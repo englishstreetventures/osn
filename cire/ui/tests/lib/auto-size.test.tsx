@@ -158,6 +158,9 @@ describe("createAutoSize", () => {
     resizeTo(180);
     endTransition(content(), "opacity");
     expect(frame().style.height).toBe("180px");
+    // A child's own height transition too: only the frame's ends the move.
+    endTransition(content(), "height");
+    expect(frame().style.height).toBe("180px");
   });
 
   it("stays clipped for its own transition of anything but height", () => {
@@ -211,6 +214,15 @@ describe("createAutoSize", () => {
     expect(frame().style.height).toBe("180px");
     vi.advanceTimersByTime(1000);
     expect(frame().style.height).toBe("");
+  });
+
+  it("lets go at once when a change past the cap comes mid-move", () => {
+    const { frame } = mount(120);
+    resizeTo(180);
+    expect(frame().style.overflow).toBe("hidden");
+    resizeTo(AUTO_SIZE_CAP + 400);
+    expect(frame().style.height).toBe("");
+    expect(frame().style.overflow).toBe("");
   });
 
   it("touches nothing at all for a change past the cap", () => {
