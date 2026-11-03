@@ -40,7 +40,7 @@ function databaseBeforeCurrencyCheck(): Database {
  * each to a value no other column holds, so a column left out of the copy or
  * swapped with another of its type shows; `rct_sparse` leaves every nullable
  * column NULL. Neither has the default status, so a copy that drops `status`
- * shows too. `rct_full` is in lower case, as a code Stripe sends is.
+ * shows too. `rct_full`'s codes are in lower case, which both checks allow.
  */
 function seeded(): Database {
   const db = databaseBeforeCurrencyCheck();
@@ -82,6 +82,27 @@ function give(db: Database, id: string, currency: string, primaryCurrency: strin
 }
 
 describe("migration 20261103160929 — a gift's currency is three characters", () => {
+  it("rebuilds a table no foreign key, trigger or view names", () => {
+    // The rebuild's DROP TABLE cascades into any table whose foreign key points
+    // here, and drops any trigger on it; the chain before it holds neither.
+    const db = databaseBeforeCurrencyCheck();
+    expect(
+      db
+        .query(
+          "SELECT m.name FROM sqlite_master m, pragma_foreign_key_list(m.name) f WHERE m.type = 'table' AND f.\"table\" = 'registry_contributions'",
+        )
+        .all(),
+    ).toEqual([]);
+    expect(
+      db
+        .query(
+          "SELECT name FROM sqlite_master WHERE type IN ('trigger', 'view') AND sql LIKE '%registry_contributions%'",
+        )
+        .all(),
+    ).toEqual([]);
+    db.close();
+  });
+
   it("keeps every gift, and every column of it", () => {
     const db = seeded();
     const before = gifts(db);
