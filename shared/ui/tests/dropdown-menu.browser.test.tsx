@@ -572,6 +572,23 @@ describe("the accent variant", () => {
     expect(getComputedStyle(screen.getByRole("menu")).animationName).toBe("none");
   });
 
+  it("pops at the app's own pace and easing, read before the contract's", async () => {
+    const root = document.documentElement.style;
+    root.setProperty("--dur-fast", "77ms");
+    root.setProperty("--ease-out", "linear");
+    try {
+      render(() => <Accent />);
+      await open();
+      const panel = getComputedStyle(screen.getByRole("menu"));
+      expect(panel.animationName).toBe("ui-enter");
+      expect(panel.animationDuration).toBe("0.077s");
+      expect(panel.animationTimingFunction).toBe("linear");
+    } finally {
+      root.removeProperty("--dur-fast");
+      root.removeProperty("--ease-out");
+    }
+  });
+
   it("rings a row reached by the keyboard, and never fades the ring in", async () => {
     render(() => <Accent />);
     await openByKeyboard();
