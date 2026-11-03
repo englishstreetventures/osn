@@ -393,6 +393,8 @@ export const PEOPLE = {
   musubiRetry: { email: "grace@e2e.test", handle: "e2e_grace", name: "Grace E2E" },
   pulseHost: { email: "host@e2e.test", handle: "e2e_host", name: "Host E2E" },
   pulseGuest: { email: "guest@e2e.test", handle: "e2e_guest", name: "Guest E2E" },
+  /** Cancels an event and a series through the API. */
+  pulseOrganiser: { email: "organiser@e2e.test", handle: "e2e_organiser", name: "Organiser E2E" },
 } as const;
 
 export const BIRTHDATE = "1990-01-01";

@@ -10,49 +10,19 @@
  * rides on the web app's (`localhost:1420`) credentialed fetches.
  */
 
-import type { BrowserContext, Page } from "@playwright/test";
+import type { BrowserContext } from "@playwright/test";
 
 import { DB_FILES, ORIGINS, PEOPLE } from "../../src/config";
 import {
-  cookieNamed,
   expect,
   onSuiteClock,
   queryOne,
   registerThroughApi,
+  signInToPulse,
   test,
-  type Flow,
 } from "../support/fixtures";
 
 const EVENT_TITLE = "E2E Launch Party";
-
-/** Signs in to Pulse through OSN and finishes Pulse's first-run onboarding. */
-async function signInToPulse(flow: Flow, page: Page, who: string): Promise<void> {
-  const authorizePages: string[] = [];
-  page.on("framenavigated", (frame) => {
-    if (frame === page.mainFrame() && frame.url().startsWith(`${ORIGINS.musubi}/authorize`)) {
-      authorizePages.push(frame.url());
-    }
-  });
-
-  await flow.step(`${who}: sign in to Pulse with Musubi`, async () => {
-    await page.goto(ORIGINS.pulseWeb);
-    await page.getByRole("button", { name: "Continue with musubi" }).click();
-  });
-
-  await flow.step(`${who}: finish onboarding`, async () => {
-    await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
-    await page.getByRole("button", { name: "Skip for now" }).click();
-    await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/`);
-  });
-
-  flow.check(`${who}: Musubi /authorize page not shown`, 0, authorizePages.length);
-  // The consent screen is the only thing that reads the context, so a
-  // first-party sign-in that never shows it makes no such read.
-  flow.check(`${who}: /authorize/context reads`, 0, flow.count("GET osn-api /authorize/context "));
-  const cookie = await cookieNamed(page.context(), ORIGINS.pulseApi, "pulse_web_session");
-  flow.check(`${who}: pulse_web_session set by pulse-api`, true, cookie !== undefined);
-  flow.check(`${who}: pulse_web_session is HttpOnly`, true, cookie?.httpOnly ?? false);
-}
 
 test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   await flow.step("host: create an OSN account", () =>
