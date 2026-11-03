@@ -3,7 +3,7 @@
  * returns a Promise, and `onAccess` may return one.
  *
  * `run` is required, and should be the consumer's own runtime's `runPromise`
- * (`ManagedRuntime.runPromise`, or a wrapper like Cire's `runCire`): it carries
+ * (`ManagedRuntime.runPromise`, or the consumer's wrapper around it): it carries
  * the logger that redacts, and the tracer. A rejection is the tagged error
  * itself (`_tag`), as Effect v4's `runPromise` rejects with.
  */

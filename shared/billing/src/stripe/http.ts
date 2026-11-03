@@ -94,8 +94,8 @@ export interface StripeRequestOptions {
   /** Makes a retried POST return the FIRST result. Stripe keeps keys for 24 h. */
   readonly idempotencyKey?: string;
   /**
-   * Act as a connected account (`Stripe-Account`). Kept for Cire's Connect
-   * calls, which move onto this helper; the billing core never sets it.
+   * Act as a connected account (`Stripe-Account`), for a consumer's own
+   * Connect calls through this helper. The billing core never sets it.
    */
   readonly stripeAccount?: string;
 }
