@@ -31,8 +31,8 @@ import { createSignal, Show } from "solid-js";
  *
  * A URL that fails to load — a dead link, a response that is not an image, or a
  * host the page's CSP `img-src` does not list — is kept in one set for the
- * page, so the face that failed falls back at once, and no other face with
- * that URL asks for it again: vendor's placeholder trigger and the real one
+ * page, so the face that failed falls back at once, and no face that has not
+ * drawn that URL asks for it again (one that already drew it keeps it): vendor's placeholder trigger and the real one
  * agree, and the swap between them never flashes an empty circle. A new URL
  * gets its own try. The set lives until the page reloads.
  *
@@ -43,14 +43,17 @@ import { createSignal, Show } from "solid-js";
  * photo keeps the circle's full size; `@shared/ui` `Avatar`'s `ring="surface"`
  * paints a border in the card's colour inside the circle instead.
  *
- * `class` sets the size and the place, nothing else. The part imports no
+ * `class` sets the size and the place, nothing else, and is required: the
+ * root measures the letter from its own width, so it takes none from its
+ * contents and would be no width at all without one. The part imports no
  * Kobalte, so a trigger can draw it before a menu's code has loaded.
  */
 
 type PersonAvatarProps = ({ fallback: "blank" } | { fallback: "initial"; name: string }) & {
   url?: string | null;
   ring?: boolean;
-  class?: string;
+  /** The circle's size, and its place: a container query sets the initial from it, so it must be given. */
+  class: string;
 };
 
 /**
@@ -99,9 +102,25 @@ function httpsOnly(url: string | null | undefined): string | null {
   }
 }
 
-/** The first letter of the trimmed name, whole even outside the basic plane, or `?`. */
+/**
+ * The first letter of the trimmed name as a reader sees it, or `?`. A letter
+ * can be several code points — an accent typed after its letter, a flag — so
+ * it is the first grapheme where the browser can segment one, and the first
+ * code point where it cannot (Firefox before 125). Upper-cased only when that
+ * keeps it one letter: `ß` would become `SS`.
+ */
 function initialOf(name: string): string {
-  return Array.from(name.trim())[0]?.toUpperCase() ?? "?";
+  const trimmed = name.trim();
+  const first =
+    typeof Intl.Segmenter === "function"
+      ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+          .segment(trimmed)
+          [Symbol.iterator]()
+          .next().value?.segment
+      : Array.from(trimmed)[0];
+  if (!first) return "?";
+  const upper = first.toUpperCase();
+  return Array.from(upper).length === Array.from(first).length ? upper : first;
 }
 
 function BlankFigure() {
@@ -114,15 +133,18 @@ function BlankFigure() {
 }
 
 export default function PersonAvatar(props: PersonAvatarProps) {
+  // A photo this face has already drawn stays drawn when the same URL fails
+  // for another face later; the store only stops faces that have not.
+  const [drawn, setDrawn] = createSignal<string | null>(null);
   const photo = () => {
     const url = httpsOnly(props.url);
-    return url && !failed().has(url) ? url : null;
+    return url && (drawn() === url || !failed().has(url)) ? url : null;
   };
   const frame = () => (props.fallback === "initial" ? ` ${ACCOUNT_FRAME}` : "");
   return (
     <span
       aria-hidden="true"
-      class={`${ROOT}${frame()}${props.ring ? ` ${RING}` : ""}${props.class ? ` ${props.class}` : ""}`}
+      class={`${ROOT}${frame()}${props.ring ? ` ${RING}` : ""} ${props.class}`}
     >
       <Avatar class="size-full">
         <Show
@@ -141,6 +163,7 @@ export default function PersonAvatar(props: PersonAvatarProps) {
               src={url}
               alt=""
               referrerpolicy="no-referrer"
+              onLoad={() => setDrawn(url)}
               onError={() => markFailed(url)}
             />
           )}
