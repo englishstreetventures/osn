@@ -160,6 +160,13 @@ describe("SiteFooter's styles", () => {
     );
   });
 
+  it("keeps rows of links a hit area apart, so a tap never lands on the next line's link", () => {
+    expect(style).toMatch(
+      /\.sections \{[^}]*gap: calc\(2\.75rem - 1lh\) 1\.75rem;[^}]*margin: 0 auto calc\(2\.75rem - 1lh\);/,
+    );
+    expect(style).toMatch(/\.legal-row \{[^}]*gap: calc\(2\.75rem - 1lh\) 0\.5rem;/);
+  });
+
   it("sets the couple's names in roman and the logotype in italic", () => {
     expect(style).toMatch(/\.signoff\[data-face='wordmark'\] \{[^}]*font-style: italic;/);
     expect(style).not.toMatch(/\.signoff\[data-face='names'\] \{[^}]*italic/);

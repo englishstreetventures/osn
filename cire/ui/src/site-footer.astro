@@ -156,13 +156,16 @@ const hasConsent = Astro.slots.has('consent')
     margin: 3rem auto;
   }
 
+  /* Rows of links sit a hit area's height apart, line to line, so the 44px box
+     laid over each word (below) never reaches the link on the next line, which,
+     painted later, would take the tap. */
   .sections {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 0.6rem 1.75rem;
+    gap: calc(2.75rem - 1lh) 1.75rem;
     max-width: var(--ui-measure-2xl, 64rem);
-    margin: 0 auto 1rem;
+    margin: 0 auto calc(2.75rem - 1lh);
     /* No type token at 0.875rem. */
     font-size: 0.875rem;
   }
@@ -173,7 +176,7 @@ const hasConsent = Astro.slots.has('consent')
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    column-gap: 0.5rem;
+    gap: calc(2.75rem - 1lh) 0.5rem;
     /* No type token at 0.8125rem. */
     font-size: 0.8125rem;
   }
