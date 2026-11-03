@@ -408,8 +408,9 @@ jobs:
   # Each API's d1-integration.test.ts lives under `tests/d1/` (cire's under
   # `tests/db/`); `@shared/realtime`'s tests/d1/hub.test.ts joins this lane
   # for the same reason, though it covers TopicHub on workerd rather than
-  # D1. The vitest packages EXCLUDE that path, so their unit tests never
-  # reach them — they import `bun:test` and boot a real workerd, neither
+  # D1. `@shared/billing`'s tests/d1/storage.test.ts runs its storage
+  # contract on D1. The vitest packages EXCLUDE that path, so their unit
+  # tests never reach them — they import `bun:test` and boot a real workerd, neither
   # of which vitest can load. cire/api runs a bare `bun test`, which takes
   # no exclude and discovers recursively, so its copy also runs in the
   # `cire-api-tests` job; that is pre-existing and harmless. The D1 files are

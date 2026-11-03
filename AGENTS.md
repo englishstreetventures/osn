@@ -13,7 +13,7 @@ OSN is a modular social platform: people own their identity and social graph, an
 | `pulse/` | `@pulse/*` | Events: app, API, DB, marketing site |
 | `zap/` | `@zap/*` | Messaging: API and DB, no client yet |
 | `cire/` | `@cire/*` | Wedding invites: guest site, organiser portal, vendor portal, marketing site, API, DB, `@cire/ui` |
-| `shared/` | `@shared/*` | Libraries every product uses: UI primitives, design tokens, crypto, email, observability, rate limiting, auth client |
+| `shared/` | `@shared/*` | Libraries every product uses: UI primitives, design tokens, crypto, email, observability, rate limiting, auth client, subscription billing |
 | `tools/` | `@tools/*` | Local-only developer tooling, never shipped: the E2E suite, house lint rules, session metrics, the mutation-test runner, the component lab |
 
 Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full tree is in `wiki/shared/monorepo-structure.md`.
