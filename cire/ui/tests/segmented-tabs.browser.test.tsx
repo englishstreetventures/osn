@@ -68,6 +68,8 @@ describe("the glass", () => {
     render(() => <Strip />);
     await settle();
     await userEvent.click(screen.getByRole("tab", { name: "Events" }));
+    // The owner's motion: the house spring, not the rail's ease-out.
+    expect(glass().style.transition).toContain("--ease-spring");
     await settle(700);
     const item = screen.getByRole("tab", { name: "Events" }).getBoundingClientRect();
     const box = glass().getBoundingClientRect();
@@ -176,7 +178,7 @@ describe("a strip that scrolls", () => {
     expect(scroller.scrollLeft).toBeGreaterThan(0);
     const item = screen.getByRole("tab", { name: "Closing" }).getBoundingClientRect();
     const view = scroller.getBoundingClientRect();
-    expect(item.right).toBeLessThanOrEqual(view.right + 0.5);
+    expect(item.right).toBeLessThanOrEqual(view.right - 4 + 0.5);
     expect(window.scrollY).toBe(before);
   });
 
@@ -190,7 +192,7 @@ describe("a strip that scrolls", () => {
     expect(document.activeElement).toBe(closing);
     expect(closing.getAttribute("aria-selected")).toBe("false");
     expect(closing.getBoundingClientRect().right).toBeLessThanOrEqual(
-      scroller.getBoundingClientRect().right + 0.5,
+      scroller.getBoundingClientRect().right - 4 + 0.5,
     );
   });
 
@@ -201,6 +203,66 @@ describe("a strip that scrolls", () => {
     expect(scroller.scrollLeft).toBeGreaterThan(0);
     expect(
       screen.getByRole("tab", { name: "Closing" }).getBoundingClientRect().right,
-    ).toBeLessThanOrEqual(scroller.getBoundingClientRect().right + 0.5);
+    ).toBeLessThanOrEqual(scroller.getBoundingClientRect().right - 4 + 0.5);
+  });
+  it("scrolls back to a choice past its left edge, keeping the ring's room", async () => {
+    render(() => <Strip scroll width="150px" initial="closing" />);
+    await settle();
+    const scroller = screen.getByRole("tablist", { name: "Sections" }).parentElement!;
+    const start = scroller.scrollLeft;
+    expect(start).toBeGreaterThan(0);
+    screen.getByRole("tab", { name: "Closing" }).focus();
+    await userEvent.keyboard("{Home}");
+    const hero = screen.getByRole("tab", { name: "Hero" });
+    expect(document.activeElement).toBe(hero);
+    expect(scroller.scrollLeft).toBeLessThan(start);
+    expect(hero.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+      scroller.getBoundingClientRect().left + 4 - 0.5,
+    );
+  });
+
+  it("never moves a page that can scroll", async () => {
+    render(() => (
+      <div
+        style={{ width: "200vw", height: "200vh", "padding-top": "60vh", "padding-left": "40vw" }}
+      >
+        <Strip scroll width="150px" />
+      </div>
+    ));
+    await settle();
+    window.scrollTo(200, 300);
+    const [x, y] = [window.scrollX, window.scrollY];
+    expect([x, y]).toEqual([200, 300]);
+    screen.getByRole("tab", { name: "Hero" }).focus({ preventScroll: true });
+    await userEvent.keyboard("{ArrowLeft}");
+    await userEvent.keyboard("{Enter}");
+    await settle();
+    expect(screen.getByRole("tab", { name: "Closing" }).getAttribute("aria-selected")).toBe("true");
+    expect([window.scrollX, window.scrollY]).toEqual([x, y]);
+    window.scrollTo(0, 0);
+  });
+
+  it("puts its row-place class on the scroller, so the strip shrinks in its row", async () => {
+    render(() => (
+      <Ramp ramp="dark">
+        <div style={{ display: "flex", width: "150px" }}>
+          <SegmentedTabs
+            items={FIVE}
+            value="hero"
+            onChange={() => {}}
+            label="Sections"
+            semantics="tabs"
+            scroll
+            class="min-w-0"
+          />
+          <span style={{ flex: "none", width: "60px" }} />
+        </div>
+      </Ramp>
+    ));
+    await settle();
+    const scroller = screen.getByRole("tablist", { name: "Sections" }).parentElement!;
+    // 150px less the 60px beside it, and the scroller's -4px margins.
+    expect(scroller.getBoundingClientRect().width).toBeLessThanOrEqual(98);
+    expect(scroller.scrollWidth).toBeGreaterThan(scroller.clientWidth);
   });
 });

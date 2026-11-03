@@ -84,6 +84,9 @@ describe("as tabs", () => {
     fireEvent.keyDown(third, { key: "Home" });
     expect(document.activeElement).toBe(first);
     expect(onChange).not.toHaveBeenCalled();
+    // Choosing what is already chosen changes nothing, so it asks for nothing.
+    fireEvent.click(first);
+    expect(onChange).not.toHaveBeenCalled();
     fireEvent.click(second);
     expect(onChange).toHaveBeenCalledWith("edit");
     expect(second.getAttribute("aria-selected")).toBe("true");
@@ -95,6 +98,7 @@ describe("as radios", () => {
   it("is a named radiogroup, each radio its own tab stop, and a refused choice stays unmade", () => {
     const [mode, setMode] = createSignal<"editor" | "import">("editor");
     let allow = false;
+    const asked: string[] = [];
     render(() => (
       <SegmentedTabs
         items={[
@@ -103,6 +107,7 @@ describe("as radios", () => {
         ]}
         value={mode()}
         onChange={(v) => {
+          asked.push(v);
           if (allow) setMode(v);
         }}
         label="How do you want to edit?"
@@ -123,6 +128,10 @@ describe("as radios", () => {
     editor.focus();
     fireEvent.keyDown(editor, { key: "ArrowRight" });
     expect(document.activeElement).toBe(editor);
+    // The chosen radio asks for nothing: a refusal prompt would fire for a
+    // click that changes nothing.
+    fireEvent.click(editor);
+    expect(asked).toEqual([]);
     fireEvent.click(spreadsheet);
     expect(spreadsheet.getAttribute("aria-checked")).toBe("false");
     expect(editor.getAttribute("aria-checked")).toBe("true");
