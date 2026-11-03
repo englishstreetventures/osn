@@ -100,7 +100,8 @@ describe("dividerLabel", () => {
   });
 
   it("adds the year only for another year", () => {
-    expect(dividerLabel(sydney(2026, 9, 10, 9, 12), opts)).toBe("Thu 10 Sep, 9:12 am");
+    // August: ICU builds disagree on "Sep" and "Sept", "Jun" and "June".
+    expect(dividerLabel(sydney(2026, 8, 10, 9, 12), opts)).toBe("Mon 10 Aug, 9:12 am");
     expect(dividerLabel(sydney(2025, 12, 31, 21, 0, 11), opts)).toBe("Wed 31 Dec 2025, 9:00 pm");
   });
 
