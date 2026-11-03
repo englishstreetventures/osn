@@ -235,13 +235,31 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const [envelopesOffered, setEnvelopesOffered] = createSignal(false);
   const [envelopeEntitled, setEnvelopeEntitled] = createSignal(false);
 
-  const [data, { mutate, refetch }] = createResource<InviteCustomisation>(async () => {
-    const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
-    if (res.status === 401) {
-      redirectToLogin();
-      throw new Error("unauthorised");
-    }
-    if (!res.ok) throw new Error(`Could not load invite (${res.status}).`);
+  // A read that fails resolves rather than throws: a failed resource throws
+  // wherever it is read, and the builder reads it in many places. The first
+  // read's failure is drawn in place of the builder; a later one keeps what is
+  // on screen and says so beside the save button.
+  const [loadFailed, setLoadFailed] = createSignal(false);
+  const [data, { mutate, refetch }] = createResource<InviteCustomisation | undefined>(
+    async (_source, info) => {
+      const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
+      if (res.status === 401) {
+        redirectToLogin();
+        throw new Error("unauthorised");
+      }
+      if (!res.ok) {
+        if (info.value) {
+          setError("Could not reload the invite. Try again.");
+          return info.value;
+        }
+        setLoadFailed(true);
+        return undefined;
+      }
+      setLoadFailed(false);
+      return read(res);
+    },
+  );
+  async function read(res: Response): Promise<InviteCustomisation> {
     const body = (await res.json()) as InviteCustomisation;
     if (!faqsLoaded) {
       faqsLoaded = true;
@@ -250,7 +268,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setEnvelopesOffered("envelopeId" in body);
     setEnvelopeEntitled(body.envelopeEntitled === true);
     return body;
-  });
+  }
 
   // The whole editable state as one draft store (see model.ts), seeded once
   // when the resource first resolves. Image URLs/crops are NOT drafted — they
@@ -961,7 +979,20 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         </header>
       </Show>
 
-      <Show when={data()} fallback={<Loading label="Loading invite…" />}>
+      {/* A first read that failed says so, rather than loading for ever. */}
+      <Show when={loadFailed()}>
+        <Notice tone="danger" alert>
+          Could not load the invite. Is the API running?
+        </Notice>
+      </Show>
+      <Show
+        when={data()}
+        fallback={
+          <Show when={!loadFailed()}>
+            <Loading label="Loading invite…" />
+          </Show>
+        }
+      >
         {(d) => {
           // Memoized once per render pass and shared by the sticky side pane
           // and the mobile modal — without this, the rare frame where
