@@ -14,8 +14,9 @@
  * environment by itself, so these tests refuse to run while this package holds
  * one.
  *
- * It runs the installed Alchemy tree, which the lockfile and the root
- * manifest's overrides decide (`READS_REPO`).
+ * It runs the installed Alchemy tree, which the lockfile, the root manifest
+ * and the patches decide (`RUNS_ALCHEMY`). Both runs start together, before
+ * any test, and each test reads its run's result.
  */
 
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -23,12 +24,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test } from "vitest";
 
 const packageDir = fileURLToPath(new URL("..", import.meta.url));
 
 /** How long one run may take; loading every Cloudflare module takes a few seconds. */
 const RUN_TIMEOUT_MS = 60_000;
+
+/** The scripts these tests run. */
+type Script = "state:check" | "state:bootstrap";
 
 /** The error Alchemy's Cloudflare provider stops with when CI holds no credentials. */
 const NO_CREDENTIALS = "Cloudflare CI credentials not found";
@@ -51,12 +55,18 @@ interface Run {
   readonly output: string;
 }
 
-const runs = new Map<string, Run>();
+const runs = new Map<Script, Promise<Run>>();
 
 /** Runs `bun run <script>` in this package with no credentials, once per script. */
-function run(script: "state:check" | "state:bootstrap"): Run {
-  const done = runs.get(script);
-  if (done !== undefined) return done;
+function run(script: Script): Promise<Run> {
+  const started = runs.get(script);
+  if (started !== undefined) return started;
+  const outcome = spawnScript(script);
+  runs.set(script, outcome);
+  return outcome;
+}
+
+async function spawnScript(script: Script): Promise<Run> {
   const envFiles = readdirSync(packageDir).filter((name) => name.startsWith(".env"));
   if (envFiles.length > 0) {
     throw new Error(
@@ -69,7 +79,7 @@ function run(script: "state:check" | "state:bootstrap"): Run {
     mkdirSync(home);
     const emptyEnv = join(dir, "empty.env");
     writeFileSync(emptyEnv, "");
-    const result = Bun.spawnSync(
+    const child = Bun.spawn(
       ["bun", "--no-env-file", "run", "--cwd", packageDir, script, "--", "--env-file", emptyEnv],
       {
         cwd: dir,
@@ -79,58 +89,63 @@ function run(script: "state:check" | "state:bootstrap"): Run {
           DO_NOT_TRACK: "1",
           CLOUDFLARE_ACCOUNT_ID: "0".repeat(32),
         },
-        timeout: RUN_TIMEOUT_MS,
+        stdout: "pipe",
+        stderr: "pipe",
       },
     );
-    const outcome: Run = {
-      exitCode: result.exitCode,
-      timedOut: result.exitedDueToTimeout === true,
-      output: `${result.stdout.toString()}${result.stderr.toString()}`,
-    };
-    runs.set(script, outcome);
-    return outcome;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, RUN_TIMEOUT_MS);
+    // Both pipes are read while the process runs, so a full pipe never
+    // blocks it.
+    const [stdout, stderr] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    clearTimeout(timer);
+    return { exitCode: child.exitCode, timedOut, output: `${stdout}${stderr}` };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
+// Both CLIs start at once; each cold start loads the whole provider tree.
+beforeAll(async () => {
+  await Promise.all([run("state:check"), run("state:bootstrap")]);
+}, 2 * RUN_TIMEOUT_MS);
+
 describe("state:check with no credentials", () => {
-  test("SC1: stops at the missing Cloudflare token and fails", { timeout: 120_000 }, () => {
-    const { exitCode, output } = run("state:check");
+  test("SC1: stops at the missing Cloudflare token and fails", async () => {
+    const { exitCode, output } = await run("state:check");
     expect(output).toContain(NO_CREDENTIALS);
     expect(exitCode).not.toBe(0);
   });
 
-  test(
-    "SC2: finds the Cloudflare state backend and loads its provider",
-    { timeout: 120_000 },
-    () => {
-      const { output } = run("state:check");
-      for (const failure of DISCOVERY_FAILURES) expect(output).not.toContain(failure);
-    },
-  );
-
-  test("SC3: loads no module that Effect refuses", { timeout: 120_000 }, () => {
-    expect(run("state:check").output).not.toContain(OPTIONAL_RECORD);
+  test("SC2: finds the Cloudflare state backend and loads its provider", async () => {
+    const { output } = await run("state:check");
+    for (const failure of DISCOVERY_FAILURES) expect(output).not.toContain(failure);
   });
 
-  test("SC4: finishes inside the timeout", { timeout: 120_000 }, () => {
-    expect(run("state:check").timedOut).toBe(false);
+  test("SC3: loads no module that Effect refuses", async () => {
+    expect((await run("state:check")).output).not.toContain(OPTIONAL_RECORD);
+  });
+
+  test("SC4: finishes inside the timeout", async () => {
+    expect((await run("state:check")).timedOut).toBe(false);
   });
 });
 
 describe("state:bootstrap with no credentials", () => {
-  test(
-    "SC5: runs the current bootstrap command and stops at the missing Cloudflare token",
-    { timeout: 120_000 },
-    () => {
-      const { exitCode, output, timedOut } = run("state:bootstrap");
-      expect(timedOut).toBe(false);
-      expect(output).not.toContain("has been moved");
-      expect(output).not.toContain(OPTIONAL_RECORD);
-      for (const failure of DISCOVERY_FAILURES) expect(output).not.toContain(failure);
-      expect(output).toContain(NO_CREDENTIALS);
-      expect(exitCode).not.toBe(0);
-    },
-  );
+  test("SC5: runs the current bootstrap command and stops at the missing Cloudflare token", async () => {
+    const { exitCode, output, timedOut } = await run("state:bootstrap");
+    expect(timedOut).toBe(false);
+    expect(output).not.toContain("has been moved");
+    expect(output).not.toContain(OPTIONAL_RECORD);
+    for (const failure of DISCOVERY_FAILURES) expect(output).not.toContain(failure);
+    expect(output).toContain(NO_CREDENTIALS);
+    expect(exitCode).not.toBe(0);
+  });
 });
