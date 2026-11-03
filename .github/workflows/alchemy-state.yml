@@ -8,24 +8,27 @@ name: Alchemy state store
 # TIER_ACCOUNTS in shared/infra/src/accounts.ts names each tier's credential
 # secrets; shared/infra/tests/accounts.test.ts holds the two run steps to it.
 #
-#   action: bootstrap  deploys the store when absent; when it is serving,
-#                      refreshes credentials and upgrades it only if its version
-#                      differs from the pinned Alchemy's. The tier's token
-#                      needs Secrets Store edit.
+#   action: bootstrap  `alchemy state bootstrap --backend cloudflare`: deploys
+#                      the store when absent; when it is serving, refreshes
+#                      credentials and upgrades it only if its version differs
+#                      from the pinned @alchemy.run/cloudflare's. The tier's
+#                      token needs Secrets Store edit.
 # Each run first checks that the tier's token reaches exactly one account,
 # the one its CLOUDFLARE_ACCOUNT_ID names, and on dev that it acts on no zone
 # of another account and no production zone, and does act on the DEV_DOMAIN
 # zone (`bun run token:check -- --tier <tier>`), and stops
 # otherwise: a token that also reached the other account would undo the split.
 #
-#   action: check      lists the store's top level (stack names) and writes no
-#                      state; proves this tier's token reaches it. Like every
-#                      CI run against the store, it uploads a temporary
-#                      edge-preview Worker to read the store's bearer token.
+#   action: check      `alchemy state ls --backend cloudflare`: lists the
+#                      store's top level (stack names) and writes no state;
+#                      proves this tier's token reaches it. Like every CI run
+#                      against the store, it uploads a temporary edge-preview
+#                      Worker to read the store's bearer token.
 #
-# `alchemy state ls` is the only state command allowed here: state holds
-# resolved resource props, and run logs on this repository are public.
-# scripts/check-alchemy-usage.ts refuses every other.
+# `alchemy state ls` and `alchemy state bootstrap` without `--force` are the
+# only state commands allowed here: state holds resolved resource props, and
+# run logs on this repository are public. scripts/check-alchemy-usage.ts
+# refuses every other.
 on:
   workflow_dispatch:
     inputs:

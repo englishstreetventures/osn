@@ -16,15 +16,16 @@
  *    `DO_NOT_TRACK=` overrides the env, and must then be `1`; with no env
  *    value, each Alchemy segment carries the inline prefix. Composite
  *    actions: on the step or the segment.
- *  - all three: `alchemy state ls`/`list` is the only `state` command allowed
- *    (bare `state` opens an explorer that reads records; `provider cloudflare
- *    state logs` reads the store's logs), and never `nuke`, `drift … --repair`,
- *    `teardown`, `provider cloudflare token` (it prints the token it creates),
- *    `logs` (it prints a stage's Worker logs), and `destroy` unless it names
- *    exactly one stage with a literal `--stage` that is neither `dev` nor
- *    `production`: without `--stage` the stage comes from `ALCHEMY_STAGE` in
- *    the environment, `--env-file` or `.env`, and a variable or expression
- *    may hold either.
+ *  - all three: `alchemy state ls`/`list` and `alchemy state bootstrap`
+ *    without `--force` are the only `state` commands allowed (bare `state`
+ *    opens an explorer that reads records; `state logs` reads the store's
+ *    logs; `state bootstrap --force` redeploys a store that is serving), and
+ *    never `nuke`, `drift … --repair`, `teardown`, `provider cloudflare token`
+ *    (it prints the token it creates), `logs` (it prints a stage's Worker
+ *    logs), and `destroy` unless it names exactly one stage with a literal
+ *    `--stage` that is neither `dev` nor `production`: without `--stage` the
+ *    stage comes from `ALCHEMY_STAGE` in the environment, `--env-file` or
+ *    `.env`, and a variable or expression may hold either.
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
  *    state constructor (`localState`, `inMemoryState`, `postgresState`,
  *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
@@ -61,8 +62,16 @@ const INVOCATION = String.raw`\balchemy(?:@\S+)?\s+`;
 
 const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] = [
   {
-    pattern: new RegExp(String.raw`${INVOCATION}(?:[^\n]*?\s)?state\b(?!\s+(?:ls|list)\b)`),
-    why: "only `alchemy state ls` may run; every other state command prints, reads or deletes Alchemy state",
+    pattern: new RegExp(
+      String.raw`${INVOCATION}(?:[^\n]*?\s)?state\b(?!\s+(?:ls|list|bootstrap)\b)`,
+    ),
+    why: "only `alchemy state ls` and `alchemy state bootstrap` may run; every other state command prints, reads or deletes Alchemy state",
+  },
+  {
+    pattern: new RegExp(
+      String.raw`${INVOCATION}(?:[^\n]*?\s)?state\s+bootstrap\b[^\n]*?\s--force(?=[\s=]|$)`,
+    ),
+    why: "`state bootstrap --force` redeploys a state store that is serving",
   },
   {
     pattern: new RegExp(String.raw`${INVOCATION}[^\n]*\bnuke\b`),

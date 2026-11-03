@@ -12,9 +12,36 @@ const manifest = (scripts: Record<string, string>) => JSON.stringify({ name: "x"
 describe("checkPackageScripts", () => {
   test.each([
     "DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare",
-    "DO_NOT_TRACK=1 bun alchemy provider cloudflare bootstrap --worker-name alchemy-state-store",
+    "CI=true DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare",
   ])("passes %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
+  });
+
+  test.each([
+    "CI=true DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare --name alchemy-state-store",
+  ])("G1: passes %j, which deploys or adopts the state store", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
+  });
+
+  test.each([
+    "CI=true DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare --force",
+    "DO_NOT_TRACK=1 bun alchemy state bootstrap --force --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare --force=true",
+  ])("G1: refuses %j, which redeploys a serving state store", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test.each([
+    "DO_NOT_TRACK=1 bun alchemy state teardown --backend cloudflare --yes",
+    "DO_NOT_TRACK=1 bun alchemy state logs --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state logs --backend cloudflare --tail",
+    "DO_NOT_TRACK=1 bun alchemy state read cire/dev --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state delete cire/dev --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state unsafe nuke --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state --backend cloudflare bootstrap",
+  ])("G2: refuses %j", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script })).length).toBeGreaterThan(0);
   });
 
   test.each([
@@ -44,10 +71,8 @@ describe("checkPackageScripts", () => {
     "DO_NOT_TRACK=1 bun alchemy state",
     "DO_NOT_TRACK=1 bun alchemy state read cire/dev",
     "DO_NOT_TRACK=1 bun alchemy state cat cire",
-    "DO_NOT_TRACK=1 bun alchemy provider cloudflare state logs",
     "DO_NOT_TRACK=1 bun alchemy drift --stage dev --repair",
     "DO_NOT_TRACK=1 bun alchemy unsafe nuke",
-    "DO_NOT_TRACK=1 bun alchemy provider cloudflare teardown --yes",
   ])("refuses %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
   });
