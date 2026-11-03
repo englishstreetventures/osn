@@ -322,10 +322,17 @@ describe("account.updated", () => {
       db.select().from(registrySettings).where(eq(registrySettings.weddingId, other)).get();
 
     // Our own account, then one nobody here owns.
-    await deliver(app, accountUpdated());
-    await deliver(app, accountUpdated({ id: "acct_stranger" }));
+    const own = await deliver(app, accountUpdated());
+    expect(await jsonBody(own)).toEqual({ received: true, matched: true });
+    const stranger = await deliver(
+      app,
+      accountUpdated({ id: "acct_stranger", charges_enabled: false, payouts_enabled: false }),
+    );
+    expect(await jsonBody(stranger)).toEqual({ received: true, matched: false });
 
-    expect((await settings(db))?.stripeChargesEnabled).toBe(true);
+    const ownRow = await settings(db);
+    expect(ownRow?.stripeChargesEnabled).toBe(true);
+    expect(ownRow?.stripePayoutsEnabled).toBe(true);
     const row = otherRow();
     expect(row?.stripeChargesEnabled).toBe(false);
     expect(row?.stripePayoutsEnabled).toBe(false);
@@ -924,6 +931,43 @@ describe("account.application.deauthorized — the couple revoked our access", (
     const row = await settings(db);
     expect(row?.stripeAccountId).toBeNull();
     expect(row?.stripeChargesEnabled).toBe(false);
+  });
+
+  it("clears only the wedding that owns the account", async () => {
+    const { app, db } = buildApp();
+    const other = "wed_other";
+    const stamp = new Date(1_700_000_000_000);
+    const now = new Date();
+    db.insert(weddings)
+      .values({ id: other, slug: "other", displayName: "Other", createdAt: now, updatedAt: now })
+      .run();
+    db.insert(registrySettings)
+      .values({
+        weddingId: other,
+        stripeAccountId: "acct_other",
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        stripeAccountUpdatedAt: stamp,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const res = await deliver(app, deauthorized());
+
+    expect(await jsonBody(res)).toEqual({ received: true, matched: true });
+    expect((await settings(db))?.stripeAccountId).toBeNull();
+    const row = db
+      .select()
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, other))
+      .get();
+    expect(row?.stripeAccountId).toBe("acct_other");
+    expect(row?.stripeChargesEnabled).toBe(true);
+    expect(row?.stripePayoutsEnabled).toBe(true);
+    expect(row?.stripeDeauthorizedAccountId).toBeNull();
+    expect(row?.stripeDeauthorizedAt).toBeNull();
+    expect(row?.stripeAccountUpdatedAt?.getTime()).toBe(stamp.getTime());
   });
 
   it("acknowledges a revocation for an account it does not know", async () => {

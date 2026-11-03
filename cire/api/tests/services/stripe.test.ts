@@ -251,7 +251,11 @@ describe("createStripeClient", () => {
     const { impl, calls } = stubFetch(() =>
       json({ url: "https://connect.stripe.test/setup/abc", expires_at: 1_800_000_000 }),
     );
-    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    const client = createStripeClient({
+      secretKey: "sk_test",
+      apiBase: "https://stripe.test",
+      fetchImpl: impl,
+    });
 
     const link = await Effect.runPromise(
       client.createAccountLink({
@@ -263,13 +267,34 @@ describe("createStripeClient", () => {
 
     expect(link.url).toBe("https://connect.stripe.test/setup/abc");
     expect(link.expiresAt).toBe(1_800_000_000);
+    expect(calls[0]?.url).toBe("https://stripe.test/v1/account_links");
+    expect(calls[0]?.init.method).toBe("POST");
     const body = String(calls[0]?.init.body);
+    expect(body).toContain("account=acct_123");
     expect(body).toContain("type=account_onboarding");
-    expect(body).toContain("refresh_url=");
-    expect(body).toContain("return_url=");
-    // A fresh link each call: replaying a key would hand back a stale, expired one.
+    expect(body).toContain("refresh_url=https%3A%2F%2Fhost.test%2Frefresh");
+    expect(body).toContain("return_url=https%3A%2F%2Fhost.test%2Freturn");
     const headers = calls[0]?.init.headers as Headers;
+    expect(headers.get("content-type")).toBe("application/x-www-form-urlencoded");
+    // A fresh link each call: replaying a key would hand back a stale, expired one.
     expect(headers.get("idempotency-key")).toBeNull();
+  });
+
+  it("refuses a 200 that is missing the link url or its expiry", async () => {
+    const input = {
+      accountId: "acct_123",
+      refreshUrl: "https://host.test/refresh",
+      returnUrl: "https://host.test/return",
+    };
+    for (const payload of [
+      { url: "https://connect.stripe.test/x" },
+      { expires_at: 1_800_000_000 },
+    ]) {
+      const { impl } = stubFetch(() => json(payload));
+      const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+      const failure = await Effect.runPromise(Effect.flip(client.createAccountLink(input)));
+      expect(failure.reason).toBe("unexpected account link payload");
+    }
   });
 });
 
