@@ -383,8 +383,9 @@ describe("events.ts applyTransitions (events.ts:296)", () => {
     expect(transitioned.every((e) => e.status === "ongoing")).toBe(true);
 
     const stmt = findStatement(captured, 'update "events"', "json_each");
-    // status = ?, updated_at = ?, id IN json_each(?) — 3 total, never
-    // ids.length + 2 (which would be 152 for this test's 150 rows).
-    expect(stmt.params).toHaveLength(3);
+    // status = ?, updated_at = ?, id IN json_each(?), status = ? (the
+    // status the group was derived from) — 4 total, never ids.length + 3
+    // (which would be 153 for this test's 150 rows).
+    expect(stmt.params).toHaveLength(4);
   });
 });

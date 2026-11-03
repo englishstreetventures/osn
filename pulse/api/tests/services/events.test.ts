@@ -1,11 +1,17 @@
+import { Database } from "bun:sqlite";
+
 import { expect, it } from "@effect/vitest";
 import { events as eventsTable, eventRsvps } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { Effect } from "effect";
+import { inArray } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { Effect, Layer } from "effect";
 import { vi } from "vitest";
 
 import * as metrics from "../../src/metrics";
 import {
+  applyTransition,
+  applyTransitions,
   createEvent,
   deleteEvent,
   getEvent,
@@ -14,6 +20,11 @@ import {
   updateEvent,
 } from "../../src/services/events";
 import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
+
+// Db layer over a schema-less SQLite — every query fails at execution
+// ("no such table"), exercising the DatabaseError channel.
+const noSchemaLayer = () =>
+  Layer.succeed(Db, { db: drizzle({ client: new Database(":memory:") }) });
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const PAST = "2020-01-01T10:00:00.000Z";
@@ -786,6 +797,60 @@ it.effect("listEvents persists batched status transitions grouped by (from → t
       expect(stored.get(b.id)).toBe("ongoing");
       expect(stored.get(c.id)).toBe("finished");
       expect(stored.get(d.id)).toBe("ongoing");
+    }),
+  ),
+);
+
+// The groups' UPDATEs run concurrently. A failed write fails the read with
+// the typed error; it is neither swallowed nor turned into a defect.
+it.effect("applyTransitions fails with DatabaseError when a group UPDATE fails", () =>
+  provide(
+    Effect.gen(function* () {
+      // One upcoming → ongoing row and one ongoing → finished row: two groups.
+      const a = yield* seedEvent({ title: "A", startTime: STARTED });
+      const c = yield* seedEvent({
+        title: "C",
+        startTime: STARTED,
+        endTime: ENDED,
+        status: "ongoing",
+      });
+
+      const err = yield* Effect.flip(
+        applyTransitions([a, c]).pipe(Effect.provide(noSchemaLayer())),
+      );
+      expect(err._tag).toBe("DatabaseError");
+    }),
+  ),
+);
+
+// A transition is derived from the row as it was read, so it applies only
+// while the row still has that status. A cancel that commits between the
+// read and the transition write survives it, for both writers, and the
+// rest of a batch group still transitions.
+it.effect("a transition write leaves a row whose status changed since the read", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const batchCancelled = yield* seedEvent({ title: "Batch cancelled", startTime: STARTED });
+      const batchLive = yield* seedEvent({ title: "Batch live", startTime: STARTED });
+      const single = yield* seedEvent({ title: "Single", startTime: STARTED });
+
+      // The organiser cancels two of them after the snapshots above were read.
+      yield* Effect.promise(() =>
+        db
+          .update(eventsTable)
+          .set({ status: "cancelled" })
+          .where(inArray(eventsTable.id, [batchCancelled.id, single.id])),
+      );
+
+      yield* applyTransitions([batchCancelled, batchLive]);
+      yield* applyTransition(single);
+
+      const rows = yield* Effect.promise(() => db.select().from(eventsTable));
+      const stored = new Map(rows.map((r) => [r.id, r.status]));
+      expect(stored.get(batchCancelled.id)).toBe("cancelled");
+      expect(stored.get(single.id)).toBe("cancelled");
+      expect(stored.get(batchLive.id)).toBe("ongoing");
     }),
   ),
 );

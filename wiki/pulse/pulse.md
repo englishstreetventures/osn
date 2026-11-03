@@ -15,7 +15,7 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-03
 ---
 
 # Pulse
@@ -57,6 +57,8 @@ Full event lifecycle management:
 ### Lifecycle Transitions
 
 Events move through statuses: `upcoming` → `ongoing` → `finished`. Events can also be `cancelled` at any point by the organiser.
+
+Transitions are derived when an event is read and written back by `applyTransition` (one event) or `applyTransitions` (a list page, one `UPDATE` per from → to pair). Each write applies only while the row still has the status it was derived from, so a cancel or early close committed between the read and the write is left as it is.
 
 Events created **without an explicit `endTime`** follow a tighter ladder so they do not stay `ongoing` for ever:
 

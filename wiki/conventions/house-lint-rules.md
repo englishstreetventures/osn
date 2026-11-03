@@ -9,7 +9,7 @@ related:
   - "[[testing-patterns]]"
   - "[[backend-patterns]]"
   - "[[d1-limits]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-11-03
 ---
 
 # House lint rules
@@ -18,15 +18,17 @@ last-reviewed: 2026-10-08
 
 Each rule's own source file holds the full reasoning and the bug that prompted it. This page is the index.
 
-| Rule | Level | Catches |
-|---|---|---|
-| `no-in-operator-key-guard` | error | A type guard that narrows to `keyof typeof MAP` using `key in MAP` |
-| `no-module-scope-process-env` | error, `cire/api/src/**` only (`src/local.ts` exempt) | A `process.env` read that runs while a Worker module loads |
-| `no-non-subscribing-store-read` | error, `cire/**/*-store.ts` only | A tracked read of an organiser cache that registers no dependency |
-| `no-base-variant-at-call-site` | error | A `base:` utility passed to one of our components from its call site |
-| `no-stacked-doc-block` | error | Two or more doc blocks in front of one declaration |
-| `no-tracker-ref-in-comment` | warn | A tracker issue, finding tag, phase code or history in a comment — see [[code-comments]] |
-| `no-unbounded-in-array` | error | An `inArray` or `notInArray` list whose length the source does not fix — one D1 parameter per element |
+| Rule                              | Level                                                 | Catches                                                                                                                                                                           |
+| --------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no-in-operator-key-guard`        | error                                                 | A type guard that narrows to `keyof typeof MAP` using `key in MAP`                                                                                                                |
+| `no-module-scope-process-env`     | error, `cire/api/src/**` only (`src/local.ts` exempt) | A `process.env` read that runs while a Worker module loads                                                                                                                        |
+| `no-non-subscribing-store-read`   | error, `cire/**/*-store.ts` only                      | A tracked read of an organiser cache that registers no dependency                                                                                                                 |
+| `no-base-variant-at-call-site`    | error                                                 | A `base:` utility passed to one of our components from its call site                                                                                                              |
+| `no-stacked-doc-block`            | error                                                 | Two or more doc blocks in front of one declaration                                                                                                                                |
+| `no-tracker-ref-in-comment`       | warn                                                  | A tracker issue, finding tag, phase code or history in a comment — see [[code-comments]]                                                                                          |
+| `no-unbounded-in-array`           | error                                                 | An `inArray` or `notInArray` list whose length the source does not fix — one D1 parameter per element                                                                             |
+| `no-sequential-independent-await` | error, `**/src/**` only                               | Two adjacent awaited reads (`get*`, `find*`, `list*`, `load*` ...) where the second does not use the first's result — start both and wait once with `Promise.all` or `Effect.all` |
+| `no-serial-effect-concurrency`    | error, `**/src/**` only                               | `{ concurrency: 1 }` on an Effect batch — items run one at a time; suppress with the reason when the order is the point                                                           |
 
 ## Suppressing a house rule
 
@@ -67,14 +69,14 @@ drizzle's `inArray(column, list)` and `notInArray` bind one parameter per elemen
 
 The rule reports the list argument of any `inArray` or `notInArray` imported from `drizzle-orm` unless the source fixes how many parameters it binds:
 
-| Passes | Why |
-|---|---|
-| `jsonEachIn(ids)` imported from `@shared/db-utils` | One bound JSON parameter, however long the list |
-| A chain that starts with `.select(`, `.selectDistinct(` or `.selectDistinctOn(` and calls only builder steps after it (`.from(`, `.where(`, a join, `.limit(`, `.as(`) | A subquery binds no list. A chain that runs the query first — `.all().map(…)`, `.then(…)` — is reported |
-| An array literal, spreading only a same-file `as const` tuple | Its length is written in the source |
-| A `sql` template | Judged as written, unless it interpolates `sql.join(…)` over anything but an array literal, at any depth |
-| A same-file `const` bound to one of the above, or to an `as const` tuple | The same value under a name; a plain `const ids = []` can still be pushed to, so it does not pass |
-| A call to a same-file `const` arrow function whose expression body passes | A helper that returns a subquery |
+| Passes                                                                                                                                                                 | Why                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `jsonEachIn(ids)` imported from `@shared/db-utils`                                                                                                                     | One bound JSON parameter, however long the list                                                          |
+| A chain that starts with `.select(`, `.selectDistinct(` or `.selectDistinctOn(` and calls only builder steps after it (`.from(`, `.where(`, a join, `.limit(`, `.as(`) | A subquery binds no list. A chain that runs the query first — `.all().map(…)`, `.then(…)` — is reported  |
+| An array literal, spreading only a same-file `as const` tuple                                                                                                          | Its length is written in the source                                                                      |
+| A `sql` template                                                                                                                                                       | Judged as written, unless it interpolates `sql.join(…)` over anything but an array literal, at any depth |
+| A same-file `const` bound to one of the above, or to an `as const` tuple                                                                                               | The same value under a name; a plain `const ids = []` can still be pushed to, so it does not pass        |
+| A call to a same-file `const` arrow function whose expression body passes                                                                                              | A helper that returns a subquery                                                                         |
 
 The rule follows a name through at most four `const` bindings or helpers. Everything else is reported: a parameter, a `let`, `body.ids`, `[...set]`, `[...map.keys()]`, any other call. Convert the list with `jsonEachIn`. Suppress instead only when a cap the code enforces keeps the whole statement under 100 parameters, and name that cap in the reason — a `safeLimit` slice, a clamped page size, a closed set of constants such as the paid tiers. A list bound twice in one statement, as in an `or` over both columns of an edge, counts twice.
 
