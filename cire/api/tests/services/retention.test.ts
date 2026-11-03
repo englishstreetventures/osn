@@ -1188,6 +1188,23 @@ describe("the parting gift summary", () => {
     ),
   );
 
+  it("totals gifts stored as aud and AUD on one summary line", async () => {
+    const db = freshDb();
+    const { weddingId, familyId } = await runOn(db, makeWedding({ eventDates: ["2025-05-10"] }));
+    db.insert(registrySettings)
+      .values({ weddingId, published: true, createdAt: GIFT_STAMP, updatedAt: GIFT_STAMP })
+      .run();
+    await runOn(db, addGift(weddingId, familyId, { currency: "aud", amountMinor: 2_000 }));
+    await runOn(db, addGift(weddingId, familyId, { currency: "AUD", amountMinor: 3_000 }));
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    const summary = JSON.parse(storedSummary(db, weddingId) ?? "{}") as GiftSummary;
+    expect(summary.contributions.totals).toEqual([
+      { currency: "AUD", amountMinor: 5_000, count: 2 },
+    ]);
+  });
+
   it("dates a wedding with only claims, or only money gifts, by the gifts it had", async () => {
     // The two kinds are counted by separate reads, each with its own min and
     // max. A wedding with one kind only must take its range from that read

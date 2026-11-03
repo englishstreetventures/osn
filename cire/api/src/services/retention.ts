@@ -812,6 +812,10 @@ function countGiftSummaries(
     // reads each wedding's settings row: whether it has one, and the summary an
     // earlier sweep stored there, which only a wedding that came back into the
     // cohort has.
+    // Upper-cased: authored currencies are upper case and the ones the settle path
+    // writes come from Stripe in lower case, so the raw column would split one
+    // currency across two summary lines.
+    const giftCurrency = sql<string>`upper(${registryContributions.currency})`;
     const [claimRows, giftRows, storedRows] = yield* Effect.all(
       [
         dbQuery(() =>
@@ -845,7 +849,7 @@ function countGiftSummaries(
           db
             .select({
               weddingId: registryContributions.weddingId,
-              currency: registryContributions.currency,
+              currency: giftCurrency,
               count: sql<number>`count(*)`,
               amountMinor: sql<number>`sum(max(${registryContributions.amountMinor}, 0))`,
               // Epoch SECONDS, same as the claims query above. Under the same
@@ -862,10 +866,10 @@ function countGiftSummaries(
                 eq(registryContributions.status, "succeeded"),
               ),
             )
-            .groupBy(registryContributions.weddingId, registryContributions.currency)
+            .groupBy(registryContributions.weddingId, giftCurrency)
             // Sorted here rather than in JS: the summary is a record somebody reads,
             // and a stable currency order is part of it being one.
-            .orderBy(registryContributions.currency)
+            .orderBy(giftCurrency)
             .all(),
         ),
         dbQuery(() =>
