@@ -10,7 +10,7 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
-import { userEvent } from "vitest/browser";
+import { commands, userEvent } from "vitest/browser";
 
 import Wordmark, { WordmarkPlaceholder } from "../src/wordmark";
 import { composite, inkRatio, painted } from "./test-support/paint";
@@ -20,7 +20,16 @@ import "./test-support/tailwind.css";
 const RAMPS = ["dark", "light"] as const;
 type Ramp = (typeof RAMPS)[number];
 
-afterEach(cleanup);
+type MediaPreference = { reducedMotion?: "reduce" | "no-preference" };
+const emulateMedia = (options: MediaPreference) =>
+  (commands as unknown as { emulateMedia: (o: MediaPreference) => Promise<void> }).emulateMedia(
+    options,
+  );
+
+afterEach(async () => {
+  await emulateMedia({ reducedMotion: "no-preference" });
+  cleanup();
+});
 
 /**
  * The bars' left end: the page's ground, a `gap-2` row, the mark, a 1px
@@ -103,10 +112,26 @@ describe("Wordmark", () => {
     // width, which a bounding rect leaves out — and the gap left to the divider.
     const clear = divider.getBoundingClientRect().left - (box.right + ringReach);
     expect(clear).toBeGreaterThanOrEqual(3.5);
-    // The pull to the left: the box starts 4px before the row's content edge.
+    // The pull to the left: the box starts 4px before the row's content edge,
+    // and its 6px padding puts the star 2px inside it.
     const contentLeft =
       row.getBoundingClientRect().left + parseFloat(getComputedStyle(row).paddingLeft);
     expect(contentLeft - box.left).toBeCloseTo(4, 1);
+    const star = button.firstElementChild!.getBoundingClientRect();
+    expect(star.left - contentLeft).toBeCloseTo(2, 1);
+    expect(style.paddingTop).toBe("6px");
+  });
+
+  it("fades its wash on the app's ease-out, and not at all with reduced motion", async () => {
+    const { button } = renderBar("dark");
+    // The app's `--ease-out`: the portals set the house curve; here it is
+    // Tailwind's own, which is what an app that sets none gets.
+    const squash = (value: string) => value.replace(/\s+/g, "");
+    expect(squash(getComputedStyle(button).transitionTimingFunction)).toBe(
+      squash(token(button, "--ease-out")),
+    );
+    await emulateMedia({ reducedMotion: "reduce" });
+    expect(getComputedStyle(button).transitionProperty).toBe("none");
   });
 
   for (const ramp of RAMPS) {

@@ -49,7 +49,7 @@ const CONTROL =
   "base:hover:bg-ui-surface/60 " +
   "base:focus-visible:outline-2 base:focus-visible:outline-offset-2 base:focus-visible:outline-ui-focus " +
   "base:transition-[background-color] base:duration-(--dur-fast,100ms) " +
-  "base:ease-(--ease-out,cubic-bezier(0.22,1,0.36,1)) base:motion-reduce:transition-none";
+  "base:ease-(--ease-out) base:motion-reduce:transition-none";
 
 function Glyphs() {
   return (
