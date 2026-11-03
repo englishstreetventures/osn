@@ -69,9 +69,22 @@ describe("segmentMessages", () => {
     expect(segments.map((s) => s.length)).toEqual([1, 1]);
   });
 
-  it("gives a message with no usable time to the segment before it", () => {
-    const segments = segmentMessages([at(base), at(Number.NaN)], ZONE);
-    expect(segments.map((s) => s.length)).toEqual([2]);
+  it("keeps messages exactly an hour apart in one segment", () => {
+    const segments = segmentMessages([at(base), at(base + 60 * MINUTE)], ZONE);
+    expect(segments).toHaveLength(1);
+  });
+
+  it("gives a message with no usable time to the segment before it, and reads on past it", () => {
+    const segments = segmentMessages(
+      [at(base), at(Number.NaN), at(base + 5 * MINUTE), at(base + 3 * HOUR)],
+      ZONE,
+    );
+    expect(segments.map((s) => s.length)).toEqual([3, 1]);
+  });
+
+  it("lets a message with no usable time open the thread, and the next timed one open its own", () => {
+    const segments = segmentMessages([at(Number.NaN), at(base)], ZONE);
+    expect(segments.map((s) => s.length)).toEqual([1, 1]);
   });
 
   it("returns no segments for no messages", () => {
@@ -113,6 +126,23 @@ describe("dividerLabel", () => {
     expect(midnight5 - midnight4).toBe(23 * HOUR);
     const nowOn5th = { ...ZONE, now: sydney(2026, 10, 5, 0, 30, 11) };
     expect(dividerLabel(sydney(2026, 10, 4, 0, 50, 10), nowOn5th)).toBe("Yesterday 12:50 am");
+  });
+
+  it("counts the days across the end of a short month", () => {
+    const firstOfMarch = { ...ZONE, now: sydney(2026, 3, 1, 9, 0, 11) };
+    expect(dividerLabel(sydney(2026, 2, 28, 20, 0, 11), firstOfMarch)).toBe("Yesterday 8:00 pm");
+  });
+
+  it("dates a time ahead of today rather than naming a weekday", () => {
+    // A clock running fast on the sender's side puts a message tomorrow.
+    expect(dividerLabel(sydney(2026, 10, 31, 9, 0, 11), opts)).toBe("Sat 31 Oct, 9:00 am");
+  });
+
+  it("formats for each locale and zone it is asked for, not the first one it saw", () => {
+    const sent = sydney(2026, 10, 29, 18, 20, 11);
+    expect(clockTime(sent, { locale: "en-AU", timeZone: "Australia/Sydney" })).toBe("6:20 pm");
+    expect(clockTime(sent, { locale: "en-US", timeZone: "Australia/Sydney" })).toBe("6:20 PM");
+    expect(clockTime(sent, { locale: "en-AU", timeZone: "Australia/Perth" })).toBe("3:20 pm");
   });
 
   it("writes no doubled comma and no empty part", () => {

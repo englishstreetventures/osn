@@ -45,6 +45,7 @@ describe("MessageThread messages", () => {
 
   it("draws your messages and theirs differently", () => {
     render(() => <MessageThread messages={two} emptyHint="Hint" />);
+    expect(screen.queryByText("No messages yet")).not.toBeInTheDocument();
     expect(fillOf("From me").className).not.toBe(fillOf("From them").className);
   });
 
@@ -110,6 +111,7 @@ describe("MessageThread messages", () => {
     ];
     render(() => <MessageThread messages={thread} emptyHint="Hint" />);
     const item = (words: string) => screen.getByText(words).closest("li")!;
+    expect(item("First").className).toMatch(/\bbase:mt-2\b/);
     expect(item("Same sender").className).toMatch(/\bbase:mt-1\b/);
     expect(item("Other sender").className).toMatch(/\bbase:mt-3\b/);
   });
@@ -136,6 +138,14 @@ describe("MessageThread with no messages", () => {
     expect(screen.queryByText("No messages yet")).not.toBeInTheDocument();
   });
 
+  it("keeps the messages on screen while they are read again", () => {
+    render(() => (
+      <MessageThread messages={[msg({ id: "a", body: "Still here" })]} loading emptyHint="Hint" />
+    ));
+    expect(screen.getByText("Still here")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("raises a failed read as an alert, and not as an empty thread", () => {
     render(() => <MessageThread messages={[]} error="Could not load messages." emptyHint="Hint" />);
     expect(screen.getByRole("alert")).toHaveTextContent("Could not load messages.");
@@ -150,6 +160,12 @@ describe("MessageThread reply box", () => {
   it("draws no reply box when there is nothing to reply with", () => {
     render(() => <MessageThread messages={[]} emptyHint="Hint" />);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("asks for a reply, and names its button by what it does", () => {
+    render(() => <MessageThread messages={[]} emptyHint="Hint" reply={{ onSend: vi.fn() }} />);
+    expect(box()).toHaveAttribute("placeholder", "Write a reply…");
+    expect(send().querySelector("svg")).not.toBeNull();
   });
 
   it("keeps the send button out of reach until there is something to send", () => {
@@ -178,6 +194,7 @@ describe("MessageThread reply box", () => {
     resolve();
     await waitFor(() => expect(box().value).toBe(""));
     expect(box().style.height).toBe("");
+    expect(send()).toHaveAttribute("aria-hidden", "true");
   });
 
   it("keeps the text when the send fails", async () => {

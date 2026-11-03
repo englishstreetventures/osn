@@ -325,23 +325,25 @@ export default function MessageThread(props: MessageThreadProps): JSX.Element {
               );
             }}
           </Index>
+          <Show when={menuReady()}>
+            {/* Inside the list's root, so the menu's events, which Solid carries
+                from its portal back to here, reach the root's handlers. Its own
+                boundary: the module has arrived, but `lazy()` still suspends for
+                a tick, and the one above is a portal's whole view. */}
+            <Suspense>
+              <MessageInfoMenu
+                message={menuFor()}
+                at={menuAt()}
+                onClose={() => setMenuFor(null)}
+                onReturnFocus={() => rowById(chosenId())?.focus()}
+                onCopyRefused={() => {
+                  const fill = rowById(chosenId())?.querySelector("[data-message-fill]");
+                  if (fill) window.getSelection()?.selectAllChildren(fill);
+                }}
+              />
+            </Suspense>
+          </Show>
         </div>
-      </Show>
-      <Show when={menuReady()}>
-        {/* Its own boundary: the module has arrived, but `lazy()` still
-            suspends for a tick, and the one above is a portal's whole view. */}
-        <Suspense>
-          <MessageInfoMenu
-            message={menuFor()}
-            at={menuAt()}
-            onClose={() => setMenuFor(null)}
-            onReturnFocus={() => rowById(chosenId())?.focus()}
-            onCopyRefused={() => {
-              const fill = rowById(chosenId())?.querySelector("[data-message-fill]");
-              if (fill) window.getSelection()?.selectAllChildren(fill);
-            }}
-          />
-        </Suspense>
       </Show>
       <Show when={props.reply}>
         {(reply) => (

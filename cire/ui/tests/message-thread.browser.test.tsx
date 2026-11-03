@@ -170,6 +170,39 @@ describe("MessageThread under a pointer and a finger", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it("leaves a right-click to the browser until the menu's code has arrived", () => {
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+    row("Is the barn free on 14 March?").dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("opens the info for a menu event no pointer started, as a screen reader sends", async () => {
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const first = row("Is the barn free on 14 March?");
+    await primeMenu(first);
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    first.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    await menuOpens();
+  });
+
+  it("keeps a second menu key inside the open menu from opening the browser's", async () => {
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const mine = row("It is. I'll send a quote today.");
+    await primeMenu(mine);
+    await userEvent.click(mine, { button: "right" });
+    const panel = await menuOpens();
+    const key = new KeyboardEvent("keydown", {
+      key: "F10",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    panel.dispatchEvent(key);
+    expect(key.defaultPrevented).toBe(true);
+  });
+
   it("never opens the info for a finger, however long it is held", async () => {
     render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
     const first = row("Is the barn free on 14 March?");
@@ -220,6 +253,24 @@ describe("MessageThread from the keyboard", () => {
     expect(document.activeElement).toBe(row("It is. I'll send a quote today."));
     await userEvent.tab();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "After" }));
+  });
+
+  it("returns to the message last moved to when Tab comes back", async () => {
+    render(() => (
+      <>
+        <MessageThread messages={THREAD} emptyHint="Hint" />
+        <button type="button">After</button>
+      </>
+    ));
+    await userEvent.tab();
+    await userEvent.keyboard("{ArrowUp}");
+    const moved = row("We'd be about 120 guests.");
+    expect(
+      screen.getAllByRole("listitem").filter((li) => li.getAttribute("tabindex") === "0"),
+    ).toEqual([moved]);
+    await userEvent.tab();
+    await userEvent.tab({ shift: true });
+    expect(document.activeElement).toBe(moved);
   });
 
   it("shows the time on Enter and Space, and hides it on Escape", async () => {
@@ -341,6 +392,26 @@ describe("MessageThread as painted", () => {
     const send = screen.getByRole("button", { name: "Send" });
     await waitFor(() => expect(send.getBoundingClientRect().height).toBe(34));
     await waitFor(() => expect(send.parentElement!.getBoundingClientRect().width).toBe(34));
+    expect(box.getBoundingClientRect().height).toBe(34);
+  });
+
+  it("grows the box with wrapped lines up to five, and back to one after a send", async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    render(() => (
+      <OnGround ramp="dark" class="">
+        <MessageThread messages={[]} emptyHint="Hint" reply={{ onSend }} />
+      </OnGround>
+    ));
+    const box = screen.getByRole("textbox", { name: "Reply" }) as HTMLTextAreaElement;
+    await userEvent.fill(box, "One\nTwo\nThree");
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    const three = box.getBoundingClientRect().height;
+    expect(three).toBe(74);
+    await userEvent.fill(box, Array.from({ length: 12 }, (_, i) => `Line ${i}`).join("\n"));
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(box.getBoundingClientRect().height).toBe(120);
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(box.value).toBe(""));
     expect(box.getBoundingClientRect().height).toBe(34);
   });
 
