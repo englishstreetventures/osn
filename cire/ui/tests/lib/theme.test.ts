@@ -21,7 +21,7 @@ async function loadTheme() {
     themeKey: THEME_STORAGE_KEY,
     hapticsKey: HAPTICS_STORAGE_KEY,
   });
-  return { ...module, ...preferences, THEME_STORAGE_KEY, HAPTICS_STORAGE_KEY };
+  return { ...module, ...preferences };
 }
 
 type Listener = (event: MediaQueryListEvent) => void;
@@ -145,7 +145,7 @@ describe("readHapticsPreference", () => {
   });
 
   it("is off only for the exact stored 'off'", async () => {
-    const { HAPTICS_STORAGE_KEY, readHapticsPreference } = await loadTheme();
+    const { readHapticsPreference } = await loadTheme();
     localStorage.setItem(HAPTICS_STORAGE_KEY, "off");
     expect(readHapticsPreference()).toBe(false);
     localStorage.setItem(HAPTICS_STORAGE_KEY, "on");
@@ -221,7 +221,7 @@ describe("setThemePreference", () => {
 
 describe("setHapticsEnabled", () => {
   it("round-trips through storage", async () => {
-    const { HAPTICS_STORAGE_KEY, hapticsEnabled, setHapticsEnabled } = await loadTheme();
+    const { hapticsEnabled, setHapticsEnabled } = await loadTheme();
     expect(hapticsEnabled()).toBe(true);
     setHapticsEnabled(false);
     expect(hapticsEnabled()).toBe(false);
