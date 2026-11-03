@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { Effect, Fiber } from "effect";
+import { Effect, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
@@ -8,6 +8,8 @@ import {
   createStripeClientFromEnv,
   encodeStripeForm,
   STRIPE_API_VERSION,
+  STRIPE_CALL_TIMEOUT,
+  type StripeError,
   verifyStripeWebhook,
   WEBHOOK_TOLERANCE_SECONDS,
 } from "../../src/services/stripe";
@@ -33,6 +35,31 @@ function stubFetch(handler: (url: string, init: RequestInit) => Response) {
     return handler(String(input), init ?? {});
   }) as unknown as typeof fetch;
   return { impl, calls };
+}
+
+/**
+ * Starts `call` under a test clock, moves the clock past `STRIPE_CALL_TIMEOUT`
+ * and returns the reason the call failed with. A call the timeout does not
+ * bound is still pending then, and comes back as "still running" within a
+ * second of real time instead of hanging until bun's per-test limit.
+ */
+function reasonAfterTimeout(call: Effect.Effect<unknown, StripeError>): Promise<string> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(Effect.flip(call));
+      // Real time, so the call reaches its pending fetch or body read before
+      // the clock moves.
+      yield* TestClock.withLive(Effect.sleep("20 millis"));
+      yield* TestClock.adjust(STRIPE_CALL_TIMEOUT);
+      const settled = yield* TestClock.withLive(
+        Fiber.join(fiber).pipe(Effect.timeoutOption("1 second")),
+      );
+      return Option.match(settled, {
+        onNone: () => "still running",
+        onSome: (failure) => failure.reason,
+      });
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
 }
 
 function json(body: unknown, status = 200): Response {
@@ -185,25 +212,32 @@ describe("createStripeClient", () => {
     expect(failure.status).toBe(502);
   });
 
-  it("times out when the headers arrive and the body never finishes", async () => {
-    const impl = (() =>
-      Promise.resolve(
+  it("times out when the headers arrive and the body never finishes, and aborts the request", async () => {
+    const { impl, calls } = stubFetch(
+      () =>
         new Response(new ReadableStream({ start() {} }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
-      )) as unknown as typeof fetch;
+    );
     const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
 
-    const failure = await Effect.runPromise(
-      Effect.gen(function* () {
-        const fiber = yield* Effect.forkChild(Effect.flip(client.retrieveAccount("acct_1")));
-        yield* TestClock.withLive(Effect.sleep("20 millis"));
-        yield* TestClock.adjust("10 seconds");
-        return yield* Fiber.join(fiber);
-      }).pipe(Effect.provide(TestClock.layer())),
-    );
-    expect(failure.reason).toBe("timeout");
+    expect(await reasonAfterTimeout(client.retrieveAccount("acct_1"))).toBe("timeout");
+    // Aborting the signal a fetch started with also errors its body stream,
+    // which is what releases a body that has stalled.
+    expect(calls[0]?.init.signal?.aborted).toBe(true);
+  });
+
+  it("times out when the headers never arrive, and aborts the request", async () => {
+    const inits: RequestInit[] = [];
+    const impl = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      inits.push(init ?? {});
+      return new Promise<Response>(() => {});
+    }) as unknown as typeof fetch;
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+
+    expect(await reasonAfterTimeout(client.retrieveAccount("acct_1"))).toBe("timeout");
+    expect(inits[0]?.signal?.aborted).toBe(true);
   });
 
   it("refuses a 200 that is not the account it asked for", async () => {

@@ -348,9 +348,15 @@ export function createStripeClient(config: StripeConfig): StripeClient {
       if (idempotencyKey) headers.set("idempotency-key", idempotencyKey);
       if (stripeAccount) headers.set("stripe-account", stripeAccount);
 
+      // One controller for the whole call. Aborting the signal a fetch started
+      // with also errors its response body, so a single abort releases the
+      // subrequest whether it is still waiting for headers or for the body.
+      const controller = new AbortController();
+
       const { res, payload } = yield* Effect.gen(function* () {
         const response = yield* Effect.tryPromise({
-          try: () => doFetch(`${base}${path}`, { method, headers, body }),
+          try: () =>
+            doFetch(`${base}${path}`, { method, headers, body, signal: controller.signal }),
           catch: () => new StripeError({ reason: "unreachable" }),
         });
         const json: unknown = yield* Effect.tryPromise({
@@ -361,6 +367,7 @@ export function createStripeClient(config: StripeConfig): StripeClient {
         });
         return { res: response, payload: json };
       }).pipe(
+        Effect.onInterrupt(() => Effect.sync(() => controller.abort())),
         // One bound over the headers AND the body: a response whose headers
         // arrive and whose body then stalls would otherwise hold a Worker
         // request open for the full subrequest limit, which turns one slow
