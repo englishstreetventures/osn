@@ -9,7 +9,8 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { StripeError, type StripeAccount, type StripeClient } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
-import { appRequest, jsonBody, setTier } from "../test-helpers";
+import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
+import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -167,6 +168,22 @@ describe("who may connect an account", () => {
     const { app } = buildApp();
     expect((await req(app, `${base}/session`, STRANGER)).status).toBe(403);
     expect((await req(app, `${base}/session`)).status).toBe(401);
+  });
+
+  // The refresh answers the account's capabilities and why guests cannot give,
+  // so its own gate is pinned for each way in, not only through `/session`.
+  it("asks for a live credential on the refresh, by bearer token or session cookie", async () => {
+    const { app, db } = buildApp();
+    const token = await seedOrganiserSession(db, OWNER);
+    const refresh = (headers: Record<string, string>) =>
+      appRequest(app, `${base}/refresh`, { method: "POST", headers });
+
+    expect((await refresh({})).status).toBe(401);
+    expect((await refresh({ Authorization: "Bearer not-a-jwt" })).status).toBe(401);
+    expect((await refresh({ cookie: "cire_org_session=not-a-live-session-token" })).status).toBe(
+      401,
+    );
+    expect((await refresh({ cookie: `cire_org_session=${token}` })).status).toBe(200);
   });
 
   it("refuses a wedding below Gold with 402", async () => {
@@ -386,6 +403,21 @@ describe("refreshing what Stripe says", () => {
       expect(body.moneyGiftsBlockedBy).toBeNull();
     });
 
+    it("answers from the row its write returned, with no read after the write", async () => {
+      const { app, db } = await connectedWithMoneyOn(live("AUD"));
+      const statements = recordStatements(db);
+      const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
+        moneyGiftsBlockedBy: unknown;
+      };
+      expect(body.moneyGiftsBlockedBy).toBeNull();
+      const settingsStatements = statements
+        .map((st) => st.sql)
+        .filter((sql) => sql.includes('"registry_settings"'));
+      // One read to find the account, one write that answers the row.
+      expect(settingsStatements).toHaveLength(2);
+      expect(settingsStatements[1]).toMatch(/^update "registry_settings"/);
+    });
+
     it("answers currency_mismatch when the live read settles in another currency", async () => {
       const { app } = await connectedWithMoneyOn(live("USD"));
       const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
@@ -397,20 +429,23 @@ describe("refreshing what Stripe says", () => {
     it("answers the stored row when it holds a later state than the live read", async () => {
       // Stripe said "cannot charge" at a time later than this read: the write
       // keeps it, so the guest gate reads "cannot charge", and so must the answer.
-      const { app, db } = await connectedWithMoneyOn(live("AUD"));
+      // Stored payouts differ from stored charges and from the live read, so
+      // only an answer taken from the stored payouts column matches.
+      const { app, db } = await connectedWithMoneyOn({ ...live("AUD"), payoutsEnabled: false });
       db.update(registrySettings)
         .set({
           stripeChargesEnabled: false,
+          stripePayoutsEnabled: true,
           stripeAccountUpdatedAt: new Date(Date.now() + 3_600_000),
         })
         .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
         .run();
-      const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
-        chargesEnabled: unknown;
-        moneyGiftsBlockedBy: unknown;
-      };
-      expect(body.chargesEnabled).toBe(false);
-      expect(body.moneyGiftsBlockedBy).toBe("stripe_not_ready");
+      expect(await jsonBody(await req(app, `${base}/refresh`, OWNER))).toEqual({
+        connected: true,
+        chargesEnabled: false,
+        payoutsEnabled: true,
+        moneyGiftsBlockedBy: "stripe_not_ready",
+      });
     });
   });
 
@@ -465,6 +500,13 @@ describe("cash gifts stay the couple's decision", () => {
     // Connected, but not yet able to charge: offering guests a contribute
     // button now is a refund and a support case.
     expect(res.status).toBe(409);
-    expect(await jsonBody(res)).toEqual({ error: "stripe_not_ready" });
+    const body = (await jsonBody(res)) as {
+      error: string;
+      settings: { cashGiftsEnabled: boolean; stripeChargesEnabled: boolean };
+    };
+    expect(body.error).toBe("stripe_not_ready");
+    // With the row as it stands, so the portal shows it without asking again.
+    expect(body.settings.cashGiftsEnabled).toBe(false);
+    expect(body.settings.stripeChargesEnabled).toBe(false);
   });
 });

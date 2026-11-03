@@ -1074,18 +1074,65 @@ describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => 
     expect(body.settings.moneyGiftsBlockedBy).toBeNull();
   });
 
-  it("tells a viewer the currencies differ, never which currency the account pays out in", async () => {
+  // A viewer cannot act on the payout currency, so the reason they receive says
+  // nothing about it beyond what the guest list itself shows: whether guests
+  // are offered money at all.
+  for (const [label, row, editorSees, viewerSees] of [
+    [
+      "money on, an account in US dollars",
+      { cashGiftsEnabled: true, stripeDefaultCurrency: "USD" },
+      "currency_mismatch",
+      "not_offered",
+    ],
+    [
+      "money on, no settlement currency named",
+      { cashGiftsEnabled: true, stripeDefaultCurrency: null },
+      "stripe_currency_unknown",
+      "not_offered",
+    ],
+    [
+      "money off, an account in US dollars",
+      { cashGiftsEnabled: false, stripeDefaultCurrency: "USD" },
+      "currency_mismatch",
+      "cash_gifts_off",
+    ],
+    [
+      "money off, an account in the wedding's currency",
+      { cashGiftsEnabled: false },
+      "cash_gifts_off",
+      "cash_gifts_off",
+    ],
+    [
+      "money off, Stripe not charging",
+      { stripeChargesEnabled: false },
+      "stripe_not_ready",
+      "stripe_not_ready",
+    ],
+  ] as const) {
+    it(`tells an editor ${editorSees} and a viewer ${viewerSees} for ${label}`, async () => {
+      const app = buildApp({ tier: "gold", ...paying, seed: settingsRow(row) });
+      expect((await read(app, EDITOR)).moneyGiftsBlockedBy).toBe(editorSees);
+      const res = await req(app, "GET", base, VIEWER);
+      const text = await res.text();
+      const settings = (JSON.parse(text) as RegistrySnapshot).settings;
+      expect(settings.moneyGiftsBlockedBy).toBe(viewerSees);
+      expect(Object.keys(settings)).not.toContain("stripeDefaultCurrency");
+      expect(text).not.toContain("USD");
+    });
+  }
+
+  it("answers a refused money save with the row as it stands and why guests cannot give", async () => {
     const app = buildApp({
       tier: "gold",
       ...paying,
-      seed: settingsRow({ cashGiftsEnabled: true, stripeDefaultCurrency: "USD" }),
+      seed: settingsRow({ stripeDefaultCurrency: "USD" }),
     });
-    const res = await req(app, "GET", base, VIEWER);
-    const text = await res.text();
-    const settings = (JSON.parse(text) as RegistrySnapshot).settings;
-    expect(settings.moneyGiftsBlockedBy).toBe("currency_mismatch");
-    expect(Object.keys(settings)).not.toContain("stripeDefaultCurrency");
-    expect(text).not.toContain("USD");
+    const refused = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: string; settings: Settings };
+    expect(body.error).toBe("currency_mismatch");
+    expect(body.settings.cashGiftsEnabled).toBe(false);
+    expect(body.settings.moneyGiftsBlockedBy).toBe("currency_mismatch");
   });
 });
 

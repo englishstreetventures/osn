@@ -25,8 +25,6 @@ import {
   RegistryItemLimitReached,
   RegistryItemNotInWedding,
   SettingsChanged,
-  SettlementCurrencyUnknown,
-  StripeNotReady,
   toEpochSeconds,
 } from "../../src/services/registry";
 import { recordStatements } from "../test-helpers";
@@ -1739,7 +1737,7 @@ describe("registry ownership + range guards", () => {
     );
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
-      expect(blocked.cause.toString()).toContain(new StripeNotReady()._tag);
+      expect(blocked.cause.toString()).toContain("StripeNotReady");
     }
     // The refused write created no settings row to half-enable.
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
@@ -1781,7 +1779,7 @@ describe("registry ownership + range guards", () => {
     );
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
-      expect(blocked.cause.toString()).toContain(new CurrencyMismatch()._tag);
+      expect(blocked.cause.toString()).toContain("CurrencyMismatch");
     }
     const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(refused.settings.cashGiftsEnabled).toBe(false);
@@ -1818,7 +1816,7 @@ describe("registry ownership + range guards", () => {
     );
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
-      expect(blocked.cause.toString()).toContain(new SettlementCurrencyUnknown()._tag);
+      expect(blocked.cause.toString()).toContain("SettlementCurrencyUnknown");
     }
     const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(refused.settings.cashGiftsEnabled).toBe(false);
@@ -1839,9 +1837,11 @@ describe("registry ownership + range guards", () => {
       .run();
     const client = db.$client;
     const prepare = client.prepare.bind(client);
+    const sent: string[] = [];
     Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
+        sent.push(sql);
         if (sql.startsWith('insert into "registry_settings"')) {
           prepare("UPDATE weddings SET currency = 'USD' WHERE id = ?").run(BOOTSTRAP_WEDDING_ID);
         }
@@ -1857,8 +1857,20 @@ describe("registry ownership + range guards", () => {
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
       // The true reason, not "someone else saved these settings".
-      expect(blocked.cause.toString()).toContain(new CurrencyMismatch()._tag);
+      expect(blocked.cause.toString()).toContain("CurrencyMismatch");
     }
+    // It carries the row as it stands, judged against the new currency, from
+    // the one read after the refused write.
+    const refusal = Exit.isFailure(blocked)
+      ? Option.getOrUndefined(Cause.findErrorOption(blocked.cause))
+      : undefined;
+    expect((refusal as CurrencyMismatch | undefined)?.current.moneyGiftsBlockedBy).toBe(
+      "currency_mismatch",
+    );
+    const afterWrite = sent.slice(
+      sent.findIndex((sql) => sql.startsWith('insert into "registry_settings"')) + 1,
+    );
+    expect(afterWrite).toHaveLength(1);
     const row = db
       .select({ on: registrySettings.cashGiftsEnabled })
       .from(registrySettings)
@@ -1900,7 +1912,7 @@ describe("registry ownership + range guards", () => {
     Reflect.deleteProperty(client, "query");
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
-      expect(blocked.cause.toString()).toContain(new SettlementCurrencyUnknown()._tag);
+      expect(blocked.cause.toString()).toContain("SettlementCurrencyUnknown");
     }
   });
 

@@ -178,6 +178,8 @@ function fundsHiddenWords(reason: MoneyGiftsBlock | null | undefined, currency: 
       return `Guests can’t see your cash funds: your Stripe account pays out in a currency other than ${currency}, the one every gift is charged in.`;
     case "cash_gifts_off":
       return "Guests see your cash funds only while money gifts are on. Turn them on in the Settings tab.";
+    case "not_offered":
+      return "Guests can’t see your cash funds right now. Anyone who can edit the gift list can see why in the Settings tab.";
     default:
       return "Guests can’t see your cash funds right now.";
   }

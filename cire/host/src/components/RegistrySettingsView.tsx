@@ -304,29 +304,6 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     });
   }
 
-  /**
-   * Ask for the settings row as it stands — an empty save, which writes nothing
-   * and answers with the row and why guests cannot give money — and put it in
-   * the cache without re-seeding the form, as `refreshStripe` does. For a
-   * co-host after a money refusal, who may not ask Stripe. A failure leaves the
-   * panel saying what it last knew: the refusal's toast has said what is true.
-   */
-  async function rereadSettings(): Promise<void> {
-    try {
-      const res = await authFetch(settingsUrl(), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) return;
-      const body = (await res.json()) as { settings: RegistrySettings };
-      patchCache(body.settings);
-    } catch (err) {
-      if (isAuthExpired(err)) redirectToLogin();
-    }
-  }
-
   onMount(() => {
     void (async () => {
       try {
@@ -452,15 +429,15 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               : "Stripe can’t take a payment for this wedding yet, so money gifts stay off.",
         );
         // The page is out of date about Stripe, and about why guests cannot
-        // give money. An owner asks Stripe, whose answer patches both; anyone
-        // else may not, so their panel asks for the row as it stands. Either
-        // way only the settings are patched — NOT `invalidateRegistry`: nothing
-        // on this tab re-fetches the whole registry, and a refetch that failed
-        // would drop the snapshot and leave the form rendering off `null` — no
-        // items, so "add a gift before publishing" over a full list; no
-        // settings, so "connect an account" to a connected couple.
+        // give money. The refusal carries the row as it stands, which patches
+        // both; an owner also asks Stripe again, which only an owner may. Only
+        // the settings are patched — NOT `invalidateRegistry`: nothing on this
+        // tab re-fetches the whole registry, and a refetch that failed would
+        // drop the snapshot and leave the form rendering off `null` — no items,
+        // so "add a gift before publishing" over a full list; no settings, so
+        // "connect an account" to a connected couple.
+        if (refusal?.settings) patchCache(refusal.settings);
         if (props.canManage) void refreshStripe(true);
-        else void rereadSettings();
         return;
       }
       if (!res.ok) {

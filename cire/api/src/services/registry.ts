@@ -67,18 +67,28 @@ export class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {
 export class RegistryPreviewSession extends Data.TaggedError("RegistryPreviewSession") {}
 /** The image key names another wedding's object. 400-class. */
 export class ImageKeyNotInWedding extends Data.TaggedError("ImageKeyNotInWedding") {}
-/** Cash gifts asked for without a Stripe account that can take charges. 409-class. */
-export class StripeNotReady extends Data.TaggedError("StripeNotReady") {}
+/**
+ * Cash gifts asked for without a Stripe account that can take charges.
+ * 409-class. This and the two currency refusals below carry the row as it
+ * stands, so the caller can show why guests cannot give without asking again.
+ */
+export class StripeNotReady extends Data.TaggedError("StripeNotReady")<{
+  readonly current: RegistrySettingsDto;
+}> {}
 /**
  * Cash gifts asked for in a currency the connected account cannot settle.
  * 409-class.
  */
-export class CurrencyMismatch extends Data.TaggedError("CurrencyMismatch") {}
+export class CurrencyMismatch extends Data.TaggedError("CurrencyMismatch")<{
+  readonly current: RegistrySettingsDto;
+}> {}
 /**
  * Cash gifts asked for while Stripe has not said which currency the connected
  * account settles in. 409-class: it clears once Stripe names one.
  */
-export class SettlementCurrencyUnknown extends Data.TaggedError("SettlementCurrencyUnknown") {}
+export class SettlementCurrencyUnknown extends Data.TaggedError("SettlementCurrencyUnknown")<{
+  readonly current: RegistrySettingsDto;
+}> {}
 /**
  * A settings write whose `expected` values no longer match the row: someone
  * else saved one of the same fields since this caller read it. 409-class.
@@ -223,15 +233,23 @@ export type MoneyGiftsBlock =
   /** The account settles in a currency other than the wedding's. */
   | "currency_mismatch"
   /** The couple have not turned money gifts on. */
-  | "cash_gifts_off";
+  | "cash_gifts_off"
+  /**
+   * Guests are offered no money, and the reason is not this reader's: a
+   * member who cannot edit is never told anything about the payout currency
+   * (see {@link settingsForReader}).
+   */
+  | "not_offered";
 
 /**
  * The settings as the organiser API sends them — the registry snapshot and the
  * settings PUT. Every co-host with read access receives this, so it carries only
  * what the settings view shows: whether an account is connected, not its id;
  * whether it can charge, not whether it pays out; and why guests cannot give
- * money, which says whether the account settles in the wedding's currency but
- * never which currency it settles in.
+ * money. For an editor or an owner that reason can say whether the account
+ * settles in the wedding's currency — and so which currency, when it does; a
+ * member who cannot edit gets it through {@link settingsForReader}, which says
+ * nothing about the payout currency.
  */
 export interface RegistrySettingsDto {
   weddingId: string;
@@ -599,6 +617,32 @@ const moneyIsOpen = (
 ): boolean => moneyGiftsBlock({ takesPayments }, settings, currency) === null;
 
 /**
+ * The settings as a member who cannot edit them receives them. The two
+ * currency reasons are an editor's to act on, and they say whether the payout
+ * account settles in the wedding's currency, so this reader is told only what
+ * follows from what they already see: money gifts are off (`cash_gifts_off`)
+ * or, with them on, guests are not offered money (`not_offered`). The other
+ * reasons follow from `takesPayments` and the Stripe flags, which every member
+ * receives, and pass through.
+ */
+export function settingsForReader(
+  settings: RegistrySettingsDto,
+  canEdit: boolean,
+): RegistrySettingsDto {
+  if (canEdit) return settings;
+  switch (settings.moneyGiftsBlockedBy) {
+    case "stripe_currency_unknown":
+    case "currency_mismatch":
+      return {
+        ...settings,
+        moneyGiftsBlockedBy: settings.cashGiftsEnabled ? "not_offered" : "cash_gifts_off",
+      };
+    default:
+      return settings;
+  }
+}
+
+/**
  * The organiser-facing view of a settings record — see `RegistrySettingsDto`.
  * `currency` is the wedding's, which the reason is judged against.
  */
@@ -752,33 +796,24 @@ const toItemDto = (r: ItemRow, quantityClaimed: number): RegistryItemDto => ({
   updatedAt: r.updatedAt.getTime(),
 });
 
-/** Read the wedding's primary currency. Mirrors budgetService.get's fallback. */
-function primaryCurrency(weddingId: string): Effect.Effect<string, never, DbService> {
-  return Effect.gen(function* () {
-    const db = yield* DbService;
-    const [row] = yield* dbQuery(() =>
-      db
-        .select({ currency: weddings.currency })
-        .from(weddings)
-        .where(eq(weddings.id, weddingId))
-        .all(),
-    );
-    return (row as { currency: string } | undefined)?.currency ?? "AUD";
-  });
-}
-
 /**
  * The settings row and the wedding's currency, in one statement: both are
  * keyed on the wedding id, so a join answers what two point reads would. An
- * absent settings row reads as the defaults, and an absent wedding as "AUD",
- * the fallback `primaryCurrency` uses.
+ * absent settings row reads as the defaults (`row` null), and an absent
+ * wedding as "AUD", budgetService.get's fallback.
  */
-function settingsWithCurrency(
-  weddingId: string,
-): Effect.Effect<{ record: RegistrySettingsRecord; currency: string }, never, DbService> {
+function settingsWithCurrency(weddingId: string): Effect.Effect<
+  {
+    row: SettingsRow | null;
+    record: RegistrySettingsRecord;
+    currency: string;
+  },
+  never,
+  DbService
+> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const [row] = yield* dbQuery(() =>
+    const [joined] = yield* dbQuery(() =>
       db
         .select({ settings: registrySettings, currency: weddings.currency })
         .from(weddings)
@@ -786,9 +821,11 @@ function settingsWithCurrency(
         .where(eq(weddings.id, weddingId))
         .all(),
     );
-    const found = row as { settings: SettingsRow | null; currency: string } | undefined;
+    const found = joined as { settings: SettingsRow | null; currency: string } | undefined;
+    const row = found?.settings ?? null;
     return {
-      record: found?.settings ? toSettingsRecord(found.settings) : defaultSettings(weddingId),
+      row,
+      record: row ? toSettingsRecord(row) : defaultSettings(weddingId),
       currency: found?.currency ?? "AUD",
     };
   });
@@ -819,55 +856,129 @@ function claimedByItem(weddingId: string): Effect.Effect<Map<string, number>, ne
   });
 }
 
-/** What switching money gifts on has to know, read in one statement. */
-interface MoneyGiftsState {
-  chargesEnabled: boolean | null;
-  /** The currency Stripe settles the account in, or null while it has not said. */
-  defaultCurrency: string | null;
-  /** The wedding's own currency — what every gift is charged in. */
-  weddingCurrency: string;
+/**
+ * Why turning money gifts on is refused for this row, or null: the Stripe and
+ * currency half of {@link accountMoneyBlock}, which the guest gate reads too.
+ * An account can take charges before Stripe names the currency it settles in;
+ * until it does, a gift could be converted on Stripe's terms, so the switch
+ * waits. Each refusal carries `current`, the row as it stands.
+ */
+function moneyOnRefusal(
+  record: RegistrySettingsRecord,
+  currency: string,
+  deployment: MoneyDeployment,
+): StripeNotReady | SettlementCurrencyUnknown | CurrencyMismatch | null {
+  const current = () => toSettingsDto(record, deployment, currency);
+  switch (accountMoneyBlock(record, currency)) {
+    case "stripe_not_ready":
+      return new StripeNotReady({ current: current() });
+    case "stripe_currency_unknown":
+      return new SettlementCurrencyUnknown({ current: current() });
+    case "currency_mismatch":
+      return new CurrencyMismatch({ current: current() });
+    default:
+      return null;
+  }
+}
+
+/** What Stripe said about a connected account, as the two writers pass it. */
+interface StripeAccountState {
+  id: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  /**
+   * The currency Stripe settles this account in, upper-case ISO, or null when
+   * Stripe has not decided one yet. `undefined` means the caller read a
+   * payload that did not mention it at all, and the stored value is left
+   * exactly as it is.
+   */
+  defaultCurrency?: string | null;
+  /**
+   * When STRIPE said it, in seconds — the event's own `created`, never our
+   * clock. Absent only for the live `…/stripe/refresh` read, which is by
+   * definition current.
+   */
+  observedAt?: number;
 }
 
 /**
- * The settings row's Stripe state and the wedding's currency, joined on the
- * wedding: both keys are the wedding id, so one statement answers what two
- * primary-key reads would. `undefined` when the wedding row is gone; null
- * Stripe fields when the registry was never opened.
+ * Write what Stripe said about an account onto every settings row naming it,
+ * unless the row already holds something Stripe said later, and answer the
+ * rows written, each with its wedding's currency. See
+ * {@link registryService.applyStripeAccountState} for the rules.
  */
-function moneyGiftsState(
-  weddingId: string,
-): Effect.Effect<MoneyGiftsState | undefined, never, DbService> {
+function writeStripeAccountState(
+  account: StripeAccountState,
+): Effect.Effect<Array<{ record: RegistrySettingsRecord; currency: string }>, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const [row] = yield* dbQuery(() =>
+    const now = new Date();
+    const observed = account.observedAt === undefined ? now : new Date(account.observedAt * 1000);
+    const patch: StripeAccountStatePatch = {
+      stripeChargesEnabled: account.chargesEnabled,
+      stripePayoutsEnabled: account.payoutsEnabled,
+      stripeAccountUpdatedAt: observed,
+      updatedAt: now,
+    };
+    // Named only when the caller actually read a settlement currency off the
+    // payload. A caller that saw no such field says nothing here rather than
+    // writing null over what Stripe told us earlier.
+    if (account.defaultCurrency !== undefined) {
+      patch.stripeDefaultCurrency = account.defaultCurrency;
+    }
+    const rows = yield* dbQuery(() =>
       db
-        .select({
-          chargesEnabled: registrySettings.stripeChargesEnabled,
-          defaultCurrency: registrySettings.stripeDefaultCurrency,
-          weddingCurrency: weddings.currency,
+        .update(registrySettings)
+        .set(patch)
+        .where(
+          and(
+            eq(registrySettings.stripeAccountId, account.id),
+            // MONOTONIC, and this is the whole point. Stripe does not
+            // guarantee order and retries a failed delivery for three days,
+            // so an older event carrying `charges_enabled: true` can arrive
+            // after Stripe has disabled the account — and this column is the
+            // only gate on whether a couple may show guests a contribute
+            // button. Applying it would re-open a payment surface Stripe has
+            // shut. A row is written only by something Stripe said LATER than
+            // what it already holds.
+            or(
+              isNull(registrySettings.stripeAccountUpdatedAt),
+              lte(registrySettings.stripeAccountUpdatedAt, observed),
+            ),
+          ),
+        )
+        // The rows as written, with each wedding's currency, so the live
+        // refresh can answer from them with no read after the write.
+        .returning({
+          ...getTableColumns(registrySettings),
+          weddingCurrency: sql<
+            string | null
+          >`(select ${weddings.currency} from ${weddings} where ${weddings.id} = ${registrySettings.weddingId})`,
         })
-        .from(weddings)
-        .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
-        .where(eq(weddings.id, weddingId))
         .all(),
     );
-    return row as MoneyGiftsState | undefined;
+    return (rows as Array<SettingsRow & { weddingCurrency: string | null }>).map(
+      ({ weddingCurrency, ...row }) => ({
+        record: toSettingsRecord(row),
+        // The row's wedding exists (a cascading foreign key), so the
+        // subquery finds it; "AUD" is budgetService.get's fallback all the same.
+        currency: weddingCurrency ?? "AUD",
+      }),
+    );
   });
 }
 
-/**
- * Why money gifts may not be on, as far as currency goes, or null. An account
- * can take charges before Stripe names the currency it settles in; until it
- * does, a gift could be converted on Stripe's terms, so the switch waits.
- */
-function currencyRefusal(
-  state: MoneyGiftsState,
-): SettlementCurrencyUnknown | CurrencyMismatch | null {
-  if (!state.defaultCurrency) return new SettlementCurrencyUnknown();
-  return state.defaultCurrency.toUpperCase() === state.weddingCurrency.toUpperCase()
-    ? null
-    : new CurrencyMismatch();
-}
+/** The refresh's answer for one settings row: see `StripeStatusDto`. */
+const toStripeStatus = (
+  record: RegistrySettingsRecord,
+  deployment: MoneyDeployment,
+  currency: string,
+): StripeStatusDto => ({
+  connected: record.stripeAccountId !== null,
+  chargesEnabled: record.stripeChargesEnabled,
+  payoutsEnabled: record.stripePayoutsEnabled,
+  moneyGiftsBlockedBy: moneyGiftsBlock(deployment, record, currency),
+});
 
 /** One currency's worth of settled gift money. */
 interface CurrencyTotal {
@@ -1165,16 +1276,10 @@ export const registryService = {
       // latency instead of stacking it — the same shape claimService.get uses.
       // On bun:sqlite the concurrency is a no-op; on D1 it is most of the
       // endpoint's wall clock.
-      const { claimed, contributionTotals, currency, gifts, itemRows, settingsRows } =
+      const { claimed, contributionTotals, gifts, itemRows, settingsAndCurrency } =
         yield* Effect.all(
           {
-            settingsRows: dbQuery(() =>
-              db
-                .select()
-                .from(registrySettings)
-                .where(eq(registrySettings.weddingId, weddingId))
-                .all(),
-            ),
+            settingsAndCurrency: settingsWithCurrency(weddingId),
             itemRows: dbQuery(() =>
               db
                 .select()
@@ -1185,12 +1290,11 @@ export const registryService = {
             ),
             claimed: claimedByItem(weddingId),
             gifts: registryService.giftLog(weddingId),
-            currency: primaryCurrency(weddingId),
             contributionTotals: contributionsByCurrency(weddingId),
           },
           { concurrency: "unbounded" },
         );
-      const settingsRow = settingsRows[0] as SettingsRow | undefined;
+      const { row: settingsRow, record, currency } = settingsAndCurrency;
       // Split here rather than in SQL: the wedding's currency comes from its own
       // read, and the two run together above. Passing one into the other would
       // serialise two D1 round trips that currently overlap, to save a filter
@@ -1204,11 +1308,7 @@ export const registryService = {
       );
 
       return {
-        settings: toSettingsDto(
-          settingsRow ? toSettingsRecord(settingsRow) : defaultSettings(weddingId),
-          deployment,
-          currency,
-        ),
+        settings: toSettingsDto(record, deployment, currency),
         items: (itemRows as ItemRow[]).map((r) => toItemDto(r, claimed.get(r.id) ?? 0)),
         gifts: gifts.entries,
         giftsHasMore: gifts.hasMore,
@@ -1448,11 +1548,8 @@ export const registryService = {
       if (patch.cashGiftsEnabled === true) {
         // Only on the write that asks for it. An absent settings row means the
         // registry was never opened, so certainly no Stripe.
-        const stripe = yield* moneyGiftsState(weddingId);
-        if (!stripe?.chargesEnabled) {
-          return yield* Effect.fail(new StripeNotReady());
-        }
-        const refused = currencyRefusal(stripe);
+        const { record, currency } = yield* settingsWithCurrency(weddingId);
+        const refused = moneyOnRefusal(record, currency, deployment);
         if (refused) return yield* Effect.fail(refused);
       }
 
@@ -1541,13 +1638,12 @@ export const registryService = {
       // returns its row.
       if (!row) {
         // A refusal on the currency re-check is not "someone else saved these
-        // settings": say what is actually wrong.
+        // settings": say what is actually wrong. One read answers both.
+        const { record, currency } = yield* settingsWithCurrency(weddingId);
         if (patch.cashGiftsEnabled === true) {
-          const stripe = yield* moneyGiftsState(weddingId);
-          const refused = stripe ? currencyRefusal(stripe) : null;
+          const refused = moneyOnRefusal(record, currency, deployment);
           if (refused) return yield* Effect.fail(refused);
         }
-        const { record, currency } = yield* settingsWithCurrency(weddingId);
         return yield* Effect.fail(
           new SettingsChanged({ current: toSettingsDto(record, deployment, currency) }),
         );
@@ -1556,7 +1652,7 @@ export const registryService = {
         weddingCurrency: string | null;
       };
       // The row's wedding exists (a cascading foreign key), so the subquery
-      // finds it; the fallback is `primaryCurrency`'s all the same.
+      // finds it; "AUD" is budgetService.get's fallback all the same.
       return toSettingsDto(toSettingsRecord(saved), deployment, weddingCurrency ?? "AUD");
     }).pipe(Effect.withSpan("cire.registry.updateSettings"));
   },
@@ -1580,11 +1676,10 @@ export const registryService = {
   },
 
   /**
-   * What `POST …/registry/stripe/refresh` answers, read from the row as stored
-   * — the capability flags and why guests cannot give money — so the portal
-   * shows what the guest gate reads, even when a Stripe write it follows was
-   * refused by `applyStripeAccountState`'s time-order guard. `accountId` is
-   * for the route, which needs it to ask Stripe; it never goes in a body.
+   * What `POST …/registry/stripe/refresh` answers from the row as stored —
+   * the capability flags and why guests cannot give money — before it asks
+   * Stripe, and after when its write was refused. `accountId` is for the
+   * route, which needs it to ask Stripe; it never goes in a body.
    */
   stripeStatus(
     weddingId: string,
@@ -1594,12 +1689,7 @@ export const registryService = {
       const { record, currency } = yield* settingsWithCurrency(weddingId);
       return {
         accountId: record.stripeAccountId,
-        status: {
-          connected: record.stripeAccountId !== null,
-          chargesEnabled: record.stripeChargesEnabled,
-          payoutsEnabled: record.stripePayoutsEnabled,
-          moneyGiftsBlockedBy: moneyGiftsBlock(deployment, record, currency),
-        },
+        status: toStripeStatus(record, deployment, currency),
       };
     }).pipe(Effect.withSpan("cire.registry.stripeStatus"));
   },
@@ -1684,66 +1774,32 @@ export const registryService = {
    * good, and turning it back on when the capability returns would be us making
    * a decision they never made. The guest surface reads both.
    */
-  applyStripeAccountState(account: {
-    id: string;
-    chargesEnabled: boolean;
-    payoutsEnabled: boolean;
-    /**
-     * The currency Stripe settles this account in, upper-case ISO, or null when
-     * Stripe has not decided one yet. `undefined` means the caller read a
-     * payload that did not mention it at all, and the stored value is left
-     * exactly as it is.
-     */
-    defaultCurrency?: string | null;
-    /**
-     * When STRIPE said it, in seconds — the event's own `created`, never our
-     * clock. Absent only for the live `…/stripe/refresh` read, which is by
-     * definition current.
-     */
-    observedAt?: number;
-  }): Effect.Effect<boolean, never, DbService> {
+  applyStripeAccountState(account: StripeAccountState): Effect.Effect<boolean, never, DbService> {
+    return writeStripeAccountState(account).pipe(
+      Effect.map((written) => written.length > 0),
+      Effect.withSpan("cire.registry.applyStripeAccountState"),
+    );
+  },
+
+  /**
+   * The live `…/stripe/refresh` read: store what Stripe just said about this
+   * wedding's account, as {@link registryService.applyStripeAccountState}
+   * does, and answer from the row as stored — the capability flags and why
+   * guests cannot give money — so the portal shows what the guest gate reads.
+   * The write returns the row it wrote; only when its time-order guard kept a
+   * later state Stripe had already sent is the row read again.
+   */
+  refreshStripeStatus(
+    weddingId: string,
+    account: StripeAccountState,
+    deployment: MoneyDeployment,
+  ): Effect.Effect<StripeStatusDto, never, DbService> {
     return Effect.gen(function* () {
-      const db = yield* DbService;
-      const now = new Date();
-      const observed = account.observedAt === undefined ? now : new Date(account.observedAt * 1000);
-      const patch: StripeAccountStatePatch = {
-        stripeChargesEnabled: account.chargesEnabled,
-        stripePayoutsEnabled: account.payoutsEnabled,
-        stripeAccountUpdatedAt: observed,
-        updatedAt: now,
-      };
-      // Named only when the caller actually read a settlement currency off the
-      // payload. A caller that saw no such field says nothing here rather than
-      // writing null over what Stripe told us earlier.
-      if (account.defaultCurrency !== undefined) {
-        patch.stripeDefaultCurrency = account.defaultCurrency;
-      }
-      const rows = yield* dbQuery(() =>
-        db
-          .update(registrySettings)
-          .set(patch)
-          .where(
-            and(
-              eq(registrySettings.stripeAccountId, account.id),
-              // MONOTONIC, and this is the whole point. Stripe does not
-              // guarantee order and retries a failed delivery for three days,
-              // so an older event carrying `charges_enabled: true` can arrive
-              // after Stripe has disabled the account — and this column is the
-              // only gate on whether a couple may show guests a contribute
-              // button. Applying it would re-open a payment surface Stripe has
-              // shut. A row is written only by something Stripe said LATER than
-              // what it already holds.
-              or(
-                isNull(registrySettings.stripeAccountUpdatedAt),
-                lte(registrySettings.stripeAccountUpdatedAt, observed),
-              ),
-            ),
-          )
-          .returning({ weddingId: registrySettings.weddingId })
-          .all(),
-      );
-      return (rows as Array<{ weddingId: string }>).length > 0;
-    }).pipe(Effect.withSpan("cire.registry.applyStripeAccountState"));
+      const written = yield* writeStripeAccountState(account);
+      const mine = written.find((w) => w.record.weddingId === weddingId);
+      if (mine) return toStripeStatus(mine.record, deployment, mine.currency);
+      return (yield* registryService.stripeStatus(weddingId, deployment)).status;
+    }).pipe(Effect.withSpan("cire.registry.refreshStripeStatus"));
   },
 
   /**
@@ -3394,7 +3450,7 @@ function resolveVisibleRegistry(
     if (!onGold || !settings.published || row.imageKind === null || row.familyKind === null) {
       return yield* Effect.fail(new RegistryNotVisible());
     }
-    // Same fallback `primaryCurrency` has always used.
+    // budgetService.get's fallback.
     return {
       weddingId: row.id,
       settings,

@@ -213,11 +213,10 @@ export const createRegistryStripeRoutes = (
               // difference between "connected" and a panel that still says
               // "finish setting up" to someone who just did.
               const account = yield* deps.stripe.retrieveAccount(before.accountId);
-              yield* registryService.applyStripeAccountState(account);
               // The answer is the row as it now stands, not the live read: the
               // write keeps a later state Stripe already sent, and the guest
               // gate reads the row, so this is what guests are offered.
-              return (yield* registryService.stripeStatus(weddingId, deps)).status;
+              return yield* registryService.refreshStripeStatus(weddingId, account, deps);
             }).pipe(
               Effect.provideService(DbService, db),
               Effect.catchTag("StripeError", badGateway(set, weddingId)),

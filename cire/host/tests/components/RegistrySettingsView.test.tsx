@@ -786,13 +786,10 @@ describe("money gifts", () => {
     expect(urls.some((u) => u.includes("/registry/stripe/refresh"))).toBe(false);
   });
 
-  /** The second PUT of a refused save: the empty one that asks for the row. */
-  const isEmptySave = (init?: RequestInit) => init?.method === "PUT" && init.body === "{}";
-
-  it("asks for the row again for an editor after a refusal, so the reason it shows is current", async () => {
+  /** A money-on save refused for an editor, with `body` as the 409's answer. */
+  async function editorRefused(body: unknown) {
     // Loaded as "money off"; a co-host has since moved the wedding to a
-    // currency the account does not pay out in. Only an owner may ask Stripe,
-    // so an editor's panel asks for the row as it stands instead.
+    // currency the account does not pay out in.
     setCachedRegistry(
       "wed_1",
       snapshot({
@@ -804,6 +801,14 @@ describe("money gifts", () => {
         } as never,
       }),
     );
+    authFetch.mockResolvedValue(json(body, 409));
+    const { container } = renderPanel({ canManage: false });
+    fireEvent.click(await screen.findByTestId("cash-gifts"));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+  }
+
+  it("shows the reason a refused money save carries, without asking again", async () => {
     const now = snapshot({
       items: [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })],
       settings: {
@@ -812,76 +817,26 @@ describe("money gifts", () => {
         moneyGiftsBlockedBy: "currency_mismatch",
       } as never,
     });
-    authFetch.mockImplementation(async (_url: string, init?: RequestInit) =>
-      isEmptySave(init)
-        ? json({ settings: now.settings })
-        : json({ error: "currency_mismatch" }, 409),
-    );
-    const { container } = renderPanel({ canManage: false });
-    fireEvent.click(await screen.findByTestId("cash-gifts"));
-    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await editorRefused({ error: "currency_mismatch", settings: now.settings });
 
     await waitFor(() => expect(screen.getByTestId("money-gifts-currency")).toBeTruthy());
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
       /pays out in a currency other than AUD/,
     );
-    const rereads = authFetch.mock.calls.filter(([, init]) => isEmptySave(init));
-    expect(rereads).toHaveLength(1);
-    // Sent as JSON, or the API would not read `{}` as an empty save.
-    expect((rereads[0]?.[1] as RequestInit | undefined)?.headers).toEqual({
-      "Content-Type": "application/json",
-    });
-    const urls = authFetch.mock.calls.map((c) => String(c[0]));
-    expect(urls.some((u) => u.includes("/registry/stripe/refresh"))).toBe(false);
-    // The list stays as it was: only the settings row was asked for.
+    // The refusal was the whole answer: no second request, no Stripe read.
+    expect(authFetch).toHaveBeenCalledTimes(1);
+    // The list stays as it was: only the settings row was patched.
     expect(peekCachedRegistry("wed_1")?.items).toHaveLength(1);
   });
 
-  /** An editor's money-on save refused, then the re-read behind it answering `reread`. */
-  async function editorRefusedThenReread(reread: () => Promise<Response>) {
-    setCachedRegistry(
-      "wed_1",
-      snapshot({
-        items: [item()],
-        settings: {
-          stripeConnected: true,
-          stripeChargesEnabled: true,
-          moneyGiftsBlockedBy: "cash_gifts_off",
-        } as never,
-      }),
-    );
-    authFetch.mockImplementation((_url: string, init?: RequestInit) =>
-      isEmptySave(init) ? reread() : Promise.resolve(json({ error: "currency_mismatch" }, 409)),
-    );
-    const { container } = renderPanel({ canManage: false });
-    fireEvent.click(await screen.findByTestId("cash-gifts"));
-    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
-    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
-  }
-
-  it.each([
-    ["answers 500", () => Promise.resolve(json({ error: "Internal error", settings: null }, 500))],
-    ["cannot reach the API", () => Promise.reject(new TypeError("Failed to fetch"))],
-  ])("keeps what it holds when the re-read %s, and says nothing more", async (_case, reread) => {
-    await editorRefusedThenReread(reread);
-    // The refusal's toast already said what is true; a failed read adds nothing,
-    // and the panel keeps the row it had rather than one made of an error.
-    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+  it("keeps what it holds when a refusal carries no settings, and says nothing more", async () => {
+    // An API that predates the field answers with the code alone.
+    await editorRefused({ error: "currency_mismatch" });
     expect(peekCachedRegistry("wed_1")?.settings.moneyGiftsBlockedBy).toBe("cash_gifts_off");
     expect(screen.getByTestId("stripe-status").textContent).toMatch(
       /connected and can take payments/i,
     );
-    expect(redirectToLogin).not.toHaveBeenCalled();
-  });
-
-  it("sends an editor whose session ended to sign in, from the re-read", async () => {
-    await editorRefusedThenReread(() => Promise.resolve(json({ error: "unauthorised" }, 401)));
-    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
-  });
-
-  it("sends an editor whose sign-in expired to sign in, from the re-read", async () => {
-    await editorRefusedThenReread(() => Promise.reject({ _tag: "AuthExpiredError" }));
-    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(authFetch).toHaveBeenCalledTimes(1);
   });
 });
 

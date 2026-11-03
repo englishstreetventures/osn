@@ -1917,6 +1917,16 @@ describe("RegistryView — cash funds", () => {
     expect(notice.textContent).not.toMatch(/turn them on/i);
   });
 
+  it("tells a viewer the funds are hidden, and where an editor finds why", async () => {
+    // A member who cannot edit is sent no reason about the payout currency.
+    setCachedRegistry("wed_1", snapshot({ settings: blockedBy("not_offered"), items: [fund()] }));
+    renderList();
+    const notice = await screen.findByTestId("funds-hidden");
+    expect(notice).toHaveTextContent(/^Guests can’t see your cash funds right now\. /);
+    expect(notice).toHaveTextContent(/can edit the gift list can see why in the Settings tab/);
+    expect(notice.textContent).not.toMatch(/currency/i);
+  });
+
   it("hides the funds, and says so plainly, for a reason it has no words for", async () => {
     // A reason a newer API sends, or none from an API that predates the field:
     // either way the server did not say guests can give, so they cannot.

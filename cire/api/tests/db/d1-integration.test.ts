@@ -97,7 +97,6 @@ import { plusOneService } from "../../src/services/plus-one";
 import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
 import { spendRealtimeSubscribe } from "../../src/services/realtime";
 import {
-  CurrencyMismatch,
   registryGuestService,
   registryService,
   SettingsChanged,
@@ -2086,12 +2085,25 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
         : undefined;
       expect(error).toBeInstanceOf(SettingsChanged);
+      // The row it carries comes from the joined settings-and-currency read:
+      // the stored row on D1, not the defaults.
+      const current = (error as SettingsChanged | undefined)?.current;
+      expect(current?.published).toBe(true);
+      expect(current?.shippingAddress).toBeNull();
+      expect(current?.moneyGiftsBlockedBy).toBe("stripe_not_ready");
 
       const [row] = await db
         .select({ shippingAddress: registrySettings.shippingAddress })
         .from(registrySettings)
         .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
       expect(row?.shippingAddress).toBeNull();
+
+      // An empty save answers the same read: the row as stored.
+      const unchanged = await run(
+        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {}, PAYING_SITE),
+      );
+      expect(unchanged.published).toBe(true);
+      expect(unchanged.shippingAddress).toBeNull();
 
       // A matching expectation writes.
       const saved = await run(
@@ -2610,7 +2622,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       );
       expect(Exit.isFailure(mismatched)).toBe(true);
       if (Exit.isFailure(mismatched)) {
-        expect(mismatched.cause.toString()).toContain(new CurrencyMismatch()._tag);
+        expect(mismatched.cause.toString()).toContain("CurrencyMismatch");
       }
       // A save that writes reads the wedding's currency back in the upsert's
       // own RETURNING, as a subquery on the wedding row. USD here, so the

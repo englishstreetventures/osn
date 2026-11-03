@@ -573,9 +573,9 @@ describe("SettingsPanel", () => {
   describe("the gift list's currency", () => {
     afterEach(() => __resetRegistryCache());
 
-    async function saveAnswering(saved: typeof PROFILE) {
+    async function saveAnswering(saved: typeof PROFILE, loaded: typeof PROFILE = PROFILE) {
       setCachedRegistry("wed_1", { currency: "AUD" } as RegistrySnapshot);
-      authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+      authFetchMock.mockResolvedValueOnce(json({ wedding: loaded }));
       render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
       await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
       authFetchMock.mockResolvedValueOnce(json({ wedding: saved }));
@@ -591,6 +591,14 @@ describe("SettingsPanel", () => {
     it("is kept after a save in the same currency", async () => {
       await saveAnswering({ ...PROFILE, displayName: "Aisha & Benjamin" });
       expect(hasCachedRegistry("wed_1")).toBe(true);
+    });
+
+    it("is read again when a co-host moved the currency after the gift list was cached", async () => {
+      // The form loads in NZD and the save keeps NZD; the cached gift list is
+      // still in AUD, so it is the stale one.
+      const moved = { ...PROFILE, currency: "NZD" };
+      await saveAnswering({ ...moved, displayName: "Aisha & Benjamin" }, moved);
+      expect(hasCachedRegistry("wed_1")).toBe(false);
     });
   });
 });

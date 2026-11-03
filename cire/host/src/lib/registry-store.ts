@@ -21,7 +21,10 @@ export type MoneyGiftsBlock =
   | "stripe_not_ready"
   | "stripe_currency_unknown"
   | "currency_mismatch"
-  | "cash_gifts_off";
+  | "cash_gifts_off"
+  /** Guests are offered no money, and the reason is for those who can edit
+   *  the settings: a viewer is never told about the payout currency. */
+  | "not_offered";
 
 /** Registry-level settings. The portal reads these; the Stripe fields are
  *  reported by the server and never written from here. */
