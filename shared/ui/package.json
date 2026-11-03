@@ -25,6 +25,7 @@
     "./ui/info-popover": "./src/ui/info-popover.tsx",
     "./ui/input": "./src/ui/input.tsx",
     "./ui/label": "./src/ui/label.tsx",
+    "./ui/menu-classes": "./src/ui/menu-classes.ts",
     "./ui/meter": "./src/ui/meter.tsx",
     "./ui/modal": "./src/ui/modal.tsx",
     "./ui/notice": "./src/ui/notice.tsx",
