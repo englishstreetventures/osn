@@ -348,26 +348,36 @@ export function createStripeClient(config: StripeConfig): StripeClient {
       if (idempotencyKey) headers.set("idempotency-key", idempotencyKey);
       if (stripeAccount) headers.set("stripe-account", stripeAccount);
 
-      const res = yield* Effect.tryPromise({
-        try: () => doFetch(`${base}${path}`, { method, headers, body }),
-        catch: () => new StripeError({ reason: "unreachable" }),
+      // One controller for the whole call. Aborting the signal a fetch started
+      // with also errors its response body, so a single abort releases the
+      // subrequest whether it is still waiting for headers or for the body.
+      const controller = new AbortController();
+
+      const { res, payload } = yield* Effect.gen(function* () {
+        const response = yield* Effect.tryPromise({
+          try: () =>
+            doFetch(`${base}${path}`, { method, headers, body, signal: controller.signal }),
+          catch: () => new StripeError({ reason: "unreachable" }),
+        });
+        const json: unknown = yield* Effect.tryPromise({
+          try: () => response.json(),
+          // A non-JSON body from Stripe means something in front of it answered —
+          // a proxy error page, a gateway. Not a Stripe error, but not a success.
+          catch: () => new StripeError({ reason: "unreadable", status: response.status }),
+        });
+        return { res: response, payload: json };
       }).pipe(
-        // A hung connection would otherwise hold a Worker request open for the
-        // full subrequest limit, which turns one slow Stripe into a queue of
-        // stuck isolates. Ten seconds is far past Stripe's own p99 and far
-        // short of anything a person waits through.
+        Effect.onInterrupt(() => Effect.sync(() => controller.abort())),
+        // One bound over the headers AND the body: a response whose headers
+        // arrive and whose body then stalls would otherwise hold a Worker
+        // request open for the full subrequest limit, which turns one slow
+        // Stripe into a queue of stuck isolates. Ten seconds is far past
+        // Stripe's own p99 and far short of anything a person waits through.
         Effect.timeoutOrElse({
           duration: STRIPE_CALL_TIMEOUT,
           orElse: () => Effect.fail(new StripeError({ reason: "timeout" })),
         }),
       );
-
-      const payload: unknown = yield* Effect.tryPromise({
-        try: () => res.json(),
-        // A non-JSON body from Stripe means something in front of it answered —
-        // a proxy error page, a gateway. Not a Stripe error, but not a success.
-        catch: () => new StripeError({ reason: "unreadable", status: res.status }),
-      });
 
       if (!res.ok) {
         const error = (payload as { error?: { code?: unknown; type?: unknown } })?.error;
