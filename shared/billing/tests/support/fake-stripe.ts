@@ -267,9 +267,9 @@ export function createFakeStripe(options: { portalPageSize?: number } = {}) {
       return Response.json(product);
     }
     if (method === "POST" && path === "/v1/prices") {
-      const options = (body.currency_options ?? {}) as Record<string, Json>;
+      const sentOptions = (body.currency_options ?? {}) as Record<string, Json>;
       const currencyOptions: Record<string, number> = {};
-      for (const [c, o] of Object.entries(options)) currencyOptions[c] = Number(o.unit_amount);
+      for (const [c, o] of Object.entries(sentOptions)) currencyOptions[c] = Number(o.unit_amount);
       const lookupKey = (body.lookup_key as string | undefined) ?? null;
       if (lookupKey !== null && body.transfer_lookup_key === "true") {
         for (const p of prices) if (p.lookup_key === lookupKey) p.lookup_key = null;
