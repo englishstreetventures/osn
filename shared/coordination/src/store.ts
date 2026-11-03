@@ -76,8 +76,7 @@ export class CoordinationStore extends DurableObject<unknown> {
    */
   private async clear(): Promise<void> {
     if (!this.ctx.storage.kv.delete(ENTRY)) return;
-    await this.ctx.storage.deleteAlarm();
-    await this.ctx.storage.deleteAll();
+    await Promise.all([this.ctx.storage.deleteAlarm(), this.ctx.storage.deleteAll()]);
   }
 
   /**

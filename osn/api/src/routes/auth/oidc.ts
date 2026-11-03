@@ -444,12 +444,13 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
 
             const session = await resolveSession(headers.cookie);
             const accountId = session?.accountId ?? null;
-            const profiles =
-              accountId === null ? [] : (await run(auth.listAccountProfiles(accountId))).profiles;
-            const consent =
+            const [profiles, consent] =
               accountId === null
-                ? null
-                : await run(auth.findOidcConsent(accountId, client.clientId));
+                ? [[], null]
+                : await Promise.all([
+                    run(auth.listAccountProfiles(accountId)).then((r) => r.profiles),
+                    run(auth.findOidcConsent(accountId, client.clientId)),
+                  ]);
 
             return {
               client: {

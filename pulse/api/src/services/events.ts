@@ -326,7 +326,8 @@ export const applyTransitions = (
             attributes: { "event.from": from, "event.to": to },
           }),
         ),
-      { concurrency: 1 },
+      // Groups are disjoint id sets (at most a handful of from → to pairs).
+      { concurrency: "unbounded" },
     );
     return project();
   });
