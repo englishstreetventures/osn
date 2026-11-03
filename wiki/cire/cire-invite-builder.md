@@ -1354,7 +1354,8 @@ below act on something visible; image + two crops, title/subtitle, tone, and
 the three hero-display sliders behind a "Hero display" disclosure), **Our
 story**, **Welcome**, **Events**, **FAQ** and **Closing**. Codes holds the
 copyable **Invite message** (not part of the guest page), with the owner's
-code-style re-mint (`RemintPanel`) above it. `ModuleShell` mounts ONE builder
+code-style re-mint (`RemintPanel`) above it. Codes draws no guest-page preview, since
+nothing there edits the page. `ModuleShell` mounts ONE builder
 while the module is Invite and hands it `view`; a move between views is a
 route change the builder's unsaved guard keeps, so the draft survives with no
 prompt. All four views are an editor's (owners and editors); only the re-mint
@@ -1366,9 +1367,12 @@ button (`InviteMessageCopy`), so an organiser can send the message without
 leaving the Invite module:
 
 - **Which households.** Read fresh from `GET /households` the first time Codes
-  is shown in a builder mount, not from the households cache: a
-  re-mint in Codes or a deactivation in Guests changes the codes, and the
-  builder unmounts for both. Only a household with a guest and a live code is
+  is shown in a builder mount, not from the households cache: a deactivation in
+  Guests changes them, and the builder unmounts for it. The owner's re-mint sits
+  above the message on Codes, where the builder stays mounted, so a re-mint
+  reads them again (`RemintPanel`'s `onReminted` bumps `codesRevision`), and
+  the rows are reconciled by household, so the pick and its option stay with
+  the code updated. Only a household with a guest and a live code is
   offered. The block stays mounted after that first visit, so the pick survives
   a trip to another view.
 - **No household chosen** (the default): the preview and the copy carry

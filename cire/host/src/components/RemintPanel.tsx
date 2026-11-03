@@ -16,6 +16,8 @@ const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-5`;
 
 interface RemintPanelProps {
   weddingId: string;
+  /** Every code changed: the message beside the panel reads them again. */
+  onReminted?: () => void;
 }
 
 interface GuestRow {
@@ -108,6 +110,7 @@ export default function RemintPanel(props: RemintPanelProps) {
       setConfirming(false);
       // The new codes start un-shared.
       setSharedCount(0);
+      props.onReminted?.();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");

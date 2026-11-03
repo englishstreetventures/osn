@@ -707,6 +707,39 @@ export default function RsvpView(props: RsvpViewProps) {
     }
   };
 
+  /** One item per event, made again only when the events change: a search
+   *  keystroke updates each tab's count and name where they are drawn. */
+  const eventItems = createMemo(() =>
+    sections().map((section) => ({
+      value: section.event.id,
+      label: section.event.name,
+      // The tab's whole name, in sentence case, with its count.
+      get name() {
+        const shown = section.visible().length;
+        return `${section.event.name}, ${shown} ${
+          filtering() ? "matching" : shown === 1 ? "guest" : "guests"
+        }${section.hasNew() ? ", changed since you last looked" : ""}`;
+      },
+      after: (isChosen: boolean) => (
+        <>
+          {/* The rows this tab would show: the whole list, or what the search
+              and filter leave of it — so a search run on one event still says
+              which others it would find guests in. */}
+          <span data-count class={eventCount(isChosen)}>
+            {section.visible().length}
+          </span>
+          {/* Opening the table marks every event's changes seen, so an event
+              not on screen says it holds some, in a word. */}
+          <Show when={section.hasNew()}>
+            <span class="text-ui-xs tracking-ui-wider text-gold-ink font-medium uppercase">
+              New
+            </span>
+          </Show>
+        </>
+      ),
+    })),
+  );
+
   /**
    * The event tabs, lent to the view bar's first row after a divider: a glass
    * strip like the module's own views beside it, the owner's one look for a
@@ -720,34 +753,7 @@ export default function RsvpView(props: RsvpViewProps) {
     <>
       <span data-bar-divider aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
       <SegmentedTabs
-        items={sections().map((section) => {
-          const shown = section.visible().length;
-          return {
-            value: section.event.id,
-            label: section.event.name,
-            // The tab's whole name, in sentence case, with its count.
-            name: `${section.event.name}, ${shown} ${
-              filtering() ? "matching" : shown === 1 ? "guest" : "guests"
-            }${section.hasNew() ? ", changed since you last looked" : ""}`,
-            after: (isChosen: boolean) => (
-              <>
-                {/* The rows this tab would show: the whole list, or what the
-                    search and filter leave of it — so a search run on one
-                    event still says which others it would find guests in. */}
-                <span data-count class={eventCount(isChosen)}>
-                  {shown}
-                </span>
-                {/* Opening the table marks every event's changes seen, so an
-                    event not on screen says it holds some, in a word. */}
-                <Show when={section.hasNew()}>
-                  <span class="text-ui-xs tracking-ui-wider text-gold-ink font-medium uppercase">
-                    New
-                  </span>
-                </Show>
-              </>
-            ),
-          };
-        })}
+        items={eventItems()}
         value={selected()?.event.id ?? ""}
         onChange={selectEvent}
         label="Events"

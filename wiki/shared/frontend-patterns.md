@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-04
 ---
 
 # Frontend Patterns
@@ -159,8 +159,7 @@ concatenation — emits **no CSS at all**, silently, because an unknown class is
 simply ignored. Where a layout constant must exist in JS too (a key handler
 stepping by a grid's column count, say), keep the literal at the usage site,
 export the constant, and add a static drift guard in the tests asserting the two
-agree. `SECTION_MENU_COLUMNS` (`cire/host` `invite/InviteBuilder.tsx`) and the
-`auto-grid` / `page-frame` utilities use this pattern.
+agree. The `auto-grid` / `page-frame` utilities use this pattern.
 
 ### A component prop is a getter, so a call written in the JSX runs on every read
 
@@ -601,7 +600,7 @@ normally has nothing left to paint. `transition-behavior: allow-discrete` on
 Chrome 117, Safari 17.4 and Firefox 129 run it; an older engine drops the
 `transition` declaration and toggles at once, which degrades rather than
 breaks. Give the closed state `pointer-events: none`, or the fading box still
-takes a tap. Cire host's section menu (`section-menu`) is the working copy.
+takes a tap.
 
 This does **not** extend to a `<dialog>` or a `popover`. Leaving the top layer
 also needs `overlay` in the transition, and `overlay` is Chrome and Edge only —

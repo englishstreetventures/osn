@@ -155,6 +155,9 @@ interface InviteBuilderProps {
   /** The line pointing at the other place that shapes the invite message,
    *  shown under the Codes view's message. */
   inviteMessageLinks?: JSX.Element;
+  /** Counts the owner's re-mints on Codes, so the message's copy reads the new
+   *  codes. */
+  codesRevision?: number;
 }
 
 /**
@@ -1009,7 +1012,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               {/* Hidden once the sticky side pane below can show instead — the
                   same `@4xl/builder` threshold `showPreviewPane` measures, read
                   in JS because the bar sits outside the builder's container. */}
-              <Show when={previewLayer() !== "wide"}>
+              {/* Codes edits nothing on the guest page, so it offers no preview. */}
+              <Show when={previewLayer() !== "wide" && props.view !== "codes"}>
                 <ViewBar slot="end">
                   <Button
                     variant="outline"
@@ -1510,6 +1514,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         canEdit={props.canEdit}
                         savedLine={d().inviteMessage ?? null}
                         draftLine={draft.inviteMessage}
+                        codesRevision={props.codesRevision}
                       />
                     </Show>
                     {props.inviteMessageLinks}
@@ -1520,7 +1525,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 {/* The miniature earns more room as the builder widens — at 20rem
                   the hero's type is guesswork; by 24rem the tone rhythm down the
                   page is legible, which is the whole point of the pane. */}
-                <Show when={showPreviewPane()}>
+                <Show when={showPreviewPane() && props.view !== "codes"}>
                   <aside class="hidden w-80 shrink-0 @4xl/builder:block @6xl/builder:w-96">
                     {/* Under the stuck chrome (the top bar and the module's
                         view bar), and no taller than the screen left below
@@ -1542,8 +1547,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 </Show>
               </div>
 
-              {/* ── Mobile preview modal — the "Preview" button next to the
-                section tabs, the only way to reach the composed preview below
+              {/* ── Mobile preview modal — the "Preview" button in the module's
+                view bar, the only way to reach the composed preview below
                 `@4xl/builder`. ── */}
               <PreviewModal
                 open={previewModalOpen()}

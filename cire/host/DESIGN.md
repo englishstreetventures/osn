@@ -1174,8 +1174,9 @@ Template, Style, Content's sections under their eyebrow, Codes. The module's
 strip hides, kept in the page, only once the pill has mounted
 (`ViewBar.replaceTabs`), so a builder still loading can always be left. Below
 the composed pane's width the Preview button joins the bar at the pill height.
-Codes holds the invite message; an owner sees the code style's re-mint above
-it, an editor the message alone.
+Codes holds the invite message and no guest-page preview, since nothing there
+edits the page; an owner sees the code style's re-mint above it, an editor the
+message alone.
 
 ### The stuck stack
 

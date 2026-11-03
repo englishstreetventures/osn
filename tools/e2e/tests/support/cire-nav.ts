@@ -1,11 +1,15 @@
 /**
  * The portal's navigation, signed in: the account menu on the shared menu's
- * accent look, the glass strips (the Guests views, the Edit modes, the RSVP
- * events), and the invite builder's two tiers — on one row at a desktop width,
+ * accent look, the glass strips (the Guests views, the Edit modes), and the
+ * invite builder's two tiers — on one row at a desktop width,
  * one glass pill and its menu on a phone — with a draft kept, and no prompt,
  * across a move between the builder's views.
  *
- * Runs inside `cire-soft-shapes` on its signed-in page: no sign-in of its own.
+ * Runs inside `cire-soft-shapes` on its signed-in page: no sign-in of its own,
+ * and no RSVP read — the flow's own RSVP shots and the host browser tier
+ * (`RsvpView.events.browser.test.tsx`, `GuestsMarks.browser.test.tsx`) hold
+ * the events strip, and a second read here meets the organiser rate limit on
+ * a back-to-back repro run.
  * Leaves the page on Invite → Template, in the system theme.
  */
 import { mkdirSync } from "node:fs";
@@ -127,16 +131,6 @@ export async function navSurfaces(flow: Flow, page: Page, host: string): Promise
   });
   flow.check("nav: the Edit modes strip is 28px", 28, await height(modes));
   flow.check("nav: the Edit modes are two radios", 2, await modes.getByRole("radio").count());
-
-  const events = page.getByRole("tablist", { name: "Events" });
-  await flow.step("nav: open RSVPs, its events a glass strip", async () => {
-    await views.getByRole("tab", { name: "RSVPs" }).click();
-    await expect(events).toBeVisible({ timeout: 30_000 });
-  });
-  flow.check("nav: the RSVP events strip is 28px", 28, await height(events));
-  await flow.step("nav: shoot the RSVP bar's two strips", () =>
-    shoot(page, "rsvp-strips", DESKTOP),
-  );
 
   // ── The invite builder's two tiers ─────────────────────────────────────
   const sections = page.getByRole("tablist", { name: "Invite sections" });

@@ -493,6 +493,10 @@ export default function ModuleShell(props: ModuleShellProps) {
     };
   }
 
+  // The owner's re-mints on Codes, counted, so the message beside the panel
+  // reads the new codes: the builder stays mounted across a re-mint.
+  const [codesRevision, setCodesRevision] = createSignal(0);
+
   // A view that draws its own way between views in the tabs' place (the
   // invite builder on a phone) hides them while it is mounted.
   const [replacements, setReplacements] = createSignal(0);
@@ -928,7 +932,10 @@ export default function ModuleShell(props: ModuleShellProps) {
                     <div class="flex flex-col gap-6">
                       {/* Re-minting every code is the owner's alone. */}
                       <Show when={active() === "codes" && props.canManage}>
-                        <RemintPanel weddingId={props.weddingId} />
+                        <RemintPanel
+                          weddingId={props.weddingId}
+                          onReminted={() => setCodesRevision((n) => n + 1)}
+                        />
                       </Show>
                       {/* One builder for the four views, so moving between them
                           keeps the draft; it shows the view's own cards. */}
@@ -942,6 +949,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                           view={active() as InviteView}
                           onView={(view) => props.onSub(view)}
                           inviteMessageLinks={inviteMessageLinks("codes")}
+                          codesRevision={codesRevision()}
                         />
                       </Suspense>
                     </div>
