@@ -167,6 +167,7 @@ describe("SignInPanel", () => {
     "/\\evil.example",
     "/login",
     "/login/",
+    "/login//",
     "/login?returnTo=/x",
     "javascript:alert(1)",
     "evil",
@@ -207,6 +208,23 @@ describe("SignInPanel", () => {
     expect(auth.startSignIn).toHaveBeenCalledTimes(2);
   });
 
+  it("gives a press after a restore its own ten seconds and its own words", () => {
+    vi.useFakeTimers();
+    const button = renderPanel();
+    fireEvent.click(button);
+    fireEvent.click(button); // ignored: its re-announcement is due in 100ms
+    pageshow(true);
+    vi.advanceTimersByTime(100);
+    expect(screen.getByRole("status").textContent).toBe("");
+    vi.advanceTimersByTime(4_900);
+    fireEvent.click(button);
+    // The first press's timer would have ended at 10s; the second runs to 15s.
+    vi.advanceTimersByTime(SIGN_IN_PENDING_RESET_MS - 5_000);
+    expect(button.textContent).toBe("Connecting to musubi…");
+    vi.advanceTimersByTime(5_000);
+    expect(button.textContent).toBe("Continue with musubi");
+  });
+
   it("comes back usable when the navigation never completes", () => {
     vi.useFakeTimers();
     const button = renderPanel();
@@ -226,5 +244,30 @@ describe("signInCardClass", () => {
     expect(signInCardClass).toBe(
       `${cardClass({ padding: "xl", fill: "opaque" })} base:shadow-(--inner-lip)`,
     );
+  });
+});
+
+describe("SignInPanel with the real sign-in calls", () => {
+  it("reads and wipes the marker, asks for the session and leaves for the start leg", async () => {
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        fetched.push(String(input));
+        return Promise.resolve(Response.json({ signedIn: false }));
+      }),
+    );
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    at(`?auth_error=sign_in_declined&returnTo=${encodeURIComponent("/w/1")}`);
+    render(() => <SignInPanel apiBase={API} />);
+    expect(screen.getByRole("alert").textContent).toMatch(/cancelled/i);
+    expect(new URLSearchParams(window.location.search).has("auth_error")).toBe(false);
+    await vi.waitFor(() => expect(fetched).toContain(`${API}/api/auth/session`));
+    fireEvent.click(screen.getByRole("button"));
+    const start = new URL(assign.mock.calls[0]![0] as string);
+    expect(start.origin + start.pathname).toBe(`${API}/api/auth/oidc/start`);
+    expect(start.searchParams.get("return_to")).toBe(`${window.location.origin}/w/1`);
+    assign.mockRestore();
+    vi.unstubAllGlobals();
   });
 });
