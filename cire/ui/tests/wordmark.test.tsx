@@ -51,6 +51,14 @@ describe("Wordmark", () => {
     expect(screen.getByRole("button", { name: "Cire — all weddings" })).toBeTruthy();
   });
 
+  it("refuses a label that does not open with the word on screen", () => {
+    // WCAG 2.5.3: someone who says "click Cire" must reach it. The type check
+    // (`bun run typecheck`) fails if this line compiles.
+    // @ts-expect-error -- "Home" does not open with "Cire — ".
+    render(() => <Wordmark label="Home" onClick={() => {}} />);
+    expect(screen.getByRole("button", { name: "Home" })).toBeTruthy();
+  });
+
   it("calls onClick once per click", () => {
     const onClick = vi.fn();
     fireEvent.click(renderButton(onClick));

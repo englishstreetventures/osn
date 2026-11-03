@@ -5,7 +5,10 @@
  * step that the portals' menus and module rail also draw — named by `label`
  * alone ("Cire — all weddings", "Cire — your listings"), because a mark that
  * navigates and does not say so is a trap for anyone not looking at it. The
- * star and the word are `aria-hidden`, so neither leaks into that name.
+ * label must open with "Cire — ", the word on screen, so someone who speaks
+ * what they see ("click Cire") reaches it (WCAG 2.5.3, Label in Name); the
+ * type refuses any other. The star and the word are `aria-hidden`, so neither
+ * leaks into that name.
  *
  * ## The star
  *
@@ -29,11 +32,12 @@
  * ## The copy in the boot bar
  *
  * `WordmarkPlaceholder` is the same box and glyphs with nothing to press: no
- * role, no tab stop, no hover, `aria-hidden`. Each portal's `index.astro`
- * paints it in the static bar that stands in for the top bar until the island
- * mounts, and renders it to HTML with no client directive. Both share `BOX`
- * and `Glyphs`, so the island's swap moves nothing. It is a second export
- * rather than a prop, so the still copy can never turn into a control.
+ * role, no tab stop, no hover, `aria-hidden`. It is for the static bar a
+ * portal's `index.astro` paints until the island mounts, rendered to HTML with
+ * no client directive: it holds no state and no handler, so it needs none.
+ * Both share `BOX` and `Glyphs`, so the island's swap moves nothing. It is a
+ * second export rather than a prop, so the still copy can never turn into a
+ * control.
  *
  * No `class`, `size` or `variant`: both bars draw the same mark in the same
  * place.
@@ -67,7 +71,10 @@ function Glyphs() {
   );
 }
 
-export default function Wordmark(props: { label: string; onClick: () => void }) {
+/** The button's accessible name: the visible word first, then where it goes. */
+export type WordmarkLabel = `Cire — ${string}`;
+
+export default function Wordmark(props: { label: WordmarkLabel; onClick: () => void }) {
   return (
     <button
       type="button"

@@ -1133,8 +1133,9 @@ a readable-gold ✦ and "Cire" in the display face at the `md` step, wide
 tracking and light weight, in a 6px box (`rounded-ui-sm`, `px-1.5 py-1.5`)
 that takes the surface at 60% under the pointer — the nav-row highlight the
 portal menus and the module rail draw. It is a button named by `label` alone
-("Cire — all weddings", "Cire — your listings"); the star and the word are
-`aria-hidden`. The star stays readable gold under the pointer, so the hover
+("Cire — all weddings", "Cire — your listings"), which its type holds to open
+with "Cire — ", the word on screen, so a voice user who says "click Cire"
+reaches it (WCAG 2.5.3); the star and the word are `aria-hidden`. The star stays readable gold under the pointer, so the hover
 changes only the wash, and that fade names its one property on `--dur-fast`
 and `--ease-out`. The focus ring is `Button`'s own, 2px at a 2px offset from
 `--ui-focus`, because a library part cannot count on its app's blanket
@@ -1144,9 +1145,8 @@ along the bar's `gap-2` row, and left only it clears them by 4px (the owner's
 answer to Stack 6's question 40). It takes no `class`, `size` or `variant`.
 
 `WordmarkPlaceholder` is the same box and glyphs with no role, no tab stop, no
-hover and `aria-hidden`: each portal's `index.astro` paints it in the static
-bar that stands until the island mounts, rendered to HTML with no client
-directive. The two share one box string and one glyphs component, so the swap
+hover and `aria-hidden`, for the static bar a portal's `index.astro` paints
+until the island mounts, rendered to HTML with no client directive. The two share one box string and one glyphs component, so the swap
 moves nothing. `cire/ui/tests/wordmark.test.tsx` holds the name, the click, the
 form, the placeholder's inertness, the readable star, the left-only pull and
 the ring's classes; `wordmark.browser.test.tsx` the star and the word at

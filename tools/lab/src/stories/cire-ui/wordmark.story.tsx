@@ -240,10 +240,10 @@ export const Placeholder: Story<ThemeArgs> = {
       title="cire/ui Wordmark — the boot bar's copy"
       intro={
         <>
-          <Mono>WordmarkPlaceholder</Mono> is what each portal's <Mono>index.astro</Mono> paints in
-          the static bar before the island mounts: the same box and glyphs, with no role, no tab
-          stop and no hover. Here it is laid over the real mark in red. Where the two agree the red
-          covers the mark; any offset shows as a double.
+          <Mono>WordmarkPlaceholder</Mono> is for the static bar a portal's <Mono>index.astro</Mono>{" "}
+          paints before the island mounts: the same box and glyphs, with no role, no tab stop and no
+          hover. Here it is laid over the real mark in red. Where the two agree the red covers the
+          mark; any offset shows as a double.
         </>
       }
     >
