@@ -777,9 +777,9 @@ interface CurrencyTotal {
  * and reports the rest as a count. `retention.ts` groups the same way for the
  * same reason.
  *
- * The key is upper-cased: authored currencies are upper case and the ones the
- * settle path writes come from Stripe in lower case, so the raw column values
- * would split one currency across two groups.
+ * The key is upper-cased: the column has no case constraint and is compared
+ * case-sensitively, so the raw values would split one currency across two
+ * groups.
  */
 function contributionsByCurrency(
   weddingId: string,

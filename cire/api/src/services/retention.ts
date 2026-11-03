@@ -629,6 +629,7 @@ export interface GiftSummaryGift {
   on: string;
   /** As given, in minor units of `currency`. */
   amountMinor: number;
+  /** Upper-case ISO code, as given. */
   currency: string;
 }
 
@@ -734,10 +735,13 @@ export type GiftSummaryNotifier = (
  */
 function mergeGiftSummaries(stored: GiftSummary, fresh: GiftSummary): GiftSummary {
   // Per currency: amounts add; counts add only while both sides know theirs.
+  // Keyed upper-case, as the read groups: a stored summary keeps whatever case
+  // its rows had.
   const totals = new Map<string, { amountMinor: number; count: number | undefined }>();
   for (const total of [...stored.contributions.totals, ...fresh.contributions.totals]) {
-    const seen = totals.get(total.currency);
-    totals.set(total.currency, {
+    const currency = total.currency.toUpperCase();
+    const seen = totals.get(currency);
+    totals.set(currency, {
       amountMinor: (seen?.amountMinor ?? 0) + total.amountMinor,
       count:
         seen === undefined
@@ -769,7 +773,12 @@ function mergeGiftSummaries(stored: GiftSummary, fresh: GiftSummary): GiftSummar
       // record's `firstGiftOn` says it does.
       gifts: [...stored.contributions.gifts, ...fresh.contributions.gifts]
         .toSorted((a, b) => (a.on < b.on ? -1 : a.on > b.on ? 1 : 0))
-        .slice(0, GIFT_SUMMARY_MAX_LISTED),
+        .slice(0, GIFT_SUMMARY_MAX_LISTED)
+        .map((gift) => ({
+          on: gift.on,
+          amountMinor: gift.amountMinor,
+          currency: gift.currency.toUpperCase(),
+        })),
     },
   };
 }
@@ -801,6 +810,11 @@ function countGiftSummaries(
   return Effect.gen(function* () {
     const db = yield* DbService;
     const ids = [...weddingIds];
+    // Every currency read below is upper-cased, as `contributionsByCurrency` in
+    // registry.ts keys its groups: the column has no case constraint and is
+    // compared case-sensitively, so the raw values would split one currency
+    // across two summary lines.
+    const giftCurrency = sql<string>`upper(${registryContributions.currency})`;
 
     // Grouped in SQLite, not folded in JS. The row counts here scale with how
     // many gifts a cohort of weddings received, not with how many weddings are
@@ -812,10 +826,6 @@ function countGiftSummaries(
     // reads each wedding's settings row: whether it has one, and the summary an
     // earlier sweep stored there, which only a wedding that came back into the
     // cohort has.
-    // Upper-cased: authored currencies are upper case and the ones the settle path
-    // writes come from Stripe in lower case, so the raw column would split one
-    // currency across two summary lines.
-    const giftCurrency = sql<string>`upper(${registryContributions.currency})`;
     const [claimRows, giftRows, storedRows] = yield* Effect.all(
       [
         dbQuery(() =>
@@ -957,7 +967,7 @@ function countGiftSummaries(
         weddingId: registryContributions.weddingId,
         // Clamped as the totals are, so the list and the totals agree.
         amountMinor: sql<number>`max(${registryContributions.amountMinor}, 0)`.as("listed_minor"),
-        currency: registryContributions.currency,
+        currency: giftCurrency.as("listed_currency"),
         // Epoch SECONDS: an expression, so drizzle's timestamp mapping does not
         // run on it.
         createdAt: sql<number>`${registryContributions.createdAt}`.as("listed_at"),

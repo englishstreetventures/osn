@@ -1203,6 +1203,8 @@ describe("the parting gift summary", () => {
     expect(summary.contributions.totals).toEqual([
       { currency: "AUD", amountMinor: 5_000, count: 2 },
     ]);
+    // The listed gifts carry the same code as the total they add to.
+    expect(summary.contributions.gifts.map((gift) => gift.currency)).toEqual(["AUD", "AUD"]);
   });
 
   it("dates a wedding with only claims, or only money gifts, by the gifts it had", async () => {
@@ -2187,6 +2189,33 @@ describe("each money gift, listed in the kept summary", () => {
       { on: "2026-06-18", amountMinor: 100, currency: "AUD" },
       { on: "2026-06-18", amountMinor: 300, currency: "JPY" },
     ]);
+  });
+
+  it("merges a stored aud total with a new AUD gift into one summary line", async () => {
+    // A stored summary is text, so it keeps whatever case its rows had; the
+    // merge must still read aud and AUD as one currency.
+    const db = freshDb();
+    const wedding = await weddingWithGifts(db, "2025-06-01", 0);
+    keep(db, wedding.weddingId, {
+      sweptOn: "2026-06-01",
+      firstGiftOn: "2025-05-11",
+      lastGiftOn: "2025-05-11",
+      claims: { reserved: 0, purchased: 0 },
+      contributions: {
+        count: 1,
+        totals: [{ currency: "aud", amountMinor: 2_000, count: 1 }],
+        gifts: [{ on: "2025-05-11", amountMinor: 2_000, currency: "aud" }],
+      },
+    });
+    await runOn(db, addGift(wedding.weddingId, wedding.familyId, { amountMinor: 3_000 }));
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    const summary = kept(db, wedding.weddingId);
+    expect(summary?.contributions.totals).toEqual([
+      { currency: "AUD", amountMinor: 5_000, count: 2 },
+    ]);
+    expect(summary?.contributions.gifts.map((gift) => gift.currency)).toEqual(["AUD", "AUD"]);
   });
 
   it("keeps the oldest gifts when a returning wedding's list passes the cap", async () => {
