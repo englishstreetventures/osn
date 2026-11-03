@@ -81,6 +81,29 @@ describe("PersonAvatar", () => {
     expect(size("A").fontWeight).toBe("600");
   });
 
+  it("is round, with its letter centred in the display face, fading on --dur-fast", () => {
+    render(() => (
+      <Ramp ramp="dark">
+        <PersonAvatar fallback="initial" name="Ada" class="size-9" />
+      </Ramp>
+    ));
+    const letter = screen.getByText("A");
+    const avatar = letter.closest("[aria-hidden='true']")!;
+    const box = avatar.getBoundingClientRect();
+    expect(parseFloat(getComputedStyle(avatar).borderTopLeftRadius)).toBeGreaterThanOrEqual(
+      box.width / 2,
+    );
+    // The text's own box, not its span's, which fills the circle.
+    const range = document.createRange();
+    range.selectNodeContents(letter);
+    const glyph = range.getBoundingClientRect();
+    // Within 1.5px: a face's line box sits a little off its glyph's middle.
+    expect(Math.abs(glyph.left + glyph.width / 2 - (box.left + box.width / 2))).toBeLessThan(1.5);
+    expect(Math.abs(glyph.top + glyph.height / 2 - (box.top + box.height / 2))).toBeLessThan(1.5);
+    expect(getComputedStyle(letter).fontFamily).toBe(token(letter, "--font-ui-display"));
+    expect(getComputedStyle(avatar).transitionDuration).toBe("0.09s");
+  });
+
   it("rings a face in the page's colour outside the circle, keeping the photo whole", () => {
     const { container } = render(() => (
       <Ramp ramp="dark">

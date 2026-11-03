@@ -134,6 +134,24 @@ describe("PersonAvatar", () => {
     expect(container.textContent).toBe(letter);
   });
 
+  it("takes the first code point where the browser cannot segment graphemes", () => {
+    // Firefox before 125 has no `Intl.Segmenter`.
+    const segmenter = Intl.Segmenter;
+    Reflect.deleteProperty(Intl, "Segmenter");
+    try {
+      const { container } = render(() => (
+        <PersonAvatar fallback="initial" name="𝒜da" class="size-9" />
+      ));
+      expect(container.textContent).toBe("𝒜");
+    } finally {
+      Object.defineProperty(Intl, "Segmenter", {
+        value: segmenter,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
+
   it("draws the page-colour band only when asked", () => {
     const rings = (el: HTMLElement) => classesOf(el).filter((c) => /(^|:)ring-/.test(c));
     const plain = render(() => <PersonAvatar fallback="blank" class="size-8" />);
