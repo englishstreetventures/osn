@@ -128,9 +128,10 @@ the host portal draws on (host §7).
   of a link inside a tinted `Notice`), `Card`, `cardClass`,
   `cardBoxClass`, `Eyebrow`, `eyebrowClass`, `Wordmark` and
   `WordmarkPlaceholder` (the top bar's way home and the boot bar's copy),
-  `SignInCard` and `SignInPanel` (the login page), and `PersonAvatar` with
+  `SignInCard` and `SignInPanel` (the login page), `PersonAvatar` with
   `avatarTriggerClass` (the account trigger, and its placeholder while the
-  menu's code loads) from `@cire/ui`; `Notice`,
+  menu's code loads), and `MessageThread` (an enquiry's messages and reply box,
+  host §7, An enquiry thread) from `@cire/ui`; `Notice`,
   `EmptyState`, `Field`, `Fieldset`, `Input`, `Textarea` and `Select` from
   `@shared/ui`.
 
