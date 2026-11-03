@@ -1030,6 +1030,35 @@
   }
 }
 
+/* ── The invite builder's section strip on the views' row ──────────────────
+ * Under Content the builder lends the view bar its sections, on the views' own
+ * row when the panel has room. Kept mounted there and `hidden` off Content, so
+ * it fades and slides 6px towards the views as it leaves, and back out as it
+ * arrives. `display` is discrete: `allow-discrete` holds it drawn until the
+ * fade has run, and `@starting-style` gives the arrival a from-state, in CSS
+ * alone. An engine older than Chrome 117, Safari 17.4 or Firefox 129 drops the
+ * `transition` declaration and the strip comes and goes at once. The colours
+ * and the focus ring inside are the strip's own; nothing here fades them. On
+ * a row of its own the strip mounts and unmounts instead, and the bar's height
+ * animation carries it.
+ */
+@utility section-track {
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    translate var(--dur-base) var(--ease-out),
+    display var(--dur-base) allow-discrete;
+
+  &[hidden] {
+    opacity: 0;
+    translate: -6px 0;
+  }
+
+  @starting-style {
+    opacity: 0;
+    translate: -6px 0;
+  }
+}
+
 /* ── The run sheet's thread ─────────────────────────────────────────────────
  * A day of the run sheet hangs on one vertical hairline of `--gold-dim`
  * (metal, not ink: a rule, held to no contrast floor) running down the gap

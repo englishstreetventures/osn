@@ -53,7 +53,6 @@ import { toast } from "@shared/toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -76,7 +75,7 @@ import {
 import { createStore } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
-import type { InviteView } from "../../lib/dashboard-route";
+import { INVITE_VIEWS, type InviteView } from "../../lib/dashboard-route";
 import { haptic } from "../../lib/haptics";
 import type { ImageCrop } from "../../lib/image-crop";
 import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
@@ -836,6 +835,22 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     if (props.view !== "content") props.onView?.("content");
   };
 
+  /** Content's sections as a glass strip. Manual activation, as every strip:
+   *  the arrows move focus and Enter or Space chooses. */
+  const sectionStrip = () => (
+    <SegmentedTabs
+      items={sectionItems()}
+      value={activeSection()}
+      onChange={setActiveSection}
+      label="Invite sections"
+      semantics="tabs"
+      tabId={(id) => `${id}-tab`}
+      panelId={(id) => id}
+      scroll
+      class="max-w-full min-w-0"
+    />
+  );
+
   /** The phone's pill and chevron as one button, its own look, which the
    *  menu's trigger renders as (`as`). Round, so the focus ring is too. */
   function PlaceButton(buttonProps: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -878,7 +893,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
             <span class="truncate">{place().label}</span>
           </span>
           <span
-            class={`${SEGMENTED_GLASS_FILL} text-text-muted group-hover:text-gold-ink flex size-7 shrink-0 items-center justify-center rounded-full transition-colors duration-(--dur-fast) ease-(--ease-out) forced-colors:border`}
+            class={`${SEGMENTED_GLASS_FILL} text-text-muted group-hover:text-gold-ink transition-ui-colors flex size-7 shrink-0 items-center justify-center rounded-full duration-(--dur-fast) ease-(--ease-out) forced-colors:border`}
           >
             <ChevronDown aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
           </span>
@@ -887,49 +902,42 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           variant="accent"
           class="max-h-[min(28rem,70vh)] min-w-56 overflow-y-auto"
         >
+          {/* The two tiers the strips draw, each one choice: the four views,
+              then Content's sections. On Content both carry a check. */}
           <DropdownMenuRadioGroup
             value={props.view}
             onChange={(view) => props.onView?.(view as InviteView)}
           >
-            <DropdownMenuRadioItem value="template" closeOnSelect>
-              {VIEW_LABEL.template}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="style" closeOnSelect>
-              {VIEW_LABEL.style}
-            </DropdownMenuRadioItem>
+            <DropdownMenuLabel class="sr-only">Views</DropdownMenuLabel>
+            <For each={INVITE_VIEWS}>
+              {(view) => (
+                <DropdownMenuRadioItem value={view} closeOnSelect>
+                  {VIEW_LABEL[view]}
+                </DropdownMenuRadioItem>
+              )}
+            </For>
           </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuGroup>
-            <DropdownMenuLabel tone="eyebrow">{VIEW_LABEL.content}</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={props.view === "content" ? activeSection() : ""}
-              onChange={(id) => showSection(id as ContentSectionId)}
-            >
-              <For each={CONTENT_SECTIONS}>
-                {(section) => (
-                  <DropdownMenuRadioItem value={section.id} closeOnSelect>
-                    <span class="flex items-center gap-2">
-                      <Show when={hiddenNote(section.id)}>
-                        <HiddenSectionIcon />
-                      </Show>
-                      {section.label}
-                      <Show when={hiddenNote(section.id)}>
-                        {(note) => <span class="sr-only">{note()}</span>}
-                      </Show>
-                    </span>
-                  </DropdownMenuRadioItem>
-                )}
-              </For>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuGroup>
-          <DropdownMenuSeparator />
           <DropdownMenuRadioGroup
-            value={props.view}
-            onChange={(view) => props.onView?.(view as InviteView)}
+            value={props.view === "content" ? activeSection() : ""}
+            onChange={(id) => showSection(id as ContentSectionId)}
           >
-            <DropdownMenuRadioItem value="codes" closeOnSelect>
-              {VIEW_LABEL.codes}
-            </DropdownMenuRadioItem>
+            <DropdownMenuLabel tone="eyebrow">Sections</DropdownMenuLabel>
+            <For each={CONTENT_SECTIONS}>
+              {(section) => (
+                <DropdownMenuRadioItem value={section.id} closeOnSelect>
+                  <span class="flex items-center gap-2">
+                    <Show when={hiddenNote(section.id)}>
+                      <HiddenSectionIcon />
+                    </Show>
+                    {section.label}
+                    <Show when={hiddenNote(section.id)}>
+                      {(note) => <span class="sr-only">{note()}</span>}
+                    </Show>
+                  </span>
+                </DropdownMenuRadioItem>
+              )}
+            </For>
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -979,30 +987,32 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               <Show
                 when={phone()}
                 fallback={
-                  <Show when={props.view === "content"}>
-                    <ViewBar slot={stacked() ? "row2" : "end"}>
-                      <Show when={!stacked()}>
-                        <span
-                          data-bar-divider
-                          aria-hidden="true"
-                          class="bg-border h-5 w-px shrink-0"
-                        />
-                      </Show>
-                      {/* Manual activation, as every strip: the arrows move
-                          focus and Enter or Space chooses. */}
-                      <SegmentedTabs
-                        items={sectionItems()}
-                        value={activeSection()}
-                        onChange={setActiveSection}
-                        label="Invite sections"
-                        semantics="tabs"
-                        tabId={(id) => `${id}-tab`}
-                        panelId={(id) => id}
-                        scroll
-                        class="mr-auto max-w-full min-w-0"
-                      />
-                    </ViewBar>
-                  </Show>
+                  <>
+                    {/* On a row of their own, drawn only under Content: the
+                        bar's height animation brings the row in and out. */}
+                    <Show when={stacked() && props.view === "content"}>
+                      <ViewBar slot="row2">{sectionStrip()}</ViewBar>
+                    </Show>
+                    {/* On the views' row, kept mounted and `hidden` off
+                        Content, so the strip fades and slides out as well as
+                        in (`section-track`, `global.css`). */}
+                    <Show when={!stacked()}>
+                      <ViewBar slot="end">
+                        <div
+                          data-section-track
+                          hidden={props.view !== "content"}
+                          class="section-track mr-auto flex max-w-full min-w-0 items-center gap-2"
+                        >
+                          <span
+                            data-bar-divider
+                            aria-hidden="true"
+                            class="bg-border h-5 w-px shrink-0"
+                          />
+                          {sectionStrip()}
+                        </div>
+                      </ViewBar>
+                    </Show>
+                  </>
                 }
               >
                 <ViewBar slot="end">
@@ -1142,7 +1152,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Hero ───────────────────────────────────────────── */}
                   <SectionCard
                     id="invite-hero"
-                    tabPanel
+                    tabPanel={!phone()}
                     legend="Hero"
                     visibility={{
                       state: heroSectionState(),
@@ -1257,7 +1267,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Our Story ──────────────────────────────────────── */}
                   <SectionCard
                     id="invite-story"
-                    tabPanel
+                    tabPanel={!phone()}
                     legend="Our Story"
                     visibility={{
                       state: storySectionState(),
@@ -1321,7 +1331,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Code Entry & Welcome ───────────────────────────── */}
                   <SectionCard
                     id="invite-welcome"
-                    tabPanel
+                    tabPanel={!phone()}
                     legend="Code Entry & Welcome"
                     onReset={resetWelcome}
                     hidden={props.view !== "content" || activeSection() !== "invite-welcome"}
@@ -1356,7 +1366,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Events section ─────────────────────────────────── */}
                   <SectionCard
                     id="invite-events"
-                    tabPanel
+                    tabPanel={!phone()}
                     legend="Events Section"
                     onReset={resetEvents}
                     hidden={props.view !== "content" || activeSection() !== "invite-events"}
@@ -1398,7 +1408,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── FAQ ────────────────────────────────────────────── */}
                   <SectionCard
                     id="invite-faq"
-                    tabPanel
+                    tabPanel={!phone()}
                     legend="FAQ"
                     visibility={{
                       state: faqSectionState(),
@@ -1435,7 +1445,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Closing section ────────────────────────────────── */}
                   <SectionCard
                     id="invite-closing"
-                    tabPanel
+                    tabPanel={!phone()}
                     legend="Closing Section"
                     visibility={{
                       state: footerSectionState(),

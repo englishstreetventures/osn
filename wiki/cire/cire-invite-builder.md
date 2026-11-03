@@ -1415,7 +1415,11 @@ strip of the six sections — `SegmentedTabs`, `semantics="tabs"`, label
 "Invite sections", each tab `${id}-tab` controlling its section's card. Like
 every strip it is manual activation: the arrows, Home and End move focus and
 Enter, Space or a click chooses. It shares the views' row from a 58rem panel
-and takes the bar's second row below that (`SAME_ROW_REM`). The Preview button
+and takes the bar's second row below that (`SAME_ROW_REM`). On the views' row
+it stays mounted and `hidden` off Content, and fades and slides 6px as it comes
+and goes (`section-track` in `global.css`: `@starting-style` and `display`
+`allow-discrete`, on `--dur-base` and `--ease-out`); on the second row it mounts
+under Content alone and the bar's height animation carries it. The Preview button
 joins the bar's row, at 28px, while the composed pane cannot show
 (`previewLayer() !== "wide"`, read in JS because the bar is outside
 `@container/builder`). The builder's own sticky section bar is gone: the view
@@ -1430,8 +1434,10 @@ bar is already stuck under the top bar.
 way to one button in the bar: a glass pill naming the place (a view, or under
 Content the section) in the chosen choice's glass (`SEGMENTED_GLASS_FILL`) and
 readable gold, beside a round glass chevron. It opens the shared accent menu
-(`DropdownMenu`): Template and Style, Content's sections under an eyebrow,
-then Codes, each a radio row; choosing a section moves to Content on it. The
+(`DropdownMenu`) with the strips' two tiers as two radio groups: the four
+views (named "Views" for a screen reader), then Content's six sections under
+the "Sections" eyebrow. On Content both carry a check; choosing a section moves
+to Content on it, and Content comes back to the section left on. The
 module's strip hides — `hidden`, kept in the document, so the panel's
 `aria-labelledby` still resolves — only while the pill is mounted
 (`ViewBar.replaceTabs`); the pill mounts with the loaded invite, so a builder
@@ -1442,8 +1448,9 @@ pill and its menu row lead with `HiddenSectionIcon` (lucide's `eye-off`,
 `aria-hidden`, in the label's ink), and its name carries the badge's words
 ("Hero (hidden — empty)", "(hidden — switched off)"). The label keeps the idle
 ink, so it reads at 4.5:1 (`@cire/ui` `segmented-tabs.browser.test.tsx`).
-Only Content's six cards are tab panels (`SectionCard`'s `tabPanel`); the other
-views' cards are fieldsets in the module's own panel, named by their legend.
+Only Content's six cards are tab panels (`SectionCard`'s `tabPanel`), and only
+while the section strip is drawn: on a phone, with no strip, they are fieldsets
+named by their legend, as the other views' cards always are.
 
 **Sections stay MOUNTED — only visually hidden.** `SectionCard` (`fields.tsx`)
 takes a `hidden` prop and applies it as the native HTML `hidden` attribute on

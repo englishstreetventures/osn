@@ -1166,11 +1166,14 @@ them keeps the draft and its unsaved-changes guard lets the move through
 (`registerUnsavedGuard`'s `keeps`). Content's six sections — Hero, Our story,
 Welcome, Events, FAQ, Closing — are a second strip in the bar: on the views'
 row from a 58rem panel (measured: four labelled views, six sections and the
-Preview button), on a row of their own below it. Below a 30rem panel both
+Preview button), where they fade and slide 6px in and out on `--dur-base` and
+`--ease-out` (`section-track`); on a row of their own below it, which the bar's
+height animation brings in. Below a 30rem panel both
 strips give way to one glass pill naming the place, in the chosen choice's
 glass and readable gold, with the eye-off on a hidden section, beside a round
-glass chevron: one button, which opens the accent menu of every place —
-Template, Style, Content's sections under their eyebrow, Codes. The module's
+glass chevron: one button, which opens the accent menu of every place, in the
+strips' two tiers — the four views, then Content's sections under their
+eyebrow, each tier one radio group. The module's
 strip hides, kept in the page, only once the pill has mounted
 (`ViewBar.replaceTabs`), so a builder still loading can always be left. Below
 the composed pane's width the Preview button joins the bar at the pill height.
