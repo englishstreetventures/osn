@@ -159,14 +159,11 @@ const { title, siteName, back } = Astro.props
         margin-bottom: 0.35rem;
       }
 
-      /* A detail still to be filled in: the mono face in readable gold on a
-         soft gold wash, at the hair corner, which a 16px mark this small takes
-         rather than a pill. */
+      /* A detail still to be filled in: the mono face and the readable gold
+         mark it, with no wash behind it. Each site holds that gold to 4.5:1
+         against its page alone; a gold wash under gold text takes it below. */
       .legal .placeholder {
         color: var(--ui-accent-ink);
-        background: var(--ui-accent-soft);
-        border-radius: var(--ui-radius-hair);
-        padding: 0.05rem 0.3rem;
         font-family: var(--ui-font-mono);
         font-size: 0.85em;
       }

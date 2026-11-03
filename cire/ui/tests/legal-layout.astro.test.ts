@@ -94,6 +94,12 @@ describe("LegalLayout's styles", () => {
     expect(style).toMatch(/\.legal \.draft-banner strong \{[^}]*color: var\(--ui-accent-ink\);/);
   });
 
+  it("marks a placeholder in readable gold with nothing behind it", () => {
+    const rule = style.match(/\.legal \.placeholder \{[^}]*\}/)?.[0] ?? "";
+    expect(rule).toContain("color: var(--ui-accent-ink);");
+    expect(rule).not.toMatch(/background/);
+  });
+
   it("colours no text in the metal gold", () => {
     expect(style).not.toMatch(/(^|[^-])color:\s*var\(--ui-accent(-soft)?[,)]/m);
   });
