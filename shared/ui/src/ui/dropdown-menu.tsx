@@ -167,9 +167,8 @@ interface ItemOptions {
  *
  * It follows only an address a menu may lead to: a web page, a path or
  * fragment on this site, `mailto:` or `tel:`. Any other — `javascript:`,
- * `data:` — leaves the row with no `href`, as a disabled row has, whatever its
- * caller checked: a row's address is often built from stored data, and the
- * portals' script policy lets a `javascript:` navigation run.
+ * `data:` — leaves the row with no `href`, as a disabled row has: a menu link
+ * never carries a script or data URL, whatever its caller passed.
  *
  * A link that opens another tab or window — any `target` but `_self`,
  * `_parent` and `_top` — gets `noopener noreferrer` added to whatever `rel`

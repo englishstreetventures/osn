@@ -16,12 +16,12 @@
  *   made for cire. A focused row is marked by its sunk fill; a contrast theme
  *   drops the fill, so the row's outline is hidden only while it has focus,
  *   and the theme paints it. Hidden at rest as well, it would ring every row.
- * - `accent` — cire's portal look (englishstreetventures/osn#1844): the raised
- *   panel at the 10px corner with the floating shadow, 6px rows in full ink,
- *   the highlighted row a 10% accent wash with readable accent ink. It opens
- *   with a short pop from the trigger's side and closes at once: a menu held
- *   mounted for an exit animation keeps focus inside it, and Kobalte's
- *   hand-back to the trigger then falls to `<body>`.
+ * - `accent` — cire's portal look: the raised panel at the 10px corner with
+ *   the floating shadow, 6px rows in full ink, the highlighted row a 10%
+ *   accent wash with readable accent ink. It opens with a short pop from the
+ *   trigger's side and closes at once: a menu held mounted for an exit
+ *   animation keeps focus inside it, and Kobalte's hand-back to the trigger
+ *   then falls to `<body>`.
  *
  * The accent look reads an app's own `--elev-2`, `--dur-fast` and `--ease-out`
  * first and the contract's `--ui-*` after, as `choice.ts` and `control.ts` do,
@@ -84,7 +84,7 @@ const LABEL_TONE = {
 /**
  * A group label in small caps, the secondary ink: in a menu, accent ink marks
  * state (the highlighted row, the chosen check, a switch that is on), and a
- * label that cannot be chosen does not wear it (owner, Stack 5 Q30).
+ * label that cannot be chosen does not wear it.
  */
 const EYEBROW = {
   default:
