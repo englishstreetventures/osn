@@ -28,7 +28,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "../src/ui/dropdown-menu";
-import { MENU_TOUCH } from "../src/ui/menu-classes";
+import { MENU_TOUCH } from "../src/ui/menu-touch-classes";
 import { Modal } from "../src/ui/modal";
 
 import "./test-support/tailwind.css";

@@ -2,10 +2,10 @@
  * The menu's look, as class strings, with nothing from Kobalte.
  *
  * `dropdown-menu.tsx` builds every class it renders from here, so a menu's
- * panel, rows, labels and separator have one home. The file imports no
- * component library, so a surface that cannot afford Kobalte's menu — the
- * guest site, whose bundle guard has no room for it — can still draw its own
- * menu in the same rows ({@link MENU_TOUCH}).
+ * panel, rows, labels and separator have one home. The guest site's own link
+ * menu, which cannot afford Kobalte's, takes its rows from
+ * `menu-touch-classes.ts` instead, so a stylesheet that draws no Kobalte menu
+ * can leave this file unscanned.
  *
  * Two variants, chosen once on the panel:
  *
@@ -119,25 +119,3 @@ export function menuLabelClass(
 export function menuSeparatorClass(variant: MenuVariant = "default"): string {
   return SEPARATOR[variant];
 }
-
-/**
- * The guest site's menu of links (`cire/invites` `LinkMenu`), which draws its
- * own menu in the top layer rather than load Kobalte's.
- *
- * - `panel`: the raised surface at the 10px corner, `p-2` with a 4px gap
- *   between rows, in a column, under `shadow-lg`. `LinkMenu` places itself
- *   before it has measured from these numbers (`ITEM_GAP`, `MENU_CHROME`), so
- *   they hold.
- * - `row`: a 44px row, a guest's touch floor, in the secondary ink. Filled with
- *   the accent and its on-accent ink under the pointer, for the keyboard and
- *   while pressed — never for focus alone: a tap focuses the link it lands on,
- *   and a row filled for that reads as already chosen.
- */
-export const MENU_TOUCH = {
-  panel:
-    "base:border-ui-hairline base:bg-ui-surface-raised base:flex base:flex-col base:gap-1 base:rounded-ui-md base:border base:p-2 base:shadow-lg",
-  row:
-    "base:font-ui-body base:text-ui-ink-secondary base:text-ui-sm base:tracking-ui-normal base:flex base:min-h-11 base:items-center base:rounded-ui-sm base:px-3 " +
-    "base:hover:bg-ui-accent base:hover:text-ui-on-accent base:focus-visible:bg-ui-accent base:focus-visible:text-ui-on-accent base:active:bg-ui-accent base:active:text-ui-on-accent " +
-    "base:transition-[color,background-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] base:ease-[var(--ease-out,var(--ui-ease-out))] base:focus-visible:outline-none",
-} as const;

@@ -93,7 +93,8 @@ shared/ui/src/
     ├── info-popover.tsx    ← InfoPopover (circled glyph beside a form label)
     ├── input.tsx           ← Input
     ├── label.tsx           ← Label
-    ├── menu-classes.ts     ← the menu's panel, row, label and separator classes, and MENU_TOUCH — no Kobalte
+    ├── menu-classes.ts     ← the menu's panel, row, label and separator classes — no Kobalte
+    ├── menu-touch-classes.ts ← MENU_TOUCH, the guest site's 44px link-menu rows — no Kobalte
     ├── meter.tsx           ← Meter
     ├── modal.tsx           ← Modal — the platform <dialog>, top layer
     ├── notice.tsx          ← Notice
@@ -365,14 +366,19 @@ panel never counts as outside another open layer. In a dialog the panel is
 clipped by the dialog's own scroll box and by a `frame` modal, as a popover is
 (englishstreetventures/osn#1089).
 
-**`menu-classes.ts`** holds every class the menu renders, and imports nothing
-from Kobalte, so a surface that cannot afford Kobalte's menu can still draw
-one in the same rows. `MENU_TOUCH` is that case: the guest site's link menu,
-which paints in the top layer inside the guest sheet. Its panel is `min-w-56`,
-`p-2` with a 4px gap, on `shadow-lg`; its rows are 44px, a guest's touch
-floor, in the secondary ink, filled with the accent under the pointer, for
-the keyboard (`focus-visible`) and while pressed — never on focus alone, since
-a tap focuses the link it lands on and a filled row then reads as chosen.
+**`menu-classes.ts`** holds every class the menu renders. **`menu-touch-classes.ts`**
+holds `MENU_TOUCH`, the rows of a menu drawn without Kobalte: the guest site's
+link menu, which paints in the top layer inside the guest sheet and cannot
+afford Kobalte's menu. Its panel is `min-w-56`, `p-2` with a 4px gap, on
+`shadow-lg`; its rows are 44px, a guest's touch floor, in the secondary ink,
+filled with the accent under the pointer, for the keyboard (`focus-visible`)
+and while pressed — never on focus alone, since a tap focuses the link it
+lands on and a filled row then reads as chosen. Neither file imports
+anything, and they are two files so a stylesheet can leave out the menu it
+does not draw: `cire/invites` excludes `dropdown-menu.tsx` and
+`menu-classes.ts` with `@source not`, and `cire/landing` all three. A page
+there that starts drawing a menu needs its line gone, or the menu renders
+unstyled.
 
 `shared/ui/tests/dropdown-menu.browser.test.tsx` holds the rows' keys and
 pointer, the link rules, the modal mount, the accent look's focus ring,

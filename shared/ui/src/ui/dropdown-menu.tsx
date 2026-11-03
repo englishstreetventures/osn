@@ -99,20 +99,30 @@ const DropdownMenuContent: ParentComponent<
 > = (props) => {
   const [local, others] = splitProps(props, ["class", "variant", "children"]);
   const variant = () => local.variant ?? "default";
-  // Both read as the menu opens, not as it first renders: Kobalte builds the
-  // portal and the panel afresh on each open, and a modal may have opened since.
+  const menu = useMenuContext();
+  // The mount is found as the menu opens, not as it first renders, since a
+  // modal may have opened since: the `Show` builds its child afresh on each
+  // open, as Kobalte's own portal does inside it. Found once, so the portal and
+  // the panel's mark agree without a second look through the document.
   return (
-    <KobalteDropdownMenu.Portal mount={portalMount()}>
-      <KobalteDropdownMenu.Content
-        class={clsx(menuPanelClass(variant()), local.class)}
-        data-kb-top-layer={portalMount() ? "" : undefined}
-        {...others}
-      >
-        <MenuVariantContext.Provider value={variant()}>
-          {local.children}
-        </MenuVariantContext.Provider>
-      </KobalteDropdownMenu.Content>
-    </KobalteDropdownMenu.Portal>
+    <Show when={menu.contentPresent()}>
+      {(() => {
+        const modal = portalMount();
+        return (
+          <KobalteDropdownMenu.Portal mount={modal}>
+            <KobalteDropdownMenu.Content
+              class={clsx(menuPanelClass(variant()), local.class)}
+              data-kb-top-layer={modal ? "" : undefined}
+              {...others}
+            >
+              <MenuVariantContext.Provider value={variant()}>
+                {local.children}
+              </MenuVariantContext.Provider>
+            </KobalteDropdownMenu.Content>
+          </KobalteDropdownMenu.Portal>
+        );
+      })()}
+    </Show>
   );
 };
 

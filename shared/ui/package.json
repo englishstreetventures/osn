@@ -26,6 +26,7 @@
     "./ui/input": "./src/ui/input.tsx",
     "./ui/label": "./src/ui/label.tsx",
     "./ui/menu-classes": "./src/ui/menu-classes.ts",
+    "./ui/menu-touch-classes": "./src/ui/menu-touch-classes.ts",
     "./ui/meter": "./src/ui/meter.tsx",
     "./ui/modal": "./src/ui/modal.tsx",
     "./ui/notice": "./src/ui/notice.tsx",
