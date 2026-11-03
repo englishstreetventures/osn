@@ -11,6 +11,7 @@ import { appRequest, jsonBody } from "../test-helpers";
 import {
   TEST_ISSUER,
   TEST_PROFILE_ID,
+  TEST_RETURN_ORIGIN,
   TEST_RETURN_TO,
   makeOidcTestIssuer,
   stubTokenEndpoint,
@@ -236,6 +237,134 @@ describe("GET /api/auth/oidc/callback", () => {
       "sign_in_declined",
     );
     expect(setCookie(res, OIDC_TX_COOKIE_NAME)).toContain("Max-Age=0");
+  });
+
+  describe("a failure on a portal's sign-in lands on that portal's sign-in page", () => {
+    const HOST = "https://host.cire.test";
+    const VENDOR = "https://vendor.cire.test";
+    const portalApp = (config: OidcConfig | null) =>
+      mkApp(freshDb(), {
+        oidc: config,
+        organiserOrigin: HOST,
+        vendorPortalOrigin: VENDOR,
+        allowedOrigins: [TEST_RETURN_ORIGIN, HOST, VENDOR],
+      });
+    const portalConfig = () =>
+      issuer.config({ allowedReturnOrigins: [TEST_RETURN_ORIGIN, HOST, VENDOR] });
+
+    it.each([
+      ["host", HOST, "/#/w/w_1/guests"],
+      ["vendor", VENDOR, "/#/orgs/org_1/threads/th_2"],
+    ])(
+      "a declined %s sign-in returns to its /login with the page and the marker",
+      async (_, origin, path) => {
+        const config = portalConfig();
+        const { tx } = await startedTx(config, `${origin}${path}`);
+        const res = await appRequest(
+          portalApp(config),
+          "/api/auth/oidc/callback?error=access_denied",
+          {
+            headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+          },
+        );
+        expect(res.status).toBe(302);
+        const location = new URL(res.headers.get("location")!);
+        expect(location.origin + location.pathname).toBe(`${origin}/login`);
+        expect(location.searchParams.get("returnTo")).toBe(path);
+        expect(location.searchParams.get("auth_error")).toBe("sign_in_declined");
+        expect(res.headers.get("location")).not.toContain("access_denied");
+      },
+    );
+
+    it("a failed exchange on the vendor portal lands on the vendor's /login", async () => {
+      const config = portalConfig();
+      const { tx } = await startedTx(config, `${VENDOR}/`);
+      const res = await appRequest(
+        portalApp(config),
+        "/api/auth/oidc/callback?code=c&state=forged",
+        {
+          headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+        },
+      );
+      const location = new URL(res.headers.get("location")!);
+      expect(location.origin + location.pathname).toBe(`${VENDOR}/login`);
+      expect(location.searchParams.has("returnTo")).toBe(false);
+      expect(location.searchParams.get("auth_error")).toBe("sign_in_failed");
+    });
+
+    it.each([
+      ["a protocol-relative path", "//evil.example/x"],
+      ["a backslash path", "/\\evil.example/x"],
+      ["the sign-in page itself", "/login?returnTo=%2Fx"],
+    ])("carries no page for %s on a portal", async (_, path) => {
+      // The origin is the allowlist's; the path is whoever started the sign-in.
+      // The panel would refuse these too; the API does not hand them over.
+      const config = portalConfig();
+      const { tx } = await startedTx(config, `${HOST}${path}`);
+      const res = await appRequest(
+        portalApp(config),
+        "/api/auth/oidc/callback?error=access_denied",
+        {
+          headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+        },
+      );
+      const location = new URL(res.headers.get("location")!);
+      expect(location.origin + location.pathname).toBe(`${HOST}/login`);
+      expect(location.searchParams.has("returnTo")).toBe(false);
+      expect(location.searchParams.get("auth_error")).toBe("sign_in_declined");
+    });
+
+    it("a declined claim sign-in returns to the vendor's /login, resuming on the claim", async () => {
+      const config = portalConfig();
+      const { tx } = await startedTx(config, `${VENDOR}/claim`);
+      const res = await appRequest(
+        portalApp(config),
+        "/api/auth/oidc/callback?error=access_denied",
+        {
+          headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+        },
+      );
+      const location = new URL(res.headers.get("location")!);
+      expect(location.origin + location.pathname).toBe(`${VENDOR}/login`);
+      expect(location.searchParams.get("returnTo")).toBe("/claim");
+    });
+
+    it("a guest-site sign-in keeps landing back on the guest page", async () => {
+      const config = portalConfig();
+      const { tx } = await startedTx(config);
+      const res = await appRequest(
+        portalApp(config),
+        "/api/auth/oidc/callback?error=access_denied",
+        {
+          headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+        },
+      );
+      const location = new URL(res.headers.get("location")!);
+      expect(location.origin + location.pathname).toBe(TEST_RETURN_TO);
+      expect(location.searchParams.get("auth_error")).toBe("sign_in_declined");
+    });
+
+    it.each([
+      ["the vendor portal", `${VENDOR}/#/orgs/org_1`, `${VENDOR}/login`],
+      ["the host portal", `${HOST}/`, `${HOST}/login`],
+      ["another host", "https://evil.example/login", `${HOST}/login`],
+      ["a protocol-relative path", "//evil.example/", `${HOST}/login`],
+      ["nothing", "", `${HOST}/login`],
+    ])(
+      "an unavailable sign-in from %s picks only which portal's /login",
+      async (_, returnTo, landing) => {
+        const res = await appRequest(
+          portalApp(null),
+          `/api/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`,
+        );
+        expect(res.status).toBe(302);
+        const location = new URL(res.headers.get("location")!);
+        expect(location.origin + location.pathname).toBe(landing);
+        // The unchecked return_to picks a portal and is carried nowhere.
+        expect([...location.searchParams.keys()]).toEqual(["auth_error"]);
+        expect(location.searchParams.get("auth_error")).toBe("sign_in_unavailable");
+      },
+    );
   });
 
   it("refuses a mismatched state and sets no session", async () => {
