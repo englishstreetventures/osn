@@ -6,10 +6,19 @@
  *
  *  - Commands are read after joining backslash line continuations and split
  *    into segments on `&&`, `||`, `;`, `|` and a background `&` (not the `&`
- *    of a redirection such as `2>&1`); each segment is checked alone.
+ *    of a redirection such as `2>&1`); each segment is checked alone, as the
+ *    words the shell hands the command: quotes (`'…'`, `"…"`, `$'…'`) and
+ *    backslashes removed, a quoted space kept inside its word. A segment
+ *    whose arguments after `alchemy` use an expansion (`$`, a backtick, or
+ *    brace expansion such as `{a,b}`) fails, since the guard cannot know what
+ *    it runs.
  *  - package.json scripts: every segment that runs Alchemy starts with
- *    `DO_NOT_TRACK=1 `; when the leading assignments set it more than once,
- *    the last one decides.
+ *    `DO_NOT_TRACK=1 ` and sets `CI=true` among its leading assignments, so a
+ *    run on someone's own machine takes credentials from the environment alone
+ *    and never deploys or upgrades a state store without `--yes`; when the
+ *    leading assignments set either more than once, the last one decides. The
+ *    guard reads only those assignments: an `--env-file` that sets `CI` is
+ *    outside what it sees.
  *  - workflows: a step that runs Alchemy has `DO_NOT_TRACK: "1"` in its own
  *    `env` or, when the step sets none, in the job or workflow `env`; a
  *    different value there turns telemetry on. A segment's own leading
@@ -27,14 +36,19 @@
  *    stage comes from `ALCHEMY_STAGE` in the environment, `--env-file` or
  *    `.env`, and a variable or expression may hold either.
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
- *    state constructor (`localState`, `inMemoryState`, `postgresState`,
+ *    state constructor name (`localState`, `inMemoryState`, `postgresState`,
  *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
- *    `InMemoryService`), no `alchemy/State`, `@alchemy.run/sql/PostgresState`
- *    or provider `StateStore` module in any import form, no `state` import
- *    from `@alchemy.run/cloudflare` or `@alchemy.run/aws` or a path under
- *    either, and no `.state(` call in a file that names one of those as a
- *    module in any import form; `shared/infra/src/stack.ts` alone calls
- *    `Cloudflare.state()`.
+ *    `InMemoryService`), called or not; no module that holds a state store,
+ *    its lifecycle or a command that runs it, in any import form:
+ *    `alchemy/State`, `alchemy/Contributions`, `alchemy/Alchemist`,
+ *    `alchemy/Cli/commands`, `@alchemy.run/sql/PostgresState`, and a
+ *    provider's `StateStore`, `Alchemist`, `Contributions` or `Cli`, each with
+ *    any path under it; no `export *` from `@alchemy.run/cloudflare` or
+ *    `@alchemy.run/aws` or a path under either; and in a file that names one
+ *    of those as a module, no `state` or `bootstrap` taken from it in any
+ *    form: an import, a member (`.state`, called or not), a computed member
+ *    (`["state"]`) or a destructuring key, quoted or not.
+ *    `shared/infra/src/stack.ts` alone calls `Cloudflare.state()`.
  *
  * Tests: scripts/tests/check-alchemy-usage.test.ts (the checks) and
  * scripts/tests/check-alchemy-usage.cli.test.ts (this file run as CI runs it).
@@ -105,8 +119,6 @@ const LITERAL_STAGE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 const LONG_LIVED_STAGES: ReadonlySet<string> = new Set(["dev", "production"]);
 
-const unquote = (value: string): string => value.replace(/^(["'])(.*)\1$/, "$2");
-
 /**
  * `destroy` runs only on one stage the guard can read and prove short-lived.
  * Without `--stage`, Alchemy takes the stage from ALCHEMY_STAGE in the
@@ -115,7 +127,7 @@ const unquote = (value: string): string => value.replace(/^(["'])(.*)\1$/, "$2")
  */
 function destroyProblem(segment: string): string | undefined {
   if (!DESTROY.test(segment)) return undefined;
-  const stages = [...segment.matchAll(STAGE_FLAG)].map((match) => unquote(match[1] ?? ""));
+  const stages = [...segment.matchAll(STAGE_FLAG)].map((match) => match[1] ?? "");
   const [stage] = stages;
   if (stages.length !== 1 || stage === undefined || !LITERAL_STAGE.test(stage)) {
     return "`destroy` names exactly one stage with a literal --stage; any other form may reach dev or production";
@@ -125,25 +137,49 @@ function destroyProblem(segment: string): string | undefined {
     : undefined;
 }
 
-/** `@alchemy.run/cloudflare` or `@alchemy.run/aws`, or a path under either: each exports a `state()`. */
+/**
+ * `@alchemy.run/cloudflare` or `@alchemy.run/aws`, or a path under either: each
+ * exports `state()`, which builds a state store layer, and `bootstrap()`, which
+ * deploys a store.
+ */
 const PROVIDER_MODULE = String.raw`@alchemy\.run\/(?:cloudflare|aws)(?:\/[^"'\n]*)?`;
 
+/** The provider exports that choose or deploy a state store. */
+const STORE_EXPORT = String.raw`(?:state|bootstrap)`;
+
+/** A state constructor named anywhere, called or not, or a store export imported from a provider module. */
 const STATE_CONSTRUCTOR = new RegExp(
-  String.raw`\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|InMemoryService)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']${PROVIDER_MODULE}["']`,
+  String.raw`\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|InMemoryService)\b|\bCloudflare\.state\b|\bimport\s*\{[^}]*\b${STORE_EXPORT}\b[^}]*\}\s*from\s*["']${PROVIDER_MODULE}["']`,
 );
 
 /**
- * `alchemy/State`, `@alchemy.run/sql/PostgresState` or a provider's
- * `StateStore`, or a path under one, quoted as a module specifier: every state
- * store and the `State` service live there.
+ * A module that holds a state store, its lifecycle (bootstrap, teardown, logs)
+ * or a command that runs one, or a path under it, quoted as a module
+ * specifier: core `alchemy/State`, `alchemy/Contributions`,
+ * `alchemy/Alchemist` and `alchemy/Cli/commands`;
+ * `@alchemy.run/sql/PostgresState`; and a provider's `StateStore`,
+ * `Alchemist`, `Contributions` and `Cli`.
  */
 const STATE_MODULE =
-  /["'](?:alchemy\/State|@alchemy\.run\/sql\/PostgresState|@alchemy\.run\/(?:cloudflare|aws)\/StateStore)(?:\/[^"'\n]*)?["']/;
+  /["'](?:alchemy\/(?:State|Contributions|Alchemist|Cli\/commands)|@alchemy\.run\/sql\/PostgresState|@alchemy\.run\/(?:cloudflare|aws)\/(?:StateStore|Alchemist|Contributions|Cli))(?:\/[^"'\n]*)?["']/;
 
 /** A provider module quoted as a module specifier. */
 const STATE_PROVIDER_MODULE = new RegExp(String.raw`["']${PROVIDER_MODULE}["']`);
 
-const STATE_CALL = /\.state\s*\(/;
+/** Every export of a provider module passed on to another file, which the guard reads alone. */
+const PROVIDER_STAR_EXPORT = new RegExp(
+  String.raw`\bexport\s*\*\s*(?:as\s+\w+\s*)?from\s*["']${PROVIDER_MODULE}["']`,
+);
+
+/**
+ * A store export taken from a module in the file: a member (`.state`, called
+ * or not, `?.bootstrap`), a computed member (`["state"]`), or a key or
+ * shorthand in a destructuring pattern (`{ state }`, `{ state: s }`,
+ * `{ "state": s }`, `{ state = x }`), nested or in an arrow's parameters.
+ */
+const STORE_BINDING = new RegExp(
+  String.raw`\.${STORE_EXPORT}\b|\[\s*(["'\x60])${STORE_EXPORT}\1\s*\]|[{,]\s*(["'\x60]?)${STORE_EXPORT}\2\s*(?:[:,}]|=(?!=))`,
+);
 
 /** Backslash-newline continuations become one space, as the shell reads them. */
 const joinContinuations = (command: string): string => command.replace(/\\\r?\n\s*/g, " ");
@@ -151,25 +187,112 @@ const joinContinuations = (command: string): string => command.replace(/\\\r?\n\
 /** `&&`, `||`, `;`, `|`, or a lone `&` that runs a command in the background; never the `&` of `2>&1`, `>&2` or `&>`. */
 const COMMAND_SEPARATOR = /&&|\|\||;|\||(?<![<>])&(?!>)/;
 
+/** A segment as the shell reads it. */
+interface Segment {
+  /** Its words joined by single spaces; whitespace inside a word is `QUOTED_SPACE`. */
+  readonly text: string;
+  /** Whether a word after the `alchemy` word uses an expansion the guard cannot read. */
+  readonly expands: boolean;
+}
+
+/** Stands in for whitespace inside a quoted or escaped word, so the word stays one when the words are joined again. */
+const QUOTED_SPACE = "\u0001";
+
+/** `alchemy` as a whole word: on its own or at the end of a path, with or without `@<version>`. */
+const ALCHEMY_WORD = /(?:^|\/)alchemy(?:@\S+)?$/;
+
+/** A brace expansion starting at an unquoted `{`: `{a,b}` or `{1..3}`. */
+const BRACE_EXPANSION = /^\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}/;
+
+/**
+ * The words of one segment as the shell hands them to the command: a backslash
+ * keeps the next character, `'…'` keeps everything up to the next `'`, `$'…'`
+ * keeps its text with each backslash escape reduced to the escaped character,
+ * and `"…"` keeps everything but a backslash before `"`, `\`, `$` or a
+ * backtick. An unquoted or double-quoted `$` or backtick, or an unquoted
+ * brace expansion, marks its word as expanding.
+ */
+function readSegment(raw: string): Segment {
+  const words: { text: string; expands: boolean }[] = [];
+  let text = "";
+  let expands = false;
+  let open = false;
+  const end = (): void => {
+    if (open) words.push({ text, expands });
+    text = "";
+    expands = false;
+    open = false;
+  };
+  const quoted = (char: string): string => (/\s/.test(char) ? QUOTED_SPACE : char);
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i] ?? "";
+    if (/\s/.test(char)) {
+      end();
+      continue;
+    }
+    open = true;
+    if (char === "\\") {
+      i++;
+      text += quoted(raw[i] ?? "");
+    } else if (char === "'" || (char === "$" && raw[i + 1] === "'")) {
+      const ansi = char === "$";
+      if (ansi) i++;
+      for (i++; i < raw.length && raw[i] !== "'"; i++) {
+        if (ansi && raw[i] === "\\") i++;
+        text += quoted(raw[i] ?? "");
+      }
+    } else if (char === '"') {
+      for (i++; i < raw.length && raw[i] !== '"'; i++) {
+        const inner = raw[i] ?? "";
+        if (inner === "\\" && /["\\$`]/.test(raw[i + 1] ?? "")) {
+          i++;
+          text += raw[i] ?? "";
+          continue;
+        }
+        if (inner === "$" || inner === "`") expands = true;
+        text += quoted(inner);
+      }
+    } else {
+      if (char === "$" || char === "`" || (char === "{" && BRACE_EXPANSION.test(raw.slice(i)))) {
+        expands = true;
+      }
+      text += char;
+    }
+  }
+  end();
+  const command = words.findIndex((word) => ALCHEMY_WORD.test(word.text));
+  return {
+    text: words.map((word) => word.text).join(" "),
+    expands: command !== -1 && words.slice(command + 1).some((word) => word.expands),
+  };
+}
+
 /** The Alchemy segments of a command: one per part between separators. */
-const alchemySegments = (command: string): string[] =>
+const alchemySegments = (command: string): Segment[] =>
   joinContinuations(command)
     .split("\n")
     .flatMap((line) => line.split(COMMAND_SEPARATOR))
-    .filter((segment) => ALCHEMY_COMMAND.test(segment));
+    .map(readSegment)
+    .filter((segment) => ALCHEMY_COMMAND.test(segment.text));
 
 /** The `NAME=value` assignments a command segment starts with. */
 const LEADING_ASSIGNMENTS = /^\s*((?:[A-Za-z_]\w*=\S*\s+)*)/;
 
-/** The value a segment's own leading assignments give DO_NOT_TRACK (the last one wins), or undefined when they set none. */
-const inlineTelemetry = (segment: string): string | undefined =>
-  [...(LEADING_ASSIGNMENTS.exec(segment)?.[1] ?? "").matchAll(/(?:^|\s)DO_NOT_TRACK=(\S*)/g)]
-    .map((match) => match[1])
+/** The value a segment's own leading assignments give `name` (the last one wins), or undefined when they set none. */
+const inlineValue = (segment: Segment, name: string): string | undefined =>
+  [...(LEADING_ASSIGNMENTS.exec(segment.text)?.[1] ?? "").matchAll(/(?:^|\s)([A-Za-z_]\w*)=(\S*)/g)]
+    .filter((match) => match[1] === name)
+    .map((match) => match[2])
     .at(-1);
 
-function forbidden(where: string, segment: string): Finding[] {
-  const problems = FORBIDDEN.filter(({ pattern }) => pattern.test(segment)).map(({ why }) => why);
-  const destroy = destroyProblem(segment);
+const UNREADABLE = "an Alchemy command's arguments use a shell expansion the guard cannot read";
+
+function forbidden(where: string, segment: Segment): Finding[] {
+  if (segment.expands) return [{ where, problem: UNREADABLE }];
+  const problems = FORBIDDEN.filter(({ pattern }) => pattern.test(segment.text)).map(
+    ({ why }) => why,
+  );
+  const destroy = destroyProblem(segment.text);
   return [...problems, ...(destroy === undefined ? [] : [destroy])].map((problem) => ({
     where,
     problem,
@@ -180,19 +303,33 @@ interface Manifest {
   readonly scripts?: Readonly<Record<string, string>>;
 }
 
+/** Each Alchemy segment of each script in a manifest, with where it is. */
+const scriptSegments = (
+  where: string,
+  manifestText: string,
+): { readonly at: string; readonly segment: Segment }[] =>
+  Object.entries((JSON.parse(manifestText) as Manifest).scripts ?? {}).flatMap(([name, value]) =>
+    alchemySegments(value).map((segment) => ({ at: `${where} scripts.${name}`, segment })),
+  );
+
 export function checkPackageScripts(where: string, manifestText: string): Finding[] {
-  const manifest = JSON.parse(manifestText) as Manifest;
-  const findings: Finding[] = [];
-  for (const [name, value] of Object.entries(manifest.scripts ?? {})) {
-    const at = `${where} scripts.${name}`;
-    for (const segment of alchemySegments(value)) {
-      if (inlineTelemetry(segment) !== "1") {
-        findings.push({ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" });
-      }
-      findings.push(...forbidden(at, segment));
-    }
-  }
-  return findings;
+  return scriptSegments(where, manifestText).flatMap(({ at, segment }) => [
+    ...(inlineValue(segment, "DO_NOT_TRACK") === "1"
+      ? []
+      : [{ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" }]),
+    ...forbidden(at, segment),
+  ]);
+}
+
+/**
+ * Every Alchemy segment of a package script sets `CI=true`. A script runs on
+ * someone's own machine as well as in CI; outside CI mode Alchemy reads a
+ * stored profile, and a plan deploys a missing state store.
+ */
+export function checkScriptsRunAsCi(where: string, manifestText: string): Finding[] {
+  return scriptSegments(where, manifestText)
+    .filter(({ segment }) => inlineValue(segment, "CI") !== "true")
+    .map(({ at }) => ({ where: at, problem: "an Alchemy package script must set CI=true" }));
 }
 
 /** A workflow or step `env:` block; GitHub Actions values are scalars. */
@@ -232,8 +369,8 @@ function checkSteps(
     if (segments.length === 0) continue;
     const at = `${where}.steps[${index}]`;
     const off = telemetryOff(step.env, ...outer);
-    const segmentOff = (segment: string): boolean => {
-      const inline = inlineTelemetry(segment);
+    const segmentOff = (segment: Segment): boolean => {
+      const inline = inlineValue(segment, "DO_NOT_TRACK");
       return inline === undefined ? off : inline === "1";
     };
     if (!segments.every(segmentOff)) {
@@ -260,7 +397,8 @@ export function checkStackSource(where: string, text: string): Finding[] {
   const choosesState =
     STATE_CONSTRUCTOR.test(text) ||
     STATE_MODULE.test(text) ||
-    (STATE_PROVIDER_MODULE.test(text) && STATE_CALL.test(text));
+    PROVIDER_STAR_EXPORT.test(text) ||
+    (STATE_PROVIDER_MODULE.test(text) && STORE_BINDING.test(text));
   return choosesState
     ? [{ where, problem: `a stack takes its state from stackOptions() (${STATE_STORE_FILE})` }]
     : [];
@@ -280,7 +418,10 @@ if (import.meta.main) {
   const read = (path: string): string => readFileSync(resolve(root, path), "utf8");
   const manifests = tracked("package.json", "*/package.json");
   const findings = [
-    ...manifests.flatMap((path) => checkPackageScripts(path, read(path))),
+    ...manifests.flatMap((path) => [
+      ...checkPackageScripts(path, read(path)),
+      ...checkScriptsRunAsCi(path, read(path)),
+    ]),
     ...tracked(".github/workflows/*.yml", ".github/workflows/*.yaml").flatMap((path) =>
       checkWorkflow(path, read(path)),
     ),

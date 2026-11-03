@@ -99,7 +99,8 @@ test("the CLI exits 1 and names every tracked file with a finding", async () => 
   );
 
   expect(exitCode).toBe(1);
-  expect(stdout).toBe("check-alchemy-usage: 5 finding(s).\n");
+  // pkg's script runs Alchemy with telemetry on and outside CI mode: two.
+  expect(stdout).toBe("check-alchemy-usage: 6 finding(s).\n");
   for (const path of [
     "pkg/package.json scripts.x",
     ".github/workflows/w.yml jobs.a",
