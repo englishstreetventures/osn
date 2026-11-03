@@ -12,7 +12,8 @@ import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import SignInPanel, { type SignInAuth, signInCardClass } from "../src/sign-in-panel";
+import { signInCardClass } from "../src/sign-in-card-class";
+import SignInPanel, { type SignInAuth } from "../src/sign-in-panel";
 import { inkRatio } from "./test-support/paint";
 
 import "./test-support/tailwind.css";

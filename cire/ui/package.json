@@ -23,6 +23,7 @@
     "./note": "./src/note.tsx",
     "./reveal": "./src/reveal.tsx",
     "./segmented-tabs": "./src/segmented-tabs.tsx",
+    "./sign-in-card-class": "./src/sign-in-card-class.ts",
     "./sign-in-card.astro": "./src/sign-in-card.astro",
     "./sign-in-panel": "./src/sign-in-panel.tsx",
     "./sliding-pill": "./src/lib/sliding-pill.ts",

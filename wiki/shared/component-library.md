@@ -130,7 +130,8 @@ cire/ui/src/
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
 ├── segmented-tabs.tsx      ← SegmentedTabs: a glass track of choices with one sliding highlight
-├── sign-in-panel.tsx       ← SignInPanel: the portals' one button to musubi, its error lines, signInCardClass
+├── sign-in-panel.tsx       ← SignInPanel: the portals' one button to musubi and its error lines
+├── sign-in-card-class.ts   ← signInCardClass: the sign-in card's opaque fill and lit edge
 ├── sign-in-card.astro      ← SignInCard: the sign-in page's label, heading and card around the panel
 ├── lib/sliding-pill.ts     ← createSlidingPill: one highlight that moves between items
 ├── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
@@ -1166,8 +1167,9 @@ product and the portal ("Cire · Host portal", "Cire · Vendor portal"); a roman
 "Sign in" in the display face, sized from the page's container
 (`text-[clamp(1.9rem,5cqi,2.6rem)]`, so the page's `<body>` carries
 `@container/frame`); and the card, `signInCardClass` — the opaque card at the
-largest padding with its top edge lit by the app's `--inner-lip` — holding the
-panel as a `client:only` island. The owner chose the card, the measure and
+largest padding with its top edge lit by the app's `--inner-lip`, kept in
+its own module (`sign-in-card-class.ts`) so the island ships no card code —
+holding the panel as a `client:only` island. The owner chose the card, the measure and
 the labels (Stack 6 of englishstreetventures/osn#1831, questions 33 to 36).
 
 `SignInPanel` (`cire/ui/src/sign-in-panel.tsx`, props `apiBase` and an

@@ -3,11 +3,8 @@ import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { cardClass } from "../src/card";
-import SignInPanel, {
-  SIGN_IN_PENDING_RESET_MS,
-  type SignInAuth,
-  signInCardClass,
-} from "../src/sign-in-panel";
+import { signInCardClass } from "../src/sign-in-card-class";
+import SignInPanel, { SIGN_IN_PENDING_RESET_MS, type SignInAuth } from "../src/sign-in-panel";
 
 /**
  * The portals' sign-in is one hand-off through one door: a portal cannot run a

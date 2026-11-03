@@ -9,7 +9,6 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 
 import Button from "./button";
-import { cardClass } from "./card";
 
 /**
  * The portals' sign-in: one button that leaves for musubi, and the line that
@@ -70,9 +69,6 @@ const RP_AUTH: SignInAuth = {
  * looking at a button that does nothing.
  */
 export const SIGN_IN_PENDING_RESET_MS = 10_000;
-
-/** The sign-in card: the opaque card at the largest padding, its top edge lit by the app's `--inner-lip`. */
-export const signInCardClass = `${cardClass({ padding: "xl", fill: "opaque" })} base:shadow-(--inner-lip)`;
 
 /** The line under each `?auth_error=` marker the start and callback legs send. */
 const FAILED = "Sign-in did not go through. Try again.";

@@ -1,5 +1,6 @@
 import { eyebrowClass } from "@cire/ui/eyebrow";
-import SignInPanel, { type SignInAuth, signInCardClass } from "@cire/ui/sign-in-panel";
+import { signInCardClass } from "@cire/ui/sign-in-card-class";
+import SignInPanel, { type SignInAuth } from "@cire/ui/sign-in-panel";
 import { For, type JSX } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
