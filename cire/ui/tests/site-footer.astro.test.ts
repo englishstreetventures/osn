@@ -111,6 +111,16 @@ describe("SiteFooter", () => {
     expect(bare.querySelector(".small-print")).toBeNull();
   });
 
+  it("leads with no dot when the privacy-choices control is the row's only item", async () => {
+    const el = await footer(
+      { links: [] },
+      { consent: '<button type="button" class="consent-link">Privacy choices</button>' },
+    );
+    const item = el.querySelector('nav[aria-label="Legal"] > .item');
+    expect(item?.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect(item?.textContent?.trim()).toBe("Privacy choices");
+  });
+
   it("puts the privacy-choices control inside the legal row, after a dot", async () => {
     const el = await footer(
       { links: LEGAL.slice(0, 2) },
@@ -139,7 +149,25 @@ describe("SiteFooter's styles", () => {
 
   it("gives every footer action a 44px hit area laid over its word", () => {
     expect(style).toMatch(
-      /\.site-footer a::after,\s*\.site-footer :global\(\.consent-link\)::after \{[^}]*position: absolute;[^}]*min-height: 2\.75rem;/,
+      /\.site-footer a,\s*\.site-footer :global\(\.consent-link\) \{[^}]*position: relative;/,
+    );
+    expect(style).toMatch(
+      /\.site-footer a::after,\s*\.site-footer :global\(\.consent-link\)::after \{[^}]*content: '';[^}]*position: absolute;[^}]*min-height: 2\.75rem;/,
+    );
+  });
+
+  it("sets the couple's names in roman and the logotype in italic", () => {
+    expect(style).toMatch(/\.signoff\[data-face='wordmark'\] \{[^}]*font-style: italic;/);
+    expect(style).not.toMatch(/\.signoff\[data-face='names'\] \{[^}]*italic/);
+  });
+
+  it("keeps each dot on the line of the link after it", () => {
+    expect(style).toMatch(/\.item \{[^}]*white-space: nowrap;/);
+  });
+
+  it("rings a focused action 2px, 3px off, at the hair corner", () => {
+    expect(style).toMatch(
+      /:focus-visible\) \{\s*outline: 2px solid var\(--ui-focus\);\s*outline-offset: 3px;\s*border-radius: var\(--ui-radius-hair\);/,
     );
   });
 });
