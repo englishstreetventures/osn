@@ -116,13 +116,13 @@ function initialOf(name: string): string {
   return Array.from(upper).length === Array.from(first).length ? upper : first;
 }
 
+/** One segmenter for the page, made on the first initial that needs it. */
+let graphemes: Intl.Segmenter | undefined;
+
 function firstGrapheme(text: string): string | undefined {
   if (typeof Intl.Segmenter !== "function") return Array.from(text)[0];
-  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(
-    text,
-  )) {
-    return segment;
-  }
+  graphemes ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  for (const { segment } of graphemes.segment(text)) return segment;
   return undefined;
 }
 
