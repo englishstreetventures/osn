@@ -26,6 +26,9 @@
  * The accent look reads an app's own `--elev-2`, `--dur-fast` and `--ease-out`
  * first and the contract's `--ui-*` after, as `choice.ts` and `control.ts` do,
  * so cire's portals need no new mapping and nothing else they render moves.
+ * Its pop is one `animation` shorthand on the open panel, not `animate-in`
+ * with a duration beside it: `animate-in` sits on the open panel's selector,
+ * which outranks a plain class, so a duration set beside it never applied.
  */
 
 export type MenuVariant = "default" | "accent";
@@ -40,8 +43,8 @@ const PANEL = {
   accent:
     "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:min-w-32 base:rounded-ui-md base:border base:p-1.5 " +
     "base:shadow-[var(--elev-2,var(--ui-elev-2))] base:outline-none " +
-    "base:origin-(--kb-popper-content-transform-origin) base:motion-safe:data-[expanded]:animate-in base:data-[expanded]:fade-in-0 base:[--ui-enter-scale:0.96] " +
-    "base:[animation-duration:var(--dur-fast,var(--ui-dur-fast))] base:[animation-timing-function:var(--ease-out,var(--ui-ease-out))]",
+    "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:fade-in-0 base:[--ui-enter-scale:0.96] " +
+    "base:motion-safe:data-[expanded]:[animation:ui-enter_var(--dur-fast,var(--ui-dur-fast))_var(--ease-out,var(--ui-ease-out))_both]",
 } satisfies Readonly<Record<MenuVariant, string>>;
 
 const ROW = {
