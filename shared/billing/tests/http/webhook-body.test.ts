@@ -27,6 +27,15 @@ describe("readBoundedText", () => {
     ).toBe(null);
   });
 
+  it("reads a body of exactly the bound whole, and refuses one byte more", async () => {
+    const exact = new Uint8Array(MAX_EVENT_BYTES).fill(0x61);
+    const over = new Uint8Array(MAX_EVENT_BYTES + 1).fill(0x61);
+    expect((await readBoundedText(streamed([exact]), MAX_EVENT_BYTES))?.length).toBe(
+      MAX_EVENT_BYTES,
+    );
+    expect(await readBoundedText(streamed([over]), MAX_EVENT_BYTES)).toBe(null);
+  });
+
   it("bounds on bytes, not UTF-16 code units", async () => {
     // 40 three-byte characters: 40 code units, 120 bytes.
     const text = "€".repeat(40);

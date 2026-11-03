@@ -117,6 +117,38 @@ describe("decideFeature", () => {
     expect([expired.allowed, permanent.allowed, permanent.until]).toEqual([false, true, null]);
   });
 
+  it("reports the latest end when several subscriptions allow the feature", () => {
+    const access = decideFeature({
+      featureId: "workspace",
+      subscriptions: [
+        sub({ status: "active", currentPeriodEnd: at(DAY) }),
+        sub({ status: "trialing", trialEnd: at(3 * DAY) }),
+      ],
+      grants: [],
+      policy: DEFAULT_POLICY,
+      now,
+    });
+    expect([access.reason, access.status, access.until]).toEqual([
+      "trial",
+      "trialing",
+      at(3 * DAY + LEEWAY),
+    ]);
+  });
+
+  it("reports the latest expiry when several dated grants allow the feature", () => {
+    const access = decideFeature({
+      featureId: "workspace",
+      subscriptions: [],
+      grants: [
+        { featureId: "workspace", expiresAt: at(DAY) },
+        { featureId: "workspace", expiresAt: at(3 * DAY) },
+      ],
+      policy: DEFAULT_POLICY,
+      now,
+    });
+    expect([access.reason, access.until]).toEqual(["grant", at(3 * DAY)]);
+  });
+
   it("gives no access to a feature the active plan does not include", () => {
     const access = decideFeature({
       featureId: "reports",

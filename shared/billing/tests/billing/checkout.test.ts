@@ -82,6 +82,29 @@ describe("checkout", () => {
     ]);
   });
 
+  it("refuses a plan id no plan declares, with a typed error", async () => {
+    const h = await createHarness();
+    const error = await flip(h.billing.checkout(input({ planId: "gone" as "monthly" })));
+    expect([error._tag, h.stripe.calls.length]).toEqual(["UnknownPlan", 0]);
+  });
+
+  it.each(["frozen", "incomplete"])(
+    "counts a stored %s subscription as live, so a second one in the group is refused",
+    async (status) => {
+      const h = await createHarness();
+      await run(h.storage.ensureCustomer("org_1", h.now()));
+      await run(
+        h.storage.upsertSubscription(
+          subscriptionWrite({ planId: "monthly", status, fetchStartedAt: h.now() }),
+          h.now(),
+        ),
+      );
+      expect((await flip(h.billing.checkout(input({ planId: "annual" }))))._tag).toBe(
+        "AlreadySubscribed",
+      );
+    },
+  );
+
   it("refuses a second live subscription in the group, and allows one after it ends", async () => {
     const h = await createHarness();
     await run(h.storage.ensureCustomer("org_1", h.now()));
@@ -220,6 +243,24 @@ describe("checkout", () => {
     expect([...h.stripe.sessions.values()].map((s) => s.status)).toEqual(["expired"]);
   });
 
+  it("frees the checkout slot when the session cannot be created, so the next click works", async () => {
+    const h = await createHarness();
+    let failed = false;
+    h.stripe.setIntercept((call) => {
+      if (call.method === "POST" && call.path === "/v1/checkout/sessions" && !failed) {
+        failed = true;
+        return new Response("boom", { status: 500 });
+      }
+      return undefined;
+    });
+    const error = await flip(h.billing.checkout(input()));
+    expect([error._tag, (await run(h.storage.findCustomer("org_1")))!.pendingCheckout]).toEqual([
+      "BillingProviderError",
+      null,
+    ]);
+    expect((await run(h.billing.checkout(input()))).reused).toBe(false);
+  });
+
   it("creates the Stripe customer under a stable key with stable parameters only", async () => {
     const h = await createHarness();
     await run(h.billing.checkout(input()));
@@ -251,6 +292,43 @@ describe("checkout", () => {
       "PlanUnavailable",
       "mismatched",
     ]);
+  });
+});
+
+describe("which price a plan is sold at", () => {
+  it("does not sell a price with no plan_id that another product holds under the lookup key", async () => {
+    const h = await createHarness();
+    h.stripe.prices[0]!.metadata = {};
+    h.stripe.prices[0]!.product = "prod_other";
+    const error = await flip(h.billing.checkout(input()));
+    expect([error._tag, "reason" in error ? error.reason : null]).toEqual([
+      "PlanUnavailable",
+      "mismatched",
+    ]);
+  });
+
+  it("sells a price with no plan_id when it hangs off the plan's own product", async () => {
+    const h = await createHarness();
+    h.stripe.prices[0]!.metadata = {};
+    expect((await run(h.billing.checkout(input()))).reused).toBe(false);
+  });
+
+  it("says missing when no price sits under the lookup key", async () => {
+    const h = await createHarness();
+    h.stripe.prices.splice(0, 1);
+    const error = await flip(h.billing.checkout(input()));
+    expect([error._tag, "reason" in error ? error.reason : null]).toEqual([
+      "PlanUnavailable",
+      "missing",
+    ]);
+  });
+});
+
+describe("tax options", () => {
+  it("refuses to create billing that requires tax ids without collecting them", async () => {
+    await expect(
+      createHarness({ tax: { automatic: false, collectTaxIds: false, requireTaxId: true } }),
+    ).rejects.toThrow(/requireTaxId needs tax.collectTaxIds/);
   });
 });
 

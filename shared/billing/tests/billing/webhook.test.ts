@@ -1,11 +1,17 @@
-import { Effect } from "effect";
+import { inspect } from "node:util";
+
+import { Effect, Logger, References } from "effect";
 import { Elysia } from "elysia";
 import { describe, expect, it } from "vitest";
 
+import { BillingStorageError } from "../../src/errors";
 import { billingWebhookRoute } from "../../src/http/elysia";
-import { createHarness, run, T0, unix } from "../support/billing";
+import { MAX_EVENT_BYTES } from "../../src/http/webhook-body";
+import { subscriptionWrite } from "../storage/contract";
+import { createHarness, DAY, flip, run, T0, unix } from "../support/billing";
 import {
   invoiceJson,
+  signedBody,
   signedEvent,
   subscriptionJson,
   type FakeSubscriptionInput,
@@ -36,6 +42,46 @@ function stripeHas(h: Harness, over: Partial<FakeSubscriptionInput> = {}) {
 
 const deliver = async (h: Harness, event: Parameters<typeof signedEvent>[0]) =>
   run(h.billing.handleWebhook(await signedEvent(event, h.now())));
+
+/** The customer starts a checkout that has made session `cs_1`. */
+async function withPendingCheckout(h: Harness) {
+  const customer = await customerWithStripe(h);
+  await run(
+    h.storage.claimCheckout({
+      customerId: customer.id,
+      expectedNonce: null,
+      nonce: "n1",
+      planId: "monthly",
+      currency: "AUD",
+      now: h.now(),
+    }),
+  );
+  await run(
+    h.storage.setCheckoutSession({ customerId: customer.id, nonce: "n1", sessionId: "cs_1" }),
+  );
+  return customer;
+}
+
+const sessionObject = (over: Record<string, unknown> = {}) => ({
+  id: "cs_1",
+  mode: "subscription",
+  status: "complete",
+  customer: "cus_1",
+  subscription: "sub_1",
+  url: null,
+  ...over,
+});
+
+/** Whether the event is still unrecorded: only a delivery that stopped before the claim leaves it so. */
+const neverClaimed = (h: Harness, eventId: string) =>
+  run(
+    h.storage.claimEvent({
+      eventId,
+      type: "any",
+      now: h.now(),
+      leaseUntil: new Date(h.now().getTime() + 60_000),
+    }),
+  );
 
 const subEvent = (
   id: string,
@@ -70,6 +116,17 @@ describe("handleWebhook", () => {
     }
   });
 
+  it("does not refuse a body that declares exactly 64 KB", async () => {
+    const h = await createHarness();
+    const request = new Request("https://x.test/hook", {
+      method: "POST",
+      headers: { "content-length": String(MAX_EVENT_BYTES) },
+      body: "{}",
+    });
+    const result = await run(h.billing.handleWebhook(request));
+    expect(result.body.outcome).not.toBe("too_large");
+  });
+
   it("refuses a delivery whose signature does not verify", async () => {
     const h = await createHarness();
     const forged = await signedEvent(subEvent("evt_1"), h.now(), "whsec_wrong");
@@ -88,6 +145,7 @@ describe("handleWebhook", () => {
       0,
     ]);
     expect(await run(h.storage.findSubscription("sub_1"))).toBeNull();
+    expect(await neverClaimed(h, "evt_1")).toBe("claimed");
   });
 
   it("acts on a delivery once: a duplicate is answered without re-fetching", async () => {
@@ -168,10 +226,14 @@ describe("handleWebhook", () => {
     stripeHas(h, { status: "active" });
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
+    let reached!: () => void;
+    const slowFetchReached = new Promise<void>((resolve) => (reached = resolve));
     let first = true;
     h.stripe.setIntercept(async (call) => {
       if (call.path === "/v1/subscriptions/sub_1" && first) {
         first = false;
+        // The slow delivery has taken its `fetchStartedAt` once this call arrives.
+        reached();
         // The first fetch reads `active`, then stalls past the second.
         const stale = Response.json(
           subscriptionJson({
@@ -188,7 +250,7 @@ describe("handleWebhook", () => {
       return undefined;
     });
     const slow = deliver(h, subEvent("evt_old"));
-    await new Promise((r) => setTimeout(r, 5));
+    await slowFetchReached;
     h.advance(1_000);
     stripeHas(h, { status: "canceled" });
     await deliver(h, subEvent("evt_new"));
@@ -240,36 +302,17 @@ describe("handleWebhook", () => {
       "ignored",
       0,
     ]);
+    expect(await neverClaimed(h, "evt_2")).toBe("claimed");
   });
 
   it("stores the subscription from a completed checkout, then clears the pending session", async () => {
     const h = await createHarness();
-    const customer = await customerWithStripe(h);
-    await run(
-      h.storage.claimCheckout({
-        customerId: customer.id,
-        expectedNonce: null,
-        nonce: "n1",
-        planId: "monthly",
-        currency: "AUD",
-        now: h.now(),
-      }),
-    );
-    await run(
-      h.storage.setCheckoutSession({ customerId: customer.id, nonce: "n1", sessionId: "cs_1" }),
-    );
+    await withPendingCheckout(h);
     stripeHas(h, { status: "trialing", trialEnd: unix(T0) + 30 * 86_400 });
     await deliver(h, {
       id: "evt_1",
       type: "checkout.session.completed",
-      object: {
-        id: "cs_1",
-        mode: "subscription",
-        status: "complete",
-        customer: "cus_1",
-        subscription: "sub_1",
-        url: null,
-      },
+      object: sessionObject(),
     });
     const after = (await run(h.storage.findCustomer("org_1")))!;
     expect([
@@ -312,6 +355,182 @@ describe("handleWebhook", () => {
     expect((await deliver(h, subEvent("evt_1"))).body.outcome).toBe("processed");
     expect(h.decisions.at(-1)!.features.workspace.allowed).toBe(true);
   });
+
+  it.each(["created", "updated", "deleted", "paused", "resumed", "trial_will_end"] as const)(
+    "re-fetches and stores the subscription on customer.subscription.%s",
+    async (kind) => {
+      const h = await createHarness();
+      await customerWithStripe(h);
+      stripeHas(h, { status: "unpaid" });
+      const result = await deliver(
+        h,
+        subEvent("evt_1", { id: "sub_1" }, `customer.subscription.${kind}`),
+      );
+      expect([result.status, result.body.outcome]).toEqual([200, "processed"]);
+      expect((await run(h.storage.findSubscription("sub_1")))!.status).toBe("unpaid");
+    },
+  );
+
+  it("starts the grace clock on invoice.payment_failed, from what Stripe says now", async () => {
+    const h = await createHarness();
+    await customerWithStripe(h);
+    stripeHas(h, { status: "past_due" });
+    const result = await deliver(h, {
+      id: "evt_1",
+      type: "invoice.payment_failed",
+      object: invoiceJson({
+        id: "in_f",
+        subscription: "sub_1",
+        status: "open",
+        lines: [{ amount: 4900, start: PERIOD_START, end: PERIOD_END }],
+      }),
+    });
+    const stored = (await run(h.storage.findSubscription("sub_1")))!;
+    expect([result.body.outcome, stored.status, stored.pastDueSince]).toEqual([
+      "processed",
+      "past_due",
+      h.now(),
+    ]);
+    expect(await run(h.billing.check("org_1", "workspace"))).toMatchObject({
+      allowed: true,
+      reason: "grace",
+      status: "past_due",
+    });
+  });
+
+  it("clears the pending checkout when its session expires", async () => {
+    const h = await createHarness();
+    await withPendingCheckout(h);
+    expect((await run(h.storage.findCustomer("org_1")))!.pendingCheckout?.sessionId).toBe("cs_1");
+    const result = await deliver(h, {
+      id: "evt_1",
+      type: "checkout.session.expired",
+      object: sessionObject({ status: "expired", subscription: null }),
+    });
+    expect([
+      result.body.outcome,
+      (await run(h.storage.findCustomer("org_1")))!.pendingCheckout,
+    ]).toEqual(["processed", null]);
+  });
+
+  it("keeps the pending session when the subscription cannot be stored, so no second checkout starts", async () => {
+    const h = await createHarness();
+    await withPendingCheckout(h);
+    stripeHas(h);
+    h.stripe.sessions.set("cs_1", {
+      ...sessionObject(),
+      object: "checkout.session",
+    });
+    h.stripe.setIntercept((call) =>
+      call.path === "/v1/subscriptions/sub_1" ? new Response("down", { status: 502 }) : undefined,
+    );
+    const result = await deliver(h, {
+      id: "evt_1",
+      type: "checkout.session.completed",
+      object: sessionObject(),
+    });
+    expect(result.status).toBe(500);
+    expect((await run(h.storage.findCustomer("org_1")))!.pendingCheckout?.sessionId).toBe("cs_1");
+    const second = await flip(
+      h.billing.checkout({
+        customerRef: "org_1",
+        planId: "monthly",
+        currency: "AUD",
+        successUrl: "https://app.example.test/done",
+        cancelUrl: "https://app.example.test/billing",
+      }),
+    );
+    expect(second._tag).toBe("CheckoutInFlight");
+  });
+
+  it("answers 400 to a signed body that is not an event", async () => {
+    const h = await createHarness();
+    const result = await run(h.billing.handleWebhook(await signedBody('{"hello":1}', h.now())));
+    expect([result.status, result.body.outcome, result.body.reason]).toEqual([
+      400,
+      "invalid_signature",
+      "malformed",
+    ]);
+  });
+
+  it("acknowledges a subscription Stripe no longer has", async () => {
+    const h = await createHarness();
+    await customerWithStripe(h);
+    const result = await deliver(h, subEvent("evt_1", { id: "sub_gone" }));
+    expect([result.status, result.body.outcome]).toEqual([200, "ignored"]);
+  });
+
+  it("answers 500 when the claim cannot be recorded", async () => {
+    const h = await createHarness();
+    await customerWithStripe(h);
+    stripeHas(h);
+    (h.storage as { claimEvent: unknown }).claimEvent = () =>
+      Effect.fail(new BillingStorageError({ operation: "claimEvent", message: "disk" }));
+    const result = await deliver(h, subEvent("evt_1"));
+    expect([result.status, result.body.outcome]).toEqual([500, "error"]);
+  });
+
+  it("answers 500 when the finished event cannot be recorded", async () => {
+    const h = await createHarness();
+    await customerWithStripe(h);
+    stripeHas(h);
+    (h.storage as { finishEvent: unknown }).finishEvent = () =>
+      Effect.fail(new BillingStorageError({ operation: "finishEvent", message: "disk" }));
+    const result = await deliver(h, subEvent("evt_1"));
+    expect([result.status, result.body.outcome]).toEqual([500, "error"]);
+  });
+});
+
+describe("failure logs", () => {
+  it("carry no body, signature or secret, from a failed delivery or a failed reconcile", async () => {
+    const entries: string[] = [];
+    const capture = Logger.layer([
+      Logger.make(({ message, fiber }) => {
+        entries.push(
+          inspect([message, fiber.getRef(References.CurrentLogAnnotations)], { depth: 8 }),
+        );
+      }),
+    ]);
+    const h = await createHarness();
+    await customerWithStripe(h);
+    stripeHas(h);
+    const upsert = h.storage.upsertSubscription;
+    (h.storage as { upsertSubscription: typeof upsert }).upsertSubscription = () =>
+      Effect.die(new Error("disk"));
+    const delivery = await signedEvent(subEvent("evt_1"), h.now());
+    const signature = delivery.headers.get("stripe-signature")!;
+    const body = await delivery.clone().text();
+    const failed = await Effect.runPromise(
+      h.billing.handleWebhook(delivery).pipe(Effect.provide(capture)),
+    );
+    expect(failed.status).toBe(500);
+
+    // A row due for reconcile whose Stripe call fails with a secret in its reply.
+    (h.storage as { upsertSubscription: typeof upsert }).upsertSubscription = upsert;
+    await run(
+      h.storage.upsertSubscription(
+        subscriptionWrite({
+          providerSubscriptionId: "sub_1",
+          currentPeriodEnd: new Date(h.now().getTime() - DAY),
+          fetchStartedAt: h.now(),
+        }),
+        h.now(),
+      ),
+    );
+    h.stripe.setIntercept(
+      () => new Response("sk_test_harness whsec_billing_test", { status: 503 }),
+    );
+    const report = await Effect.runPromise(
+      h.billing.reconcile({ limit: 10 }).pipe(Effect.provide(capture)),
+    );
+    expect(report.failed).toBe(1);
+
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+    const logged = entries.join("\n");
+    for (const secret of [body, signature, "sk_test_harness", "whsec_billing_test"]) {
+      expect(logged).not.toContain(secret);
+    }
+  });
 });
 
 describe("paid periods", () => {
@@ -341,9 +560,13 @@ describe("paid periods", () => {
       true,
       "month",
     ]);
+    expect([sub!.currentPeriod, sub!.group]).toEqual([
+      { start: new Date(PERIOD_START * 1000), end: new Date(PERIOD_END * 1000) },
+      "workspace",
+    ]);
   });
 
-  it("confirms nothing for a trial, a 100%-off invoice, or a proration", async () => {
+  it("confirms nothing for a trial, a 100%-off invoice, a proration, or a reason that is no period", async () => {
     const cases = [
       // A trial: the subscription line is 0, even beside a paid one-off item.
       invoiceJson({
@@ -370,6 +593,13 @@ describe("paid periods", () => {
         lines: [
           { amount: 2100, start: PERIOD_START + 10 * 86_400, end: PERIOD_END, proration: true },
         ],
+      }),
+      // Paid, positive, not a proration: only its reason keeps it from a period.
+      invoiceJson({
+        id: "in_m",
+        subscription: "sub_1",
+        billingReason: "manual",
+        lines: [{ amount: 4900, start: PERIOD_START, end: PERIOD_END }],
       }),
     ];
     for (const [i, invoice] of cases.entries()) {
@@ -429,9 +659,11 @@ describe("billingWebhookRoute", () => {
     const h = await createHarness();
     await customerWithStripe(h);
     stripeHas(h);
-    const app = new Elysia().use(
-      billingWebhookRoute(h.billing, { path: "/billing/webhook", run: Effect.runPromise }),
-    );
+    // A hook that reads `body` is what makes the route's `parse` option matter:
+    // without it Elysia drains the stream first and the signature has no bytes.
+    const app = new Elysia()
+      .onBeforeHandle(({ body }) => void body)
+      .use(billingWebhookRoute(h.billing, { path: "/billing/webhook", run: Effect.runPromise }));
     const delivery = await signedEvent(subEvent("evt_1"), h.now());
     const response = await app.handle(new Request("http://localhost/billing/webhook", delivery));
     expect(response.status).toBe(200);

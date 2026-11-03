@@ -425,6 +425,11 @@ export function storageContract(
         currentPeriodStart: at(now - 3 * HOUR),
         currentPeriodEnd: at(now + 30 * DAY),
       });
+      // Younger than the 2 h lower bound: Stripe has not yet tried the charge.
+      await write("sub_too_new", {
+        currentPeriodStart: at(now - HOUR),
+        currentPeriodEnd: at(now + 30 * DAY),
+      });
       await write("sub_confirmed", {
         currentPeriodStart: at(now - 3 * HOUR),
         currentPeriodEnd: at(now + 30 * DAY),

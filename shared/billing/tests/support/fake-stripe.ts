@@ -161,7 +161,7 @@ export const invoiceJson = (i: {
   },
 });
 
-export function createFakeStripe() {
+export function createFakeStripe(options: { portalPageSize?: number } = {}) {
   const prices: Json[] = [];
   const products = new Map<string, Json>();
   const portalConfigurations: Json[] = [];
@@ -296,7 +296,16 @@ export function createFakeStripe() {
       return Response.json(price);
     }
     if (method === "GET" && path === "/v1/billing_portal/configurations") {
-      return Response.json({ object: "list", data: portalConfigurations, has_more: false });
+      // Honours `starting_after`, and pages by `portalPageSize` when given.
+      const after = call.query.get("starting_after");
+      const from = after === null ? 0 : portalConfigurations.findIndex((p) => p.id === after) + 1;
+      const size = options.portalPageSize ?? portalConfigurations.length;
+      const data = portalConfigurations.slice(from, from + size);
+      return Response.json({
+        object: "list",
+        data,
+        has_more: from + size < portalConfigurations.length,
+      });
     }
     if (method === "POST" && path === "/v1/billing_portal/configurations") {
       const configuration = {
@@ -366,13 +375,25 @@ export async function signedEvent(
   now: Date,
   secret = WEBHOOK_SECRET,
 ): Promise<Request> {
-  const body = JSON.stringify({
-    id: event.id,
-    object: "event",
-    type: event.type,
-    ...(event.account === undefined ? {} : { account: event.account }),
-    data: { object: event.object },
-  });
+  return signedBody(
+    JSON.stringify({
+      id: event.id,
+      object: "event",
+      type: event.type,
+      ...(event.account === undefined ? {} : { account: event.account }),
+      data: { object: event.object },
+    }),
+    now,
+    secret,
+  );
+}
+
+/** A delivery with exactly this body, signed as Stripe would sign it. */
+export async function signedBody(
+  body: string,
+  now: Date,
+  secret = WEBHOOK_SECRET,
+): Promise<Request> {
   const t = Math.floor(now.getTime() / 1000);
   return new Request("https://api.example.test/billing/webhook", {
     method: "POST",

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { subscriptionWrite } from "../storage/contract";
@@ -75,7 +76,9 @@ describe("reconcile", () => {
         lines: [{ amount: 4900, start, end: start + 30 * 86_400 }],
       }),
     );
-    h.advance(2 * DAY);
+    // Past the old period's end plus the 48 h leeway: only the repair keeps access.
+    const pastLeeway = 3 * DAY + 1;
+    h.advance(pastLeeway);
     const report = await run(h.billing.reconcile({ limit: 10 }));
     await run(h.billing.sweepAccess({ limit: 10 }));
     const [sub] = (await run(h.billing.status("org_a"))).subscriptions;
@@ -84,10 +87,17 @@ describe("reconcile", () => {
       sub!.currentPeriodPaid,
       h.decisions.at(-1)!.features.workspace.allowed,
     ]).toEqual([1, true, true]);
+
+    // The same moment with no repair: the sweep alone lapses the customer.
+    const control = await createHarness();
+    await subscribed(control, "org_a", later(DAY));
+    control.advance(pastLeeway);
+    await run(control.billing.sweepAccess({ limit: 10 }));
+    expect(control.decisions.at(-1)!.features.workspace.allowed).toBe(false);
   });
 
-  it("also confirms an active period whose invoice.paid never arrived", async () => {
-    const h = await createHarness();
+  /** An active renewal 3 h old with no invoice.paid yet; Stripe's latest invoice has `status`. */
+  async function renewalAwaitingInvoice(h: Harness, status: string) {
     const start = unix(later(-3 * HOUR));
     await subscribed(h, "org_a", later(30 * DAY - 3 * HOUR));
     h.stripe.subscriptions.set(
@@ -117,11 +127,24 @@ describe("reconcile", () => {
       invoiceJson({
         id: "in_1",
         subscription: "sub_org_a",
+        status,
         lines: [{ amount: 4900, start, end: start + 30 * 86_400 }],
       }),
     );
     await run(h.billing.reconcile({ limit: 10 }));
-    expect((await run(h.billing.status("org_a"))).subscriptions[0]!.currentPeriodPaid).toBe(true);
+    return (await run(h.billing.status("org_a"))).subscriptions[0]!;
+  }
+
+  it("also confirms an active period whose invoice.paid never arrived", async () => {
+    const h = await createHarness();
+    expect((await renewalAwaitingInvoice(h, "paid")).currentPeriodPaid).toBe(true);
+  });
+
+  it("confirms no period from a latest invoice that is not paid", async () => {
+    const h = await createHarness();
+    const sub = await renewalAwaitingInvoice(h, "open");
+    expect(h.stripe.callsTo("GET", "/v1/invoices/in_1")).toHaveLength(1);
+    expect([sub.currentPeriodPaid, sub.paidPeriod]).toEqual([false, null]);
   });
 
   it("skips ended subscriptions, marks a vanished one canceled, and does not let a failing row block the others", async () => {
@@ -158,7 +181,31 @@ describe("reconcile", () => {
   });
 });
 
+describe("sweepAccess counts", () => {
+  it("counts a customer whose lease stays busy, and leaves the row due", async () => {
+    const h = await createHarness();
+    await subscribed(h, "org_a", later(DAY));
+    h.advance(4 * DAY);
+    await run(
+      h.storage.acquireAccess({
+        customerRef: "org_a",
+        now: h.now(),
+        until: new Date(h.now().getTime() + 60_000),
+      }),
+    );
+    const report = await run(h.billing.sweepAccess({ limit: 10 }));
+    expect(report).toEqual({ visited: 1, applied: 0, busy: 1, failed: 0 });
+    expect(await run(h.storage.listDueCustomers(h.now(), 10))).toEqual(["org_a"]);
+  });
+});
+
 describe("reapplyAll", () => {
+  it("returns the refs whose hook failed", async () => {
+    const h = await createHarness({ hooks: { onAccess: () => Effect.fail("table locked") } });
+    const report = await run(h.billing.reapplyAll({ customerRefs: ["org_x", "org_y"] }));
+    expect(report).toEqual({ applied: 0, failed: ["org_x", "org_y"] });
+  });
+
   it("applies the current decision, under the lease, to refs that have no billing row", async () => {
     const h = await createHarness();
     const report = await run(h.billing.reapplyAll({ customerRefs: ["org_never_paid"] }));

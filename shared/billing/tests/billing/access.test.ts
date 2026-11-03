@@ -131,6 +131,47 @@ describe("applying access", () => {
     expect(await run(h.storage.listDueCustomers(h.now(), 10))).toEqual(["org_1"]);
   });
 
+  it("stops waiting once another holder's completed application covers its write", async () => {
+    const h = await createHarness();
+    await run(h.storage.ensureCustomer("org_1", h.now()));
+    const held = (ms: number) => ({ customerRef: "org_1", now: h.now(), until: later(ms) });
+    await run(h.storage.acquireAccess(held(30_000)));
+    const granting = run(
+      h.billing.grant({
+        customerRef: "org_1",
+        featureId: "workspace",
+        source: "comp",
+        grantedBy: "ops",
+        expiresAt: null,
+      }),
+    );
+    // Wait until the grant has written (version 1) and is polling the busy lease.
+    for (let i = 0; i < 200; i += 1) {
+      if ((await run(h.storage.findCustomer("org_1")))!.accessVersion >= 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    // The other holder lets go, applies version 1 itself, and the lease is busy again.
+    await run(
+      Effect.gen(function* () {
+        yield* h.storage.releaseAccess({
+          customerRef: "org_1",
+          token: later(30_000),
+          dueAt: h.now(),
+        });
+        const lease = yield* h.storage.acquireAccess(held(60_000));
+        yield* h.storage.completeAccess({
+          customerRef: "org_1",
+          token: later(60_000),
+          version: lease!.version,
+          boundary: null,
+        });
+        yield* h.storage.acquireAccess(held(90_000));
+      }),
+    );
+    await granting;
+    expect(h.decisions).toHaveLength(0);
+  });
+
   it("frees the lease and leaves the row due when the hook fails", async () => {
     const h = await createHarness({
       hooks: { onAccess: () => Effect.fail("listing table locked") },

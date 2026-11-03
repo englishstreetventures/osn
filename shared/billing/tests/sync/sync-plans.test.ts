@@ -7,8 +7,8 @@ import { syncPlans } from "../../src/sync/sync-plans";
 import { annual, monthly, PLANS } from "../support/billing";
 import { createFakeStripe, priceJson } from "../support/fake-stripe";
 
-const setup = () => {
-  const stripe = createFakeStripe();
+const setup = (options?: Parameters<typeof createFakeStripe>[0]) => {
+  const stripe = createFakeStripe(options);
   const request = createStripeRequest({ secretKey: "sk_test_sync", fetchImpl: stripe.fetchImpl });
   return { stripe, request };
 };
@@ -43,6 +43,23 @@ function synced(stripe: ReturnType<typeof createFakeStripe>) {
       planId: "annual",
       unitAmount: 49_000,
       interval: "year",
+    }),
+  );
+}
+
+/** Stripe holding exactly what `monthly` asks for, so a plan that differs shows one change. */
+function matching(stripe: ReturnType<typeof createFakeStripe>) {
+  synced(stripe);
+  stripe.prices.splice(
+    0,
+    1,
+    priceJson({
+      id: "price_m1",
+      lookupKey: monthly.lookupKey,
+      product: "billing_monthly",
+      planId: "monthly",
+      unitAmount: 4900,
+      currencyOptions: { USD: 3500, NZD: 5200 },
     }),
   );
 }
@@ -122,6 +139,83 @@ describe("syncPlans", () => {
       "conflict",
     ]);
     expect(posts(stripe)).toEqual([]);
+  });
+
+  it("refuses to apply when a product carries another plan's id", async () => {
+    const { stripe, request } = setup();
+    matching(stripe);
+    (stripe.products.get("billing_monthly")!.metadata as Record<string, string>).plan_id =
+      "someone_elses";
+    const report = await Effect.runPromise(syncPlans({ plans: PLANS, request, apply: true }));
+    expect([report.conflicts, report.applied, report.plans[0]!.product.action]).toEqual([
+      1,
+      false,
+      "conflict",
+    ]);
+    expect(posts(stripe)).toEqual([]);
+  });
+
+  it("plans a replacement price when the tax behaviour changes, and when the interval changes", async () => {
+    const { stripe, request } = setup();
+    matching(stripe);
+    const run = (plan: typeof monthly) =>
+      Effect.runPromise(syncPlans({ plans: [plan, annual], request, apply: false }));
+    expect((await run(monthly)).plans[0]!.price.action).toBe("ok");
+
+    const inclusive = definePlan({
+      ...monthly,
+      price: { ...monthly.price, taxBehavior: "inclusive" },
+    });
+    const tax = (await run(inclusive)).plans[0]!.price;
+    expect(tax.action).toBe("replace");
+    expect(tax.diffs).toContain("tax_behavior: exclusive → inclusive");
+
+    const yearly = definePlan({ ...monthly, price: { ...monthly.price, interval: "year" } });
+    const interval = (await run(yearly)).plans[0]!.price;
+    expect(interval.action).toBe("replace");
+    expect(interval.diffs).toEqual(["interval: month → year"]);
+  });
+
+  it("tags a price that has no plan id, without creating another", async () => {
+    const { stripe, request } = setup();
+    matching(stripe);
+    stripe.prices[0]!.metadata = {};
+    const report = await Effect.runPromise(syncPlans({ plans: PLANS, request, apply: true }));
+    expect(report.plans[0]!.price.action).toBe("update_metadata");
+    expect(stripe.callsTo("POST", "/v1/prices")).toHaveLength(0);
+    const [update] = stripe.callsTo("POST", "/v1/prices/price_m1");
+    expect(update!.form).toEqual({ "metadata[plan_id]": "monthly" });
+  });
+
+  it("renames a product whose plan was renamed", async () => {
+    const { stripe, request } = setup();
+    matching(stripe);
+    const renamed = definePlan({ ...monthly, name: "Monthly Plus" });
+    const report = await Effect.runPromise(
+      syncPlans({ plans: [renamed, annual], request, apply: true }),
+    );
+    expect(report.plans[0]!.product.action).toBe("update");
+    const updates = stripe.callsTo("POST", "/v1/products/billing_monthly");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.form).toMatchObject({
+      name: "Monthly Plus",
+      "metadata[plan_id]": "monthly",
+    });
+    expect(stripe.products.get("billing_monthly")!.name).toBe("Monthly Plus");
+  });
+
+  it("finds its portal configuration on a later page, and updates it rather than adding another", async () => {
+    const { stripe, request } = setup({ portalPageSize: 1 });
+    matching(stripe);
+    stripe.portalConfigurations.push(
+      { id: "bpc_theirs", metadata: {}, features: {} },
+      { id: "bpc_mine", metadata: { managed_by: "billing-sync" }, features: {} },
+    );
+    const report = await Effect.runPromise(syncPlans({ plans: PLANS, request, apply: true }));
+    expect([report.portal.action, report.portal.configurationId]).toEqual(["update", "bpc_mine"]);
+    expect(stripe.callsTo("GET", "/v1/billing_portal/configurations")).toHaveLength(2);
+    expect(stripe.callsTo("POST", "/v1/billing_portal/configurations")).toHaveLength(0);
+    expect(stripe.callsTo("POST", "/v1/billing_portal/configurations/bpc_mine")).toHaveLength(1);
   });
 
   it("updates the one portal configuration it manages in place, and creates it once", async () => {
