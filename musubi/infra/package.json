@@ -13,10 +13,10 @@
     "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
-    "plan:dev": "DO_NOT_TRACK=1 bun alchemy plan --stage dev",
-    "deploy:dev": "DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes",
-    "plan:production": "DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
-    "deploy:production": "DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes",
+    "plan:dev": "CI=true DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+    "deploy:dev": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes",
+    "plan:production": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
+    "deploy:production": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes",
     "plan:guard": "bun run scripts/plan-guard.ts"
   },
   "dependencies": {

@@ -13,8 +13,8 @@
     "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
-    "plan:dev": "DO_NOT_TRACK=1 bun alchemy plan --stage dev",
-    "deploy:dev": "DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes"
+    "plan:dev": "CI=true DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+    "deploy:dev": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.84",
