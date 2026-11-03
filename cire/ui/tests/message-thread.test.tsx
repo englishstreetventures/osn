@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clockTime, dividerLabel } from "../src/lib/message-time";
+import { revealedLine, spokenPrefix } from "../src/message-bubble";
 import MessageThread, { type MessageThreadItem } from "../src/message-thread";
 
 /**
@@ -124,6 +125,20 @@ describe("MessageThread messages", () => {
   });
 });
 
+describe("a message with no usable time", () => {
+  const timeless = msg({ id: "x", from: "me", sentAt: Number.NaN });
+
+  it("still says who wrote it, and says nothing about when", () => {
+    expect(spokenPrefix(timeless)).toBe("You wrote: ");
+    expect(revealedLine(timeless)).toBe("");
+  });
+
+  it("still says it has not been delivered", () => {
+    expect(spokenPrefix({ ...timeless, undelivered: true })).toBe("You wrote, not delivered yet: ");
+    expect(revealedLine({ ...timeless, undelivered: true })).toBe("Not delivered yet");
+  });
+});
+
 describe("MessageThread with no messages", () => {
   it("says the thread is empty, with the caller's next step", () => {
     render(() => <MessageThread messages={[]} emptyHint="Your reply will start the thread." />);
@@ -144,6 +159,18 @@ describe("MessageThread with no messages", () => {
     ));
     expect(screen.getByText("Still here")).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("raises a failed reload above the messages it already has", () => {
+    render(() => (
+      <MessageThread
+        messages={[msg({ id: "a", body: "Still here" })]}
+        error="Could not load messages."
+        emptyHint="Hint"
+      />
+    ));
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load messages.");
+    expect(screen.getByText("Still here")).toBeInTheDocument();
   });
 
   it("raises a failed read as an alert, and not as an empty thread", () => {

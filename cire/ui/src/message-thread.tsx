@@ -37,7 +37,7 @@ export interface MessageThreadProps {
   reply?: MessageThreadReply;
 }
 
-/** A trusted `contextmenu` this soon after a key opened the menu is the browser's echo of that key. */
+/** A `contextmenu` this soon after a key opened the menu is the browser's echo of that key. */
 const KEY_ECHO_MS = 500;
 
 /** Whether the page's selection holds text inside `row`. */
@@ -187,7 +187,7 @@ export default function MessageThread(props: MessageThreadProps): JSX.Element {
   }
 
   function onContextMenu(event: MouseEvent) {
-    if (event.isTrusted && performance.now() - keyMenuAt < KEY_ECHO_MS) {
+    if (performance.now() - keyMenuAt < KEY_ECHO_MS) {
       event.preventDefault();
       return;
     }
@@ -283,7 +283,13 @@ export default function MessageThread(props: MessageThreadProps): JSX.Element {
           ref={root}
           class="base:flex base:flex-col"
           onPointerEnter={fetchMenu}
-          onFocusIn={fetchMenu}
+          onFocusIn={(event) => {
+            fetchMenu();
+            // The row with focus is the tab stop, so a message arriving while
+            // the reader is on the newest one does not take the stop from them.
+            const row = rowOf(event.target);
+            if (row?.dataset.messageId) setChosenId(row.dataset.messageId);
+          }}
           onPointerDown={onPointerDown}
           on:click={onClick}
           onContextMenu={onContextMenu}

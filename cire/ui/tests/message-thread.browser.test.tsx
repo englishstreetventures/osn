@@ -40,7 +40,8 @@ const GROUNDS = [
 ] as const;
 
 const MINUTE = 60_000;
-const now = Date.now();
+/** Noon today, so the thread's segments do not depend on the hour the suite runs. */
+const now = new Date().setHours(12, 0, 0, 0);
 
 const THREAD: MessageThreadItem[] = [
   { id: "a", from: "them", body: "Is the barn free on 14 March?", sentAt: now - 90 * MINUTE },
@@ -101,6 +102,42 @@ describe("MessageThread under a pointer and a finger", () => {
     await waitFor(() => expect(timeLine(last)).toBeNull());
   });
 
+  it("reads a click that names no pointer by the pointer that pressed it", async () => {
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const first = row("Is the barn free on 14 March?");
+    first.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+    first.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitFor(() => expect(timeLine(first)).not.toBeNull());
+  });
+
+  it("leaves a tap on selected words to the selection", async () => {
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const first = row("Is the barn free on 14 March?");
+    window.getSelection()?.selectAllChildren(first.querySelector("[data-message-fill]")!);
+    tap(first);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(timeLine(first)).toBeNull();
+  });
+
+  it("says a message waiting for the vendor's account has not gone, on a tap and in its info", async () => {
+    const waiting: MessageThreadItem = {
+      id: "pending",
+      from: "me",
+      body: "Are you free?",
+      sentAt: now,
+      undelivered: true,
+    };
+    render(() => <MessageThread messages={[waiting]} emptyHint="Hint" />);
+    const item = row("Are you free?");
+    tap(item);
+    await waitFor(() =>
+      expect(timeLine(item)?.textContent).toBe(`Written ${clockTime(now)}, not delivered yet`),
+    );
+    await primeMenu(item);
+    await userEvent.click(item, { button: "right" });
+    expect((await menuOpens()).textContent).toContain("You wrote, not delivered yet");
+  });
+
   it("shows nothing for a mouse click", async () => {
     render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
     const first = row("Is the barn free on 14 March?");
@@ -144,6 +181,52 @@ describe("MessageThread under a pointer and a finger", () => {
     await menuOpens();
     await userEvent.click(screen.getByRole("menuitem", { name: "Copy text" }));
     await waitFor(() => expect(window.getSelection()?.toString()).toContain("120 guests"));
+  });
+
+  it("hands focus back to the message after Copy text, and leaves it where a click outside put it", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    });
+    render(() => (
+      <>
+        <MessageThread messages={THREAD} emptyHint="Hint" />
+        <button type="button">Elsewhere</button>
+      </>
+    ));
+    const theirs = row("We'd be about 120 guests.");
+    await primeMenu(theirs);
+    await userEvent.click(theirs, { button: "right" });
+    await menuOpens();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Copy text" }));
+    await waitFor(() => expect(document.activeElement).toBe(theirs));
+    await userEvent.click(theirs, { button: "right" });
+    await menuOpens();
+    const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+    await userEvent.click(elsewhere);
+    await waitFor(() => expect(menu()).toBeNull());
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("selects the words when there is no clipboard to copy them to", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const theirs = row("We'd be about 120 guests.");
+    await primeMenu(theirs);
+    await userEvent.click(theirs, { button: "right" });
+    await menuOpens();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Copy text" }));
+    await waitFor(() => expect(window.getSelection()?.toString()).toContain("120 guests"));
+  });
+
+  it("moves the info to a second message right-clicked while it is open", async () => {
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const mine = row("It is. I'll send a quote today.");
+    await primeMenu(mine);
+    await userEvent.click(mine, { button: "right" });
+    expect((await menuOpens()).textContent).toContain("You sent");
+    await userEvent.click(row("Is the barn free on 14 March?"), { button: "right" });
+    await waitFor(() => expect(menu()?.textContent).toContain("They sent"));
   });
 
   it("leaves a right-click on words already selected to the browser", async () => {
@@ -249,6 +332,8 @@ describe("MessageThread from the keyboard", () => {
     expect(document.activeElement).toBe(row("We'd be about 120 guests."));
     await userEvent.keyboard("{Home}");
     expect(document.activeElement).toBe(row("Is the barn free on 14 March?"));
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(row("We'd be about 120 guests."));
     await userEvent.keyboard("{End}");
     expect(document.activeElement).toBe(row("It is. I'll send a quote today."));
     await userEvent.tab();
@@ -302,6 +387,50 @@ describe("MessageThread from the keyboard", () => {
     expect(placed.top).toBeGreaterThanOrEqual(box.bottom - 1);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toBe(first));
+  });
+
+  it("opens the info on the menu key, and cancels the key so the browser opens none", async () => {
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const last = row("It is. I'll send a quote today.");
+    await primeMenu(last);
+    last.focus();
+    const key = new KeyboardEvent("keydown", {
+      key: "ContextMenu",
+      bubbles: true,
+      cancelable: true,
+    });
+    last.dispatchEvent(key);
+    expect(key.defaultPrevented).toBe(true);
+    const panel = await menuOpens();
+    expect(panel.textContent).toContain("You sent");
+  });
+
+  it("swallows the browser's own menu event that follows a menu key", async () => {
+    render(() => <MessageThread messages={THREAD} emptyHint="Hint" />);
+    const last = row("It is. I'll send a quote today.");
+    await primeMenu(last);
+    last.focus();
+    await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+    await menuOpens();
+    // The menu event the browser fires after the key, here on a time line,
+    // where the thread would otherwise leave it to the browser.
+    const echo = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    document.querySelector("time")!.dispatchEvent(echo);
+    expect(echo.defaultPrevented).toBe(true);
+  });
+
+  it("keeps the tab stop on the message the reader is on when a newer one arrives", async () => {
+    const [messages, setMessages] = createSignal(THREAD);
+    render(() => <MessageThread messages={messages()} emptyHint="Hint" />);
+    await userEvent.tab();
+    const newest = row("It is. I'll send a quote today.");
+    expect(document.activeElement).toBe(newest);
+    setMessages([
+      ...THREAD,
+      { id: "d", from: "them", body: "Lovely, thank you.", sentAt: now + MINUTE },
+    ]);
+    await waitFor(() => screen.getByText("Lovely, thank you."));
+    expect(newest.getAttribute("tabindex")).toBe("0");
   });
 
   it("keeps focus on a message when another one arrives", async () => {
@@ -413,6 +542,7 @@ describe("MessageThread as painted", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(box.value).toBe(""));
     expect(box.getBoundingClientRect().height).toBe(34);
+    expect(document.activeElement).toBe(box);
   });
 
   it("brings the button in on width, margin, scale and opacity alone, on durations above zero", () => {
