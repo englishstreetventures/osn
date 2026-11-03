@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-03
 ---
 
 # Component Library (Zaidan)
@@ -87,23 +87,26 @@ shared/ui/src/
     ├── chip.tsx            ← Chip
     ├── control.ts          ← controlClass, sizes, fills, faces, heights — the box Input, Textarea and Select share
     ├── dialog.tsx          ← Dialog, DialogContent, … (Kobalte)
-    ├── dropdown-menu.tsx   ← DropdownMenu, DropdownMenuItem, … (Kobalte)
+    ├── dropdown-menu.tsx   ← DropdownMenu, its items, checkbox, radio and link rows, DropdownMenuHandle (Kobalte)
     ├── empty-state.tsx     ← EmptyState
     ├── field.tsx           ← Field, Fieldset
     ├── info-popover.tsx    ← InfoPopover (circled glyph beside a form label)
     ├── input.tsx           ← Input
     ├── label.tsx           ← Label
+    ├── menu-classes.ts     ← the menu's panel, row, label and separator classes, and MENU_TOUCH — no Kobalte
     ├── meter.tsx           ← Meter
     ├── modal.tsx           ← Modal — the platform <dialog>, top layer
     ├── notice.tsx          ← Notice
     ├── otp-input.tsx       ← OtpInput (6-digit code verification)
     ├── popover.tsx         ← Popover, PopoverTrigger, … (Kobalte)
+    ├── portal-mount.ts     ← where a popover's or a menu's panel portals: the open modal dialog, else <body>
     ├── props.ts            ← SafeProps — element props minus innerHTML/innerText/textContent
     ├── qr-code.tsx         ← QrCode
     ├── radio-group.tsx     ← RadioGroup, RadioGroupItem (native)
     ├── select.tsx          ← Select (native <select>, Input's box)
     ├── stat.tsx            ← Stat
     ├── switch.tsx          ← Switch — an on/off change that takes effect at once (native)
+    ├── switch-classes.ts   ← the switch's track and thumb classes, which the menu's switch row draws too
     ├── table.tsx           ← Table and its parts
     ├── tabs.tsx            ← Tabs, TabsList, TabsTrigger (Kobalte)
     ├── textarea.tsx        ← Textarea
@@ -306,6 +309,74 @@ tree once and never as a description, with the panel closed and open.
 `shared/ui/tests/tooltip.browser.test.tsx` holds the two a caller's page can
 hide: the hidden copy as written inside an `uppercase` run, and no animation
 for a reader who asked for reduced motion.
+
+### `DropdownMenu` — two looks, and rows that are checked, chosen or followed
+
+`DropdownMenuContent` takes `variant`, set once on the panel and read by every
+row, label and separator inside it, so one menu cannot mix two looks:
+
+- **`default`** — the shared look musubi's account menu, pulse's header and
+  explore menus, and the lab draw. Its classes are frozen:
+  `shared/ui/tests/dropdown-menu-default.browser.test.tsx` reads them back as
+  literal strings and checks what they paint, and imports only what the menu
+  exported before the accent variant, so it runs on either side of a change.
+- **`accent`** — cire's portal menus: the raised surface at the `md` corner
+  with `--elev-2` (an app's own, else `--ui-elev-2`), 6px of padding; rows at
+  the small type step in full ink, `px-3 py-2` at the `sm` corner; a
+  highlighted row a 10% accent wash with the readable accent ink; a 2px focus
+  ring inset by 2px for the keyboard, because Kobalte scrolls a row flush to
+  the edge of a scrolling panel and the panel would clip a ring drawn outside
+  it. The panel pops from its trigger's side — a 0.96 scale and a fade on the
+  app's `--dur-fast` and `--ease-out`, under `motion-safe:` — and has no exit:
+  a menu held mounted for an exit animation keeps focus inside it, and focus
+  then falls to `<body>` instead of going back to the trigger. The colour fade
+  names its properties, so the ring never fades in.
+
+The rows:
+
+- `DropdownMenuItem` — one choice. With `as="a"` it is a real anchor taking
+  `href`, `target`, `rel` and `download`; with `target="_blank"` and no `rel`
+  it gets `noopener noreferrer`. The browser follows the link, never script:
+  the menu stays open through Kobalte's select and closes a task after the
+  link's own click, because an anchor taken out of the document during its
+  click goes nowhere, and a tap's click can arrive after Kobalte's own
+  close-on-select would have removed it. Space clicks it, as Enter does.
+  Disabled, it keeps no `href`.
+- `DropdownMenuCheckboxItem` — on or off (`checked`, `onChange`), open after
+  choosing unless `closeOnSelect`. `indicator="check"` (the default) shows a
+  trailing check while on; `indicator="switch"` draws `Switch`'s own track and
+  thumb (`switch-classes.ts`), hidden from assistive technology — the row
+  carries `menuitemcheckbox` and `aria-checked`.
+- `DropdownMenuRadioGroup` (`value`, `onChange`) and `DropdownMenuRadioItem`
+  (`value`) — one of several; the chosen row shows the trailing check, so the
+  choice never rests on colour alone.
+- `DropdownMenuLabel` — `heading`, `identity`, or `eyebrow`: small caps at the
+  widest tracking in the secondary ink, for a group label. In a menu the
+  accent marks state — the highlighted row, the check, a switch that is on —
+  so a label that cannot be chosen does not wear it.
+
+The trailing check and the switch take the readable accent ink and the accent.
+
+**Inside a `Modal`** the panel portals into the open dialog and carries
+`data-kb-top-layer` (`portal-mount.ts`, shared with `PopoverContent`), so a
+click on a row lands. With no modal open it portals to `<body>` with no such
+mark: Kobalte reads the mark outside modals too, and a press inside a marked
+panel never counts as outside another open layer. In a dialog the panel is
+clipped by the dialog's own scroll box and by a `frame` modal, as a popover is
+(englishstreetventures/osn#1089).
+
+**`menu-classes.ts`** holds every class the menu renders, and imports nothing
+from Kobalte, so a surface that cannot afford Kobalte's menu can still draw
+one in the same rows. `MENU_TOUCH` is that case: the guest site's link menu,
+which paints in the top layer inside the guest sheet. Its panel is `min-w-56`,
+`p-2` with a 4px gap, on `shadow-lg`; its rows are 44px, a guest's touch
+floor, in the secondary ink, filled with the accent under the pointer, for
+the keyboard (`focus-visible`) and while pressed — never on focus alone, since
+a tap focuses the link it lands on and a filled row then reads as chosen.
+
+`shared/ui/tests/dropdown-menu.browser.test.tsx` holds the rows' keys and
+pointer, the link rules, the modal mount, the accent look's focus ring,
+motion and its contrast on cire's two ramps, the touch row and the handle.
 
 ### Table and its pinned cells
 
@@ -517,10 +588,11 @@ list — a tooltip on each household's four icons, a menu on each household's
 controls as plain buttons and mount the popup once:
 
 - **A menu**: one `DropdownMenu` with no `DropdownMenuTrigger`, placed with
-  `getAnchorRect` against whichever button was pressed. A child of the root
-  reads Kobalte's `useMenuContext()` (`@kobalte/core/menu`) and the buttons call
+  `getAnchorRect` against whichever button was pressed. `DropdownMenuHandle`,
+  a child of the root, hands the root's menu to a `ref`, and the buttons call
   its `open("first")` from the keyboard, `open(true)` from a click, as Kobalte's
-  own trigger does, so focus lands where a keyboard user expects.
+  own trigger does, so focus lands where a keyboard user expects. The handle is
+  Kobalte's `useMenuContext()`, so a call site imports nothing from Kobalte.
   `DropdownMenuContent` takes `onCloseAutoFocus` to give focus back to that
   button, and an `aria-label` to name the menu. The household list's "⋯"
   (`cire/host/src/components/GuestTable.tsx`).
@@ -640,6 +712,7 @@ Key behaviours you get by default:
 
 - **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped
 - **Popover** — portaled, auto-positioned, outside click/Escape dismisses
+- **DropdownMenu** — portaled, roving focus by arrow keys, typeahead; §`DropdownMenu` above for its looks and rows
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation
 - **Tooltip** — hover only, panel hidden from assistive technology; §`Tooltip` above says why
 - **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
