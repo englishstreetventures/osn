@@ -44,7 +44,7 @@ product layer, and which one a component belongs in is decided by
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `SegmentedTabs`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
 _why_ the line falls there, and is not re-argued here. The short version is that
@@ -130,6 +130,8 @@ cire/ui/src/
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
 ├── segmented-tabs.tsx      ← SegmentedTabs: a glass track of choices with one sliding highlight
+├── sign-in-panel.tsx       ← SignInPanel: the portals' one button to musubi, its error lines, signInCardClass
+├── sign-in-card.astro      ← SignInCard: the sign-in page's label, heading and card around the panel
 ├── lib/sliding-pill.ts     ← createSlidingPill: one highlight that moves between items
 ├── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
 └── wordmark.tsx            ← Wordmark: the portals' "✦ Cire" way home; WordmarkPlaceholder, its still copy
@@ -1153,6 +1155,43 @@ form, the placeholder's inertness, the readable star, the left-only pull and
 the ring's classes; `wordmark.browser.test.tsx` the star and the word at
 4.5:1 on the bar and on the wash in both ramps, the ring and its gap to the
 divider, and the copy's glyphs landing where the button's do.
+
+### cire's `SignInPanel` and `SignInCard` — one sign-in for both portals
+
+The host and vendor portals sign in through the same page. `SignInCard`
+(`cire/ui/src/sign-in-card.astro`, props `portal` and `apiBase`) is its body:
+a 30rem measure through the portal's `page-frame`, set at the top (`py-24`) so
+the header never moves while the card below it grows; an `Eyebrow` naming the
+product and the portal ("Cire · Host portal", "Cire · Vendor portal"); a roman
+"Sign in" in the display face, sized from the page's container
+(`text-[clamp(1.9rem,5cqi,2.6rem)]`, so the page's `<body>` carries
+`@container/frame`); and the card, `signInCardClass` — the opaque card at the
+largest padding with its top edge lit by the app's `--inner-lip` — holding the
+panel as a `client:only` island. The owner chose the card, the measure and
+the labels (Stack 6 of englishstreetventures/osn#1831, questions 33 to 36).
+
+`SignInPanel` (`cire/ui/src/sign-in-panel.tsx`, props `apiBase` and an
+optional `auth`) is the island: copy at the small step, one large primary
+pill, "Continue with musubi", and a danger `Notice` read out as an alert when
+the address carries `?auth_error=` — a line each for `sign_in_declined`,
+`sign_in_failed` and `sign_in_unavailable`, the failed line for any other —
+after which the marker is wiped from the address. It never leaves on its
+own: it asks `resumeSession`, behind the page, whether this browser is
+signed in already. Both that and the button return to `?returnTo` only when
+it is a same-origin path with no `//`, no backslash and not `/login`, else to
+`/`. After the press the label reads "Connecting to musubi…" at full
+strength and a hidden status line says the same; a second press does
+nothing; a `pageshow` from the back-forward cache, or ten seconds
+(`SIGN_IN_PENDING_RESET_MS`) with the browser still on the page, puts the
+button back. `auth` is the four `@shared/rp-auth` calls, so a story or a test
+can show every state without navigating; the portals pass nothing.
+
+`cire/ui/tests/sign-in-panel.test.tsx` holds the flow, each marker, the
+`returnTo` refusals and the pending state's three ways back;
+`sign-in-card.test.ts` reads the template for the island, the labels, the
+roman heading and the top-set measure; `sign-in-panel.browser.test.tsx` the
+copy, the button and the notice at 4.5:1 on the opaque card in both ramps,
+and a press that keeps the 284px button's box at a phone's width.
 
 ### cire's `Button`, as a vocabulary
 
