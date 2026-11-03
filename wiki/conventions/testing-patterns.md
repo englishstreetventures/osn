@@ -519,7 +519,7 @@ bun run --cwd cire/host test:mutation --changed
 
 # A file, several files, or a line range
 bun run --cwd cire/host test:mutation --mutate src/lib/guest-event-draft.ts
-bun run --cwd cire/vendor test:mutation --mutate 'src/lib/enquiry-inbox.ts,src/lib/theme.ts:20-48'
+bun run --cwd cire/vendor test:mutation --mutate 'src/lib/enquiry-inbox.ts,src/lib/preferences.ts:15-18'
 
 # @cire/api: also name the tests that cover the code — it will not start without them
 STRYKER_TESTS=tests/lib/money.test.ts bun run --cwd cire/api test:mutation --changed

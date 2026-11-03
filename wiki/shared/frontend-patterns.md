@@ -371,8 +371,8 @@ layer, and what it means for a menu opened from inside a sheet are in
 
 ### A width-only reflow guard cannot see a drag that only changes height
 
-`createAutoSize()` (`cire/vendor/src/lib/auto-size.ts`, byte-identical in
-`cire/host`) animates a frame's height on a `ResizeObserver` delivery, and
+`createAutoSize()` (`cire/ui/src/lib/auto-size.ts`, which both portals import
+as `@cire/ui/lib/auto-size`) animates a frame's height on a `ResizeObserver` delivery, and
 guards against animating a plain text reflow (a narrower window rewrapping
 the content) by comparing the observed width to the last one: unchanged width
 means real content changed, not layout. That guard has one blind spot —

@@ -21,7 +21,7 @@
  * Dark is the default and lives on bare `:root`, so a document with no
  * `data-theme` and no JavaScript still renders the house look. Light arrives
  * two ways — the system preference (for a first visit with no stored choice)
- * and an explicit `data-theme="light"` (what `lib/theme.ts` writes). The
+ * and an explicit `data-theme="light"` (what `lib/preferences.ts` writes). The
  * attribute selectors come last and are more specific, so an explicit choice
  * always beats the system.
  *

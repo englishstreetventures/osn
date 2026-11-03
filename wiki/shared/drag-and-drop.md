@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[component-lab]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-11-04
 ---
 
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
@@ -243,7 +243,8 @@ which no jsdom-tier assertion can see.
 
 Haptics. The package reports drag **phases** (`pickup`, `step`, `commit`) through
 `onPhase`; what they feel like is the host portal's vocabulary
-(`cire/host/src/lib/haptics.ts`), not the package's. `onDragOver` reports only a
+(`cire/host/src/lib/touch-feedback.ts`, over `@cire/ui/lib/haptics`), not the
+package's. `onDragOver` reports only a
 _change_ of slot, so a consumer ticking per phase buzzes once per row crossed
 rather than continuously.
 

@@ -163,7 +163,7 @@ function Dashboard() {
 
   // The design law: the panel keeps its box and animates to the new content's
   // height, so nothing in the chrome above it moves when a view is swapped.
-  // The frame holds no height at rest — see `lib/auto-size.ts`.
+  // The frame holds no height at rest — see `@cire/ui/lib/auto-size`.
   const panel = createAutoSize();
 
   // What the panel is currently showing, as one value. The key on the inner

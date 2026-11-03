@@ -156,7 +156,7 @@ describe("ProfileMenu", () => {
 
   it("offers a haptics switch at all, and defaults it on", async () => {
     // Whether a *stored* preference is honoured is `readHapticsPreference`'s
-    // contract and is covered in `lib/theme.test.ts`, which re-imports the
+    // contract and is covered in `lib/preferences.test.ts`, which re-imports the
     // module per case — the signal here is initialised once at module load, so
     // writing localStorage from this file could not affect it anyway.
     //

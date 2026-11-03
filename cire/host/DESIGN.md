@@ -461,9 +461,10 @@ per-component branch. It sets `transition-duration` and `animation-duration` wit
 `!important`, which beats an inline style — so a hook that writes a duration
 inline still stops, and no hook needs a `matchMedia` check of its own.
 
-Two hooks carry the design law of §1, both in `src/lib/`:
+Two hooks carry the design law of §1, both from `@cire/ui` and shared with the
+vendor portal:
 
-- **`createAutoSize`** — animates a frame between its own heights, then hands the
+- **`createAutoSize`** (`@cire/ui/lib/auto-size`) — animates a frame between its own heights, then hands the
   height back to the content. It holds **nothing at rest**: no pixel height
   survives the transition, so a resized window, a changed font size or a late
   image never fights a stale number. The measured wrapper is a `flow-root`, so a
@@ -684,17 +685,21 @@ sticking below the real top bar.
 
 ## 6. Theme preference
 
-Three states, not two: `system`, `dark`, `light` (`src/lib/theme.ts`).
+Three states, not two: `system`, `dark`, `light` (`@cire/ui/lib/theme`'s
+`createPreferences`, made once under this portal's keys in
+`src/lib/preferences.ts`).
 
 Collapsing "system" into "dark" would silently convert a host who follows their
 OS into a host pinned to dark, the moment they opened the menu to look at it.
 
-`src/lib/theme-boot.ts` holds a zero-import boot script, inlined in `<head>`
-before the stylesheet on every page. It has to run before first paint — a host
+`src/lib/preference-keys.ts` holds the storage keys and the boot script
+(`@cire/ui/lib/theme-boot`'s `themeBootScript`, over `cire.host.theme`),
+inlined in `<head>` before the stylesheet on every page. It has to run before first paint — a host
 who chose light and gets one frame of dark has been flashbanged in the other
 direction, which is the whole thing the light ramp was tuned to avoid. It is its
-own module with no imports so that `.astro` frontmatter can import it without
-dragging SolidJS and a module-scope signal graph into Astro's server bundle.
+own module, importing only the import-free `theme-boot`, so that `.astro`
+frontmatter can import it without dragging SolidJS and a module-scope signal
+graph into Astro's server bundle.
 
 Every failure in it resolves to a theme rather than an exception: `localStorage`
 throws outright in some private-browsing modes, and a browser with no `matchMedia`
