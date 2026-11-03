@@ -1070,7 +1070,10 @@ its own layer clipped to the track's shape, so an overshoot is cut by the
 track and no focus ring is. Under the pointer an unchosen choice goes halfway:
 half the tint, an ink between the two. Colours fade on named properties, so
 the 2px ring at 2px never fades in; a reader who turned motion down gets no
-slide and no fade.
+slide and no fade. The frosted backdrop is filtered again on every frame of a
+slide: a cost on low-end phones that the owner's frosted look accepts. In a
+contrast theme the chosen choice keeps a 1px outline in the theme's text
+colour, since the theme drops the glass.
 
 `semantics` keeps each strip's meaning: `tabs` (a named tablist, one tab stop,
 arrows, Home and End moving focus, Enter or a click choosing), `radio` (a
