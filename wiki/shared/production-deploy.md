@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-04
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -876,9 +876,10 @@ what holds it.
    flip release has four, one per job (§5.7).
    - **A red `alchemy-plan`** holds every deploy job. Its failing step says why: a
      worker site whose domain is still on Pages (the step names the dispatch that moves
-     it), the token or the state store (bootstrap it after an
-     Alchemy bump), a plan step (the next step prints its log), or the guard (its
-     summary names each refused resource and action).
+     it), the token or the state store (bootstrap it after an Alchemy bump that
+     changes the store's version; an error from loading Alchemy itself is a broken
+     install, which no bootstrap fixes), a plan step (the next step prints its log),
+     or the guard (its summary names each refused resource and action).
    - **A red stack job's guard step** with "not the one approved" means the plan
      changed between the two approvals; nothing deployed. Dispatch a new release.
 6. **`Set up job` failing with `Failed to resolve action download info` is GitHub
@@ -1255,9 +1256,10 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   `build` and asks for nothing.
 - **A failure before the gate stops everything.** Every deploy job needs `alchemy-plan`
   to have passed or been skipped. A guard refusal, a failed site build, a state store
-  left unreadable by an Alchemy bump (run the **Alchemy state store** workflow, tier
-  `production`, bootstrap then check), or a site whose mode says `worker` while its
-  domain is still on Pages holds every release, the daily one included, until fixed —
+  left out of date by an Alchemy bump that changes its version (run the **Alchemy
+  state store** workflow, tier `production`, bootstrap then check), or a site whose
+  mode says `worker` while its domain is still on Pages holds every release, the daily
+  one included, until fixed —
   or until a dispatch whose `surfaces` leave the stacks' sites out.
 - **One at a time.** The workflow's concurrency group holds one release in progress —
   waiting for approval counts — and one queued behind it. A newer trigger replaces the

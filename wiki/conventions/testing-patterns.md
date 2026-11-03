@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 
 # Testing Patterns
@@ -500,7 +500,7 @@ Stryker config (`stryker/config.mjs`) and a
 
 Outside cire, break the changed lines by hand: a scratch script swaps one line at a time for a broken form, runs the test file that covers it, and restores the file, checking its hash after the last swap. Confirm each swap matched, as [[#Assertions that cannot fail]] warns. It pays even after a failure-modes-first list. For the alchemy D1 import patch (`shared/infra/tests/d1-import.test.ts`), 19 cases, each seen red before the code, still let 8 of 11 hand mutants survive. The list named behaviours, and the survivors were mostly fields copied from one shape into another (`error: init.error` set to `undefined`), plus an error branch whose test reply, carrying no bookmark, also failed the next branch down with the same text.
 
-*Measured 2026-10-26 — 11 one-line mutants of alchemy's patched `src/Cloudflare/D1/ImportDatabase.ts`, each run with `bunx --bun vitest run --project package tests/d1-import.test.ts -t "src copy"` in `shared/infra`*
+*Measured 2026-10-26 — 11 one-line mutants of the patched `src/Cloudflare/D1/ImportDatabase.ts` in `alchemy@2.0.0-beta.83` (now `src/D1/ImportDatabase.ts` in `@alchemy.run/cloudflare`), each run with `bunx --bun vitest run --project package tests/d1-import.test.ts -t "src copy"` in `shared/infra`*
 
 ### When to run it
 
