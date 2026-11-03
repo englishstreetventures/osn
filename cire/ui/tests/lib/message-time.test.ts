@@ -83,7 +83,9 @@ describe("segmentMessages", () => {
   });
 
   it("lets a message with no usable time open the thread, and the next timed one open its own", () => {
-    const segments = segmentMessages([at(Number.NaN), at(base)], ZONE);
+    // Today's date on purpose: a timed message must not be compared with the
+    // untimed one before it, which `Intl` would read as the present moment.
+    const segments = segmentMessages([at(Number.NaN), at(Date.now())], ZONE);
     expect(segments.map((s) => s.length)).toEqual([1, 1]);
   });
 
