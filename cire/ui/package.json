@@ -22,6 +22,8 @@
     "./loading": "./src/loading.tsx",
     "./note": "./src/note.tsx",
     "./reveal": "./src/reveal.tsx",
+    "./segmented-tabs": "./src/segmented-tabs.tsx",
+    "./sliding-pill": "./src/lib/sliding-pill.ts",
     "./username-input": "./src/username-input.tsx"
   },
   "scripts": {
