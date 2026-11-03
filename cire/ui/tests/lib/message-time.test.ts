@@ -176,6 +176,7 @@ describe("clockTime and fullDateTime", () => {
   });
 
   it("gives empty strings for a finite time past the furthest a date reaches", () => {
+    expect(clockTime(8.64e15, { ...ZONE, timeZone: "UTC" })).toBe("12:00 am");
     const beyond = 8.64e15 + 1;
     expect(clockTime(beyond, ZONE)).toBe("");
     expect(dividerLabel(-beyond, { ...ZONE, now: NOW })).toBe("");
