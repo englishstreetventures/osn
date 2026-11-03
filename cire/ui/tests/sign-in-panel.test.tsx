@@ -74,6 +74,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("SignInPanel", () => {
@@ -170,6 +172,11 @@ describe("SignInPanel", () => {
     "/login//",
     "/login?returnTo=/x",
     "javascript:alert(1)",
+    // The URL parser drops a tab or a line break, so each of these passes the
+    // string checks and resolves to another host: only the origin check stops it.
+    "/\t/evil.example",
+    "/\n/evil.example",
+    "/\r/evil.example",
     "evil",
   ])("refuses %s as a place to resume, and goes to the dashboard", (raw) => {
     at(`?returnTo=${encodeURIComponent(raw)}`);
@@ -267,7 +274,5 @@ describe("SignInPanel with the real sign-in calls", () => {
     const start = new URL(assign.mock.calls[0]![0] as string);
     expect(start.origin + start.pathname).toBe(`${API}/api/auth/oidc/start`);
     expect(start.searchParams.get("return_to")).toBe(`${window.location.origin}/w/1`);
-    assign.mockRestore();
-    vi.unstubAllGlobals();
   });
 });
