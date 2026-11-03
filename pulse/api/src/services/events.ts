@@ -238,8 +238,14 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
   return Effect.gen(function* () {
     const { db } = yield* Db;
     yield* Effect.tryPromise({
+      // A transition is derived from the status the row was read with, so
+      // it applies only while the row still has it: a cancel or early close
+      // committed since the read is left as it is.
       try: () =>
-        db.update(events).set({ status: derived, updatedAt: now }).where(eq(events.id, event.id)),
+        db
+          .update(events)
+          .set({ status: derived, updatedAt: now })
+          .where(and(eq(events.id, event.id), eq(events.status, previous))),
       catch: (cause) => new DatabaseError({ cause }),
     });
     metricEventStatusTransition(previous, derived);
@@ -252,12 +258,12 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
 };
 
 /**
- * Batch variant of {@link applyTransition} for the list read paths
- * (P-W5 / P-W1). The per-row version issues one `UPDATE` per
- * transitioning event, so a page of N stale rows costs N writes.
- * This helper derives every row's status with a single `now`, groups
- * the rows that need persisting by their (fromStatus → toStatus) pair,
- * and issues ONE `UPDATE events SET status = ? WHERE id IN (…)` per
+ * Batch variant of {@link applyTransition} for the list read paths. The
+ * per-row version issues one `UPDATE` per transitioning event, so a page
+ * of N stale rows costs N writes. This helper derives every row's status
+ * with a single `now`, groups the rows that need persisting by their
+ * (fromStatus → toStatus) pair, and issues ONE
+ * `UPDATE events SET status = ? WHERE id IN (…) AND status = ?` per
  * group — at most a handful of writes per page regardless of N.
  *
  * Semantics are identical to mapping `applyTransition` over the rows:
@@ -312,11 +318,15 @@ export const applyTransitions = (
           // "upcoming" row crossing into "ongoing" at once) can reach it.
           // `jsonEachIn` drops the id list to one bound parameter, so the
           // group size no longer matters.
+          //
+          // A transition applies only to the status it was derived from, so
+          // a row cancelled or closed since the read is left as it is. Every
+          // row in a group shares one `from`, so one equality covers it.
           try: () =>
             db
               .update(events)
               .set({ status: to, updatedAt: now })
-              .where(inArray(events.id, jsonEachIn(ids))),
+              .where(and(inArray(events.id, jsonEachIn(ids)), eq(events.status, from))),
           catch: (cause) => new DatabaseError({ cause }),
         }).pipe(
           Effect.tap(() =>

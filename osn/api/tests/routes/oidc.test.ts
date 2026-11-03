@@ -579,6 +579,119 @@ describe("GET /authorize/context", () => {
     expect(body.signedIn).toBe(false);
     expect(body.profiles).toEqual([]);
   });
+
+  /** Reads the context for a parked request with the given Cookie header. */
+  async function readContext(
+    h: Harness,
+    requestId: string,
+    cookie: string,
+  ): Promise<{
+    status: number;
+    body: { signedIn: boolean; profiles: { id: string }[]; linkedProfileId: string | null };
+  }> {
+    const res = await h.app.handle(
+      new Request(`http://localhost/authorize/context?request=${requestId}`, {
+        headers: { cookie },
+      }),
+    );
+    return {
+      status: res.status,
+      body: (await res.json()) as {
+        signedIn: boolean;
+        profiles: { id: string }[];
+        linkedProfileId: string | null;
+      },
+    };
+  }
+
+  it("names the profile a stored consent links, and only for that client", async () => {
+    const h = setup();
+    h.seedClient();
+    h.seedClient({ clientId: "cid_other", name: "Other Party" });
+    const sessionCookie = await signIn(h, "linkedctx@example.com", "linkedctx_user");
+
+    const first = await parkRequest(h, sessionCookie);
+    const decision = await h.app.handle(
+      new Request("http://localhost/authorize/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: first.cookie },
+        body: JSON.stringify({
+          requestId: first.requestId,
+          profileId: first.profileId,
+          approved: true,
+        }),
+      }),
+    );
+    expect(decision.status).toBe(200);
+
+    // A covered consent skips the screen, so the returning visit asks for it.
+    const again = await startAuthorize(h, sessionCookie, { ...goodParams, prompt: "consent" });
+    const linked = await readContext(h, again.requestId, `${sessionCookie}; ${again.binding}`);
+    expect(linked.status).toBe(200);
+    expect(linked.body.profiles).toHaveLength(1);
+    expect(linked.body.linkedProfileId).toBe(linked.body.profiles[0]!.id);
+    expect(linked.body.linkedProfileId).toBe(first.profileId);
+
+    // The same account has no consent on record for a second client.
+    const other = await startAuthorize(h, sessionCookie, {
+      ...goodParams,
+      client_id: "cid_other",
+    });
+    const unlinked = await readContext(h, other.requestId, `${sessionCookie}; ${other.binding}`);
+    expect(unlinked.status).toBe(200);
+    expect(unlinked.body.profiles).toHaveLength(1);
+    expect(unlinked.body.linkedProfileId).toBeNull();
+  });
+
+  it("reads a revoked session's cookie as signed out", async () => {
+    const h = setup();
+    h.seedClient();
+    const sessionCookie = await signIn(h, "revokedctx@example.com", "revokedctx_user");
+    const first = await parkRequest(h, sessionCookie);
+    const decision = await h.app.handle(
+      new Request("http://localhost/authorize/decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: first.cookie },
+        body: JSON.stringify({
+          requestId: first.requestId,
+          profileId: first.profileId,
+          approved: true,
+        }),
+      }),
+    );
+    expect(decision.status).toBe(200);
+    const { requestId, binding } = await startAuthorize(h, sessionCookie, {
+      ...goodParams,
+      prompt: "consent",
+    });
+
+    const logout = await h.app.handle(
+      new Request("http://localhost/logout", {
+        method: "POST",
+        headers: { cookie: sessionCookie },
+      }),
+    );
+    expect(logout.status).toBe(200);
+    expect(h.sqlite.query("SELECT id FROM sessions").all()).toEqual([]);
+
+    const ctx = await readContext(h, requestId, `${sessionCookie}; ${binding}`);
+    expect(ctx.status).toBe(200);
+    expect(ctx.body.signedIn).toBe(false);
+    expect(ctx.body.profiles).toEqual([]);
+    expect(ctx.body.linkedProfileId).toBeNull();
+  });
+
+  it("reads a session cookie that names no session as signed out", async () => {
+    const h = setup();
+    h.seedClient();
+    const { requestId, binding } = await startAuthorize(h, null);
+
+    const ctx = await readContext(h, requestId, `osn_session=garbage; ${binding}`);
+    expect(ctx.status).toBe(200);
+    expect(ctx.body.signedIn).toBe(false);
+    expect(ctx.body.profiles).toEqual([]);
+    expect(ctx.body.linkedProfileId).toBeNull();
+  });
 });
 
 /**

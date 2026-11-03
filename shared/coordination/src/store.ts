@@ -69,10 +69,10 @@ export class CoordinationStore extends DurableObject<unknown> {
   }
 
   /**
-   * Deletes the entry, then its alarm. The entry goes in the same synchronous
-   * step as the caller's read, before the first await, so no other call on
-   * this object can see it between the two. An object with no entry has no
-   * alarm, so it is left alone.
+   * Deletes the entry synchronously, then clears the alarm and storage
+   * together. The entry goes in the same synchronous step as the caller's
+   * read, before the first await, so no other call on this object can see it
+   * in between. An object with no entry has no alarm, so it is left alone.
    */
   private async clear(): Promise<void> {
     if (!this.ctx.storage.kv.delete(ENTRY)) return;
