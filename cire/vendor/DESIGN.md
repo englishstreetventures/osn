@@ -154,8 +154,9 @@ a headline figure or a table.
 wordmark's hover wash at 6px (a nav highlight, `Wordmark`); the profile menu's panel and
 rows take the shared menu's 10px and 6px. The quote form nested in the enquiry thread's
 card is 6px too, drawn from the card's box (`cardBoxClass({ fill: "none",
-nested: true })`) with its own 16px padding. The login card and the thread's
-message bubbles take the 16px card corner. The round marks — the avatar, the
+nested: true })`) with its own 16px padding. The login card takes the 16px card
+corner. The thread's messages and reply box are `MessageThread`'s, drawn as host
+§7, An enquiry thread, says; this portal adds no corner of its own to them. The round marks — the avatar, the
 haptics switch — are `rounded-full`.
 
 **Cards here** take a step of `cardClass` (host §7): an enquiry in the inbox is

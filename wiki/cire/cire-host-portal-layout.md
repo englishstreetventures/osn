@@ -272,8 +272,8 @@ component was previously reading a container it did not live in.
 
   1. The thread's `Show` is **`keyed` on the open enquiry's id**. Side by side you
      can click row B while replying to row A, which keeps an unkeyed `Show`
-     truthy — Solid then reuses the same `EnquiryThread`, and its local `draft`
-     signal hands vendor A's half-typed reply to vendor B.
+     truthy — Solid then reuses the same `EnquiryThread`, and the draft its reply
+     box holds hands vendor A's half-typed reply to vendor B.
   2. Solid's `Show` only *calls* a children function whose **arity is ≥ 1** (it
      tests `children.length`). A zero-argument `{() => …}` is returned as a plain
      child, so `keyed` silently does nothing — which is exactly how the first fix
