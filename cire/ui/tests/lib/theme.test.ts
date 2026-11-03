@@ -56,6 +56,28 @@ function stubMatchMedia(matches: boolean) {
   };
 }
 
+/**
+ * A `localStorage` whose `method` throws, as private browsing and a full quota
+ * do. Stubbed whole: happy-dom's storage is a proxy that stores a spy put on
+ * it as an item, and binds its methods on the instance, past the prototype.
+ */
+function refusingStorage(method: "getItem" | "setItem", error: string) {
+  const items = new Map<string, string>();
+  return {
+    getItem: (key: string) => {
+      if (method === "getItem") throw new Error(error);
+      return items.get(key) ?? null;
+    },
+    setItem: (key: string, value: string) => {
+      if (method === "setItem") throw new Error(error);
+      items.set(key, value);
+    },
+    removeItem: (key: string) => {
+      items.delete(key);
+    },
+  };
+}
+
 beforeEach(() => {
   localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
@@ -111,9 +133,7 @@ describe("readThemePreference", () => {
 
   it("survives a localStorage that throws, as private browsing can", async () => {
     const { readThemePreference } = await loadTheme();
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
+    vi.stubGlobal("localStorage", refusingStorage("getItem", "SecurityError"));
     expect(readThemePreference()).toBe("system");
   });
 });
@@ -134,9 +154,7 @@ describe("readHapticsPreference", () => {
 
   it("stays on when storage throws", async () => {
     const { readHapticsPreference } = await loadTheme();
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
+    vi.stubGlobal("localStorage", refusingStorage("getItem", "SecurityError"));
     expect(readHapticsPreference()).toBe(true);
   });
 });
@@ -194,9 +212,7 @@ describe("setThemePreference", () => {
 
   it("still holds the choice for this tab when storage refuses it", async () => {
     const { setThemePreference, theme } = await loadTheme();
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("QuotaExceededError");
-    });
+    vi.stubGlobal("localStorage", refusingStorage("setItem", "QuotaExceededError"));
     setThemePreference("light");
     expect(theme()).toBe("light");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
@@ -216,9 +232,7 @@ describe("setHapticsEnabled", () => {
 
   it("keeps the choice in memory when storage refuses it", async () => {
     const { hapticsEnabled, setHapticsEnabled } = await loadTheme();
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("QuotaExceededError");
-    });
+    vi.stubGlobal("localStorage", refusingStorage("setItem", "QuotaExceededError"));
     setHapticsEnabled(false);
     expect(hapticsEnabled()).toBe(false);
   });
@@ -306,7 +320,7 @@ describe("themeBootScript", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
-  it("uses the same storage key and media query the module does", () => {
+  it("names the key and the media query it was given", () => {
     expect(THEME_BOOT_SCRIPT).toContain(JSON.stringify(THEME_STORAGE_KEY));
     expect(THEME_BOOT_SCRIPT).toContain(JSON.stringify(LIGHT_QUERY));
   });
@@ -328,9 +342,7 @@ describe("themeBootScript", () => {
   it("lands on the house dark when neither storage nor matchMedia can answer", () => {
     vi.stubGlobal("matchMedia", undefined);
     (window as unknown as { matchMedia: unknown }).matchMedia = undefined;
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
+    vi.stubGlobal("localStorage", refusingStorage("getItem", "SecurityError"));
     // eslint-disable-next-line no-eval
     (0, eval)(THEME_BOOT_SCRIPT);
     expect(document.documentElement.getAttribute("data-theme")).toBe(DEFAULT_THEME);

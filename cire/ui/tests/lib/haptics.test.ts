@@ -148,6 +148,36 @@ describe("createHaptics", () => {
   });
 });
 
+describe("the engine", () => {
+  it("is built once per set, with no visible switch, and destroyed on reset", async () => {
+    const built: unknown[] = [];
+    let destroyed = 0;
+    vi.resetModules();
+    vi.doMock("web-haptics", () => ({
+      WebHaptics: class {
+        constructor(options: unknown) {
+          built.push(options);
+        }
+        trigger = () => Promise.resolve();
+        destroy = () => {
+          destroyed += 1;
+        };
+      },
+    }));
+    const { createHaptics } = await import("../../src/lib/haptics");
+    const set = createHaptics({ enabled: () => true, names: EVERY_NAME });
+    expect(built).toEqual([]);
+    set.haptic("commit");
+    set.haptic("step");
+    expect(built).toEqual([{ showSwitch: false }]);
+    set.resetHaptics();
+    expect(destroyed).toBe(1);
+    set.haptic("commit");
+    expect(built).toHaveLength(2);
+    vi.doUnmock("web-haptics");
+  });
+});
+
 describe("hapticsAvailable", () => {
   it("is true where there is a document to deliver through", async () => {
     const { hapticsAvailable } = await load();

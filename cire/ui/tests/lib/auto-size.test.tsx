@@ -75,6 +75,11 @@ describe("autoSizeAnimates", () => {
     expect(autoSizeAnimates(AUTO_SIZE_CAP + 1, 120)).toBe(false);
   });
 
+  it("animates a move that ends exactly at the cap, from exactly the cap", () => {
+    expect(autoSizeAnimates(120, AUTO_SIZE_CAP)).toBe(true);
+    expect(autoSizeAnimates(AUTO_SIZE_CAP, 120)).toBe(true);
+  });
+
   it("takes the cap as a parameter", () => {
     expect(autoSizeAnimates(100, 200, 150)).toBe(false);
     expect(autoSizeAnimates(100, 200, 400)).toBe(true);
@@ -155,6 +160,47 @@ describe("createAutoSize", () => {
     expect(frame().style.height).toBe("180px");
   });
 
+  it("stays clipped for its own transition of anything but height", () => {
+    const { frame } = mount(120);
+    resizeTo(180);
+    endTransition(frame(), "opacity", false);
+    expect(frame().style.height).toBe("180px");
+    endTransition(frame(), "height", false);
+    expect(frame().style.height).toBe("");
+  });
+
+  it("writes nothing when the height did not change", () => {
+    const { frame } = mount(120);
+    resizeTo(120);
+    expect(frame().style.height).toBe("");
+    expect(frame().style.overflow).toBe("");
+  });
+
+  it("starts the next move from where the last one was, with one backstop", () => {
+    vi.useFakeTimers();
+    const { frame } = mount(120);
+    resizeTo(180);
+    vi.advanceTimersByTime(500);
+    resizeTo(240);
+    expect(frame().style.height).toBe("240px");
+    // The first move's backstop was cleared: 500ms on, the second one still holds.
+    vi.advanceTimersByTime(500);
+    expect(frame().style.height).toBe("240px");
+    vi.advanceTimersByTime(400);
+    expect(frame().style.height).toBe("");
+  });
+
+  it("leaves no backstop to fire once the component has gone", () => {
+    vi.useFakeTimers();
+    const { frame } = mount(120);
+    resizeTo(180);
+    const el = frame();
+    cleanup();
+    expect(vi.getTimerCount()).toBe(0);
+    endTransition(el, "height", false);
+    expect(el.style.height).toBe("180px");
+  });
+
   it("lets go on the backstop when no transition ever ends", () => {
     // A frame torn out of the layout mid-move, or a tab hidden before it settled,
     // never gets its `transitionend`. Stuck at a fixed height is the one state
@@ -209,9 +255,12 @@ describe("createAutoSize", () => {
     expect(size.height()).toBe(96);
   });
 
-  it("stops observing when the component goes away", () => {
-    mount(120);
+  it("stops observing, and stops listening, when the component goes away", () => {
+    const { frame } = mount(120);
+    const el = frame();
+    const removed = vi.spyOn(el, "removeEventListener");
     cleanup();
     expect(FakeResizeObserver.live.every((o) => o.disconnected)).toBe(true);
+    expect(removed).toHaveBeenCalledWith("transitionend", expect.any(Function));
   });
 });
