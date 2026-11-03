@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-03
+last-reviewed: 2026-11-04
 ---
 
 # Component Library (Zaidan)
@@ -321,6 +321,10 @@ row, label and separator inside it, so one menu cannot mix two looks:
   `shared/ui/tests/dropdown-menu-default.browser.test.tsx` reads them back as
   literal strings and checks what they paint, and imports only what the menu
   exported before the accent variant, so it runs on either side of a change.
+  A focused row is marked by its sunk fill and a `pill` trigger by its ring,
+  both of which a contrast theme (forced colours) drops, so each hides its
+  outline only while focused and the theme paints it there. A hidden outline
+  at rest would ring every row in that theme.
 - **`accent`** — cire's portal menus: the raised surface at the `md` corner
   with `--elev-2` (an app's own, else `--ui-elev-2`), 6px of padding; rows at
   the small type step in full ink, `px-3 py-2` at the `sm` corner; a

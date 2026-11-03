@@ -13,7 +13,9 @@
  *   draw. Its strings are frozen:
  *   `tests/dropdown-menu-default.browser.test.tsx` reads them back literally,
  *   because that is the only thing that keeps those apps unmoved by a change
- *   made for cire.
+ *   made for cire. A focused row is marked by its sunk fill; a contrast theme
+ *   drops the fill, so the row's outline is hidden only while it has focus,
+ *   and the theme paints it. Hidden at rest as well, it would ring every row.
  * - `accent` — cire's portal look (englishstreetventures/osn#1844): the raised
  *   panel at the 10px corner with the floating shadow, 6px rows in full ink,
  *   the highlighted row a 10% accent wash with readable accent ink. It opens
@@ -45,7 +47,7 @@ const PANEL = {
 const ROW = {
   default:
     "base:relative base:flex base:cursor-pointer base:select-none base:items-center base:rounded-ui-sm base:px-2 base:py-1.5 base:text-ui-base base:outline-none " +
-    "base:focus:bg-ui-surface-sunk base:focus:text-ui-ink " +
+    "base:focus:bg-ui-surface-sunk base:focus:text-ui-ink base:focus:outline-hidden " +
     "base:data-[disabled]:pointer-events-none base:data-[disabled]:opacity-50",
   // The ring is inset (-2px), not the dashboard's 2px outside: Kobalte scrolls
   // a highlighted row flush to the edge of a menu that scrolls, ignoring

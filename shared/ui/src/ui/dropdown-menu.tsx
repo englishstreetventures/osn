@@ -48,13 +48,15 @@ const DropdownMenu = KobalteDropdownMenu;
  *
  * The ring and the radius are one choice rather than two because they cannot
  * disagree: a rectangular focus ring drawn around a circular avatar is the
- * defect, not a variation on it.
+ * defect, not a variation on it. The ring is a shadow, which a contrast theme
+ * drops, so the outline is hidden only while the ring shows and the theme
+ * paints it in the ring's place.
  */
 const DROPDOWN_MENU_TRIGGER_TREATMENT = {
   bare: "",
   pill:
     "base:cursor-pointer base:rounded-ui-pill base:outline-none " +
-    "base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:focus-visible:ring-offset-2",
+    "base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:focus-visible:ring-offset-2 base:focus-visible:outline-hidden",
 } satisfies Readonly<Record<"bare" | "pill", string>>;
 
 /**
