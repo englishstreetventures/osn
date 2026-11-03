@@ -83,11 +83,11 @@ function groundsUnder(el: Element, bar: Element): string[] {
   const stack = document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2);
   probe.remove();
   const from = stack.findIndex((node) => node === el || el.contains(node));
-  return stack
-    .slice(from)
-    .filter((node) => bar.contains(node))
-    .map((node) => getComputedStyle(node).backgroundColor)
-    .toReversed();
+  const grounds: string[] = [];
+  for (const node of stack.slice(from)) {
+    if (bar.contains(node)) grounds.unshift(getComputedStyle(node).backgroundColor);
+  }
+  return grounds;
 }
 
 /** A colour token as the engine paints it, read off a probe. */
