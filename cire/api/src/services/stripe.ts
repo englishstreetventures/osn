@@ -349,17 +349,17 @@ export function createStripeClient(config: StripeConfig): StripeClient {
       if (stripeAccount) headers.set("stripe-account", stripeAccount);
 
       const { res, payload } = yield* Effect.gen(function* () {
-        const res = yield* Effect.tryPromise({
+        const response = yield* Effect.tryPromise({
           try: () => doFetch(`${base}${path}`, { method, headers, body }),
           catch: () => new StripeError({ reason: "unreachable" }),
         });
-        const payload: unknown = yield* Effect.tryPromise({
-          try: () => res.json(),
+        const json: unknown = yield* Effect.tryPromise({
+          try: () => response.json(),
           // A non-JSON body from Stripe means something in front of it answered —
           // a proxy error page, a gateway. Not a Stripe error, but not a success.
-          catch: () => new StripeError({ reason: "unreadable", status: res.status }),
+          catch: () => new StripeError({ reason: "unreadable", status: response.status }),
         });
-        return { res, payload };
+        return { res: response, payload: json };
       }).pipe(
         // One bound over the headers AND the body: a response whose headers
         // arrive and whose body then stalls would otherwise hold a Worker
