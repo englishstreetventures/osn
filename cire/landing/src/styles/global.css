@@ -14,6 +14,11 @@
 /* Nor the portals' wordmark. A page that draws `Wordmark` needs this line
    gone. */
 @source not "../../../ui/src/wordmark.tsx";
+/* Nor the portals' sign-in page. A page that draws `SignInPanel` or
+   `SignInCard` needs these three lines gone. */
+@source not "../../../ui/src/sign-in-panel.tsx";
+@source not "../../../ui/src/sign-in-card.astro";
+@source not "../../../ui/src/sign-in-card-class.ts";
 /* Nor any menu. A page that draws `DropdownMenu`, or a touch menu, needs the
    matching line gone. */
 @source not "../../../../shared/ui/src/ui/dropdown-menu.tsx";
