@@ -146,6 +146,46 @@ describe("what each label reads against", () => {
   }
 });
 
+describe("the chosen word", () => {
+  /** The visible label inside an item: its one child that carries the text. */
+  const word = (tab: HTMLElement) => tab.querySelector<HTMLElement>("[data-label]")!;
+
+  it("is set at medium weight, and the rest at normal weight", async () => {
+    render(() => <Strip />);
+    await settle();
+    // The owner's second cue, which is not colour: the glass and the inks
+    // alone read under 3:1 between the chosen choice and the rest.
+    expect(getComputedStyle(word(screen.getByRole("tab", { name: "Hero" }))).fontWeight).toBe(
+      "500",
+    );
+    expect(getComputedStyle(word(screen.getByRole("tab", { name: "Events" }))).fontWeight).toBe(
+      "400",
+    );
+    await userEvent.click(screen.getByRole("tab", { name: "Events" }));
+    expect(getComputedStyle(word(screen.getByRole("tab", { name: "Events" }))).fontWeight).toBe(
+      "500",
+    );
+    expect(getComputedStyle(word(screen.getByRole("tab", { name: "Hero" }))).fontWeight).toBe(
+      "400",
+    );
+  });
+
+  it("moves no choice when the weight moves, and keeps each name the label alone", async () => {
+    render(() => <Strip />);
+    await settle();
+    const widths = () => screen.getAllByRole("tab").map((tab) => tab.getBoundingClientRect().width);
+    const before = widths();
+    await userEvent.click(screen.getByRole("tab", { name: "Our story" }));
+    await settle();
+    expect(widths()).toEqual(before);
+    // The room kept for the medium weight is drawn, never named.
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(
+      FIVE.map((item) => item.label),
+    );
+    expect(screen.getByRole("tab", { name: "Our story" })).toBeTruthy();
+  });
+});
+
 describe("in a contrast theme", () => {
   it("still marks the chosen choice, with an outline the others lack", async () => {
     await emulateMedia({ forcedColors: "active" });
