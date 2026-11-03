@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
-import { batch, createSignal, type JSX } from "solid-js";
+import { batch, createSignal, type JSX, onCleanup } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
@@ -112,28 +112,38 @@ vi.mock("../../src/components/RsvpView", () => ({
 // message and marks a household sent only for an owner or editor, and passing
 // `canManage` where `canEdit` belongs would type-check.
 let builderMounts = 0;
-vi.mock("../../src/components/InviteBuilder", () => ({
-  default: (p: {
-    weddingId: string;
-    weddingName: string;
-    canEdit: boolean;
-    initialSection?: string;
-    inviteMessageLinks?: JSX.Element;
-  }) => {
-    builderMounts += 1;
-    return (
-      <div
-        data-testid="invite-design"
-        data-section={p.initialSection ?? ""}
-        data-wedding-name={p.weddingName}
-        data-can-edit={String(p.canEdit)}
-      >
-        {p.weddingId}
-        {p.inviteMessageLinks}
-      </div>
-    );
-  },
-}));
+// Set by a test that stands in for the builder's phone pill, which hides the
+// shell's own strip while it is mounted.
+let builderReplacesTabs = false;
+vi.mock("../../src/components/InviteBuilder", async () => {
+  const { useViewBar } = await import("../../src/components/ViewBar");
+  return {
+    default: (p: {
+      weddingId: string;
+      weddingName: string;
+      canEdit: boolean;
+      view: string;
+      inviteMessageLinks?: JSX.Element;
+    }) => {
+      builderMounts += 1;
+      if (builderReplacesTabs) {
+        const release = useViewBar()?.replaceTabs();
+        onCleanup(() => release?.());
+      }
+      return (
+        <div
+          data-testid="invite-builder"
+          data-view={p.view}
+          data-wedding-name={p.weddingName}
+          data-can-edit={String(p.canEdit)}
+        >
+          {p.weddingId}
+          {p.inviteMessageLinks}
+        </div>
+      );
+    },
+  };
+});
 vi.mock("../../src/components/RemintPanel", () => ({
   default: (p: { weddingId: string; inviteMessageLinks?: JSX.Element }) => (
     <div data-testid="codes">
@@ -305,7 +315,7 @@ function renderShell(opts: {
           : m === "guests" || m === "registry"
             ? "list"
             : m === "invite"
-              ? "design"
+              ? "template"
               : m === "settings"
                 ? "wedding"
                 : "index",
@@ -429,32 +439,73 @@ describe("ModuleShell", () => {
   });
 
   it("hands the builder the wedding's name and an owner's right to mark households sent", async () => {
-    renderShell({ canManage: true, canEdit: true, module: "invite", sub: "design" });
-    const builder = await screen.findByTestId("invite-design");
+    renderShell({ canManage: true, canEdit: true, module: "invite", sub: "template" });
+    const builder = await screen.findByTestId("invite-builder");
     expect(builder.getAttribute("data-wedding-name")).toBe("R & V");
     expect(builder.getAttribute("data-can-edit")).toBe("true");
   });
 
   it("tells the builder a co-host editor may mark households sent too", async () => {
-    renderShell({ canManage: false, canEdit: true, module: "invite", sub: "design" });
-    const builder = await screen.findByTestId("invite-design");
+    renderShell({ canManage: false, canEdit: true, module: "invite", sub: "template" });
+    const builder = await screen.findByTestId("invite-builder");
     expect(builder.getAttribute("data-can-edit")).toBe("true");
   });
 
-  it("gives an owner the Invite Codes sub", () => {
-    renderShell({ canManage: true, module: "invite", sub: "codes" });
-    expect(screen.getByRole("tab", { name: /Codes/ })).toBeTruthy();
-    expect(screen.getByTestId("codes")).toBeTruthy();
+  it("gives an owner the four invite views, and Codes with the re-mint above the message", async () => {
+    renderShell({ canManage: true, canEdit: true, module: "invite", sub: "codes" });
+    const views = within(screen.getByRole("tablist", { name: "Views" })).getAllByRole("tab");
+    expect(views.map((tab) => tab.textContent)).toEqual(["Template", "Style", "Content", "Codes"]);
+    const codes = screen.getByTestId("codes");
+    // The builder is lazy() — awaited for the same reason the events editor is.
+    const builder = await screen.findByTestId("invite-builder");
+    expect(builder.getAttribute("data-view")).toBe("codes");
+    expect(codes.compareDocumentPosition(builder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("hides the owner-only Codes sub from a co-host and falls a deep link back", async () => {
-    // A co-host (editor) deep-linking invite/codes must not see the owner-only
-    // Codes panel — it resolves to the invite module's default (Design) sub.
+  it("gives an editor co-host Codes for the message, without the owner's re-mint", async () => {
+    // The message is written in Codes, and an editor writes it; re-minting
+    // every code stays the owner's.
     renderShell({ canManage: false, canEdit: true, module: "invite", sub: "codes" });
-    expect(screen.queryByRole("tab", { name: /Codes/ })).toBeNull();
+    expect(screen.getByRole("tab", { name: /Codes/ })).toBeTruthy();
     expect(screen.queryByTestId("codes")).toBeNull();
-    // The builder is lazy() — awaited for the same reason the events editor is.
-    expect(await screen.findByTestId("invite-design")).toBeTruthy();
+    expect((await screen.findByTestId("invite-builder")).getAttribute("data-view")).toBe("codes");
+  });
+
+  it("keeps one builder across the four invite views", async () => {
+    const { setSub } = renderShell({
+      canManage: true,
+      canEdit: true,
+      module: "invite",
+      sub: "template",
+    });
+    await screen.findByTestId("invite-builder");
+    const mounts = builderMounts;
+    for (const view of ["style", "content", "codes", "template"]) {
+      setSub(view);
+      expect(screen.getByTestId("invite-builder").getAttribute("data-view")).toBe(view);
+    }
+    expect(builderMounts).toBe(mounts);
+  });
+
+  it("hides its own strip, kept in the page, while a view draws its own in its place", async () => {
+    builderReplacesTabs = true;
+    try {
+      renderShell({ canManage: true, canEdit: true, module: "invite", sub: "style" });
+      // Until the view mounts, the strip is there to leave by.
+      const views = screen.getByRole("tablist", { name: "Views" });
+      expect(views.closest(".hidden")).toBeNull();
+      await screen.findByTestId("invite-builder");
+      // Hidden, not removed: the panel is still named by its chosen tab.
+      expect(views.isConnected).toBe(true);
+      expect(views.closest(".hidden")).not.toBeNull();
+      const panel = document.getElementById(
+        screen.getByRole("tab", { name: "Style", hidden: true }).getAttribute("aria-controls")!,
+      )!;
+      expect(document.getElementById(panel.getAttribute("aria-labelledby")!)).not.toBeNull();
+      cleanup();
+    } finally {
+      builderReplacesTabs = false;
+    }
   });
 
   describe("settings profile — RSVP-by is the co-host's one writable field", () => {
@@ -607,8 +658,8 @@ describe("ModuleShell", () => {
     });
 
     it("shows a read-only fallback instead of the invite builder", () => {
-      renderShell({ canManage: false, canEdit: false, module: "invite", sub: "design" });
-      expect(screen.queryByTestId("invite-design")).toBeNull();
+      renderShell({ canManage: false, canEdit: false, module: "invite", sub: "template" });
+      expect(screen.queryByTestId("invite-builder")).toBeNull();
       expect(screen.getByText(/view-only access/i)).toBeTruthy();
     });
 
@@ -1040,47 +1091,23 @@ describe("ModuleShell", () => {
   });
 
   describe("invite message links", () => {
-    const MESSAGE = { name: "Invite, Design, Message" };
     const CODES = { name: "Invite, Codes" };
     const HOUSEHOLDS = { name: "Guests, Households" };
 
     it("gives each place its own address, for a click that opens it in a new tab", async () => {
       renderShell({ module: "guests", sub: "list" });
       const guests = within(screen.getByTestId("guests"));
-      expect(guests.getByRole("link", MESSAGE).getAttribute("href")).toBe("#/w/wed_1/invite");
       expect(guests.getByRole("link", CODES).getAttribute("href")).toBe("#/w/wed_1/invite/codes");
     });
 
-    it("sends the owner from Codes to the builder, open on its Message section", async () => {
-      const { onModule, onSub } = renderShell({ module: "invite", sub: "codes" });
-
-      fireEvent.click(within(screen.getByTestId("codes")).getByRole("link", MESSAGE));
-
-      expect(onSub.mock.calls).toEqual([["design"]]);
-      expect(onModule).not.toHaveBeenCalled();
-      const builder = await screen.findByTestId("invite-design");
-      expect(builder.getAttribute("data-section")).toBe("invite-message");
-    });
-
-    it("sends a Households reader to the builder, open on its Message section", async () => {
-      const { onModule, onSub } = renderShell({ module: "guests", sub: "list" });
-
-      fireEvent.click(within(screen.getByTestId("guests")).getByRole("link", MESSAGE));
-
-      expect(onModule.mock.calls).toEqual([["invite", "design"]]);
-      expect(onSub).not.toHaveBeenCalled();
-      const builder = await screen.findByTestId("invite-design");
-      expect(builder.getAttribute("data-section")).toBe("invite-message");
-    });
-
-    it("moves the owner from Households to Codes in one step, never through the builder", async () => {
-      // Load the lazy builder first, so a stop at invite/design on the way would
-      // mount it synchronously and show up in the count.
+    it("moves a Households reader to Codes, the message's place, in one step", async () => {
+      // Load the lazy builder first, so a stop at the module's default view on
+      // the way would show up in the mount count.
       const { onModule, onSub, setModule, setSub } = renderShell({
         module: "invite",
-        sub: "design",
+        sub: "template",
       });
-      await screen.findByTestId("invite-design");
+      await screen.findByTestId("invite-builder");
       setModule("guests");
       setSub("list");
       onSub.mockClear();
@@ -1091,13 +1118,15 @@ describe("ModuleShell", () => {
       expect(onModule.mock.calls).toEqual([["invite", "codes"]]);
       expect(onSub).not.toHaveBeenCalled();
       expect(screen.getByTestId("codes")).toBeTruthy();
-      expect(builderMounts).toBe(mountsBefore);
+      expect((await screen.findByTestId("invite-builder")).getAttribute("data-view")).toBe("codes");
+      // Mounted once, on Codes: the move never stopped at the default view.
+      expect(builderMounts).toBe(mountsBefore + 1);
     });
 
-    it("sends the message editor's reader to Households", async () => {
-      const { onModule } = renderShell({ module: "invite", sub: "design" });
+    it("sends the message's reader in Codes to Households", async () => {
+      const { onModule } = renderShell({ module: "invite", sub: "codes" });
 
-      const builder = await screen.findByTestId("invite-design");
+      const builder = await screen.findByTestId("invite-builder");
       fireEvent.click(within(builder).getByRole("link", HOUSEHOLDS));
 
       expect(onModule.mock.calls).toEqual([["guests", "list"]]);
@@ -1107,37 +1136,23 @@ describe("ModuleShell", () => {
     it("asks nothing more when the move is refused", async () => {
       const { onModule, onSub } = renderShell({
         module: "invite",
-        sub: "design",
+        sub: "codes",
         refuseModule: true,
       });
 
-      const builder = await screen.findByTestId("invite-design");
+      const builder = await screen.findByTestId("invite-builder");
       fireEvent.click(within(builder).getByRole("link", HOUSEHOLDS));
 
       expect(onModule).toHaveBeenCalledTimes(1);
       expect(onSub).not.toHaveBeenCalled();
-      expect(screen.getByTestId("invite-design")).toBeTruthy();
+      expect(screen.getByTestId("invite-builder")).toBeTruthy();
     });
 
-    it("names Codes without a link for an editor co-host", () => {
+    it("links an editor co-host to Codes, where the message is written", () => {
       renderShell({ canManage: false, canEdit: true, module: "guests", sub: "list" });
 
       const households = screen.getByTestId("guests");
-      expect(within(households).getByRole("link", MESSAGE)).toBeTruthy();
-      expect(within(households).queryByRole("link", CODES)).toBeNull();
-    });
-
-    it("opens the builder on its first section again once the organiser has moved on", async () => {
-      renderShell({ module: "invite", sub: "codes" });
-      fireEvent.click(within(screen.getByTestId("codes")).getByRole("link", MESSAGE));
-      expect((await screen.findByTestId("invite-design")).getAttribute("data-section")).toBe(
-        "invite-message",
-      );
-
-      fireEvent.click(screen.getByRole("tab", { name: "Codes" }));
-      fireEvent.click(screen.getByRole("tab", { name: "Design" }));
-
-      expect((await screen.findByTestId("invite-design")).getAttribute("data-section")).toBe("");
+      expect(within(households).getByRole("link", CODES)).toBeTruthy();
     });
 
     it("moves focus to the new view's heading", () => {

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -34,6 +35,7 @@ vi.mock("@cire/invite-designs", () => ({
 }));
 
 import InviteBuilder from "../../src/components/InviteBuilder";
+import type { InviteView } from "../../src/lib/dashboard-route";
 import { authFetchMock, resetOrganiserMocks, toastSuccess } from "../test-support/mocks";
 
 const CUSTOMISATION = {
@@ -84,19 +86,28 @@ function answerReads(extra: Record<string, unknown> = {}) {
 const householdReads = () =>
   authFetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/households")).length;
 
-function renderOnMessage(canEdit = true) {
+/** The builder on an Invite view, which the test can move like the route. */
+function renderOn(start: InviteView, extra: { canEdit?: boolean; links?: boolean } = {}) {
+  const [view, setView] = createSignal<InviteView>(start);
   render(() => (
     <InviteBuilder
       weddingId="wed_1"
       weddingSlug="anita-ben"
       weddingName="Anita & Ben"
-      canEdit={canEdit}
+      canEdit={extra.canEdit ?? true}
       entitlements={[]}
-      initialSection="invite-message"
-      inviteMessageLinks={<p data-testid="invite-message-links" />}
+      view={view()}
+      onView={setView}
+      inviteMessageLinks={
+        extra.links === false ? undefined : <p data-testid="invite-message-links" />
+      }
     />
   ));
+  return setView;
 }
+
+/** The message lives in Codes. */
+const renderOnMessage = (canEdit = true) => renderOn("codes", { canEdit });
 
 const picker = () => screen.getByLabelText("Household") as HTMLSelectElement;
 const copyButton = () => screen.getByRole("button", { name: /^Copy / }) as HTMLButtonElement;
@@ -104,68 +115,27 @@ const lineField = () => screen.getByLabelText("Invite message (optional)") as HT
 
 const messageCard = () => document.getElementById("invite-message") as HTMLFieldSetElement;
 
-describe("InviteBuilder Message section", () => {
+describe("InviteBuilder message, in Codes", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
     writeText.mockReset();
   });
 
-  it("opens on the first section when nothing asks otherwise", async () => {
+  it("shows the message in Codes alone, with its links once, inside it", async () => {
     loadCustomisation();
-    render(() => (
-      <InviteBuilder
-        weddingId="wed_1"
-        weddingSlug="anita-ben"
-        weddingName="Anita & Ben"
-        canEdit
-        entitlements={[]}
-      />
-    ));
-
-    const design = await waitFor(() => screen.getByRole("tab", { name: "Design" }));
-    expect(design.getAttribute("aria-selected")).toBe("true");
-    expect(messageCard().hidden).toBe(true);
-  });
-
-  it("opens on the Message section when a link asked for it", async () => {
-    loadCustomisation();
-    render(() => (
-      <InviteBuilder
-        weddingId="wed_1"
-        weddingSlug="anita-ben"
-        weddingName="Anita & Ben"
-        canEdit
-        entitlements={[]}
-        initialSection="invite-message"
-      />
-    ));
-
-    const message = await waitFor(() => screen.getByRole("tab", { name: "Message" }));
-    expect(message.getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: "Design" }).getAttribute("aria-selected")).toBe("false");
-    expect(messageCard().hidden).toBe(false);
-  });
-
-  it("shows the invite-message links once, inside the Message section", async () => {
-    loadCustomisation();
-    render(() => (
-      <InviteBuilder
-        weddingId="wed_1"
-        weddingSlug="anita-ben"
-        weddingName="Anita & Ben"
-        canEdit
-        entitlements={[]}
-        inviteMessageLinks={<p data-testid="invite-message-links" />}
-      />
-    ));
-
+    const setView = renderOn("template");
     await waitFor(() => expect(messageCard()).toBeTruthy());
+    expect(messageCard().hidden).toBe(true);
+
+    setView("codes");
+    expect(messageCard().hidden).toBe(false);
     const links = screen.getAllByTestId("invite-message-links");
     expect(links).toHaveLength(1);
     expect(messageCard().contains(links[0]!)).toBe(true);
   });
-  it("puts the copy action in the Message section, between the line and the links", async () => {
+
+  it("puts the copy action in the message card, between the line and the links", async () => {
     answerReads();
     renderOnMessage();
 
@@ -179,27 +149,19 @@ describe("InviteBuilder Message section", () => {
     expect(picker().compareDocumentPosition(links) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("reads the households only once the Message section is shown, and once per builder", async () => {
+  it("reads the households only once Codes is shown, and once per builder", async () => {
     answerReads();
-    render(() => (
-      <InviteBuilder
-        weddingId="wed_1"
-        weddingSlug="anita-ben"
-        weddingName="Anita & Ben"
-        canEdit
-        entitlements={[]}
-      />
-    ));
-    const message = await waitFor(() => screen.getByRole("tab", { name: "Message" }));
+    const setView = renderOn("template");
+    await waitFor(() => expect(messageCard()).toBeTruthy());
     expect(householdReads()).toBe(0);
 
-    fireEvent.click(message);
+    setView("codes");
     await waitFor(() => expect(picker().options.length).toBe(2));
     fireEvent.change(picker(), { target: { value: "fam_a" } });
 
     // Away and back: no second read, and the household is still chosen.
-    fireEvent.click(screen.getByRole("tab", { name: "Design" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Message" }));
+    setView("template");
+    setView("codes");
     expect(householdReads()).toBe(1);
     expect(picker().value).toBe("fam_a");
   });

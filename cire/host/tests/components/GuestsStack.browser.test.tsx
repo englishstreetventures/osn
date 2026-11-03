@@ -745,7 +745,7 @@ describe("moving within the stack", () => {
     await page.viewport(1280, 400);
     render({ module: "guests", sub: "list" }, { ...FULL, customisation: EMPTY_CUSTOMISATION });
     await loaded("list");
-    const link = screen.getByRole("link", { name: "Invite, Design, Message" });
+    const link = screen.getByRole("link", { name: "Invite, Codes" });
     // The links just under the view bar: the module's heading has gone under
     // the top bar.
     window.scrollTo(0, scrollY + rect(link).top - rect(viewBar()).bottom - 4);
@@ -1083,45 +1083,101 @@ describe("each view goes narrow at its own line", () => {
 });
 
 // ── Other modules ────────────────────────────────────────────────────────────
-describe("the invite builder under the stack", () => {
-  const sectionTabs = () =>
-    screen.getByRole("navigation", { name: "Invite sections" }).parentElement!;
+describe("the invite builder's two tiers in the view bar", () => {
+  const views = () => screen.getByRole("tablist", { name: "Views", hidden: true });
+  const sections = () => screen.getByRole("tablist", { name: "Invite sections" });
 
-  // A short window: an empty builder is not much taller than a laptop's.
-  it("holds its section tabs under the view bar, never behind it", async () => {
-    await page.viewport(1280, 400);
-    render({ module: "invite", sub: "design" }, { customisation: EMPTY_CUSTOMISATION });
+  async function openInvite(width: number, sub: string, height = 800) {
+    await page.viewport(width, height);
+    render({ module: "invite", sub }, { customisation: EMPTY_CUSTOMISATION });
     await vi.waitFor(() => screen.getByText("Save invite"), { timeout: 10_000 });
     await frames();
-    window.scrollTo(0, 2000);
-    await frames();
+  }
+
+  async function shoot(name: string) {
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.dataset.theme = theme;
+      await frames();
+      await screenshotWindow(`${name}-${theme}`);
+    }
+    delete document.documentElement.dataset.theme;
+  }
+
+  it("draws the sections only under Content", async () => {
+    await openInvite(1280, "template");
     expectPass(
-      "invite: the bar holds under the top bar",
-      Math.abs(rect(viewBar()).top - rect(topBar()).bottom) <= 1,
+      "tiers: no section strip on Template",
+      screen.queryByRole("tablist", { name: "Invite sections" }) === null,
     );
-    expectPass(
-      "invite: the section tabs hold under the bar",
-      Math.abs(rect(sectionTabs()).top - rect(viewBar()).bottom) <= 1,
-    );
-    expectPass("invite: the section tabs are painted", onTop(sectionTabs().querySelector("nav")!));
-    await screenshotWindow("invite-1280-scrolled");
+    await userEvent.click(within(views()).getByRole("tab", { name: "Content" }));
+    await vi.waitFor(() => sections());
+    expectPass("tiers: the section strip is in the view bar", viewBar().contains(sections()));
   });
 
-  it("holds them under the top bar where a co-host's module has no bar", async () => {
-    await page.viewport(1280, 400);
-    // An editor co-host sees Design alone, so the module draws no bar.
-    render(
-      { module: "invite", sub: "design", canManage: false },
-      { customisation: EMPTY_CUSTOMISATION },
+  it("puts the sections on the views' row at 1280, held under the top bar as the page scrolls", async () => {
+    await openInvite(1280, "content", 400);
+    expectPass(
+      "tiers 1280: one row",
+      Math.abs(rect(sections()).top - rect(views()).top) <= 1,
+      `${rect(sections()).top} vs ${rect(views()).top}`,
     );
-    await vi.waitFor(() => screen.getByText("Save invite"), { timeout: 10_000 });
-    await frames();
-    expectPass("invite co-host: no view bar", document.querySelector("[data-view-bar]") === null);
+    for (const strip of [views(), sections()]) {
+      expectPass("tiers 1280: each strip is 28px", Math.abs(rect(strip).height - 28) <= 0.5);
+    }
     window.scrollTo(0, 2000);
     await frames();
     expectPass(
-      "invite co-host: the section tabs hold under the top bar",
-      Math.abs(rect(sectionTabs()).top - rect(topBar()).bottom) <= 1,
+      "tiers 1280: the bar holds under the top bar",
+      Math.abs(rect(viewBar()).top - rect(topBar()).bottom) <= 1,
+    );
+    expectPass("tiers 1280: the sections are painted", onTop(sections()));
+    // With no sticky section bar over the cards, a closed dialog that lays
+    // itself out would show: the preview's dialog draws nothing while shut.
+    const preview = document.querySelector<HTMLDialogElement>(
+      'dialog[aria-label="Invite preview modal"]',
+    )!;
+    expectPass(
+      "tiers 1280: the closed preview dialog draws nothing",
+      !preview.open && getComputedStyle(preview).display === "none",
+    );
+    await shoot("invite-tiers-1280");
+  });
+
+  it("gives the sections a row of their own on a narrower panel", async () => {
+    await openInvite(1024, "content");
+    expectPass(
+      "tiers 1024: the sections sit below the views",
+      rect(sections()).top >= rect(views()).bottom - 0.5,
+    );
+    expectPass("tiers 1024: the sections are in the bar", viewBar().contains(sections()));
+  });
+
+  it("draws one pill and its menu on a phone, in place of both strips", async () => {
+    await openInvite(390, "content");
+    expectPass("tiers 390: the views strip is hidden", rect(views()).width === 0);
+    expectPass(
+      "tiers 390: no section strip",
+      screen.queryByRole("tablist", { name: "Invite sections" }) === null,
+    );
+    const place = screen.getByRole("button", { name: /Choose a view or section/ });
+    expectPass("tiers 390: the pill is in the bar", viewBar().contains(place));
+    expectPass("tiers 390: the pill is 28px", Math.abs(rect(place).height - 28) <= 0.5);
+    await shoot("invite-phone-390");
+
+    await userEvent.click(place);
+    const welcome = await vi.waitFor(() => screen.getByRole("menuitemradio", { name: "Welcome" }));
+    await shoot("invite-phone-menu-390");
+    await userEvent.click(welcome);
+    await vi.waitFor(() =>
+      expectPass(
+        "tiers 390: the chosen section shows",
+        document.getElementById("invite-welcome")?.hidden === false,
+      ),
+    );
+    expectPass(
+      "tiers 390: the pill names it",
+      place.isConnected &&
+        place.getAttribute("aria-label") === "Invite: Welcome. Choose a view or section",
     );
   });
 
@@ -1137,23 +1193,16 @@ describe("the invite builder under the stack", () => {
       "bar-h gone: set while Guests has its bar",
       shell.style.getPropertyValue("--bar-h") !== "",
     );
-    view.setModule("invite");
-    view.setSub("design");
-    await vi.waitFor(() => screen.getByText("Save invite"), { timeout: 10_000 });
+    view.setModule("checklist");
+    view.setSub("index");
     await frames();
     expectPass(
-      "bar-h gone: Invite draws no bar",
+      "bar-h gone: Checklist draws no bar",
       document.querySelector("[data-view-bar]") === null,
     );
     expectPass(
       "bar-h gone: the property is removed",
       shell.style.getPropertyValue("--bar-h") === "",
-    );
-    window.scrollTo(0, 2000);
-    await frames();
-    expectPass(
-      "bar-h gone: the section tabs hold at the top bar's foot",
-      Math.abs(rect(sectionTabs()).top - rect(topBar()).bottom) <= 1,
     );
   });
 });

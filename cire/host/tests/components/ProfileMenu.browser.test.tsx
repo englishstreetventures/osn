@@ -6,12 +6,12 @@ import "../../src/styles/global.css";
 import ProfileMenu from "../../src/components/ProfileMenu";
 
 /**
- * `menu-pop` on a Kobalte dropdown, as the engine runs it: the menu scales up
- * and fades in on open, and on close leaves at once with focus back on its
- * trigger. An exit animation would hold the closing menu mounted with focus
- * inside it, and the hand-back would fall to `<body>` — which jsdom, running
- * no animation, cannot see. The profile menu stands for the seven popovers and
- * menus that carry the utility.
+ * The shared menu's accent look in host's stylesheet, as the engine runs it:
+ * the menu pops in on open at host's own `--dur-fast`, and on close leaves at
+ * once with focus back on its trigger. An exit animation would hold the
+ * closing menu mounted with focus inside it, and the hand-back would fall to
+ * `<body>` — which jsdom, running no animation, cannot see. The profile menu
+ * stands for every portal menu, all on the accent look.
  */
 
 const SESSION = {
@@ -31,7 +31,14 @@ describe("the profile menu's motion", () => {
     const trigger = screen.getByRole("button", { name: /account menu/i });
     fireEvent.pointerDown(trigger, { button: 0 });
     const open = await waitFor(() => screen.getByRole("menu"));
-    expect(getComputedStyle(open).animationName).toBe("menu-pop-in");
+    expect(getComputedStyle(open).animationName).toBe("ui-enter");
+    // Host's pace, not the contract's default: the panel reads `--dur-fast`.
+    const probe = document.createElement("div");
+    probe.style.animationDuration = "var(--dur-fast)";
+    document.body.append(probe);
+    const fast = getComputedStyle(probe).animationDuration;
+    probe.remove();
+    expect(getComputedStyle(open).animationDuration).toBe(fast);
     await Promise.all(open.getAnimations().map((a) => a.finished));
 
     await userEvent.keyboard("{Escape}");

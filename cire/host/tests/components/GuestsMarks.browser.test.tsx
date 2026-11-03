@@ -19,8 +19,8 @@ import "../../src/styles/global.css";
  *   still hears whose plus-one they are;
  * - a provenance badge is an icon, named, with nothing written beside it;
  * - the module's sections and the RSVP page's events read as two groups —
- *   a segmented control, then a divider, then pills — and the chosen event
- *   and an applied reply filter are filled in the brand green;
+ *   two glass strips with a divider between them — and the chosen event and
+ *   an applied reply filter wear the strips' glass in the readable gold;
  * - the reply chips sit in one row that scrolls sideways, and a second press
  *   on the chosen chip clears it.
  */
@@ -325,8 +325,7 @@ describe("the RSVP page's bar", () => {
       });
       const sections = within(bar()).getByRole("tablist", { name: "Views" });
       const events = within(bar()).getByRole("tablist", { name: "Events" });
-      // Two groups, a divider between them, in different shapes: the
-      // sections a segmented track, the events free pills.
+      // Two groups, a divider between them, each its own glass strip.
       const divider = bar().querySelector("[data-bar-divider]")!;
       expect(divider).not.toBeNull();
       expect(divider.getBoundingClientRect().left).toBeGreaterThanOrEqual(
@@ -335,20 +334,19 @@ describe("the RSVP page's bar", () => {
       expect(divider.getBoundingClientRect().right).toBeLessThanOrEqual(
         events.getBoundingClientRect().left + 0.5,
       );
-      expect(getComputedStyle(events).borderTopWidth).toBe("0px");
+      for (const strip of [sections, events]) {
+        expect(strip.getBoundingClientRect().height).toBeCloseTo(28, 0);
+        expect(getComputedStyle(strip).borderTopWidth).toBe("1px");
+      }
+      // The chosen event's word reads on the glass under it; an unchosen
+      // one's count is muted on the track beside its name.
       const [chosen, other] = within(events).getAllByRole("tab");
-      const pill = chosen!.getBoundingClientRect();
-      expect(parseFloat(getComputedStyle(chosen!).borderRadius)).toBeGreaterThanOrEqual(
-        pill.height / 2 - 0.5,
-      );
-      const sectionTab = within(sections).getAllByRole("tab")[0]!;
-      expect(parseFloat(getComputedStyle(sectionTab).borderRadius)).toBeLessThan(
-        sectionTab.getBoundingClientRect().height / 2 - 1,
-      );
-      // The chosen event is filled in the brand green and reads on it; an
-      // unchosen one's count is muted beside its name.
-      expect(getComputedStyle(chosen!).backgroundColor).toBe(probe("bg-brand", "backgroundColor"));
-      expect(inkRatio(chosen!)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+      expect(getComputedStyle(chosen!).color).toBe(probe("text-gold-ink", "color"));
+      const glass = getComputedStyle(events.querySelector("[data-segmented-glass]")!);
+      const onGlass = over(glass.backgroundColor, backdrop(chosen!));
+      expect(
+        contrastRatio(over(getComputedStyle(chosen!).color, onGlass), onGlass),
+      ).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
       const count = other!.querySelector("[data-count]")!;
       expect(getComputedStyle(count).color).toBe(probe("text-text-muted", "color"));
       expect(inkRatio(count)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
@@ -373,9 +371,19 @@ describe("the RSVP page's bar", () => {
     const declined = chips.find((c) =>
       /declined/i.test(c.getAttribute("aria-label") ?? c.textContent ?? ""),
     )!;
+    // At rest a chip wears the strips' track and reads on it.
+    expect(getComputedStyle(declined).borderTopWidth).toBe("1px");
+    expect(inkRatio(declined)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
     await userEvent.click(declined);
     expect(declined.getAttribute("aria-pressed")).toBe("true");
-    expect(getComputedStyle(declined).backgroundColor).toBe(probe("bg-brand", "backgroundColor"));
+    // Chosen, the chosen tab's glass: its readable gold at medium weight.
+    const glass = getComputedStyle(document.querySelector("[data-segmented-glass]")!);
+    await vi.waitFor(() =>
+      expect(getComputedStyle(declined).backgroundColor).toBe(glass.backgroundColor),
+    );
+    expect(getComputedStyle(declined).color).toBe(probe("text-gold-ink", "color"));
+    expect(getComputedStyle(declined).fontWeight).toBe("500");
+    expect(inkRatio(declined)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
     const before = document.querySelectorAll(ROWS).length;
     expect(before).toBeLessThan(400);
     await userEvent.click(declined);
