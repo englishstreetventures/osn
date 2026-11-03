@@ -259,13 +259,25 @@ describe("initTheme", () => {
     stop();
   });
 
+  it("reconciles the theme it reports too, when the OS changed after the set was made", async () => {
+    stubMatchMedia(false);
+    const { initTheme, theme } = await loadTheme();
+    expect(theme()).toBe("dark");
+    stubMatchMedia(true);
+    const stop = initTheme();
+    expect(theme()).toBe("light");
+    stop();
+  });
+
   it("hands back a teardown that removes the listener", async () => {
     const media = stubMatchMedia(false);
     const { initTheme } = await loadTheme();
     const stop = initTheme();
     expect(media.listenerCount).toBe(1);
+    expect(media.query.addEventListener).toHaveBeenCalledWith("change", expect.any(Function));
     stop();
     expect(media.listenerCount).toBe(0);
+    expect(media.query.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
   });
 
   it("is inert, and still returns a teardown, without matchMedia", async () => {
