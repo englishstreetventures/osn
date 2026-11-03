@@ -2,7 +2,8 @@
  * Cire organiser portal: an owner whose own settings take money — money gifts
  * on, a Stripe account that can charge — opens the gift list on a site that
  * cannot take a money gift. The stack's cire-api holds a Stripe key and no
- * Connect webhook secret, so the registry read answers `takesPayments: false`
+ * Connect webhook secret, so the registry read answers `takesPayments: false`,
+ * its settings name `payments_unavailable` as why guests cannot give money,
  * and the portal says so: the Money gifts panel names the site, a list holding
  * one cash fund and nothing else cannot be published, and the gift list says
  * guests cannot see the fund.
@@ -72,7 +73,9 @@ test("cire-registry-money", async ({ page, flow }) => {
     );
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/settings`);
     const response = await read;
-    const body = (await response.json()) as Record<string, unknown>;
+    const body = (await response.json()) as Record<string, unknown> & {
+      settings?: Record<string, unknown>;
+    };
     const notice = page.getByTestId("money-gifts-unavailable");
     await expect(notice).toBeVisible();
     const publish = page.getByTestId("registry-publish");
@@ -80,6 +83,10 @@ test("cire-registry-money", async ({ page, flow }) => {
     return {
       status: response.status(),
       takesPayments: "takesPayments" in body ? String(body.takesPayments) : "absent",
+      blockedBy:
+        body.settings && "moneyGiftsBlockedBy" in body.settings
+          ? String(body.settings.moneyGiftsBlockedBy)
+          : "absent",
       notice: (await notice.textContent()) ?? "",
       publishBlocked: await publish.isDisabled(),
       publishNotice: (await page.locator("#registry-publish-blocked").textContent()) ?? "",
@@ -87,6 +94,11 @@ test("cire-registry-money", async ({ page, flow }) => {
   });
   flow.check("registry read", 200, settings.status);
   flow.check("registry read says the site takes money gifts", "false", settings.takesPayments);
+  flow.check(
+    "registry read names the site as why guests cannot give money",
+    "payments_unavailable",
+    settings.blockedBy,
+  );
   flow.check("Money gifts panel names the site", true, UNAVAILABLE.test(settings.notice));
   flow.check("a list of one cash fund is blocked from publishing", true, settings.publishBlocked);
   flow.check("the publish notice names the site", true, UNAVAILABLE.test(settings.publishNotice));

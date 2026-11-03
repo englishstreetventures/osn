@@ -67,6 +67,7 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
     shippingVisibleFrom: null,
     stripeConnected: false,
     stripeChargesEnabled: false,
+    moneyGiftsBlockedBy: "stripe_not_ready",
     updatedAt: null,
   },
   items: [item({})],

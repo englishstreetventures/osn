@@ -165,9 +165,10 @@ function parseOffset(raw: unknown): number {
  * `/registry` is the whole snapshot with page one of the gift log, plus
  * `takesPayments`: whether this deployment can take a money gift at all (a
  * Stripe key AND the Connect webhook secret). It sits beside the settings, not
- * in them, because it is the deployment's and the same for every wedding; the
- * portal reads it so it never tells a couple their guests can give money, or
- * see a cash fund, where the guest list offers neither.
+ * in them, because it is the deployment's and the same for every wedding. The
+ * settings carry `moneyGiftsBlockedBy`, which the service decides with it by
+ * the guest list's own rule, so the portal never tells a couple their guests
+ * can give money, or see a cash fund, where the guest list offers neither.
  * `/registry/gifts?offset=` is every further page, and nothing else: the portal
  * already holds the settings, items and totals, so a further page reads the gift
  * log's own tables and no others.
@@ -199,7 +200,7 @@ export const createRegistryReadRoutes = (
           if (!weddingId) return internalSync(set);
           set.headers["cache-control"] = "no-store";
           return runCire(
-            registryService.get(weddingId).pipe(
+            registryService.get(weddingId, deps).pipe(
               Effect.map((snapshot) => ({ ...snapshot, takesPayments: deps.takesPayments })),
               Effect.provideService(DbService, db),
               Effect.tapDefect(logDefect(weddingId)),
@@ -254,11 +255,15 @@ export const createRegistryReadRoutes = (
  * R2. Optional, because a deployment without the binding must still be able to
  * delete items — the reaper logs and moves on, and the reconcile sweep
  * (`asset-reconcile.ts`) is the backstop for anything it misses.
+ *
+ * `takesPayments` is the read factory's: the settings a save answers with name
+ * why guests cannot give money (`moneyGiftsBlockedBy`), judged on this
+ * deployment, so a save leaves the portal as right as the read did.
  */
 export const createRegistryWriteRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
-  assets?: AssetsBucket,
+  deps: { readonly takesPayments: boolean; readonly assets?: AssetsBucket },
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -277,7 +282,7 @@ export const createRegistryWriteRoutes = (
                 // The cash-gifts and currency invariants live in the service,
                 // not here: reading them through the whole snapshot — items,
                 // gift log, currency — would load all of it to check one row.
-                const settings = yield* registryService.updateSettings(weddingId, body);
+                const settings = yield* registryService.updateSettings(weddingId, body, deps);
                 return { settings };
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -395,7 +400,7 @@ export const createRegistryWriteRoutes = (
               // delete: two items may name the same key, and reaping on the
               // first delete would blank the survivor's picture.
               Effect.tap(({ imageKey, imageKeyOrphaned }) =>
-                reapAfterResponse(request, assets, imageKeyOrphaned ? imageKey : null),
+                reapAfterResponse(request, deps.assets, imageKeyOrphaned ? imageKey : null),
               ),
               Effect.map(() => ({ ok: true as const })),
               Effect.provideService(DbService, db),

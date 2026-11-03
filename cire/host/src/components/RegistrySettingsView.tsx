@@ -13,6 +13,7 @@ import {
   claimStripeCheck,
   ensureRegistryLoaded,
   invalidateRegistry,
+  type MoneyGiftsBlock,
   registryAccessor,
   setCachedRegistry,
   type RegistrySettings,
@@ -45,12 +46,19 @@ import SectionIntro from "./SectionIntro";
  *
  * THE SITE IS A THIRD CONDITION. Guests are offered money only where the API
  * holds a Stripe key AND the webhook secret that records each gift
- * (`takesPayments` on the snapshot). Where it does not, the panel says so, the
- * switch cannot be turned on, and a fund does not count towards publishing.
- * Connecting the account still works, since a site can hold the key before
- * the webhook. While Stripe can charge, a switch already saved on can still be
- * turned off: the wedding's currency stays locked while it is on, and the
- * wedding Settings panel sends the couple here to turn it off.
+ * (`takesPayments` on the snapshot). Where it does not, the panel says so and
+ * the switch cannot be turned on. Connecting the account still works, since a
+ * site can hold the key before the webhook. While Stripe can charge, a switch
+ * already saved on can still be turned off: the wedding's currency stays
+ * locked while it is on, and the wedding Settings panel sends the couple here
+ * to turn it off.
+ *
+ * WHETHER GUESTS CAN GIVE IS THE SERVER'S ANSWER. The guest list also needs
+ * the account to pay out in the wedding's currency, which only the server
+ * knows. It sends `moneyGiftsBlockedBy` — `null` when guests are offered money
+ * and funds, otherwise the first reason they are not — so a fund counts
+ * towards publishing only on `null`, and every reason is worded here without
+ * the panel judging any of them itself.
  */
 
 interface RegistrySettingsViewProps {
@@ -106,6 +114,67 @@ function isStripeConnectUrl(raw: string): boolean {
   }
 }
 
+/**
+ * The publish notice's last sentence on a list with funds: why the funds do not
+ * count yet, from the server's reason. One it has no words for still says they
+ * do not count.
+ */
+function fundsDontCountWords(reason: MoneyGiftsBlock | null | undefined, currency: string): string {
+  switch (reason) {
+    case "payments_unavailable":
+      return " Cash funds don’t count: money gifts aren’t available on this site yet.";
+    case "stripe_not_ready":
+      return " Cash funds count once Stripe can take payments for you and money gifts are on.";
+    case "stripe_currency_unknown":
+      return " Cash funds don’t count until Stripe says which currency your account pays out in.";
+    case "currency_mismatch":
+      return ` Cash funds don’t count: your Stripe account pays out in a currency other than ${currency}.`;
+    case "cash_gifts_off":
+      return " Cash funds count once money gifts are on.";
+    default:
+      return " Cash funds don’t count while guests can’t see them.";
+  }
+}
+
+/** What a press of "Check again" found: the toast, and whether it is good news. */
+interface StripeCheckWords {
+  ready: boolean;
+  text: string;
+}
+
+/**
+ * What a press of "Check again" found, as a toast. "Ready" only when nothing
+ * on Stripe's side keeps guests from giving: an account that can charge but
+ * pays out in another currency, or has not said which, is not.
+ */
+function stripeCheckWords(
+  status: { chargesEnabled: boolean; moneyGiftsBlockedBy: MoneyGiftsBlock | null },
+  currency: string,
+): StripeCheckWords {
+  if (!status.chargesEnabled) {
+    return { ready: false, text: "Stripe still has something outstanding on your account." };
+  }
+  switch (status.moneyGiftsBlockedBy) {
+    case "stripe_currency_unknown":
+      return {
+        ready: false,
+        text: "Stripe can take payments, but hasn’t said which currency your account pays out in yet.",
+      };
+    case "currency_mismatch":
+      return {
+        ready: false,
+        text: `Stripe can take payments, but your account pays out in a currency other than ${currency}, the one every gift is charged in.`,
+      };
+    case "payments_unavailable":
+      return {
+        ready: false,
+        text: "Stripe can take payments, but money gifts aren’t available on this site yet.",
+      };
+    default:
+      return { ready: true, text: "Stripe is ready — you can let guests give money." };
+  }
+}
+
 export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const { authFetch } = useAuth();
   const snapshot = registryAccessor(props.weddingId);
@@ -138,16 +207,19 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const settings = (): RegistrySettings | null => snapshot()?.settings ?? null;
   /** Whether this site can take a money gift at all, whatever the settings say. */
   const siteTakesPayments = () => snapshot()?.takesPayments === true;
+  /** Why guests cannot give money, as the server says; `null` when they can. */
+  const moneyBlock = () => settings()?.moneyGiftsBlockedBy;
+  /** The wedding's currency — every gift is charged in it. */
+  const currency = () => snapshot()?.currency ?? "AUD";
   /**
    * Whether a published list would show a guest anything. A cash fund counts
-   * only while this site takes money gifts, they are on and Stripe can take a
-   * charge, as saved: guests see a fund only then, so a list of funds alone
-   * with money off would publish an empty page. Publishing an empty list is
-   * blocked — see the notice this drives.
+   * only while the server says guests can give money (`null`), as saved:
+   * guests see a fund only then, so a list of funds alone otherwise would
+   * publish an empty page. Publishing an empty list is blocked — see the notice
+   * this drives.
    */
   const canPublish = createMemo(() => {
-    const s = settings();
-    const fundsShow = siteTakesPayments() && s?.cashGiftsEnabled === true && s.stripeChargesEnabled;
+    const fundsShow = moneyBlock() === null;
     return (snapshot()?.items ?? []).some((it) => it.kind !== "cash_fund" || fundsShow);
   });
   /**
@@ -232,6 +304,29 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     });
   }
 
+  /**
+   * Ask for the settings row as it stands — an empty save, which writes nothing
+   * and answers with the row and why guests cannot give money — and put it in
+   * the cache without re-seeding the form, as `refreshStripe` does. For a
+   * co-host after a money refusal, who may not ask Stripe. A failure leaves the
+   * panel saying what it last knew: the refusal's toast has said what is true.
+   */
+  async function rereadSettings(): Promise<void> {
+    try {
+      const res = await authFetch(settingsUrl(), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) return;
+      const body = (await res.json()) as { settings: RegistrySettings };
+      patchCache(body.settings);
+    } catch (err) {
+      if (isAuthExpired(err)) redirectToLogin();
+    }
+  }
+
   onMount(() => {
     void (async () => {
       try {
@@ -247,11 +342,12 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         const s = settings();
         if (s) seed(s);
         // ONE live Stripe read per page load, and only for a couple
-        // mid-onboarding. This is the state where the answer genuinely may
-        // have changed since the page was cached — they have just come back
-        // from Stripe and the `account.updated` webhook can be seconds behind
-        // them. A couple who are already `ready`, or who have no account at
-        // all, cost nothing.
+        // mid-onboarding, or one whose Stripe can charge but has not yet named
+        // the currency it pays out in. These are the states where the answer
+        // genuinely may have changed since the page was cached — they have
+        // just come back from Stripe and the `account.updated` webhook can be
+        // seconds behind them. A couple ready in the wedding's currency, or
+        // with no account at all, cost nothing.
         //
         // `claimStripeCheck` is what keeps it to one. This panel is
         // behind a `<Show>`, so every list→settings switch remounts it, and
@@ -270,7 +366,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         if (
           props.canManage &&
           s?.stripeConnected &&
-          !s.stripeChargesEnabled &&
+          (!s.stripeChargesEnabled || s.moneyGiftsBlockedBy === "stripe_currency_unknown") &&
           claimStripeCheck(props.weddingId)
         ) {
           void refreshStripe(true);
@@ -355,14 +451,16 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 : "Stripe hasn’t told us which currency your account pays out in yet, so money gifts stay off. Ask an owner to check the Stripe connection, then try again."
               : "Stripe can’t take a payment for this wedding yet, so money gifts stay off.",
         );
-        // Re-read the two Stripe columns that went stale — NOT
-        // `invalidateRegistry`. Nothing on this tab re-fetches after a load, so
-        // dropping the snapshot would leave the form rendering off `null`: no
+        // The page is out of date about Stripe, and about why guests cannot
+        // give money. An owner asks Stripe, whose answer patches both; anyone
+        // else may not, so their panel asks for the row as it stands. Either
+        // way only the settings are patched — NOT `invalidateRegistry`: nothing
+        // on this tab re-fetches the whole registry, and a refetch that failed
+        // would drop the snapshot and leave the form rendering off `null` — no
         // items, so "add a gift before publishing" over a full list; no
-        // settings, so "connect an account" to a connected couple; and
-        // `patchCache` short-circuiting, so the next successful save would not
-        // reach the cache either.
-        void refreshStripe(true);
+        // settings, so "connect an account" to a connected couple.
+        if (props.canManage) void refreshStripe(true);
+        else void rereadSettings();
         return;
       }
       if (!res.ok) {
@@ -436,7 +534,8 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
    * `quiet` is the on-mount call for a couple mid-onboarding: it updates the
    * panel and says nothing, because nobody pressed anything. Pressed by hand,
    * it reports what it found — including "still not ready", which is the answer
-   * a couple staring at a disabled switch actually needs.
+   * a couple staring at a disabled switch actually needs, and a payout currency
+   * that still keeps guests from giving, which "ready" would hide.
    */
   async function refreshStripe(quiet = false): Promise<void> {
     if (checking() || !props.canManage) return;
@@ -451,27 +550,30 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         }
         return;
       }
-      const status = (await res.json()) as { connected: boolean; chargesEnabled: boolean };
+      const status = (await res.json()) as {
+        connected: boolean;
+        chargesEnabled: boolean;
+        moneyGiftsBlockedBy: MoneyGiftsBlock | null;
+      };
       const current = settings();
       if (current) {
         // `patchCache`, never `patchSettings`: this read changes Stripe state
         // the form does not own, and re-seeding would discard whatever the
         // couple has typed since the page loaded. `connected` as well as the
         // charge flag, so an account Stripe has since revoked reads as "connect
-        // one" rather than as unfinished onboarding.
+        // one" rather than as unfinished onboarding; and the reason, which the
+        // payout currency Stripe just reported may have changed.
         patchCache({
           ...current,
           stripeConnected: status.connected,
           stripeChargesEnabled: status.chargesEnabled,
+          moneyGiftsBlockedBy: status.moneyGiftsBlockedBy,
         });
       }
       if (!quiet) {
-        haptic(status.chargesEnabled ? "commit" : "reject");
-        toast.success(
-          status.chargesEnabled
-            ? "Stripe is ready — you can let guests give money."
-            : "Stripe still has something outstanding on your account.",
-        );
+        const words = stripeCheckWords(status, currency());
+        haptic(words.ready ? "commit" : "reject");
+        toast.success(words.text);
       }
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
@@ -530,11 +632,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 Add a gift before publishing. Guests reach the list — and the money-gift option with
                 it — only once it is published, so an empty published list is a page with nothing on
                 it.
-                <Show when={hasFunds()}>
-                  {siteTakesPayments()
-                    ? " Cash funds count once money gifts are on."
-                    : " Cash funds don’t count: money gifts aren’t available on this site yet."}
-                </Show>
+                <Show when={hasFunds()}>{fundsDontCountWords(moneyBlock(), currency())}</Show>
               </Notice>
             </Show>
 
@@ -644,6 +742,26 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               <Notice tone="info" data-testid="money-gifts-unavailable">
                 Money gifts aren’t available on this site yet, so guests won’t be offered them
                 whatever is set here.
+              </Notice>
+            </Show>
+
+            {/* The payout currency, which only the server can judge: every gift
+                is charged in the wedding's, so an account that pays out in
+                another — or has not said which — is offered to no guest, with
+                the switch on or off. A standing note, so `info` and no alert. */}
+            <Show when={moneyBlock() === "currency_mismatch"}>
+              <Notice tone="info" data-testid="money-gifts-currency">
+                Guests aren’t offered money gifts or cash funds: your Stripe account pays out in a
+                currency other than {currency()}, the one every gift is charged in.
+              </Notice>
+            </Show>
+            <Show when={moneyBlock() === "stripe_currency_unknown"}>
+              <Notice tone="info" data-testid="money-gifts-currency">
+                Guests aren’t offered money gifts or cash funds until Stripe says which currency
+                your account pays out in.{" "}
+                {props.canManage
+                  ? "Check again to ask it."
+                  : "Ask an owner to check the Stripe connection."}
               </Notice>
             </Show>
 

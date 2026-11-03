@@ -50,6 +50,9 @@ function db0() {
 
 type Db0 = ReturnType<typeof db0>;
 
+/** A deployment that takes money gifts: what the settings' reason is judged on. */
+const PAYING_SITE = { takesPayments: true } as const;
+
 const run = <A, E>(db: Db0, eff: Effect.Effect<A, E, DbService>) =>
   Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
 
@@ -178,14 +181,14 @@ describe("the parting gift summary", () => {
 
   it("reads as absent for a wedding that was never swept", async () => {
     const db = db0();
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.giftSummary).toBeNull();
   });
 
   it("carries the counts, the totals and the arrival range back out", async () => {
     const db = db0();
     writeSummary(db, JSON.stringify(KEPT));
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.giftSummary).toEqual(KEPT);
   });
 
@@ -194,7 +197,7 @@ describe("the parting gift summary", () => {
     // it cannot list one by one.
     const db = db0();
     writeSummary(db, JSON.stringify(KEPT_BEFORE_LISTS));
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.giftSummary).toEqual({
       ...KEPT_BEFORE_LISTS,
       contributions: { ...KEPT_BEFORE_LISTS.contributions, gifts: [] },
@@ -207,7 +210,7 @@ describe("the parting gift summary", () => {
       db,
       JSON.stringify({ ...KEPT, contributions: { ...KEPT.contributions, gifts: "x" } }),
     );
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.giftSummary).toEqual({
       ...KEPT,
       contributions: { ...KEPT.contributions, gifts: [] },
@@ -229,7 +232,7 @@ describe("the parting gift summary", () => {
       },
     };
     writeSummary(db, JSON.stringify(damaged));
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.giftSummary?.contributions.gifts).toEqual([
       KEPT.contributions.gifts[0],
       { on: "2025-05-12", amountMinor: 1_000, currency: "AUD" },
@@ -245,7 +248,7 @@ describe("the parting gift summary", () => {
     // reach the portal merely because it was in the row.
     const db = db0();
     writeSummary(db, JSON.stringify({ ...KEPT, displayName: "The Ashworths" }));
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.giftSummary).toEqual(KEPT);
     expect(JSON.stringify(snap.giftSummary)).not.toContain("Ashworth");
   });
@@ -279,7 +282,7 @@ describe("the parting gift summary", () => {
       cases.map(([json, at]) => {
         const db = db0();
         writeSummary(db, json, at);
-        return ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+        return ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
       }),
     );
     for (const snap of snaps) expect(snap.giftSummary).toBeNull();
@@ -289,7 +292,7 @@ describe("the parting gift summary", () => {
 describe("registry settings", () => {
   it("reads as unpublished before any row exists", async () => {
     const db = db0();
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.settings.published).toBe(false);
     expect(snap.settings.cashGiftsEnabled).toBe(false);
     expect(snap.settings.updatedAt).toBeNull();
@@ -302,10 +305,14 @@ describe("registry settings", () => {
     const db = db0();
     const first = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        published: true,
-        headline: "Our registry",
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          published: true,
+          headline: "Our registry",
+        },
+        PAYING_SITE,
+      ),
     );
     expect(first.published).toBe(true);
     expect(first.headline).toBe("Our registry");
@@ -314,7 +321,11 @@ describe("registry settings", () => {
     // insert-arm default — the bug an upsert makes easy to write.
     const second = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { message: "No boxed gifts please" }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        { message: "No boxed gifts please" },
+        PAYING_SITE,
+      ),
     );
     expect(second.published).toBe(true);
     expect(second.headline).toBe("Our registry");
@@ -331,11 +342,15 @@ describe("registry settings from two organisers at once", () => {
   async function opened(db: Db0) {
     await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        published: false,
-        headline: "Our list",
-        shippingAddress: "1 Example St",
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          published: false,
+          headline: "Our list",
+          shippingAddress: "1 Example St",
+        },
+        PAYING_SITE,
+      ),
     );
   }
 
@@ -344,10 +359,14 @@ describe("registry settings from two organisers at once", () => {
     await opened(db);
     const saved = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        headline: "Gifts",
-        expected: { headline: "Our list" },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          headline: "Gifts",
+          expected: { headline: "Our list" },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(saved.headline).toBe("Gifts");
   });
@@ -356,16 +375,23 @@ describe("registry settings from two organisers at once", () => {
     const db = db0();
     await opened(db);
     // The other organiser clears the address.
-    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { shippingAddress: null }));
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { shippingAddress: null }, PAYING_SITE),
+    );
 
     // This one still sees the old address, edits it, and changes the heading too.
     const exit = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        headline: "Gifts",
-        shippingAddress: "2 Example St",
-        expected: { headline: "Our list", shippingAddress: "1 Example St" },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          headline: "Gifts",
+          shippingAddress: "2 Example St",
+          expected: { headline: "Our list", shippingAddress: "1 Example St" },
+        },
+        PAYING_SITE,
+      ),
     );
     const error = failureOf(exit);
     expect(error).toBeInstanceOf(SettingsChanged);
@@ -375,7 +401,7 @@ describe("registry settings from two organisers at once", () => {
       expect(error.current.headline).toBe("Our list");
     }
     // Neither field moved: the refusal is the whole write, not half of it.
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.settings.shippingAddress).toBeNull();
     expect(snap.settings.headline).toBe("Our list");
   });
@@ -385,10 +411,14 @@ describe("registry settings from two organisers at once", () => {
     await opened(db);
     const saved = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        message: "No boxed gifts",
-        expected: { message: null },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          message: "No boxed gifts",
+          expected: { message: null },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(saved.message).toBe("No boxed gifts");
   });
@@ -398,20 +428,28 @@ describe("registry settings from two organisers at once", () => {
     await opened(db);
     const saved = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        published: true,
-        expected: { published: false },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          published: true,
+          expected: { published: false },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(saved.published).toBe(true);
     // A caller that still sees it unpublished, and wants it unpublished, is
     // asking to undo a change it never saw — refused.
     const stale = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        published: false,
-        expected: { published: false },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          published: false,
+          expected: { published: false },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(failureOf(stale)).toBeInstanceOf(SettingsChanged);
   });
@@ -422,19 +460,27 @@ describe("registry settings from two organisers at once", () => {
     // One organiser publishes.
     await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        published: true,
-        expected: { published: false },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          published: true,
+          expected: { published: false },
+        },
+        PAYING_SITE,
+      ),
     );
     // The other, still seeing it unpublished, publishes too — or the first
     // retries after losing the answer. The row already holds what they want.
     const again = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        published: true,
-        expected: { published: false },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          published: true,
+          expected: { published: false },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(again.published).toBe(true);
   });
@@ -442,26 +488,37 @@ describe("registry settings from two organisers at once", () => {
   it("checks a field the caller only names in `expected`, without writing it", async () => {
     const db = db0();
     await opened(db);
-    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
+    );
 
     // The caller changes the heading on condition the list is still a draft.
     const refused = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        headline: "Gifts",
-        expected: { published: false },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          headline: "Gifts",
+          expected: { published: false },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(failureOf(refused)).toBeInstanceOf(SettingsChanged);
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.settings.headline).toBe("Our list");
 
     const saved = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        headline: "Gifts",
-        expected: { published: true },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          headline: "Gifts",
+          expected: { published: true },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(saved.headline).toBe("Gifts");
     expect(saved.published).toBe(true);
@@ -471,14 +528,20 @@ describe("registry settings from two organisers at once", () => {
     const db = db0();
     await opened(db);
     const before = db.select().from(registrySettings).all()[0]!.updatedAt;
-    const saved = await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {}));
+    const saved = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {}, PAYING_SITE),
+    );
     expect(saved.headline).toBe("Our list");
     expect(saved.shippingAddress).toBe("1 Example St");
     expect(db.select().from(registrySettings).all()[0]!.updatedAt).toEqual(before);
 
     // And a wedding with no row yet gets the defaults, and still no row.
     const fresh = db0();
-    const defaults = await ok(fresh, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {}));
+    const defaults = await ok(
+      fresh,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {}, PAYING_SITE),
+    );
     expect(defaults.published).toBe(false);
     expect(fresh.select().from(registrySettings).all()).toHaveLength(0);
   });
@@ -487,10 +550,14 @@ describe("registry settings from two organisers at once", () => {
     const db = db0();
     const saved = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        headline: "Gifts",
-        expected: { headline: null },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          headline: "Gifts",
+          expected: { headline: null },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(saved.headline).toBe("Gifts");
   });
@@ -499,12 +566,17 @@ describe("registry settings from two organisers at once", () => {
     const db = db0();
     await opened(db);
     // No account on the row yet: not connected, on the read and on a save.
-    expect((await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID))).settings.stripeConnected).toBe(
-      false,
-    );
     expect(
-      (await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { message: "Hi" })))
+      (await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE))).settings
         .stripeConnected,
+    ).toBe(false);
+    expect(
+      (
+        await ok(
+          db,
+          registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { message: "Hi" }, PAYING_SITE),
+        )
+      ).stripeConnected,
     ).toBe(false);
 
     db.update(registrySettings)
@@ -512,7 +584,7 @@ describe("registry settings from two organisers at once", () => {
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
 
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.settings.stripeConnected).toBe(true);
     expect(snap.settings.stripeChargesEnabled).toBe(true);
     expect(Object.keys(snap.settings)).not.toContain("stripeAccountId");
@@ -520,7 +592,7 @@ describe("registry settings from two organisers at once", () => {
 
     const saved = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Gifts" }),
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Gifts" }, PAYING_SITE),
     );
     expect(Object.keys(saved)).not.toContain("stripeAccountId");
     expect(Object.keys(saved)).not.toContain("stripePayoutsEnabled");
@@ -540,7 +612,7 @@ describe("registry items", () => {
     expect(b.sortOrder).toBe(1);
     expect(a.quantityClaimed).toBe(0);
 
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.items.map((i) => i.title)).toEqual(["Pan", "Kettle"]);
     // The wedding's primary currency — every authored price is in it.
     expect(snap.currency).toBe("AUD");
@@ -568,7 +640,7 @@ describe("registry items", () => {
     const b = await ok(db, registryService.createItem(newItem({ title: "B" })));
     const c = await ok(db, registryService.createItem(newItem({ title: "C" })));
     await ok(db, registryService.reorderItems(BOOTSTRAP_WEDDING_ID, [c.id, a.id, b.id]));
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.items.map((i) => i.title)).toEqual(["C", "A", "B"]);
   });
 });
@@ -630,7 +702,7 @@ describe("registryService.claim", () => {
         displayName: "The Bs",
       }),
     );
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.items[0]!.quantityClaimed).toBe(2);
     expect(snap.gifts).toHaveLength(2);
   });
@@ -703,7 +775,7 @@ describe("registryService.claim", () => {
     // A raises its own 1 → 2. Against others' 1 that is 3 of 3: allowed. If the
     // guard counted A's own existing row it would read 4 and refuse.
     await ok(db, registryService.claim({ ...base, familyId: famA, quantity: 2 }));
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.items[0]!.quantityClaimed).toBe(3);
     // Still one row per household — a re-claim updates, never stacks.
     expect(db.select().from(registryClaims).all()).toHaveLength(2);
@@ -740,7 +812,7 @@ describe("registryService.claim", () => {
     );
     await ok(db, registryService.claim({ ...base, familyId: famB }));
 
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.items[0]!.quantityClaimed).toBe(1);
   });
 
@@ -877,7 +949,7 @@ describe("gift log", () => {
     // Pending money is not money yet.
     seedContribution(db, { amountMinor: 99_999, currency: "AUD", status: "pending" });
 
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.contributionsPrimaryMinor).toBe(10_000 + 9_700);
     // Both rows land in AUD once the snapshot is taken into account, so nothing
     // is left out of the figure.
@@ -897,7 +969,7 @@ describe("gift log", () => {
     seedContribution(db, { amountMinor: 300_000, currency: "JPY" });
     seedContribution(db, { amountMinor: 4_000, currency: "USD" });
 
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.contributionsPrimaryMinor).toBe(10_000);
     expect(snap.contributionsOtherCurrencyCount).toBe(2);
   });
@@ -909,7 +981,7 @@ describe("gift log", () => {
     seedContribution(db, { amountMinor: 10_000, currency: "AUD" });
     seedContribution(db, { amountMinor: 2_500, currency: "aud" });
 
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.contributionsPrimaryMinor).toBe(12_500);
     expect(snap.contributionsOtherCurrencyCount).toBe(0);
   });
@@ -1463,7 +1535,7 @@ describe("gift log paging", () => {
     // 60 gifts of 1_000 — more than one page. A total summed off the page would
     // under-report by 10_000, which is the bug the SQL aggregate exists to stop.
     for (let i = 0; i < 60; i += 1) seedContribution(db, { amountMinor: 1_000 });
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.gifts).toHaveLength(50);
     expect(snap.giftsHasMore).toBe(true);
     expect(snap.contributionsPrimaryMinor).toBe(60_000);
@@ -1646,33 +1718,39 @@ describe("registry ownership + range guards", () => {
     const db = db0();
     const blocked = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }, PAYING_SITE),
     );
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
       expect(blocked.cause.toString()).toContain(new StripeNotReady()._tag);
     }
     // The refused write created no settings row to half-enable.
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.settings.cashGiftsEnabled).toBe(false);
 
     // Once Stripe reports charges enabled, in the wedding's own currency, the
     // same patch goes through.
-    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
+    );
     db.update(registrySettings)
       .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
       .run();
     const enabled = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }, PAYING_SITE),
     );
     expect(enabled.cashGiftsEnabled).toBe(true);
   });
 
   it("refuses cash gifts when Stripe would settle in another currency", async () => {
     const db = db0();
-    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
+    );
     // Charges work, but the account settles in dollars while the wedding prices
     // everything in Australian dollars. Checkout would convert or refuse.
     db.update(registrySettings)
@@ -1682,13 +1760,13 @@ describe("registry ownership + range guards", () => {
 
     const blocked = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }, PAYING_SITE),
     );
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
       expect(blocked.cause.toString()).toContain(new CurrencyMismatch()._tag);
     }
-    const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(refused.settings.cashGiftsEnabled).toBe(false);
 
     // The same patch goes through once the two agree.
@@ -1698,7 +1776,7 @@ describe("registry ownership + range guards", () => {
       .run();
     const enabled = await ok(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }, PAYING_SITE),
     );
     expect(enabled.cashGiftsEnabled).toBe(true);
   });
@@ -1708,7 +1786,10 @@ describe("registry ownership + range guards", () => {
     // currency is unknown may convert every gift on Stripe's terms, so the
     // switch waits until Stripe names it.
     const db = db0();
-    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
+    );
     db.update(registrySettings)
       .set({ stripeChargesEnabled: true, stripeDefaultCurrency: null })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
@@ -1716,13 +1797,13 @@ describe("registry ownership + range guards", () => {
 
     const blocked = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }, PAYING_SITE),
     );
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
       expect(blocked.cause.toString()).toContain(new SettlementCurrencyUnknown()._tag);
     }
-    const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(refused.settings.cashGiftsEnabled).toBe(false);
   });
 
@@ -1731,7 +1812,10 @@ describe("registry ownership + range guards", () => {
     // change landing between them must not leave cash gifts on against an
     // account that settles in the old currency, so the write re-checks.
     const db = db0();
-    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
+    );
     db.update(registrySettings)
       .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
@@ -1750,7 +1834,7 @@ describe("registry ownership + range guards", () => {
 
     const blocked = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }, PAYING_SITE),
     );
     Reflect.deleteProperty(client, "query");
     expect(Exit.isFailure(blocked)).toBe(true);
@@ -1770,7 +1854,10 @@ describe("registry ownership + range guards", () => {
     // The refresh route writes whatever Stripe says, and Stripe can send no
     // settlement currency at all. The re-check inside the write names that.
     const db = db0();
-    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }, PAYING_SITE),
+    );
     db.update(registrySettings)
       .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
@@ -1791,7 +1878,7 @@ describe("registry ownership + range guards", () => {
 
     const blocked = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }, PAYING_SITE),
     );
     Reflect.deleteProperty(client, "query");
     expect(Exit.isFailure(blocked)).toBe(true);
@@ -1804,7 +1891,10 @@ describe("registry ownership + range guards", () => {
     // The currencies agree, so the refusal is the field that moved, and the
     // caller gets the row as it stands rather than a Stripe message.
     const db = db0();
-    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Theirs" }));
+    await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Theirs" }, PAYING_SITE),
+    );
     db.update(registrySettings)
       .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "AUD" })
       .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
@@ -1812,11 +1902,15 @@ describe("registry ownership + range guards", () => {
 
     const stale = await run(
       db,
-      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-        cashGiftsEnabled: true,
-        headline: "Ours",
-        expected: { cashGiftsEnabled: false, headline: "What we saw" },
-      }),
+      registryService.updateSettings(
+        BOOTSTRAP_WEDDING_ID,
+        {
+          cashGiftsEnabled: true,
+          headline: "Ours",
+          expected: { cashGiftsEnabled: false, headline: "What we saw" },
+        },
+        PAYING_SITE,
+      ),
     );
     expect(Exit.isFailure(stale)).toBe(true);
     if (Exit.isFailure(stale)) {
@@ -2175,7 +2269,8 @@ describe("refundContribution", () => {
       paymentIntentId: "pi_1",
     });
     expect(
-      (await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID))).contributionsPrimaryMinor,
+      (await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE)))
+        .contributionsPrimaryMinor,
     ).toBe(14_000);
 
     await ok(
@@ -2188,7 +2283,7 @@ describe("refundContribution", () => {
       }),
     );
 
-    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID, PAYING_SITE));
     expect(snap.contributionsPrimaryMinor).toBe(10_000);
   });
 

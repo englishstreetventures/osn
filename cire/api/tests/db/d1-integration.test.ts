@@ -256,6 +256,9 @@ const runEffect = <A, E>(eff: Effect.Effect<A, E, EffectDbService>): Promise<A> 
 const run = <A, E>(eff: Effect.Effect<A, E, DbService>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
 
+/** A deployment that takes money gifts: what the settings' reason is judged on. */
+const PAYING_SITE = { takesPayments: true } as const;
+
 async function seed(): Promise<void> {
   const now = new Date();
   await db.insert(weddings).values({
@@ -2050,19 +2053,33 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // when the WHERE fails — a property of the engine, so it is pinned on D1
       // as well as on bun:sqlite.
       await run(
-        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-          published: true,
-          shippingAddress: "1 Example St",
-        }),
+        registryService.updateSettings(
+          BOOTSTRAP_WEDDING_ID,
+          {
+            published: true,
+            shippingAddress: "1 Example St",
+          },
+          PAYING_SITE,
+        ),
       );
-      await run(registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { shippingAddress: null }));
+      await run(
+        registryService.updateSettings(
+          BOOTSTRAP_WEDDING_ID,
+          { shippingAddress: null },
+          PAYING_SITE,
+        ),
+      );
 
       const exit = await Effect.runPromiseExit(
         registryService
-          .updateSettings(BOOTSTRAP_WEDDING_ID, {
-            shippingAddress: "2 Example St",
-            expected: { shippingAddress: "1 Example St" },
-          })
+          .updateSettings(
+            BOOTSTRAP_WEDDING_ID,
+            {
+              shippingAddress: "2 Example St",
+              expected: { shippingAddress: "1 Example St" },
+            },
+            PAYING_SITE,
+          )
           .pipe(Effect.provideService(DbService, db)),
       );
       const error = Exit.isFailure(exit)
@@ -2078,10 +2095,14 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       // A matching expectation writes.
       const saved = await run(
-        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-          shippingAddress: "2 Example St",
-          expected: { shippingAddress: null },
-        }),
+        registryService.updateSettings(
+          BOOTSTRAP_WEDDING_ID,
+          {
+            shippingAddress: "2 Example St",
+            expected: { shippingAddress: null },
+          },
+          PAYING_SITE,
+        ),
       );
       expect(saved.shippingAddress).toBe("2 Example St");
     },
@@ -2580,18 +2601,33 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(await currency()).toBe("USD");
       const mismatched = await run(
         Effect.exit(
-          registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+          registryService.updateSettings(
+            BOOTSTRAP_WEDDING_ID,
+            { cashGiftsEnabled: true },
+            PAYING_SITE,
+          ),
         ),
       );
       expect(Exit.isFailure(mismatched)).toBe(true);
       if (Exit.isFailure(mismatched)) {
         expect(mismatched.cause.toString()).toContain(new CurrencyMismatch()._tag);
       }
+      // A save that writes reads the wedding's currency back in the upsert's
+      // own RETURNING, as a subquery on the wedding row. USD here, so the
+      // answer names the mismatch; the "AUD" fallback would say money is off.
+      const saved = await run(
+        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Ours" }, PAYING_SITE),
+      );
+      expect(saved.moneyGiftsBlockedBy).toBe("currency_mismatch");
 
       // Once the two agree, the upsert's EXISTS lets the switch on.
       await run(weddingSettingsService.update(BOOTSTRAP_WEDDING_ID, { currency: "AUD" }, "usr_d1"));
       const enabled = await run(
-        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+        registryService.updateSettings(
+          BOOTSTRAP_WEDDING_ID,
+          { cashGiftsEnabled: true },
+          PAYING_SITE,
+        ),
       );
       expect(enabled.cashGiftsEnabled).toBe(true);
     },

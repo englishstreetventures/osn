@@ -94,6 +94,8 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
     shippingVisibleFrom: null,
     stripeConnected: false,
     stripeChargesEnabled: false,
+    // What the server says for no Stripe account.
+    moneyGiftsBlockedBy: "stripe_not_ready",
     updatedAt: null,
   },
   items: [],
@@ -1367,7 +1369,16 @@ describe("RegistryView — cash funds", () => {
     cashGiftsEnabled: true,
     stripeConnected: true,
     stripeChargesEnabled: true,
+    moneyGiftsBlockedBy: null,
   };
+  /** The same couple, with the server's reason for guests not giving money. */
+  const blockedBy = (reason: unknown) => ({
+    ...takingMoney,
+    moneyGiftsBlockedBy: reason as RegistrySnapshot["settings"]["moneyGiftsBlockedBy"],
+  });
+  const renderList = () =>
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+  const STRIPE_WORDS = /only once Stripe can take payments for you and money gifts are on/i;
 
   it("adds a cash fund with its goal in the wedding's own currency, and no gift fields", async () => {
     // A yen wedding: ¥50,000 typed is 50,000 minor units, not 5,000,000.
@@ -1801,43 +1812,38 @@ describe("RegistryView — cash funds", () => {
     );
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
     expect(await screen.findByText("Honeymoon in Kyoto")).toBeInTheDocument();
-    // A fund among gifts, with money off, still says guests cannot see it.
-    expect(screen.getByText(/only while money gifts are on/i)).toBeInTheDocument();
+    // A fund among gifts, with no Stripe account yet, still says guests cannot
+    // see it, and why.
+    expect(screen.getByTestId("funds-hidden")).toHaveTextContent(STRIPE_WORDS);
   });
 
   it("says when guests cannot see the funds, and not when they can", async () => {
-    setCachedRegistry("wed_1", snapshot({ items: [fund()] }));
-    const { unmount } = render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
-    ));
-    expect(await screen.findByText(/only while money gifts are on/i)).toBeInTheDocument();
-    unmount();
-
     // Money gifts switched off with Stripe still charging is the ordinary way
-    // they are off; the funds are just as hidden.
+    // they are off; the funds are hidden, and the switch is the fix.
     setCachedRegistry(
       "wed_1",
-      snapshot({ settings: { ...takingMoney, cashGiftsEnabled: false }, items: [fund()] }),
+      snapshot({
+        settings: { ...blockedBy("cash_gifts_off"), cashGiftsEnabled: false },
+        items: [fund()],
+      }),
     );
-    const halfOn = render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
-    ));
-    expect(await screen.findByText(/only while money gifts are on/i)).toBeInTheDocument();
-    halfOn.unmount();
+    const off = renderList();
+    expect(await screen.findByTestId("funds-hidden")).toHaveTextContent(
+      /only while money gifts are on\. Turn them on in the Settings tab/i,
+    );
+    off.unmount();
 
     // No fund, nothing to say, whatever the money settings.
     setCachedRegistry("wed_1", snapshot({ items: [item({})] }));
-    const giftsOnly = render(() => (
-      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
-    ));
+    const giftsOnly = renderList();
     await screen.findByText("Copper pan");
-    expect(screen.queryByText(/only while money gifts are on/i)).toBeNull();
+    expect(screen.queryByTestId("funds-hidden")).toBeNull();
     giftsOnly.unmount();
 
     setCachedRegistry("wed_1", snapshot({ settings: takingMoney, items: [fund()] }));
-    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+    renderList();
     await screen.findByText("Honeymoon in Kyoto");
-    expect(screen.queryByText(/only while money gifts are on/i)).toBeNull();
+    expect(screen.queryByTestId("funds-hidden")).toBeNull();
   });
 
   it("says guests cannot see the funds where this site cannot take a money gift", async () => {
@@ -1846,15 +1852,81 @@ describe("RegistryView — cash funds", () => {
     // change nothing.
     setCachedRegistry(
       "wed_1",
-      snapshot({ settings: takingMoney, items: [fund()], takesPayments: false }),
+      snapshot({
+        settings: blockedBy("payments_unavailable"),
+        items: [fund()],
+        takesPayments: false,
+      }),
     );
-    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+    renderList();
     await screen.findByText("Honeymoon in Kyoto");
-    expect(
-      screen.getByText(
-        /guests can’t see your cash funds: money gifts aren’t available on this site yet/i,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("funds-hidden")).toHaveTextContent(
+      /guests can’t see your cash funds: money gifts aren’t available on this site yet/i,
+    );
     expect(screen.queryByText(/only while money gifts are on/i)).toBeNull();
+  });
+
+  it("names the currency when the account pays out in another, and nothing when it matches", async () => {
+    // Money on, Stripe charging, the site taking payments — and still no fund
+    // reaches a guest, because every gift is charged in the wedding's currency.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ settings: blockedBy("currency_mismatch"), items: [fund()], currency: "NZD" }),
+    );
+    const mismatched = renderList();
+    const notice = await screen.findByTestId("funds-hidden");
+    expect(notice).toHaveTextContent(
+      /guests can’t see your cash funds: your Stripe account pays out in a currency other than NZD/i,
+    );
+    expect(notice.textContent).not.toMatch(/turn them on/i);
+    expect(notice.textContent).not.toMatch(/this site/i);
+    mismatched.unmount();
+
+    // The same snapshot with the currencies agreeing: guests see the fund.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ settings: blockedBy(null), items: [fund()], currency: "NZD" }),
+    );
+    renderList();
+    await screen.findByText("Honeymoon in Kyoto");
+    expect(screen.queryByTestId("funds-hidden")).toBeNull();
+  });
+
+  it("says Stripe has not named the currency while it has not", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ settings: blockedBy("stripe_currency_unknown"), items: [fund()] }),
+    );
+    renderList();
+    expect(await screen.findByTestId("funds-hidden")).toHaveTextContent(
+      /until Stripe says which currency your account pays out in/i,
+    );
+  });
+
+  it("sends a couple whose Stripe cannot charge to Stripe, not to a switch that is already on", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        settings: { ...blockedBy("stripe_not_ready"), stripeChargesEnabled: false },
+        items: [fund()],
+      }),
+    );
+    renderList();
+    const notice = await screen.findByTestId("funds-hidden");
+    expect(notice).toHaveTextContent(STRIPE_WORDS);
+    expect(notice.textContent).not.toMatch(/turn them on/i);
+  });
+
+  it("hides the funds, and says so plainly, for a reason it has no words for", async () => {
+    // A reason a newer API sends, or none from an API that predates the field:
+    // either way the server did not say guests can give, so they cannot.
+    for (const reason of ["something_new", undefined]) {
+      setCachedRegistry("wed_1", snapshot({ settings: blockedBy(reason), items: [fund()] }));
+      const view = renderList();
+      expect(await screen.findByTestId("funds-hidden")).toHaveTextContent(
+        /^Guests can’t see your cash funds right now\.$/,
+      );
+      view.unmount();
+    }
   });
 });

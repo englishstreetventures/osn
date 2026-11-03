@@ -14,6 +14,15 @@ import { type Accessor, createSignal, type Setter } from "solid-js";
 
 import { isWeddingClosed } from "./wedding-scope";
 
+/** Why guests are offered no money gift and no cash fund, as the API names it.
+ *  The first that applies; the API owns the order. */
+export type MoneyGiftsBlock =
+  | "payments_unavailable"
+  | "stripe_not_ready"
+  | "stripe_currency_unknown"
+  | "currency_mismatch"
+  | "cash_gifts_off";
+
 /** Registry-level settings. The portal reads these; the Stripe fields are
  *  reported by the server and never written from here. */
 export interface RegistrySettings {
@@ -28,6 +37,10 @@ export interface RegistrySettings {
    *  reaches the portal. */
   stripeConnected: boolean;
   stripeChargesEnabled: boolean;
+  /** `null` exactly when the guest list offers money and cash funds — the
+   *  server's answer, by the guest list's own rule. Anything else, a value this
+   *  build has no words for or the field missing included, means it does not. */
+  moneyGiftsBlockedBy: MoneyGiftsBlock | null;
   updatedAt: number | null;
 }
 

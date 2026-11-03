@@ -103,10 +103,13 @@ function buildApp({
   tier = "gold",
   stripe,
   limiter,
+  stripeWebhookSecret = null,
 }: {
   tier?: Tier;
   stripe?: StripeClient | null;
   limiter?: ReturnType<typeof createRateLimiter>;
+  /** The Connect webhook's signing secret: with it, the site takes money gifts. */
+  stripeWebhookSecret?: string | null;
 } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
@@ -130,6 +133,7 @@ function buildApp({
     // so without this the eleventh call in this file would 429 whichever test
     // happened to run last.
     registryStripeLimiter: limiter ?? createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+    stripeWebhookSecret,
   });
   return { app, db };
 }
@@ -300,7 +304,16 @@ describe("refreshing what Stripe says", () => {
       connected: false,
       chargesEnabled: false,
       payoutsEnabled: false,
+      moneyGiftsBlockedBy: "payments_unavailable",
     });
+    expect(stripe.calls).toEqual([]);
+
+    // On a site that takes money, the reason is the missing account.
+    const paying = buildApp({ stripe: stripe.client, stripeWebhookSecret: "whsec_test_connect" });
+    const answer = (await jsonBody(await req(paying.app, `${base}/refresh`, OWNER))) as {
+      moneyGiftsBlockedBy: unknown;
+    };
+    expect(answer.moneyGiftsBlockedBy).toBe("stripe_not_ready");
     expect(stripe.calls).toEqual([]);
   });
 
@@ -323,6 +336,8 @@ describe("refreshing what Stripe says", () => {
       connected: true,
       chargesEnabled: true,
       payoutsEnabled: true,
+      // No webhook secret on this app, so the site takes no money gift.
+      moneyGiftsBlockedBy: "payments_unavailable",
     });
     const row = await db
       .select()
@@ -331,6 +346,72 @@ describe("refreshing what Stripe says", () => {
       .get();
     expect(row?.stripeChargesEnabled).toBe(true);
     expect(row?.stripePayoutsEnabled).toBe(true);
+  });
+
+  // The portal shows this answer as what guests are offered, so it is the row as
+  // the guest gate will read it after the write — never the live read alone.
+  describe("why guests cannot give money", () => {
+    const live = (defaultCurrency: string | null): StripeAccount => ({
+      id: "acct_new",
+      chargesEnabled: true,
+      payoutsEnabled: true,
+      detailsSubmitted: true,
+      defaultCurrency,
+    });
+
+    /**
+     * A paying site whose couple connected an account and turned money gifts
+     * on, with the row still saying onboarding is unfinished — so an answer
+     * taken from the row before the refresh says `stripe_not_ready`.
+     */
+    async function connectedWithMoneyOn(account: StripeAccount) {
+      const built = buildApp({
+        stripe: stripeStub({ account }).client,
+        stripeWebhookSecret: "whsec_test_connect",
+      });
+      await req(built.app, `${base}/session`, OWNER);
+      built.db
+        .update(registrySettings)
+        .set({ cashGiftsEnabled: true, stripeChargesEnabled: false, stripeDefaultCurrency: null })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        .run();
+      return built;
+    }
+
+    it("answers null once the live read settles in the wedding's currency", async () => {
+      const { app } = await connectedWithMoneyOn(live("AUD"));
+      const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
+        moneyGiftsBlockedBy: unknown;
+      };
+      expect(body.moneyGiftsBlockedBy).toBeNull();
+    });
+
+    it("answers currency_mismatch when the live read settles in another currency", async () => {
+      const { app } = await connectedWithMoneyOn(live("USD"));
+      const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
+        moneyGiftsBlockedBy: unknown;
+      };
+      expect(body.moneyGiftsBlockedBy).toBe("currency_mismatch");
+    });
+
+    it("answers the stored row when it holds a later state than the live read", async () => {
+      // Stripe said "cannot charge" at a time later than this read: the write
+      // keeps it, so the guest gate reads "cannot charge", and so must the answer.
+      const { app, db } = await connectedWithMoneyOn(live("AUD"));
+      db.update(registrySettings)
+        .set({
+          stripeChargesEnabled: false,
+          stripeAccountUpdatedAt: new Date(Date.now() + 3_600_000),
+        })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        .run();
+      const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
+        chargesEnabled: unknown;
+        moneyGiftsBlockedBy: unknown;
+      };
+      expect(body.chargesEnabled).toBe(false);
+      expect(body.moneyGiftsBlockedBy).toBe("stripe_not_ready");
+    });
   });
 
   it("answers 502 when Stripe cannot be reached", async () => {
