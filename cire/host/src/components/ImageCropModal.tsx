@@ -6,7 +6,6 @@ import { Cropper } from "cropperjs";
 import type { CropperImage, CropperSelection } from "cropperjs";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
-import { haptic } from "../lib/haptics";
 import {
   ASPECT_PRESETS,
   type AspectPresetId,
@@ -18,6 +17,7 @@ import {
   presetAspectRatio,
   presetForCrop,
 } from "../lib/image-crop";
+import { haptic } from "../lib/touch-feedback";
 /**
  * Drag/resize/zoom crop editor over an uploaded invite image, wrapping the
  * battle-tested vanilla Cropper.js (per the repo's "prefer existing libraries"

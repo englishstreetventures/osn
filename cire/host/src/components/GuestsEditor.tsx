@@ -53,13 +53,13 @@ import {
   invalidateGuests,
   type OrganiserGuestRow,
 } from "../lib/guests-store";
-import { haptic } from "../lib/haptics";
 import {
   ensureHouseholdsLoaded,
   householdsAccessor,
   invalidateHouseholds,
   type OrganiserHouseholdRow,
 } from "../lib/households-store";
+import { haptic } from "../lib/touch-feedback";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import { IconButton } from "./ActionTip";
 import ChangePreview, {

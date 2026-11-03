@@ -7,9 +7,9 @@ import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 
-import { haptic } from "../lib/haptics";
 import { CIRE_API_URL } from "../lib/osn";
-import { initTheme } from "../lib/theme";
+import { initTheme } from "../lib/preferences";
+import { haptic } from "../lib/touch-feedback";
 import {
   consumeClaim,
   fetchClaimPreview,

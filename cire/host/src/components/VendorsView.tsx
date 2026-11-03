@@ -10,9 +10,9 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
-import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
+import { haptic } from "../lib/touch-feedback";
 import {
   ensureVendorsLoaded,
   invalidateVendors,

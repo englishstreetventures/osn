@@ -16,7 +16,7 @@ import {
   replyToEnquiry,
   submitQuote,
 } from "../lib/enquiries-store";
-import { haptic } from "../lib/haptics";
+import { haptic } from "../lib/touch-feedback";
 
 /**
  * The quote form, a box inside the thread's card: the card's border and the

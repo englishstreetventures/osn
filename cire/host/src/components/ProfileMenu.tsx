@@ -15,14 +15,14 @@ import {
 } from "@shared/ui/ui/dropdown-menu";
 import { For, type JSX, Show } from "solid-js";
 
-import { haptic, hapticsAvailable } from "../lib/haptics";
 import {
   hapticsEnabled,
   setHapticsEnabled,
   setThemePreference,
   type ThemePreference,
   themePreference,
-} from "../lib/theme";
+} from "../lib/preferences";
+import { haptic, hapticsAvailable } from "../lib/touch-feedback";
 
 /** "System" first because it is the default, and the only one that keeps
  *  following the host's OS after they close the menu. */

@@ -25,7 +25,6 @@ import { createMemo, createSignal, createUniqueId, For, onMount, Show, untrack }
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
-import { haptic } from "../lib/haptics";
 import {
   belowSmallestUnitError,
   formatMinor,
@@ -48,6 +47,7 @@ import {
   stillWanted,
 } from "../lib/registry-store";
 import { sameButOrder } from "../lib/sortable-rows";
+import { haptic } from "../lib/touch-feedback";
 import { LinkPill } from "./LinkPill";
 import RegistryImageField from "./RegistryImageField";
 import ReorderControls from "./ReorderControls";

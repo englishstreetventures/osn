@@ -18,8 +18,8 @@ const authFetch = vi.fn();
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 // The touch feedback each outcome plays: what a host on a phone feels.
 const hapticSpy = vi.hoisted(() => vi.fn());
-vi.mock("../../src/lib/haptics", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/haptics")>()),
+vi.mock("../../src/lib/touch-feedback", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/touch-feedback")>()),
   haptic: (name: string) => hapticSpy(name),
 }));
 vi.mock("../../src/lib/api", async () => {

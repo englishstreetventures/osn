@@ -34,10 +34,10 @@ import {
   setCachedBudget,
 } from "../lib/budget-store";
 import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
-import { haptic } from "../lib/haptics";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { sameButOrder } from "../lib/sortable-rows";
+import { haptic } from "../lib/touch-feedback";
 import { type PerHeadChange, PerHeadPanel, PerHeadSummary } from "./BudgetPerHead";
 import ReorderControls from "./ReorderControls";
 

@@ -23,7 +23,6 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
-import { haptic } from "../lib/haptics";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
   ensureHostsLoaded,
@@ -49,6 +48,7 @@ import {
   tasksAccessor,
   viewerHostIdOf,
 } from "../lib/tasks-store";
+import { haptic } from "../lib/touch-feedback";
 import { normaliseWeddingRole } from "../lib/wedding-roles";
 import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";

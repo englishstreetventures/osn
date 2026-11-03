@@ -192,7 +192,7 @@ describe("ProfileMenu", () => {
   });
 
   it("chooses the theme from its radio rows, and stays open to compare", async () => {
-    const { themePreference, setThemePreference } = await import("../../src/lib/theme");
+    const { themePreference, setThemePreference } = await import("../../src/lib/preferences");
     setThemePreference("system");
     render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
     openMenu();

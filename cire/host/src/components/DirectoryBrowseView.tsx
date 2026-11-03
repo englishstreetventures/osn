@@ -15,8 +15,8 @@ import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
-import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
+import { haptic } from "../lib/touch-feedback";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
 import { InstagramMark, LINK_PILL_ROW, LinkPill } from "./LinkPill";

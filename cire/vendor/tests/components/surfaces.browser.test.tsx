@@ -41,7 +41,7 @@ import cardSource from "@cire/ui/sign-in-card.astro?raw";
 import SignInPanel, { type SignInAuth } from "@cire/ui/sign-in-panel";
 
 import VendorApp from "../../src/components/VendorApp";
-import { setThemePreference } from "../../src/lib/theme";
+import { setThemePreference } from "../../src/lib/preferences";
 import { ENQUIRY } from "../test-support/dashboard";
 import { useFallbackFonts } from "../test-support/fonts";
 

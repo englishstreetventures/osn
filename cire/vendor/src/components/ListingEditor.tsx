@@ -14,8 +14,8 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { friendlyError } from "../lib/api";
-import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
+import { haptic } from "../lib/touch-feedback";
 import { fetchListing, putListing, takeSeededListing } from "../lib/vendor-store";
 // ── Price-band options ─────────────────────────────────────────────────────
 const PRICE_BANDS = [

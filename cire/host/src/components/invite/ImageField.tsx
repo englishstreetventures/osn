@@ -12,7 +12,6 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, lazy, Show, Suspense } from "solid-js";
 
 import { FORM_ACTION_CLASS } from "../../lib/form-field";
-import { haptic } from "../../lib/haptics";
 import {
   CROP_ASPECT,
   cropAspectRatio,
@@ -21,6 +20,7 @@ import {
   type ImageCrop,
 } from "../../lib/image-crop";
 import { inviteImageSrc } from "../../lib/invite-image";
+import { haptic } from "../../lib/touch-feedback";
 import { InstantBadge } from "./fields";
 
 const ImageCropModal = lazy(() => import("../ImageCropModal"));

@@ -15,7 +15,7 @@ import "../../src/styles/global.css";
  * sheet trigger are different elements under different container widths.
  */
 
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic: () => {} }));
 
 import ModuleSidebar from "../../src/components/ModuleSidebar";
 import { MODULE_NAV } from "../../src/lib/module-nav";

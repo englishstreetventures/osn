@@ -8,10 +8,10 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { createSignal, For, Show } from "solid-js";
 
 import type { EnquiryListItem, EnquiryMessage } from "../lib/enquiries-store";
-import { haptic } from "../lib/haptics";
 // Shared, memoised formatters — see `lib/money.ts`.
 import { formatMinor } from "../lib/money";
 import { categoryLabel } from "../lib/service-categories";
+import { haptic } from "../lib/touch-feedback";
 interface EnquiryThreadProps {
   enquiry: EnquiryListItem;
   messages: EnquiryMessage[];

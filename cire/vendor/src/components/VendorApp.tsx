@@ -1,16 +1,16 @@
 import Button from "@cire/ui/button";
+import { createAutoSize } from "@cire/ui/lib/auto-size";
 import Loading from "@cire/ui/loading";
 import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { Toaster } from "@shared/toast";
 import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show } from "solid-js";
 
 import { redirectToLogin, signOutToLogin } from "../lib/api";
-import { createAutoSize } from "../lib/auto-size";
 import { reloadOnRestore } from "../lib/bfcache";
 import { listEnquiries } from "../lib/enquiries-store";
 import { createEnquiryInbox } from "../lib/enquiry-inbox";
 import { CIRE_API_URL } from "../lib/osn";
-import { initTheme } from "../lib/theme";
+import { initTheme } from "../lib/preferences";
 import { drainClaimedListing, type OrgSummary } from "../lib/vendor-store";
 import ListingEditor from "./ListingEditor";
 import OrgPicker from "./OrgPicker";

@@ -49,7 +49,6 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
-import { haptic } from "../lib/haptics";
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
 import {
@@ -71,6 +70,7 @@ import {
 } from "../lib/rsvp-filter";
 import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
+import { haptic } from "../lib/touch-feedback";
 import { IconButton } from "./ActionTip";
 import SectionIntro from "./SectionIntro";
 import { type MarkTone, StatusDot, StatusMark } from "./StatusMark";

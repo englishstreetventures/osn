@@ -10,7 +10,7 @@ import { createSignal, createUniqueId } from "solid-js";
 import { redirectToLogin } from "../lib/api";
 import { enquiryErrorMessage, EnquiryApiError, openEnquiry } from "../lib/enquiries-api";
 import { type EnquiryListItem, upsertCachedEnquiry } from "../lib/enquiries-store";
-import { haptic } from "../lib/haptics";
+import { haptic } from "../lib/touch-feedback";
 
 export interface EnquireDialogProps {
   open: boolean;

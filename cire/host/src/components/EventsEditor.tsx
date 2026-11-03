@@ -66,9 +66,9 @@ import {
   runOfShowItem,
 } from "../lib/guest-event-draft";
 import { invalidateGuests } from "../lib/guests-store";
-import { haptic } from "../lib/haptics";
 import { scheduleChanged } from "../lib/schedule-changed";
 import { describeTimeZone, timeZoneGroups, zoneOffset } from "../lib/timezones";
+import { haptic } from "../lib/touch-feedback";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import ChangePreview, {
   type ApplyChangeBody,

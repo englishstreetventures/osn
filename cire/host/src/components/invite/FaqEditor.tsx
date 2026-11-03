@@ -40,7 +40,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
-import { haptic } from "../../lib/haptics";
+import { haptic } from "../../lib/touch-feedback";
 import ReorderControls from "../ReorderControls";
 import { InstantBadge, TextAreaField, TextField } from "./fields";
 import { FAQ_CAPS, type FaqEntry } from "./model";

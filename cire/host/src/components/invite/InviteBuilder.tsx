@@ -76,10 +76,10 @@ import { createStore } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
 import { INVITE_VIEWS, type InviteView } from "../../lib/dashboard-route";
-import { haptic } from "../../lib/haptics";
 import type { ImageCrop } from "../../lib/image-crop";
 import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
 import { CIRE_WEB_URL } from "../../lib/osn";
+import { haptic } from "../../lib/touch-feedback";
 import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
 import { createCompact, useViewBar, ViewBar } from "../ViewBar";

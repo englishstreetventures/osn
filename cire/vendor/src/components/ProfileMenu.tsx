@@ -16,7 +16,6 @@ import {
 import { createSignal, For, type JSX, onMount, Show } from "solid-js";
 
 import { accountName } from "../lib/account-name";
-import { haptic, hapticsAvailable } from "../lib/haptics";
 import { OSN_ACCOUNT_URL } from "../lib/osn";
 import {
   hapticsEnabled,
@@ -24,7 +23,8 @@ import {
   setThemePreference,
   type ThemePreference,
   themePreference,
-} from "../lib/theme";
+} from "../lib/preferences";
+import { haptic, hapticsAvailable } from "../lib/touch-feedback";
 
 /** "System" first because it is the default, and the only one that keeps
  *  following the vendor's OS after they close the menu. */

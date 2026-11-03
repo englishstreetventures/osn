@@ -4,7 +4,6 @@ import { toast } from "@shared/toast";
 import { createSignal, createUniqueId, onMount, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
-import { haptic } from "../lib/haptics";
 import {
   downloadLockedExport,
   fetchModuleRows,
@@ -12,6 +11,7 @@ import {
   LockedExportError,
 } from "../lib/locked-exports";
 import { ensureModuleRowsLoaded, moduleRowsAccessor } from "../lib/module-rows-store";
+import { haptic } from "../lib/touch-feedback";
 
 /** A refusal that means the session is gone, in either form it arrives in. */
 const sessionExpired = (err: unknown): boolean =>
