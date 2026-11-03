@@ -62,7 +62,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
 });
 
 import VendorApp from "../../src/components/VendorApp";
-import { redirectToLogin } from "../../src/lib/api";
+import { leaveForLogin, redirectToLogin } from "../../src/lib/api";
 import { listEnquiries, type VendorEnquiryListItem } from "../../src/lib/enquiries-store";
 import { fetchListing, type Listing, seedClaimedListing } from "../../src/lib/vendor-store";
 
@@ -100,6 +100,25 @@ describe("VendorApp", () => {
   it("shows the org picker when signed in and no org is selected", async () => {
     render(() => <VendorApp />);
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+  });
+
+  it("signs out to a plain sign-in page, with nothing to resume", async () => {
+    // The next person on this device must not land on this vendor's page.
+    render(() => <VendorApp />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    const trigger = screen.getByRole("button", { name: /account menu/i });
+    fireEvent.pointerEnter(trigger);
+    await waitFor(
+      () =>
+        expect(screen.getByRole("button", { name: /account menu/i })).toHaveAttribute(
+          "aria-expanded",
+        ),
+      { timeout: 10_000 },
+    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
+    fireEvent.pointerUp(await screen.findByText(/sign out/i), { button: 0 });
+    await waitFor(() => expect(leaveForLogin).toHaveBeenCalledTimes(1));
+    expect(redirectToLogin).not.toHaveBeenCalled();
   });
 
   it("redirects to login and does not render the org picker when unauthenticated", async () => {

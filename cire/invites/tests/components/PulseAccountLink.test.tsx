@@ -144,6 +144,19 @@ describe("PulseAccountLink", () => {
     expect(screen.getByText("A")).toBeTruthy();
   });
 
+  it.each([
+    ["the handle when there is no display name", { displayName: null, handle: "ada" }, "A"],
+    ["a question mark when there is neither", { displayName: null, handle: null }, "?"],
+  ])("takes the initial from %s", (_name, names, initial) => {
+    const { view } = renderBox({
+      signedIn: true,
+      linkedGuestIds: [],
+      account: { ...ACCOUNT, ...names, avatarUrl: null },
+    });
+    expect(view.container.querySelector("img")).toBeNull();
+    expect(view.container.querySelector("[aria-hidden='true']")?.textContent).toBe(initial);
+  });
+
   it("draws the picture for an https: URL, with that src", () => {
     const { view } = renderBox({ signedIn: true, linkedGuestIds: [], account: ACCOUNT });
     expect(view.container.querySelector("img")?.getAttribute("src")).toBe(

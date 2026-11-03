@@ -296,6 +296,7 @@ describe("GET /api/auth/oidc/callback", () => {
       ["a protocol-relative path", "//evil.example/x"],
       ["a backslash path", "/\\evil.example/x"],
       ["the sign-in page itself", "/login?returnTo=%2Fx"],
+      ["the sign-in page with a trailing slash", "/login/"],
     ])("carries no page for %s on a portal", async (_, path) => {
       // The origin is the allowlist's; the path is whoever started the sign-in.
       // The panel would refuse these too; the API does not hand them over.
@@ -327,6 +328,30 @@ describe("GET /api/auth/oidc/callback", () => {
       const location = new URL(res.headers.get("location")!);
       expect(location.origin + location.pathname).toBe(`${VENDOR}/login`);
       expect(location.searchParams.get("returnTo")).toBe("/claim");
+    });
+
+    it("a sign-in whose session cannot be stored lands on the portal's /login as failed", async () => {
+      const config = portalConfig();
+      const { tx, state, nonce } = await startedTx(config, `${HOST}/#/w/w_1`);
+      const idToken = await issuer.signIdToken({ nonce });
+      const db = createDb(":memory:");
+      seedDb(db);
+      // The insert fails as D1 refusing it would.
+      db.$client.exec("DROP TABLE organiser_sessions");
+      const app = mkApp(db, {
+        oidc: { ...config, _fetch: stubTokenEndpoint(() => tokenResponse(idToken)).fetch },
+        organiserOrigin: HOST,
+        vendorPortalOrigin: VENDOR,
+        allowedOrigins: [TEST_RETURN_ORIGIN, HOST, VENDOR],
+      });
+      const res = await appRequest(app, `/api/auth/oidc/callback?code=c&state=${state}`, {
+        headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+      });
+      const location = new URL(res.headers.get("location")!);
+      expect(location.origin + location.pathname).toBe(`${HOST}/login`);
+      expect(location.searchParams.get("returnTo")).toBe("/#/w/w_1");
+      expect(location.searchParams.get("auth_error")).toBe("sign_in_failed");
+      expect(setCookie(res, ORGANISER_COOKIE_NAME)).toBeUndefined();
     });
 
     it("a guest-site sign-in keeps landing back on the guest page", async () => {
