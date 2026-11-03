@@ -267,6 +267,9 @@ describe("createStripeClient", () => {
     expect(body).toContain("type=account_onboarding");
     expect(body).toContain("refresh_url=");
     expect(body).toContain("return_url=");
+    // A fresh link each call: replaying a key would hand back a stale, expired one.
+    const headers = calls[0]?.init.headers as Headers;
+    expect(headers.get("idempotency-key")).toBeNull();
   });
 });
 
