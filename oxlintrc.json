@@ -394,6 +394,18 @@
       }
     },
     {
+      // Two awaited reads in a row where the second does not use the first's
+      // result wait for the sum of two round trips. Start both and wait once
+      // (`Promise.all`, `Effect.all`). Only calls named like reads (get, find,
+      // list, load, ...) are checked, and only in shipped source: a test
+      // awaits in order on purpose. A read that must settle first is
+      // suppressed on its line with the reason. Zero hits when turned on.
+      "files": ["**/src/**"],
+      "rules": {
+        "house/no-sequential-independent-await": "error"
+      }
+    },
+    {
       // The Bun-only dev entry, which never runs on workerd: there
       // `process.env` is native and complete at load.
       "files": ["cire/api/src/local.ts"],

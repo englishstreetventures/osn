@@ -9,7 +9,7 @@ related:
   - "[[testing-patterns]]"
   - "[[backend-patterns]]"
   - "[[d1-limits]]"
-last-reviewed: 2026-10-08
+last-reviewed: 2026-11-03
 ---
 
 # House lint rules
@@ -27,6 +27,7 @@ Each rule's own source file holds the full reasoning and the bug that prompted i
 | `no-stacked-doc-block` | error | Two or more doc blocks in front of one declaration |
 | `no-tracker-ref-in-comment` | warn | A tracker issue, finding tag, phase code or history in a comment — see [[code-comments]] |
 | `no-unbounded-in-array` | error | An `inArray` or `notInArray` list whose length the source does not fix — one D1 parameter per element |
+| `no-sequential-independent-await` | error, `**/src/**` only | Two adjacent awaited reads (`get*`, `find*`, `list*`, `load*` ...) where the second does not use the first's result — start both and wait once with `Promise.all` or `Effect.all` |
 
 ## Suppressing a house rule
 

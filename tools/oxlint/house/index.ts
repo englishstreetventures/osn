@@ -4,6 +4,7 @@ import { noBaseVariantAtCallSiteRule } from "./rules/no-base-variant-at-call-sit
 import { noInOperatorKeyGuardRule } from "./rules/no-in-operator-key-guard.ts";
 import { noModuleScopeProcessEnvRule } from "./rules/no-module-scope-process-env.ts";
 import { noNonSubscribingStoreReadRule } from "./rules/no-non-subscribing-store-read.ts";
+import { noSequentialIndependentAwaitRule } from "./rules/no-sequential-independent-await.ts";
 import { noStackedDocBlockRule } from "./rules/no-stacked-doc-block.ts";
 import { noTrackerRefInCommentRule } from "./rules/no-tracker-ref-in-comment.ts";
 import { noUnboundedInArrayRule } from "./rules/no-unbounded-in-array.ts";
@@ -16,6 +17,7 @@ const housePlugin = eslintCompatPlugin({
     "no-in-operator-key-guard": noInOperatorKeyGuardRule,
     "no-module-scope-process-env": noModuleScopeProcessEnvRule,
     "no-non-subscribing-store-read": noNonSubscribingStoreReadRule,
+    "no-sequential-independent-await": noSequentialIndependentAwaitRule,
     "no-stacked-doc-block": noStackedDocBlockRule,
     "no-tracker-ref-in-comment": noTrackerRefInCommentRule,
     "no-unbounded-in-array": noUnboundedInArrayRule,
