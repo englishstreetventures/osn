@@ -1,0 +1,13 @@
+{
+  // Workers types only: the package's entry points are imported by Worker
+  // source, so a `bun:*` reference here, even a type, would fail a Worker's
+  // check. The tests and the sync script run on Bun and get `bun-types` in
+  // `tests/tsconfig.json`.
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
