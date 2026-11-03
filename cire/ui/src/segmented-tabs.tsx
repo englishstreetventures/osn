@@ -103,15 +103,21 @@ const CLIP =
   "base:pointer-events-none base:absolute base:inset-0 base:overflow-clip base:rounded-ui-pill";
 
 /**
- * The glass. Its fill is the raised surface at 55% under the accent at 14%,
- * composited into one colour (accent 22.8% into raised, at 61.3%), so the
- * colour the label sits on can be read back and measured.
+ * The glass's look without its place: the raised surface at 55% under the
+ * accent at 14%, composited into one colour (accent 22.8% into raised, at
+ * 61.3%) so the colour a label sits on can be read back and measured, its lit
+ * edges, its shadow and its frost. Exported so a lone glass pill (the invite
+ * builder's place on a phone, a chosen filter chip) wears the chosen choice's
+ * look, not a copy of it. A contrast theme drops the fill: a lone pill draws
+ * its own outline there.
  */
-const GLASS =
-  "base:absolute base:top-0 base:left-0 base:rounded-ui-pill " +
+export const SEGMENTED_GLASS_FILL =
   "base:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_22.8%,var(--ui-surface-raised))_61.3%,transparent)] " +
   "base:shadow-[var(--inner-lip,inset_0_1px_0_rgb(255_255_255/0.06)),inset_0_0_0_1px_var(--glass-edge,rgb(255_255_255/0.1)),0_0_0_0.5px_var(--ui-hairline),var(--elev-1,var(--ui-elev-1))] " +
   "base:backdrop-blur-md base:backdrop-saturate-[1.6]";
+
+/** The glass in the track: the fill, placed by the sliding pill. */
+const GLASS = `base:absolute base:top-0 base:left-0 base:rounded-ui-pill ${SEGMENTED_GLASS_FILL}`;
 
 /**
  * A choice. Chosen, its word is set at medium weight: the glass and the inks
