@@ -6,7 +6,7 @@
  *
  * `--plans` resolves from the directory the command runs in (`shared/billing`
  * under `--cwd`). A live key (`sk_live_…`) also needs `--live` to apply. Prints
- * each plan's product and price changes, and the portal configuration id the
+ * each plan's product and price diffs, and the portal configuration id the
  * consumer stores.
  */
 
@@ -41,13 +41,12 @@ function describe(report: SyncReport): string[] {
     lines.push(
       `${plan.planId}: product ${plan.product.action}, price ${plan.price.action}${plan.price.priceId ? ` (${plan.price.priceId})` : ""}`,
     );
-    for (const change of [...plan.product.changes, ...plan.price.changes])
-      lines.push(`  ${change}`);
+    for (const change of [...plan.product.diffs, ...plan.price.diffs]) lines.push(`  ${change}`);
   }
   lines.push(
     `portal configuration: ${report.portal.action}${report.portal.configurationId ? ` ${report.portal.configurationId}` : ""}`,
   );
-  for (const change of report.portal.changes) lines.push(`  ${change}`);
+  for (const change of report.portal.diffs) lines.push(`  ${change}`);
   return lines;
 }
 

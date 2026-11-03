@@ -55,7 +55,7 @@ describe("syncPlans", () => {
     const report = await Effect.runPromise(syncPlans({ plans: PLANS, request, apply: false }));
     const plan = report.plans.find((p) => p.planId === "monthly")!;
     expect(plan.price.action).toBe("replace");
-    expect(plan.price.changes.toSorted()).toEqual(["GBP: 3000 → removed", "NZD: missing → 5200"]);
+    expect(plan.price.diffs.toSorted()).toEqual(["GBP: 3000 → removed", "NZD: missing → 5200"]);
     expect(report.plans.find((p) => p.planId === "annual")!.price.action).toBe("ok");
     expect(posts(stripe)).toEqual([]);
   });
@@ -70,7 +70,7 @@ describe("syncPlans", () => {
     const report = await Effect.runPromise(
       syncPlans({ plans: [repriced, annual], request, apply: false }),
     );
-    expect(report.plans[0]!.price.changes).toEqual(["AUD: 4900 → 5900"]);
+    expect(report.plans[0]!.price.diffs).toEqual(["AUD: 4900 → 5900"]);
   });
 
   it("creates product and price on a first apply, with every currency, the tax behaviour and the plan id", async () => {

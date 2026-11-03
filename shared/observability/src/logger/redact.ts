@@ -296,6 +296,29 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // policy treats profile ids as loggable (see the PII note above).
     "osnAccountId",
     "osn_account_id",
+
+    // --- Billing provider credentials and Stripe customer data ---
+    // `secretKey` and `webhookSecret` are the Stripe secret key and the
+    // endpoint signing secret in `@shared/billing`'s provider config
+    // (shared/billing/src/stripe/http.ts, src/stripe/provider.ts), so a logged
+    // config never carries either.
+    "secretKey",
+    "webhookSecret",
+    // Stripe objects that reach the Worker carry the paying customer's
+    // details, read by nothing (shared/billing/src/stripe/schemas.ts names
+    // each): an invoice in an `invoice.paid` body or a reconcile fetch carries
+    // the `customer_*` fields; a customer object carries `address` and, when
+    // expanded, `tax_ids` (its name and email are covered above). Matching is
+    // exact-key, so `address` also scrubs any other object's `address` key in
+    // a log line, such as a venue's — the safe direction.
+    "customer_address",
+    "customer_email",
+    "customer_name",
+    "customer_phone",
+    "customer_shipping",
+    "customer_tax_ids",
+    "address",
+    "tax_ids",
   ].map((k) => k.toLowerCase()),
 );
 

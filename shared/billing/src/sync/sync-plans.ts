@@ -38,12 +38,12 @@ export type PriceAction = "create" | "replace" | "update_metadata" | "ok" | "con
 
 export interface PlanSyncReport {
   readonly planId: string;
-  readonly product: { readonly action: ProductAction; readonly changes: readonly string[] };
+  readonly product: { readonly action: ProductAction; readonly diffs: readonly string[] };
   readonly price: {
     readonly action: PriceAction;
     /** The price checkout will sell after this run (a new one is `null` on a dry run). */
     readonly priceId: string | null;
-    readonly changes: readonly string[];
+    readonly diffs: readonly string[];
   };
 }
 
@@ -55,7 +55,7 @@ export interface SyncReport {
     readonly action: "create" | "update" | "ok";
     /** Store it in the consumer's portal-configuration var. `null` before the first apply. */
     readonly configurationId: string | null;
-    readonly changes: readonly string[];
+    readonly diffs: readonly string[];
   };
 }
 
@@ -70,28 +70,28 @@ const lower = (currency: string) => currency.toLowerCase();
 /** What the price should be, per currency, in minor units. */
 function priceChanges(plan: AnyPlan, price: ProviderPrice): string[] {
   const want = plan.price;
-  const changes: string[] = [];
+  const diffs: string[] = [];
   if (price.productId !== productIdFor(plan.id))
-    changes.push(`product: ${price.productId} → ${productIdFor(plan.id)}`);
+    diffs.push(`product: ${price.productId} → ${productIdFor(plan.id)}`);
   if (price.interval !== want.interval)
-    changes.push(`interval: ${price.interval ?? "none"} → ${want.interval}`);
+    diffs.push(`interval: ${price.interval ?? "none"} → ${want.interval}`);
   if (price.taxBehavior !== want.taxBehavior) {
-    changes.push(`tax_behavior: ${price.taxBehavior ?? "none"} → ${want.taxBehavior}`);
+    diffs.push(`tax_behavior: ${price.taxBehavior ?? "none"} → ${want.taxBehavior}`);
   }
   if (price.currency !== want.defaultCurrency)
-    changes.push(`currency: ${price.currency} → ${want.defaultCurrency}`);
+    diffs.push(`currency: ${price.currency} → ${want.defaultCurrency}`);
   const have = new Map<string, number | null>([
     [price.currency, price.unitAmount],
     ...Object.entries(price.currencyOptions).map(([c, o]) => [c, o.unitAmount] as const),
   ]);
   for (const [currency, amount] of Object.entries(want.amounts)) {
     const current = have.get(currency);
-    if (current === undefined) changes.push(`${currency}: missing → ${amount}`);
-    else if (current !== amount) changes.push(`${currency}: ${current ?? "none"} → ${amount}`);
+    if (current === undefined) diffs.push(`${currency}: missing → ${amount}`);
+    else if (current !== amount) diffs.push(`${currency}: ${current ?? "none"} → ${amount}`);
   }
   for (const [currency, amount] of have) {
     if (!Object.hasOwn(want.amounts, currency))
-      changes.push(`${currency}: ${amount ?? "none"} → removed`);
+      diffs.push(`${currency}: ${amount ?? "none"} → removed`);
   }
   for (const [currency, option] of Object.entries(price.currencyOptions)) {
     if (
@@ -99,10 +99,10 @@ function priceChanges(plan: AnyPlan, price: ProviderPrice): string[] {
       option.taxBehavior !== null &&
       option.taxBehavior !== want.taxBehavior
     ) {
-      changes.push(`${currency} tax_behavior: ${option.taxBehavior} → ${want.taxBehavior}`);
+      diffs.push(`${currency} tax_behavior: ${option.taxBehavior} → ${want.taxBehavior}`);
     }
   }
-  return changes;
+  return diffs;
 }
 
 function priceForm(plan: AnyPlan): StripeFormParams {
@@ -165,10 +165,10 @@ function portalChanges(features: unknown): string[] {
   const read = Schema.decodeUnknownResult(PortalFeatures)(features ?? {});
   if (read._tag === "Failure") return ["features: unreadable → managed"];
   const f = read.success;
-  const changes: string[] = [];
+  const diffs: string[] = [];
   const check = (name: string, have: unknown, want: unknown) => {
     if (JSON.stringify(have) !== JSON.stringify(want))
-      changes.push(`${name}: ${JSON.stringify(have)} → ${JSON.stringify(want)}`);
+      diffs.push(`${name}: ${JSON.stringify(have)} → ${JSON.stringify(want)}`);
   };
   check("customer_update.enabled", f.customer_update?.enabled, true);
   check("customer_update.allowed_updates", f.customer_update?.allowed_updates?.toSorted(), [
@@ -180,7 +180,7 @@ function portalChanges(features: unknown): string[] {
   check("subscription_cancel.enabled", f.subscription_cancel?.enabled, true);
   check("subscription_cancel.mode", f.subscription_cancel?.mode, "at_period_end");
   check("subscription_update.enabled", f.subscription_update?.enabled, false);
-  return changes;
+  return diffs;
 }
 
 export const syncPlans = (
@@ -268,23 +268,23 @@ export const syncPlans = (
 
       const price = priceByKey.get(plan.lookupKey);
       let priceAction: PriceAction;
-      let changes: string[];
+      let diffs: string[];
       if (price === undefined) {
         priceAction = "create";
-        changes = Object.entries(plan.price.amounts).map(([c, a]) => `${c}: missing → ${a}`);
+        diffs = Object.entries(plan.price.amounts).map(([c, a]) => `${c}: missing → ${a}`);
       } else if (price.planIdMetadata !== null && price.planIdMetadata !== plan.id) {
         priceAction = "conflict";
-        changes = [`${price.id} names plan ${price.planIdMetadata}`];
+        diffs = [`${price.id} names plan ${price.planIdMetadata}`];
       } else {
-        changes = priceChanges(plan, price);
+        diffs = priceChanges(plan, price);
         priceAction =
-          changes.length > 0 ? "replace" : price.planIdMetadata === null ? "update_metadata" : "ok";
-        if (priceAction === "update_metadata") changes = ["metadata.plan_id: missing → " + plan.id];
+          diffs.length > 0 ? "replace" : price.planIdMetadata === null ? "update_metadata" : "ok";
+        if (priceAction === "update_metadata") diffs = ["metadata.plan_id: missing → " + plan.id];
       }
       return {
         plan,
-        product: { action: productAction, changes: productChanges },
-        price: { action: priceAction, current: price, changes },
+        product: { action: productAction, diffs: productChanges },
+        price: { action: priceAction, current: price, diffs },
       };
     });
     const conflicts = planned.filter(
@@ -343,7 +343,7 @@ export const syncPlans = (
       results.push({
         planId: plan.id,
         product: step.product,
-        price: { action: step.price.action, priceId, changes: step.price.changes },
+        price: { action: step.price.action, priceId, diffs: step.price.diffs },
       });
     }
 
@@ -371,6 +371,6 @@ export const syncPlans = (
       applied: apply,
       conflicts,
       plans: results,
-      portal: { action: portalAction, configurationId, changes: portalChangeList },
+      portal: { action: portalAction, configurationId, diffs: portalChangeList },
     } satisfies SyncReport;
   }).pipe(Effect.withSpan("billing.sync"));

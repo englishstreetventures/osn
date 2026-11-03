@@ -21,8 +21,15 @@ import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-// The Worker backends that run on D1 in production.
-const SCANNED = ["osn/api/src", "cire/api/src", "zap/api/src", "pulse/api/src"];
+// The Worker backends that run on D1 in production, and the shared packages
+// whose storage those Workers run.
+const SCANNED = [
+  "osn/api/src",
+  "cire/api/src",
+  "zap/api/src",
+  "pulse/api/src",
+  "shared/billing/src",
+];
 
 function tsFiles(dir: string): string[] {
   let entries: string[];
