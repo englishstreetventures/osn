@@ -1,9 +1,10 @@
 /**
  * The guest site's account card draws `@cire/ui`'s `PersonAvatar` initial: the
- * readable gold letter on the surface at 40% inside a hairline. The guest site
+ * readable gold letter inside a hairline, with no fill of its own, so the
+ * letter sits straight on whatever ground the card sits on. The guest site
  * maps the contract onto each couple's palette, so the letter is measured in
- * this site's stylesheet, under every palette, on each ground the card sits
- * on, and held to 4.5:1.
+ * this site's stylesheet, under every palette, on each of those grounds, and
+ * held to 4.5:1.
  */
 
 import { contrastRatio, PALETTE_PRESET_KEYS, WCAG_TEXT_MIN } from "@cire/theme";

@@ -156,7 +156,7 @@ haptics switch — are `rounded-full`.
 **Cards here** take a step of `cardClass` (host §7): an enquiry in the inbox is
 the interactive card at `sm`, and the sign-in card is `@cire/ui`'s
 `signInCardClass`, `xl` on the opaque surface with the lit top edge, the same
-as the host portal's (the owner's choice, Stack 6 question 33). Every label that leads a
+as the host portal's. Every label that leads a
 card or a section is `Eyebrow`, and the two `.astro` pages' is `eyebrowClass`.
 `tests/components/surfaces.browser.test.tsx` draws the inbox row, the quote form
 and the sign-in card in Chromium at 390 and 1440px, light and dark, measures
