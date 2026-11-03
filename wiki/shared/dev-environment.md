@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 
 # Dev environment (cire + OSN identity)
@@ -841,6 +841,11 @@ bun run --cwd musubi/infra plan:dev
 A plan evaluates the whole stack, so it needs what a deploy needs: the sites
 built with the dev hosts, and for the musubi stack the three seed values
 ([[infrastructure-as-code#How a stack run starts]] lists each step).
+`plan:dev` sets `CI=true`, as every committed Alchemy script does: it reads
+the exported credentials and never a stored profile, prints plain logs,
+refuses a missing or out-of-date state store rather than deploy one, and
+caches no store token, so each run uploads a temporary edge-preview Worker to
+read it ([[infrastructure-as-code#State store]]).
 
 Redeploy by dispatching **Deploy**, not by hand: a stack job builds the sites
 against the dev hosts, deploys, and runs every smoke check. `wrangler deploy` and

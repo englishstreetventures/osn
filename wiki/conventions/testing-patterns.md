@@ -185,7 +185,7 @@ osn/auth-ui/
 
 ### Tests that read files outside their package
 
-turbo caches a package's `test` on the package's own files. A test that also reads files elsewhere in the repository — another package's source, a workflow, `bun.lock` — needs those files as inputs, or it serves a stale green; but naming them on `test` reruns the whole suite whenever any of them changes. Put such tests in a vitest project of their own and run it as the root `test:repo` task: the package's `turbo.json` names the outside files as `test:repo` inputs and makes `test` depend on `test:repo`. A package with no `test:repo` script runs nothing for it. Two packages do this today: `@shared/infra` ([[infrastructure-as-code#Testing]]) and `@cire/landing` ([[cire-landing#Tests]]).
+turbo caches a package's `test` on the package's own files. A test that also reads files elsewhere in the repository — another package's source, a workflow, `bun.lock` — needs those files as inputs, or it serves a stale green; but naming them on `test` reruns the whole suite whenever any of them changes. Put such tests in a vitest project of their own and run it as the root `test:repo` task: the package's `turbo.json` names the outside files as `test:repo` inputs and makes `test` depend on `test:repo`. A package with no `test:repo` script runs nothing for it. Two packages do this today: `@shared/infra` ([[infrastructure-as-code#Testing]]) and `@cire/landing` ([[cire-landing#Tests]]). A test whose result depends on the installed dependency tree alone, not on other packages' files, takes a task of its own whose inputs are the lockfile and the root manifest, so it does not rerun on every source edit `test:repo` sees: `@shared/infra`'s `test:alchemy`, which runs the Alchemy CLI.
 
 ## Service Test Pattern
 
