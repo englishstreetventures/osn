@@ -17,7 +17,7 @@ import { createSignal, Show } from "solid-js";
  *   readable gold (`--ui-accent-ink`; gold text is never the metal gold), in
  *   the display face at weight 600, sized at half the circle's inside width
  *   (`50cqi`, so 17px in a 36px circle and 19px in a 40px one), inside a
- *   hairline circle (owner, Stack 6 questions 38 A and 39 B). The circle is the
+ *   hairline circle. The circle is the
  *   account avatar's, so a photo sits inside it too. It lays no fill of its
  *   own: the guest site lays no ground under a gold word, and
  *   `avatarTriggerClass` lays the portals' 40% surface under it, where its edge

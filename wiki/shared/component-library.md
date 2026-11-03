@@ -1225,9 +1225,8 @@ URL gets its own try.
   no fill of its own, round the photo too, and the name's first grapheme in
   readable gold in the display face at weight 600, at half the circle's inside
   width (`50cqi`, with `@container` on the root: 17px in a 36px circle, 19px in
-  a 40px one), upper-cased only when that keeps it one letter. The owner chose
-  the disc and the size (Stack 6 of englishstreetventures/osn#1831, questions
-  38 and 39).
+  a 40px one), upper-cased only when that keeps it one letter. The letter's
+  size and weight are the owner's choices.
 
 `ring` draws the stack's 2px band in the page's colour outside the circle, a
 box-shadow on the root, so the photo keeps its size; `Avatar`'s
