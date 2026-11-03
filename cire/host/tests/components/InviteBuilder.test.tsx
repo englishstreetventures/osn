@@ -1533,6 +1533,13 @@ describe("InviteBuilder UX guards", () => {
 
     const to = (module: "invite" | "guests", sub: string, weddingId = WEDDING.weddingId) =>
       ({ view: "weddings", weddingId, module, sub }) as const;
+    // Away from the dashboard's weddings, it asks.
+    expect(
+      confirmNavigation({
+        next: { view: "security", weddingId: null, module: "invite", sub: "template" },
+      }),
+    ).toBe(false);
+    confirmSpy.mockClear();
     // The same builder shows every Invite view of this wedding: no prompt.
     for (const sub of ["template", "style", "codes"]) {
       expect(confirmNavigation({ next: to("invite", sub) })).toBe(true);
@@ -1570,11 +1577,14 @@ describe("InviteBuilder UX guards", () => {
 
     // Template: the design alone, and no section strip.
     expect(shown()).toEqual(["invite-design"]);
+    expect(screen.getByText("Customise your invite")).toBeTruthy();
     expect(screen.queryByRole("tablist", { name: "Invite sections" })).toBeNull();
     setView("style");
     expect(shown()).toEqual(["invite-look"]);
     setView("codes");
     expect(shown()).toEqual(["invite-message"]);
+    // Codes holds the message alone, under the owner's codes: no builder head.
+    expect(screen.queryByText("Customise your invite")).toBeNull();
 
     // Content: its first section, then whichever its strip chooses — a real
     // attribute toggle, not a CSS class the DOM can't see. Regex name match:
@@ -1673,16 +1683,13 @@ describe("InviteBuilder UX guards", () => {
 });
 
 /**
- * The narrow-container section menu (2026-07-30). Below `@3xl/builder` the
- * tabs can't share a line, so a horizontally scrolling strip would park
- * Closing and Message off the right edge. They collapse behind a trigger
- * naming the current section and open as a grid that shows every tab at once.
- *
- * ONE tablist serves both surfaces (a per-surface copy would give every panel
- * two `aria-labelledby` candidates), so what these tests assert is the
- * COLLAPSE: `aria-expanded` on the trigger, the `hidden` class on the tablist,
- * and the dismiss paths. happy-dom applies no CSS, so the container-query swap
- * itself isn't observable here — the class list is the closest honest proxy.
+ * The builder on a phone (below a 30rem panel; `compact` alone, with no
+ * shell): one glass pill naming the place — a view, or under Content the
+ * section, a hidden one marked and named so — in place of both strips, and a
+ * menu of Template, Style, Content's six sections and Codes that moves to the
+ * place chosen and closes. Where the pill sits in the bar, and that the
+ * module's strip hides only once it has mounted, are the browser tier's
+ * (`GuestsStack.browser.test.tsx`, the tiers block).
  */
 describe("InviteBuilder on a phone", () => {
   afterEach(() => {
@@ -1755,6 +1762,12 @@ describe("InviteBuilder on a phone", () => {
     expect(
       screen.getByRole("menuitemradio", { name: "Template" }).getAttribute("aria-checked"),
     ).toBe("true");
+    // Off Content, no section is the chosen place; the sections sit under
+    // their eyebrow.
+    expect(screen.getByRole("menuitemradio", { name: /^Hero/ }).getAttribute("aria-checked")).toBe(
+      "false",
+    );
+    expect(within(screen.getByRole("menu")).getByText("Content")).toBeTruthy();
 
     // A section moves to Content, onto that section. (Kobalte chooses a row
     // on pointerup.)

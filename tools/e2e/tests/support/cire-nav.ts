@@ -74,13 +74,26 @@ export async function navSurfaces(flow: Flow, page: Page, host: string): Promise
     await expect(menu).toBeVisible();
   });
   const haptics = menu.getByRole("menuitemcheckbox", { name: "Haptics" });
-  if ((await haptics.count()) > 0) {
-    flow.check(
-      "nav: the haptics row draws the shared switch",
-      1,
-      await haptics.locator("[data-menu-switch]").count(),
-    );
-  }
+  flow.check("nav: one haptics row", 1, await haptics.count());
+  flow.check(
+    "nav: the haptics row draws the shared switch",
+    1,
+    await haptics.locator("[data-menu-switch]").count(),
+  );
+  const hapticsWas = (await haptics.getAttribute("aria-checked")) ?? "";
+  await flow.step(
+    "nav: flip haptics from the menu, which stays open, and flip it back",
+    async () => {
+      await haptics.click();
+      await expect(haptics).toHaveAttribute(
+        "aria-checked",
+        hapticsWas === "true" ? "false" : "true",
+      );
+      await expect(menu).toBeVisible();
+      await haptics.click();
+      await expect(haptics).toHaveAttribute("aria-checked", hapticsWas);
+    },
+  );
   await flow.step("nav: shoot the open account menu", async () => {
     mkdirSync(SHOTS, { recursive: true });
     await page.screenshot({
@@ -161,6 +174,18 @@ export async function navSurfaces(flow: Flow, page: Page, host: string): Promise
     await expect(title).toHaveValue(`${saved} (draft)`);
   });
   flow.check("nav: no unsaved-changes prompt between the builder's views", "", asked.join(" | "));
+  const rail = page.getByRole("navigation", { name: "Wedding modules" });
+  await flow.step("nav: leaving Invite with the draft asks, and a refusal keeps it", async () => {
+    await rail.getByRole("button", { name: /^Guests/ }).click();
+    await expect.poll(() => asked.length).toBe(1);
+    await expect(title).toHaveValue(`${saved} (draft)`);
+    await expect(sections).toBeVisible();
+  });
+  flow.check(
+    "nav: the prompt is the builder's",
+    "You have unsaved invite changes. Leave without saving?",
+    asked[0] ?? "",
+  );
   await flow.step("nav: put the title back, so the draft is clean", async () => {
     await title.fill(saved);
     await expect(page.getByRole("button", { name: "Save invite" })).toBeDisabled();

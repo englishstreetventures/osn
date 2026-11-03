@@ -84,7 +84,8 @@ describe("EditWorkspace", () => {
     mount();
 
     fireEvent.click(mode(/spreadsheet import/i));
-    expect(confirm).toHaveBeenCalled();
+    // In the workspace's own words: the guest and event editors are no invite.
+    expect(confirm).toHaveBeenCalledWith("You have unsaved changes. Leave without saving?");
     // Declined ⇒ nothing moved.
     expect(screen.getByTestId("editor")).toBeTruthy();
     expect(mode(/web editor/i).getAttribute("aria-checked")).toBe("true");

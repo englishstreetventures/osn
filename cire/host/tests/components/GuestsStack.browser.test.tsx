@@ -1181,6 +1181,22 @@ describe("the invite builder's two tiers in the view bar", () => {
     );
   });
 
+  it("keeps the module's strip on a phone while the invite loads, and when its read fails", async () => {
+    await page.viewport(390, 844);
+    let finish: (response: Response) => void = () => {};
+    const pending = new Promise<Response>((resolve) => (finish = resolve));
+    render({ module: "invite", sub: "content" }, { customisation: () => pending });
+    await frames();
+    const place = () => screen.queryByRole("button", { name: /Choose a view or section/ });
+    expectPass("tiers loading: the views strip shows", rect(views()).width > 0);
+    expectPass("tiers loading: no pill yet", place() === null);
+    finish(new Response("{}", { status: 500 }));
+    await wait(300);
+    await frames();
+    expectPass("tiers failed: the views strip still shows", rect(views()).width > 0);
+    expectPass("tiers failed: no pill", place() === null);
+  });
+
   it("leaves no --bar-h behind on a move to a module with no bar", async () => {
     await page.viewport(1280, 400);
     const view = render(

@@ -127,8 +127,14 @@ vi.mock("../../src/components/InviteBuilder", async () => {
     }) => {
       builderMounts += 1;
       if (builderReplacesTabs) {
-        const release = useViewBar()?.replaceTabs();
-        onCleanup(() => release?.());
+        // Two replacements, the first released twice: only the second, held
+        // until the builder goes, keeps the strip hidden.
+        const bar = useViewBar();
+        const first = bar?.replaceTabs();
+        const second = bar?.replaceTabs();
+        first?.();
+        first?.();
+        onCleanup(() => second?.());
       }
       return (
         <div
@@ -483,6 +489,8 @@ describe("ModuleShell", () => {
     for (const view of ["style", "content", "codes", "template"]) {
       setSub(view);
       expect(screen.getByTestId("invite-builder").getAttribute("data-view")).toBe(view);
+      // The owner's re-mint is Codes' alone.
+      expect(screen.queryByTestId("codes") !== null).toBe(view === "codes");
     }
     expect(builderMounts).toBe(mounts);
   });
@@ -490,7 +498,12 @@ describe("ModuleShell", () => {
   it("hides its own strip, kept in the page, while a view draws its own in its place", async () => {
     builderReplacesTabs = true;
     try {
-      renderShell({ canManage: true, canEdit: true, module: "invite", sub: "style" });
+      const { setModule, setSub } = renderShell({
+        canManage: true,
+        canEdit: true,
+        module: "invite",
+        sub: "style",
+      });
       // Until the view mounts, the strip is there to leave by.
       const views = screen.getByRole("tablist", { name: "Views" });
       expect(views.closest(".hidden")).toBeNull();
@@ -502,6 +515,14 @@ describe("ModuleShell", () => {
         screen.getByRole("tab", { name: "Style", hidden: true }).getAttribute("aria-controls")!,
       )!;
       expect(document.getElementById(panel.getAttribute("aria-labelledby")!)).not.toBeNull();
+      // A release counts once, however often it is called: the held one still
+      // hides the strip.
+      expect(views.closest(".hidden")).not.toBeNull();
+
+      // Leaving the view releases it, and the next module's strip shows.
+      setModule("guests");
+      setSub("list");
+      expect(screen.getByRole("tablist", { name: "Views" }).closest(".hidden")).toBeNull();
       cleanup();
     } finally {
       builderReplacesTabs = false;
@@ -661,6 +682,8 @@ describe("ModuleShell", () => {
       renderShell({ canManage: false, canEdit: false, module: "invite", sub: "template" });
       expect(screen.queryByTestId("invite-builder")).toBeNull();
       expect(screen.getByText(/view-only access/i)).toBeTruthy();
+      // Every invite view is an editor's, so a viewer is drawn no views at all.
+      expect(screen.queryByRole("tablist", { name: "Views" })).toBeNull();
     });
 
     it("gives the guest list the viewer's read-only plus-one switches", () => {

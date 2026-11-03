@@ -190,4 +190,20 @@ describe("ProfileMenu", () => {
     fireEvent.pointerUp(await screen.findByText(/Sign out/i), { button: 0 });
     expect(onSignOut).toHaveBeenCalledOnce();
   });
+
+  it("chooses the theme from its radio rows, and stays open to compare", async () => {
+    const { themePreference, setThemePreference } = await import("../../src/lib/theme");
+    setThemePreference("system");
+    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+    openMenu();
+    const dark = await screen.findByRole("menuitemradio", { name: "Dark" });
+    expect(screen.getByRole("menuitemradio", { name: "System" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    fireEvent.pointerUp(dark, { button: 0 });
+    expect(themePreference()).toBe("dark");
+    expect(dark.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("menu")).toBeTruthy();
+    setThemePreference("system");
+  });
 });
