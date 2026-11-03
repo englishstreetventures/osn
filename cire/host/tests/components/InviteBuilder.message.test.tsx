@@ -248,4 +248,40 @@ describe("InviteBuilder message, in Codes", () => {
       /^You're invited to Anita & Ben!/,
     );
   });
+
+  it("reads the households again once the codes are re-minted, keeping the household chosen", async () => {
+    // The owner's re-mint sits above the message on Codes and the builder
+    // stays mounted, so the copy must not keep codes that no longer open.
+    let code = "SHARMA-KITE-77Q2";
+    authFetchMock.mockImplementation(async (url: string) =>
+      url.endsWith("/households")
+        ? json([{ ...HOUSEHOLDS[0], publicId: code }])
+        : json(CUSTOMISATION),
+    );
+    const [revision, setRevision] = createSignal(0);
+    render(() => (
+      <InviteBuilder
+        weddingId="wed_1"
+        weddingSlug="anita-ben"
+        weddingName="Anita & Ben"
+        canEdit
+        entitlements={[]}
+        view="codes"
+        codesRevision={revision()}
+      />
+    ));
+    await waitFor(() => expect(picker().options.length).toBe(2));
+    fireEvent.change(picker(), { target: { value: "fam_a" } });
+    expect(householdReads()).toBe(1);
+
+    code = "SHARMA-LARK-22B4";
+    setRevision(1);
+    await waitFor(() => expect(householdReads()).toBe(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("invite-message-preview").textContent).toContain(
+        "SHARMA-LARK-22B4",
+      ),
+    );
+    expect(picker().value).toBe("fam_a");
+  });
 });

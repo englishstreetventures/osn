@@ -123,6 +123,7 @@ vi.mock("../../src/components/InviteBuilder", async () => {
       weddingName: string;
       canEdit: boolean;
       view: string;
+      codesRevision?: number;
       inviteMessageLinks?: JSX.Element;
     }) => {
       builderMounts += 1;
@@ -140,6 +141,7 @@ vi.mock("../../src/components/InviteBuilder", async () => {
         <div
           data-testid="invite-builder"
           data-view={p.view}
+          data-codes-revision={String(p.codesRevision ?? "")}
           data-wedding-name={p.weddingName}
           data-can-edit={String(p.canEdit)}
         >
@@ -151,8 +153,15 @@ vi.mock("../../src/components/InviteBuilder", async () => {
   };
 });
 vi.mock("../../src/components/RemintPanel", () => ({
-  default: (p: { weddingId: string; inviteMessageLinks?: JSX.Element }) => (
+  default: (p: {
+    weddingId: string;
+    onReminted?: () => void;
+    inviteMessageLinks?: JSX.Element;
+  }) => (
     <div data-testid="codes">
+      <button type="button" onClick={() => p.onReminted?.()}>
+        stub-remint
+      </button>
       {p.weddingId}
       {p.inviteMessageLinks}
     </div>
@@ -466,6 +475,10 @@ describe("ModuleShell", () => {
     const builder = await screen.findByTestId("invite-builder");
     expect(builder.getAttribute("data-view")).toBe("codes");
     expect(codes.compareDocumentPosition(builder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A re-mint tells the builder, so its message reads the new codes.
+    expect(builder.getAttribute("data-codes-revision")).toBe("0");
+    fireEvent.click(screen.getByRole("button", { name: "stub-remint" }));
+    expect(builder.getAttribute("data-codes-revision")).toBe("1");
   });
 
   it("gives an editor co-host Codes for the message, without the owner's re-mint", async () => {

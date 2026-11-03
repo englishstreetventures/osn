@@ -1583,8 +1583,11 @@ describe("InviteBuilder UX guards", () => {
     expect(shown()).toEqual(["invite-look"]);
     setView("codes");
     expect(shown()).toEqual(["invite-message"]);
-    // Codes holds the message alone, under the owner's codes: no builder head.
+    // Codes holds the message alone, under the owner's codes: no builder head,
+    // and no guest-page preview, since nothing there edits the page.
     expect(screen.queryByText("Customise your invite")).toBeNull();
+    expect(screen.queryByLabelText("Invite preview")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
 
     // Content: its first section, then whichever its strip chooses — a real
     // attribute toggle, not a CSS class the DOM can't see. Regex name match:
