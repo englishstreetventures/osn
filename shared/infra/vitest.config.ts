@@ -6,7 +6,8 @@ import { defineConfig } from "vitest/config";
  * every other file runs as the `package` project (`test`), cached on the
  * package's own files. A file is in exactly one of the two, and
  * tests/package.test.ts fails unless this list is exactly the test files whose
- * paths climb above the package.
+ * paths climb above the package or that run one of its Alchemy scripts, which
+ * run the whole installed Alchemy tree.
  */
 export const READS_REPO = [
   "tests/accounts.test.ts",
@@ -14,6 +15,7 @@ export const READS_REPO = [
   "tests/package.test.ts",
   "tests/secrets/environments.test.ts",
   "tests/secrets/inventory.test.ts",
+  "tests/state-cli.test.ts",
   "tests/workflow-hosts.test.ts",
   "tests/workflow-secrets.test.ts",
 ];
