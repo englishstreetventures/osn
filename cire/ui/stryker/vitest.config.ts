@@ -6,6 +6,8 @@
  * Stryker's Vitest runner also starts every project in the config, and the
  * `browser` project needs a Chromium per mutant, so this drops it and keeps
  * the fast tier. A mutant only the browser tier can kill reports as a survivor.
+ * It drops the `astro` project too, named by its file: Stryker mutates no
+ * `.astro` file, and that project's tests render nothing else.
  */
 
 import { fileURLToPath } from "node:url";
@@ -19,9 +21,10 @@ export default defineConfig({
   root: fileURLToPath(new URL("..", import.meta.url)),
   test: {
     ...base.test,
-    projects: base.test?.projects?.filter(
-      (project) =>
-        typeof project !== "object" || !("test" in project) || project.test?.name !== "browser",
+    projects: base.test?.projects?.filter((project) =>
+      typeof project === "string"
+        ? project !== "./vitest.astro.config.ts"
+        : typeof project !== "object" || !("test" in project) || project.test?.name !== "browser",
     ),
   },
 });
