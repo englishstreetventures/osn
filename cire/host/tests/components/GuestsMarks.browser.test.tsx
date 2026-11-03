@@ -25,7 +25,14 @@ import "../../src/styles/global.css";
  *   on the chosen chip clears it.
  */
 
-const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
+const { authFetch, changes } = vi.hoisted(() => ({
+  authFetch: vi.fn(),
+  // The rows a guest changed since the organiser last looked; none unless a
+  // test says so.
+  changes: {
+    value: null as null | { markSeq: number; rows: { guestId: string; eventId: string | null }[] },
+  },
+}));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
 vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
@@ -37,7 +44,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 }));
 vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/rsvp-changes")>()),
-  fetchRsvpChangeRows: async () => null,
+  fetchRsvpChangeRows: async () => changes.value,
   markRsvpChangesSeen: async () => {},
 }));
 vi.mock("../../src/lib/osn", () => ({
@@ -53,6 +60,7 @@ import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { EVENTS_300, GUESTS_300, HOUSEHOLDS_300, RSVPS_300 } from "../test-support/guests-300";
 import { renderOrganiserPage, routeFetch } from "../test-support/organiser-page";
+import { backdrop, over } from "../test-support/painted";
 
 const ROUTES = {
   rsvps: RSVPS_300,
@@ -72,6 +80,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   authFetch.mockReset();
+  changes.value = null;
   __resetGuestsCache();
   __resetEventsCache();
   __resetHouseholdsCache();
@@ -105,38 +114,6 @@ async function households(compact: boolean) {
     { timeout: 10_000 },
   );
   await document.fonts.ready;
-}
-
-/** The colour an element is painted on: its ancestors' grounds, composited. */
-function backdrop(el: Element): string {
-  const layers: string[] = [];
-  for (let node: Element | null = el; node; node = node.parentElement) {
-    const bg = getComputedStyle(node).backgroundColor;
-    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") layers.push(bg);
-  }
-  layers.push(getComputedStyle(document.documentElement).backgroundColor);
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 1;
-  const ctx = canvas.getContext("2d")!;
-  for (const layer of layers.toReversed()) {
-    ctx.fillStyle = layer;
-    ctx.fillRect(0, 0, 1, 1);
-  }
-  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-/** `colour` composited over `ground`, as an opaque rgb string. */
-function over(colour: string, ground: string): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 1;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = ground;
-  ctx.fillRect(0, 0, 1, 1);
-  ctx.fillStyle = colour;
-  ctx.fillRect(0, 0, 1, 1);
-  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-  return `rgb(${r}, ${g}, ${b})`;
 }
 
 const inkRatio = (el: Element) => {
@@ -316,41 +293,60 @@ describe("the RSVP page's bar", () => {
     [1280, 800],
     [390, 844],
   ] as const) {
-    it(`sets the sections apart from the events at ${width}`, async () => {
-      await page.viewport(width, height);
-      routeFetch(authFetch, ROUTES);
-      renderOrganiserPage({ module: "guests", sub: "rsvps" });
-      await vi.waitFor(() => expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(20), {
-        timeout: 10_000,
+    for (const theme of THEMES) {
+      it(`sets the sections apart from the events at ${width}, ${theme}`, async () => {
+        document.documentElement.dataset.theme = theme;
+        await page.viewport(width, height);
+        // A guest on every event changed a reply, so each tab, the chosen one
+        // included, says "New".
+        changes.value = { markSeq: 1, rows: [{ guestId: "g1", eventId: null }] };
+        routeFetch(authFetch, ROUTES);
+        renderOrganiserPage({ module: "guests", sub: "rsvps" });
+        await vi.waitFor(() => expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(20), {
+          timeout: 10_000,
+        });
+        const sections = within(bar()).getByRole("tablist", { name: "Views" });
+        const events = within(bar()).getByRole("tablist", { name: "Events" });
+        // Two groups, a divider between them, each its own glass strip.
+        const divider = bar().querySelector("[data-bar-divider]")!;
+        expect(divider).not.toBeNull();
+        expect(divider.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+          sections.getBoundingClientRect().right - 0.5,
+        );
+        expect(divider.getBoundingClientRect().right).toBeLessThanOrEqual(
+          events.getBoundingClientRect().left + 0.5,
+        );
+        for (const strip of [sections, events]) {
+          expect(strip.getBoundingClientRect().height).toBeCloseTo(28, 0);
+          expect(getComputedStyle(strip).borderTopWidth).toBe("1px");
+        }
+        // The chosen event's word reads on the glass under it; an unchosen
+        // one's count is muted on the track beside its name.
+        const [chosen, other] = within(events).getAllByRole("tab");
+        expect(getComputedStyle(chosen!).color).toBe(probe("text-gold-ink", "color"));
+        const glass = getComputedStyle(events.querySelector("[data-segmented-glass]")!);
+        const onGlass = over(glass.backgroundColor, backdrop(chosen!));
+        const onGlassRatio = (el: Element) =>
+          contrastRatio(over(getComputedStyle(el).color, onGlass), onGlass)!;
+        // The chosen tab's word, its count and its "New", each on the glass.
+        const chosenNew = await vi.waitFor(() => {
+          const mark = [...chosen!.querySelectorAll("span")].find((s) => s.textContent === "New");
+          expect(mark).toBeDefined();
+          return mark!;
+        });
+        const marks = {
+          word: chosen!,
+          count: chosen!.querySelector("[data-count]")!,
+          new: chosenNew,
+        };
+        for (const [name, el] of Object.entries(marks)) {
+          expect([name, theme, onGlassRatio(el) >= WCAG_TEXT_MIN]).toEqual([name, theme, true]);
+        }
+        const count = other!.querySelector("[data-count]")!;
+        expect(getComputedStyle(count).color).toBe(probe("text-text-muted", "color"));
+        expect([theme, inkRatio(count) >= WCAG_TEXT_MIN]).toEqual([theme, true]);
       });
-      const sections = within(bar()).getByRole("tablist", { name: "Views" });
-      const events = within(bar()).getByRole("tablist", { name: "Events" });
-      // Two groups, a divider between them, each its own glass strip.
-      const divider = bar().querySelector("[data-bar-divider]")!;
-      expect(divider).not.toBeNull();
-      expect(divider.getBoundingClientRect().left).toBeGreaterThanOrEqual(
-        sections.getBoundingClientRect().right - 0.5,
-      );
-      expect(divider.getBoundingClientRect().right).toBeLessThanOrEqual(
-        events.getBoundingClientRect().left + 0.5,
-      );
-      for (const strip of [sections, events]) {
-        expect(strip.getBoundingClientRect().height).toBeCloseTo(28, 0);
-        expect(getComputedStyle(strip).borderTopWidth).toBe("1px");
-      }
-      // The chosen event's word reads on the glass under it; an unchosen
-      // one's count is muted on the track beside its name.
-      const [chosen, other] = within(events).getAllByRole("tab");
-      expect(getComputedStyle(chosen!).color).toBe(probe("text-gold-ink", "color"));
-      const glass = getComputedStyle(events.querySelector("[data-segmented-glass]")!);
-      const onGlass = over(glass.backgroundColor, backdrop(chosen!));
-      expect(
-        contrastRatio(over(getComputedStyle(chosen!).color, onGlass), onGlass),
-      ).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
-      const count = other!.querySelector("[data-count]")!;
-      expect(getComputedStyle(count).color).toBe(probe("text-text-muted", "color"));
-      expect(inkRatio(count)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
-    });
+    }
   }
 
   it("keeps the reply chips in one row that scrolls, and clears the chosen one on a second press", async () => {

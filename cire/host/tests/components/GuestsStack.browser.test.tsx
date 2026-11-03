@@ -1,3 +1,4 @@
+import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
 import { cleanup, screen, within } from "@solidjs/testing-library";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cdp, commands, page, userEvent } from "vitest/browser";
@@ -83,6 +84,7 @@ import {
   routeFetch,
   topBar,
 } from "../test-support/organiser-page";
+import { backdrop, over } from "../test-support/painted";
 
 const SIZES = [
   [1280, 800],
@@ -1114,6 +1116,70 @@ describe("the invite builder's two tiers in the view bar", () => {
     expectPass("tiers: the section strip is in the view bar", viewBar().contains(sections()));
   });
 
+  it("fades the sections in and out on the views' row, as Content is chosen and left", async () => {
+    await openInvite(1280, "template");
+    // This block's measurements run with no transitions; this one watches
+    // them, slowed tenfold so a frame lands mid-way whatever the machine.
+    const still = document.querySelector("style[data-no-transitions]")!;
+    still.remove();
+    document.documentElement.style.setProperty("--motion-scale", "10");
+    try {
+      const track = () => document.querySelector<HTMLElement>("[data-section-track]")!;
+      const moving = () =>
+        track()
+          .getAnimations()
+          .map((a) => (a as CSSTransition).transitionProperty)
+          .toSorted()
+          .join(",");
+      // A transition that another replaces rejects its `finished`, so this
+      // waits for none to be left rather than for each to finish.
+      const settle = async () => {
+        await vi.waitFor(() => expect(track().getAnimations()).toHaveLength(0), {
+          timeout: 10_000,
+        });
+        await frames();
+      };
+      expectPass(
+        "tiers motion: kept off Content, drawing nothing",
+        track() !== null && track().hidden && rect(track()).width === 0,
+      );
+      await userEvent.click(within(views()).getByRole("tab", { name: "Content" }));
+      await frames(1);
+      expectPass(
+        "tiers motion: the sections fade and slide in",
+        moving().includes("opacity") && moving().includes("translate"),
+        moving(),
+      );
+      expectPass(
+        "tiers motion: from below full opacity",
+        parseFloat(getComputedStyle(track()).opacity) < 1,
+      );
+      await settle();
+      expectPass(
+        "tiers motion: in, and at rest",
+        getComputedStyle(track()).opacity === "1" &&
+          getComputedStyle(track()).translate === "none" &&
+          onTop(sections()),
+      );
+      await userEvent.click(within(views()).getByRole("tab", { name: "Style" }));
+      await frames(1);
+      expectPass(
+        "tiers motion: still drawn while they fade out",
+        rect(track()).width > 0 && moving().includes("opacity"),
+        moving(),
+      );
+      await settle();
+      expectPass(
+        "tiers motion: gone once faded",
+        rect(track()).width === 0 &&
+          screen.queryByRole("tablist", { name: "Invite sections" }) === null,
+      );
+    } finally {
+      document.documentElement.style.removeProperty("--motion-scale");
+      document.head.append(still);
+    }
+  });
+
   it("puts the sections on the views' row at 1280, held under the top bar as the page scrolls", async () => {
     await openInvite(1280, "content", 400);
     expectPass(
@@ -1162,6 +1228,37 @@ describe("the invite builder's two tiers in the view bar", () => {
     const place = screen.getByRole("button", { name: /Choose a view or section/ });
     expectPass("tiers 390: the pill is in the bar", viewBar().contains(place));
     expectPass("tiers 390: the pill is 28px", Math.abs(rect(place).height - 28) <= 0.5);
+    // Its word and its chevron each on their own glass, which is translucent:
+    // what they sit on is the glass over the bar's ground. The chevron turns
+    // gold under the pointer, so it is read at rest and hovered.
+    const [word, chevron] = [...place.children] as HTMLElement[];
+    const reads = (el: HTMLElement) => {
+      const ground = backdrop(el);
+      return contrastRatio(over(getComputedStyle(el).color, ground), ground)!;
+    };
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.dataset.theme = theme;
+      await frames();
+      expectPass(
+        `tiers 390: the pill's word reads on its glass, ${theme}`,
+        reads(word!) >= WCAG_TEXT_MIN,
+        `${reads(word!)}`,
+      );
+      expectPass(
+        `tiers 390: the chevron reads on its glass, ${theme}`,
+        reads(chevron!) >= WCAG_TEXT_MIN,
+        `${reads(chevron!)}`,
+      );
+      await userEvent.hover(place);
+      await frames();
+      expectPass(
+        `tiers 390: the hovered chevron reads on its glass, ${theme}`,
+        reads(chevron!) >= WCAG_TEXT_MIN,
+        `${reads(chevron!)}`,
+      );
+      await userEvent.unhover(place);
+    }
+    delete document.documentElement.dataset.theme;
     await shoot("invite-phone-390");
 
     await userEvent.click(place);

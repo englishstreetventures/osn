@@ -1689,8 +1689,8 @@ describe("InviteBuilder UX guards", () => {
  * The builder on a phone (below a 30rem panel; `compact` alone, with no
  * shell): one glass pill naming the place — a view, or under Content the
  * section, a hidden one marked and named so — in place of both strips, and a
- * menu of Template, Style, Content's six sections and Codes that moves to the
- * place chosen and closes. Where the pill sits in the bar, and that the
+ * menu of the two tiers the strips draw, each one choice: the four views, then
+ * Content's six sections. A row moves to the place chosen and closes. Where the pill sits in the bar, and that the
  * module's strip hides only once it has mounted, are the browser tier's
  * (`GuestsStack.browser.test.tsx`, the tiers block).
  */
@@ -1747,30 +1747,37 @@ describe("InviteBuilder on a phone", () => {
     expect(trigger().querySelector("[data-hidden-icon]")).toBeNull();
   });
 
-  it("lists every view and Content's sections, and moves to the one chosen", async () => {
+  const checked = (name: string | RegExp) =>
+    screen.getByRole("menuitemradio", { name }).getAttribute("aria-checked");
+
+  it("lists the four views as one choice and Content's sections as another, and moves to the one chosen", async () => {
     await renderPhone();
     await openMenu();
-    const rows = await waitFor(() => screen.getAllByRole("menuitemradio"));
-    expect(rows.map((row) => row.textContent?.trim())).toEqual([
+    const menu = await waitFor(() => screen.getByRole("menu"));
+    const words = (group: HTMLElement) =>
+      within(group)
+        .getAllByRole("menuitemradio")
+        .map((row) => row.textContent?.trim());
+    // Two groups, as the two strips: the views, every one an alternative to
+    // the others, then the sections under their eyebrow.
+    expect(within(menu).getAllByRole("group")).toHaveLength(2);
+    expect(words(within(menu).getByRole("group", { name: "Views" }))).toEqual([
       "Template",
       "Style",
+      "Content",
+      "Codes",
+    ]);
+    expect(words(within(menu).getByRole("group", { name: "Sections" }))).toEqual([
       "Hero(hidden — empty)",
       "Our story(hidden — empty)",
       "Welcome",
       "Events",
       "FAQ(hidden — empty)",
       "Closing(hidden — empty)",
-      "Codes",
     ]);
-    expect(
-      screen.getByRole("menuitemradio", { name: "Template" }).getAttribute("aria-checked"),
-    ).toBe("true");
-    // Off Content, no section is the chosen place; the sections sit under
-    // their eyebrow.
-    expect(screen.getByRole("menuitemradio", { name: /^Hero/ }).getAttribute("aria-checked")).toBe(
-      "false",
-    );
-    expect(within(screen.getByRole("menu")).getByText("Content")).toBeTruthy();
+    expect(checked("Template")).toBe("true");
+    // Off Content, no section is the chosen place.
+    expect(checked(/^Hero/)).toBe("false");
 
     // A section moves to Content, onto that section. (Kobalte chooses a row
     // on pointerup.)
@@ -1780,12 +1787,43 @@ describe("InviteBuilder on a phone", () => {
     // A way between places closes once it has moved.
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
+    // On Content both tiers carry a choice: the view and its section.
     await openMenu();
-    fireEvent.pointerUp(await waitFor(() => screen.getByRole("menuitemradio", { name: "Style" })), {
-      button: 0,
-    });
+    await waitFor(() => expect(checked("Content")).toBe("true"));
+    expect(checked("Welcome")).toBe("true");
+    expect(checked("Template")).toBe("false");
+    fireEvent.pointerUp(screen.getByRole("menuitemradio", { name: "Style" }), { button: 0 });
     await waitFor(() => expect(view()).toBe("style"));
     expect(document.getElementById("invite-look")!.hidden).toBe(false);
+
+    // Content, from another view, comes back to the section left on.
+    await openMenu();
+    fireEvent.pointerUp(
+      await waitFor(() => screen.getByRole("menuitemradio", { name: "Content" })),
+      { button: 0 },
+    );
+    await waitFor(() => expect(view()).toBe("content"));
+    expect(document.getElementById("invite-welcome")!.hidden).toBe(false);
+  });
+
+  it("leaves Content's cards to their legend, with no section strip to name them", async () => {
+    await renderPhone();
+    setView("content");
+    for (const id of [
+      "invite-hero",
+      "invite-story",
+      "invite-welcome",
+      "invite-events",
+      "invite-faq",
+      "invite-closing",
+    ]) {
+      const card = document.getElementById(id)!;
+      expect([id, card.getAttribute("role"), card.getAttribute("aria-labelledby")]).toEqual([
+        id,
+        null,
+        null,
+      ]);
+    }
   });
 });
 
