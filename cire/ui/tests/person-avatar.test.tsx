@@ -101,11 +101,8 @@ describe("PersonAvatar", () => {
     expect(frame(root(face.container))).toEqual([]);
     cleanup();
     const account = render(() => <PersonAvatar fallback="initial" name="Ada" class="size-9" />);
-    expect(frame(root(account.container))).toEqual([
-      "base:border",
-      "base:border-ui-hairline",
-      "base:bg-ui-surface/40",
-    ]);
+    // A hairline and no fill: the guest site lays no ground under a gold word.
+    expect(frame(root(account.container))).toEqual(["base:border", "base:border-ui-hairline"]);
   });
 
   it("draws the empty avatar, never a letter, for blank", () => {

@@ -1221,8 +1221,8 @@ URL gets its own try.
   page's colour cut from a disc of faint ink (`--ui-ink-tertiary`) laid over
   the page's colour, so it is opaque where faces overlap. Never initials. No
   frame.
-- **`initial`**, an account's circle (it needs `name`): the hairline circle on
-  the surface at 40%, round the photo too, and the name's first grapheme in
+- **`initial`**, an account's circle (it needs `name`): a hairline circle with
+  no fill of its own, round the photo too, and the name's first grapheme in
   readable gold in the display face at weight 600, at half the circle's inside
   width (`50cqi`, with `@container` on the root: 17px in a 36px circle, 19px in
   a 40px one), upper-cased only when that keeps it one letter. The owner chose
@@ -1235,10 +1235,12 @@ box-shadow on the root, so the photo keeps its size; `Avatar`'s
 and sets the size and the place: the root measures its letter from its own
 width, so it takes none from its contents.
 
-`avatarTriggerClass` is the bare 36px round button an account menu opens from,
-with `Button`'s ring and no paint of its own; the `initial` avatar inside it
-(`class="size-full"`) draws the circle, and its edge turns `--ui-accent-soft`
-under the trigger's pointer (`group/avatar-trigger`). Neither imports Kobalte,
+`avatarTriggerClass` is the 36px round button an account menu opens from: the
+surface at 40% and `Button`'s ring; the `initial` avatar inside it
+(`class="size-full"`) draws the hairline, and its edge turns `--ui-accent-soft`
+under the trigger's pointer (`group/avatar-trigger`). The fill is the
+trigger's, not the avatar's, because the guest site lays no ground of its own
+under a gold word. Neither imports Kobalte,
 so a trigger can draw before a menu's code has loaded.
 
 `cire/ui/tests/person-avatar.test.tsx` holds the URL guards, the failed-URL

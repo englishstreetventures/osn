@@ -153,7 +153,7 @@ export const FailedInitial = story(
   "failed, initial",
   <>
     A photo that will not load, on an account's circle: the name's first letter in readable gold,
-    semibold, at half the circle's inside width, on the surface at 40% inside a hairline. cire's
+    semibold, at half the circle's inside width, inside a hairline with no fill of its own. cire's
     Cormorant is not loaded here, so judge the face in the app.
   </>,
   () => (

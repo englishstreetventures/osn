@@ -155,6 +155,15 @@ describe("avatarTriggerClass", () => {
       const button = screen.getByRole("button", { name: "Account menu" });
       const avatar = button.firstElementChild!;
       expect(button.getBoundingClientRect().width).toBe(36);
+      // The trigger lays the portals' 40% surface; the avatar adds no fill.
+      const surface = token(button, "--ui-surface");
+      expect(composite(["#000", getComputedStyle(button).backgroundColor])).toEqual(
+        composite(["#000", `color-mix(in oklab, ${surface} 40%, transparent)`]),
+      );
+      expect(composite(["#000", getComputedStyle(avatar).backgroundColor])).toEqual([0, 0, 0]);
+      for (const letter of screen.getAllByText("A")) {
+        expect(inkRatio(letter)).toBeGreaterThanOrEqual(4.5);
+      }
       const rest = getComputedStyle(avatar).borderTopColor;
       expect(painted(rest)).toBe(painted(token(avatar, "--ui-hairline")));
       await userEvent.hover(button);

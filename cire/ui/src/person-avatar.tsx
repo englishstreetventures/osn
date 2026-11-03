@@ -57,20 +57,21 @@ type PersonAvatarProps = ({ fallback: "blank" } | { fallback: "initial"; name: s
 };
 
 /**
- * The bare round button an account menu opens from: 36px, `Button`'s own focus
- * ring, and nothing painted of its own — the `initial` avatar inside it, sized
- * `size-full`, draws the hairline circle, the 40% surface and the edge that
- * turns under the pointer.
+ * The round button an account menu opens from: 36px, the surface at 40% and
+ * `Button`'s own focus ring; the `initial` avatar inside it, sized
+ * `size-full`, draws the hairline circle and the edge that turns under the
+ * pointer.
  */
 export const avatarTriggerClass =
   "group/avatar-trigger base:flex base:size-9 base:shrink-0 base:items-center base:justify-center base:rounded-full " +
+  "base:bg-ui-surface/40 " +
   "base:focus-visible:outline-2 base:focus-visible:outline-offset-2 base:focus-visible:outline-ui-focus";
 
 const ROOT = "base:@container base:relative base:flex base:shrink-0 base:rounded-full";
 
-/** An account's circle: the hairline, the 40% surface, the edge under the trigger's pointer. */
+/** An account's circle: the hairline, and the edge under the trigger's pointer. No fill of its own. */
 const ACCOUNT_FRAME =
-  "base:border base:border-ui-hairline base:bg-ui-surface/40 " +
+  "base:border base:border-ui-hairline " +
   "base:group-hover/avatar-trigger:border-ui-accent-soft " +
   "base:transition-[border-color] base:duration-(--dur-fast,100ms) base:ease-(--ease-out) " +
   "base:motion-reduce:transition-none";
