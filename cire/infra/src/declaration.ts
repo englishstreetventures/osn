@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import type * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   origin,
   physicalName,
@@ -19,7 +20,6 @@ import {
   type StageHosts,
   type StageNames,
 } from "@shared/infra";
-import type * as Cloudflare from "alchemy/Cloudflare";
 
 /** A Worker binding described as data; the stack turns each into an Alchemy value. */
 export type BindingDescription =
@@ -133,7 +133,7 @@ export const GUEST_OBSERVABILITY: ApiWorkerObservability = {
 /**
  * Production's one lifecycle rule on `cire-assets` and `cire-sheets`: abort
  * incomplete multipart uploads after 7 days, every prefix. Alchemy's
- * `BucketLifecycleRule` (alchemy src/Cloudflare/R2/Bucket.ts) takes `id`,
+ * `BucketLifecycleRule` (`@alchemy.run/cloudflare` src/R2/Bucket.ts) takes `id`,
  * `enabled` and `prefix`, and its `toLifecyclePutPayload` sends `prefix` as
  * `conditions.prefix` and the transition as it is, which is Cloudflare's own
  * shape.

@@ -1,3 +1,4 @@
+import type * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   apiWorker,
   assertDeployTarget,
@@ -12,7 +13,6 @@ import {
   stageHosts,
 } from "@shared/infra";
 import * as Alchemy from "alchemy";
-import type * as Cloudflare from "alchemy/Cloudflare";
 import { Data } from "effect";
 import * as Effect from "effect/Effect";
 

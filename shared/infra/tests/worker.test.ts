@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
@@ -19,23 +18,13 @@ import {
   UndeclaredSecretsError,
   type ApiWorkerInput,
 } from "../src/worker";
+import { cloudflareDir } from "./support/cloudflare-dir";
 
 /** Every secret the inventory requires of cire-api on `tier`, each with a placeholder value. */
 const cireApiSecrets = (tier: Tier): Record<string, Redacted.Redacted<string>> =>
   Object.fromEntries(
     tierSecrets("cire-api", tier).secrets.map((name) => [name, Redacted.make("not-a-real-secret")]),
   );
-
-/** The installed Alchemy package's directory, as this package resolves it. */
-function alchemyDir(): string {
-  let dir = dirname(createRequire(import.meta.url).resolve("alchemy"));
-  while (!existsSync(join(dir, "src", "Cloudflare", "Workers", "Sources", "Rolldown.ts"))) {
-    const parent = dirname(dir);
-    if (parent === dir) throw new Error("no Alchemy source above the resolved entry");
-    dir = parent;
-  }
-  return dir;
-}
 
 function thrown(run: () => unknown): unknown {
   try {
@@ -429,7 +418,7 @@ describe("apiWorkerProps", () => {
     // An `input.external` override replaces the list Alchemy sets itself,
     // so the props must repeat it.
     const bundler = readFileSync(
-      join(alchemyDir(), "src", "Cloudflare", "Workers", "Sources", "Rolldown.ts"),
+      join(cloudflareDir(), "src", "Workers", "Sources", "Rolldown.ts"),
       "utf8",
     );
     expect(bundler).toContain('external: ["lightningcss", "fsevents"],');

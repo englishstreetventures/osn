@@ -1,4 +1,4 @@
-import type * as Cloudflare from "alchemy/Cloudflare";
+import type * as Cloudflare from "@alchemy.run/cloudflare";
 import { Data } from "effect";
 
 import { refuseUnadopted } from "./production";
@@ -32,8 +32,8 @@ function refuseAdoptedHint(resource: string, stage: string, locationHint: string
  * live, on dev created with production's settings. `clone` acts only at
  * creation and is never declared. `importFiles` are imported after the
  * migrations, and each is imported again whenever its content changes; a
- * file dropped from the list is forgotten, not undone (alchemy
- * src/Cloudflare/D1/Database.ts:313-319, 515-524).
+ * file dropped from the list is forgotten, not undone (`@alchemy.run/cloudflare`
+ * src/D1/Database.ts:313-319, 515-524).
  */
 export interface RetainedD1Input {
   readonly name: string;

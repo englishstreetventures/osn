@@ -28,10 +28,11 @@
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
  *    state constructor (`localState`, `inMemoryState`, `postgresState`,
  *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
- *    `InMemoryService`), no `alchemy/State` module in any import form, no
- *    `state` import from `alchemy/Cloudflare`, and no `.state(` call in a
- *    file that names `alchemy/Cloudflare` or `alchemy/AWS` as a module in any
- *    import form; `shared/infra/src/stack.ts` alone calls
+ *    `InMemoryService`), no `alchemy/State`, `@alchemy.run/sql/PostgresState`
+ *    or provider `StateStore` module in any import form, no `state` import
+ *    from `@alchemy.run/cloudflare` or `@alchemy.run/aws` or a path under
+ *    either, and no `.state(` call in a file that names one of those as a
+ *    module in any import form; `shared/infra/src/stack.ts` alone calls
  *    `Cloudflare.state()`.
  *
  * Tests: scripts/tests/check-alchemy-usage.test.ts (the checks) and
@@ -115,14 +116,23 @@ function destroyProblem(segment: string): string | undefined {
     : undefined;
 }
 
-const STATE_CONSTRUCTOR =
-  /\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|InMemoryService)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']alchemy\/Cloudflare["']/;
+/** `@alchemy.run/cloudflare` or `@alchemy.run/aws`, or a path under either: each exports a `state()`. */
+const PROVIDER_MODULE = String.raw`@alchemy\.run\/(?:cloudflare|aws)(?:\/[^"'\n]*)?`;
 
-/** `alchemy/State` or a path under it, quoted as a module specifier: every state store and the `State` service live there. */
-const STATE_MODULE = /["']alchemy\/State(?:\/[^"'\n]*)?["']/;
+const STATE_CONSTRUCTOR = new RegExp(
+  String.raw`\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|InMemoryService)\s*\(|\bCloudflare\.state\b|\bimport\s*\{[^}]*\bstate\b[^}]*\}\s*from\s*["']${PROVIDER_MODULE}["']`,
+);
 
-/** `alchemy/Cloudflare` or `alchemy/AWS`, or a path under either, quoted as a module specifier: each exports a `state()`. */
-const STATE_PROVIDER_MODULE = /["']alchemy\/(?:Cloudflare|AWS)(?:\/[^"'\n]*)?["']/;
+/**
+ * `alchemy/State`, `@alchemy.run/sql/PostgresState` or a provider's
+ * `StateStore`, or a path under one, quoted as a module specifier: every state
+ * store and the `State` service live there.
+ */
+const STATE_MODULE =
+  /["'](?:alchemy\/State|@alchemy\.run\/sql\/PostgresState|@alchemy\.run\/(?:cloudflare|aws)\/StateStore)(?:\/[^"'\n]*)?["']/;
+
+/** A provider module quoted as a module specifier. */
+const STATE_PROVIDER_MODULE = new RegExp(String.raw`["']${PROVIDER_MODULE}["']`);
 
 const STATE_CALL = /\.state\s*\(/;
 

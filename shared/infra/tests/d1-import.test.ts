@@ -1,28 +1,29 @@
 /**
- * The repository patches alchemy's D1 import (`patches/alchemy@2.0.0-beta.83.patch`)
- * so it reads every Cloudflare reply the way wrangler does, and so a failed
- * import reports Cloudflare's error or the reply itself, with no presigned
- * upload URL and no R2 error body in the message. Each case runs against
- * alchemy's `src/` copy, which Bun loads in a deploy, and its `lib/` copy,
- * which Node-style resolution loads, over a scripted Cloudflare API, so this
- * file fails if the patch stops applying to either.
+ * The repository patches the Alchemy Cloudflare provider's D1 import
+ * (`patches/@alchemy.run%2Fcloudflare@2.0.0-beta.84.patch`) so it reads every
+ * Cloudflare reply the way wrangler does, and so a failed import reports
+ * Cloudflare's error or the reply itself, with no presigned upload URL and no
+ * R2 error body in the message. Each case runs against the provider's `src/`
+ * copy, which Bun loads in a deploy, and its `lib/` copy, which Node-style
+ * resolution loads, over a scripted Cloudflare API, so this file fails if the
+ * patch stops applying to either.
  */
 
 import { join } from "node:path";
 
-import { Credentials } from "alchemy/Cloudflare";
+import { Credentials } from "@alchemy.run/cloudflare";
 import { Cause, Clock, Duration, Effect, Exit, Redacted } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { describe, expect, test } from "vitest";
 
-import { alchemyDir } from "./support/alchemy-dir";
+import { cloudflareDir } from "./support/cloudflare-dir";
 
 interface ImportResult {
   readonly filename: string;
   readonly numQueries: number;
 }
 
-/** The part of alchemy's `Cloudflare/D1/ImportDatabase` module this file drives. */
+/** The part of the provider's `D1/ImportDatabase` module this file drives. */
 interface ImportModule {
   readonly importD1Database: (options: {
     readonly accountId: string;
@@ -31,16 +32,16 @@ interface ImportModule {
   }) => Effect.Effect<ImportResult, unknown, unknown>;
 }
 
-/** Both copies alchemy ships. A computed path keeps the type-checker out of alchemy's source. */
+/** Both copies the provider ships. A computed path keeps the type-checker out of its source. */
 const COPIES = [
-  { copy: "src", path: "src/Cloudflare/D1/ImportDatabase.ts" },
-  { copy: "lib", path: "lib/Cloudflare/D1/ImportDatabase.js" },
+  { copy: "src", path: "src/D1/ImportDatabase.ts" },
+  { copy: "lib", path: "lib/D1/ImportDatabase.js" },
 ] as const;
 
-const ALCHEMY_DIR = alchemyDir();
+const CLOUDFLARE_DIR = cloudflareDir();
 
 const load = (path: string): Promise<ImportModule> =>
-  import(/* @vite-ignore */ join(ALCHEMY_DIR, path)) as Promise<ImportModule>;
+  import(/* @vite-ignore */ join(CLOUDFLARE_DIR, path)) as Promise<ImportModule>;
 
 const API = "https://api.cloudflare.test/client/v4";
 const SIGNATURE = "c0ffee5ignature0123456789abcdef";

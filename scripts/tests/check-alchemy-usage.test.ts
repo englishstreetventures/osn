@@ -124,28 +124,54 @@ describe("checkStackSource", () => {
     "const s = Cloudflare.state();",
     "const s = Cloudflare.state;",
     "const s = postgresState({ url });",
-    'import { state } from "alchemy/Cloudflare";',
     "const s = Layer.effect(State, makeHttpStateStore({ url, authToken }));",
     "const s = Layer.effect(State, makeLocalState());",
     "const s = makePostgresState(options);",
     "const s = InMemoryService(records);",
     'import { State } from "alchemy/State";',
-    'import { makePostgresState } from "alchemy/State/PostgresState";',
+    'import { makeBucketState } from "alchemy/State/BucketState";',
     'const S = await import("alchemy/State");',
   ])("refuses %j in a stack file", (code) => {
     expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
   });
 
   test.each([
-    'import * as CF from "alchemy/Cloudflare"; CF.state()',
-    'import * as Aws from "alchemy/AWS"; Aws.state()',
-  ])("refuses a state call through a namespace import, %j", (code) => {
+    'import { state } from "@alchemy.run/cloudflare";',
+    'import { providers, state } from "@alchemy.run/cloudflare";',
+    'import { state } from "@alchemy.run/cloudflare/StateStore";',
+    'import { bootstrap } from "@alchemy.run/cloudflare/StateStore";',
+    'import { state } from "@alchemy.run/aws";',
+    'import { state } from "@alchemy.run/aws/StateStore";',
+    'import { postgresState } from "@alchemy.run/sql/PostgresState";',
+    'const S = await import("@alchemy.run/sql/PostgresState");',
+  ])("G3: refuses %j in a stack file", (code) => {
+    expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
+  });
+
+  test.each([
+    'import * as CF from "@alchemy.run/cloudflare"; CF.state()',
+    'import * as CF from "@alchemy.run/cloudflare/StateStore"; CF.state()',
+    'import * as Aws from "@alchemy.run/aws"; Aws.state()',
+    'const CF = await import("@alchemy.run/cloudflare"); CF.state()',
+  ])("G3: refuses a state call through a namespace import, %j", (code) => {
     expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
   });
 
   test("passes a stack that takes stackOptions()", () => {
     expect(
       checkStackSource("cire/infra/alchemy.run.ts", "Alchemy.Stack('cire', stackOptions(), body)"),
+    ).toEqual([]);
+  });
+
+  test("G3: passes a stack that declares Cloudflare resources and takes stackOptions()", () => {
+    expect(
+      checkStackSource(
+        "cire/infra/alchemy.run.ts",
+        [
+          'import * as Cloudflare from "@alchemy.run/cloudflare";',
+          "Alchemy.Stack('cire', stackOptions(), Cloudflare.Worker('api', props))",
+        ].join("\n"),
+      ),
     ).toEqual([]);
   });
 });

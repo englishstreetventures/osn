@@ -3,9 +3,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
+import { getCompatibility } from "@alchemy.run/cloudflare/Workers/Compatibility";
+import { WorkerBundle } from "@alchemy.run/cloudflare/Workers/Sources/Rolldown";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { getCompatibility } from "alchemy/Cloudflare/Workers/Compatibility";
-import { WorkerBundle } from "alchemy/Cloudflare/Workers/Sources/Rolldown";
 import { Effect } from "effect";
 import { afterAll, describe, expect, test } from "vitest";
 
@@ -42,7 +42,7 @@ describe("cire-api's bundle", () => {
     expect(props.bundle).toBe(true);
 
     // What the Worker provider does for a bundled Worker declared by props
-    // alone (alchemy src/Cloudflare/Workers/WorkerProvider.ts, prepareBundle).
+    // alone (`@alchemy.run/cloudflare` src/Workers/WorkerProvider.ts, prepareBundle).
     const bundle = await Effect.runPromise(
       Effect.gen(function* () {
         const bundler = yield* WorkerBundle;

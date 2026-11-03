@@ -9,11 +9,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import * as Alchemy from "alchemy";
 import { AlchemyContextLive } from "alchemy/AlchemyContext";
 import { provideFreshArtifactStore } from "alchemy/Artifacts";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { layerNonInteractive } from "alchemy/Interaction";
 import { evalStack } from "alchemy/Stack";
 import { Cause, Effect, Exit, Layer } from "effect";

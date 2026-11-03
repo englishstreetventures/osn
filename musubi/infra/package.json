@@ -20,10 +20,11 @@
     "plan:guard": "bun run scripts/plan-guard.ts"
   },
   "dependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.84",
     "@effect/platform-bun": "4.0.7",
     "@effect/platform-node": "4.0.7",
     "@shared/infra": "workspace:*",
-    "alchemy": "2.0.0-beta.83",
+    "alchemy": "2.0.0-beta.84",
     "effect": "4.0.7"
   },
   "devDependencies": {

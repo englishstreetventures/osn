@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { readPrebuiltWorkerBundle } from "@alchemy.run/cloudflare/Workers/Sources/Prebuilt";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { readPrebuiltWorkerBundle } from "alchemy/Cloudflare/Workers/Sources/Prebuilt";
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 

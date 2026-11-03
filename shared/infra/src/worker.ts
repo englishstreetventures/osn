@@ -1,4 +1,4 @@
-import type * as Cloudflare from "alchemy/Cloudflare";
+import type * as Cloudflare from "@alchemy.run/cloudflare";
 import { Data, type Redacted } from "effect";
 
 import { PREBUILT_MODULE_RULES } from "./prebuilt";
@@ -274,8 +274,8 @@ export const BUN_ONLY_MODULES: readonly string[] = ["drizzle-orm/bun-sqlite"];
 /**
  * Rolldown's `external` for every Worker Alchemy bundles. An `input.external`
  * override replaces the list Alchemy sets itself (`lightningcss`, `fsevents`:
- * alchemy src/Cloudflare/Workers/Sources/Rolldown.ts) rather than adding to
- * it, so that list is repeated first.
+ * `@alchemy.run/cloudflare` src/Workers/Sources/Rolldown.ts) rather than
+ * adding to it, so that list is repeated first.
  */
 export const WORKER_BUNDLE_EXTERNAL: readonly string[] = [
   "lightningcss",

@@ -1,11 +1,11 @@
-diff --git a/lib/Cloudflare/D1/ImportDatabase.js b/lib/Cloudflare/D1/ImportDatabase.js
-index 0c393f7ac21dd128ae2422513ca85d8f6d575110..4b094be6038114a6342932acab4f483cd348229a 100644
---- a/lib/Cloudflare/D1/ImportDatabase.js
-+++ b/lib/Cloudflare/D1/ImportDatabase.js
-@@ -4,12 +4,29 @@ import * as Effect from "effect/Effect";
+diff --git a/lib/D1/ImportDatabase.js b/lib/D1/ImportDatabase.js
+index f35e825e10b30091851ab6f3e0d568706f71714a..e63bf6f9976eb72075e1e52260f1de0026309e75 100644
+--- a/lib/D1/ImportDatabase.js
++++ b/lib/D1/ImportDatabase.js
+@@ -4,12 +4,29 @@ import { md5 } from "alchemy/Util/md5";
+ import * as Effect from "effect/Effect";
  import * as HttpClient from "effect/http/HttpClient";
  import * as HttpClientRequest from "effect/http/HttpClientRequest";
- import { md5 } from "../../Util/md5.js";
 +/**
 + * A reply as JSON for an error message, with any presigned upload URL
 + * replaced by "[redacted]": deploy logs can be public.
@@ -156,10 +156,10 @@ index 0c393f7ac21dd128ae2422513ca85d8f6d575110..4b094be6038114a6342932acab4f483c
  const importEndpoint = (apiBaseUrl, accountId, databaseId) => `${apiBaseUrl}/accounts/${accountId}/d1/database/${databaseId}/import`;
  //# sourceMappingURL=ImportDatabase.js.map
 \ No newline at end of file
-diff --git a/lib/Cloudflare/Workers/Assets.js b/lib/Cloudflare/Workers/Assets.js
-index 4d1f34487f0b8beaa0ccf5aa26f67dc413cd8ffd..fdafa6ddada3f5e337686e34df9acd26aae02321 100644
---- a/lib/Cloudflare/Workers/Assets.js
-+++ b/lib/Cloudflare/Workers/Assets.js
+diff --git a/lib/Workers/Assets.js b/lib/Workers/Assets.js
+index 016282b9a1c3c913c4cf057308f08d7d33e22fca..85724d1e3406b79e226b2f8cc8649b072ef8b5e0 100644
+--- a/lib/Workers/Assets.js
++++ b/lib/Workers/Assets.js
 @@ -30,12 +30,17 @@ export class FailedToReadAssetError extends Data.TaggedError("FailedToReadAssetE
  }
  export class AssetUploadSessionError extends Data.TaggedError("AssetUploadSessionError") {
@@ -239,10 +239,10 @@ index 4d1f34487f0b8beaa0ccf5aa26f67dc413cd8ffd..fdafa6ddada3f5e337686e34df9acd26
              return hashed;
          })), Effect.flatMap(sha256), Effect.map((hash) => hash.slice(0, 32)));
          count++;
-diff --git a/src/Cloudflare/D1/ImportDatabase.ts b/src/Cloudflare/D1/ImportDatabase.ts
-index d01958b4601a7cba01644b41d4c361d3f5dacc0f..a24dc0299091d89db808574f3e74e9be91c88a13 100644
---- a/src/Cloudflare/D1/ImportDatabase.ts
-+++ b/src/Cloudflare/D1/ImportDatabase.ts
+diff --git a/src/D1/ImportDatabase.ts b/src/D1/ImportDatabase.ts
+index ca4bc0ec20ddffb2401227d9c8bad114000752b3..ae69737ece344af6f262e592833331bff5deb156 100644
+--- a/src/D1/ImportDatabase.ts
++++ b/src/D1/ImportDatabase.ts
 @@ -31,12 +31,40 @@ interface ImportPollingResponse {
    upload_url?: string | null;
  }
@@ -425,10 +425,10 @@ index d01958b4601a7cba01644b41d4c361d3f5dacc0f..a24dc0299091d89db808574f3e74e9be
    });
  
  const importEndpoint = (apiBaseUrl: string, accountId: string, databaseId: string) =>
-diff --git a/src/Cloudflare/Workers/Assets.ts b/src/Cloudflare/Workers/Assets.ts
-index 645b736964f0c0ba9141042395ae6c08cda2f63a..3858e6041929444a3572bf858ee5ec69691e76c9 100644
---- a/src/Cloudflare/Workers/Assets.ts
-+++ b/src/Cloudflare/Workers/Assets.ts
+diff --git a/src/Workers/Assets.ts b/src/Workers/Assets.ts
+index d6a4ed3d937998cf98cfab8c21aa9d6ce296f20e..79d830c04a08c65ceb9a9ad2d2d0cc5ba05aa900 100644
+--- a/src/Workers/Assets.ts
++++ b/src/Workers/Assets.ts
 @@ -166,12 +166,17 @@ export class AssetUploadSessionError extends Data.TaggedError("AssetUploadSessio
    workerName: string;
  }> {}
