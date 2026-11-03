@@ -511,10 +511,11 @@ export async function builderSurfaces(
     shoot(page, "host-builder-designs", hostTheme(page, chosen), { widths: [DESKTOP] }),
   );
 
-  const sections = page.getByLabel("Invite sections");
+  const views = page.getByRole("tablist", { name: "Views" });
+  const sections = page.getByRole("tablist", { name: "Invite sections" });
   const typography = disclosure(page, "Fine-tune typography");
-  await flow.step("surfaces: open the builder's Look tab and its typography", async () => {
-    await sections.getByRole("tab", { name: /^Look/ }).click();
+  await flow.step("surfaces: open the builder's Style view and its typography", async () => {
+    await views.getByRole("tab", { name: "Style" }).click();
     await expect(typography).toBeVisible();
     await typography.locator(":scope > summary").click();
     await expect(typography).toHaveAttribute("open", "");
@@ -529,7 +530,8 @@ export async function builderSurfaces(
     shoot(page, "host-builder-typography", hostTheme(page, typography), { widths: [DESKTOP] }),
   );
   const heroDisplay = disclosure(page, "Hero display");
-  await flow.step("surfaces: open the builder's Hero tab and its display options", async () => {
+  await flow.step("surfaces: open the builder's Hero section and its display options", async () => {
+    await views.getByRole("tab", { name: "Content" }).click();
     await sections.getByRole("tab", { name: /^Hero/ }).click();
     await expect(heroDisplay).toBeVisible();
     await heroDisplay.locator(":scope > summary").click();
@@ -558,8 +560,8 @@ export async function builderSurfaces(
   await flow.step("surfaces: shoot the open hero display options", () =>
     shoot(page, "host-builder-hero-display", hostTheme(page, heroDisplay), { widths: [DESKTOP] }),
   );
-  await flow.step("surfaces: back to the builder's Design tab", async () => {
-    await sections.getByRole("tab", { name: /^Design/ }).click();
+  await flow.step("surfaces: back to the builder's Template view", async () => {
+    await views.getByRole("tab", { name: "Template" }).click();
     await expect(design("Classic")).toBeVisible();
   });
 }

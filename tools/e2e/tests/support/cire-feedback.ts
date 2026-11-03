@@ -138,14 +138,17 @@ export async function landingFeedback(flow: Flow, landing: Page, demo: Locator):
 
 /**
  * The invite builder, open on its sections: the Hero section's state badge, at
- * a desktop width where the sections are a tab strip.
+ * a desktop width where the sections are a strip in the view bar, under
+ * Content.
  */
 export async function builderFeedback(flow: Flow, page: Page): Promise<void> {
-  const sections = page.getByLabel("Invite sections");
+  const views = page.getByRole("tablist", { name: "Views" });
+  const sections = page.getByRole("tablist", { name: "Invite sections" });
   const panel = page.getByRole("tabpanel").filter({ has: page.locator("[data-segment-badge]") });
   const badge = panel.locator("[data-segment-badge]").first();
   await flow.step("feedback: open the builder's Hero section", async () => {
     await page.setViewportSize(DESKTOP);
+    await views.getByRole("tab", { name: "Content" }).click();
     await sections.getByRole("tab", { name: /^Hero/ }).click();
     await expect(badge).toBeVisible();
   });
@@ -172,8 +175,8 @@ export async function builderFeedback(flow: Flow, page: Page): Promise<void> {
       await expect(badge).toBeInViewport();
     }),
   );
-  await flow.step("feedback: back to the builder's Design tab", async () => {
-    await sections.getByRole("tab", { name: /^Design/ }).click();
+  await flow.step("feedback: back to the builder's Template view", async () => {
+    await views.getByRole("tab", { name: "Template" }).click();
   });
 }
 

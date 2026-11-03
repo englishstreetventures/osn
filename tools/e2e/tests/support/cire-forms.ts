@@ -219,13 +219,15 @@ export async function demoForms(flow: Flow, landing: Page, demo: Locator): Promi
 /**
  * The invite builder's Hero section, signed in: the picture picker, named by
  * the picture it sets, at the 34px form height. The flow leaves the builder on
- * its Design tab; this opens Hero and goes back.
+ * its Template view; this opens Content's Hero and goes back.
  */
 export async function builderForms(flow: Flow, page: Page): Promise<void> {
-  const sections = page.getByLabel("Invite sections");
+  const views = page.getByRole("tablist", { name: "Views" });
+  const sections = page.getByRole("tablist", { name: "Invite sections" });
   const picker = page.getByLabel(/: choose a picture$/).first();
   await flow.step("forms: open the builder's Hero tab", async () => {
     await page.setViewportSize(DESKTOP);
+    await views.getByRole("tab", { name: "Content" }).click();
     await sections.getByRole("tab", { name: /^Hero/ }).click();
     await expect(picker).toBeVisible();
   });
@@ -240,7 +242,7 @@ export async function builderForms(flow: Flow, page: Page): Promise<void> {
       await expect(picker).toBeInViewport();
     }),
   );
-  await flow.step("forms: back to the builder's Design tab", async () => {
-    await sections.getByRole("tab", { name: /^Design/ }).click();
+  await flow.step("forms: back to the builder's Template view", async () => {
+    await views.getByRole("tab", { name: "Template" }).click();
   });
 }
