@@ -25,7 +25,7 @@ import { type Mock, vi } from "vitest";
 export const authFetchMock: Mock = vi.fn();
 /** Called when the mocked `redirectToLogin()` fires. */
 export const redirectSpy: Mock = vi.fn();
-/** Called when the mocked `leaveForLogin()` fires: a sign-out's plain login. */
+/** Called when the mocked `signOutToLogin()` fires: a sign-out's plain login. */
 export const leaveSpy: Mock = vi.fn();
 /** The signed-in profile id the mocked `useAuth()` reports; `null` (signed
  *  out of every seat on screen) unless a test sets it. */
@@ -71,7 +71,10 @@ export async function organiserApiMock() {
     apiUrl: (path: string) => `https://api.test${path}`,
     isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
     redirectToLogin: () => redirectSpy(),
-    leaveForLogin: () => leaveSpy(),
+    signOutToLogin: async (logout: () => Promise<void>) => {
+      await logout();
+      leaveSpy();
+    },
   };
 }
 

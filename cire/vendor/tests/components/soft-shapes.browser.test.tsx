@@ -38,7 +38,7 @@ vi.mock("@shared/rp-auth/solid", async () => {
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   redirectToLogin: () => {},
-  leaveForLogin: () => {},
+  signOutToLogin: async () => {},
 }));
 
 import VendorApp from "../../src/components/VendorApp";

@@ -6,8 +6,8 @@ import {
   allAuthFirst,
   apiUrl,
   isAuthExpired,
-  leaveForLogin,
   redirectToLogin,
+  signOutToLogin,
   weddingPath,
 } from "../../src/lib/api";
 
@@ -179,17 +179,37 @@ describe("allAuthFirst", () => {
   });
 });
 
-describe("leaveForLogin", () => {
+describe("signOutToLogin", () => {
   const ORIGIN = "http://localhost:4322";
   const original = window.location.href;
   afterEach(() => {
     window.location.href = original;
   });
 
-  it("goes to the login page with nothing to resume, after a sign-out", () => {
+  it("goes to the login page with nothing to resume, after the sign-out", async () => {
     // The next person to sign in on this device must not land on this page.
     window.location.href = `${ORIGIN}/#/w/w1/guests`;
-    leaveForLogin();
+    await signOutToLogin(() => Promise.resolve());
+    expect(window.location.href).toBe(`${ORIGIN}/login`);
+  });
+
+  it("keeps the expired-session redirect the sign-out sets off from carrying the page", async () => {
+    // Signing out clears the session before the request returns, and the
+    // app's guard redirects at once.
+    window.location.href = `${ORIGIN}/#/w/w1/guests`;
+    await signOutToLogin(async () => {
+      redirectToLogin();
+      expect(window.location.href).toBe(`${ORIGIN}/login`);
+      window.location.href = `${ORIGIN}/#/w/w1/guests`;
+    });
+    expect(window.location.href).toBe(`${ORIGIN}/login`);
+  });
+
+  it("still leaves for the login page when the sign-out request fails", async () => {
+    window.location.href = `${ORIGIN}/#/w/w1/guests`;
+    await expect(signOutToLogin(() => Promise.reject(new Error("offline")))).rejects.toThrow(
+      "offline",
+    );
     expect(window.location.href).toBe(`${ORIGIN}/login`);
   });
 });

@@ -57,12 +57,12 @@ vi.mock("../../src/lib/api", async (importOriginal) => {
   return {
     ...actual,
     redirectToLogin: vi.fn(),
-    leaveForLogin: vi.fn(),
+    signOutToLogin: vi.fn(async () => {}),
   };
 });
 
 import VendorApp from "../../src/components/VendorApp";
-import { leaveForLogin, redirectToLogin } from "../../src/lib/api";
+import { redirectToLogin, signOutToLogin } from "../../src/lib/api";
 import { listEnquiries, type VendorEnquiryListItem } from "../../src/lib/enquiries-store";
 import { fetchListing, type Listing, seedClaimedListing } from "../../src/lib/vendor-store";
 
@@ -117,7 +117,7 @@ describe("VendorApp", () => {
     );
     fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
     fireEvent.pointerUp(await screen.findByText(/sign out/i), { button: 0 });
-    await waitFor(() => expect(leaveForLogin).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(signOutToLogin).toHaveBeenCalledTimes(1));
     expect(redirectToLogin).not.toHaveBeenCalled();
   });
 

@@ -28,6 +28,10 @@ export function isAuthExpired(err: unknown): boolean {
  * before following it. `/login` itself is never remembered: it would loop.
  */
 export function redirectToLogin(): void {
+  if (signingOut) {
+    window.location.href = "/login";
+    return;
+  }
   const here = window.location.pathname + window.location.search + window.location.hash;
   const target =
     window.location.pathname === "/login"
@@ -36,12 +40,23 @@ export function redirectToLogin(): void {
   window.location.href = target;
 }
 
+/** Set from the moment a sign-out starts: see {@link signOutToLogin}. */
+let signingOut = false;
+
 /**
- * The login page with nothing to resume: after a sign-out, so the next person
- * to sign in on this device does not land on the last one's page.
+ * Sign out, then the login page with nothing to resume, so the next person to
+ * sign in on this device does not land on the last one's page. Signing out
+ * clears the session before the request returns, which sets off the app's
+ * own expired-session redirect; while a sign-out runs, that redirect carries
+ * nothing either.
  */
-export function leaveForLogin(): void {
-  window.location.href = "/login";
+export async function signOutToLogin(logout: () => Promise<void>): Promise<void> {
+  signingOut = true;
+  try {
+    await logout();
+  } finally {
+    window.location.href = "/login";
+  }
 }
 
 /**

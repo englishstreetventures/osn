@@ -26,9 +26,8 @@
 # One ENFORCED policy: the browser blocks whatever it does not allow and
 # reports each block to cire-api's first-party collector (`POST /api/csp-report`
 # — public, creds-less, 204-always). The organiser portal's policy
-# (`cire/host/public/_headers`) is the same bar `img-src`, which there admits
-# any `https:` image for the registry's shop link picker; this portal has no
-# such picker, so it enforces the tight list and needs no report-only twin.
+# (`cire/host/public/_headers`) is the same, `img-src` included: neither lists
+# an https origin but cire-api's, so neither needs a report-only twin.
 # Before changing the policy, walk the dev tier with its collector's logs open
 # (`wiki/cire/cire-development.md`, "Portal security headers").
 #
