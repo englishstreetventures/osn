@@ -375,3 +375,95 @@ it.effect("patching a series instance flips instanceOverride=true", () =>
 // Silence unused warning for eventSeries import (kept for type side-effect symmetry)
 void eventSeries;
 void and;
+
+// ---------------------------------------------------------------------------
+// cancelSeries lifecycle guards
+// ---------------------------------------------------------------------------
+
+it.effect("cancelSeries stamps cancelledAt and the organiser reason on each instance", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+        ALICE,
+      );
+      yield* cancelSeries(series.id, "usr_alice");
+      const rows = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.seriesId, series.id)),
+      );
+      for (const r of rows) {
+        expect(r.cancelledAt).toBeTypeOf("number");
+        expect(r.cancellationReason).toBe("organiser");
+        expect(r.hardDeleteAt).toBeNull();
+      }
+    }),
+  ),
+);
+
+it.effect("cancelSeries on an already-cancelled series cancels nothing", () =>
+  provide(
+    Effect.gen(function* () {
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+        ALICE,
+      );
+      yield* cancelSeries(series.id, "usr_alice");
+      const again = yield* cancelSeries(series.id, "usr_alice");
+      expect(again.cancelled).toBe(0);
+    }),
+  ),
+);
+
+it.effect("cancelSeries takes over a host-left instance and keeps its hard-delete date", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+        ALICE,
+      );
+      const [first] = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.seriesId, series.id)).limit(1),
+      );
+      yield* Effect.promise(() =>
+        db
+          .update(events)
+          .set({
+            status: "cancelled",
+            cancelledAt: 1_000,
+            hardDeleteAt: 9_999_999_999,
+            cancellationReason: "host_left",
+          })
+          .where(eq(events.id, first.id)),
+      );
+      const result = yield* cancelSeries(series.id, "usr_alice");
+      expect(result.cancelled).toBe(2);
+      const [after] = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.id, first.id)),
+      );
+      expect(after.cancellationReason).toBe("organiser");
+      expect(after.cancelledAt).toBe(1_000);
+      expect(after.hardDeleteAt).toBe(9_999_999_999);
+    }),
+  ),
+);
+
+it.effect("updateSeries refuses a cancelled series", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+        ALICE,
+      );
+      yield* cancelSeries(series.id, "usr_alice");
+      const err = yield* Effect.flip(updateSeries(series.id, { title: "Renamed" }, "usr_alice"));
+      expect(err._tag).toBe("ValidationError");
+      const rows = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.seriesId, series.id)),
+      );
+      for (const r of rows) expect(r.title).toBe("W");
+    }),
+  ),
+);

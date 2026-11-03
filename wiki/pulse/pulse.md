@@ -15,7 +15,7 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-03
 ---
 
 # Pulse
@@ -56,7 +56,20 @@ Full event lifecycle management:
 
 ### Lifecycle Transitions
 
-Events move through statuses: `upcoming` → `ongoing` → `finished`. Events can also be `cancelled` at any point by the organiser.
+Events move through statuses: `upcoming` → `ongoing` → `finished`. Events can also be `cancelled`.
+
+`cancelled` and `finished` are terminal for automatic transitions: `applyTransition` writes a derived status only `WHERE status NOT IN ('cancelled', 'finished')`, so a read that loaded the row before a cancel cannot overwrite it.
+
+A cancelled event records who cancelled it in `cancellationReason`, with `cancelledAt` beside it:
+
+| Reason | Written by | Organiser can undo |
+|---|---|---|
+| `organiser` | `PATCH /events/:id { status: "cancelled" }`, `createEvent` with that status, or `cancelSeries` for every future instance | Yes, unless the event has a `hardDeleteAt` |
+| `host_left` | `requestErasure` when the host leaves Pulse; `cancelErasure` restores it | No |
+
+`PATCH /events/:id` refuses (422, `metricEventValidationFailure("update", "system_cancelled")`) any change to an event that is `host_left` or has a `hardDeleteAt`, and refuses `status: "maybe_finished"` (`status_not_settable`). Setting any other status clears `cancelledAt` and `cancellationReason`. A cancelled series refuses `updateSeries`.
+
+When the host leaves, every hosted event that is `cancelled` gets the same 14-day `hardDeleteAt` as the ones the leave cancels; `cancelErasure` clears it again. A series cancel takes over a future `host_left` instance (reason becomes `organiser`, `cancelledAt` and `hardDeleteAt` kept), so cancelling the erasure leaves it cancelled.
 
 Events created **without an explicit `endTime`** follow a tighter ladder so they do not stay `ongoing` for ever:
 

@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-03
 ---
 
 # Retention
@@ -24,7 +24,7 @@ already enforces some of them; the rest need a sweeper job.
 | `app_enrollments` | Per-row history preserved indefinitely (audit). Active rows have `left_at IS NULL`. | App code: `joinApp` on lazy provisioning, `leaveApp` on Flow B / Flow A cascade. | OK | Identity |
 | `deletion_jobs` | Created at soft-delete; row removed by hard-delete sweeper after `hard_delete_at + fan-out completion`. Effective retention: 7-30 days max. | Sweeper job (`account-erasure.runHardDeleteSweep`) | OK | Identity |
 | `pulse_deletion_jobs` | Created at soft-delete; removed at `hard_delete_at` (= softDeletedAt + 7d). | Sweeper job (`accountErasure.runHardDeleteSweep` — Pulse) | OK | Pulse |
-| Hosted events with `cancelled_at` set + `cancellation_reason = "host_left"` | 14 days from cancellation, then hard-deleted. | Sweeper (`accountErasure.runEventCancellationSweep`) | OK | Pulse |
+| Hosted events of a host who left Pulse: `cancellation_reason = "host_left"`, and any the host had already cancelled (`hard_delete_at` set) | 14 days from the leave, then hard-deleted. | Sweeper (`accountErasure.runEventCancellationSweep`) | OK | Pulse |
 | `passkeys` | While account active; deleted on credential revoke or account delete. `provenance_amr` is a column on this row and dies with it — no separate sweep | App code | OK | Identity |
 | `sessions` | 30 d sliding window; family-revoked on rotation reuse (a **restricted recovery session** is the exception: 15 minutes absolute, never sliding, until enrolment clears `restricted_until` and it becomes an ordinary row — see [[data-map]]) | DB `expires_at` + nightly purge job (planned) | Sliding window OK; purge of expired rows missing | Identity |
 | `rotated_sessions` (D1; `rotated_at` and `expires_at` in Unix milliseconds) | 30 d from rotation — the session lifetime, `refreshTokenTtl`. Deleted with its family when a replay revokes it. Security state: **not exported** | 6-hourly `scheduled` sweep of expired rows (`runRotatedSessionSweep`, in chunks of 500 with a 75 ms pause between two chunks, at most 10 chunks a run — 5,000 rows — unless `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS` sets another count: staging and production set 100, so 50,000 rows a run; dev leaves it unset; counted on `osn.retention.rows_deleted` and `osn.retention.cycle.duration`). Account erasure: soft delete removes the records of every family it revokes and keeps the cancel handle's family's through the grace period; hard delete removes them all | OK | Identity |

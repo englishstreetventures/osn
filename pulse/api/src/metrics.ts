@@ -191,9 +191,21 @@ type EventsStatusTransitionAttrs = {
   to: EventStatus;
 };
 
+/**
+ * `system_cancelled`: the organiser tried to change an event the erasure flow
+ * owns (cancelled because the host left, or scheduled for hard delete).
+ * `status_not_settable`: a status that is only ever derived on read.
+ */
+type EventsValidationFailureReason =
+  | "schema"
+  | "past_start_time"
+  | "duration_exceeds_max"
+  | "system_cancelled"
+  | "status_not_settable";
+
 type EventsValidationFailureAttrs = {
   operation: "create" | "update";
-  reason: "schema" | "past_start_time" | "duration_exceeds_max";
+  reason: EventsValidationFailureReason;
 };
 
 // --- RSVP ---
@@ -599,7 +611,7 @@ export const metricEventStatusTransitionBatch = (
 
 export const metricEventValidationFailure = (
   operation: "create" | "update",
-  reason: "schema" | "past_start_time" | "duration_exceeds_max",
+  reason: EventsValidationFailureReason,
 ): void => eventValidationFailures.inc({ operation, reason });
 
 // --- RSVP recording helpers ---

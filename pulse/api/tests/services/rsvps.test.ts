@@ -1,5 +1,5 @@
 import { it, expect } from "@effect/vitest";
-import { pulseUsers } from "@pulse/db/schema";
+import { eventRsvps, pulseUsers } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -647,5 +647,49 @@ it.effect("latestRsvps respects an explicit limit", () =>
     }
     const rows = yield* latestRsvps(event.id, "usr_alice", 1);
     expect(rows.length).toBe(1);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// upsertRsvp under concurrency — first-touch is decided by the database row,
+// not by a read the other request may already have overtaken.
+// ---------------------------------------------------------------------------
+
+it.effect("concurrent upserts on a source-less row keep the first writer's shareSourceFirst", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    yield* Effect.all(
+      [
+        upsertRsvp(event.id, "usr_bob", { status: "going", shareSource: "instagram" }),
+        upsertRsvp(event.id, "usr_bob", { status: "going", shareSource: "tiktok" }),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const [row] = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(row.shareSourceFirst).not.toBeNull();
+    expect(row.shareSourceFirst).not.toBe(row.shareSourceLast);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("concurrent first upserts for the same pair both succeed and leave one row", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    const results = yield* Effect.all(
+      [
+        upsertRsvp(event.id, "usr_bob", { status: "going" }),
+        upsertRsvp(event.id, "usr_bob", { status: "maybe" }),
+      ],
+      { concurrency: "unbounded" },
+    );
+    expect(results).toHaveLength(2);
+    const rows = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(rows).toHaveLength(1);
   }).pipe(Effect.provide(createTestLayer())),
 );

@@ -1,7 +1,8 @@
 import { events, eventRsvps, type Event, type EventRsvp } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { insertManyViaJsonEach, jsonEachIn } from "@shared/db-utils";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
 import { MAX_EVENT_GUESTS } from "../lib/limits";
@@ -312,7 +313,7 @@ export const upsertRsvp = (
       );
     }
 
-    const existing = yield* loadRsvp(eventId, profileId);
+    let existing = yield* loadRsvp(eventId, profileId);
 
     // Guest-list events require a prior invite row for the user.
     if (event.joinPolicy === "guest_list" && event.createdByProfileId !== profileId) {
@@ -337,76 +338,86 @@ export const upsertRsvp = (
       // Only lazy-create the pulse_users row on first RSVP insert. On
       // update the row must already exist, so skip the extra round-trip.
       yield* ensurePulseProfile(profileId);
-      const id = genRsvpId();
-      const shareSourceFirst = incomingSource ?? null;
-      const shareSourceFirstSeenAt = incomingSource ? now : null;
-      const shareSourceLast = incomingSource ?? null;
-      const shareSourceLastSeenAt = incomingSource ? now : null;
-      yield* Effect.tryPromise({
-        try: () =>
-          db.insert(eventRsvps).values({
-            id,
-            eventId,
-            profileId,
-            status: validated.status,
-            shareSourceFirst,
-            shareSourceFirstSeenAt,
-            shareSourceLast,
-            shareSourceLastSeenAt,
-            createdAt: now,
-          }),
+      // A concurrent first RSVP for the same pair may insert between the read
+      // above and this write; the pair index turns that into a no-op, and the
+      // request carries on as an update of the row the other one wrote.
+      const inserted = yield* Effect.tryPromise({
+        try: (): Promise<EventRsvp[]> =>
+          db
+            .insert(eventRsvps)
+            .values({
+              id: genRsvpId(),
+              eventId,
+              profileId,
+              status: validated.status,
+              shareSourceFirst: incomingSource ?? null,
+              shareSourceFirstSeenAt: incomingSource ? now : null,
+              shareSourceLast: incomingSource ?? null,
+              shareSourceLastSeenAt: incomingSource ? now : null,
+              createdAt: now,
+            })
+            .onConflictDoNothing({ target: [eventRsvps.eventId, eventRsvps.profileId] })
+            .returning() as Promise<EventRsvp[]>,
         catch: (cause) => new DatabaseError({ cause }),
       });
-      metricRsvpUpserted(validated.status, true, "ok");
-      if (incomingSource) {
-        metricRsvpAttributionFirst(incomingSource);
-        metricRsvpAttributionLast(incomingSource);
+      if (inserted[0]) {
+        metricRsvpUpserted(validated.status, true, "ok");
+        if (incomingSource) {
+          metricRsvpAttributionFirst(incomingSource);
+          metricRsvpAttributionLast(incomingSource);
+        }
+        return inserted[0];
       }
-      return {
-        id,
-        eventId,
-        profileId,
-        status: validated.status,
-        invitedByProfileId: null,
-        shareSourceFirst,
-        shareSourceFirstSeenAt,
-        shareSourceLast,
-        shareSourceLastSeenAt,
-        createdAt: now,
-      };
+      existing = yield* loadRsvp(eventId, profileId);
+      if (existing === null) return yield* Effect.fail(new EventNotFound({ id: eventId }));
     }
 
     // Stickiness rule: first-touch is set once and never overwritten —
     // matches first-touch UTM attribution. Last-touch always updates
     // when a new source comes in. The two columns together let
     // organisers compare discovery (first) vs. closing (last) channels.
-    const shouldFillFirst = incomingSource !== undefined && existing.shareSourceFirst === null;
-    const shouldUpdateLast = incomingSource !== undefined;
-    const updates: Partial<typeof eventRsvps.$inferInsert> = { status: validated.status };
-    if (shouldFillFirst) {
-      updates.shareSourceFirst = incomingSource;
-      updates.shareSourceFirstSeenAt = now;
-    }
-    if (shouldUpdateLast) {
+    //
+    // Whether first-touch is still empty is decided by the row as it is at
+    // write time, not by `existing`: a concurrent request may have filled it
+    // since. Both first-touch columns key on the same test so they move as a
+    // pair. The seen-at column stores unix seconds.
+    const nowSec = Math.floor(now.getTime() / 1_000);
+    const updates: SQLiteUpdateSetSource<typeof eventRsvps> = { status: validated.status };
+    if (incomingSource !== undefined) {
+      updates.shareSourceFirst = sql`CASE WHEN ${eventRsvps.shareSourceFirst} IS NULL THEN ${incomingSource} ELSE ${eventRsvps.shareSourceFirst} END`;
+      updates.shareSourceFirstSeenAt = sql`CASE WHEN ${eventRsvps.shareSourceFirst} IS NULL THEN ${nowSec} ELSE ${eventRsvps.shareSourceFirstSeenAt} END`;
       updates.shareSourceLast = incomingSource;
       updates.shareSourceLastSeenAt = now;
     }
 
-    yield* Effect.tryPromise({
-      try: () => db.update(eventRsvps).set(updates).where(eq(eventRsvps.id, existing.id)),
+    const rowId = existing.id;
+    const written = yield* Effect.tryPromise({
+      try: (): Promise<EventRsvp[]> =>
+        db.update(eventRsvps).set(updates).where(eq(eventRsvps.id, rowId)).returning() as Promise<
+          EventRsvp[]
+        >,
       catch: (cause) => new DatabaseError({ cause }),
     });
+    const row = written[0];
+    // The row went with its event (deleted, or swept) after it was read.
+    if (!row) return yield* Effect.fail(new EventNotFound({ id: eventId }));
+
     metricRsvpUpserted(validated.status, false, "ok");
-    if (shouldFillFirst && incomingSource) metricRsvpAttributionFirst(incomingSource);
-    if (shouldUpdateLast && incomingSource) metricRsvpAttributionLast(incomingSource);
-    return {
-      ...existing,
-      status: validated.status,
-      shareSourceFirst: shouldFillFirst ? (incomingSource ?? null) : existing.shareSourceFirst,
-      shareSourceFirstSeenAt: shouldFillFirst ? now : existing.shareSourceFirstSeenAt,
-      shareSourceLast: shouldUpdateLast ? (incomingSource ?? null) : existing.shareSourceLast,
-      shareSourceLastSeenAt: shouldUpdateLast ? now : existing.shareSourceLastSeenAt,
-    };
+    if (incomingSource) {
+      // This request filled first-touch when the stored value is its source,
+      // stamped this second. Two requests with the same source in the same
+      // second both count.
+      const seenAt = row.shareSourceFirstSeenAt;
+      if (
+        row.shareSourceFirst === incomingSource &&
+        seenAt !== null &&
+        Math.floor(seenAt.getTime() / 1_000) === nowSec
+      ) {
+        metricRsvpAttributionFirst(incomingSource);
+      }
+      metricRsvpAttributionLast(incomingSource);
+    }
+    return row;
   }).pipe(Effect.withSpan("rsvps.upsert"));
 
 /**

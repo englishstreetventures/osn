@@ -17,7 +17,7 @@ import type {
   DeletionCompletedResult,
   DeletionCompletedSource,
 } from "@shared/observability/metrics";
-import { and, eq, inArray, lte, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import {
@@ -146,6 +146,21 @@ export const requestErasure = (
                 ne(events.status, "cancelled"),
               ),
             ),
+          // Events the host had already cancelled themselves get the same
+          // window, so nothing they hosted outlives their leaving. Status,
+          // reason and `cancelledAt` stay as the organiser left them. Runs
+          // after the statement above, so the rows it just stamped are
+          // already non-NULL and are not matched again.
+          db
+            .update(events)
+            .set({ hardDeleteAt: eventCancelHardDeleteAt, updatedAt: new Date() })
+            .where(
+              and(
+                eq(events.createdByProfileId, profileId),
+                eq(events.status, "cancelled"),
+                isNull(events.hardDeleteAt),
+              ),
+            ),
           db.insert(pulseDeletionJobs).values({
             profileId,
             accountId,
@@ -187,31 +202,32 @@ export const cancelErasure = (
     });
     if (!existing[0]) return { cancelled: false };
 
-    const nowSec = Math.floor(Date.now() / 1_000);
-
     yield* Effect.tryPromise({
       // Atomic batch (D1) / sequential (bun:sqlite) — pure writes, no read.
       try: () =>
         commitBatch(db, [
           db.delete(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, profileId)),
-          // Un-cancel events that haven't crossed their hard-delete deadline yet.
+          // Every hosted event the leave scheduled for hard delete is
+          // unscheduled. One the leave cancelled (`host_left`) is restored to
+          // `upcoming` — the next read derives its real status from its times.
+          // One the organiser cancelled, before the leave or since (a series
+          // cancel takes a host-left instance over), stays cancelled. SQLite
+          // evaluates every SET expression against the row before the update,
+          // so each CASE sees the original reason.
           db
             .update(events)
             .set({
-              cancelledAt: null,
+              status: sql`CASE WHEN ${events.cancellationReason} = 'host_left' THEN 'upcoming' ELSE ${events.status} END`,
+              cancelledAt: sql`CASE WHEN ${events.cancellationReason} = 'host_left' THEN NULL ELSE ${events.cancelledAt} END`,
+              cancellationReason: sql`CASE WHEN ${events.cancellationReason} = 'host_left' THEN NULL ELSE ${events.cancellationReason} END`,
               hardDeleteAt: null,
-              cancellationReason: null,
-              status: "upcoming",
               updatedAt: new Date(),
             })
             .where(
               and(
                 eq(events.createdByProfileId, profileId),
-                eq(events.cancellationReason, "host_left"),
-                lte(events.cancelledAt, nowSec),
-                // Defensive — only restore events whose hard-delete window
-                // hasn't already started purging (i.e. the sweeper hasn't
-                // yet hit them in a future cycle).
+                eq(events.status, "cancelled"),
+                isNotNull(events.hardDeleteAt),
               ),
             ),
         ]),

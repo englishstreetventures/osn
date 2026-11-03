@@ -326,3 +326,79 @@ describe("pulse account-erasure: cancellation + sweepers", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
+
+describe("pulse account-erasure: events the host had already cancelled", () => {
+  const hostedCancelled = () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const event = yield* seedEvent({
+        title: "Called off",
+        startTime: new Date(Date.now() + 86_400_000),
+        createdByProfileId: PROFILE_ID,
+      });
+      yield* Effect.promise(() =>
+        db
+          .update(events)
+          .set({ status: "cancelled", cancelledAt: 1_000, cancellationReason: "organiser" })
+          .where(eq(events.id, event.id)),
+      );
+      return event.id;
+    });
+
+  const row = (id: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const [r] = yield* Effect.promise(() => db.select().from(events).where(eq(events.id, id)));
+      return r;
+    });
+
+  it.effect(
+    "requestErasure schedules the host's own cancelled events and cancelErasure unschedules them",
+    () =>
+      Effect.gen(function* () {
+        const id = yield* hostedCancelled();
+        yield* accountErasure.requestErasure({ profileId: PROFILE_ID, accountId: ACCOUNT_ID });
+        const scheduled = yield* row(id);
+        expect(scheduled.hardDeleteAt).toBeTypeOf("number");
+        expect(scheduled.cancellationReason).toBe("organiser");
+        expect(scheduled.cancelledAt).toBe(1_000);
+
+        yield* accountErasure.cancelErasure(PROFILE_ID);
+        const kept = yield* row(id);
+        expect(kept.hardDeleteAt).toBeNull();
+        expect(kept.status).toBe("cancelled");
+        expect(kept.cancellationReason).toBe("organiser");
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "the event-cancellation sweeper deletes the host's own cancelled events after the window",
+    () =>
+      Effect.gen(function* () {
+        const id = yield* hostedCancelled();
+        yield* accountErasure.requestErasure({ profileId: PROFILE_ID, accountId: ACCOUNT_ID });
+        const scheduled = yield* row(id);
+        yield* accountErasure.runEventCancellationSweep({
+          nowMs: (scheduled.hardDeleteAt! + 1) * 1_000,
+        });
+        expect(yield* row(id)).toBeUndefined();
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("cancelErasure keeps a series-cancelled instance cancelled", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { eventId } = yield* seedPulseData();
+      yield* accountErasure.requestErasure({ profileId: PROFILE_ID, accountId: ACCOUNT_ID });
+      // The organiser's series cancel takes the host-left row over (cancelSeries).
+      yield* Effect.promise(() =>
+        db.update(events).set({ cancellationReason: "organiser" }).where(eq(events.id, eventId)),
+      );
+      yield* accountErasure.cancelErasure(PROFILE_ID);
+      const r = yield* row(eventId);
+      expect(r.status).toBe("cancelled");
+      expect(r.cancellationReason).toBe("organiser");
+      expect(r.hardDeleteAt).toBeNull();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});

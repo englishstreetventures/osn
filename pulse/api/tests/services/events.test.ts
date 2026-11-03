@@ -1,11 +1,14 @@
 import { expect, it } from "@effect/vitest";
 import { events as eventsTable, eventRsvps } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { vi } from "vitest";
 
 import * as metrics from "../../src/metrics";
 import {
+  applyTransition,
+  applyTransitions,
   createEvent,
   deleteEvent,
   getEvent,
@@ -1025,4 +1028,163 @@ it.effect("updateEvent leaves price unchanged when fields omitted", () =>
       expect(updated.priceCurrency).toBe("USD");
     }),
   ),
+);
+
+// ---------------------------------------------------------------------------
+// Lifecycle guards: automatic transitions never overwrite a terminal row, and
+// an organiser's status writes keep the cancellation columns in step.
+// ---------------------------------------------------------------------------
+
+const readRow = (id: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const [row] = yield* Effect.promise(() =>
+      db.select().from(eventsTable).where(eq(eventsTable.id, id)),
+    );
+    return row;
+  });
+
+const setRow = (id: string, values: Partial<typeof eventsTable.$inferInsert>) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() => db.update(eventsTable).set(values).where(eq(eventsTable.id, id)));
+  });
+
+it.effect(
+  "applyTransition from a stale copy does not overwrite a row cancelled underneath it",
+  () =>
+    provide(
+      Effect.gen(function* () {
+        const seeded = yield* seedEvent({ title: "Race", startTime: STARTED });
+        const stale = yield* readRow(seeded.id);
+        yield* setRow(seeded.id, { status: "cancelled" });
+        yield* applyTransition(stale);
+        expect((yield* readRow(seeded.id)).status).toBe("cancelled");
+      }),
+    ),
+);
+
+it.effect(
+  "applyTransitions from stale copies does not overwrite a row cancelled underneath it",
+  () =>
+    provide(
+      Effect.gen(function* () {
+        const seeded = yield* seedEvent({ title: "Race", startTime: STARTED });
+        const stale = yield* readRow(seeded.id);
+        yield* setRow(seeded.id, { status: "cancelled" });
+        yield* applyTransitions([stale]);
+        expect((yield* readRow(seeded.id)).status).toBe("cancelled");
+      }),
+    ),
+);
+
+it.effect(
+  "applyTransition from a stale copy does not overwrite a row marked finished underneath it",
+  () =>
+    provide(
+      Effect.gen(function* () {
+        const seeded = yield* seedEvent({ title: "Race", startTime: STARTED });
+        const stale = yield* readRow(seeded.id);
+        yield* setRow(seeded.id, { status: "finished" });
+        yield* applyTransition(stale);
+        expect((yield* readRow(seeded.id)).status).toBe("finished");
+      }),
+    ),
+);
+
+it.effect("updateEvent to cancelled stamps cancelledAt and the organiser reason", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({ title: "C", startTime: FUTURE }, ALICE);
+      yield* updateEvent(created.id, { status: "cancelled" }, "usr_alice");
+      const row = yield* readRow(created.id);
+      expect(row.status).toBe("cancelled");
+      expect(row.cancelledAt).toBeTypeOf("number");
+      expect(row.cancellationReason).toBe("organiser");
+    }),
+  ),
+);
+
+it.effect("updateEvent off an organiser cancel clears the cancellation columns", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({ title: "C", startTime: FUTURE }, ALICE);
+      yield* setRow(created.id, {
+        status: "cancelled",
+        cancelledAt: 1_000,
+        cancellationReason: "organiser",
+      });
+      const updated = yield* updateEvent(created.id, { status: "upcoming" }, "usr_alice");
+      expect(updated.status).toBe("upcoming");
+      const row = yield* readRow(created.id);
+      expect(row.cancelledAt).toBeNull();
+      expect(row.cancellationReason).toBeNull();
+    }),
+  ),
+);
+
+it.effect("updateEvent refuses an event the host-left flow cancelled", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({ title: "C", startTime: FUTURE }, ALICE);
+      yield* setRow(created.id, {
+        status: "cancelled",
+        cancelledAt: 1_000,
+        hardDeleteAt: 9_999_999_999,
+        cancellationReason: "host_left",
+      });
+      const err = yield* Effect.flip(updateEvent(created.id, { status: "upcoming" }, "usr_alice"));
+      expect(err._tag).toBe("ValidationError");
+      const row = yield* readRow(created.id);
+      expect(row.status).toBe("cancelled");
+      expect(row.hardDeleteAt).toBe(9_999_999_999);
+    }),
+  ),
+);
+
+it.effect("updateEvent refuses an organiser cancel that erasure has scheduled for deletion", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({ title: "C", startTime: FUTURE }, ALICE);
+      yield* setRow(created.id, {
+        status: "cancelled",
+        cancelledAt: 1_000,
+        hardDeleteAt: 9_999_999_999,
+        cancellationReason: "organiser",
+      });
+      const err = yield* Effect.flip(updateEvent(created.id, { status: "upcoming" }, "usr_alice"));
+      expect(err._tag).toBe("ValidationError");
+      expect((yield* readRow(created.id)).status).toBe("cancelled");
+    }),
+  ),
+);
+
+it.effect("updateEvent refuses the display-only maybe_finished status", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({ title: "C", startTime: FUTURE }, ALICE);
+      const err = yield* Effect.flip(
+        updateEvent(created.id, { status: "maybe_finished" }, "usr_alice"),
+      );
+      expect(err._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect(
+  "updateEvent persists finished when endTime moves into the past in the maybe-finished window",
+  () =>
+    provide(
+      Effect.gen(function* () {
+        const ninehAgo = new Date(Date.now() - 9 * 60 * 60 * 1000);
+        const seeded = yield* seedEvent({ title: "Open", startTime: ninehAgo, status: "ongoing" });
+        const updated = yield* updateEvent(
+          seeded.id,
+          { endTime: new Date(Date.now() - 60_000).toISOString() },
+          seeded.createdByProfileId,
+        );
+        expect(updated.status).toBe("finished");
+        expect((yield* readRow(seeded.id)).status).toBe("finished");
+      }),
+    ),
 );
