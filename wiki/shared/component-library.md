@@ -129,7 +129,8 @@ cire/ui/src/
 ├── file-input.tsx          ← a file input whose button is the quiet pill (FILE_BUTTON)
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
-├── person-avatar.tsx       ← PersonAvatar: a photo, the empty avatar or an initial; avatarTriggerClass
+├── person-avatar.tsx       ← PersonAvatar: a photo, the empty avatar or an initial
+├── avatar-trigger-class.ts ← avatarTriggerClass: the round button an account menu opens from
 ├── segmented-tabs.tsx      ← SegmentedTabs: a glass track of choices with one sliding highlight
 ├── sign-in-panel.tsx       ← SignInPanel: the portals' one button to musubi and its error lines
 ├── sign-in-card-class.ts   ← signInCardClass: the sign-in card's opaque fill and lit edge
@@ -511,11 +512,10 @@ Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
 exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its fourteen
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class` and `sign-in-press` are named,
+`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class`, `sign-in-press` and `avatar-trigger-class` are named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
 default, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL`,
-`sign-in-panel` the `SignInAuth` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, `person-avatar` a
-named `avatarTriggerClass`, and
+`sign-in-panel` the `SignInAuth` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, and
 `wordmark` a named `WordmarkPlaceholder`. `sign-in-card.astro` is an Astro component, imported by default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
 ```typescript
@@ -1235,7 +1235,9 @@ box-shadow on the root, so the photo keeps its size; `Avatar`'s
 and sets the size and the place: the root measures its letter from its own
 width, so it takes none from its contents.
 
-`avatarTriggerClass` is the 36px round button an account menu opens from: the
+`avatarTriggerClass` (`avatar-trigger-class.ts`, a module of its own so the guest
+site, which draws no trigger, leaves its classes out) is the 36px round button an
+account menu opens from: the
 surface at 40% and `Button`'s ring; the `initial` avatar inside it
 (`class="size-full"`) draws the hairline, and its edge turns `--ui-accent-soft`
 under the trigger's pointer (`group/avatar-trigger`). The fill is the

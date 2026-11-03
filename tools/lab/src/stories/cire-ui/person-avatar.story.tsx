@@ -1,4 +1,5 @@
-import PersonAvatar, { avatarTriggerClass } from "@cire/ui/person-avatar";
+import { avatarTriggerClass } from "@cire/ui/avatar-trigger-class";
+import PersonAvatar from "@cire/ui/person-avatar";
 import { For, type JSX } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";

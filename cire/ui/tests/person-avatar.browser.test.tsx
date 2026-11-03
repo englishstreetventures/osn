@@ -14,7 +14,8 @@ import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import { commands, userEvent } from "vitest/browser";
 
-import PersonAvatar, { avatarTriggerClass } from "../src/person-avatar";
+import { avatarTriggerClass } from "../src/avatar-trigger-class";
+import PersonAvatar from "../src/person-avatar";
 import { composite, inkRatio, painted } from "./test-support/paint";
 
 import "./test-support/tailwind.css";

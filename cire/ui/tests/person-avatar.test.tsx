@@ -2,8 +2,9 @@
 import { cleanup, fireEvent, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { avatarTriggerClass } from "../src/avatar-trigger-class";
 import { buttonClass } from "../src/button";
-import PersonAvatar, { avatarTriggerClass } from "../src/person-avatar";
+import PersonAvatar from "../src/person-avatar";
 
 /**
  * A person's photo, or their stand-in when there is none: the empty avatar on
