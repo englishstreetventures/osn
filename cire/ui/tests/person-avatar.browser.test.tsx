@@ -12,7 +12,7 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
-import { userEvent } from "vitest/browser";
+import { commands, userEvent } from "vitest/browser";
 
 import PersonAvatar, { avatarTriggerClass } from "../src/person-avatar";
 import { composite, inkRatio, painted } from "./test-support/paint";
@@ -22,7 +22,16 @@ import "./test-support/tailwind.css";
 const RAMPS = ["dark", "light"] as const;
 type Ramp = (typeof RAMPS)[number];
 
-afterEach(cleanup);
+type MediaPreference = { reducedMotion?: "reduce" | "no-preference" };
+const emulateMedia = (options: MediaPreference) =>
+  (commands as unknown as { emulateMedia: (o: MediaPreference) => Promise<void> }).emulateMedia(
+    options,
+  );
+
+afterEach(async () => {
+  await emulateMedia({ reducedMotion: "no-preference" });
+  cleanup();
+});
 
 function Ramp(props: { ramp: Ramp; children: JSX.Element; class?: string }) {
   return (
@@ -143,4 +152,20 @@ describe("avatarTriggerClass", () => {
       expect(getComputedStyle(avatar).transitionProperty).not.toMatch(/outline|all/);
     });
   }
+
+  it("fades the edge on the app's ease-out, and not at all with reduced motion", async () => {
+    render(() => (
+      <Ramp ramp="dark">
+        <PersonAvatar fallback="initial" name="Ada" class="size-9" />
+      </Ramp>
+    ));
+    const avatar = screen.getByText("A").closest("[aria-hidden='true']")!;
+    const squash = (value: string) => value.replace(/\s+/g, "");
+    expect(getComputedStyle(avatar).transitionProperty).toBe("border-color");
+    expect(squash(getComputedStyle(avatar).transitionTimingFunction)).toBe(
+      squash(token(avatar, "--ease-out")),
+    );
+    await emulateMedia({ reducedMotion: "reduce" });
+    expect(getComputedStyle(avatar).transitionProperty).toBe("none");
+  });
 });
