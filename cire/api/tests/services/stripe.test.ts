@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 
 import {
   createStripeClient,
@@ -174,6 +175,35 @@ describe("createStripeClient", () => {
     const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
     const failure = await Effect.runPromise(Effect.flip(client.retrieveAccount("acct_1")));
     expect(failure.reason).toBe("unreachable");
+  });
+
+  it("reports a non-JSON body as unreadable, with the status that carried it", async () => {
+    const { impl } = stubFetch(() => new Response("<html>bad gateway</html>", { status: 502 }));
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    const failure = await Effect.runPromise(Effect.flip(client.retrieveAccount("acct_1")));
+    expect(failure.reason).toBe("unreadable");
+    expect(failure.status).toBe(502);
+  });
+
+  it("times out when the headers arrive and the body never finishes", async () => {
+    const impl = (() =>
+      Promise.resolve(
+        new Response(new ReadableStream({ start() {} }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )) as unknown as typeof fetch;
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+
+    const failure = await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(Effect.flip(client.retrieveAccount("acct_1")));
+        yield* TestClock.withLive(Effect.sleep("20 millis"));
+        yield* TestClock.adjust("10 seconds");
+        return yield* Fiber.join(fiber);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+    expect(failure.reason).toBe("timeout");
   });
 
   it("refuses a 200 that is not the account it asked for", async () => {
