@@ -1,5 +1,13 @@
 # @osn/osn
 
+## 3.31.5
+
+### Patch Changes
+
+- 1eda358: Run independent awaits concurrently on hot paths: OIDC consent context, event status transitions and coordination store clear.
+- Updated dependencies [1eda358]
+  - @shared/coordination@0.1.3
+
 ## 3.31.4
 
 ### Patch Changes

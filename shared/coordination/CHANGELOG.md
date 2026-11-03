@@ -1,5 +1,11 @@
 # @shared/coordination
 
+## 0.1.3
+
+### Patch Changes
+
+- 1eda358: Run independent awaits concurrently on hot paths: OIDC consent context, event status transitions and coordination store clear.
+
 ## 0.1.2
 
 ### Patch Changes

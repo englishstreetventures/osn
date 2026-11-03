@@ -1,5 +1,12 @@
 # @osn/api
 
+## 0.28.4
+
+### Patch Changes
+
+- 1eda358: Run independent awaits concurrently on hot paths: OIDC consent context, event status transitions and coordination store clear.
+- 1eda358: Event status transitions now write only while the row still has the status they were derived from, so a cancel or early close committed between a read and its transition write is no longer overwritten.
+
 ## 0.28.3
 
 ### Patch Changes
