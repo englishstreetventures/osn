@@ -57,12 +57,20 @@ const DROPDOWN_MENU_TRIGGER_TREATMENT = {
     "base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:focus-visible:ring-offset-2",
 } satisfies Readonly<Record<"bare" | "pill", string>>;
 
+/**
+ * The trigger's own props. The three that write markup over its children are
+ * `never` (`props.ts`): overriding them, rather than omitting them, keeps
+ * `as`'s element type inferred from the call site.
+ */
 type DropdownMenuTriggerProps<T extends ValidComponent = "button"> = PolymorphicProps<
   T,
   {
     treatment?: keyof typeof DROPDOWN_MENU_TRIGGER_TREATMENT;
     class?: string;
     children?: JSX.Element;
+    innerHTML?: never;
+    innerText?: never;
+    textContent?: never;
   }
 >;
 
@@ -155,9 +163,16 @@ interface ItemOptions {
  * because a link alone ignores Space. Disabled, it keeps no `href`, so nothing
  * follows it.
  *
- * A link that opens a new tab with no `rel` of its caller's gets
- * `noopener noreferrer`: the page it opens learns neither this window nor the
- * address it came from.
+ * It follows only an address a menu may lead to: a web page, a path or
+ * fragment on this site, `mailto:` or `tel:`. Any other — `javascript:`,
+ * `data:` — leaves the row with no `href`, as a disabled row has, whatever its
+ * caller checked: a row's address is often built from stored data, and the
+ * portals' script policy lets a `javascript:` navigation run.
+ *
+ * A link that opens another tab or window — any `target` but `_self`,
+ * `_parent` and `_top` — gets `noopener noreferrer` added to whatever `rel`
+ * its caller gives, and loses an `opener`: the page it opens learns neither
+ * this window nor the address it came from.
  */
 type DropdownMenuItemProps =
   | (Omit<SafeProps<"div">, keyof ItemOptions> & ItemOptions & { as?: "div" })
@@ -185,19 +200,51 @@ function DropdownMenuItem(props: DropdownMenuItemProps) {
   );
 }
 
+/** The schemes a menu link may follow. A relative address resolves to the page's own. */
+const FOLLOWABLE = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+/** `href` when a menu link may follow it, else nothing. */
+function followable(href: string | undefined): string | undefined {
+  if (href === undefined) return undefined;
+  try {
+    const base = typeof document === "undefined" ? "https://localhost/" : document.baseURI;
+    return FOLLOWABLE.has(new URL(href, base).protocol) ? href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The targets that keep the link in this browsing context. */
+const SAME_CONTEXT = new Set(["", "_self", "_parent", "_top"]);
+
+/**
+ * The caller's `rel`, with `noopener` and `noreferrer` added and `opener`
+ * dropped when the link opens another browsing context.
+ */
+function relFor(target: string | undefined, rel: string | undefined): string | undefined {
+  const tokens = (rel ?? "").split(/\s+/).filter(Boolean);
+  if (target === undefined || SAME_CONTEXT.has(target.toLowerCase())) {
+    return tokens.length > 0 ? tokens.join(" ") : undefined;
+  }
+  const kept = tokens.filter((token) => token.toLowerCase() !== "opener");
+  for (const cut of ["noopener", "noreferrer"]) {
+    if (!kept.some((token) => token.toLowerCase() === cut)) kept.push(cut);
+  }
+  return kept.join(" ");
+}
+
 function LinkItem(props: LinkItemProps) {
   const variant = useVariant();
   const menu = useMenuContext();
   const [local, others] = splitProps(props, ["class", "href", "rel", "target", "disabled"]);
-  const rel = () => local.rel ?? (local.target === "_blank" ? "noopener noreferrer" : undefined);
   return (
     <KobalteDropdownMenu.Item
       {...(others as Omit<SafeProps<"div">, keyof ItemOptions> & ItemOptions)}
       as="a"
       class={clsx(menuRowClass(variant), local.class)}
-      href={local.disabled ? undefined : local.href}
+      href={local.disabled ? undefined : followable(local.href)}
       target={local.target}
-      rel={rel()}
+      rel={relFor(local.target, local.rel)}
       disabled={local.disabled}
       closeOnSelect={false}
       onClick={() => {
@@ -345,7 +392,10 @@ function DropdownMenuHandle(props: { ref: (menu: DropdownMenuHandleValue) => voi
   return null;
 }
 
-const DropdownMenuGroup = KobalteDropdownMenu.Group;
+/** A group of rows, which a label names. Takes no markup props (`props.ts`). */
+const DropdownMenuGroup: ParentComponent<SafeProps<"div">> = (props) => (
+  <KobalteDropdownMenu.Group {...props} />
+);
 
 export {
   DropdownMenu,

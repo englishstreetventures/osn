@@ -33,14 +33,17 @@ import { Modal } from "../src/ui/modal";
 
 import "./test-support/tailwind.css";
 
-type MotionPreference = { reducedMotion: "reduce" | "no-preference" };
-const emulateMedia = (options: MotionPreference) =>
-  (commands as unknown as { emulateMedia: (o: MotionPreference) => Promise<void> }).emulateMedia(
+type MediaPreference = {
+  reducedMotion?: "reduce" | "no-preference";
+  forcedColors?: "active" | "none";
+};
+const emulateMedia = (options: MediaPreference) =>
+  (commands as unknown as { emulateMedia: (o: MediaPreference) => Promise<void> }).emulateMedia(
     options,
   );
 
 afterEach(async () => {
-  await emulateMedia({ reducedMotion: "no-preference" });
+  await emulateMedia({ reducedMotion: "no-preference", forcedColors: "none" });
   for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
   for (const p of document.querySelectorAll("[data-kb-top-layer]")) p.remove();
   cleanup();
@@ -263,7 +266,8 @@ describe("a link item", () => {
     expect(account.tagName).toBe("A");
     expect(account.getAttribute("href")).toBe("https://example.test/account");
     expect(account.getAttribute("target")).toBe("_blank");
-    expect(account.getAttribute("rel")).toBe("noopener");
+    // The caller's own rel, with the referrer cut as well.
+    expect(account.getAttribute("rel")).toBe("noopener noreferrer");
     const file = screen.getByRole("menuitem", { name: "Calendar file" });
     expect(file.tagName).toBe("A");
     expect(file.getAttribute("download")).toBe("invite.ics");
@@ -283,6 +287,71 @@ describe("a link item", () => {
     await open();
     const link = screen.getByRole("menuitem", { name: "Elsewhere" });
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("keeps only an address a menu link may follow", async () => {
+    render(() => (
+      <DropdownMenu>
+        <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {/* oxlint-disable-next-line no-script-url -- the refusal under test */}
+          <DropdownMenuItem as="a" href="javascript:alert(1)">
+            Script
+          </DropdownMenuItem>
+          <DropdownMenuItem as="a" href="data:text/html,<p>hi</p>">
+            Data
+          </DropdownMenuItem>
+          <DropdownMenuItem as="a" href="/account">
+            Path
+          </DropdownMenuItem>
+          <DropdownMenuItem as="a" href="mailto:hello@example.test">
+            Mail
+          </DropdownMenuItem>
+          <DropdownMenuItem as="a" href="https://example.test/">
+            Web
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ));
+    await open();
+    const href = (name: string) => screen.getByRole("menuitem", { name }).getAttribute("href");
+    expect(href("Script")).toBeNull();
+    expect(href("Data")).toBeNull();
+    expect(href("Path")).toBe("/account");
+    expect(href("Mail")).toBe("mailto:hello@example.test");
+    expect(href("Web")).toBe("https://example.test/");
+  });
+
+  it("cuts the opener and the referrer for every new tab, keeping the caller's own rel", async () => {
+    render(() => (
+      <DropdownMenu>
+        <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem as="a" href="https://example.test/" target="help">
+            Named
+          </DropdownMenuItem>
+          <DropdownMenuItem as="a" href="https://example.test/" target="_BLANK" rel="external">
+            External
+          </DropdownMenuItem>
+          <DropdownMenuItem as="a" href="https://example.test/" target="_blank" rel="opener">
+            Opener
+          </DropdownMenuItem>
+          <DropdownMenuItem as="a" href="/here" target="_self" rel="external">
+            Same tab
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ));
+    await open();
+    const rel = (name: string) =>
+      (screen.getByRole("menuitem", { name }).getAttribute("rel") ?? "")
+        .split(/\s+/)
+        .filter(Boolean);
+    expect(rel("Named")).toEqual(expect.arrayContaining(["noopener", "noreferrer"]));
+    expect(rel("External")).toEqual(expect.arrayContaining(["external", "noopener", "noreferrer"]));
+    expect(rel("Opener")).toEqual(expect.arrayContaining(["noopener", "noreferrer"]));
+    expect(rel("Opener")).not.toContain("opener");
+    expect(rel("Same tab")).toEqual(["external"]);
   });
 
   it("navigates when chosen from the keyboard", async () => {
@@ -548,6 +617,23 @@ describe("the touch row the guest site's link menu draws", () => {
     expect(getComputedStyle(link).backgroundColor).not.toBe(idle);
     // The guest site's touch floor.
     expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
+
+  it("keeps a focus outline where a contrast theme drops the fill", async () => {
+    await emulateMedia({ forcedColors: "active" });
+    render(() => (
+      <div class={MENU_TOUCH.panel}>
+        <a href="#one" class={MENU_TOUCH.row}>
+          Google Calendar
+        </a>
+        <button type="button">After</button>
+      </div>
+    ));
+    const link = screen.getByRole("link", { name: "Google Calendar" });
+    screen.getByRole("button", { name: "After" }).focus();
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement).toBe(link);
+    expect(getComputedStyle(link).outlineStyle).not.toBe("none");
   });
 });
 

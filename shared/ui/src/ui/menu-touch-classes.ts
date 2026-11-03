@@ -20,7 +20,9 @@
  * - `row`: a 44px row, a guest's touch floor, in the secondary ink. Filled with
  *   the accent and its on-accent ink under the pointer, for the keyboard and
  *   while pressed — never for focus alone: a tap focuses the link it lands on,
- *   and a row filled for that reads as already chosen.
+ *   and a row filled for that reads as already chosen. The fill is the focus
+ *   cue, so the outline is hidden rather than removed: a contrast theme drops
+ *   the fill and paints the hidden outline in its own colour instead.
  */
 export const MENU_TOUCH = {
   panel:
@@ -28,5 +30,5 @@ export const MENU_TOUCH = {
   row:
     "base:font-ui-body base:text-ui-ink-secondary base:text-ui-sm base:tracking-ui-normal base:flex base:min-h-11 base:items-center base:rounded-ui-sm base:px-3 " +
     "base:hover:bg-ui-accent base:hover:text-ui-on-accent base:focus-visible:bg-ui-accent base:focus-visible:text-ui-on-accent base:active:bg-ui-accent base:active:text-ui-on-accent " +
-    "base:transition-[color,background-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] base:ease-[var(--ease-out,var(--ui-ease-out))] base:focus-visible:outline-none",
+    "base:transition-[color,background-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] base:ease-[var(--ease-out,var(--ui-ease-out))] base:focus-visible:outline-hidden",
 } as const;

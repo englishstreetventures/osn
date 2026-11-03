@@ -4,10 +4,12 @@ import { Chip } from "../../src/ui/chip";
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "../../src/ui/dropdown-menu";
 import { PopoverContent } from "../../src/ui/popover";
 
@@ -41,6 +43,12 @@ describe("the menu's, the popover's and the chip's parts", () => {
         <DropdownMenuLabel innerText="Signed in as" />
         {/* @ts-expect-error — markup is not a separator's prop. */}
         <DropdownMenuSeparator innerHTML="<hr>" />
+        {/* @ts-expect-error — markup is not a menu trigger's prop. */}
+        <DropdownMenuTrigger innerHTML="<img src=x onerror=alert(1)>" />
+        {/* @ts-expect-error — nor a trigger drawn as another element's. */}
+        <DropdownMenuTrigger as="span" textContent="Open" />
+        {/* @ts-expect-error — markup is not a group's prop. */}
+        <DropdownMenuGroup innerHTML="<img src=x onerror=alert(1)>" />
         {/* @ts-expect-error — markup is not a popover panel's prop. */}
         <PopoverContent innerHTML="<img src=x onerror=alert(1)>" />
         {/* @ts-expect-error — markup is not a chip's prop: its words are children. */}

@@ -336,8 +336,12 @@ row, label and separator inside it, so one menu cannot mix two looks:
 The rows:
 
 - `DropdownMenuItem` — one choice. With `as="a"` it is a real anchor taking
-  `href`, `target`, `rel` and `download`; with `target="_blank"` and no `rel`
-  it gets `noopener noreferrer`. The browser follows the link, never script:
+  `href`, `target`, `rel` and `download`. It keeps only an address a menu may
+  lead to — a web page, a path or fragment on the site, `mailto:` or `tel:` —
+  and drops any other (`javascript:`, `data:`), whatever its caller checked.
+  Opening another tab or window (any `target` but `_self`, `_parent`, `_top`),
+  it adds `noopener noreferrer` to the caller's `rel` and drops an `opener`.
+  The browser follows the link, never script:
   the menu stays open through Kobalte's select and closes a task after the
   link's own click, because an anchor taken out of the document during its
   click goes nowhere, and a tap's click can arrive after Kobalte's own
@@ -373,7 +377,9 @@ afford Kobalte's menu. Its panel is `min-w-56`, `p-2` with a 4px gap, on
 `shadow-lg`; its rows are 44px, a guest's touch floor, in the secondary ink,
 filled with the accent under the pointer, for the keyboard (`focus-visible`)
 and while pressed — never on focus alone, since a tap focuses the link it
-lands on and a filled row then reads as chosen. Neither file imports
+lands on and a filled row then reads as chosen. Its outline is hidden, not
+removed, so a contrast theme, which drops the fill, paints the outline
+instead. Neither file imports
 anything, and they are two files so a stylesheet can leave out the menu it
 does not draw: `cire/invites` excludes `dropdown-menu.tsx` and
 `menu-classes.ts` with `@source not`, and `cire/landing` all three. A page
