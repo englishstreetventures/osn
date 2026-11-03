@@ -75,7 +75,10 @@ export const Dropdown = () => {
           Account
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuLabel>Signed in as ada</DropdownMenuLabel>
+          {/* Kobalte names a label by its group, and throws on one outside it. */}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Signed in as ada</DropdownMenuLabel>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setPicked("Profile")}>Profile</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setPicked("Settings")}>Settings</DropdownMenuItem>
