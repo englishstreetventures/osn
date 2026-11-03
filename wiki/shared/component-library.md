@@ -1170,8 +1170,8 @@ product and the portal ("Cire · Host portal", "Cire · Vendor portal"); a roman
 `@container/frame`); and the card, `signInCardClass` — the opaque card at the
 largest padding with its top edge lit by the app's `--inner-lip`, kept in
 its own module (`sign-in-card-class.ts`) so the island ships no card code —
-holding the panel as a `client:only` island. The owner chose the card, the measure and
-the labels (Stack 6 of englishstreetventures/osn#1831, questions 33 to 36).
+holding the panel as a `client:only` island. The card, the measure and the
+labels are the owner's choices.
 
 `SignInPanel` (`cire/ui/src/sign-in-panel.tsx`, props `apiBase` and an
 optional `auth`) is the island: copy at the small step, one large primary

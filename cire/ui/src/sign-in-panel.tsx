@@ -33,7 +33,7 @@ import Button from "./button";
  * it.
  *
  * **After the press**, only the label changes, to "Connecting to musubi…", at
- * full strength (owner, Stack 6 question 37, D). A second press does nothing,
+ * full strength, with no dimmed look. A second press does nothing,
  * since it would only cancel the first navigation and spend another of the
  * start leg's per-address requests. A status line, hidden but present from the
  * first paint, says "Connecting to musubi…" on the press and "Still connecting

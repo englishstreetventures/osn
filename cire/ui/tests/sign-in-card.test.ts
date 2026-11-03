@@ -6,9 +6,9 @@ import source from "../src/sign-in-card.astro?raw";
  * The sign-in page's body, as both portals render it: the label naming the
  * portal, a roman "Sign in", and the card holding the panel. The page is
  * static HTML painted before any script, so these read the template as text.
- * Three of these are the owner's choices (Stack 6): the labels (question 36,
- * B), and a 30rem measure set at the top of the page rather than centred, so
- * the header never moves when the panel mounts or a notice appears (34, A).
+ * Three of these are the owner's choices: the two labels, and a 30rem measure
+ * set at the top of the page rather than centred, so the header never moves
+ * when the panel mounts or a notice appears.
  */
 
 /** The rendered template alone, without the frontmatter's imports and comments. */

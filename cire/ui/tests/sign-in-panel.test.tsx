@@ -244,7 +244,7 @@ describe("SignInPanel", () => {
 
 describe("signInCardClass", () => {
   it("is the opaque card at the largest padding, with the lit top edge", () => {
-    // The owner's choice (Stack 6, question 33, B).
+    // The owner's choice: opaque, with the portals' lit top edge.
     expect(signInCardClass).toBe(
       `${cardClass({ padding: "xl", fill: "opaque" })} base:shadow-(--inner-lip)`,
     );

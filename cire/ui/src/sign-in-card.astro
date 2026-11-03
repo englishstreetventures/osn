@@ -7,12 +7,12 @@
  * the panel inside is a `client:only` island, so the card is empty on first
  * paint and grows when it mounts, and again when a notice appears. The page
  * therefore sits at the top (`py-24`), not centred, so the header never moves
- * while the card grows below it (owner, Stack 6 question 34, A), at a 30rem
+ * while the card grows below it, at a 30rem
  * measure through the portal's `page-frame`. The heading's size reads the
  * page's container, so the page's `<body>` carries `@container/frame`.
  *
  * Neither login page shows the wordmark, so the label carries the product's
- * name with the portal's (question 36, B).
+ * name with the portal's, and the two pages differ only in that name.
  */
 import { eyebrowClass } from './eyebrow'
 import { signInCardClass } from './sign-in-card-class'
