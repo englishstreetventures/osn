@@ -1,4 +1,13 @@
-import { createEffect, createMemo, For, Show, type Component, type JSX } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSelector,
+  For,
+  onCleanup,
+  Show,
+  type Component,
+  type JSX,
+} from "solid-js";
 import { Dynamic } from "solid-js/web";
 
 import { createSlidingPill } from "./lib/sliding-pill";
@@ -116,7 +125,10 @@ const ITEM =
   "base:data-[chosen]:text-ui-accent-ink " +
   "base:not-data-[chosen]:hover:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_21.5%,var(--ui-surface-raised))_32.6%,transparent)] " +
   "base:not-data-[chosen]:hover:[color:color-mix(in_srgb,var(--ui-ink-secondary),var(--ui-accent-ink))] " +
-  "base:focus-visible:outline-2 base:focus-visible:outline-offset-2 base:focus-visible:outline-solid base:focus-visible:outline-ui-focus";
+  "base:focus-visible:outline-2 base:focus-visible:outline-offset-2 base:focus-visible:outline-solid base:focus-visible:outline-ui-focus " +
+  // A contrast theme drops the glass and its ink, so the chosen choice keeps
+  // a 1px outline in the theme's own text colour.
+  "base:forced-colors:data-[chosen]:outline-1 base:forced-colors:data-[chosen]:outline-solid base:forced-colors:data-[chosen]:outline-offset-0";
 
 const ICON = "base:size-3.5 base:shrink-0";
 
@@ -136,6 +148,11 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
   const values = createMemo(() => props.items.map((item) => item.value), undefined, {
     equals: (a, b) => a.length === b.length && a.every((value, i) => value === b[i]),
   });
+  // Only the two rows whose answer flips hear a change of choice.
+  const isChosen = createSelector(() => props.value);
+  // A strip whose value names no item (a deleted event, a stale link) still
+  // needs one tab stop: its first item.
+  const unmatched = createMemo(() => !values().includes(props.value));
   const refs = new Map<V, HTMLButtonElement>();
   let scroller: HTMLDivElement | undefined;
 
@@ -193,15 +210,25 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
       <For each={values()}>
         {(value, index) => {
           const item = () => byValue().get(value)!;
-          const chosen = () => props.value === value;
-          const tip = () =>
-            props.iconOnly && props.tipAttribute ? { [props.tipAttribute]: item().label } : {};
+          const chosen = () => isChosen(value);
           return (
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a radio whose choice can be refused cannot be a native one: it has moved its own state by the time the handler runs.
             <button
               ref={(el) => {
                 refs.set(value, el);
+                onCleanup(() => {
+                  if (refs.get(value) === el) refs.delete(value);
+                });
                 pill.item(value)(el);
+                // The app's tooltip attribute, set on the element rather than
+                // spread, so the button's other bindings stay their own.
+                createEffect(() => {
+                  const attribute = props.tipAttribute;
+                  if (!attribute) return;
+                  if (props.iconOnly) el.setAttribute(attribute, item().label);
+                  else el.removeAttribute(attribute);
+                  onCleanup(() => el.removeAttribute(attribute));
+                });
               }}
               type="button"
               class={ITEM}
@@ -218,7 +245,13 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
               aria-selected={props.semantics === "tabs" ? chosen() : undefined}
               aria-checked={props.semantics === "radio" ? chosen() : undefined}
               aria-current={props.semantics === "current" && chosen() ? "page" : undefined}
-              tabindex={props.semantics === "tabs" ? (chosen() ? 0 : -1) : undefined}
+              tabindex={
+                props.semantics === "tabs"
+                  ? chosen() || (unmatched() && index() === 0)
+                    ? 0
+                    : -1
+                  : undefined
+              }
               aria-label={item().name}
               aria-describedby={item().describedBy}
               onKeyDown={(event) => onKeyDown(event, index())}
@@ -227,7 +260,6 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
               onClick={() => {
                 if (!chosen()) props.onChange(value);
               }}
-              {...tip()}
             >
               <Show when={item().icon}>
                 {(icon) => (

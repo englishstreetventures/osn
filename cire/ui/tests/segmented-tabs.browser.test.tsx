@@ -7,7 +7,7 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { createSignal, type JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
-import { userEvent } from "vitest/browser";
+import { commands, userEvent } from "vitest/browser";
 
 import SegmentedTabs, { type SegmentedItem } from "../src/segmented-tabs";
 import { backdropLayers, composite, inkRatio, ratio } from "./test-support/paint";
@@ -17,7 +17,16 @@ import "./test-support/tailwind.css";
 const RAMPS = ["dark", "light"] as const;
 type Ramp = (typeof RAMPS)[number];
 
-afterEach(cleanup);
+type MediaPreference = { forcedColors?: "active" | "none" };
+const emulateMedia = (options: MediaPreference) =>
+  (commands as unknown as { emulateMedia: (o: MediaPreference) => Promise<void> }).emulateMedia(
+    options,
+  );
+
+afterEach(async () => {
+  await emulateMedia({ forcedColors: "none" });
+  cleanup();
+});
 
 /** Long enough for a slide or a colour fade on the fallback 200ms to finish. */
 const settle = (ms = 450) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -135,6 +144,16 @@ describe("what each label reads against", () => {
       expect(inkRatio(hovered)).toBeGreaterThanOrEqual(4.5);
     });
   }
+});
+
+describe("in a contrast theme", () => {
+  it("still marks the chosen choice, with an outline the others lack", async () => {
+    await emulateMedia({ forcedColors: "active" });
+    render(() => <Strip />);
+    await settle();
+    expect(getComputedStyle(screen.getByRole("tab", { name: "Hero" })).outlineStyle).toBe("solid");
+    expect(getComputedStyle(screen.getByRole("tab", { name: "Events" })).outlineStyle).toBe("none");
+  });
 });
 
 describe("the focus ring", () => {

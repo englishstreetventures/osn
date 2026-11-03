@@ -94,6 +94,25 @@ describe("as tabs", () => {
   });
 });
 
+describe("a value that names no item", () => {
+  it("leaves the first tab as the strip's one tab stop", () => {
+    render(() => (
+      <SegmentedTabs
+        items={VIEWS}
+        value={"gone" as View}
+        onChange={() => {}}
+        label="Views"
+        semantics="tabs"
+      />
+    ));
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual([
+      "0",
+      "-1",
+      "-1",
+    ]);
+  });
+});
+
 describe("as radios", () => {
   it("is a named radiogroup, each radio its own tab stop, and a refused choice stays unmade", () => {
     const [mode, setMode] = createSignal<"editor" | "import">("editor");

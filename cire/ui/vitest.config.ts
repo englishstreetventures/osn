@@ -17,6 +17,8 @@ import { playwright } from "@vitest/browser-playwright";
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
+import { emulateMedia } from "./tests/test-support/browser-commands.ts";
+
 /**
  * For environments that ship a prebuilt Chromium whose build number does not
  * match the pinned Playwright (dev containers and this repo's cloud sessions).
@@ -56,6 +58,8 @@ export default defineConfig({
             // (vitest-dev/vitest#7661).
             headless: true,
             instances: [{ browser: "chromium" }],
+            // A test flips `prefers-reduced-motion` or forced colours for itself.
+            commands: { emulateMedia },
           },
         },
       },

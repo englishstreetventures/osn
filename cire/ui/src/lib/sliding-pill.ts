@@ -26,7 +26,7 @@
  * containing block (`relative`), and the pill must be `absolute` with `inset-0`
  * unset — it takes its whole geometry from `style()`.
  */
-import { createEffect, createSignal, type JSX, onCleanup, onMount } from "solid-js";
+import { batch, createEffect, createSignal, type JSX, onCleanup, onMount } from "solid-js";
 
 /** The subset of DOMRect the geometry needs. Named so the maths can be tested. */
 export interface RectLike {
@@ -118,9 +118,19 @@ export function pillStyle(
   };
 }
 
-/** Whether the reader has asked for less motion. */
-function motionReduced(): boolean {
-  return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+/**
+ * Whether the reader has asked for less motion, as a signal that follows the
+ * setting. One query per pill, read once and then on its `change`.
+ */
+function createMotionReduced(): () => boolean {
+  const query = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
+  const [reduced, setReduced] = createSignal(query?.matches ?? false);
+  if (query) {
+    const follow = () => setReduced(query.matches);
+    query.addEventListener("change", follow);
+    onCleanup(() => query.removeEventListener("change", follow));
+  }
+  return reduced;
 }
 
 export interface SlidingPill {
@@ -143,6 +153,7 @@ export function createSlidingPill(
   const items = new Map<string, HTMLElement>();
   const [box, setBox] = createSignal<PillBox | null>(null);
   const [settled, setSettled] = createSignal(false);
+  const motionReduced = createMotionReduced();
 
   let trackEl: HTMLElement | undefined;
   let observer: ResizeObserver | undefined;
@@ -159,8 +170,10 @@ export function createSlidingPill(
     if (!trackEl || !el?.isConnected) {
       last = null;
       lastWidth = null;
-      setBox(null);
-      setSettled(false);
+      batch(() => {
+        setBox(null);
+        setSettled(false);
+      });
       return;
     }
     const track = trackEl.getBoundingClientRect();
@@ -183,12 +196,11 @@ export function createSlidingPill(
     // next frame so only *subsequent* changes of active row animate.
     const appearing = next !== null && last === null;
     last = next;
-    setBox(next);
-    if (next === null) setSettled(false);
-    else if (appearing || reflowed) {
-      setSettled(false);
-      requestAnimationFrame(() => setSettled(true));
-    }
+    batch(() => {
+      setBox(next);
+      if (next === null || appearing || reflowed) setSettled(false);
+    });
+    if (next !== null && (appearing || reflowed)) requestAnimationFrame(() => setSettled(true));
   }
 
   function watch(el: HTMLElement) {
@@ -229,7 +241,9 @@ export function createSlidingPill(
       onCleanup(() => {
         if (items.get(key) === el) items.delete(key);
       });
-      if (mounted) measure();
+      // A ref runs before its element is in the document; one that is not yet
+      // waits for the observer's first report, rather than reading no layout.
+      if (mounted && el.isConnected) measure();
     },
     style: () => pillStyle(box(), settled() && !motionReduced(), options.ease),
   };
