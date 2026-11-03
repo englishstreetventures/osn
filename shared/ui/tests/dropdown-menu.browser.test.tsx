@@ -172,6 +172,37 @@ describe("a checkbox item", () => {
   });
 });
 
+describe("a row's own settings", () => {
+  it("closes a checkbox row told to, and keeps a disabled radio row from choosing", async () => {
+    const [on, setOn] = createSignal(false);
+    const [theme, setTheme] = createSignal("system");
+    render(() => (
+      <DropdownMenu>
+        <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
+        <DropdownMenuContent variant="accent">
+          <DropdownMenuRadioGroup value={theme()} onChange={setTheme}>
+            <DropdownMenuRadioItem value="system">System</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="light" disabled>
+              Light
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          <DropdownMenuCheckboxItem checked={on()} onChange={setOn} closeOnSelect>
+            Haptics
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ));
+    await open();
+    screen.getByRole("menuitemradio", { name: "Light" }).click();
+    await settle();
+    expect(theme()).toBe("system");
+    await userEvent.click(screen.getByRole("menuitemcheckbox", { name: "Haptics" }));
+    await settle();
+    expect(on()).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+});
+
 describe("a radio item", () => {
   it("moves the selection, and marks the chosen row", async () => {
     const [theme, setTheme] = createSignal("system");
@@ -270,15 +301,21 @@ describe("a link item", () => {
     await userEvent.keyboard("{Enter}");
     await settle();
     expect(location.hash).toBe("#menu-link-target");
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   /** One link in an open accent menu, focused from the keyboard. */
-  function Jump(props: { disabled?: boolean }) {
+  function Jump(props: { disabled?: boolean; onSelect?: () => void }) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
         <DropdownMenuContent variant="accent">
-          <DropdownMenuItem as="a" href="#menu-link-target" disabled={props.disabled}>
+          <DropdownMenuItem
+            as="a"
+            href="#menu-link-target"
+            disabled={props.disabled}
+            onSelect={props.onSelect}
+          >
             Jump
           </DropdownMenuItem>
           <DropdownMenuItem>Stay</DropdownMenuItem>
@@ -286,6 +323,17 @@ describe("a link item", () => {
       </DropdownMenu>
     );
   }
+
+  it("follows a mouse click, runs its onSelect, and then closes", async () => {
+    const [picked, setPicked] = createSignal("");
+    render(() => <Jump onSelect={() => setPicked("jump")} />);
+    await open();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Jump" }));
+    await settle();
+    expect(picked()).toBe("jump");
+    expect(location.hash).toBe("#menu-link-target");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
 
   it("follows the link on Space, as on Enter, and then closes", async () => {
     render(() => <Jump />);
@@ -361,6 +409,34 @@ describe("inside a Modal", () => {
     expect(item === hit || item.contains(hit)).toBe(true);
     expect(item.closest("dialog")).not.toBeNull();
     expect(screen.getByRole("menu").hasAttribute("data-kb-top-layer")).toBe(true);
+    await userEvent.click(item);
+    expect(picked()).toBe("copy");
+  });
+
+  it("mounts into the upper of two open modals, where the click lands", async () => {
+    const [picked, setPicked] = createSignal("");
+    render(() => (
+      <>
+        <Modal open onClose={() => {}} label="Lower dialog">
+          <p>Behind</p>
+        </Modal>
+        <Modal open onClose={() => {}} label="Upper dialog">
+          <DropdownMenu>
+            <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
+            <DropdownMenuContent variant="accent">
+              <DropdownMenuItem onSelect={() => setPicked("copy")}>Copy message</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <div style={{ height: "160px" }} />
+        </Modal>
+      </>
+    ));
+    await open();
+    const item = screen.getByRole("menuitem", { name: "Copy message" });
+    expect(item.closest("dialog")?.getAttribute("aria-label")).toBe("Upper dialog");
+    const rect = item.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    expect(item === hit || item.contains(hit)).toBe(true);
     await userEvent.click(item);
     expect(picked()).toBe("copy");
   });
