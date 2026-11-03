@@ -114,15 +114,18 @@ const GLASS =
   "base:backdrop-blur-md base:backdrop-saturate-[1.6]";
 
 /**
- * A choice. Halfway under the pointer: the raised surface at 27.5% under the
- * accent at 7% (accent 21.5% into raised, at 32.6%), and an ink midway between
- * the secondary ink and the readable accent ink.
+ * A choice. Chosen, its word is set at medium weight: the glass and the inks
+ * alone read under 3:1 between the chosen choice and the rest, so the weight is
+ * the cue that is not colour (owner, englishstreetventures/osn#1845). Halfway
+ * under the pointer: the raised surface at 27.5% under the accent at 7%
+ * (accent 21.5% into raised, at 32.6%), and an ink midway between the
+ * secondary ink and the readable accent ink.
  */
 const ITEM =
   "base:relative base:inline-flex base:h-5.5 base:shrink-0 base:cursor-pointer base:items-center base:gap-1.5 base:rounded-ui-pill base:px-3 " +
   "base:font-ui-body base:text-ui-xs base:font-normal base:tracking-ui-normal base:leading-none base:whitespace-nowrap base:text-ui-ink-secondary base:outline-none " +
   "base:transition-[color,background-color] base:duration-[var(--dur-base,var(--ui-dur-base))] base:ease-[var(--ease-in-out,var(--ui-ease-in-out))] base:motion-reduce:transition-none " +
-  "base:data-[chosen]:text-ui-accent-ink " +
+  "base:data-[chosen]:text-ui-accent-ink base:data-[chosen]:font-medium " +
   "base:not-data-[chosen]:hover:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_21.5%,var(--ui-surface-raised))_32.6%,transparent)] " +
   "base:not-data-[chosen]:hover:[color:color-mix(in_srgb,var(--ui-ink-secondary),var(--ui-accent-ink))] " +
   "base:focus-visible:outline-2 base:focus-visible:outline-offset-2 base:focus-visible:outline-solid base:focus-visible:outline-ui-focus " +
@@ -131,6 +134,16 @@ const ITEM =
   "base:forced-colors:data-[chosen]:outline-1 base:forced-colors:data-[chosen]:outline-solid base:forced-colors:data-[chosen]:outline-offset-0";
 
 const ICON = "base:size-3.5 base:shrink-0";
+
+/**
+ * The word. A hidden copy at medium weight, under it with no height, holds the
+ * word's width at the wider weight, so a choice moving never shifts the rest.
+ * The copy is hidden generated content; the choice names itself with
+ * `aria-label`, so no reading of its content counts the word twice.
+ */
+const WORD =
+  "base:inline-flex base:flex-col " +
+  "base:after:invisible base:after:h-0 base:after:overflow-hidden base:after:font-medium base:after:select-none base:after:content-[attr(data-label)]";
 
 /** A strip that scrolls: 4px of room all round for the ring, inside a matching margin. */
 const SCROLLER =
@@ -252,7 +265,7 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
                     : -1
                   : undefined
               }
-              aria-label={item().name}
+              aria-label={item().name ?? item().label}
               aria-describedby={item().describedBy}
               onKeyDown={(event) => onKeyDown(event, index())}
               onPointerEnter={() => props.onIntent?.(value)}
@@ -266,7 +279,9 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
                   <Dynamic component={icon()} aria-hidden="true" strokeWidth={1.75} class={ICON} />
                 )}
               </Show>
-              <span class={props.iconOnly ? "base:sr-only" : undefined}>{item().label}</span>
+              <span data-label={item().label} class={props.iconOnly ? "base:sr-only" : WORD}>
+                {item().label}
+              </span>
               {item().after?.(chosen())}
             </button>
           );

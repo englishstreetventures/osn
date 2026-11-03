@@ -1059,8 +1059,12 @@ error rather than needing a trip to the source.
 The portals' segmented controls are one part (`cire/ui/src/segmented-tabs.tsx`,
 owner's choice on englishstreetventures/osn#1845): a 28px track — a 1px hairline
 on the surface at 30%, 2px inside — and 22px choices in sentence case at the
-extra-small step, normal weight, the secondary ink at rest and the readable
-accent ink when chosen. The chosen one sits on glass: the raised surface at
+extra-small step, the secondary ink at normal weight at rest and the readable
+accent ink at medium weight when chosen. The weight is the cue that is not
+colour, since the glass and the inks alone read under 3:1 between the chosen
+choice and the rest; a hidden copy of each word at medium weight holds its
+width, so a choice moving shifts nothing, and each choice names itself with
+`aria-label` so that copy is never read. The chosen one sits on glass: the raised surface at
 55% under the accent at 14% (composited into one colour, so a test can read
 what the label sits on), an inner lip, a light inner edge (`--glass-edge`, an
 app token; white at 10% when unset), a hairline ring, the first lift and a
