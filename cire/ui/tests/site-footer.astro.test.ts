@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
 import { Window } from "happy-dom";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import SiteFooter from "../src/site-footer.astro";
 
@@ -17,8 +17,13 @@ import SiteFooter from "../src/site-footer.astro";
  */
 
 let container: AstroContainer;
+/** One window for every parse: Astro renders under Node, not in a DOM. */
+const window = new Window();
 beforeAll(async () => {
   container = await AstroContainer.create();
+});
+afterAll(async () => {
+  await window.happyDOM.close();
 });
 
 const LEGAL = [
@@ -33,8 +38,7 @@ const SECTIONS = [
 
 async function footer(props: Record<string, unknown>, slots: Record<string, string> = {}) {
   const html = await container.renderToString(SiteFooter, { props, slots });
-  // Parsed in a window of its own: Astro renders under Node, not in a DOM.
-  const doc = new new Window().DOMParser().parseFromString(html, "text/html");
+  const doc = new window.DOMParser().parseFromString(html, "text/html");
   return doc.querySelector("footer")! as unknown as Element;
 }
 

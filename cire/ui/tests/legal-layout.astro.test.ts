@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
 import { Window } from "happy-dom";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import LegalLayout from "../src/legal-layout.astro";
 
@@ -16,8 +16,13 @@ import LegalLayout from "../src/legal-layout.astro";
  */
 
 let container: AstroContainer;
+/** One window for every parse: Astro renders under Node, not in a DOM. */
+const window = new Window();
 beforeAll(async () => {
   container = await AstroContainer.create();
+});
+afterAll(async () => {
+  await window.happyDOM.close();
 });
 
 async function page(props: Record<string, unknown>, slots: Record<string, string> = {}) {
@@ -25,8 +30,7 @@ async function page(props: Record<string, unknown>, slots: Record<string, string
     props,
     slots: { default: "<h1>Terms of Service</h1>", ...slots },
   });
-  // Parsed in a window of its own: Astro renders under Node, not in a DOM.
-  return new new Window().DOMParser().parseFromString(html, "text/html") as unknown as Document;
+  return new window.DOMParser().parseFromString(html, "text/html") as unknown as Document;
 }
 
 describe("LegalLayout", () => {
