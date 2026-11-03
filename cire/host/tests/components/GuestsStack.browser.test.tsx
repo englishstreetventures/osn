@@ -1292,6 +1292,11 @@ describe("the invite builder's two tiers in the view bar", () => {
     await frames();
     expectPass("tiers failed: the views strip still shows", rect(views()).width > 0);
     expectPass("tiers failed: no pill", place() === null);
+    // The builder says its read failed, rather than loading for ever.
+    expectPass(
+      "tiers failed: the builder says so",
+      screen.queryByRole("alert")?.textContent?.includes("Could not load the invite") === true,
+    );
   });
 
   it("leaves no --bar-h behind on a move to a module with no bar", async () => {

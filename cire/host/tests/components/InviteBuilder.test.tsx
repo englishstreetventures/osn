@@ -1487,6 +1487,35 @@ describe("InviteBuilder UX guards", () => {
     expect(document.getElementById("invite-hero")!.contains(alert)).toBe(true);
   });
 
+  it("says the invite could not load, in place of the builder, when the first read fails", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500)); // initial load
+    render(() => <InviteBuilder {...WEDDING} />);
+    const alert = await waitFor(() => screen.getByRole("alert"));
+    expect(alert.textContent).toContain("Could not load the invite. Is the API running?");
+    expect(screen.queryByText("Save invite")).toBeNull();
+    expect(screen.queryByText("Loading invite…")).toBeNull();
+  });
+
+  it("keeps the builder when the reload after an upload fails, and says so in the save bar", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json({ ok: true })); // upload
+    authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500)); // reload
+    const { container } = render(() => <InviteBuilder {...WEDDING} />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    const input = container.querySelector('#invite-hero input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      value: [new File(["x"], "hero.jpg", { type: "image/jpeg" })],
+    });
+    fireEvent.change(input);
+
+    await waitFor(() =>
+      expect(screen.getByText("Could not reload the invite. Try again.")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Save invite")).toBeInTheDocument();
+    expect(document.getElementById("invite-hero")).not.toBeNull();
+  });
+
   it("wires the dirty state into the navigation guard across its lifecycle", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
