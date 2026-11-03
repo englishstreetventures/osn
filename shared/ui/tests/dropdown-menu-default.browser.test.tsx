@@ -4,15 +4,18 @@
  * the panel lands.
  *
  * The file imports only what the menu exported before it gained the accent
- * variant and the checkbox, radio and link items, so it runs, and passes, on
- * the code before that change as well as after it. That is the point of
- * keeping it apart: a literal copied wrong would otherwise never be seen
- * passing against the code it claims to describe.
+ * variant and the checkbox, radio and link items, so it runs on the code
+ * before that change as well as after it. That is the point of keeping it
+ * apart: a literal copied wrong would otherwise never be seen passing against
+ * the code it claims to describe. One thing differs from that code, and only
+ * in a contrast theme: a focused row and a focused pill trigger draw an
+ * outline there, because the theme drops the fill and the ring that mark
+ * focus everywhere else.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
-import { userEvent } from "vitest/browser";
+import { commands, userEvent } from "vitest/browser";
 
 import {
   DropdownMenu,
@@ -26,7 +29,17 @@ import {
 
 import "./test-support/tailwind.css";
 
-afterEach(cleanup);
+const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
+  (
+    commands as unknown as {
+      emulateMedia: (o: { forcedColors: "active" | "none" }) => Promise<void>;
+    }
+  ).emulateMedia(options);
+
+afterEach(async () => {
+  await emulateMedia({ forcedColors: "none" });
+  cleanup();
+});
 
 /** Long enough for the opening animation to settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
@@ -64,7 +77,7 @@ describe("the default menu", () => {
     );
     expect(screen.getByRole("menuitem", { name: "Switch profile" }).getAttribute("class")).toBe(
       "base:relative base:flex base:cursor-pointer base:select-none base:items-center base:rounded-ui-sm base:px-2 base:py-1.5 base:text-ui-base base:outline-none " +
-        "base:focus:bg-ui-surface-sunk base:focus:text-ui-ink " +
+        "base:focus:bg-ui-surface-sunk base:focus:text-ui-ink base:focus:outline-hidden " +
         "base:data-[disabled]:pointer-events-none base:data-[disabled]:opacity-50",
     );
     expect(screen.getByText("@ada").getAttribute("class")).toBe(
@@ -121,5 +134,46 @@ describe("the default menu", () => {
     );
     expect(panel.closest("dialog")).toBeNull();
     expect(panel.hasAttribute("data-kb-top-layer")).toBe(false);
+  });
+});
+
+describe("the default menu in a contrast theme", () => {
+  it("outlines the focused row, and only that row, where the theme drops its fill", async () => {
+    await emulateMedia({ forcedColors: "active" });
+    render(() => <AccountMenu />);
+    await openByKeyboard();
+    const focused = screen.getByRole("menuitem", { name: "Switch profile" });
+    expect(document.activeElement).toBe(focused);
+    const ring = getComputedStyle(focused);
+    expect([ring.outlineStyle, ring.outlineWidth]).toEqual(["solid", "2px"]);
+    // A static hidden outline would ring every row at rest in a contrast
+    // theme, which marks nothing.
+    expect(getComputedStyle(screen.getByRole("menuitem", { name: "Archived" })).outlineStyle).toBe(
+      "none",
+    );
+  });
+
+  it("outlines a pill trigger reached from the keyboard, where the theme drops its ring", async () => {
+    render(() => (
+      <div>
+        <button type="button">Before</button>
+        <DropdownMenu>
+          <DropdownMenuTrigger treatment="pill">Account</DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem>Profile</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    ));
+    const trigger = screen.getByRole("button", { name: "Account" });
+    screen.getByRole("button", { name: "Before" }).focus();
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement).toBe(trigger);
+    // Outside a contrast theme the ring alone marks it, as before.
+    expect(getComputedStyle(trigger).outlineStyle).toBe("none");
+    expect(getComputedStyle(trigger).boxShadow).not.toBe("none");
+    await emulateMedia({ forcedColors: "active" });
+    const ring = getComputedStyle(trigger);
+    expect([ring.outlineStyle, ring.outlineWidth]).toEqual(["solid", "2px"]);
   });
 });
