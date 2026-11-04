@@ -837,8 +837,10 @@ differs. On the guest site each corner paints:
   ground beneath. The household's boxes keep their 30% gold rule and draw no
   fill, and the account's initial sits in its round slot with no disc. A
   chosen answer in the RSVP sheet keeps its gold border and gold label; a
-  chosen gift amount keeps those and its tick, a chosen fund row its gold
-  border and filled radio mark. A legal page's placeholder is gold mono text
+  ticked dietary pill wears the same `choice` look — the gold edge, the
+  readable gold word and a 2px ring, no wash; a chosen gift amount keeps
+  those and its tick, a chosen fund row its gold border and filled radio
+  mark. A legal page's placeholder is gold mono text
   with no highlight. `tests/components/notice-contrast.browser.test.tsx` holds
   each at 4.5:1 in every scheme on every ground it can sit on, and fails any
   fill between a gold word and its site's own box.
@@ -878,8 +880,13 @@ classic draws one rule above the first.
 **Motion.** The site carries the portals' ladder: `--dur-fast`, `--dur-base`
 and `--dur-slow`, shorter under `pointer: fine`, and the house easings, so
 Tailwind's `ease-out` class reads the house curve. A hover, a focus or a press
-runs on `--dur-fast` and `--ease-out`, except the answer pair (`Button`
-`choice`), whose colours and ring move on `--dur-base`; the sheet's panel
+runs on `--dur-fast` and `--ease-out`; a choice being made — the answer pair
+(`Button` `choice`) and a ticked dietary pill — moves its colours and ring on
+`--dur-base` and `--ease-in-out` (`cire/host/DESIGN.md` §4, One motion rule).
+Under the pointer an unticked dietary pill goes halfway, as the pair does, and
+its focus is the house outline 2px off its edge, drawn from the checkbox's
+own `:focus-visible`; the phone's scrolling track keeps 4px of room round
+each pill so the ring and the outline are not cut. The sheet's panel
 swap, the badge's words after a press, Respond's label ink following the bloom
 fill and the FAQ body's arrival run on `--dur-base`. Choreography longer than `--dur-slow` keeps
 its own timing:
