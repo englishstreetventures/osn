@@ -185,7 +185,7 @@ osn/auth-ui/
 
 ### Tests that read files outside their package
 
-turbo caches a package's `test` on the package's own files. A test that also reads files elsewhere in the repository — another package's source, a workflow, `bun.lock` — needs those files as inputs, or it serves a stale green; but naming them on `test` reruns the whole suite whenever any of them changes. Put such tests in a vitest project of their own and run it as the root `test:repo` task: the package's `turbo.json` names the outside files as `test:repo` inputs and makes `test` depend on `test:repo`. A package with no `test:repo` script runs nothing for it. Two packages do this today: `@shared/infra` ([[infrastructure-as-code#Testing]]) and `@cire/landing` ([[cire-landing#Tests]]).
+turbo caches a package's `test` on the package's own files. A test that also reads files elsewhere in the repository — another package's source, a workflow, `bun.lock` — needs those files as inputs, or it serves a stale green; but naming them on `test` reruns the whole suite whenever any of them changes. Put such tests in a vitest project of their own and run it as the root `test:repo` task: the package's `turbo.json` names the outside files as `test:repo` inputs and makes `test` depend on `test:repo`. A package with no `test:repo` script runs nothing for it. Two packages do this today: `@shared/infra` ([[infrastructure-as-code#Testing]]) and `@cire/landing` ([[cire-landing#Tests]]). A test whose result depends on the installed dependency tree alone, not on other packages' files, takes a task of its own whose inputs are the lockfile and the root manifest, so it does not rerun on every source edit `test:repo` sees: `@shared/infra`'s `test:alchemy`, which runs the Alchemy CLI.
 
 ## Service Test Pattern
 
@@ -500,7 +500,7 @@ Stryker config (`stryker/config.mjs`) and a
 
 Outside cire, break the changed lines by hand: a scratch script swaps one line at a time for a broken form, runs the test file that covers it, and restores the file, checking its hash after the last swap. Confirm each swap matched, as [[#Assertions that cannot fail]] warns. It pays even after a failure-modes-first list. For the alchemy D1 import patch (`shared/infra/tests/d1-import.test.ts`), 19 cases, each seen red before the code, still let 8 of 11 hand mutants survive. The list named behaviours, and the survivors were mostly fields copied from one shape into another (`error: init.error` set to `undefined`), plus an error branch whose test reply, carrying no bookmark, also failed the next branch down with the same text.
 
-*Measured 2026-10-26 — 11 one-line mutants of alchemy's patched `src/Cloudflare/D1/ImportDatabase.ts`, each run with `bunx --bun vitest run --project package tests/d1-import.test.ts -t "src copy"` in `shared/infra`*
+*Measured 2026-10-26 — 11 one-line mutants of the patched `src/Cloudflare/D1/ImportDatabase.ts` in `alchemy@2.0.0-beta.83` (now `src/D1/ImportDatabase.ts` in `@alchemy.run/cloudflare`), each run with `bunx --bun vitest run --project package tests/d1-import.test.ts -t "src copy"` in `shared/infra`*
 
 ### When to run it
 

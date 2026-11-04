@@ -31,6 +31,12 @@ const ALLOWED: ReadonlySet<string> = new Set(["cireweddings.com", "musubi.social
 /** Third-party hosts a stack may name: not ours, so never a dev host. */
 const THIRD_PARTY: ReadonlySet<string> = new Set(["cdn.growthbook.io"]);
 
+/**
+ * A whole literal that is a scoped package's module specifier, such as
+ * `"@alchemy.run/cloudflare"`: its scope has a host's shape but names no host.
+ */
+const SCOPED_SPECIFIER = /^(["'`])@[a-z0-9][\w.-]*\/[\w./-]+\1$/;
+
 /** Every `.ts` file under `dir`. */
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -44,7 +50,8 @@ function sources(dir: string): string[] {
  * Each host in a string literal outside comments, as `file:line: host`. A
  * template's `${…}` holes read as one label, so `id.${stage}.zone.test`
  * still shows. A `cireweddings.com` or `musubi.social` is allowed only on a
- * line whose trailing comment says it is not a host.
+ * line whose trailing comment says it is not a host, and a scoped package's
+ * module specifier is no host.
  */
 export function literalHosts(file: string, text: string): string[] {
   const withoutBlocks = text.replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, " "));
@@ -57,6 +64,7 @@ export function literalHosts(file: string, text: string): string[] {
   });
   const code = lines.map((line) => line.code).join("\n");
   return [...code.matchAll(STRING)].flatMap((literal) => {
+    if (SCOPED_SPECIFIER.test(literal[0])) return [];
     const lineOf = (offset: number) =>
       code.slice(0, (literal.index ?? 0) + offset).split("\n").length - 1;
     const body = literal[0]

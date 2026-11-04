@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-04
 ---
 
 # Cire
@@ -198,7 +198,7 @@ which exports the class.
 | Binds `REALTIME_HUB` | [`cire/infra/src/declaration.ts`](../../cire/infra/src/declaration.ts) | `[[env.production.durable_objects.bindings]]` in [wrangler.toml](../../cire/api/wrangler.toml) |
 | Deletes the class | the first deploy in which no binding names it | a `[[migrations]]` entry listing it in `deleted_classes` |
 
-**How Alchemy treats the class.** Alchemy `2.0.0-beta.83` records each class
+**How Alchemy treats the class.** Alchemy `2.0.0-beta.84` records each class
 the Worker hosts, keyed by its binding's env key, in the Worker's
 `alchemy:dos:` tags. Each deploy compares those tags with the bindings, and
 gives a class that no binding names any more a `deleted` tombstone in the
@@ -214,10 +214,10 @@ tombstone. Cloudflare then:
   the deletion.
 
 The reverse also holds: while any binding names `TopicHub`, Alchemy keeps the
-class, whatever the binding is called. Sources: Alchemy's
-`src/Cloudflare/Workers/WorkerProvider.ts` (the Durable Object reconciliation
+class, whatever the binding is called. Sources: `@alchemy.run/cloudflare`'s
+`src/Workers/WorkerProvider.ts` (the Durable Object reconciliation
 in the upload path, with `getDurableObjectTagMap`, `getDurableObjectBindings`
-and `buildDurableObjectExports`) and `src/Cloudflare/Workers/DurableObject.ts`
+and `buildDurableObjectExports`) and `src/Workers/DurableObject.ts`
 ("removing a DO deletes it; that is the default"); Cloudflare's
 [Durable Object exports](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/)
 page, its error table and "Rollbacks cannot cross a lifecycle change".

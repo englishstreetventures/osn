@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   apiWorker,
   assertDeployTarget,
@@ -23,7 +24,6 @@ import {
   type SiteSurface,
 } from "@shared/infra";
 import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { Data } from "effect";
 import * as Effect from "effect/Effect";
 

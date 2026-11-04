@@ -9,7 +9,10 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { defaultModuleRules, type ModuleRule } from "alchemy/Cloudflare/Workers/Sources/Prebuilt";
+import {
+  defaultModuleRules,
+  type ModuleRule,
+} from "@alchemy.run/cloudflare/Workers/Sources/Prebuilt";
 import { Data } from "effect";
 
 export class PrebuiltWorkerError extends Data.TaggedError("PrebuiltWorkerError")<{

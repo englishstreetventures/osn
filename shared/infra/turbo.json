@@ -4,13 +4,31 @@
   "tasks": {
     // The `package` project reads only this package's files; the `repo`
     // project (vitest.config.ts) also reads the Worker sources, the lockfile
-    // (which pins the wrangler and alchemy it reads), the root turbo.json,
+    // (which pins the wrangler it reads and the Alchemy tree it reads), the
+    // root turbo.json,
     // the cire packages' own turbo.json, the workflows, the stack
     // declarations and the asset sites' public directories (their `_headers`
     // included), so only it reruns when one of those changes.
     // tests/package.test.ts holds the last two to the sites the tests read.
+    // The `alchemy` project runs this package's Alchemy scripts, so its
+    // result depends on the installed tree alone: the lockfile, the root
+    // manifest (its overrides, patches and devDependencies, which Alchemy's
+    // CLI searches for providers), bunfig.toml, the patches and the Bun
+    // version. It does not rerun on a Worker source, workflow or asset edit.
+    // tests/package.test.ts holds `test` to running it, and its inputs.
     "test": {
-      "dependsOn": ["^build", "test:repo"]
+      "dependsOn": ["^build", "test:repo", "test:alchemy"]
+    },
+    "test:alchemy": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/bun.lock",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/bunfig.toml",
+        "$TURBO_ROOT$/patches/**",
+        "$TURBO_ROOT$/.bun-version"
+      ]
     },
     "test:repo": {
       "inputs": [

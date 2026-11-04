@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   checkCompositeAction,
   checkPackageScripts,
+  checkScriptsRunAsCi,
   checkStackSource,
   checkWorkflow,
 } from "../check-alchemy-usage";
@@ -12,9 +13,36 @@ const manifest = (scripts: Record<string, string>) => JSON.stringify({ name: "x"
 describe("checkPackageScripts", () => {
   test.each([
     "DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare",
-    "DO_NOT_TRACK=1 bun alchemy provider cloudflare bootstrap --worker-name alchemy-state-store",
+    "CI=true DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare",
   ])("passes %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
+  });
+
+  test.each([
+    "CI=true DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare --name alchemy-state-store",
+  ])("G1: passes %j, which deploys or adopts the state store", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
+  });
+
+  test.each([
+    "CI=true DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare --force",
+    "DO_NOT_TRACK=1 bun alchemy state bootstrap --force --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare --force=true",
+  ])("G1: refuses %j, which redeploys a serving state store", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test.each([
+    "DO_NOT_TRACK=1 bun alchemy state teardown --backend cloudflare --yes",
+    "DO_NOT_TRACK=1 bun alchemy state logs --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state logs --backend cloudflare --tail",
+    "DO_NOT_TRACK=1 bun alchemy state read cire/dev --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state delete cire/dev --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state unsafe nuke --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state --backend cloudflare bootstrap",
+  ])("G2: refuses %j", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script })).length).toBeGreaterThan(0);
   });
 
   test.each([
@@ -44,12 +72,111 @@ describe("checkPackageScripts", () => {
     "DO_NOT_TRACK=1 bun alchemy state",
     "DO_NOT_TRACK=1 bun alchemy state read cire/dev",
     "DO_NOT_TRACK=1 bun alchemy state cat cire",
-    "DO_NOT_TRACK=1 bun alchemy provider cloudflare state logs",
     "DO_NOT_TRACK=1 bun alchemy drift --stage dev --repair",
     "DO_NOT_TRACK=1 bun alchemy unsafe nuke",
-    "DO_NOT_TRACK=1 bun alchemy provider cloudflare teardown --yes",
   ])("refuses %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+});
+
+describe("shell quoting", () => {
+  // The rules read the words the shell hands Alchemy, not the text as typed.
+  test.each([
+    'DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare "--force"',
+    "DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare --forc\\e",
+    "DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare '--force=true'",
+    'DO_NOT_TRACK=1 bun alchemy "state" read cire/dev --backend cloudflare',
+    "DO_NOT_TRACK=1 bun alchemy 'state' read cire/dev",
+    'DO_NOT_TRACK=1 bun alchemy st"at"e read cire/dev',
+    "DO_NOT_TRACK=1 bun alchemy $'state' read cire/dev",
+    'DO_NOT_TRACK=1 bun alchemy "state"',
+    'DO_NOT_TRACK=1 bun alchemy "logs" --stage dev',
+    'DO_NOT_TRACK=1 bun "alchemy" state read cire/dev',
+    "DO_NOT_TRACK=1 bun al\\chemy state read cire/dev",
+  ])("refuses %j", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test.each([
+    'FOO="x DO_NOT_TRACK=1" bun alchemy deploy --stage dev',
+    "FOO='x DO_NOT_TRACK=1' bun alchemy deploy --stage dev",
+    "FOO=x\\ DO_NOT_TRACK=1 bun alchemy deploy --stage dev",
+  ])("flags %j, whose quoted value sets FOO alone and leaves telemetry on", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([
+      { where: "p scripts.x", problem: "an Alchemy command must start with DO_NOT_TRACK=1" },
+    ]);
+  });
+
+  test("refuses a destroy whose quoted stage holds two words", () => {
+    expect(
+      checkPackageScripts(
+        "p",
+        manifest({ x: 'DO_NOT_TRACK=1 bun alchemy destroy --stage "pr-7 dev"' }),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test.each([
+    'DO_NOT_TRACK="1" bun alchemy state ls --backend cloudflare',
+    "DO_NOT_TRACK='1' bun alchemy state ls --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy deploy --stage 'pr-7' --yes",
+    "DO_NOT_TRACK=1 bun alchemy deploy --stage dev --name '$literal'",
+  ])("passes %j, which the shell reads as an allowed command", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
+  });
+
+  test.each([
+    "DO_NOT_TRACK=1 bun alchemy {state,} read cire/dev",
+    "DO_NOT_TRACK=1 bun alchemy deploy --stage {dev,production}",
+    "DO_NOT_TRACK=1 bun alchemy deploy --stage pr-{1..3}",
+    "DO_NOT_TRACK=1 bun alchemy $CMD read cire/dev",
+    'DO_NOT_TRACK=1 bun alchemy deploy --stage "$STAGE"',
+    "DO_NOT_TRACK=1 bun alchemy $(echo state) read cire/dev",
+    "DO_NOT_TRACK=1 bun alchemy `echo state` read cire/dev",
+    'DO_NOT_TRACK=1 bun alchemy "`echo logs`"',
+  ])("refuses %j, whose arguments use a shell expansion the guard cannot read", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([
+      {
+        where: "p scripts.x",
+        problem: "an Alchemy command's arguments use a shell expansion the guard cannot read",
+      },
+    ]);
+  });
+
+  test("reads the words of a workflow step as the shell does", () => {
+    expect(
+      checkWorkflow("w", blockWorkflow(TRACK_OFF, "", ['bunx alchemy "state" read cire'])),
+    ).toHaveLength(1);
+  });
+});
+
+describe("checkScriptsRunAsCi", () => {
+  // A package script runs on a laptop as well as in CI. With CI unset, Alchemy
+  // deploys a missing state store from a plan and reads a stored profile.
+  test.each([
+    "CI=true DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+    "DO_NOT_TRACK=1 CI=true bun alchemy deploy --stage dev --yes",
+    "CI=false CI=true DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare",
+    'CI="true" DO_NOT_TRACK=1 bun alchemy plan --stage dev',
+    "CI=true DO_NOT_TRACK=1 bun alchemy state ls && CI=true DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+    "bunx --bun vitest",
+    "bun run scripts/plan-guard.ts",
+  ])("passes %j", (script) => {
+    expect(checkScriptsRunAsCi("p", manifest({ x: script }))).toEqual([]);
+  });
+
+  test.each([
+    "DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+    "DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
+    "CI=1 DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+    "CI=false DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes",
+    "CI=true CI= DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+    'FOO="x CI=true" DO_NOT_TRACK=1 bun alchemy plan --stage dev',
+    "CI=true DO_NOT_TRACK=1 bun alchemy state ls && DO_NOT_TRACK=1 bun alchemy plan --stage dev",
+  ])("flags %j", (script) => {
+    expect(checkScriptsRunAsCi("p", manifest({ x: script }))).toEqual([
+      { where: "p scripts.x", problem: "an Alchemy package script must set CI=true" },
+    ]);
   });
 });
 
@@ -124,28 +251,141 @@ describe("checkStackSource", () => {
     "const s = Cloudflare.state();",
     "const s = Cloudflare.state;",
     "const s = postgresState({ url });",
-    'import { state } from "alchemy/Cloudflare";',
     "const s = Layer.effect(State, makeHttpStateStore({ url, authToken }));",
     "const s = Layer.effect(State, makeLocalState());",
     "const s = makePostgresState(options);",
     "const s = InMemoryService(records);",
     'import { State } from "alchemy/State";',
-    'import { makePostgresState } from "alchemy/State/PostgresState";',
+    'import { makeBucketState } from "alchemy/State/BucketState";',
     'const S = await import("alchemy/State");',
   ])("refuses %j in a stack file", (code) => {
     expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
   });
 
   test.each([
-    'import * as CF from "alchemy/Cloudflare"; CF.state()',
-    'import * as Aws from "alchemy/AWS"; Aws.state()',
-  ])("refuses a state call through a namespace import, %j", (code) => {
+    'import { state } from "@alchemy.run/cloudflare";',
+    'import { providers, state } from "@alchemy.run/cloudflare";',
+    'import { state } from "@alchemy.run/cloudflare/StateStore";',
+    'import { bootstrap } from "@alchemy.run/cloudflare/StateStore";',
+    'import { state } from "@alchemy.run/aws";',
+    'import { state } from "@alchemy.run/aws/StateStore";',
+    'import { postgresState } from "@alchemy.run/sql/PostgresState";',
+    'const S = await import("@alchemy.run/sql/PostgresState");',
+  ])("G3: refuses %j in a stack file", (code) => {
     expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
+  });
+
+  test.each([
+    'import * as CF from "@alchemy.run/cloudflare"; CF.state()',
+    'import * as CF from "@alchemy.run/cloudflare/StateStore"; CF.state()',
+    'import * as Aws from "@alchemy.run/aws"; Aws.state()',
+    'const CF = await import("@alchemy.run/cloudflare"); CF.state()',
+  ])("G3: refuses a state call through a namespace import, %j", (code) => {
+    expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
+  });
+
+  // Each module hands out a state store's layer, its lifecycle (bootstrap,
+  // teardown, logs) or a command that does: named, namespace, default and
+  // dynamic imports of any of them are refused.
+  test.each([
+    'import { stateStore } from "@alchemy.run/cloudflare/Alchemist"; const s = stateStore.layer;',
+    'import { bootstrap } from "@alchemy.run/cloudflare/Alchemist";',
+    'import { lifecycle } from "@alchemy.run/cloudflare/Alchemist"; lifecycle.teardown({});',
+    'import { Token } from "@alchemy.run/cloudflare/Alchemist"; Token.create({});',
+    'import * as A from "@alchemy.run/cloudflare/Alchemist"; const s = A.stateStore.layer;',
+    'const A = await import("@alchemy.run/cloudflare/Alchemist"); A.stateStore.layer;',
+    'import { stateStore } from "@alchemy.run/cloudflare/Alchemist/StateStore";',
+    'import Contributions from "@alchemy.run/cloudflare/Contributions";',
+    'import * as C from "@alchemy.run/cloudflare/Contributions"; C.default.stateStores;',
+    'const C = await import("@alchemy.run/cloudflare/Contributions");',
+    'import { tokenCommand } from "@alchemy.run/cloudflare/Cli";',
+    'const Cli = await import("@alchemy.run/cloudflare/Cli");',
+    'import { stateStore } from "@alchemy.run/aws/Alchemist";',
+    'import Contributions from "@alchemy.run/aws/Contributions";',
+    'import { stateStores } from "alchemy/Contributions";',
+    'import * as C from "alchemy/Contributions"; C.stateStores();',
+    'const C = await import("alchemy/Contributions");',
+    'import { teardown } from "alchemy/Alchemist/routes/state";',
+    'import * as R from "alchemy/Alchemist/routes/state"; R.layer;',
+    'const R = await import("alchemy/Alchemist/routes/state");',
+    'import { Alchemist } from "alchemy/Alchemist";',
+    'import { stateCommand } from "alchemy/Cli/commands/state";',
+    'import * as S from "alchemy/State"; S.State;',
+  ])("G3: refuses the state store module in %j", (code) => {
+    expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
+  });
+
+  // The provider's root exports `state()`, which builds a state store layer,
+  // and `bootstrap()`, which deploys a store: no binding of either passes.
+  test.each([
+    'const { state } = await import("@alchemy.run/cloudflare"); const s = state();',
+    'import * as CF from "@alchemy.run/cloudflare"; const { state: pick } = CF; pick();',
+    'import * as CF from "@alchemy.run/cloudflare"; const { providers, state } = CF;',
+    'import * as CF from "@alchemy.run/cloudflare"; const {\n  state,\n} = CF;',
+    'import * as CF from "@alchemy.run/cloudflare"; const { state = fallback } = CF;',
+    'import * as CF from "@alchemy.run/cloudflare"; const { "state": s } = CF;',
+    'const { default: { state } } = await import("@alchemy.run/cloudflare");',
+    'import("@alchemy.run/cloudflare").then(({ state }) => state());',
+    'import * as CF from "@alchemy.run/cloudflare"; CF["state"]();',
+    "import * as CF from \"@alchemy.run/cloudflare\"; CF['state']();",
+    'import * as CF from "@alchemy.run/cloudflare"; const s = CF.state;',
+    'import * as CF from "@alchemy.run/cloudflare"; const s = CF?.state;',
+    'import * as Cloudflare from "@alchemy.run/cloudflare"; Effect.runPromise(Cloudflare.bootstrap({ force: true }));',
+    'import { bootstrap } from "@alchemy.run/cloudflare";',
+    'import { bootstrap as b } from "@alchemy.run/cloudflare";',
+    'import * as CF from "@alchemy.run/cloudflare"; const { bootstrap } = CF;',
+    'import * as CF from "@alchemy.run/cloudflare"; CF["bootstrap"]({});',
+    'export * from "@alchemy.run/cloudflare";',
+    'export * as CF from "@alchemy.run/cloudflare";',
+    'export { state } from "@alchemy.run/cloudflare";',
+  ])("G3: refuses %j", (code) => {
+    expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
+  });
+
+  // Alchemy's root module exports its local and in-memory stores as well.
+  test.each([
+    'import * as Alchemy from "alchemy"; const { localState: l } = Alchemy; l();',
+    'import * as Alchemy from "alchemy"; Alchemy["inMemoryState"]();',
+    'import * as Alchemy from "alchemy"; const s = Alchemy.localState;',
+    'import { localState as l } from "alchemy";',
+  ])("refuses a state constructor taken without a call, %j", (code) => {
+    expect(checkStackSource("cire/infra/alchemy.run.ts", code)).toHaveLength(1);
+  });
+
+  test("G3: passes a stack that names state only in prose and takes stackOptions()", () => {
+    expect(
+      checkStackSource(
+        "cire/infra/alchemy.run.ts",
+        [
+          'import * as Cloudflare from "@alchemy.run/cloudflare";',
+          "// Logical ids key the state rows, so they never change.",
+          "Alchemy.Stack('cire', stackOptions(), Cloudflare.Worker('api', { name: 'state-api' }))",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("passes a state binding in a file that names no provider module", () => {
+    expect(
+      checkStackSource("cire/infra/src/seeds.ts", "const { state } = readSeed(); use(state);"),
+    ).toEqual([]);
   });
 
   test("passes a stack that takes stackOptions()", () => {
     expect(
       checkStackSource("cire/infra/alchemy.run.ts", "Alchemy.Stack('cire', stackOptions(), body)"),
+    ).toEqual([]);
+  });
+
+  test("G3: passes a stack that declares Cloudflare resources and takes stackOptions()", () => {
+    expect(
+      checkStackSource(
+        "cire/infra/alchemy.run.ts",
+        [
+          'import * as Cloudflare from "@alchemy.run/cloudflare";',
+          "Alchemy.Stack('cire', stackOptions(), Cloudflare.Worker('api', props))",
+        ].join("\n"),
+      ),
     ).toEqual([]);
   });
 });

@@ -44,6 +44,25 @@ describe("the literal-host scan each stack's K7 runs", () => {
     ).toEqual([]);
   });
 
+  test("K7: a scoped package's module specifier is not a host; an address or a URL with the same shape still is", () => {
+    expect(
+      literalHosts(
+        "sample.ts",
+        'import * as Cloudflare from "@alchemy.run/cloudflare";\n' +
+          "import { WorkerBundle } from '@alchemy.run/cloudflare/Workers/Sources/Rolldown';",
+      ),
+    ).toEqual([]);
+    expect(literalHosts("sample.ts", 'const from = "@alchemy.run";')).toEqual([
+      "sample.ts:1: alchemy.run",
+    ]);
+    expect(literalHosts("sample.ts", 'const from = "dev@api.cire.dev-zone.net/x";')).toEqual([
+      "sample.ts:1: api.cire.dev-zone.net",
+    ]);
+    expect(literalHosts("sample.ts", 'const url = "https://u@api.cire.dev-zone.net/x";')).toEqual([
+      "sample.ts:1: api.cire.dev-zone.net",
+    ]);
+  });
+
   test("K7: a stack's scan reads its alchemy.run.ts and every .ts file under src/, nested ones included", () => {
     const dir = mkdtempSync(join(tmpdir(), "literal-hosts-"));
     try {

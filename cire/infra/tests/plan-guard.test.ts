@@ -17,7 +17,7 @@ const DEV_LOG = fileURLToPath(
 
 /** The production plan step's log: Alchemy's records, the plan lines last. */
 const PRODUCTION_LOG = [
-  "$ DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
+  "$ CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
   "[20:17:41.001] INFO (#1): Deploy · production",
   "[20:17:44.120] INFO (#1): Computing plan",
   "[20:17:45.300] INFO (#1): Plan ready (4.2s)",

@@ -1,16 +1,17 @@
 /**
- * The repository patches alchemy's asset upload
- * (`patches/alchemy@2.0.0-beta.83.patch`) so every file uploads with the
- * content type Wrangler gives it: workers-shared's `getContentType`, which is
- * mime 4.0.7's type with `; charset=utf-8` added to any `text/*` type without
- * one, and `application/null` — which Cloudflare serves with no Content-Type
- * — for a name mime has no type for. The type is part of each file's manifest
- * hash, so a file whose type changes is a new blob and uploads again. Each
- * case runs against alchemy's `src/` copy, which Bun loads in a deploy, and
- * its `lib/` copy, which Node-style resolution loads, so this file fails if
- * the patch stops applying to either. A file with no type is safe to serve
- * only with `X-Content-Type-Options: nosniff`, so AC8 holds every one of those
- * sites to sending it on every path.
+ * The repository patches the Alchemy Cloudflare provider's asset upload
+ * (`patches/@alchemy.run%2Fcloudflare@2.0.0-beta.84.patch`) so every file
+ * uploads with the content type Wrangler gives it: workers-shared's
+ * `getContentType`, which is mime 4.0.7's type with `; charset=utf-8` added to
+ * any `text/*` type without one, and `application/null` — which Cloudflare
+ * serves with no Content-Type — for a name mime has no type for. The type is
+ * part of each file's manifest hash, so a file whose type changes is a new
+ * blob and uploads again. Each case runs against the provider's `src/` copy,
+ * which Bun loads in a deploy, and its `lib/` copy, which Node-style
+ * resolution loads, so this file fails if the patch stops applying to either.
+ * A file with no type is safe to serve only with
+ * `X-Content-Type-Options: nosniff`, so AC8 holds every one of those sites to
+ * sending it on every path.
  *
  * It reads outside this package: the public directories of the sites Alchemy
  * uploads, their `_headers` among them, the stack declarations that name them
@@ -33,7 +34,6 @@ import mime from "mime";
 import { describe, expect, test } from "vitest";
 
 import { SITE_BUILDS } from "../src/production-sites";
-import { alchemyDir } from "./support/alchemy-dir";
 import {
   ASSET_BUILDS,
   ASSET_SITES,
@@ -41,11 +41,12 @@ import {
   declaredAssetDirectories,
   STACK_DECLARATIONS,
 } from "./support/asset-sites";
+import { cloudflareDir } from "./support/cloudflare-dir";
 
 const packageDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = join(packageDir, "..", "..");
 
-/** The part of alchemy's `Cloudflare/Workers/Assets` module this file drives. */
+/** The part of the provider's `Workers/Assets` module this file drives. */
 interface AssetsModule {
   readonly contentTypesByExtension: Readonly<Record<string, string>>;
   readonly getContentType: (name: string) => string;
@@ -58,16 +59,16 @@ interface AssetsModule {
   >;
 }
 
-/** Both copies alchemy ships. A computed path keeps the type-checker out of alchemy's source. */
+/** Both copies the provider ships. A computed path keeps the type-checker out of its source. */
 const COPIES = [
-  { copy: "src", path: "src/Cloudflare/Workers/Assets.ts" },
-  { copy: "lib", path: "lib/Cloudflare/Workers/Assets.js" },
+  { copy: "src", path: "src/Workers/Assets.ts" },
+  { copy: "lib", path: "lib/Workers/Assets.js" },
 ] as const;
 
-const ALCHEMY_DIR = alchemyDir();
+const CLOUDFLARE_DIR = cloudflareDir();
 
 const load = (path: string): Promise<AssetsModule> =>
-  import(/* @vite-ignore */ join(ALCHEMY_DIR, path)) as Promise<AssetsModule>;
+  import(/* @vite-ignore */ join(CLOUDFLARE_DIR, path)) as Promise<AssetsModule>;
 
 /** What Wrangler uploads `path` as: workers-shared's `getContentType`, and the upload's fallback. */
 function wranglerType(path: string): string {

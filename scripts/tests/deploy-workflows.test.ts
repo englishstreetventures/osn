@@ -2303,7 +2303,7 @@ describe("installs", () => {
     ).toEqual(["bun --no-install cire/api/scripts/d1-latency-probe.ts"]);
   });
 
-  test("'!@*/infra' leaves out every workspace that depends on alchemy", () => {
+  test("'!@*/infra' leaves out every workspace that depends on alchemy or an @alchemy.run package", () => {
     // The filtered installs exist to keep the Alchemy tree out; a workspace
     // that depends on it under any other name would bring the tree back.
     const patterns = (
@@ -2321,7 +2321,11 @@ describe("installs", () => {
             devDependencies?: Record<string, string>;
           },
       )
-      .filter((manifest) => "alchemy" in { ...manifest.dependencies, ...manifest.devDependencies })
+      .filter((manifest) =>
+        Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }).some(
+          (name) => name === "alchemy" || name.startsWith("@alchemy.run/"),
+        ),
+      )
       .map((manifest) => manifest.name);
     expect(onAlchemy.length).toBeGreaterThan(0);
     const infra = new Bun.Glob("@*/infra");
