@@ -31,6 +31,22 @@ export interface SqliteBillingStorageConfig {
 
 const newCustomerId = () => `bcus_${crypto.randomUUID().replaceAll("-", "")}`;
 
+const SQLITE_CODE = /^SQLITE_[A-Z_]+$/;
+
+/**
+ * The SQLite error code anywhere in the cause chain (drizzle wraps the
+ * driver's error), else the outer error's class name. Never a message.
+ */
+function errorCode(cause: unknown): string {
+  let error: unknown = cause;
+  for (let depth = 0; depth < 4 && error instanceof Error; depth += 1) {
+    const code = "code" in error ? String(error.code) : "";
+    if (SQLITE_CODE.test(code)) return code;
+    error = error.cause;
+  }
+  return cause instanceof Error ? cause.name : "unknown";
+}
+
 export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): BillingStorage {
   const { db } = config;
   const {
@@ -47,7 +63,12 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
   ): Effect.Effect<A, BillingStorageError> =>
     Effect.tryPromise({
       try: () => Promise.resolve(run()),
-      catch: (cause) => new BillingStorageError({ operation, message: String(cause) }),
+      catch: (cause) =>
+        new BillingStorageError({
+          operation,
+          message: "billing storage call failed",
+          code: errorCode(cause),
+        }),
     }).pipe(Effect.withSpan(`billing.storage.${operation}`));
 
   /** `col` pulled in to `at` unless already earlier; `min()` would be NULL on a NULL column. */

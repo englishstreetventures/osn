@@ -53,10 +53,16 @@ export class AccessHookError extends Data.TaggedError("AccessHookError")<{
   readonly reason: "failed" | "timeout";
 }> {}
 
-/** A storage call failed. `message` is `String(cause)`, which carries no bound values. */
+/**
+ * A storage call failed. `message` is the adapter's own fixed text and `code`
+ * the database's error code (`SQLITE_CONSTRAINT_FOREIGNKEY`) or the error's
+ * class name: never the database's message, which can quote SQL and the
+ * values bound into it.
+ */
 export class BillingStorageError extends Data.TaggedError("BillingStorageError")<{
   readonly operation: string;
   readonly message: string;
+  readonly code?: string;
 }> {}
 
 /** A billing provider call failed. Carries the provider's code, never its message. */

@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
+import { inspect } from "node:util";
 
 import { eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Logger } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { createSqliteBillingStorage } from "../../src/storage/sqlite";
@@ -97,5 +98,57 @@ describe("the reconcile selection's query plan", () => {
       plan.filter((step) => step.startsWith("SEARCH billing_subscriptions USING INDEX")),
     ).toHaveLength(3);
     expect(plan.some((step) => step.startsWith("SCAN billing_subscriptions"))).toBe(false);
+  });
+});
+
+describe("a failed storage call", () => {
+  it("carries the error code, and never the database's message, into the error or a log", async () => {
+    const SENTINEL = "org_sentinel_7f3a";
+    const { db, schema, storage } = await createTestStorage();
+    const failing = createSqliteBillingStorage({
+      db: new Proxy(db, {
+        get(target, key, receiver) {
+          if (key === "select") {
+            return () => {
+              throw new Error(`Failed query: select … where customer_ref = '${SENTINEL}'`);
+            };
+          }
+          return Reflect.get(target, key, receiver);
+        },
+      }),
+      schema,
+    });
+    const error = await Effect.runPromise(Effect.flip(failing.findCustomer(SENTINEL)));
+    expect([error._tag, error.code]).toEqual(["BillingStorageError", "Error"]);
+    const logged: string[] = [];
+    await Effect.runPromise(
+      Effect.logError("billing: storage failed", error).pipe(
+        Effect.provide(
+          Logger.layer([
+            Logger.make(({ message }) => void logged.push(inspect(message, { depth: 8 }))),
+          ]),
+        ),
+      ),
+    );
+    expect(logged).toHaveLength(1);
+    expect(inspect(error, { depth: 8 }).includes(SENTINEL)).toBe(false);
+    expect(logged[0]!.includes(SENTINEL)).toBe(false);
+
+    // A real constraint failure keeps SQLite's code.
+    const refused = await Effect.runPromise(
+      Effect.flip(
+        storage.upsertGrant(
+          {
+            customerRef: "org_missing",
+            featureId: "workspace",
+            source: "comp",
+            grantedBy: "ops",
+            expiresAt: null,
+          },
+          new Date(),
+        ),
+      ),
+    );
+    expect(refused.code).toBe("SQLITE_CONSTRAINT_FOREIGNKEY");
   });
 });
