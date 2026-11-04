@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Infrastructure as code (Alchemy)
@@ -241,7 +241,9 @@ Its upload, modules and maps together, is about 1 MB gzip, against Workers Free'
 
 ### Sites
 
-Every dev site is a Workers static-assets site, not a Pages project. Each applies its built `_headers` and `_redirects`, except musubi social: its `_redirects` (`/* /index.html 200`) stays for production's Pages project, and on the Worker the stack sends an empty redirect list and serves deep links through `notFoundHandling: "single-page-application"`. The other sites build no `404.html`, so their not-found handling is `none`: an unknown path answers 404 where Pages served `index.html`. The organiser and vendor portals route in the URL hash, so no deep link reaches the server.
+Every dev site is a Workers static-assets site, not a Pages project. Each applies its built `_headers` and `_redirects`, except musubi social: its `_redirects` (`/* /index.html 200`) stays for production's Pages project, and on the Worker the stack sends an empty redirect list and serves deep links through `notFoundHandling: "single-page-application"`. The cire organiser and vendor portals take the same handling (`notFoundHandling` in `SITES`, [`cire/infra/src/declaration.ts`](../../cire/infra/src/declaration.ts)): both route in the browser, so an unknown path serves the portal's `index.html`, as their Pages projects do, and cire-api's enquiry emails link the organiser portal at `/vendors/enquiries/<id>`, which no file answers. A `_headers` rule matches the path asked, not the file served, so each portal's `_headers` puts `Cache-Control: no-store` on `/*`: the dashboard keeps it at whatever path the fallback serves it. Its `/_astro/*` rule drops that value (`! Cache-Control`) before setting the year-long cache, since a second rule's value is joined to the first's and `no-store` would win. That rule also matches a bundle the deploy does not hold, so a browser that asks for one, such as a tab opened before a release, keeps the answer for a year: the portal's page on Pages and on the portal Workers, an empty 404 on a site whose not-found handling is `none`. A later deploy that serves a file under that same name, such as a rollback to the build that held it, can stay broken in that browser until its cache is cleared.
+
+*Measured 2026-11-05 — `curl -sS -D - -o /dev/null` of `/_astro/nope.abc123.js` on `host.cireweddings.com` (200, the page) and on `next.host.cireweddings.com` and `next.cireweddings.com` (404), each with `cache-control: public, max-age=31536000, immutable`; and both portals' builds with these `_headers` under `wrangler dev` and `wrangler pages dev` (Wrangler 4.149.0): every page `no-store`, a real bundle the year-long value alone.* cire landing, musubi landing and pulse landing build no `404.html` and every page they link is a file, so their not-found handling is `none`: an unknown path answers 404 with no body where Pages served `index.html`.
 
 The stack uploads each site's build output as it is, so before it writes or declares anything it checks each prebuilt directory with `assertSiteBuiltFor()`: the directory must exist, and its text files (`.html`, `.js`, `.mjs`, `.css`, `.json`, `.xml`, `.txt`, `_headers`, `_redirects`), taken together, must hold every origin the site's build bakes in for the stage, each as a whole origin. Output that lacks one was built for other hosts, or none, and would call the wrong API. `SiteBuildError` names the site, the directory and each missing origin.
 
