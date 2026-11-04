@@ -13,15 +13,16 @@
  * A deploy reports success when the upload succeeds, not when the Worker can
  * serve: a missing secret makes osn-api answer 503 on every route while its
  * job goes green. This asks the Worker's own hosts (SMOKE_TARGETS) what a
- * working one answers, every 10 seconds for a minute, and calls the deploy
- * healthy once every probe passes in two rounds in a row. On dev every surface
- * is a Worker, the sites included, and each is checked.
+ * working one answers, every 10 seconds for a minute (or the longer budget
+ * SMOKE_BUDGET_MS grants), and calls the deploy healthy once every probe
+ * passes in two rounds in a row. On dev every surface is a Worker, the sites
+ * included, and each is checked.
  *
  * Two rounds, because no answer here names the version that gave it: a request
  * made the moment the deploy returns can still reach the version before it.
  * A second pass ten seconds later narrows that window; it does not close it.
  *
- * When the minute runs out and the Worker itself is still answering wrongly,
+ * When the time runs out and the Worker itself is still answering wrongly,
  * this restores the version that served before this deploy, through the
  * Cloudflare deployments API, then probes once more to say whether that version
  * answers. Either way it exits 1, which fails the job, and GitHub marks the
@@ -105,6 +106,13 @@
  *                       when it made none, or `unknown` when it could not
  *                       read the Worker (then the check probes and never rolls
  *                       back).
+ * Optional, any tier:
+ *   SMOKE_BUDGET_MS     how long to keep asking, in milliseconds, from 60000
+ *                       to TIMING.maxBudgetMs (240000); unset or empty, a
+ *                       minute. The production stack job sets it, from
+ *                       scripts/smoke-budgets.ts, for a site whose release
+ *                       attaches a new host. Any other value is a usage
+ *                       error.
  *
  * Exit codes: 0 healthy; 1 unhealthy; 2 a usage error, before any request —
  * nothing is rolled back.
@@ -671,8 +679,20 @@ export async function probeOnce(
 
 // ── rolling back ────────────────────────────────────────────────────────────
 
-/** How long the check keeps asking, how often, and how long one request may take. */
-export const TIMING = { budgetMs: 60_000, intervalMs: 10_000, requestMs: 10_000 } as const;
+/**
+ * How long the check keeps asking, how often, and how long one request may
+ * take. `maxBudgetMs` is the most SMOKE_BUDGET_MS may set, and what
+ * scripts/smoke-budgets.ts sets for a site whose release attaches a new host:
+ * that host's first certificate takes about two minutes. With every request
+ * at its timeout, a check at that budget, its rollback and the re-check end
+ * within 366 s, inside the seven minutes each step that sets it allows.
+ */
+export const TIMING = {
+  budgetMs: 60_000,
+  maxBudgetMs: 240_000,
+  intervalMs: 10_000,
+  requestMs: 10_000,
+} as const;
 
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 
@@ -1074,6 +1094,20 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   if (tier !== "dev" && tier !== "production")
     return usage(`tier must be dev or production, not '${tier}'`);
 
+  // A longer wait is the stack job's to grant, within bounds: a wait past
+  // the step's time limit would cut off a rollback.
+  const budgetValue = env.SMOKE_BUDGET_MS ?? "";
+  let budgetMs: number = TIMING.budgetMs;
+  if (budgetValue !== "") {
+    const asked = /^[1-9][0-9]*$/.test(budgetValue) ? Number(budgetValue) : Number.NaN;
+    if (Number.isNaN(asked) || asked < TIMING.budgetMs || asked > TIMING.maxBudgetMs) {
+      return usage(
+        `SMOKE_BUDGET_MS must be a whole number of milliseconds from ${TIMING.budgetMs} to ${TIMING.maxBudgetMs}, or empty for ${TIMING.budgetMs}, not '${oneLine(budgetValue, 100)}'`,
+      );
+    }
+    budgetMs = asked;
+  }
+
   // The origins on dev, and the deployment the stack deploy made, are the
   // stack job's to pass; a check guessing either would judge the wrong host or
   // roll back the wrong deployment.
@@ -1277,7 +1311,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     const round = await ask();
     const next = passed(round) ? streak + 1 : 0;
     if (next >= PASSES_NEEDED) return { healthy: true, rounds: rounds + 1, last: round };
-    if (next === 0 && input.now() - start + TIMING.intervalMs > TIMING.budgetMs) {
+    if (next === 0 && input.now() - start + TIMING.intervalMs > budgetMs) {
       return { healthy: false, rounds: rounds + 1, last: round };
     }
     await input.sleep(TIMING.intervalMs);
@@ -1328,7 +1362,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
         "error",
         accessOnly
           ? `${label}: the Worker answers as a working one does, but Cloudflare Access does not guard its host — not rolling back.`
-          : `${label} did not answer as a working Worker does within ${TIMING.budgetMs / 1000} s, but the Worker never answered wrongly — not rolling back. See the probes above.`,
+          : `${label} did not answer as a working Worker does within ${budgetMs / 1000} s, but the Worker never answered wrongly — not rolling back. See the probes above.`,
         "Smoke check failed",
       ),
     );
@@ -1343,7 +1377,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   out(
     annotation(
       "error",
-      `${label} answered wrongly for ${TIMING.budgetMs / 1000} s; rolling the Worker back.`,
+      `${label} answered wrongly for ${budgetMs / 1000} s; rolling the Worker back.`,
       "Smoke check failed",
     ),
   );

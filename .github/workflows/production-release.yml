@@ -1620,15 +1620,28 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # A site the approved plan gives a host other than a production host
+      # waits up to four minutes for that host's first certificate; every
+      # other site, a minute. Never blocks the deploy or fails the job: when
+      # it fails, each check reads no budget and asks for a minute.
+      - name: Smoke check budgets
+        id: budgets
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        run: bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/cire.json"
+
+      # Seven minutes: the longest budget, a rollback and its re-check, with
+      # every request at its timeout, take 366 s (scripts/smoke-check.ts).
       - name: Smoke check cire/host, rolling back on failure
         id: smoke_cire_host
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 5
+        timeout-minutes: 7
         run: bun run scripts/smoke-check.ts cire_host production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_host_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_host_deployment }}
+          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_host_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1636,11 +1649,12 @@ jobs:
         id: smoke_cire_vendor
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 5
+        timeout-minutes: 7
         run: bun run scripts/smoke-check.ts cire_vendor production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_vendor_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_vendor_deployment }}
+          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_vendor_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1648,11 +1662,12 @@ jobs:
         id: smoke_cire_landing
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 5
+        timeout-minutes: 7
         run: bun run scripts/smoke-check.ts cire_landing production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_landing_deployment }}
+          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.cire_landing_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1977,15 +1992,28 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # A site the approved plan gives a host other than a production host
+      # waits up to four minutes for that host's first certificate; every
+      # other site, a minute. Never blocks the deploy or fails the job: when
+      # it fails, each check reads no budget and asks for a minute.
+      - name: Smoke check budgets
+        id: budgets
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        continue-on-error: true
+        run: bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/musubi.json"
+
+      # Seven minutes: the longest budget, a rollback and its re-check, with
+      # every request at its timeout, take 366 s (scripts/smoke-check.ts).
       - name: Smoke check musubi/social, rolling back on failure
         id: smoke_osn_social
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 5
+        timeout-minutes: 7
         run: bun run scripts/smoke-check.ts osn_social production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_social_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_social_deployment }}
+          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.osn_social_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1993,11 +2021,12 @@ jobs:
         id: smoke_musubi_landing
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         continue-on-error: true
-        timeout-minutes: 5
+        timeout-minutes: 7
         run: bun run scripts/smoke-check.ts musubi_landing production
         env:
           SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_landing_origin }}
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.musubi_landing_deployment }}
+          SMOKE_BUDGET_MS: ${{ steps.budgets.outputs.musubi_landing_budget_ms }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
