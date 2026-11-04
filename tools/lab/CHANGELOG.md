@@ -1,5 +1,13 @@
 # @tools/lab
 
+## 0.3.35
+
+### Patch Changes
+
+- 29b6067: The `cire/ui/Button` stories show the `glass` and `bar` variants and the `form` size, and a new "the portals' pills" story sets the portals' two pill tokens beside a panel without them; the corner captions read the 28px icon circle. The portals' pills story draws `bar` at rest, open and at `sm`, beside an open `quiet` row action.
+- 40ded7d: A `cire/ui/DietaryPresets` story group: the wrapped pills with two ticked, the phone's scrolling track and nothing ticked, in cire's light and dark mapping.
+- 122bc70: `cire/ui/Skeleton`'s in-place story draws the host portal's own sizes: the RSVP table's legend room, head row and 56px rows a hairline apart, and the overview's band over its 344px cards. The row story and the playground's heights are the host's too.
+
 ## 0.3.34
 
 ### Patch Changes
