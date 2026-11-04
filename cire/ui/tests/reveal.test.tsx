@@ -54,6 +54,20 @@ describe("Reveal", () => {
     expect(container.firstElementChild).toBe(before);
   });
 
+  it("opens on the app's panel token, not a duration of its own", () => {
+    // A literal duration ignores the app's ladder, which is shorter under a
+    // fine pointer. The fallback is for a page that declares no ladder.
+    const { container } = render(() => (
+      <Reveal when={false}>
+        <input aria-label="Anything else" />
+      </Reveal>
+    ));
+    const wrapper = container.firstElementChild as HTMLElement;
+    expect(wrapper.className.split(/\s+/).filter((c) => c.includes("duration-"))).toEqual([
+      "duration-(--dur-base,200ms)",
+    ]);
+  });
+
   it("only opens the track when it is open", () => {
     const [open, setOpen] = createSignal(false);
     const { container } = render(() => (
