@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, registrySettings, weddingHosts } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, registrySettings, weddingHosts, weddings } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -13,6 +13,7 @@ import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
+import { insertWedding } from "../test-helpers/wedding";
 
 /**
  * Connecting a couple's bank account.
@@ -446,6 +447,46 @@ describe("refreshing what Stripe says", () => {
         payoutsEnabled: true,
         moneyGiftsBlockedBy: "stripe_not_ready",
       });
+    });
+
+    it("judges the live read against this wedding's own currency", async () => {
+      const { app, db } = await connectedWithMoneyOn(live("NZD"));
+      db.update(weddings)
+        .set({ currency: "NZD" })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+      const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
+        moneyGiftsBlockedBy: unknown;
+      };
+      expect(body.moneyGiftsBlockedBy).toBeNull();
+    });
+
+    it("answers from this wedding's row when another wedding names the same account", async () => {
+      const { app, db } = buildApp({
+        stripe: stripeStub({ account: live("AUD") }).client,
+        stripeWebhookSecret: "whsec_test_connect",
+      });
+      // Written before this wedding's row, so the write returns it first.
+      const now = new Date();
+      insertWedding(db, { id: "wed_other", slug: "other-wedding", displayName: "Other" });
+      db.insert(registrySettings)
+        .values({
+          weddingId: "wed_other",
+          stripeAccountId: "acct_new",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      await req(app, `${base}/session`, OWNER);
+      db.update(registrySettings)
+        .set({ cashGiftsEnabled: true })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        .run();
+      const body = (await jsonBody(await req(app, `${base}/refresh`, OWNER))) as {
+        moneyGiftsBlockedBy: unknown;
+      };
+      // The other wedding has money gifts off; this one has them on.
+      expect(body.moneyGiftsBlockedBy).toBeNull();
     });
   });
 

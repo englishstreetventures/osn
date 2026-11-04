@@ -1134,6 +1134,20 @@ describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => 
     expect(body.settings.cashGiftsEnabled).toBe(false);
     expect(body.settings.moneyGiftsBlockedBy).toBe("currency_mismatch");
   });
+
+  it("answers a money save refused for an unnamed payout currency with the row as it stands", async () => {
+    const app = buildApp({
+      tier: "gold",
+      ...paying,
+      seed: settingsRow({ stripeDefaultCurrency: null, headline: "Ours" }),
+    });
+    const refused = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: string; settings: Settings };
+    expect(body.error).toBe("stripe_currency_unknown");
+    expect(body.settings.headline).toBe("Ours");
+    expect(body.settings.moneyGiftsBlockedBy).toBe("stripe_currency_unknown");
+  });
 });
 
 describe("POST /registry/gifts/:kind/:giftId/note-hidden", () => {
