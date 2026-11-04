@@ -246,6 +246,7 @@
         "@cire/dietary": "workspace:*",
         "@shared/design-tokens": "workspace:*",
         "@shared/legal": "workspace:*",
+        "@shared/rp-auth": "workspace:*",
         "@shared/ui": "workspace:*",
       },
       "devDependencies": {
