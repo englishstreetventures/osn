@@ -293,6 +293,23 @@ describe("checkout", () => {
       "mismatched",
     ]);
   });
+
+  it.each([
+    ["successUrl", { successUrl: "https://evil.example/done" }],
+    ["cancelUrl", { cancelUrl: "http://app.example.test/billing" }],
+    ["successUrl", { successUrl: "https://app.example.test.evil.example/done" }],
+  ] as const)(
+    "refuses a %s on an origin it was not given, before any write or Stripe call",
+    async (field, over) => {
+      const h = await createHarness();
+      expect(await flip(h.billing.checkout({ ...input(), ...over }))).toMatchObject({
+        _tag: "ReturnUrlRefused",
+        field,
+      });
+      expect(h.stripe.calls).toEqual([]);
+      expect(await run(h.storage.findCustomer("org_1"))).toBeNull();
+    },
+  );
 });
 
 describe("which price a plan is sold at", () => {
@@ -325,23 +342,6 @@ describe("which price a plan is sold at", () => {
 });
 
 describe("tax options", () => {
-  it.each([
-    ["successUrl", { successUrl: "https://evil.example/done" }],
-    ["cancelUrl", { cancelUrl: "http://app.example.test/billing" }],
-    ["successUrl", { successUrl: "https://app.example.test.evil.example/done" }],
-  ] as const)(
-    "refuses a %s on an origin it was not given, before any write or Stripe call",
-    async (field, over) => {
-      const h = await createHarness();
-      expect(await flip(h.billing.checkout({ ...input(), ...over }))).toMatchObject({
-        _tag: "ReturnUrlRefused",
-        field,
-      });
-      expect(h.stripe.calls).toEqual([]);
-      expect(await run(h.storage.findCustomer("org_1"))).toBeNull();
-    },
-  );
-
   it("refuses to create billing that requires tax ids without collecting them", async () => {
     await expect(
       createHarness({ tax: { automatic: false, collectTaxIds: false, requireTaxId: true } }),
