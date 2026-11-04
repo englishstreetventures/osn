@@ -1,5 +1,19 @@
 # @tools/lab
 
+## 0.3.30
+
+### Patch Changes
+
+- f0bb687: `cire/ui/Note` lab stories show the note at each size, and a playground, in cire's light and dark mapping.
+- 466b521: The cire Card stories lead their cards with `Eyebrow`, the label every cire app now uses.
+- db781eb: The feedback stories show every `Chip` tone outlined, the tag treatment, a chip leading with a mark and every combination under cire's two ramps; the playground gains the variant, the treatment and the danger tone.
+- f6a7516: The feedback stories show every `Notice` tone at every size, the inline line under a field, the accent tone, the same set under cire's two ramps, and every tone's box with no fill; the playground gains a size control.
+- 7dc0fd8: `Chip`'s note on why `danger` is outlined by default gives the reason that still holds and cire's measured figure. The lab's cire mapping draws cire's darker light-theme error red.
+- Updated dependencies [7dc0fd8]
+- Updated dependencies [db781eb]
+- Updated dependencies [f6a7516]
+  - @shared/ui@0.8.0
+
 ## 0.3.29
 
 ### Patch Changes

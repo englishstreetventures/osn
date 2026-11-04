@@ -1,5 +1,16 @@
 # @shared/ui
 
+## 0.8.0
+
+### Minor Changes
+
+- db781eb: `Chip` gains `variant="outline"` (a 1px border at 40% of the tone, no ground, at the filled chip's height), `treatment="tag"` (a label in sentence case at normal spacing, drawn as cire's hand-written tags were) and a `danger` tone. Filled `success`, `pending` and `accent` chips now tint at 8%, so their words clear 4.5:1 on a pale theme; the neutral chip renders the classes it did before. `Chip` spreads the rest of a span's safe props and takes a layout class, and drops a `title`.
+- f6a7516: `Notice` gains a `size` — `md`, the default box; `sm`, the same box compact; `inline`, no box at all, for the error line under a field — and an `accent` tone, a standing note in the accent's readable ink. `danger`, `warn` and `success` now lead with a circled icon (a cross, an exclamation mark, a tick) drawn inline in the tone's ink and sized from the text step, in place of a text glyph; the read words are unchanged. A new `mark` prop draws an app's own icon and read word in the same slot. A new `fill` prop lets an `sm` or `md` box drop its tint (`fill="none"`) and keep its border and ink; the type refuses `fill` on the `inline` line, which has no box. With no `size` and no `tone`, a notice renders the classes it did before.
+
+### Patch Changes
+
+- 7dc0fd8: `Chip`'s note on why `danger` is outlined by default gives the reason that still holds and cire's measured figure. The lab's cire mapping draws cire's darker light-theme error red.
+
 ## 0.7.5
 
 ### Patch Changes
