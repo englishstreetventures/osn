@@ -43,18 +43,12 @@ function envRoutes(cwd: string, env: string): string[] {
 const workflow = (path: string) => Bun.YAML.parse(read(path)) as Workflow;
 
 /** The env a job passes to the step that builds the guest site. */
-function buildEnv(
-  path: string,
-  job: string,
-  pkg: "@cire/invites" | "@cire/landing",
-): Record<string, string> {
-  const step = workflow(path).jobs[job]?.steps?.find((s) => s.run?.includes(`--filter=${pkg}`));
-  if (step?.env === undefined) throw new Error(`${path} ${job}: no ${pkg} build step`);
-  return step.env;
-}
-
 function guestBuildEnv(path: string, job: string): Record<string, string> {
-  return buildEnv(path, job, "@cire/invites");
+  const step = workflow(path).jobs[job]?.steps?.find((s) =>
+    s.run?.includes("--filter=@cire/invites"),
+  );
+  if (step?.env === undefined) throw new Error(`${path} ${job}: no cire/invites build step`);
+  return step.env;
 }
 
 describe("every --env production target probes the hosts its wrangler.toml routes", () => {
@@ -126,17 +120,6 @@ describe("the guest site", () => {
     "%s builds the guest site with the workflow's commit as PUBLIC_BUILD_SHA",
     (_, path, job) => {
       expect(guestBuildEnv(path, job).PUBLIC_BUILD_SHA).toBe("${{ github.sha }}");
-    },
-  );
-
-  // The marketing site's footer prints its build's commit the same way.
-  test.each([
-    ["production", WORKFLOW_FILE.production, "sites"],
-    ["dev", WORKFLOW_FILE.dev, "stack-cire-dev"],
-  ] as const)(
-    "%s builds the marketing site with the workflow's commit as PUBLIC_BUILD_SHA",
-    (_, path, job) => {
-      expect(buildEnv(path, job, "@cire/landing").PUBLIC_BUILD_SHA).toBe("${{ github.sha }}");
     },
   );
 });

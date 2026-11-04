@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import EnquiryThread from "../../src/components/EnquiryThread";
 import type { EnquiryListItem, EnquiryMessage } from "../../src/lib/enquiries-store";
+import { haptic } from "../../src/lib/touch-feedback";
 import { chipLook } from "../test-support/chip-look";
 
 // Stub the toast package so toast.error doesn't throw in tests.
@@ -12,6 +13,8 @@ const toastError = vi.fn();
 vi.mock("@shared/toast", () => ({
   toast: { error: (m: string) => toastError(m) },
 }));
+
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic: vi.fn() }));
 
 const enquiry = (o: Partial<EnquiryListItem> = {}): EnquiryListItem => ({
   id: "enq_1",
@@ -57,6 +60,7 @@ const base = {
 afterEach(() => {
   cleanup();
   toastError.mockReset();
+  vi.mocked(haptic).mockReset();
   vi.mocked(base.onSend).mockReset().mockResolvedValue(undefined);
   vi.mocked(base.onAddToBudget).mockReset().mockResolvedValue(undefined);
   vi.mocked(base.onBack).mockReset();
@@ -104,6 +108,8 @@ describe("EnquiryThread", () => {
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
     await waitFor(() => expect(onSend).toHaveBeenCalledWith("hello there"));
     await waitFor(() => expect(box.value).toBe(""));
+    expect(haptic).toHaveBeenCalledWith("commit");
+    expect(haptic).not.toHaveBeenCalledWith("reject");
   });
 
   it("shows a quote card with Add to budget when quotedMinor is set", () => {
@@ -169,5 +175,7 @@ describe("EnquiryThread", () => {
       expect(toastError).toHaveBeenCalledWith("Couldn't send your message. Please try again."),
     );
     expect(box.value).toBe("test message");
+    expect(haptic).toHaveBeenCalledWith("reject");
+    expect(haptic).not.toHaveBeenCalledWith("commit");
   });
 });

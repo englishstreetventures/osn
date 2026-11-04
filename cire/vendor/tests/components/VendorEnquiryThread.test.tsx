@@ -43,7 +43,10 @@ vi.mock("@shared/toast", () => ({
   Toaster: () => null,
 }));
 
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic: vi.fn() }));
+
 import VendorEnquiryThread from "../../src/components/VendorEnquiryThread";
+import { haptic } from "../../src/lib/touch-feedback";
 
 // ── Test data ─────────────────────────────────────────────────────────────────
 
@@ -162,6 +165,8 @@ describe("VendorEnquiryThread", () => {
     // Refetch triggered — messages updated
     await waitFor(() => expect(mockGetEnquiryMessages).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByText("Reply sent")).toBeInTheDocument());
+    expect(haptic).toHaveBeenCalledWith("commit");
+    expect(haptic).not.toHaveBeenCalledWith("reject");
   });
 
   it("keeps the thread on screen while it is read again after a send", async () => {
@@ -213,6 +218,8 @@ describe("VendorEnquiryThread", () => {
     );
     // The reason shows under the box until the next send goes through.
     expect(screen.getByText("network error")).toBeInTheDocument();
+    expect(haptic).toHaveBeenCalledWith("reject");
+    expect(haptic).not.toHaveBeenCalledWith("commit");
     mockReplyToEnquiry.mockResolvedValue(makeMessage({ id: "msg-2", body: "My text" }));
     fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
     await waitFor(() => expect(screen.queryByText("network error")).not.toBeInTheDocument());

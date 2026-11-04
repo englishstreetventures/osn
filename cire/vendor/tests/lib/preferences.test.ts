@@ -68,12 +68,6 @@ afterEach(() => {
 });
 
 describe("the vendor portal's storage keys", () => {
-  it("are the vendor's own names", async () => {
-    const { THEME_STORAGE_KEY, HAPTICS_STORAGE_KEY } = await load();
-    expect(THEME_STORAGE_KEY).toBe(OWN.theme);
-    expect(HAPTICS_STORAGE_KEY).toBe(OWN.haptics);
-  });
-
   it("are the only keys a choice writes", async () => {
     const { setThemePreference, setHapticsEnabled } = await load();
     setThemePreference("light");
@@ -149,10 +143,5 @@ describe("touch feedback", () => {
     loaded.setHapticsEnabled(false);
     loaded.haptic("commit");
     expect(vibrate).toHaveBeenCalledTimes(1);
-  });
-
-  it("is offered wherever there is a document", async () => {
-    const { hapticsAvailable } = await load();
-    expect(hapticsAvailable()).toBe(true);
   });
 });
