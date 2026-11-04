@@ -324,7 +324,8 @@ describe("who may give", () => {
 // the whole room's. These run on `createApp`'s own default limiter, the budget
 // the Worker runs, which keeps one bucket per address for the whole process:
 // each test sends from an address no other test uses, so its bucket starts
-// empty.
+// empty. A second run of this file in the same process inside a minute
+// (`bun test --rerun-each`) would find both buckets spent.
 describe("the address's 20 a minute is spent by claimed guests alone", () => {
   function contributeFrom(app: App, ip: string, cookie: string | null) {
     const headers: Record<string, string> = {

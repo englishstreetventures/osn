@@ -370,8 +370,9 @@ describe("X-Content-Type-Options on every response the app builds", () => {
 // answers first, so a refused request costs no organiser session lookup, no
 // OSN token verify (and so no JWKS fetch), no role-gate query and no guest
 // session lookup. The one exception, the registry contribute route, checks the
-// session first and is pinned at the end of this block. Each row builds the real app with only that route's limiter refusing
-// and sends the credential that would otherwise cost the most: a live
+// session first and is pinned at the end of this block. Each row builds the
+// real app with only that route's limiter refusing and sends the credential
+// that would otherwise cost the most: a live
 // `cire_org_session` for the wedding's owner, whose lookup and gate query both
 // show as statements, or a bearer token checked against a JWKS URL of the
 // row's own, whose fetch the module's key cache cannot hide. The controls let
