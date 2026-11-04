@@ -103,15 +103,15 @@ renders on the page today; the demo's dietary choices are `@cire/ui` chips.
 | The masthead link, `.site-nav__cta` (`SiteNav.astro`) | none: an underlined link with no box, which a corner would curl | sentence case at 0.875rem, the footer links' size, no medium weight | `--dur-fast`; the masthead's scrolled wash on `--dur-slow` |
 | The photo (`Figure.astro`) | the 14px field corner, as a framed picture takes; the credit badge 6px, a text badge set in from the frame | — | the credit's fade on `--dur-fast` |
 | The demo invitation (`DemoRsvp.tsx`) | its frame and its two event cards 16px, as the guest event card is; the preview notice and member fieldset 6px, as in the guest sheet; Attending / Not attending pills, `@cire/ui` `Button` `choice` at the 44px floor as on the guest sheet — the chosen one with a 2px gold ring, side by side above 16rem and stacked below | sentence case | the pair on `--dur-base`, the field on `--dur-fast` |
-| Legal pages (`LegalLayout.astro`) | the draft banner 6px, a notice; an inline placeholder 2px, about 16px tall, where 6px would draw a near-pill | "← Back to Cire" sentence case; the privacy tab row small caps (§Privacy pages) | — |
-| Focus rings (`SiteNav.astro`, `SiteFooter.astro`, `PrivacyNav.astro`) | `var(--radius-hair)`, 2px; a CTA's ring sets none and follows the pill; the FAQ's question takes the base layer's ring (below) | — | — |
+| Legal pages (`LegalPage.astro`, rendering `@cire/ui`'s `legal-layout.astro`) | the draft banner 6px, a notice; an inline placeholder none: the mono face and the readable gold mark it, with no wash and no corner | "← Back to Cire" sentence case; the privacy tab row small caps (§Privacy pages) | the back link's colour on `--dur-fast` |
+| Focus rings (`SiteNav.astro`, `PrivacyNav.astro`, and `@cire/ui`'s footer and legal layout) | `var(--radius-hair)`, 2px, set 3px off; a CTA's ring sets none and follows the pill; the FAQ's question takes the base layer's ring (below) | — | — |
 
 Kept in small caps: eyebrows, the demo's eyebrows, the tab rows of the privacy pages and the journey, the journey's plan badge, the
 draft banner's "Draft" and the "Anything else" field label. The eyebrows are
 `@cire/ui`'s (`eyebrowClass` on the hero and "See it live", `Eyebrow` in the
 demo), at the one letter-spacing every cire label uses (0.16em); the page
-keeps no eyebrow rule of its own. The footer's
-"Privacy Notice" keeps its capitals, as the name of the document. The page's
+keeps no eyebrow rule of its own. The footer's links are link labels, so
+sentence case: "Privacy notice", "Terms", "Refunds". The page's
 own choreography keeps literal timings longer than `--dur-slow`: the scroll
 reveal (`[data-reveal]`, 0.7s), the hero's fan of phones (`fan-open`, 0.9s)
 and the cross-fades of the hero's screens and the journey's panels (0.45s),
@@ -119,7 +119,7 @@ all on `var(--ease-out)`.
 
 ## Page structure (`src/pages/index.astro`)
 
-`SiteNav`, then one `<main>` holding the sections below, then `SiteFooter`.
+`SiteNav`, then one `<main>` holding the sections below, then `MarketingFooter`.
 Each section is a component under `components/sections/`; the drawings of the
 product are under `components/mock/` ([[#Product views]]).
 
@@ -138,6 +138,15 @@ Every organiser link (nav, hero, the three plans, the closing field, the
 footer) points at `ORGANISER_URL` and reads "Create your invitation", or "Create
 an invitation" in the footer. The footer's section links go to `/#journey`,
 `/#pricing` and `/#faq`.
+
+The footer (`MarketingFooter.astro`, filling `@cire/ui`'s `site-footer.astro`,
+the one the guest site ends on too) is one centred stack: the italic "Cire"
+logotype and "Invitations worthy of the moment.", a gold rule, the section
+links, the legal row (`/privacy`, `/terms`, `/refunds`; the legal pages are
+review drafts), "© 2026 Cire. Made with care." and the build's version — the
+first seven characters of `PUBLIC_BUILD_SHA`, which the deploy workflows set to
+the commit, or "local" for a build without it. Every link keeps the word's size
+and takes a 44px hit area laid over it.
 
 A minimal fixed masthead (`SiteNav.astro`) — wordmark + the one primary CTA —
 sits over the hero and gains a hairline + blurred wash once scrolled (toggled by
@@ -313,15 +322,20 @@ each page is its own URL and prints on its own, with the row left out.
   at the 2px `hair` corner, as the CTAs and footer links draw theirs.
 - Sections are `h2`, as on the other legal pages. The guest notice's sub-sections,
   and the four parts of the vendors' notice's "Your vendor account" section, are
-  `h3`, drawn as the guest site draws its `h3`, in `--color-gold`
-  (`layouts/LegalLayout.astro`).
+  `h3`, drawn as the guest site draws its `h3`, in the readable gold
+  (`@cire/ui`'s `legal-layout.astro`, which both sites' legal pages render
+  through their own `layouts/LegalPage.astro`).
 - One dark palette, like the rest of the site: a light-scheme visit renders the
   same page.
 
 `tools/e2e/tests/flows/cire-privacy-pages.flow.ts` follows the row through all
 four pages, checks the current page is marked with JavaScript on and off, tells
 the hosts' and vendors' notices apart, compares the guest notice with the guest
-site's, prints, and screenshots each page at 390 and 1280 px.
+site's, prints, and screenshots each page at 390 and 1280 px. It also reads
+every legal page on both sites — the tab's title ("— Cire" here), the line back
+home, the footer's legal links in order, the version line, the italic sign-off,
+a tap 18px above a link's centre landing on it, and 4.5:1 for every footer link
+and the version — and shoots the top of each page and its footer.
 
 ## Interactive no-op RSVP demo
 

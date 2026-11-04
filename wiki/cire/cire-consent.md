@@ -7,7 +7,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[cire-landing]]"
   - "[[cire-envelope]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 # Cire site-wide consent framework
 
@@ -316,7 +316,7 @@ mounted first.
   - **A page restored from the back/forward cache reads the cookie again**
     (`refreshConsentFromDocument` on `pageshow`), so a guest who answered on
     the privacy notice and pressed back is not asked a second time.
-- **On the legal pages the prompt is a banner.** `LegalLayout.astro` passes
+- **On the legal pages the prompt is a banner.** `LegalPage.astro` passes
   `prompt="banner"`: the prompt links there, and a dialog would stand between
   the guest and the notice they came to read. The banner rides the bottom of
   the screen at every width (`sticky`, the last box on the page), so at the
@@ -347,8 +347,11 @@ mounted first.
   first visit, matching a page that loads neither.
 - **The sheet's switches are a local draft** until Save. A guest who flicks a
   switch to see what it covers and then closes the dialog has granted nothing.
-- **Withdrawal is permanent and findable** — `ConsentPreferencesLink` in
-  `SiteFooter.astro` on every page, plus a copy on `/privacy`.
+- **Withdrawal is permanent and findable** — `ConsentPreferencesLink`,
+  labelled "Privacy choices", in the footer's legal row on every page
+  (`GuestFooter.astro`, which fills `@cire/ui`'s footer's `consent` slot and
+  gives it the class `consent-link` the footer styles it by), plus a copy on
+  `/privacy`.
 - **What is switched on in place is switched off in place.** The moodboard is
   the one embed a guest can switch on from inside the details sheet, where the
   footer is out of reach behind the modal, so while it is on the sheet carries
@@ -397,11 +400,14 @@ keys of removed categories (`functional`, `analytics`, `embeds`) parses, and
 `<ConsentBanner client:idle />`, the dialog, in four document shells:
 `designs/classic/Document.astro`, `designs/gala/Document.astro`,
 `components/gift-registry/GiftRegistryDocument.astro` and
-`components/NotFoundDocument.astro`. The fifth, `layouts/LegalLayout.astro`,
-mounts the banner, `<ConsentBanner client:idle prompt="banner" />` (see the UI
-rules above).
-`tests/layouts/legal-layout.test.ts` reads the five shells as text and fails
-if either form moves.
+`components/NotFoundDocument.astro`. The fifth, `layouts/LegalPage.astro`,
+mounts the banner after the footer, through `@cire/ui`'s legal layout's
+`after` slot: `<ConsentBanner slot="after" client:idle prompt="banner" />` (see
+the UI rules above). All five end on `GuestFooter.astro`, which carries the
+standing control.
+`tests/layouts/legal-layout.test.ts` reads the five shells and the footer as
+text and fails if either form moves, if a shell drops the footer, or if the
+footer drops the control.
 
 ## Not covered
 
