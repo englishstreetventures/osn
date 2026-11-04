@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { GLASS_FILL } from "../src/lib/glass";
 import SegmentedTabs, { type SegmentedItem } from "../src/segmented-tabs";
 
 /** happy-dom has no ResizeObserver; the pill only needs one to exist. */
@@ -429,5 +430,40 @@ describe("an item list that changes", () => {
     expect(document.activeElement).toBe(tabs[2]);
     fireEvent.keyDown(tabs[2]!, { key: "ArrowRight" });
     expect(document.activeElement).toBe(tabs[0]);
+  });
+});
+
+/**
+ * The classes the browser tier measures, read as written: Stryker runs this
+ * tier alone, which draws no CSS, so these are what let it see the motion
+ * rule and the glass.
+ */
+describe("the classes behind the look", () => {
+  it("names a hover's clock at rest and a choice's on the chosen choice", () => {
+    render(() => <Tabs />);
+    const classes = (name: string) => screen.getByRole("tab", { name }).className.split(/\s+/);
+    for (const name of ["Households", "Edit"]) {
+      expect(classes(name)).toEqual(
+        expect.arrayContaining([
+          "base:transition-[color,background-color]",
+          "base:duration-[var(--dur-fast,var(--ui-dur-fast))]",
+          "base:ease-[var(--ease-out,var(--ui-ease-out))]",
+          "base:data-[chosen]:duration-[var(--dur-base,var(--ui-dur-base))]",
+          "base:data-[chosen]:ease-[var(--ease-in-out,var(--ui-ease-in-out))]",
+        ]),
+      );
+    }
+  });
+
+  it("dresses the highlight in the portals' glass", () => {
+    const { container } = render(() => <Tabs />);
+    const glass = container.querySelector("[data-segmented-glass]")!.className.split(/\s+/);
+    expect(glass).toEqual(expect.arrayContaining(GLASS_FILL.split(/\s+/)));
+    expect(GLASS_FILL.split(/\s+/)).toEqual([
+      "base:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_22.8%,var(--ui-surface-raised))_61.3%,transparent)]",
+      "base:shadow-[var(--inner-lip,inset_0_1px_0_rgb(255_255_255/0.06)),inset_0_0_0_1px_var(--glass-edge,rgb(255_255_255/0.1)),0_0_0_0.5px_var(--ui-hairline),var(--elev-1,var(--ui-elev-1))]",
+      "base:backdrop-blur-md",
+      "base:backdrop-saturate-[1.6]",
+    ]);
   });
 });
