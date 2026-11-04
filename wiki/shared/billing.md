@@ -107,9 +107,14 @@ plan's price back by lookup key, with each currency's amount and the price's
      createBillingSqliteSchema({ prefix: "billing_" });
    ```
 
-   The consumer also adds the tables to its data map (`wiki/compliance/data-map.md`).
-   They hold no address, tax id, email or amount: customer refs, Stripe ids,
-   statuses, plan ids and period times.
+   The consumer also adds the tables to its data map ([[data-map]]) and a
+   retention row ([[retention]]). They hold no address, tax id, email or
+   amount: customer refs, Stripe ids, statuses, plan ids and period times. Its
+   account-deletion path calls `forgetCustomer({ customerRef })`, which deletes
+   the customer's grants, subscriptions and row in one batch, calls no hook, and
+   answers the Stripe customer id it held (`null` when there was no row), so the
+   consumer can delete that customer at Stripe too — which cancels its
+   subscriptions — or keep it under its tax-record basis.
 
 2. **One instance per isolate**, built where the app graph is built:
 
@@ -118,6 +123,7 @@ plan's price back by lookup key, with each currency's amount and the price's
      plans,
      storage: createSqliteBillingStorage({ db, schema }),
      provider: createStripeProvider({ secretKey, webhookSecret }),
+     returnOrigins: ["https://app.example.com"], // where Checkout and the portal may send the buyer back
      tax: { automatic: true, collectTaxIds: true, requireTaxId: false },
      portalConfiguration,             // the id syncPlans printed
      hooks: { onAccess: (decision, { signal }) => applyListing(decision, signal) },
@@ -127,6 +133,13 @@ plan's price back by lookup key, with each currency's amount and the price's
    Every method returns an Effect with no requirements, so it runs on the
    consumer's `ManagedRuntime`. With `./promise`, pass that runtime's
    `runPromise` as `run`: it carries the logger that redacts.
+
+   `createBilling` throws at boot on a configuration that would weaken a
+   check: a `policy` or `tuning` number that is not finite (or, for tuning, not
+   above zero), an access lease no longer than the hook timeout plus the
+   budget, an event lease no longer than that plus one provider call, or a
+   `returnOrigins` entry that is not a bare origin. A key passed as `undefined`
+   keeps its default.
 
 3. **The webhook** on its own endpoint with its own signing secret, mounted only
    when the secret is set: `billingWebhookRoute(billing, { path, run })`. Exempt
@@ -169,16 +182,18 @@ decision for every feature, never a delta, from every webhook delivery, every
 sweep visit, reconcile, `grant`, `revokeGrant` and `reapplyAll`.
 
 It runs under a per-customer lease (`access_lock_until`). Every write access
-depends on bumps the customer's `access_version` in the same D1 batch; the
-holder reads the version when it takes the lease and releases only if it has
-not moved, otherwise it reads again and calls the hook again. So a write that
-lands while a decision is being applied is never left behind it. A caller that
-finds the lease taken waits (up to 3 s) and stops early once a completed
-application covers its own write.
+depends on bumps the customer's `access_version` in the same D1 batch, and so
+does taking the lease. The holder keeps the version the lease gave it and
+releases only if it has not moved, otherwise it reads again and calls the hook
+again. So a write that lands while a decision is being applied is never left
+behind it. A caller that finds the lease taken waits (up to 3 s) and stops
+early once a completed application covers its own write.
 
-`decision.version` is a fencing token. A hook whose write must never be
-overtaken by an older one stores it and refuses a lower one
-(`WHERE applied_version < :version`). The hook runs under a 3 s timeout; past
+`decision.version` is a fencing token: every call to the hook carries a larger
+one than the call before, including a call that only time changed — a grant
+expiring or grace running out, which the sweep applies with no write. A hook
+whose write must never be overtaken by an older one stores it and writes only a
+larger one (`WHERE applied_version < :version`). The hook runs under a 3 s timeout; past
 it the signal aborts, the lease is kept until it expires (30 s), so a write the
 hook is still making cannot land after a newer holder's, and the customer is
 left due for the sweep. Every timing is a `tuning` option (`DEFAULT_TUNING` in
@@ -222,7 +237,9 @@ period: the consumer's ledger owns refunds.
 4. A type outside the list above, or a Checkout session whose `mode` is not
    `subscription` → 200 `ignored`.
 5. The event id is claimed under a 60 s lease: already done → 200 `duplicate`;
-   lease held → 500 so Stripe retries; lease expired → taken over.
+   lease held → 500 so Stripe retries; lease expired → taken over. The lease's
+   expiry is the claim's token: a delivery that overran its lease can no longer
+   release or finish the event under the one that took it over.
 6. The subscription is re-fetched from Stripe; the event body is never trusted
    for state. Price → plan by `price.metadata.plan_id`, else the product
    `billing_<planId>`, never by lookup key (a new price takes the key over and
@@ -242,7 +259,9 @@ are unknown.
 ## Checkout and the portal
 
 `checkout({ customerRef, planId, currency, successUrl, cancelUrl })` → `{ url,
-reused }`. It refuses `AlreadySubscribed` while the customer holds a non-ended
+reused }`. Both URLs, and the portal's `returnUrl`, must be on one of
+`returnOrigins`, or the call fails `ReturnUrlRefused` before any write or Stripe
+call: build them on the server, never from the request. It refuses `AlreadySubscribed` while the customer holds a non-ended
 subscription in the plan's group, `CurrencyNotOffered` when the price has no
 amount in that currency, and `PlanUnavailable` when Stripe has no active price
 under the lookup key (not synced) or that price names another plan. The form:
@@ -269,7 +288,8 @@ under a new nonce; a completed one whose webhook has not landed answers
 that key is replayed.
 
 `portal({ customerRef, returnUrl })` opens a portal session on the
-configuration `syncPlans` manages; `NoBillingCustomer` before any checkout.
+configuration `syncPlans` manages; `NoBillingCustomer` before any checkout,
+`ReturnUrlRefused` for a `returnUrl` off `returnOrigins`.
 
 ## Cron costs
 
@@ -305,6 +325,11 @@ on bun:sqlite.
 | `<prefix>webhook_events` | `event_id` | type, outcome, the claim's lease, received at. No payload |
 | `<prefix>grants` | (`customer_ref`, `feature_id`) | source, granted by, expiry |
 
+`forgetCustomer` deletes a customer's grants, subscriptions and row in one
+batch, children first, since both child tables reference the customer row and
+D1 enforces foreign keys. A revoked grant and its version bump also go out as
+one batch.
+
 The same contract suite (`tests/storage/contract.ts`) runs on bun:sqlite under
 vitest and on Miniflare D1 under `bun test` (`test:d1`), with DDL from
 drizzle-kit's own generator.
@@ -317,7 +342,9 @@ STRIPE_SECRET_KEY=sk_test_… bun run --cwd shared/billing sync-plans -- --plans
 
 A dry run: it reads Stripe and prints each plan's product and price changes —
 per currency, such as `NZD: missing → 5200` or `GBP: 3000 → removed` — and the
-portal configuration's. Add `--apply` to write; a live key also needs `--live`.
+portal configuration's. Add `--apply` to write; any key that is not a test key
+(`sk_test_`, `rk_test_`) also needs `--live`, so a key of a shape the script
+does not know is treated as live.
 `--plans` resolves from `shared/billing`. Per plan it keeps:
 
 - a product `billing_<planId>` with `metadata.plan_id` and the plan's
