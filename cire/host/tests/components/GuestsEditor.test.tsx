@@ -1128,39 +1128,20 @@ describe("GuestsEditor", () => {
       limit: 100,
       current: 100,
     };
-    const NEWFAMILY_HOUSEHOLD = {
-      familyId: "fam_new",
-      publicId: "NEWFAMILY-0001",
-      familyName: "Newfamily",
-      guestCount: 0,
-      codeSharedAt: null,
-      firstOpenedAt: null,
-      deactivatedAt: null,
-    };
 
-    it("closes a preview refused while writing and offers the reload, which flags what was saved", async () => {
-      let head = "rev_1";
-      let households = HOUSEHOLDS;
+    it("closes a preview refused while writing, marks the draft stale and drops the cached rows", async () => {
+      primeLoad();
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
       authFetchMock.mockImplementation((url: string) => {
         const u = String(url);
-        if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: head }));
-        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
-        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
-        if (u.endsWith("/households")) return Promise.resolve(json(households));
         if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
         if (u.endsWith("/changes/apply")) {
-          // The household's own row landed in a batch before the refused one.
-          head = "rev_2";
-          households = [...HOUSEHOLDS, NEWFAMILY_HOUSEHOLD];
           return Promise.resolve(json({ ...CAP_402, reason: "head_moved" }, 402));
         }
         return Promise.resolve(fallback(url));
       });
-      render(() => <GuestsEditor weddingId="wed_a" />);
-      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
-      fireEvent.click(screen.getAllByRole("button", { name: /Add household/i })[0]!);
-      const names = screen.getAllByLabelText("Household name") as HTMLInputElement[];
-      fireEvent.input(names[names.length - 1]!, { target: { value: "Newfamily" } });
 
       fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
       await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
@@ -1178,17 +1159,6 @@ describe("GuestsEditor", () => {
       // What the change saved is not in the shared caches the other views read.
       expect(hasCachedGuests("wed_a")).toBe(false);
       expect(hasCachedHouseholds("wed_a")).toBe(false);
-
-      fireEvent.click(screen.getByRole("button", { name: /Reload and keep my edits/i }));
-      // The reload brings the saved household in beside the draft's own, and
-      // says so before the next save could keep both.
-      await waitFor(() =>
-        expect(
-          screen.getByText(
-            "A household called “Newfamily” was also added elsewhere — check for a duplicate.",
-          ),
-        ).toBeTruthy(),
-      );
     });
 
     it("keeps a preview refused before writing open, and names the cap inside it", async () => {

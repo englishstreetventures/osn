@@ -598,7 +598,9 @@ describe("ImportPanel — surfacing import failures", () => {
       );
       // The same preview applies once that change finishes.
       expect(screen.getByRole("button", { name: /apply import/i })).toBeTruthy();
+      expect(invalidateEventsMock).not.toHaveBeenCalled();
       expect(invalidateGuestsMock).not.toHaveBeenCalled();
+      expect(invalidateHouseholdsMock).not.toHaveBeenCalled();
     });
   });
 
