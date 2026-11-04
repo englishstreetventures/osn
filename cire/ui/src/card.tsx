@@ -19,17 +19,25 @@ import type { JSX } from "solid-js";
 
 export type CardTone = "default" | "accent";
 
-const CARD_BASE = "base:flex base:flex-col base:gap-3 base:rounded-ui-sm base:border base:p-5";
+const CARD_BASE = "base:flex base:flex-col base:gap-3 base:rounded-ui-lg base:border base:p-5";
 
 const TONE = {
   default: "base:border-ui-hairline base:bg-ui-surface/30",
   accent: "base:border-ui-accent/30 base:bg-ui-surface/30",
 } satisfies Readonly<Record<CardTone, string>>;
 
-/** Added when the whole card is the control. */
+/**
+ * Added when the whole card is the control.
+ *
+ * The transition names only what a hover changes: Tailwind's
+ * `transition-colors` also fades `outline-color`, which would bring the focus
+ * ring in over the hover's duration. The duration is the app's `--dur-fast`;
+ * the fallback is for an app that declares no motion ladder.
+ */
 const INTERACTIVE =
   "base:hover:border-ui-accent-soft base:hover:bg-ui-surface/50 base:text-left " +
-  "base:transition-colors base:duration-200 base:ease-out";
+  "base:transition-[color,background-color,border-color,text-decoration-color] " +
+  "base:duration-(--dur-fast,200ms) base:ease-out";
 
 export function cardClass(options: { tone?: CardTone; interactive?: boolean } = {}): string {
   return `${CARD_BASE} ${TONE[options.tone ?? "default"]}${
@@ -59,15 +67,17 @@ export function CardEyebrow(props: { children: JSX.Element }) {
  *
  * The arrow is `aria-hidden` and nudges on hover — the movement is the whole
  * point of the detail, and each app's reduced-motion rule disarms the
- * transition without the arrow disappearing.
+ * transition without the arrow disappearing. The label's colour takes the
+ * app's `--dur-fast`, a hover, and the arrow's nudge `--dur-base`, a short
+ * slide; each falls back to its own duration in an app with no motion ladder.
  */
 export function CardCta(props: { children: JSX.Element }) {
   return (
-    <span class="base:font-ui-body base:text-ui-accent-ink base:hover:text-ui-accent group/cta base:flex base:items-center base:gap-1.5 base:self-start base:text-ui-sm base:transition-colors base:duration-100">
+    <span class="base:font-ui-body base:text-ui-accent-ink base:hover:text-ui-accent group/cta base:flex base:items-center base:gap-1.5 base:self-start base:text-ui-sm base:transition-[color,background-color,border-color,text-decoration-color] base:duration-(--dur-fast,100ms)">
       {props.children}
       <span
         aria-hidden="true"
-        class="base:transition-transform base:duration-200 base:ease-out base:group-hover/cta:translate-x-1"
+        class="base:transition-transform base:duration-(--dur-base,200ms) base:ease-out base:group-hover/cta:translate-x-1"
       >
         →
       </span>
