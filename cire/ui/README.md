@@ -49,9 +49,11 @@ cire apps declare and which follows their `--motion-scale` and pointer ladder,
 and the fallback only where no app declares one, as in the component lab. A
 bare `duration-(--dur-fast)` would sit untimed wherever the token is missing.
 The loaders' pulse (`src/lib/pulse.ts`, shared by `Loading` and `Skeleton`) is
-the same: 2s scaled by the app's `--motion-scale`, on its `--ease-in-out` with
-the contract's `--ui-ease-in-out` behind it, never Tailwind's fixed
-`animate-pulse`.
+the same: 2s scaled by the app's `--motion-scale`, on its `--ease-in-out`,
+never Tailwind's fixed `animate-pulse`. The curve is the app's own, which all
+four cire apps declare: Tailwind's theme supplies an `--ease-in-out` of its
+own (a different curve) wherever an app declares none, so the contract's
+`--ui-ease-in-out` written behind it is never reached in a Tailwind app.
 The reduced-motion kill switch is a global rule in each app's `global.css`. It
 selects `*`, which reaches no pseudo-element, so a part that animates one —
 `Disclosure`'s fade on `::details-content` — carries its own `motion-safe:`

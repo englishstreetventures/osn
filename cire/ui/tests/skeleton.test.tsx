@@ -97,8 +97,8 @@ describe("Skeleton", () => {
 describe("PULSE", () => {
   it("runs Tailwind's pulse for 2s on the app's motion scale and in-out curve", () => {
     // The owner's motion rule: every timing reads the motion tokens, so the
-    // pulse slows with `--motion-scale` like the attention glow, and falls
-    // back to the contract's curve where an app declares none.
+    // pulse slows with `--motion-scale` like the attention glow and eases on
+    // the app's own `--ease-in-out`.
     expect(PULSE).toBe(
       "base:animate-[pulse_calc(2s*var(--motion-scale,1))_var(--ease-in-out,var(--ui-ease-in-out))_infinite]",
     );

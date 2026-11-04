@@ -127,9 +127,11 @@ describe("Skeleton", () => {
     expect(style.animationDuration).toBe("1s");
   });
 
-  it("takes the contract's curve where the app declares none", () => {
+  it("eases on the app's own curve, not the contract's", () => {
+    // Both tokens hold the house curve in every cire app, so the case above
+    // cannot tell which one the pulse reads; here they differ.
     const style = getComputedStyle(
-      drawn("row", "light", { "--ease-in-out": "initial", "--ui-ease-in-out": "linear" }).block,
+      drawn("row", "light", { "--ease-in-out": "linear", "--ui-ease-in-out": "ease-in" }).block,
     );
     expect(style.animationTimingFunction).toBe("linear");
   });
