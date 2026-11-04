@@ -30,7 +30,7 @@ import { HERO_BG_VARIANT, variantSrc } from '../invite-images'
 import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../invite-theme'
 import type { InviteCustomisation } from '../../designs/types'
 import { GiftRegistryPage } from './GiftRegistryPage'
-import SiteFooter from '../SiteFooter.astro'
+import GuestFooter from '../GuestFooter.astro'
 import { ConsentBanner } from '../consent/ConsentBanner'
 
 interface Props {
@@ -180,7 +180,7 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
 
     {/* Site-wide chrome: the couple's name over the legal links, exactly as on
         the invitation this page belongs to. */}
-    <SiteFooter closing={invite?.hero.title ?? null} />
+    <GuestFooter closing={invite?.hero.title ?? null} />
     {/* Site-wide consent surface. `client:idle` so it never competes with the
         page's first paint — nothing third-party can load before it hydrates
         anyway, since every ConsentGate defaults to denied until then. */}

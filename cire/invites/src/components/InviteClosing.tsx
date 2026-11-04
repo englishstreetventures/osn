@@ -138,10 +138,11 @@ export interface InviteClosingProps {
  * celebrating with you", "No boxed gifts please").
  *
  * This is a SECTION OF THE INVITE, not part of the site footer:
- *   - `SiteFooter.astro` is site-wide chrome — the couple's title plus the legal
- *     links + privacy control. It renders on EVERY document (invite, /privacy,
- *     /terms, 404) and must always be there: the privacy notice is linked
- *     wherever guest data is collected.
+ *   - `GuestFooter.astro` is site-wide chrome — the couple's names plus the
+ *     legal links + privacy control, drawn by `@cire/ui`'s footer. It renders
+ *     on EVERY document (invite, gift page, /privacy, /terms, 404) and must
+ *     always be there: the privacy notice is linked wherever guest data is
+ *     collected.
  *   - This is invite content, rendered by `InvitePage` as the last thing above
  *     that footer, and — like the events list — only AFTER the guest has
  *     claimed their code, because it is addressed to the invited household.

@@ -1,6 +1,6 @@
 ---
 import '../styles/global.css'
-import SiteFooter from './SiteFooter.astro'
+import GuestFooter from './GuestFooter.astro'
 import { ConsentBanner } from './consent/ConsentBanner'
 
 interface Props {
@@ -35,7 +35,7 @@ const {
         {body}
       </p>
     </main>
-    <SiteFooter />
+    <GuestFooter />
     {/* Site-wide consent surface. `client:idle` so it never competes with the
         invite's first paint — nothing third-party can load before it hydrates
         anyway, since every ConsentGate defaults to denied until then. */}

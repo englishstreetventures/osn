@@ -1,0 +1,49 @@
+---
+// The guest site's footer: `@cire/ui`'s footer as this site fills it, the one
+// file every document shell and the legal pages render, so none can drift from
+// the others or drop the consent control.
+//
+// It links the legal pages, so the privacy notice and terms are reachable from
+// every page (the privacy notice must be published and linked at the point of
+// collection).
+//
+// It also carries the standing "Privacy choices" control. Consent has to be as
+// easy to withdraw as it was to give, and the banner is by definition gone once
+// a guest has decided — so a permanent, findable entry point into the
+// preferences dialog is what makes the earlier "you can change this later"
+// promise true. The footer is the one part every page renders, which makes it
+// the right home. The shared footer styles the control as a peer of the links
+// by its class, `consent-link`.
+//
+// And the build's version, under the legal row: the first seven characters of
+// the commit this surface was built from, so a guest's report (or the
+// owner's, from a phone) says which build it was. Everything merged at or
+// before that commit is in it. CI sets `PUBLIC_BUILD_SHA` on the build
+// (`deploy.yml` for dev, `production-release.yml` for production); a build
+// without it — a local one, the end-to-end suite's dev server — says "local".
+import SiteFooter from '@cire/ui/site-footer.astro'
+import { ConsentPreferencesLink } from './consent/ConsentBanner'
+
+interface Props {
+  /**
+   * The couple's title. Given, the footer signs off in their name before the
+   * legal links, so the invitation ends on the people it is from rather than
+   * on the word "Terms". Absent (legal pages, the 404) ⇒ the legal row only.
+   */
+  closing?: string | null
+}
+
+const { closing } = Astro.props
+const sha = import.meta.env.PUBLIC_BUILD_SHA?.trim()
+const version = sha ? sha.slice(0, 7) : 'local'
+const signoff = closing
+  ? { title: closing, tagline: 'Wedding stamped with Cire', face: 'names' as const }
+  : null
+const links = [
+  { href: '/privacy', label: 'Privacy notice' },
+  { href: '/terms', label: 'Terms' },
+]
+---
+<SiteFooter signoff={signoff} links={links} version={version}>
+  <ConsentPreferencesLink slot="consent" client:idle label="Privacy choices" class="consent-link" />
+</SiteFooter>
