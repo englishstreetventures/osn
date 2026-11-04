@@ -8,8 +8,9 @@
  * are all of that kind, so they run in the `browser` project, in Chromium.
  *
  * Browser tests are named `*.browser.test.ts(x)` and excluded from `unit` by
- * that name, so every file lands in exactly one project. Stryker runs `unit`
- * alone (`stryker/vitest.config.ts`).
+ * that name, so every file lands in exactly one project. A third project,
+ * `astro`, renders the Astro components (`vitest.astro.config.ts`); its tests
+ * are `*.astro.test.ts`. Stryker runs `unit` alone (`stryker/vitest.config.ts`).
  */
 
 import tailwindcss from "@tailwindcss/vite";
@@ -30,13 +31,19 @@ const executablePath = process.env.VITEST_BROWSER_EXECUTABLE_PATH;
 export default defineConfig({
   test: {
     projects: [
+      "./vitest.astro.config.ts",
       {
         plugins: [solid()],
         test: {
           name: "unit",
           environment: "node",
           include: ["tests/**/*.test.{ts,tsx}"],
-          exclude: ["**/node_modules/**", "**/dist/**", "**/*.browser.test.{ts,tsx}"],
+          exclude: [
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/*.browser.test.{ts,tsx}",
+            "**/*.astro.test.ts",
+          ],
           setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
         },
       },

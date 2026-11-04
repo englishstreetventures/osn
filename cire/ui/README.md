@@ -14,11 +14,14 @@ neither app: the guest privacy notice (`src/guest-privacy-notice.astro`), which
 the guest site renders as its `/privacy` page and cireweddings.com as
 `/privacy/guests`, and the consent vendor registry the notice's cookie list is built
 from (`src/consent-categories.ts`, `src/consent-vendors.ts`). The notice is one
-of two Astro components here, with the portals' sign-in page (`src/sign-in-card.astro`,
-which holds `SignInPanel` as an island); each app's Astro build compiles them, and
-their tests read their source (`tests/guest-privacy-notice.test.ts`,
-`tests/sign-in-card.test.ts`). Any change under `src/`
-redeploys all four cire frontends.
+of four Astro components here, with the portals' sign-in page (`src/sign-in-card.astro`,
+which holds `SignInPanel` as an island), and the two guest-facing sites' footer
+(`src/site-footer.astro`) and legal pages' document (`src/legal-layout.astro`);
+each app's Astro build compiles them. The notice's and the sign-in page's tests read
+their source (`tests/guest-privacy-notice.test.ts`, `tests/sign-in-card.test.ts`);
+the footer's and the layout's render them with Astro's container API, in the
+`astro` test project (`vitest.astro.config.ts`, `tests/*.astro.test.ts`). Any
+change under `src/` redeploys all four cire frontends.
 
 `UsernameInput` is the one apparent duplicate, and the reason is the API rather
 than the styling: `@shared/ui`'s is controlled and renders its own debounced

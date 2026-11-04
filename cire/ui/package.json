@@ -1,13 +1,13 @@
 {
   "name": "@cire/ui",
   "private": true,
-  "type": "module",
-  "author": "English Street Ventures Pty Ltd",
   "license": "UNLICENSED",
+  "author": "English Street Ventures Pty Ltd",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
+  "type": "module",
   "exports": {
     "./avatar-trigger-class": "./src/avatar-trigger-class.ts",
     "./button": "./src/button.tsx",
@@ -20,6 +20,7 @@
     "./eyebrow": "./src/eyebrow.tsx",
     "./file-input": "./src/file-input.tsx",
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
+    "./legal-layout.astro": "./src/legal-layout.astro",
     "./loading": "./src/loading.tsx",
     "./message-thread": "./src/message-thread.tsx",
     "./note": "./src/note.tsx",
@@ -30,15 +31,16 @@
     "./sign-in-card.astro": "./src/sign-in-card.astro",
     "./sign-in-panel": "./src/sign-in-panel.tsx",
     "./sign-in-press": "./src/sign-in-press.ts",
+    "./site-footer.astro": "./src/site-footer.astro",
     "./sliding-pill": "./src/lib/sliding-pill.ts",
     "./username-input": "./src/username-input.tsx",
     "./wordmark": "./src/wordmark.tsx"
   },
   "scripts": {
     "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
-    "test": "bunx --bun vitest --project unit",
+    "test": "bunx --bun vitest --project unit --project astro",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
-    "test:run": "bunx --bun vitest run --project unit",
+    "test:run": "bunx --bun vitest run --project unit --project astro",
     "test:browser": "bunx --bun vitest run --project browser"
   },
   "dependencies": {

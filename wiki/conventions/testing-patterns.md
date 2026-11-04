@@ -1083,8 +1083,12 @@ bun run --cwd cire/host test:mutation --changed
 `@shared/ui` runs the two-project split — `unit` and `browser` — that
 `@cire/host`, `@musubi/social` and `@pulse/web` also run, so its `test` and
 `test:run` scripts name `--project unit` and the Chromium tier is the separate
-`test:browser` script. `@osn/auth-ui` has one plain config and therefore no
-`test:browser` to run.
+`test:browser` script. `@cire/ui` adds a third project, `astro`
+(`cire/ui/vitest.astro.config.ts`, files named `*.astro.test.ts`), which renders
+its Astro components with Astro's container API, so a test reads the markup a
+site serves; its `test` and `test:run` scripts name `--project unit --project
+astro`, and Stryker leaves `astro` out. `@osn/auth-ui` has one plain config and
+therefore no `test:browser` to run.
 
 ## Related
 

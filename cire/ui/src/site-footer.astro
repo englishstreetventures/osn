@@ -1,0 +1,274 @@
+---
+// The footer both guest-facing sites end on: the guest site (`cire/invites`)
+// and the marketing site (`cire/landing`). One centred stack (the owner's
+// answers on englishstreetventures/osn#1851):
+//
+//   the sign-off — the couple's names in roman on an invitation, the italic
+//     "Cire" logotype on the marketing site — and its tagline;
+//   a gold rule;
+//   the marketing site's section links;
+//   the legal row: the legal pages, and on the guest site the standing
+//     "Privacy choices" control through the `consent` slot;
+//   the small print, then the build's version.
+//
+// The legal row is what the footer is for: the privacy notice must be linked
+// from every page, and consent must be as easy to withdraw as it was to give,
+// which is why the guest site puts its choices control here, on the one part
+// every page renders.
+//
+// Every colour and face is a `--ui-*` name both sites map, so neither site's
+// colours move: readable gold is `--ui-accent-ink`, the rule `--ui-accent-soft`.
+// A value that matches a token uses it; the literals left have no token at
+// their value, and are marked.
+
+interface Link {
+  href: string
+  label: string
+}
+
+interface Props {
+  /**
+   * The sign-off over the rule. `names` sets a couple's names in roman, as an
+   * invitation's closing line is set; `wordmark` sets the italic logotype,
+   * which italic is kept for. Left out (legal pages, the 404), the footer
+   * starts at the legal row.
+   */
+  signoff?: { title: string; tagline: string; face: 'names' | 'wordmark' } | null
+  /** The marketing site's section links, in a row above the legal one. */
+  sections?: Link[]
+  /** The legal row, in order, joined by middle dots. */
+  links: Link[]
+  /** A line under the legal row: the copyright. */
+  smallPrint?: string
+  /**
+   * The build, as the first seven characters of its commit, so a report from
+   * a phone names the build it saw. The app reads it from its own build env.
+   */
+  version?: string
+}
+
+const { signoff = null, sections = [], links, smallPrint, version } = Astro.props
+const hasConsent = Astro.slots.has('consent')
+---
+<footer class="site-footer">
+  {
+    signoff && (
+      <>
+        {/* A name — a couple's, or the logotype — which a page translation must leave alone. */}
+        <p class="signoff" data-face={signoff.face} translate="no">
+          {signoff.title}
+        </p>
+        <p class="tagline">{signoff.tagline}</p>
+        <hr class="rule" />
+      </>
+    )
+  }
+  {
+    sections.length > 0 && (
+      <nav class="sections" aria-label="Sections">
+        {sections.map((link) => (
+          <a href={link.href}>{link.label}</a>
+        ))}
+      </nav>
+    )
+  }
+  <nav class="legal-row" aria-label="Legal">
+    {
+      links.map((link, index) => (
+        <span class="item">
+          {index > 0 && <span aria-hidden="true">&middot;</span>}
+          <a href={link.href}>{link.label}</a>
+        </span>
+      ))
+    }
+    {
+      hasConsent && (
+        <span class="item">
+          {links.length > 0 && <span aria-hidden="true">&middot;</span>}
+          <slot name="consent" />
+        </span>
+      )
+    }
+  </nav>
+  {smallPrint && <p class="small-print">{smallPrint}</p>}
+  {
+    /* `translate="no"`, so a browser's page translation leaves the reference
+       as a bug report quotes it. */
+    version && <p class="version" translate="no">Version {version}</p>
+  }
+</footer>
+
+<style>
+  /* A container, so the sign-off steps down by the room the footer has, not by
+     the size of the window it sits in. */
+  .site-footer {
+    container-type: inline-size;
+    padding: 2rem 1.5rem 2.5rem;
+    text-align: center;
+    font-family: var(--ui-font-body);
+    color: var(--ui-ink-secondary);
+  }
+
+  .signoff {
+    font-family: var(--ui-font-display);
+    /* No type token at 2.25rem. */
+    font-size: 2.25rem;
+    line-height: var(--ui-leading-tight);
+    color: var(--ui-accent-ink);
+    margin: 0 0 0.4rem;
+  }
+
+  /* A couple's names in roman, the weight an invitation's closing line takes;
+     the bottom padding keeps a descender's tail (Jyoti, Peggy). */
+  .signoff[data-face='names'] {
+    font-weight: 300;
+    padding-bottom: 0.15em;
+  }
+
+  /* The logotype, the one place italic is kept. */
+  .signoff[data-face='wordmark'] {
+    font-weight: 400;
+    font-style: italic;
+    letter-spacing: var(--ui-tracking-wide);
+  }
+
+  @container (max-width: 30rem) {
+    .signoff {
+      /* No type token at 1.85rem. */
+      font-size: 1.85rem;
+    }
+  }
+
+  .tagline {
+    margin: 0;
+    /* No type token at 0.95rem. */
+    font-size: 0.95rem;
+  }
+
+  /* The gold rule, fading at both ends. Drawn here: the marketing site's
+     `rule-gold` class is its own. */
+  .rule {
+    height: 1px;
+    border: 0;
+    background: linear-gradient(to right, transparent, var(--ui-accent-soft), transparent);
+    max-width: var(--ui-measure-2xl, 64rem);
+    margin: 3rem auto;
+  }
+
+  /* Rows of links sit a hit area's height apart, line to line, so the 44px box
+     laid over each word (below) never reaches the link on the next line, which,
+     painted later, would take the tap: 2.75rem less the 1.25rem line. The line
+     is set here rather than read with `lh`, which Firefox before 120 does not
+     have (inside .browserslistrc's floor), so it would drop the gap. */
+  .sections {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    line-height: 1.25rem;
+    gap: calc(2.75rem - 1.25rem) 1.75rem;
+    max-width: var(--ui-measure-2xl, 64rem);
+    margin: 0 auto calc(2.75rem - 1.25rem);
+    /* No type token at 0.875rem. */
+    font-size: 0.875rem;
+  }
+
+  /* Not `.legal`: that is the legal pages' own class, global, and this footer
+     sits on those pages. */
+  .legal-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    line-height: 1.25rem;
+    gap: calc(2.75rem - 1.25rem) 0.5rem;
+    /* No type token at 0.8125rem. */
+    font-size: 0.8125rem;
+  }
+
+  /* A dot and the link after it never part, so a row that wraps never ends a
+     line on a dot. */
+  .item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    white-space: nowrap;
+  }
+
+  .small-print {
+    margin: 0.6rem 0 0;
+    /* No type token at 0.8125rem. */
+    font-size: 0.8125rem;
+  }
+
+  /* Quieter than the links above it, in the same muted ink: a reference for a
+     bug report, not something to act on. Tabular figures so two versions read
+     at the same width. */
+  .version {
+    margin: 0.75rem 0 0;
+    /* No type token at 0.75rem, nor tracking at 0.02em. */
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Every action in the footer — a link, or the consent control the guest site
+     puts in its slot, an island's <button> this scope cannot stamp, hence
+     `:global`; the app gives it the class `consent-link` — is a peer of the
+     others: the same muted ink, an underline and readable gold under the
+     pointer. The colour change names its properties, so the focus ring lands
+     at once. */
+  .site-footer a,
+  .site-footer :global(.consent-link) {
+    position: relative;
+    font: inherit;
+    color: inherit;
+    text-decoration: none;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    padding: 0;
+    cursor: pointer;
+    transition:
+      color var(--dur-fast, var(--ui-dur-fast)) var(--ease-out, var(--ui-ease-out)),
+      border-color var(--dur-fast, var(--ui-dur-fast)) var(--ease-out, var(--ui-ease-out));
+  }
+
+  /* 44px to a finger, the guest site's touch floor, while the word, its
+     underline and its focus ring stay the size of the word: the hit area is a
+     box laid over it, centred on it. */
+  .site-footer a::after,
+  .site-footer :global(.consent-link)::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    min-width: 100%;
+    min-height: 2.75rem;
+    transform: translate(-50%, -50%);
+  }
+
+  .site-footer a:hover,
+  .site-footer a:focus-visible,
+  .site-footer :global(.consent-link:hover),
+  .site-footer :global(.consent-link:focus-visible) {
+    color: var(--ui-accent-ink);
+  }
+
+  .site-footer a:hover,
+  .site-footer :global(.consent-link:hover) {
+    border-bottom-color: currentColor;
+  }
+
+  /* The ring sits 3px off at the hair corner, as the marketing site's masthead
+     and privacy tabs draw theirs. */
+  .site-footer a:focus-visible,
+  .site-footer :global(.consent-link:focus-visible) {
+    outline: 2px solid var(--ui-focus);
+    outline-offset: 3px;
+    border-radius: var(--ui-radius-hair);
+  }
+
+  /* An island adds an element of its own; keep it out of the row's layout. */
+  .site-footer :global(astro-island) {
+    display: contents;
+  }
+</style>
