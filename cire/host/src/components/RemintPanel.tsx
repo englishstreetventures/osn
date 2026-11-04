@@ -6,6 +6,7 @@ import { Fieldset } from "@shared/ui/ui/field";
 import { createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { BLOCK_CHOSEN, BLOCK_IDLE } from "../lib/chosen-block";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
 import { haptic } from "../lib/touch-feedback";
@@ -133,10 +134,8 @@ export default function RemintPanel(props: RemintPanelProps) {
           <For each={STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-                  targetStyle() === option.value
-                    ? "border-gold bg-gold/5"
-                    : "border-border bg-bg hover:border-gold/50"
+                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-[color,background-color,border-color,box-shadow] ${
+                  targetStyle() === option.value ? BLOCK_CHOSEN : BLOCK_IDLE
                 } ${busy() ? "opacity-40" : ""}`}
               >
                 <span class="flex items-center gap-2">

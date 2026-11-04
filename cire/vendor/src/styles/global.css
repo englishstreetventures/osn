@@ -66,9 +66,9 @@
   --text-muted: oklch(94.6% 0.011 90 / 0.58);
   --text-faint: oklch(94.6% 0.011 90 / 0.4);
 
-  /* Brand — #2F4B26. It is a *fill*: the ground of a primary button, the wash
-     behind an active row. `brand-ink` is the readable-on-a-ground variant, and
-     `on-brand` is what sits on top of a brand fill. */
+  /* Brand — #2F4B26, the host portal's ramp kept whole so the two portals stay
+     one green (DESIGN.md). This portal paints nothing in it today: the primary
+     button is gold (`--ui-accent`), not this (host DESIGN.md §2). */
   --brand: oklch(38% 0.072 141);
   --brand-hi: oklch(46% 0.083 141);
   --brand-ink: oklch(80% 0.098 143);
@@ -109,13 +109,15 @@
 
   /* Depth. One inner highlight along the top edge of a raised surface — the
      single trick that makes a flat card read as a lit object rather than a
-     rectangle — plus two drop shadows. */
+     rectangle — plus two drop shadows. `--elev-2`, what floats over the page,
+     carries the lip with its shadow, so every menu, popover and panel that
+     floats is lit the same way (DESIGN.md §4, Depth). */
   --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.045);
   --elev-1: 0 1px 2px oklch(0% 0 0 / 0.32);
   /* The glass strip's light inner edge (`@cire/ui` SegmentedTabs): faint on
      the dark ramp, bright on the light one, as a lit edge reads on each. */
   --glass-edge: oklch(100% 0 0 / 0.1);
-  --elev-2: 0 12px 32px -8px oklch(0% 0 0 / 0.55);
+  --elev-2: var(--inner-lip), 0 12px 32px -8px oklch(0% 0 0 / 0.55);
 }
 
 @media (prefers-color-scheme: light) {
@@ -164,7 +166,7 @@
     --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
     --elev-1: 0 1px 2px oklch(30% 0.02 340 / 0.12);
     --glass-edge: oklch(100% 0 0 / 0.7);
-    --elev-2: 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
+    --elev-2: var(--inner-lip), 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
   }
 }
 
@@ -210,7 +212,7 @@
   --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
   --elev-1: 0 1px 2px oklch(30% 0.02 340 / 0.12);
   --glass-edge: oklch(100% 0 0 / 0.7);
-  --elev-2: 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
+  --elev-2: var(--inner-lip), 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
 }
 
 /* ── Motion ─────────────────────────────────────────────────────────────────

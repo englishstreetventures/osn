@@ -1,6 +1,7 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Disclosure from "@cire/ui/disclosure";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -24,7 +25,6 @@ import {
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Select } from "@shared/ui/ui/select";
 import {
   createEffect,
   createMemo,
@@ -42,7 +42,6 @@ import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { FORM_ACTION_CLASS } from "../lib/form-field";
 import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
 import {
   guestName,
@@ -58,6 +57,7 @@ import {
 } from "../lib/seating-api";
 import { sameButOrder } from "../lib/sortable-rows";
 import { haptic } from "../lib/touch-feedback";
+import { FilterSelect } from "./FilterField";
 import ReorderControls from "./ReorderControls";
 
 const PLACE_CLASS = `${cardClass({ padding: "sm" })} transition-ui-colors duration-(--dur-fast) ease-(--ease-out)`;
@@ -406,9 +406,8 @@ export default function SeatingView(props: SeatingViewProps) {
         <div class="flex flex-wrap items-end justify-between gap-4">
           <Field label="Event">
             {(field) => (
-              <Select
+              <FilterSelect
                 {...field}
-                size="sm"
                 onChange={(e) => setEventId(e.currentTarget.value)}
                 class="min-w-56"
               >
@@ -422,18 +421,18 @@ export default function SeatingView(props: SeatingViewProps) {
                     </option>
                   )}
                 </For>
-              </Select>
+              </FilterSelect>
             )}
           </Field>
           {/* The event picker is a filter — which chart to show — so it is a 28px
               pill, and the bar's actions beside it are its height (DESIGN.md
               §4, "One form-field height"). */}
           <div class="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" class="h-7" onClick={() => window.print()}>
+            <Button variant="outline" size="sm" onClick={() => window.print()}>
               Print
             </Button>
             <Show when={props.canManage}>
-              <Button variant="outline" size="sm" class="h-7" onClick={() => void downloadCsv()}>
+              <Button variant="outline" size="sm" onClick={() => void downloadCsv()}>
                 Download seating CSV
               </Button>
             </Show>
@@ -494,7 +493,7 @@ export default function SeatingView(props: SeatingViewProps) {
                       />
                     )}
                   </Field>
-                  <Button class={FORM_ACTION_CLASS} type="submit" variant="primary" size="sm">
+                  <Button type="submit" variant="primary" size="form">
                     Add table
                   </Button>
                 </form>
@@ -684,24 +683,19 @@ function Place(props: {
               onInput={(e) => setCapacity(e.currentTarget.value)}
               class="w-20"
             />
-            <Button class={FORM_ACTION_CLASS} type="submit" variant="primary" size="sm">
+            <Button type="submit" variant="primary" size="form">
               Save
             </Button>
-            <Button
-              class={FORM_ACTION_CLASS}
-              variant="quiet"
-              size="sm"
-              onClick={() => setEditing(false)}
-            >
+            <Button variant="quiet" size="form" onClick={() => setEditing(false)}>
               Cancel
             </Button>
           </form>
         }
       >
         <header class="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 id={headingId} class="font-body text-text text-ui-base font-medium">
+          <Eyebrow as="h3" id={headingId} tone="muted">
             {props.title}
-          </h3>
+          </Eyebrow>
           <div class="flex items-center gap-2">
             <Show when={props.table}>
               {(table) => (

@@ -41,7 +41,6 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
-import { FORM_ACTION_CLASS } from "../lib/form-field";
 import {
   createGuestEventDraft,
   type DraftFamily,
@@ -485,19 +484,13 @@ export default function GuestsEditor(props: {
           <Show
             when={compact()}
             fallback={
-              <Button variant="outline" size="sm" class="h-7 shrink-0" onClick={addHousehold}>
+              <Button variant="outline" size="sm" class="shrink-0" onClick={addHousehold}>
                 <Plus aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
                 Add household
               </Button>
             }
           >
-            <IconButton
-              variant="outline"
-              size="icon"
-              class="size-7"
-              label="Add household"
-              onClick={addHousehold}
-            >
+            <IconButton variant="quiet" size="icon" label="Add household" onClick={addHousehold}>
               <Plus aria-hidden="true" strokeWidth={1.75} class="size-4" />
             </IconButton>
           </Show>
@@ -833,8 +826,8 @@ function FamilyCard(props: {
   const remove = () => (
     <Button
       variant="quiet"
-      size="sm"
-      class={`${FORM_ACTION_CLASS} shrink-0`}
+      size="form"
+      class="shrink-0"
       onClick={() => props.store.removeFamily(props.family.key)}
       title="Delete this household. Its claim code is disabled and any RSVPs are discarded — you'll confirm the impact before it's applied."
     >
@@ -1000,8 +993,8 @@ function FamilyCard(props: {
 
       <Button
         variant="outline"
-        size="sm"
-        class={`${FORM_ACTION_CLASS} mt-4 self-start`}
+        size="form"
+        class="mt-4 self-start"
         onClick={() => props.store.addGuest(props.family.key)}
       >
         Add guest

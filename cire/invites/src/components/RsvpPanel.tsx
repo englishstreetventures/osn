@@ -34,7 +34,11 @@ import { formatNames, isValidRsvpSaveResponse } from "./utils";
  * one stacks it (`RsvpPanel.browser.test.tsx`).
  */
 const ANSWER_PAIR_CLASS = "flex gap-2 @max-[16rem]:flex-col";
-/** Each answer fills its half, at the guest site's 44px touch floor. */
+/**
+ * Each answer fills its half, at the guest site's 44px touch floor: 2.75rem,
+ * 46.75px on the 17px desk root. The sheet's Cancel and Save take it too, so
+ * every control a guest presses in the sheet stands at one height.
+ */
 const ANSWER_CLASS = "min-h-11 flex-1";
 
 export interface RsvpPanelProps {
@@ -1046,7 +1050,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
           <Button
             variant="quiet"
             type="button"
-            class="flex-1"
+            class={ANSWER_CLASS}
             ref={dismissRef}
             onClick={() => props.onClose()}
             // Nothing left to cancel once the reply is in and the sheet is
@@ -1088,7 +1092,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 keyed on `loading()` instead, which is the state that earns it. */}
             <button
               type="submit"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-normal rounded-ui-control transition-ui-colors flex-1 border bg-transparent px-5 py-3 font-medium duration-(--dur-fast) ease-(--ease-out) disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              class={`border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-normal rounded-ui-control transition-ui-colors border bg-transparent px-5 py-2 font-medium duration-(--dur-fast) ease-(--ease-out) disabled:cursor-not-allowed disabled:hover:bg-transparent ${ANSWER_CLASS}`}
               classList={{
                 "opacity-40": loading() || blockedByMember(),
                 "cursor-pointer": !saved(),

@@ -52,8 +52,13 @@ sliding pill is `@cire/ui`'s too. This portal declares the spring
 slides on it.
 Every form field here takes `@shared/ui`'s `size="form"` and is 34px, as host
 §4 ("One form-field height") sets; `tests/styles/form-field.test.ts` holds
-it. This portal has no button in a row with a field, so it carries no
-`FORM_ACTION_CLASS`.
+it. A button beside one would be `Button`'s `form` size; this portal has none.
+
+The one pill language (host §4) holds here as it does there: this stylesheet
+sets the two pill tokens `@cire/ui`'s `Button` reads, `--pill-ground` and
+`--pill-sm-height` (`tests/styles/pill-tokens.browser.test.tsx` measures
+both), and `--elev-2` carries the inner lip, so its menus are the host's
+floating depth. Its primary button is gold, as the host's is (host §2).
 
 ---
 

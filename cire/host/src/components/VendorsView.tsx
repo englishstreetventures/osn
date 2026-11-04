@@ -9,7 +9,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { haptic } from "../lib/touch-feedback";
@@ -341,7 +341,7 @@ export default function VendorsView(props: VendorsViewProps) {
               />
             )}
           </Field>
-          <Button class={FORM_ACTION_CLASS} type="submit" variant="primary">
+          <Button type="submit" variant="primary" size="form">
             Add vendor
           </Button>
         </form>
@@ -454,20 +454,14 @@ export default function VendorsView(props: VendorsViewProps) {
                                 </Field>
                                 <div class="flex items-end gap-2">
                                   <Button
-                                    class={FORM_ACTION_CLASS}
                                     type="submit"
                                     variant="primary"
-                                    size="sm"
+                                    size="form"
                                     disabled={listingLoading()}
                                   >
                                     {listingLoading() ? "Listing…" : "List + invite"}
                                   </Button>
-                                  <Button
-                                    class={FORM_ACTION_CLASS}
-                                    variant="quiet"
-                                    size="sm"
-                                    onClick={closeListing}
-                                  >
+                                  <Button variant="quiet" size="form" onClick={closeListing}>
                                     Cancel
                                   </Button>
                                 </div>

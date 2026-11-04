@@ -11,7 +11,6 @@ import FileInput from "@cire/ui/file-input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, lazy, Show, Suspense } from "solid-js";
 
-import { FORM_ACTION_CLASS } from "../../lib/form-field";
 import {
   CROP_ASPECT,
   cropAspectRatio,
@@ -132,32 +131,17 @@ export default function ImageField(props: {
         />
         <Show when={props.url}>
           {/* At the picker's 34px, so the row lines up. */}
-          <Button
-            variant="outline"
-            size="sm"
-            class={FORM_ACTION_CLASS}
-            onClick={() => setCropping("desktop")}
-          >
+          <Button variant="outline" size="form" onClick={() => setCropping("desktop")}>
             Crop
           </Button>
           <Show when={hasMobileCrop()}>
-            <Button
-              variant="outline"
-              size="sm"
-              class={FORM_ACTION_CLASS}
-              onClick={() => setCropping("mobile")}
-            >
+            <Button variant="outline" size="form" onClick={() => setCropping("mobile")}>
               Phone crop
             </Button>
           </Show>
           {/* Danger, not quiet: removing the photo takes effect on the live
               invite straight away — there is no save bar to change your mind at. */}
-          <Button
-            variant="danger"
-            size="sm"
-            class={FORM_ACTION_CLASS}
-            onClick={() => props.onRemove()}
-          >
+          <Button variant="danger" size="form" onClick={() => props.onRemove()}>
             Remove
           </Button>
         </Show>

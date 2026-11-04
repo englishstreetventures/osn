@@ -8,6 +8,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { BLOCK_CHOSEN, BLOCK_IDLE } from "../lib/chosen-block";
 import type { Tier } from "../lib/tiers";
 import { haptic } from "../lib/touch-feedback";
 import type { WeddingRole } from "../lib/wedding-roles";
@@ -154,10 +155,8 @@ export default function CreateWeddingForm(props: {
           <For each={CODE_STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-                  codeStyle() === option.value
-                    ? "border-gold bg-gold/5"
-                    : "border-border bg-bg hover:border-gold/50"
+                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-[color,background-color,border-color,box-shadow] ${
+                  codeStyle() === option.value ? BLOCK_CHOSEN : BLOCK_IDLE
                 } ${busy() ? "opacity-40" : ""}`}
               >
                 <span class="flex items-center gap-2">

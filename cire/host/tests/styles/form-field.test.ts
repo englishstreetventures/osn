@@ -8,9 +8,9 @@ import { describe, expect, it } from "vitest";
  * `form` size, or `form-compact` in a narrow cell (DESIGN.md §4, "One
  * form-field height"). A field added without one renders at 36px beside 34px
  * neighbours and nothing on screen says so, so this reads every `<Input` and
- * `<Select` tag under `src/` and names those without it. The only two are the
- * filter parts in `FilterField.tsx`, `size="sm"`, 28px with round ends, in the
- * track's look; every filter is one of them (`<FilterSearch`, `<FilterSelect`),
+ * `<Select` tag under `src/` and names those without it. The only one is the
+ * filter part in `FilterField.tsx`, `size="sm"`, 28px with round ends, in the
+ * track's look, beside its search box, the shared `sm` box on a native input; every filter is one of them (`<FilterSearch`, `<FilterSelect`),
  * found by its file and a marker in its own handler, not by line number. A
  * height class on a field would fight its size, so none carries `h-8.5` or
  * `h-7`.
@@ -56,8 +56,12 @@ function fields(): Array<{ file: string; at: string; tag: string }> {
   return found;
 }
 
-/** The two filter parts: the only `sm` fields, by their own tags. */
-const FILTER_PARTS = ["components/FilterField.tsx:<Input", "components/FilterField.tsx:<Select"];
+/**
+ * The filter parts: `FilterSelect`'s `<Select`, the one `sm` field by tag, and
+ * `FilterSearch`'s native input, which draws the shared control's `sm` box
+ * itself so its magnifier has room.
+ */
+const FILTER_PARTS = ["components/FilterField.tsx:<Select"];
 
 /** Each filter: the file it is in and text unique to its own tag. */
 const FILTERS = [
@@ -86,6 +90,9 @@ describe("Input and Select", () => {
       return filter ? `${filter.file} ${filter.marker}` : f.at;
     });
     expect(named.toSorted()).toEqual(FILTERS.map((x) => `${x.file} ${x.marker}`).toSorted());
+    const search = readFileSync(join(SRC, "components", "FilterField.tsx"), "utf8");
+    expect(search).toContain('controlClass("sm",');
+    expect(search).toContain("CONTROL_HEIGHT.sm");
     // A filter part takes its size from itself, never from its caller.
     expect(filters.filter((f) => /\bsize=/.test(f.tag)).map((f) => f.at)).toEqual([]);
   });

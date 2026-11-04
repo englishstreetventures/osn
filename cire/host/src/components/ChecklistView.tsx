@@ -22,7 +22,7 @@ import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
   ensureHostsLoaded,
@@ -490,7 +490,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
               />
             )}
           </Field>
-          <Button class={FORM_ACTION_CLASS} type="submit" variant="primary">
+          <Button type="submit" variant="primary" size="form">
             Add task
           </Button>
         </form>

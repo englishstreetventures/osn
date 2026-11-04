@@ -412,16 +412,16 @@ export default function ImageCropModal(props: ImageCropModalProps) {
         </Notice>
       </Show>
 
-      {/* Aspect-ratio presets — one choice among several, so `choice` buttons:
-            the active shape carries the accent border and ring. Selecting one
-            re-locks the crop box. */}
+      {/* Aspect-ratio presets — one choice among several, so `glass` pills:
+            the active shape wears the strip's glass. Selecting one re-locks
+            the crop box. */}
       <div class="flex flex-col gap-1.5">
         <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">Shape</span>
         <div role="group" aria-label="Crop aspect ratio" class="flex flex-wrap gap-1.5">
           <For each={ASPECT_PRESETS}>
             {(p) => (
               <Button
-                variant="choice"
+                variant="glass"
                 size="sm"
                 type="button"
                 aria-pressed={preset() === p.id}

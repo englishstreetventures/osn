@@ -13,7 +13,6 @@ import { Select } from "@shared/ui/ui/select";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FORM_ACTION_CLASS } from "../lib/form-field";
 import { type HostSeat, invalidateHosts, setFreshHosts } from "../lib/hosts-store";
 import { useMembersChanged } from "../lib/members-changed";
 import {
@@ -1110,12 +1109,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                     </div>
                   </Show>
                 </div>
-                <Button
-                  class={FORM_ACTION_CLASS}
-                  type="submit"
-                  variant="primary"
-                  disabled={adding()}
-                >
+                <Button type="submit" variant="primary" size="form" disabled={adding()}>
                   {adding() ? "Adding…" : canAddSecondOwner() ? "Add as owner" : "Add host"}
                 </Button>
               </div>

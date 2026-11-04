@@ -1062,7 +1062,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     size="sm"
                     type="button"
                     onClick={() => setPreviewModalOpen(true)}
-                    class="h-7 shrink-0"
+                    class="shrink-0"
                   >
                     Preview
                   </Button>

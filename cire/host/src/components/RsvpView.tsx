@@ -8,14 +8,13 @@ import DietaryPresetsInline from "@cire/ui/dietary-presets";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import SegmentedTabs from "@cire/ui/segmented-tabs";
 import Skeleton from "@cire/ui/skeleton";
+import { Popover } from "@kobalte/core/popover";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Checkbox } from "@shared/ui/ui/checkbox";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field, Fieldset } from "@shared/ui/ui/field";
-import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
-import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import type { SafeProps } from "@shared/ui/ui/props";
 import { Select } from "@shared/ui/ui/select";
 import { Table, Td, Th } from "@shared/ui/ui/table";
@@ -73,6 +72,7 @@ import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
 import { haptic } from "../lib/touch-feedback";
 import { IconButton } from "./ActionTip";
+import { FilterSearch, FilterSelect } from "./FilterField";
 import SectionIntro from "./SectionIntro";
 import { type MarkTone, StatusDot, StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
@@ -801,9 +801,8 @@ export default function RsvpView(props: RsvpViewProps) {
       class={compact() ? "min-w-0 flex-1" : "w-72 shrink-0"}
     >
       {(field) => (
-        <Input
+        <FilterSearch
           {...field}
-          size="sm"
           type="search"
           aria-controls={panelId}
           value={query()}
@@ -825,34 +824,43 @@ export default function RsvpView(props: RsvpViewProps) {
    */
   const replyKey = () => (
     <Popover placement="bottom-end" gutter={4}>
-      <PopoverTrigger as={KeyButton} aria-label={KEY_LABEL} data-tip={KEY_LABEL}>
+      <Popover.Trigger as={KeyButton} aria-label={KEY_LABEL} data-tip={KEY_LABEL}>
         <Info aria-hidden="true" strokeWidth={1.75} class="size-4" />
-      </PopoverTrigger>
-      <PopoverContent aria-label={KEY_LABEL} class="w-72">
-        <ul class="font-body text-text-muted text-ui-sm leading-ui-snug flex flex-col gap-2.5">
-          <li class="flex items-start gap-2">
-            <span class="text-gold-ink text-ui-xs tracking-ui-wider flex w-8 shrink-0 justify-center pt-0.5 font-medium uppercase">
-              New
-            </span>
-            <span>{NEW_TEXT}.</span>
-          </li>
-          <For each={Object.values(PROVENANCE)}>
-            {(p) => (
-              <li class="flex items-start gap-2">
-                <span class="flex w-8 shrink-0 justify-center pt-0.5">
-                  <p.icon aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
-                </span>
-                <span>
-                  <span class="text-text inline-block font-medium first-letter:uppercase">
-                    {p.name}
-                  </span>{" "}
-                  — {sentence(p.text)}
-                </span>
-              </li>
-            )}
-          </For>
-        </ul>
-      </PopoverContent>
+      </Popover.Trigger>
+      {/* Kobalte's own popover, as the portal's other popovers are, so it
+          takes every floating panel's depth: the raised surface, lit by the
+          inner lip, on the floating shadow (`--elev-2`), at the 10px corner,
+          popping from the trigger's side (`menu-pop`). */}
+      <Popover.Portal>
+        <Popover.Content
+          aria-label={KEY_LABEL}
+          class="border-border bg-surface-raised text-text menu-pop text-ui-sm z-50 w-72 rounded-md border p-3 shadow-(--elev-2) outline-none"
+        >
+          <ul class="font-body text-text-muted text-ui-sm leading-ui-snug flex flex-col gap-2.5">
+            <li class="flex items-start gap-2">
+              <span class="text-gold-ink text-ui-xs tracking-ui-wider flex w-8 shrink-0 justify-center pt-0.5 font-medium uppercase">
+                New
+              </span>
+              <span>{NEW_TEXT}.</span>
+            </li>
+            <For each={Object.values(PROVENANCE)}>
+              {(p) => (
+                <li class="flex items-start gap-2">
+                  <span class="flex w-8 shrink-0 justify-center pt-0.5">
+                    <p.icon aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
+                  </span>
+                  <span>
+                    <span class="text-text inline-block font-medium first-letter:uppercase">
+                      {p.name}
+                    </span>{" "}
+                    — {sentence(p.text)}
+                  </span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Popover.Content>
+      </Popover.Portal>
     </Popover>
   );
 
@@ -873,8 +881,7 @@ export default function RsvpView(props: RsvpViewProps) {
         <div class="flex min-w-0 items-center gap-2">
           {searchBox(section)}
           {/* At the search box's height, so the two read as one bar. */}
-          <Select
-            size="sm"
+          <FilterSelect
             class="max-w-28 min-w-0"
             aria-label="Sort guests"
             value={sort() ? `${sort()!.key}:${sort()!.direction}` : ""}
@@ -885,7 +892,7 @@ export default function RsvpView(props: RsvpViewProps) {
             <For each={SORT_CHOICES}>
               {(choice) => <option value={choice.value}>{choice.label}</option>}
             </For>
-          </Select>
+          </FilterSelect>
           {replyKey()}
         </div>
         {replyFilter(section)}
@@ -1004,7 +1011,7 @@ export default function RsvpView(props: RsvpViewProps) {
         actions={
           <Show when={props.canManage && !error() && (loading() || hasGuests())}>
             <IconButton
-              variant="outline"
+              variant="quiet"
               size="icon"
               label={exporting() ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
               onClick={() => void exportRsvps()}

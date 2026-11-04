@@ -13,6 +13,7 @@ import {
   typographyVar,
 } from "@cire/theme";
 import Button from "@cire/ui/button";
+import { GLASS_WORD } from "@cire/ui/lib/glass";
 import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, For, Index, Show } from "solid-js";
 
@@ -123,9 +124,10 @@ export default function PaletteField(props: {
               const selected = () => (props.value.preset ?? DEFAULT_PRESET) === key;
               return (
                 <Button
-                  variant="choice"
+                  variant="glass"
                   type="button"
                   aria-pressed={selected()}
+                  aria-label={PRESET_LABELS[key]}
                   onClick={() => choosePreset(key)}
                   class="flex items-center"
                 >
@@ -141,7 +143,11 @@ export default function PaletteField(props: {
                       )}
                     </For>
                   </span>
-                  <span class="font-body text-text text-ui-sm">{PRESET_LABELS[key]}</span>
+                  {/* The word in the glass's inks and weight, its width held
+                      at medium, as a glass pill's word is. */}
+                  <span class={GLASS_WORD} data-label={PRESET_LABELS[key]}>
+                    {PRESET_LABELS[key]}
+                  </span>
                 </Button>
               );
             }}

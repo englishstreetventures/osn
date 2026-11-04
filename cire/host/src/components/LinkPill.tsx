@@ -5,7 +5,7 @@ import { Dynamic } from "solid-js/web";
 /** The row link pills sit in, and the container a marked pill reads its width from. */
 export const LINK_PILL_ROW = "@container flex flex-wrap items-center gap-2";
 
-const PILL = `${buttonClass({ variant: "outline", size: "sm" })} h-7`;
+const PILL = buttonClass({ variant: "outline", size: "sm" });
 const MARKED_PILL = `${PILL} @max-[14rem]:w-7 @max-[14rem]:px-0`;
 
 export interface LinkPillProps {

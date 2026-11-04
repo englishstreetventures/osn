@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Chip, type ChipTone, type ChipVariant } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -323,9 +324,9 @@ function DaySection(props: DayProps) {
   return (
     <section aria-labelledby={headingId} class="flex flex-col gap-2">
       <div class="border-border flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b pb-2">
-        <h3 id={headingId} class="font-body text-gold-ink text-ui-sm font-medium">
+        <Eyebrow as="h3" id={headingId} tone="muted">
           {props.day.heading}
-        </h3>
+        </Eyebrow>
         <Show when={props.day.zones.length > 0}>
           <p class="font-body text-text-muted text-ui-xs">
             {mixed() ? "Each time on its own clock" : `Times in ${props.day.zones[0]}`}

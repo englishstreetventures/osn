@@ -84,7 +84,7 @@ const ORNAMENT: readonly { file: string; line: string; why: string }[] = [
   },
   {
     file: "cire/host/src/components/WeddingSwitcher.tsx",
-    line: 'class="text-text-faint group-hover:text-gold text-ui-xs shrink-0',
+    line: 'class="text-text-faint group-hover:text-gold text-ui-xs transition-ui-colors shrink-0',
     why: "the switcher's hidden ▾ beside the wedding's name",
   },
   {

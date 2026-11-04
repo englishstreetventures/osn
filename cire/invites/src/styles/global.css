@@ -1060,3 +1060,12 @@ html.has-safe-bottom {
 body.invite-page {
   padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
 }
+
+/* The gift page's way back, said once: the sticky rail carries it while the
+   list is open, and the closed page's own pill under its message carries it
+   once the couple have closed the list, so the rail stands down. The island
+   marks the closed answer (`data-gift-closed`) after the document has drawn
+   the rail, so the rule reads the page, not the island. */
+:root:has([data-gift-closed]) [data-gift-rail] {
+  display: none;
+}

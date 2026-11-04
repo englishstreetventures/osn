@@ -4,11 +4,9 @@ import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
-import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
-import { Select } from "@shared/ui/ui/select";
 import Globe from "lucide-solid/icons/globe";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -19,6 +17,7 @@ import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { haptic } from "../lib/touch-feedback";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
+import { FilterSearch, FilterSelect } from "./FilterField";
 import { InstagramMark, LINK_PILL_ROW, LinkPill } from "./LinkPill";
 
 const LISTING_CLASS = cardClass({ padding: "sm" });
@@ -249,15 +248,14 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
   return (
     <div class="flex flex-col gap-6">
-      {/* Filter bar. Filters are 28px pills (`size="sm"`), and the bar's one
-          action is their height: a `Button` at `size="sm"` alone is 31px
-          (DESIGN.md §4, "One form-field height"). */}
+      {/* Filter bar. Filters are 28px pills (`FilterSelect`, `FilterSearch`),
+          and the bar's one action is their height, `Button`'s `sm` (DESIGN.md
+          §4, One pill language). */}
       <div class={FIELD_BAR_CLASS}>
         <Field label="Category">
           {(field) => (
-            <Select
+            <FilterSelect
               {...field}
-              size="sm"
               value={category()}
               onChange={(e) => {
                 setCategory(e.currentTarget.value);
@@ -266,15 +264,14 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
             >
               <option value="">All categories</option>
               <For each={SERVICE_CATEGORIES}>{(c) => <option value={c.key}>{c.label}</option>}</For>
-            </Select>
+            </FilterSelect>
           )}
         </Field>
 
         <Field label="Keyword" class="min-w-40 flex-1">
           {(field) => (
-            <Input
+            <FilterSearch
               {...field}
-              size="sm"
               value={q()}
               onInput={(e) => {
                 setQ(e.currentTarget.value);
@@ -287,9 +284,8 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
         <Field label="Location">
           {(field) => (
-            <Input
+            <FilterSearch
               {...field}
-              size="sm"
               value={location()}
               onInput={(e) => {
                 setLocation(e.currentTarget.value);
@@ -300,7 +296,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           )}
         </Field>
 
-        <Button variant="quiet" size="sm" class="h-7" onClick={clearFilters}>
+        <Button variant="quiet" size="sm" onClick={clearFilters}>
           Clear filters
         </Button>
       </div>

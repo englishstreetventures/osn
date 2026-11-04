@@ -1,8 +1,9 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import { eyebrowClass } from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
+import Plus from "lucide-solid/icons/plus";
 import { createSignal, For, onMount, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
@@ -80,7 +81,7 @@ export default function WeddingList(props: {
         {/* Intrinsic columns rather than a `@lg/page` step: an organiser with
             six weddings gets three or four per row on a widescreen, and one on
             a phone, with no breakpoint list to keep in sync. */}
-        <ul class="auto-grid [--auto-grid-min:20rem]">
+        <ul class="auto-grid auto-rows-fr [--auto-grid-min:20rem]">
           <For each={props.weddings}>
             {(wedding) => (
               <li class="flex">
@@ -105,7 +106,7 @@ export default function WeddingList(props: {
                   <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
                     {wedding.displayName}
                   </span>
-                  <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm mt-2 flex items-center gap-2 transition-colors duration-(--dur-base) ease-(--ease-out)">
+                  <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm transition-ui-colors mt-2 flex items-center gap-2 duration-(--dur-base) ease-(--ease-out)">
                     Open dashboard
                     <span
                       aria-hidden="true"
@@ -118,6 +119,14 @@ export default function WeddingList(props: {
               </li>
             )}
           </For>
+          {/* The empty slot stands in the grid's next cell, a tile the size of
+              a wedding's (every row the height of the tallest), dashed because
+              something appears there. */}
+          <Show when={!creating()}>
+            <li class="flex">
+              <CreateAffordance onClick={() => setCreating(true)} />
+            </li>
+          </Show>
         </ul>
       </Show>
 
@@ -129,10 +138,7 @@ export default function WeddingList(props: {
         />
       </Show>
 
-      <Show
-        when={creating() || isEmpty()}
-        fallback={<CreateAffordance onClick={() => setCreating(true)} />}
-      >
+      <Show when={creating() || isEmpty()}>
         <CreateWeddingForm
           onCreated={handleCreated}
           onCancel={isEmpty() ? undefined : closeForm}
@@ -222,10 +228,23 @@ function RecentlyDeleted(props: {
   );
 }
 
+/**
+ * The empty slot: `dashed` drawn as a tile, the 14px field corner and a
+ * wedding tile's size, its plus over its words in the secondary ink, which
+ * turn readable gold under the pointer with the edge (DESIGN.md §4, One pill
+ * language).
+ */
 function CreateAffordance(props: { onClick: () => void }) {
+  // `buttonClass` on a native button rather than `Button`, because the tile
+  // sets its own corner and room and `Button` owns both.
   return (
-    <Button variant="dashed" type="button" onClick={props.onClick} class="self-start">
-      + Create a wedding
-    </Button>
+    <button
+      type="button"
+      onClick={() => props.onClick()}
+      class={`${buttonClass({ variant: "dashed", size: "lg" })} rounded-ui-field w-full flex-col gap-2 py-6`}
+    >
+      <Plus aria-hidden="true" strokeWidth={1.75} class="size-4.5" />
+      Create a wedding
+    </button>
   );
 }

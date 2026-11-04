@@ -1,8 +1,9 @@
-import Button from "@cire/ui/button";
+import { buttonClass } from "@cire/ui/button";
 import Wordmark from "@cire/ui/wordmark";
 import type { RpSession } from "@shared/rp-auth";
 import { Chip } from "@shared/ui/ui/chip";
 import { Tooltip } from "@shared/ui/ui/tooltip";
+import Search from "lucide-solid/icons/search";
 import { onMount, Show } from "solid-js";
 
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
@@ -110,24 +111,28 @@ export default function TopBar(props: {
 
         {/* ── Actions ──────────────────────────────────────────────────────── */}
         <div class="ml-auto flex shrink-0 items-center gap-2">
-          <Button
-            variant="tile"
+          {/* A pill, the top bar's 36px, as a search box reads (DESIGN.md §4,
+              One pill language): the portals' pill ground and hairline, a
+              16px magnifier and the shortcut, 12px in from each end; on a
+              narrow bar the magnifier alone, in a 36px circle. */}
+          {/* `buttonClass` on a native button rather than `Button`, because the
+              pill sets its own sides at each width and `Button` owns its
+              padding. */}
+          <button
             type="button"
             aria-label="Search and jump to"
             aria-keyshortcuts="Meta+K Control+K"
             onClick={() => props.onOpenPalette()}
-            class="flex h-9 items-center"
+            class={`${buttonClass({ variant: "quiet", size: "sm" })} h-9 w-9 px-0 @2xl/frame:w-auto @2xl/frame:px-3`}
           >
-            <span aria-hidden="true" class="text-ui-sm leading-none">
-              ⌕
-            </span>
+            <Search aria-hidden="true" strokeWidth={1.75} class="size-4 shrink-0" />
             <span
               aria-hidden="true"
               class="font-body text-ui-xs tracking-ui-wider hidden @2xl/frame:inline"
             >
               ⌘K
             </span>
-          </Button>
+          </button>
 
           {/* Rendered at every width. The button collapses to its glyph on a
               narrow bar (see `PreviewInviteButton`) rather than being hidden
