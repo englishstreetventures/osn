@@ -145,4 +145,15 @@ describe("plan:guard, the cire stack's production plan guard", () => {
       "::error::cire production plan refused: cire_host's Worker would give up next-vendor.cireweddings.com; only a release dispatched with unflip: cire_host takes a production host off its Worker",
     ]);
   }, 30_000);
+
+  test("G18: refuses the landing site's Worker giving up a host it holds beside its spare host, though the site has no retired list", () => {
+    const result = guard(PRODUCTION_LOG, {
+      ...LIVE_DOMAINS,
+      cire_landing: ["next.cireweddings.com", "old.cireweddings.com"],
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
+      "::error::cire production plan refused: cire_landing's Worker would give up old.cireweddings.com; only a release dispatched with unflip: cire_landing takes a production host off its Worker",
+    ]);
+  }, 30_000);
 });
