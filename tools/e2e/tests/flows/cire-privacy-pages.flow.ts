@@ -145,10 +145,11 @@ async function legalPage(flow: Flow, page: Page, target: (typeof LEGAL_PAGES)[nu
     ).join(" | "),
   );
   const version = footer.locator(".version");
+  // A local dev server is built from no commit.
   flow.check(
     `${name}: the footer prints the build's version`,
-    true,
-    /^Version (local|[0-9a-f]{7})$/.test(((await version.textContent()) ?? "").trim()),
+    "Version local",
+    ((await version.textContent()) ?? "").trim(),
   );
 
   const actions = [...(await legal.locator("a").all()), version];

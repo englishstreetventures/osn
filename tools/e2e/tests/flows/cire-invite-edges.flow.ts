@@ -190,6 +190,34 @@ test("cire-invite-edges", async ({ page, browser, flow }) => {
     await page.screenshot({ path: resolve(SHOTS, "landscape.png") });
   });
 
+  // An unknown wedding is served the guest site's 404, which ends on the
+  // footer's legal row with no couple to sign off for.
+  await flow.step("the not-found page's footer is the legal row alone", async () => {
+    const response = await page.goto(`${ORIGINS.cireInvites}/no-such-wedding-for-edges`);
+    flow.check("an unknown wedding is a 404", 404, response?.status() ?? 0);
+    const footer = page.getByRole("contentinfo");
+    const legal = footer.locator('nav[aria-label="Legal"]');
+    flow.check(
+      "the not-found footer links the legal pages",
+      "Privacy notice /privacy | Terms /terms",
+      (
+        await legal
+          .locator("a")
+          .evaluateAll((links) =>
+            links.map((a) => `${(a.textContent ?? "").trim()} ${a.getAttribute("href") ?? ""}`),
+          )
+      ).join(" | "),
+    );
+    const choices = legal.getByRole("button", { name: "Privacy choices" });
+    await expect(choices).toBeVisible({ timeout: 60_000 });
+    flow.check("the not-found footer has no sign-off", 0, await footer.locator(".signoff").count());
+    await footer.scrollIntoViewIfNeeded();
+    await footer.screenshot({
+      path: resolve(SHOTS, "not-found-footer.png"),
+      animations: "disabled",
+    });
+  });
+
   await flow.step("a phone with no inset gets no strips and no classes", async () => {
     const context: BrowserContext = await browser.newContext({ viewport: PHONE, hasTouch: true });
     try {
