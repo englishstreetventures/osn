@@ -53,11 +53,19 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
   const dueBy = (at: Date): SQL =>
     sql`CASE WHEN ${c.nextAccessBoundaryAt} IS NULL OR ${c.nextAccessBoundaryAt} > ${at.getTime()} THEN ${at.getTime()} ELSE ${c.nextAccessBoundaryAt} END`;
 
+  /**
+   * The next access version: one more than the last, and never below the
+   * clock (1,000 per millisecond). So a version only rises, and a row created
+   * again after `forgetCustomer` starts above every version the erased row
+   * handed out, unless that row took 1,000 versions in its last millisecond.
+   */
+  const nextVersion = (now: Date): SQL => sql`MAX(${c.accessVersion} + 1, ${now.getTime() * 1000})`;
+
   /** The dirty mark: a write access depends on has landed for this customer. */
   const markDirty = (customerRef: string, now: Date) =>
     db
       .update(c)
-      .set({ accessVersion: sql`${c.accessVersion} + 1`, nextAccessBoundaryAt: dueBy(now) })
+      .set({ accessVersion: nextVersion(now), nextAccessBoundaryAt: dueBy(now) })
       .where(eq(c.customerRef, customerRef));
 
   const toCustomer = (row: typeof c.$inferSelect): CustomerRecord => ({
@@ -416,7 +424,7 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
           // Each grant of the lease takes a new version, so every decision the
           // hook is handed carries a larger token than the one before, even
           // one that only the passing of time changed.
-          .set({ accessLockUntil: input.until, accessVersion: sql`${c.accessVersion} + 1` })
+          .set({ accessLockUntil: input.until, accessVersion: nextVersion(input.now) })
           .where(
             and(
               eq(c.customerRef, input.customerRef),
@@ -475,18 +483,22 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
           .all(),
       ).pipe(Effect.map((rows) => rows.map((row) => row.customerRef))),
 
-    forgetCustomer: (customerRef) =>
+    forgetCustomer: (input) =>
       Effect.gen(function* () {
-        const row = yield* findCustomerWhere("find_customer", eq(c.customerRef, customerRef));
+        const held = and(eq(c.customerRef, input.customerRef), eq(c.accessLockUntil, input.token));
+        const row = yield* findCustomerWhere("find_customer", held);
         if (row === null) return null;
+        // Every delete holds only while the lease does, so a lost lease deletes nothing.
+        const stillHeld = sql`EXISTS (SELECT 1 FROM ${c} WHERE ${held})`;
         yield* q("forget_customer", () =>
           commitBatch(db, [
-            db.delete(g).where(eq(g.customerRef, customerRef)),
-            db.delete(s).where(eq(s.customerRef, customerRef)),
-            db.delete(c).where(eq(c.customerRef, customerRef)),
+            db.delete(g).where(and(eq(g.customerRef, input.customerRef), stillHeld)),
+            db.delete(s).where(and(eq(s.customerRef, input.customerRef), stillHeld)),
+            db.delete(c).where(held),
           ]),
         );
-        return { providerCustomerId: row.providerCustomerId };
+        const left = yield* findCustomerWhere("find_customer", held);
+        return left === null ? { providerCustomerId: row.providerCustomerId } : null;
       }),
   };
 }

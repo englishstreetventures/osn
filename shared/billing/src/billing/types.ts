@@ -119,9 +119,10 @@ export interface AccessDecision<
   /**
    * A fencing token: every call to the hook carries a larger one than the call
    * before it, including a call that only time changed (a grant expiring, grace
-   * running out). Store it with what the hook writes, and write only when it is
-   * greater than the stored one (`WHERE applied_version < :version`), when the
-   * order of two calls matters.
+   * running out) and the first call for a customer created again after
+   * `forgetCustomer`. Store it with what the hook writes, and write only when
+   * it is greater than the stored one (`WHERE applied_version < :version`),
+   * when the order of two calls matters.
    */
   readonly version: number;
   readonly decidedAt: Date;
@@ -270,12 +271,14 @@ export interface Billing<PlanId extends string, FeatureId extends string> {
   /** Deletes webhook event claims received before `before`. */
   pruneWebhookEvents(input: { readonly before: Date }): Effect.Effect<number, BillingStorageError>;
   /**
-   * Erasure: deletes the customer's grants, subscriptions and customer row in
-   * one batch, and calls no hook. Answers the Stripe customer id it held, so the
-   * consumer can delete that customer at Stripe too, which cancels its
-   * subscriptions; `null` when the package held no row for the ref.
+   * Erasure. Under the customer's access lease, hands `onAccess` a final
+   * decision denying every feature, then deletes the customer's grants,
+   * subscriptions and row in one batch. Answers the Stripe customer id it held,
+   * so the consumer can delete that customer at Stripe too, which cancels its
+   * subscriptions; `null` when the package held no row for the ref. Fails like
+   * `grant` when the lease stays busy or the hook fails, and deletes nothing.
    */
   forgetCustomer(input: {
     readonly customerRef: string;
-  }): Effect.Effect<{ readonly providerCustomerId: string | null } | null, BillingStorageError>;
+  }): Effect.Effect<{ readonly providerCustomerId: string | null } | null, ApplyError>;
 }

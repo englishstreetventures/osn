@@ -168,8 +168,9 @@ export interface BillingStorage {
 
   /**
    * Takes the customer's access lease when free or expired, raising the access
-   * version by one and returning the raised value from the same statement;
-   * `null` while another holds it. The lease's expiry is its token.
+   * version and returning the raised value from the same statement; `null`
+   * while another holds it. The lease's expiry is its token. A version only
+   * rises, and never falls below the one a row erased before it reached.
    */
   acquireAccess(input: {
     readonly customerRef: string;
@@ -199,10 +200,12 @@ export interface BillingStorage {
 
   /**
    * Deletes the customer's grants, subscriptions and row together, children
-   * first. Answers the provider customer id the row held; `null` when there
-   * was no row.
+   * first, only while `token` still holds its access lease. Answers the
+   * provider customer id the row held; `null` when the lease does not hold
+   * (nothing is deleted).
    */
-  forgetCustomer(
-    customerRef: string,
-  ): Effect.Effect<{ readonly providerCustomerId: string | null } | null, E>;
+  forgetCustomer(input: {
+    readonly customerRef: string;
+    readonly token: Date;
+  }): Effect.Effect<{ readonly providerCustomerId: string | null } | null, E>;
 }

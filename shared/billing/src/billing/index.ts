@@ -4,7 +4,7 @@ import { UnknownFeature } from "../errors";
 import { metricAccessChecked } from "../metrics";
 import { assertDistinctPlans, type AnyPlan, type FeatureIdOf, type PlanIdOf } from "../plans";
 import { decideFeature } from "../policy";
-import { applyAccess, decideStatus, readState } from "./access";
+import { applyAccess, decideStatus, forgetCustomer, readState } from "./access";
 import { createCatalogue, createCheckout } from "./checkout";
 import { createContext, type BillingContext } from "./context";
 import { reapplyAll, reconcile, sweepAccess } from "./cron";
@@ -110,10 +110,7 @@ export function createBilling<const Plans extends readonly AnyPlan[]>(
     pruneWebhookEvents: (input) =>
       ctx.storage.pruneEvents(input.before).pipe(Effect.withSpan("billing.prune_webhook_events")),
 
-    forgetCustomer: (input) =>
-      ctx.storage
-        .forgetCustomer(input.customerRef)
-        .pipe(Effect.withSpan("billing.forget_customer")),
+    forgetCustomer: (input) => forgetCustomer(ctx, input.customerRef),
   };
   return billing as Billing<PlanIdOf<Plans>, FeatureIdOf<Plans>>;
 }

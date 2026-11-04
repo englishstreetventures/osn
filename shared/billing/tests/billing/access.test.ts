@@ -135,7 +135,7 @@ describe("applying access", () => {
     const h = await createHarness();
     await run(h.storage.ensureCustomer("org_1", h.now()));
     const held = (ms: number) => ({ customerRef: "org_1", now: h.now(), until: later(ms) });
-    await run(h.storage.acquireAccess(held(30_000)));
+    const leased = (await run(h.storage.acquireAccess(held(30_000))))!.version;
     const granting = run(
       h.billing.grant({
         customerRef: "org_1",
@@ -145,10 +145,10 @@ describe("applying access", () => {
         expiresAt: null,
       }),
     );
-    // Wait until the grant has written (version 2: the lease took 1) and is
+    // Wait until the grant has written (a version above the lease's) and is
     // polling the busy lease.
     for (let i = 0; i < 200; i += 1) {
-      if ((await run(h.storage.findCustomer("org_1")))!.accessVersion >= 2) break;
+      if ((await run(h.storage.findCustomer("org_1")))!.accessVersion > leased) break;
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
     // The other holder lets go, applies the grant itself, and the lease is busy again.
@@ -285,15 +285,60 @@ describe("check and status", () => {
 });
 
 describe("forgetCustomer", () => {
-  it("leaves no access and no row behind, and answers the Stripe customer it held", async () => {
-    const h = await createHarness();
-    await run(h.storage.ensureCustomer("org_1", h.now()));
-    await activeUntil(h, later(10 * DAY));
+  const grantWorkspace = (h: Awaited<ReturnType<typeof createHarness>>) =>
+    run(
+      h.billing.grant({
+        customerRef: "org_1",
+        featureId: "workspace",
+        source: "comp",
+        grantedBy: "ops",
+        expiresAt: null,
+      }),
+    );
+
+  it("tells the hook every feature is denied, above every earlier version, then deletes the rows", async () => {
+    // The fence the hook contract documents: write only a larger version.
+    const mirror = { appliedVersion: -1, allowed: false, rowAtHook: true };
+    const h = await createHarness({
+      hooks: {
+        onAccess: (decision) =>
+          Effect.gen(function* () {
+            mirror.rowAtHook = (yield* h.storage.findCustomer("org_1")) !== null;
+            if (mirror.appliedVersion < decision.version) {
+              mirror.appliedVersion = decision.version;
+              mirror.allowed = decision.features.workspace.allowed;
+            }
+          }).pipe(Effect.orDie),
+      },
+    });
+    await grantWorkspace(h);
+    expect(mirror.allowed).toBe(true);
+
     expect(await run(h.billing.forgetCustomer({ customerRef: "org_1" }))).toEqual({
       providerCustomerId: null,
     });
-    expect((await run(h.billing.check("org_1", "workspace"))).allowed).toBe(false);
+    expect([mirror.allowed, mirror.rowAtHook]).toEqual([false, true]);
     expect(await run(h.storage.findCustomer("org_1"))).toBeNull();
+    expect((await run(h.billing.check("org_1", "workspace"))).allowed).toBe(false);
     expect(await run(h.billing.forgetCustomer({ customerRef: "org_1" }))).toBeNull();
+
+    // The same ref, granted again later: its decisions pass the consumer's fence.
+    h.advance(1_000);
+    await grantWorkspace(h);
+    expect(mirror.allowed).toBe(true);
+  });
+
+  it("deletes nothing while another process holds the lease, and fails busy", async () => {
+    const h = await createHarness();
+    await grantWorkspace(h);
+    const decisions = h.decisions.length;
+    await run(
+      h.storage.acquireAccess({ customerRef: "org_1", now: h.now(), until: later(30_000) }),
+    );
+    expect((await flip(h.billing.forgetCustomer({ customerRef: "org_1" })))._tag).toBe(
+      "AccessBusy",
+    );
+    expect((await run(h.storage.listGrants("org_1"))).length).toBe(1);
+    expect(h.decisions.length).toBe(decisions);
   });
 });

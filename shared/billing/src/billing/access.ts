@@ -221,3 +221,38 @@ export const applyAccess = (
     Effect.annotateLogs({ source }),
     Effect.withSpan("billing.access.apply", { attributes: { "billing.access.source": source } }),
   );
+
+/**
+ * Erasure. Under the customer's lease, so no other application's hook runs
+ * meanwhile: hands the hook a final decision that denies every feature, at a
+ * version above every earlier one, then deletes the customer's rows while the
+ * lease still holds. `null` when the package holds no row for the ref.
+ */
+export const forgetCustomer = (
+  ctx: BillingContext,
+  customerRef: string,
+): Effect.Effect<{ readonly providerCustomerId: string | null } | null, ApplyError> =>
+  Effect.gen(function* () {
+    const { storage, tuning } = ctx;
+    const deadline = performance.now() + tuning.accessBudgetMs;
+    for (;;) {
+      if ((yield* storage.findCustomer(customerRef)) === null) return null;
+      const now = ctx.now();
+      const token = after(now, tuning.leaseMs);
+      const lease = yield* storage.acquireAccess({ customerRef, now, until: token });
+      if (lease !== null) {
+        const denied = yield* decideStatus(ctx, customerRef, [], [], now);
+        yield* runHook(ctx, { ...denied, version: lease.version, decidedAt: now }).pipe(
+          Effect.tapError((error) =>
+            error.reason === "timeout"
+              ? storage.markAccessDue(customerRef, now)
+              : storage.releaseAccess({ customerRef, token, dueAt: now }),
+          ),
+        );
+        const forgotten = yield* storage.forgetCustomer({ customerRef, token });
+        if (forgotten !== null) return forgotten;
+      }
+      if (performance.now() >= deadline) return yield* Effect.fail(new AccessBusy());
+      yield* Effect.sleep(Duration.millis(tuning.backoffMs));
+    }
+  }).pipe(Effect.withSpan("billing.forget_customer"));

@@ -110,11 +110,13 @@ plan's price back by lookup key, with each currency's amount and the price's
    The consumer also adds the tables to its data map ([[data-map]]) and a
    retention row ([[retention]]). They hold no address, tax id, email or
    amount: customer refs, Stripe ids, statuses, plan ids and period times. Its
-   account-deletion path calls `forgetCustomer({ customerRef })`, which deletes
-   the customer's grants, subscriptions and row in one batch, calls no hook, and
-   answers the Stripe customer id it held (`null` when there was no row), so the
-   consumer can delete that customer at Stripe too — which cancels its
-   subscriptions — or keep it under its tax-record basis.
+   account-deletion path calls `forgetCustomer({ customerRef })`. Under the
+   customer's access lease, that hands `onAccess` a final decision denying every
+   feature, then deletes the customer's grants, subscriptions and row in one
+   batch. It answers the Stripe customer id it held (`null` when there was no
+   row), so the consumer can delete that customer at Stripe too — which cancels
+   its subscriptions — or keep it under its tax-record basis. While the lease
+   stays busy or the hook fails it deletes nothing and fails as `grant` does.
 
 2. **One instance per isolate**, built where the app graph is built:
 
@@ -191,7 +193,10 @@ early once a completed application covers its own write.
 
 `decision.version` is a fencing token: every call to the hook carries a larger
 one than the call before, including a call that only time changed — a grant
-expiring or grace running out, which the sweep applies with no write. A hook
+expiring or grace running out, which the sweep applies with no write — and the
+first call for a ref created again after `forgetCustomer`. Each version is one
+more than the last and never below the clock (1,000 per millisecond), so it
+does not restart when a row does. A hook
 whose write must never be overtaken by an older one stores it and writes only a
 larger one (`WHERE applied_version < :version`). The hook runs under a 3 s timeout; past
 it the signal aborts, the lease is kept until it expires (30 s), so a write the
@@ -327,8 +332,10 @@ on bun:sqlite.
 
 `forgetCustomer` deletes a customer's grants, subscriptions and row in one
 batch, children first, since both child tables reference the customer row and
-D1 enforces foreign keys. A revoked grant and its version bump also go out as
-one batch.
+D1 enforces foreign keys; each delete holds only while the erasure's lease
+does. The same foreign keys refuse a subscription or grant written for a
+customer already erased, so an in-flight webhook or reconcile cannot bring the
+rows back. A revoked grant and its version bump also go out as one batch.
 
 The same contract suite (`tests/storage/contract.ts`) runs on bun:sqlite under
 vitest and on Miniflare D1 under `bun test` (`test:d1`), with DDL from
