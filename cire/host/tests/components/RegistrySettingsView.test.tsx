@@ -310,7 +310,7 @@ describe("publishing", () => {
     // stands between the couple and a list guests can see.
     setCachedRegistry("wed_1", fundsOnly("currency_mismatch", "NZD"));
     const { unmount } = renderPanel();
-    const blocked = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    const blocked = (await screen.findByRole("radio", { name: /^Published/ })) as HTMLInputElement;
     expect(blocked.disabled).toBe(true);
     expect(publishNotice()).toMatch(
       /cash funds don’t count: your Stripe account pays out in a currency other than NZD\.$/i,
@@ -324,7 +324,7 @@ describe("publishing", () => {
     // The same snapshot with the currencies agreeing: publishable, and quiet.
     setCachedRegistry("wed_1", fundsOnly(null, "NZD"));
     renderPanel();
-    const open = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    const open = (await screen.findByRole("radio", { name: /^Published/ })) as HTMLInputElement;
     expect(open.disabled).toBe(false);
     expect(publishNotice()).toBeUndefined();
     expect(screen.queryByTestId("money-gifts-currency")).toBeNull();
@@ -341,9 +341,9 @@ describe("publishing", () => {
       }),
     );
     const owner = renderPanel({ canManage: true });
-    expect(((await screen.findByTestId("registry-publish")) as HTMLInputElement).disabled).toBe(
-      true,
-    );
+    expect(
+      ((await screen.findByRole("radio", { name: /^Published/ })) as HTMLInputElement).disabled,
+    ).toBe(true);
     expect(publishNotice()).toMatch(
       /cash funds don’t count until Stripe says which currency your account pays out in\.$/i,
     );
@@ -355,7 +355,7 @@ describe("publishing", () => {
     __resetRegistryCache();
     setCachedRegistry("wed_1", fundsOnly("stripe_currency_unknown"));
     renderPanel({ canManage: false });
-    await screen.findByTestId("registry-publish");
+    await screen.findByRole("radio", { name: /^Published/ });
     expect(screen.getByTestId("money-gifts-currency").textContent).toMatch(
       /Ask an owner to check the Stripe connection\.$/,
     );
@@ -383,7 +383,7 @@ describe("publishing", () => {
       }),
     );
     renderPanel();
-    await screen.findByTestId("registry-publish");
+    await screen.findByRole("radio", { name: /^Published/ });
     expect(publishNotice()).toMatch(
       /once Stripe can take payments for you and money gifts are on/i,
     );
@@ -396,7 +396,9 @@ describe("publishing", () => {
       __resetRegistryCache();
       setCachedRegistry("wed_1", fundsOnly(reason));
       const view = renderPanel();
-      const publish = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+      const publish = (await screen.findByRole("radio", {
+        name: /^Published/,
+      })) as HTMLInputElement;
       expect(publish.disabled).toBe(true);
       expect(publishNotice()).toMatch(/cash funds don’t count while guests can’t see them\.$/i);
       view.unmount();
@@ -589,15 +591,17 @@ describe("a save that changes whether guests can give", () => {
       }),
     );
     const { container } = renderPanel();
-    expect(((await screen.findByTestId("registry-publish")) as HTMLInputElement).disabled).toBe(
-      false,
-    );
+    expect(
+      ((await screen.findByRole("radio", { name: /^Published/ })) as HTMLInputElement).disabled,
+    ).toBe(false);
 
-    fireEvent.click(screen.getByTestId("cash-gifts"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Let guests give money" }));
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
 
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
-    expect((screen.getByTestId("registry-publish") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("radio", { name: /^Published/ }) as HTMLInputElement).disabled).toBe(
+      true,
+    );
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
       /cash funds count once money gifts are on/i,
     );
@@ -860,7 +864,7 @@ describe("money gifts", () => {
     );
     authFetch.mockResolvedValue(body instanceof Response ? body : json(body, 409));
     const { container } = renderPanel({ canManage: false });
-    fireEvent.click(await screen.findByTestId("cash-gifts"));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Let guests give money" }));
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
   }
@@ -1219,7 +1223,7 @@ describe("the live Stripe read", () => {
     authFetch.mockReset();
     setCachedRegistry("wed_1", unnamed());
     renderPanel({ canManage: false });
-    await screen.findByTestId("registry-publish");
+    await screen.findByRole("radio", { name: /^Published/ });
     expect(authFetch).not.toHaveBeenCalled();
   });
 });
@@ -1322,7 +1326,9 @@ describe("checking on Stripe by hand", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Check again/i }));
 
     await waitFor(() =>
-      expect((screen.getByTestId("registry-publish") as HTMLInputElement).disabled).toBe(false),
+      expect((screen.getByRole("radio", { name: /^Published/ }) as HTMLInputElement).disabled).toBe(
+        false,
+      ),
     );
     expect(screen.queryByTestId("money-gifts-currency")).toBeNull();
     expect(String(toastSuccess.mock.calls.at(-1)?.[0])).toMatch(/Stripe is ready/);
