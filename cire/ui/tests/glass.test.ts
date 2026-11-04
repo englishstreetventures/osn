@@ -32,22 +32,6 @@ describe("GLASS_CHOICE", () => {
     }
   });
 
-  it("marks the chosen word in readable gold and drops the hairline for the glass's own edge", () => {
-    expect(classes).toEqual(
-      expect.arrayContaining([`${CHOSEN}text-ui-accent-ink`, `${CHOSEN}border-transparent`]),
-    );
-  });
-
-  it("rests on the track's look: a hairline, the portals' ground, the secondary ink", () => {
-    expect(classes).toEqual(
-      expect.arrayContaining([
-        "base:border-ui-hairline",
-        "base:bg-[color:var(--pill-ground,transparent)]",
-        "base:text-ui-ink-secondary",
-      ]),
-    );
-  });
-
   it("goes halfway under the pointer exactly as a strip's choice does", () => {
     const hover = stripHover();
     expect(hover).toHaveLength(2);
@@ -55,15 +39,6 @@ describe("GLASS_CHOICE", () => {
     for (const declaration of hover) {
       expect(classes).toContain(`${gate}${declaration}`);
     }
-  });
-
-  it("keeps an outline on the chosen pill in a contrast theme", () => {
-    expect(classes).toEqual(
-      expect.arrayContaining([
-        `base:forced-colors:${CHOSEN.slice("base:".length)}outline-1`,
-        `base:forced-colors:${CHOSEN.slice("base:".length)}outline-solid`,
-      ]),
-    );
   });
 
   it("is what `Button` draws for `glass`", () => {

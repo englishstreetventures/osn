@@ -1,5 +1,5 @@
 import type { SafeProps } from "@shared/ui/ui/props";
-import { splitProps } from "solid-js";
+import { type JSX, splitProps } from "solid-js";
 
 import { GLASS_CHOICE } from "./lib/glass";
 
@@ -161,7 +161,7 @@ const VARIANT = {
    * needs its commit to be findable — so there `primary` is filled from the
    * start and `outline` never fills. Both products need both.
    */
-  cta: "base:border-ui-accent base:text-ui-accent-ink base:bg-[color:var(--pill-ground,transparent)] base:hover:bg-ui-accent base:hover:text-ui-on-accent base:disabled:hover:bg-[color:var(--pill-ground,transparent)] base:disabled:hover:text-ui-accent-ink",
+  cta: "base:border-ui-accent base:text-ui-accent-ink base:bg-[color:var(--pill-ground,transparent)] base:hover:bg-ui-accent base:hover:text-ui-on-accent",
   /**
    * The portals' secondary action, and a link that stands alone drawn as a
    * pill: a gold word inside a 40% gold edge.
@@ -654,7 +654,7 @@ export default function Button<
   V extends ButtonVariant = ButtonVariant,
   S extends ButtonSize = ButtonSize,
 >(props: ButtonProps<V, S>) {
-  const [own, rest] = splitProps(props, ["variant", "size", "class", "onClick"]);
+  const [own, rest] = splitProps(props, ["variant", "size", "class", "onClick", "children"]);
 
   /**
    * `aria-disabled` has to mean it.
@@ -690,6 +690,35 @@ export default function Button<
         // Solid's bound form: `onClick={[fn, data]}`.
         else if (Array.isArray(handler)) handler[0](handler[1], event);
       }}
-    />
+    >
+      {own.variant === "glass" ? <GlassWord>{own.children}</GlassWord> : own.children}
+    </button>
   );
 }
+
+/**
+ * A `glass` pill's content, its width held at the medium weight.
+ *
+ * A chosen `glass` pill sets its word at medium weight and the rest at normal,
+ * so the choice is marked by more than colour. A word that changed weight
+ * would change width and push the pills after it along, so the content is laid
+ * twice in one grid cell: once as shown, and once at medium weight with no
+ * visibility and no name (`aria-hidden`), which holds the cell at the wider
+ * width. Each access to `children` draws its own copy.
+ */
+function GlassWord(props: { children: JSX.Element }) {
+  return (
+    <span class="base:inline-grid">
+      <span data-glass-word class={GLASS_LAYER}>
+        {props.children}
+      </span>
+      <span aria-hidden="true" class={`${GLASS_LAYER} base:invisible base:font-medium`}>
+        {props.children}
+      </span>
+    </span>
+  );
+}
+
+/** One layer of {@link GlassWord}: the button's own row, in the one cell. */
+const GLASS_LAYER =
+  "base:col-start-1 base:row-start-1 base:inline-flex base:items-center base:justify-center base:gap-2";

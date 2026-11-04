@@ -157,6 +157,47 @@ describe("the heights", () => {
     ]);
   });
 
+  it("holds every sizing table to the form height and the icon square", () => {
+    render(() => (
+      <Ground>
+        <Button variant="tile" size="form">
+          Tile
+        </Button>
+        <Button variant="tile" size="md">
+          Tile md
+        </Button>
+        <Button variant="round" size="form" aria-label="Round">
+          ×
+        </Button>
+        <Button variant="tile" size="icon" aria-label="Tile icon">
+          +
+        </Button>
+        <Button variant="field" size="icon" aria-label="Field icon">
+          +
+        </Button>
+        <Button variant="link" size="form">
+          Link
+        </Button>
+        <Button variant="link" size="md">
+          Link md
+        </Button>
+      </Ground>
+    ));
+    const box = (name: string) => {
+      const r = screen.getByRole("button", { name }).getBoundingClientRect();
+      return [r.width, r.height];
+    };
+    expect(box("Tile")[1]).toBe(34);
+    const tile = getComputedStyle(screen.getByRole("button", { name: "Tile" }));
+    const tileMd = getComputedStyle(screen.getByRole("button", { name: "Tile md" }));
+    expect([tile.fontSize, tile.paddingLeft]).toEqual([tileMd.fontSize, tileMd.paddingLeft]);
+    expect(box("Round")).toEqual([34, 34]);
+    expect(box("Tile icon")).toEqual([28, 28]);
+    expect(box("Field icon")).toEqual([28, 28]);
+    const type = (name: string) => getComputedStyle(screen.getByRole("button", { name })).fontSize;
+    expect(type("Link")).toBe(type("Link md"));
+  });
+
   it("draws an icon button as a 28px circle", () => {
     render(() => (
       <Ground>
@@ -267,6 +308,12 @@ describe("glass, one of several", () => {
       expect(style.borderTopColor).toBe("rgba(0, 0, 0, 0)");
       expect(style.backdropFilter).not.toBe("none");
       expect(painted(style.color)).toBe(painted(token(chosen, "--ui-accent-ink")));
+      // The cue that is not colour, as a strip's chosen word carries it: the
+      // chosen word at medium weight, the rest at normal.
+      const weight = (button: HTMLElement) =>
+        getComputedStyle(button.querySelector("[data-glass-word]")!).fontWeight;
+      expect(weight(chosen)).toBe("500");
+      expect(weight(screen.getByRole("button", { name: "Phone" }))).toBe("400");
       const page = getComputedStyle(chosen.closest("[class*='bg-ui-ground']")!).backgroundColor;
       const under = composite([page, style.backgroundColor]);
       const word = composite([page, style.backgroundColor, style.color]);
@@ -299,13 +346,21 @@ describe("glass, one of several", () => {
     });
   }
 
-  it("moves nothing in its row when the choice moves", async () => {
+  it("moves nothing in its row when the choice and its weight move, and names each by its word once", async () => {
     render(() => <Pair ramp="dark" chosen="Desktop" />);
     const widths = () => screen.getAllByRole("button").map((b) => b.getBoundingClientRect().width);
     const before = widths();
     cleanup();
     render(() => <Pair ramp="dark" chosen="Phone" />);
     expect(widths()).toEqual(before);
+    // The room held for the medium weight is drawn, never named, and sits
+    // in the word's own cell rather than beside or under it.
+    const phone = screen.getByRole("button", { name: "Phone" });
+    expect(screen.queryByRole("button", { name: "Phone Phone" })).toBeNull();
+    const [shown, held] = [...phone.querySelectorAll("span > span")].map((layer) =>
+      layer.getBoundingClientRect(),
+    );
+    expect([held!.left, held!.top]).toEqual([shown!.left, shown!.top]);
   });
 
   it("marks a chosen radio as it marks a pressed button", async () => {
@@ -332,9 +387,12 @@ describe("glass, one of several", () => {
   it("keeps an outline on the chosen pill in a contrast theme", async () => {
     await emulateMedia({ forcedColors: "active" });
     render(() => <Pair ramp="dark" chosen="Phone" />);
-    expect(getComputedStyle(screen.getByRole("button", { name: "Phone" })).outlineStyle).toBe(
+    const chosen = getComputedStyle(screen.getByRole("button", { name: "Phone" }));
+    expect([chosen.outlineStyle, chosen.outlineWidth, chosen.outlineOffset]).toEqual([
       "solid",
-    );
+      "1px",
+      "0px",
+    ]);
     expect(getComputedStyle(screen.getByRole("button", { name: "Desktop" })).outlineStyle).toBe(
       "none",
     );

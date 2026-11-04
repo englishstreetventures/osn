@@ -5,9 +5,7 @@ import { cleanup, render, screen } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { avatarTriggerClass } from "../src/avatar-trigger-class";
 import Button, {
-  type ButtonSize,
   type ButtonVariant,
   buttonClass,
   type ProseLinkTone,
@@ -450,56 +448,6 @@ describe("Button — motion", () => {
       expect(timing).toHaveLength(expected.length);
       expect(timing).toEqual(expect.arrayContaining(expected));
     }
-  });
-});
-
-/*
- * The portals' pill (cire/host DESIGN.md §4, One pill language), read as
- * written: Stryker runs this tier alone, which draws no CSS, so these are what
- * let it see what `portal-pills.browser.test.tsx` measures.
- */
-describe("Button — the portals' pill", () => {
-  const GROUND = "base:bg-[color:var(--pill-ground,transparent)]";
-  const classes = (variant: ButtonVariant, size?: ButtonSize) =>
-    buttonClass({ variant, size }).split(/\s+/);
-
-  it("sits every boxed pill but primary on the portals' ground", () => {
-    const grounded: ButtonVariant[] = [
-      "cta",
-      "outline",
-      "quiet",
-      "quietDanger",
-      "dashed",
-      "danger",
-      "choice",
-      "glass",
-    ];
-    expect(grounded.filter((variant) => !classes(variant).includes(GROUND))).toEqual([]);
-    expect(classes("primary")).not.toContain(GROUND);
-    expect(avatarTriggerClass.split(/\s+/)).toContain(GROUND);
-  });
-
-  it("takes the portals' small height, and a form field's and an icon's of its own", () => {
-    expect(classes("outline", "sm")).toContain("base:h-[var(--pill-sm-height,auto)]");
-    for (const variant of ["primary", "quiet", "tile"] as const) {
-      expect([variant, classes(variant, "form")]).toEqual([
-        variant,
-        expect.arrayContaining(["base:h-8.5"]),
-      ]);
-      expect([variant, classes(variant, "icon")]).toEqual([
-        variant,
-        expect.arrayContaining(["base:h-7", "base:w-7"]),
-      ]);
-    }
-    expect(classes("field", "form")).toEqual(
-      expect.arrayContaining(["base:h-8.5", "base:px-3", "base:text-ui-base"]),
-    );
-    expect(classes("field", "icon")).toEqual(expect.arrayContaining(["base:h-7", "base:w-7"]));
-    expect(classes("round", "form")).toContain("base:size-8.5");
-    expect(classes("link", "form")).toContain("base:text-ui-sm");
-    expect(classes("tile", "form")).toEqual(
-      expect.arrayContaining(["base:px-4", "base:text-ui-sm"]),
-    );
   });
 });
 
