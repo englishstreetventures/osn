@@ -83,7 +83,9 @@ describe("Button", () => {
       <>
         <Button size="sm">Small</Button>
         <Button size="md">Medium</Button>
-        <Button size="icon">✕</Button>
+        <Button size="icon" aria-label="Remove">
+          ✕
+        </Button>
       </>
     ));
     const classes = ["Small", "Medium", "✕"].map((label) => getByText(label).className);
@@ -232,6 +234,88 @@ describe("Button — corners and case", () => {
   });
 });
 
+describe("Button — round", () => {
+  const SIZES = ["sm", "md", "lg", "icon", "swatch"] as const;
+
+  it("is a circle at every size: the pill step, even where a swatch takes the field corner", () => {
+    // It sits beside `chip` in the event sheet's bar and must stay round
+    // whatever an app maps `control` to.
+    const wrong = SIZES.filter((size) => {
+      const found = corners(buttonClass({ variant: "round", size }));
+      return found.length !== 1 || found[0] !== "base:rounded-ui-pill";
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("takes one square size per step: 28, 32 and 44px", () => {
+    const sizes = (size: (typeof SIZES)[number]) =>
+      buttonClass({ variant: "round", size })
+        .split(/\s+/)
+        .filter((c) => /^base:(size|h|w|min-h|min-w|p|px|py)-/.test(c));
+    expect(sizes("sm")).toEqual(["base:size-7", "base:p-0"]);
+    expect(sizes("md")).toEqual(["base:h-8", "base:w-8", "base:p-0"]);
+    expect(sizes("icon")).toEqual(["base:h-8", "base:w-8", "base:p-0"]);
+    expect(sizes("swatch")).toEqual(["base:h-8", "base:w-8", "base:p-0"]);
+    expect(sizes("lg")).toEqual(["base:size-11", "base:p-0"]);
+  });
+
+  it("sets the glyph on the base step, and the close × on the large one", () => {
+    const type = (size: (typeof SIZES)[number]) =>
+      buttonClass({ variant: "round", size })
+        .split(/\s+/)
+        .filter((c) => /^base:text-ui-(xs|sm|base|md|lg|xl)$/.test(c));
+    expect(type("sm")).toEqual(["base:text-ui-base"]);
+    expect(type("md")).toEqual(["base:text-ui-base"]);
+    expect(type("lg")).toEqual(["base:text-ui-lg"]);
+  });
+
+  it("is an opaque disc with no edge, whose glyph alone answers the pointer", () => {
+    const cls = buttonClass({ variant: "round" }).split(/\s+/);
+    expect(cls).toEqual(
+      expect.arrayContaining([
+        "base:border-transparent",
+        "base:bg-ui-surface",
+        "base:text-ui-ink-secondary",
+        "base:hover:text-ui-ink",
+      ]),
+    );
+    expect(cls.filter((c) => c.includes("hover:bg-"))).toEqual([]);
+  });
+
+  it("refuses a round or icon-size button with no name", () => {
+    // Its glyph is hidden from assistive tech, so the name is all there is.
+    // These lines are checked by the type-check, not by this run.
+    const named = render(() => (
+      <Button variant="round" aria-label="Close">
+        <span aria-hidden="true">×</span>
+      </Button>
+    ));
+    expect(named.getByRole("button", { name: "Close" })).toBeTruthy();
+    named.unmount();
+    const labelled = () => (
+      <Button variant="round" aria-labelledby="sheet-close">
+        ×
+      </Button>
+    );
+    expect(labelled).toBeTypeOf("function");
+    // @ts-expect-error — a round button must be named
+    const unnamed = () => <Button variant="round">×</Button>;
+    expect(unnamed).toBeTypeOf("function");
+    // @ts-expect-error — so must any button at the icon size
+    const unnamedIcon = () => <Button size="icon">+</Button>;
+    expect(unnamedIcon).toBeTypeOf("function");
+  });
+
+  it("holds the raised surface and the body ink while its popover is open", () => {
+    expect(buttonClass({ variant: "round" }).split(/\s+/)).toEqual(
+      expect.arrayContaining([
+        "base:aria-expanded:bg-ui-surface-raised",
+        "base:aria-expanded:text-ui-ink",
+      ]),
+    );
+  });
+});
+
 describe("Button — the variants that carry state or fill", () => {
   it("keeps a destructive worded action muted at rest, like its glyph twin", () => {
     // Same reasoning as `bareDanger`, for the control that OFFERS the
@@ -285,6 +369,7 @@ const EVERY_VARIANT = Object.keys({
   touchLink: true,
   bare: true,
   bareDanger: true,
+  round: true,
 } satisfies Record<ButtonVariant, true>) as ButtonVariant[];
 
 describe("Button — motion", () => {
