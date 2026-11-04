@@ -1044,10 +1044,17 @@ describe("ModuleShell", () => {
     const CODES = { name: "Invite, Codes" };
     const HOUSEHOLDS = { name: "Guests, Households" };
 
+    it("gives each place its own address, for a click that opens it in a new tab", async () => {
+      renderShell({ module: "guests", sub: "list" });
+      const guests = within(screen.getByTestId("guests"));
+      expect(guests.getByRole("link", MESSAGE).getAttribute("href")).toBe("#/w/wed_1/invite");
+      expect(guests.getByRole("link", CODES).getAttribute("href")).toBe("#/w/wed_1/invite/codes");
+    });
+
     it("sends the owner from Codes to the builder, open on its Message section", async () => {
       const { onModule, onSub } = renderShell({ module: "invite", sub: "codes" });
 
-      fireEvent.click(within(screen.getByTestId("codes")).getByRole("button", MESSAGE));
+      fireEvent.click(within(screen.getByTestId("codes")).getByRole("link", MESSAGE));
 
       expect(onSub.mock.calls).toEqual([["design"]]);
       expect(onModule).not.toHaveBeenCalled();
@@ -1058,7 +1065,7 @@ describe("ModuleShell", () => {
     it("sends a Households reader to the builder, open on its Message section", async () => {
       const { onModule, onSub } = renderShell({ module: "guests", sub: "list" });
 
-      fireEvent.click(within(screen.getByTestId("guests")).getByRole("button", MESSAGE));
+      fireEvent.click(within(screen.getByTestId("guests")).getByRole("link", MESSAGE));
 
       expect(onModule.mock.calls).toEqual([["invite", "design"]]);
       expect(onSub).not.toHaveBeenCalled();
@@ -1079,7 +1086,7 @@ describe("ModuleShell", () => {
       onSub.mockClear();
       const mountsBefore = builderMounts;
 
-      fireEvent.click(within(screen.getByTestId("guests")).getByRole("button", CODES));
+      fireEvent.click(within(screen.getByTestId("guests")).getByRole("link", CODES));
 
       expect(onModule.mock.calls).toEqual([["invite", "codes"]]);
       expect(onSub).not.toHaveBeenCalled();
@@ -1091,7 +1098,7 @@ describe("ModuleShell", () => {
       const { onModule } = renderShell({ module: "invite", sub: "design" });
 
       const builder = await screen.findByTestId("invite-design");
-      fireEvent.click(within(builder).getByRole("button", HOUSEHOLDS));
+      fireEvent.click(within(builder).getByRole("link", HOUSEHOLDS));
 
       expect(onModule.mock.calls).toEqual([["guests", "list"]]);
       expect(screen.getByTestId("guests")).toBeTruthy();
@@ -1105,7 +1112,7 @@ describe("ModuleShell", () => {
       });
 
       const builder = await screen.findByTestId("invite-design");
-      fireEvent.click(within(builder).getByRole("button", HOUSEHOLDS));
+      fireEvent.click(within(builder).getByRole("link", HOUSEHOLDS));
 
       expect(onModule).toHaveBeenCalledTimes(1);
       expect(onSub).not.toHaveBeenCalled();
@@ -1116,13 +1123,13 @@ describe("ModuleShell", () => {
       renderShell({ canManage: false, canEdit: true, module: "guests", sub: "list" });
 
       const households = screen.getByTestId("guests");
-      expect(within(households).getByRole("button", MESSAGE)).toBeTruthy();
-      expect(within(households).queryByRole("button", CODES)).toBeNull();
+      expect(within(households).getByRole("link", MESSAGE)).toBeTruthy();
+      expect(within(households).queryByRole("link", CODES)).toBeNull();
     });
 
     it("opens the builder on its first section again once the organiser has moved on", async () => {
       renderShell({ module: "invite", sub: "codes" });
-      fireEvent.click(within(screen.getByTestId("codes")).getByRole("button", MESSAGE));
+      fireEvent.click(within(screen.getByTestId("codes")).getByRole("link", MESSAGE));
       expect((await screen.findByTestId("invite-design")).getAttribute("data-section")).toBe(
         "invite-message",
       );
@@ -1136,7 +1143,7 @@ describe("ModuleShell", () => {
     it("moves focus to the new view's heading", () => {
       renderShell({ module: "guests", sub: "list" });
 
-      fireEvent.click(within(screen.getByTestId("guests")).getByRole("button", CODES));
+      fireEvent.click(within(screen.getByTestId("guests")).getByRole("link", CODES));
 
       expect(document.activeElement).toBe(
         screen.getByRole("heading", { level: 2, name: "Invite" }),

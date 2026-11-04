@@ -3,7 +3,7 @@ import {
   ORGANISER_DIETARY_ATTESTATION,
   ORGANISER_PLUS_ONE_DIETARY_ATTESTATION,
 } from "@cire/dietary";
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import DietaryPresetsInline from "@cire/ui/dietary-presets";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -182,16 +182,15 @@ const PROVENANCE = {
 
 type Provenance = (typeof PROVENANCE)[keyof typeof PROVENANCE];
 
-/** The reply key's button: a quiet round icon at the search box's height
- *  (`h-7`), so the bar's row does not grow for it. */
+/** `text` closed with one full stop: a mark's explanation of two sentences already has its own. */
+const sentence = (text: string) => (text.endsWith(".") ? text : `${text}.`);
+
+/** The reply key's button: `Button`'s `round` at `sm`, the search box's 28px,
+ *  so the bar's row does not grow for it. `PopoverTrigger` renders it `as`
+ *  this, so its handlers, ref and `aria-expanded` arrive in `props`; the
+ *  raised disc while the key is open comes from that `aria-expanded`. */
 function KeyButton(props: SafeProps<"button">) {
-  return (
-    <button
-      type="button"
-      {...props}
-      class="text-text-muted hover:text-text hover:bg-surface transition-ui-colors ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full duration-(--dur-fast) ease-(--ease-out)"
-    />
-  );
+  return <Button variant="round" size="sm" {...props} aria-label={KEY_LABEL} class="ml-auto" />;
 }
 
 /** What "New" on a guest's meta line says. */
@@ -921,7 +920,7 @@ export default function RsvpView(props: RsvpViewProps) {
                   <span class="text-text inline-block font-medium first-letter:uppercase">
                     {p.name}
                   </span>{" "}
-                  — {p.text}.
+                  — {sentence(p.text)}
                 </span>
               </li>
             )}
@@ -1484,7 +1483,7 @@ export default function RsvpView(props: RsvpViewProps) {
                   href={`${CIRE_MARKETING_URL}/privacy`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-gold-ink underline underline-offset-2"
+                  class={proseLinkClass()}
                 >
                   cireweddings.com/privacy<span class="sr-only"> (opens in a new tab)</span>
                 </a>

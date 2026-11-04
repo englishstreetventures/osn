@@ -8,6 +8,7 @@ import {
 import { Notice, type NoticeTone } from "@shared/ui/ui/notice";
 import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 import { EventSheet } from "../../src/components/EventSheet";
@@ -41,7 +42,9 @@ import type { GiftRegistry } from "../../src/lib/gift-registry-read";
  * tone an organiser can give the welcome, in both layouts; the RSVP sheet's
  * preview note on the sheet; its chosen answers on each tone the sheet can
  * take; the gift page's notes and chosen amount on each tone the page can
- * take. Inside a site, every element that draws words of its own in the
+ * take; an unchosen answer under the pointer, its ink halfway to the gold, on
+ * each tone the sheet can take; the closed gift page's link standing alone,
+ * its outline pill, under the pointer on each tone the page can take. Inside a site, every element that draws words of its own in the
  * readable gold is measured, and every element between those words and the
  * site's own box must lay no ground, so a gold word added later is held too.
  */
@@ -464,6 +467,46 @@ describe.each(PALETTE_PRESET_KEYS)("the %s scheme", (palettePreset) => {
     expect(short).toEqual([]);
   });
 
+  it("holds an unchosen answer's words to 4.5:1 under the pointer on every tone", async () => {
+    // Under the pointer an unchosen answer's ink goes halfway between the
+    // secondary ink and the readable gold, a mix the palette derives against
+    // no ground, so it is read once its colours have finished moving.
+    apply();
+    const short: string[] = [];
+    for (const tone of SECTION_TONES) {
+      const { unmount } = render(() => (
+        <EventSheet
+          panel="rsvp"
+          siteUrl="https://invite.test/w"
+          event={event}
+          members={[ada, ben]}
+          existingRsvps={replies}
+          apiUrl="https://api.test"
+          themeVars={sectionToneVars(tone)}
+          onClose={() => {}}
+        />
+      ));
+      for (const name of ["Attending", "Not attending"]) {
+        const other = screen
+          .getAllByRole("button", { name })
+          .find((button) => button.textContent?.trim() === name && button.ariaPressed === "false");
+        if (!other) {
+          short.push(`${tone}: no unchosen "${name}"`);
+          continue;
+        }
+        const rest = getComputedStyle(other).color;
+        await userEvent.hover(other);
+        await Promise.all(other.getAnimations().map((a) => a.finished));
+        if (getComputedStyle(other).color === rest) short.push(`${tone}, "${name}": no hover`);
+        const ratio = wordsRatio(other);
+        if (ratio < WCAG_TEXT_MIN) short.push(`${tone}, hovered "${name}": ${ratio.toFixed(2)}`);
+        await userEvent.unhover(other);
+      }
+      unmount();
+    }
+    expect(short).toEqual([]);
+  });
+
   it("holds the gift page's notes and chosen gift to 4.5:1 on every tone", async () => {
     apply();
     const short: string[] = [];
@@ -525,6 +568,40 @@ describe.each(PALETTE_PRESET_KEYS)("the %s scheme", (palettePreset) => {
       cleanup();
       vi.unstubAllGlobals();
       document.cookie = "cire_claimed=; Path=/; Max-Age=0";
+    }
+    expect(short).toEqual([]);
+  });
+
+  it("holds the closed gift page's link pill to 4.5:1 under the pointer, with no fill, on every tone", async () => {
+    // "Back to the invitation", a link standing alone: `outline` answers the
+    // pointer with its edge alone, so its gold word stays on the ground the
+    // palette derived it against, and it keeps the 44px touch floor.
+    apply();
+    const short: string[] = [];
+    for (const tone of SECTION_TONES) {
+      // A 404 is the API's one answer for a list the guest cannot see.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(new Response("{}", { status: 404 }))),
+      );
+      const view = render(() => (
+        <GiftRegistryPage
+          apiUrl="https://api.test"
+          slug="ada-and-ben"
+          inviteHref="/ada-and-ben"
+          themeVars={sectionToneVars(tone)}
+        />
+      ));
+      const pill = await screen.findByRole("link", { name: "Back to the invitation" }, LAZY);
+      await userEvent.hover(pill);
+      await Promise.all(pill.getAnimations().map((a) => a.finished));
+      if (fills(pill)) short.push(`${tone}: fills under the pointer`);
+      const ratio = wordsRatio(pill);
+      if (ratio < WCAG_TEXT_MIN) short.push(`${tone}: ${ratio.toFixed(2)}:1`);
+      if (pill.getBoundingClientRect().height < 44) short.push(`${tone}: under 44px`);
+      view.unmount();
+      cleanup();
+      vi.unstubAllGlobals();
     }
     expect(short).toEqual([]);
   });

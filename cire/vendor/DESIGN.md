@@ -119,7 +119,9 @@ anchor to `PUBLIC_OSN_ACCOUNT_URL`, `target="_blank"` and `rel="noopener"`.
 This portal holds no parts of its own: every part comes from the two packages
 the host portal draws on (host §7).
 
-- Shared with the host portal: `Button`, `buttonClass`, `Card`, `cardClass`,
+- Shared with the host portal: `Button`, `buttonClass`, `proseLinkClass` (the
+  link inside the claim page's warning keeps the readable gold, as host §7 says
+  of a link inside a tinted `Notice`), `Card`, `cardClass`,
   `cardBoxClass`, `Eyebrow` and `eyebrowClass` from `@cire/ui`; `Notice`,
   `EmptyState`, `Field`, `Fieldset`, `Input`, `Textarea` and `Select` from
   `@shared/ui`.

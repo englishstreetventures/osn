@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js";
 
@@ -66,20 +67,15 @@ interface AnimatedModalProps {
 }
 
 /**
- * The sheet's ×, opaque in the sheet's surface wherever it sits: content
- * passes underneath it as the sheet scrolls, in the corner and on the frosted
- * bar alike. A raw button rather than `Button`: the borderless variants are
- * transparent, and this one must hide what scrolls beneath it.
+ * The sheet's ×: `Button`'s `round` at `lg`, 44px for touch, on the surface
+ * fill wherever it sits, because content passes underneath it as the sheet
+ * scrolls, in the corner and on the frosted bar alike.
  */
 function CloseButton(props: { onClick: () => void }) {
   return (
-    <button
-      class="text-text-muted hover:text-text bg-surface focus-visible:outline-ui-focus transition-ui-colors flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
-      onClick={() => props.onClick()}
-      aria-label="Close"
-    >
-      &times;
-    </button>
+    <Button variant="round" size="lg" aria-label="Close" onClick={() => props.onClick()}>
+      <span aria-hidden="true">&times;</span>
+    </Button>
   );
 }
 

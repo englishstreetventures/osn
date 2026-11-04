@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from "@solidjs/testing-library";
+import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import DesignPicker from "../../../src/components/invite/DesignPicker";
@@ -20,7 +21,9 @@ function renderPicker(currentId: string) {
       currentId={currentId}
       saving={false}
       onSelect={() => {}}
-      previewHref={(id) => `/preview?design=${id}`}
+      // A link pill draws only an absolute http(s) address, as the guest
+      // invite URL always is.
+      previewHref={(id) => `https://invites.example/preview?design=${id}`}
     />
   ));
   return screen.getAllByRole("radio");
@@ -43,11 +46,9 @@ describe("DesignPicker tab stop", () => {
 describe("DesignPicker preview links", () => {
   it("names each link for its design and says it opens in a new tab", () => {
     renderPicker("classic");
-    const names = screen.getAllByRole("link").map((a) => a.getAttribute("aria-label"));
-    expect(names).toEqual([
-      "Preview Classic live (opens in a new tab)",
-      "Preview Gala live (opens in a new tab)",
-    ]);
-    expect(new Set(names).size).toBe(names.length);
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAccessibleName("Preview live Classic (opens in a new tab)");
+    expect(links[1]).toHaveAccessibleName("Preview live Gala (opens in a new tab)");
   });
 });

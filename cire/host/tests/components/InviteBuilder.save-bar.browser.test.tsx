@@ -80,7 +80,7 @@ const json = (body: unknown, status = 200) =>
 const bar = () => screen.getByRole("button", { name: /Save invite|Saving/ }).closest(".sticky")!;
 
 /** The last control the Design card offers above the bar. */
-const lastControl = () => screen.getAllByRole("link", { name: /^Preview .* live/ }).at(-1)!;
+const lastControl = () => screen.getAllByRole("link", { name: /^Preview live/ }).at(-1)!;
 
 /** The colour an element is painted ON and IN, composited on a canvas (same
  *  method as `ImportPanel.browser.test.tsx`). */

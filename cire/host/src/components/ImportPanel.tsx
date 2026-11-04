@@ -1,5 +1,5 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Disclosure from "@cire/ui/disclosure";
 import Eyebrow from "@cire/ui/eyebrow";
@@ -790,9 +790,9 @@ function EventsGuidance() {
                 href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
                 target="_blank"
                 rel="noreferrer"
-                class="text-gold-ink underline-offset-2 hover:underline"
+                class={proseLinkClass()}
               >
-                IANA
+                IANA<span class="sr-only"> (opens in a new tab)</span>
               </a>{" "}
               name, e.g. <span class="text-text font-ui-mono">Australia/Sydney</span>.
             </dd>

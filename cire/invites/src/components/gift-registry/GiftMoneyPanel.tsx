@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
 import { toast, type ToastOptions } from "@shared/toast";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
@@ -415,7 +415,9 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           <Show when={status().includes("invite code")}>
             <a
               href={props.inviteHref}
-              class="font-body text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+              // A link standing alone is a pill, at the guest site's 44px
+              // touch floor.
+              class={`${buttonClass({ variant: "outline", size: "md" })} min-h-11`}
             >
               Open the invitation
             </a>

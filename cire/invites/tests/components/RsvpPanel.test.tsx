@@ -796,7 +796,9 @@ describe("RsvpPanel", () => {
     pickPreset(fs, /^vegan$/i);
     const checkbox = consentBox() as HTMLInputElement;
     expect(checkbox.checked).toBe(false);
-    const privacyLink = screen.getByText(/privacy notice/i).closest("a") as HTMLAnchorElement;
+    const privacyLink = screen.getByRole("link", {
+      name: /^privacy notice ?\(opens in a new tab\)$/,
+    });
     expect(privacyLink.getAttribute("href")).toBe("/privacy");
   });
 
@@ -1479,11 +1481,13 @@ describe("RsvpPanel", () => {
     expect(queryAttestBox()).toBeNull();
     const line = screen.getByText(/Dietary requirements on file are shared with the caterers/);
     expect(line.textContent).toBe(
-      "Dietary requirements on file are shared with the caterers for this wedding. See our privacy notice.",
+      "Dietary requirements on file are shared with the caterers for this wedding. See our privacy notice (opens in a new tab).",
     );
-    expect(within(line).getByRole("link", { name: "privacy notice" }).getAttribute("href")).toBe(
-      "/privacy",
-    );
+    expect(
+      within(line)
+        .getByRole("link", { name: /^privacy notice ?\(opens in a new tab\)$/ })
+        .getAttribute("href"),
+    ).toBe("/privacy");
   });
 
   it.each([
@@ -2427,11 +2431,21 @@ describe("RsvpPanel", () => {
     });
 
     it("locks the party's controls once the reply is recorded", async () => {
-      const { getByRole } = await confirmOnce();
+      const { getByRole, fetchSpy } = await confirmOnce();
       const fs = fieldsetFor("Priya");
-      // Editing an answer that can no longer be sent is a dead end.
-      expect((within(fs).getByText("Attending") as HTMLButtonElement).disabled).toBe(true);
-      expect((within(fs).getByText("Not attending") as HTMLButtonElement).disabled).toBe(true);
+      // Editing an answer that can no longer be sent is a dead end. The pair is
+      // locked with `aria-disabled`, which keeps the answer legible, so the
+      // attribute alone proves nothing: a click must change nothing either.
+      const attending = within(fs).getByRole("button", { name: "Attending" });
+      const declined = within(fs).getByRole("button", { name: "Not attending" });
+      expect(attending.getAttribute("aria-disabled")).toBe("true");
+      expect(declined.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(declined);
+      fireEvent.submit(document.querySelector("form")!);
+      await Promise.resolve();
+      expect(attending.getAttribute("aria-pressed")).toBe("true");
+      expect(declined.getAttribute("aria-pressed")).toBe("false");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
       // Cancel too: there is nothing left to cancel, and an early `onClose`
       // here would race the dwell timer for the same call.
       expect((getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
@@ -2548,7 +2562,13 @@ describe("RsvpPanel", () => {
       const save = getByRole("button", { name: "Save" });
       expect(save.getAttribute("aria-disabled")).toBeNull();
       const fs = fieldsetFor("Priya");
-      expect((within(fs).getByText("Attending") as HTMLButtonElement).disabled).toBe(false);
+      const attending = within(fs).getByRole("button", { name: "Attending" });
+      expect(attending.getAttribute("aria-disabled")).toBeNull();
+      // Unlocked for real: a different answer takes.
+      fireEvent.click(within(fs).getByRole("button", { name: "Not attending" }));
+      expect(attending.getAttribute("aria-pressed")).toBe("false");
+      fireEvent.click(attending);
+      expect(attending.getAttribute("aria-pressed")).toBe("true");
       expect((getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
       expect(onClose).not.toHaveBeenCalled();
 

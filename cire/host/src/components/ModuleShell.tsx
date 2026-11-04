@@ -29,7 +29,13 @@ import {
 
 import { createAutoSize } from "../lib/auto-size";
 import { peekCachedBudget } from "../lib/budget-store";
-import { DEFAULT_MODULE, defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
+import {
+  DEFAULT_MODULE,
+  defaultSub,
+  isSubOf,
+  type Module,
+  serializeRoute,
+} from "../lib/dashboard-route";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { scrollDelta } from "../lib/scroll-to-results";
 import { createSlidingPill } from "../lib/sliding-pill";
@@ -431,9 +437,22 @@ export default function ModuleShell(props: ModuleShellProps) {
       here={here}
       canEdit={props.canEdit}
       canManage={props.canManage}
+      href={inviteMessageHref}
       onNavigate={openInviteMessagePlace}
     />
   );
+
+  /** A place's address: its module and sub-view, without the builder section,
+   *  which is not part of the URL. Built only for a link that is drawn. */
+  function inviteMessageHref(place: InviteMessagePlace): string {
+    const to: InviteMessageRoute = INVITE_MESSAGE_ROUTES[place];
+    return serializeRoute({
+      view: "weddings",
+      weddingId: props.weddingId,
+      module: to.module,
+      sub: to.sub,
+    });
+  }
 
   // The panel takes the height of whatever view the tabs swapped in, and moves
   // between the two rather than jumping. Nothing is held at rest — see the note

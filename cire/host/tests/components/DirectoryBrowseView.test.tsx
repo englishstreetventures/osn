@@ -122,6 +122,42 @@ describe("DirectoryBrowseView", () => {
     expect(upsertCachedVendor).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      "a website and an Instagram handle",
+      "https://acme.example",
+      "@acme.venue",
+      ["Website", "Instagram"],
+    ],
+    ["a website alone", "https://acme.example", null, ["Website"]],
+    ["an Instagram handle alone", null, "acme.venue", ["Instagram"]],
+    ["neither", null, null, []],
+    // A vendor writes these, so an address that is not http(s) and a handle
+    // with characters a handle cannot have are refused, not linked.
+    ["a refused website and handle", "javascript:alert(1)", "acme venue!", []],
+  ])("links %s as pills that open a new tab and say so", async (_l, website, instagram, words) => {
+    authFetch.mockResolvedValueOnce(
+      json({ listings: [listing({ website, instagram })], total: 1 }),
+    );
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    const card = (await screen.findByText("Acme Venue")).closest("li")!;
+    fireEvent.click(within(card).getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    const href = { Website: "https://acme.example", Instagram: "https://instagram.com/acme.venue" };
+    const links = within(dialog).queryAllByRole("link");
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(
+      words.map((w) => href[w as keyof typeof href]),
+    );
+    for (const [i, word] of words.entries()) {
+      // The word first, then whose it is and that it leaves the portal.
+      expect(links[i]!.textContent).toBe(`${word} for Acme Venue (opens in a new tab)`);
+      expect(links[i]!.getAttribute("target")).toBe("_blank");
+      expect(links[i]!.getAttribute("rel")).toBe("noopener noreferrer");
+      // Each leads with its mark, hidden from assistive tech.
+      expect(links[i]!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    }
+  });
+
   it("hides the Add control for viewers (canEdit false)", async () => {
     authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
     render(() => <DirectoryBrowseView weddingId="w1" canEdit={false} />);
