@@ -8,6 +8,7 @@ import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import { invalidateRegistry, peekCachedRegistry } from "../lib/registry-store";
 import { invalidateTasks } from "../lib/tasks-store";
 import { TIER_LABEL } from "../lib/tiers";
 import type { PaidTier, Tier } from "../lib/tiers";
@@ -285,6 +286,13 @@ export default function SettingsPanel(props: SettingsPanelProps) {
       }
       const body = (await res.json()) as { wedding: WeddingProfile };
       if (body.wedding.weddingDate !== seededWeddingDate) invalidateTasks(props.weddingId);
+      // The gift list's snapshot holds the wedding's currency and, judged
+      // against it, why guests cannot give money. Compared with the snapshot's
+      // own value, so a currency a co-host changed earlier is caught too.
+      const registry = peekCachedRegistry(props.weddingId);
+      if (registry && registry.currency !== body.wedding.currency) {
+        invalidateRegistry(props.weddingId);
+      }
       seed(body.wedding);
       props.onWeddingUpdated?.({
         displayName: body.wedding.displayName,

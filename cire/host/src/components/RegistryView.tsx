@@ -34,6 +34,7 @@ import {
   type GiftLogPage,
   type GiftNoteView,
   invalidateRegistry,
+  type MoneyGiftsBlock,
   peekCachedRegistry,
   registryAccessor,
   type RegistryItem,
@@ -160,6 +161,31 @@ const SUMMARY_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
 });
 
 /**
+ * Why the couple's cash funds are hidden from guests, in their words, from the
+ * reason the server sent. A reason this build has no words for — or none, from
+ * an API that predates the field — still says the funds are hidden, and names
+ * nothing it cannot vouch for.
+ */
+function fundsHiddenWords(reason: MoneyGiftsBlock | null | undefined, currency: string): string {
+  switch (reason) {
+    case "payments_unavailable":
+      return "Guests can’t see your cash funds: money gifts aren’t available on this site yet.";
+    case "stripe_not_ready":
+      return "Guests see your cash funds only once Stripe can take payments for you and money gifts are on. Both are in the Settings tab.";
+    case "stripe_currency_unknown":
+      return "Guests can’t see your cash funds until Stripe says which currency your account pays out in.";
+    case "currency_mismatch":
+      return `Guests can’t see your cash funds: your Stripe account pays out in a currency other than ${currency}, the one every gift is charged in.`;
+    case "cash_gifts_off":
+      return "Guests see your cash funds only while money gifts are on. Turn them on in the Settings tab.";
+    case "not_offered":
+      return "Guests can’t see your cash funds right now. Anyone who can edit the gift list can see why in the Settings tab.";
+    default:
+      return "Guests can’t see your cash funds right now.";
+  }
+}
+
+/**
  * The gift registry — the couple's list, and the log of gifts against it.
  *
  * Guest-authored text (`note`, `displayName`, and the household's `familyName`)
@@ -270,19 +296,17 @@ export default function RegistryView(props: RegistryViewProps) {
   /** Its own memo so a row's move controls re-run when the length changes, not
    *  on every write to the list. */
   const itemCount = createMemo(() => items().length);
-  /** Whether this site can take a money gift at all, whatever the settings say. */
-  const siteTakesPayments = () => snapshot()?.takesPayments === true;
-  /** Guests can give money, so they see the couple's funds. */
-  const takingMoney = createMemo(() => {
-    const settings = snapshot()?.settings;
-    return (
-      siteTakesPayments() && settings?.cashGiftsEnabled === true && settings.stripeChargesEnabled
-    );
-  });
+  /** Why guests cannot give money, as the server says; `null` when they can. */
+  const moneyBlock = () => snapshot()?.settings.moneyGiftsBlockedBy;
   /** Its own memo, so a write that leaves the items alone does not walk them. */
   const hasFund = createMemo(() => items().some((it) => it.kind === "cash_fund"));
-  /** The couple have cash funds, and guests cannot see them: money is off. */
-  const fundsHidden = () => !takingMoney() && hasFund();
+  /**
+   * The couple have cash funds, and guests cannot see them. Anything but an
+   * explicit `null` is hidden — a reason this build has no words for, or an
+   * API that sends none — so the list never claims guests see a fund the guest
+   * list leaves out.
+   */
+  const fundsHidden = () => moneyBlock() !== null && hasFund();
 
   /**
    * What a refused item write means, from the code the API sent. Read by its
@@ -988,14 +1012,12 @@ export default function RegistryView(props: RegistryViewProps) {
           </form>
         </Show>
 
-        {/* Guests see a fund only while they can give money. The guest list
-            also needs the account to settle in the wedding's currency, which
-            Settings says when it matters. */}
+        {/* Guests see a fund only while they can give money. Whether they can,
+            and the first reason they cannot, is the server's answer: the guest
+            list's own rule, the currency included. */}
         <Show when={fundsHidden()}>
-          <Notice tone="info">
-            {siteTakesPayments()
-              ? "Guests see your cash funds only while money gifts are on. Turn them on in the Settings tab."
-              : "Guests can’t see your cash funds: money gifts aren’t available on this site yet."}
+          <Notice tone="info" data-testid="funds-hidden">
+            {fundsHiddenWords(moneyBlock(), currency())}
           </Notice>
         </Show>
 

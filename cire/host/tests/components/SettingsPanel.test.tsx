@@ -33,6 +33,12 @@ vi.mock("../../src/lib/download", () => ({
 
 import SettingsPanel from "../../src/components/SettingsPanel";
 import { __resetModuleRowsStore } from "../../src/lib/module-rows-store";
+import {
+  __resetRegistryCache,
+  hasCachedRegistry,
+  type RegistrySnapshot,
+  setCachedRegistry,
+} from "../../src/lib/registry-store";
 import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 import {
   authFetchMock,
@@ -558,6 +564,41 @@ describe("SettingsPanel", () => {
     it("are kept after a save that leaves the date where it was", async () => {
       await saveAnswering({ ...PROFILE, displayName: "Aisha & Benjamin" });
       expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+  });
+
+  // The gift list's snapshot carries the wedding's currency and, judged against
+  // it, whether guests can give money. A save that leaves the wedding in another
+  // currency than the snapshot's has changed both, so it is read again.
+  describe("the gift list's currency", () => {
+    afterEach(() => __resetRegistryCache());
+
+    async function saveAnswering(saved: typeof PROFILE, loaded: typeof PROFILE = PROFILE) {
+      setCachedRegistry("wed_1", { currency: "AUD" } as RegistrySnapshot);
+      authFetchMock.mockResolvedValueOnce(json({ wedding: loaded }));
+      render(() => <SettingsPanel weddingId="wed_1" tier="gold" canManage />);
+      await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+      authFetchMock.mockResolvedValueOnce(json({ wedding: saved }));
+      fireEvent.click(screen.getByText("Save settings"));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Settings saved"));
+    }
+
+    it("is read again after a save that leaves the wedding in another currency", async () => {
+      await saveAnswering({ ...PROFILE, currency: "NZD" });
+      expect(hasCachedRegistry("wed_1")).toBe(false);
+    });
+
+    it("is kept after a save in the same currency", async () => {
+      await saveAnswering({ ...PROFILE, displayName: "Aisha & Benjamin" });
+      expect(hasCachedRegistry("wed_1")).toBe(true);
+    });
+
+    it("is read again when a co-host moved the currency after the gift list was cached", async () => {
+      // The form loads in NZD and the save keeps NZD; the cached gift list is
+      // still in AUD, so it is the stale one.
+      const moved = { ...PROFILE, currency: "NZD" };
+      await saveAnswering({ ...moved, displayName: "Aisha & Benjamin" }, moved);
+      expect(hasCachedRegistry("wed_1")).toBe(false);
     });
   });
 });

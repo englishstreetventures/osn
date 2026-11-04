@@ -105,6 +105,12 @@ export interface RegistryStripeDeps {
   readonly organiserOrigin: string;
   /** Two-letter country for a new connected account. */
   readonly defaultCountry?: string;
+  /**
+   * Whether this deployment can take a money gift at all (`createApp`). These
+   * routes mount on the key alone, so it can be false here; the refresh's
+   * `moneyGiftsBlockedBy` is judged on it.
+   */
+  readonly takesPayments: boolean;
 }
 
 /**
@@ -198,28 +204,19 @@ export const createRegistryStripeRoutes = (
           if (!weddingId) return internalSync(set);
           return runCire(
             Effect.gen(function* () {
-              const settings = yield* registryService.settingsOnly(weddingId);
-              const accountId = settings.stripeAccountId;
-              if (!accountId) {
-                return {
-                  connected: false,
-                  chargesEnabled: false,
-                  payoutsEnabled: false,
-                };
-              }
+              const before = yield* registryService.stripeStatus(weddingId, deps);
+              if (!before.accountId) return before.status;
               // A live read, unlike the cached columns every other surface
               // uses. It exists for one moment: the couple have just come back
               // from onboarding and the `account.updated` webhook may be
               // seconds behind them. Asking Stripe once, here, is the
               // difference between "connected" and a panel that still says
               // "finish setting up" to someone who just did.
-              const account = yield* deps.stripe.retrieveAccount(accountId);
-              yield* registryService.applyStripeAccountState(account);
-              return {
-                connected: true,
-                chargesEnabled: account.chargesEnabled,
-                payoutsEnabled: account.payoutsEnabled,
-              };
+              const account = yield* deps.stripe.retrieveAccount(before.accountId);
+              // The answer is the row as it now stands, not the live read: the
+              // write keeps a later state Stripe already sent, and the guest
+              // gate reads the row, so this is what guests are offered.
+              return yield* registryService.refreshStripeStatus(weddingId, account, deps);
             }).pipe(
               Effect.provideService(DbService, db),
               Effect.catchTag("StripeError", badGateway(set, weddingId)),

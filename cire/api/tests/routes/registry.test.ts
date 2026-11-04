@@ -7,6 +7,7 @@ import {
   registryContributions,
   registrySettings,
   weddingHosts,
+  weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
@@ -914,6 +915,238 @@ describe("registry routes (Gold)", () => {
     });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toBe("registry_gift_not_found");
+  });
+});
+
+// The portal says whether guests can give money, and why not, from this one
+// field: the guest list's own rule, decided on the server. If it says `null`
+// where the guest list offers nothing, a couple publishes a list of funds no
+// guest can see; if it names the wrong reason, they fix the wrong thing.
+describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => {
+  type Settings = RegistrySnapshot["settings"];
+  const paying = { stripe: configuredStripe, stripeWebhookSecret: "whsec_test_connect" } as const;
+
+  /** A settings row for the bootstrap wedding, written straight to the table. */
+  const settingsRow =
+    (row: {
+      cashGiftsEnabled?: boolean;
+      stripeChargesEnabled?: boolean;
+      stripeDefaultCurrency?: string | null;
+      headline?: string;
+      weddingCurrency?: string;
+    }) =>
+    (db: ReturnType<typeof createDb>) => {
+      const now = new Date();
+      db.insert(registrySettings)
+        .values({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          headline: row.headline ?? null,
+          cashGiftsEnabled: row.cashGiftsEnabled ?? false,
+          stripeAccountId: "acct_live",
+          stripeChargesEnabled: row.stripeChargesEnabled ?? true,
+          stripeDefaultCurrency:
+            row.stripeDefaultCurrency === undefined ? "AUD" : row.stripeDefaultCurrency,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      if (row.weddingCurrency) {
+        db.update(weddings)
+          .set({ currency: row.weddingCurrency })
+          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+          .run();
+      }
+    };
+
+  const read = async (app: App, profileId = OWNER): Promise<Settings> =>
+    ((await (await req(app, "GET", base, profileId)).json()) as RegistrySnapshot).settings;
+
+  // The wedding is in AUD. Each row is a state some writer can leave the
+  // settings in, and the reason is the first thing that stops guests giving.
+  for (const [label, deployment, row, reason] of [
+    [
+      "everything ready on a site with no webhook secret",
+      { stripe: configuredStripe, stripeWebhookSecret: null },
+      { cashGiftsEnabled: true },
+      "payments_unavailable",
+    ],
+    [
+      "money on, Stripe not charging",
+      paying,
+      { cashGiftsEnabled: true, stripeChargesEnabled: false },
+      "stripe_not_ready",
+    ],
+    [
+      "money on, no settlement currency named",
+      paying,
+      { cashGiftsEnabled: true, stripeDefaultCurrency: null },
+      "stripe_currency_unknown",
+    ],
+    [
+      "money on, an account settling in US dollars",
+      paying,
+      { cashGiftsEnabled: true, stripeDefaultCurrency: "USD" },
+      "currency_mismatch",
+    ],
+    [
+      "money OFF, an account settling in US dollars",
+      paying,
+      { cashGiftsEnabled: false, stripeDefaultCurrency: "USD" },
+      "currency_mismatch",
+    ],
+    ["money off, an account in the wedding's currency", paying, {}, "cash_gifts_off"],
+    ["money on, an account in the wedding's currency", paying, { cashGiftsEnabled: true }, null],
+  ] as const) {
+    it(`answers ${String(reason)} for ${label}`, async () => {
+      const app = buildApp({ tier: "gold", ...deployment, seed: settingsRow(row) });
+      expect((await read(app)).moneyGiftsBlockedBy).toBe(reason);
+    });
+  }
+
+  it("answers a save with the reason for the row it wrote, in the wedding's currency", async () => {
+    // A yen wedding with a yen account: a fallback to AUD would call it a
+    // mismatch, and an answer from the row before the save would say money is off.
+    const app = buildApp({
+      tier: "gold",
+      ...paying,
+      seed: settingsRow({ stripeDefaultCurrency: "JPY", weddingCurrency: "JPY" }),
+    });
+    const on = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(on.status).toBe(200);
+    expect(((await on.json()) as { settings: Settings }).settings.moneyGiftsBlockedBy).toBeNull();
+
+    const off = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: false });
+    expect(((await off.json()) as { settings: Settings }).settings.moneyGiftsBlockedBy).toBe(
+      "cash_gifts_off",
+    );
+  });
+
+  it("answers a save on a site that cannot take money with that, whatever the row says", async () => {
+    const app = buildApp({
+      tier: "gold",
+      stripe: configuredStripe,
+      stripeWebhookSecret: null,
+      seed: settingsRow({}),
+    });
+    const on = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(on.status).toBe(200);
+    expect(((await on.json()) as { settings: Settings }).settings.moneyGiftsBlockedBy).toBe(
+      "payments_unavailable",
+    );
+  });
+
+  it("answers an empty save with the reason for the row as it stands", async () => {
+    const app = buildApp({
+      tier: "gold",
+      ...paying,
+      seed: settingsRow({
+        cashGiftsEnabled: true,
+        stripeDefaultCurrency: "JPY",
+        weddingCurrency: "JPY",
+      }),
+    });
+    const empty = await req(app, "PUT", `${base}/settings`, EDITOR, {});
+    expect(empty.status).toBe(200);
+    expect(
+      ((await empty.json()) as { settings: Settings }).settings.moneyGiftsBlockedBy,
+    ).toBeNull();
+  });
+
+  it("carries the reason for the row as it stands on settings_changed", async () => {
+    const app = buildApp({
+      tier: "gold",
+      ...paying,
+      seed: settingsRow({
+        cashGiftsEnabled: true,
+        stripeDefaultCurrency: "JPY",
+        weddingCurrency: "JPY",
+        headline: "Theirs",
+      }),
+    });
+    const stale = await req(app, "PUT", `${base}/settings`, EDITOR, {
+      headline: "Ours",
+      expected: { headline: "What we saw" },
+    });
+    expect(stale.status).toBe(409);
+    const body = (await stale.json()) as { error: string; settings: Settings };
+    expect(body.error).toBe("settings_changed");
+    expect(body.settings.headline).toBe("Theirs");
+    expect(body.settings.moneyGiftsBlockedBy).toBeNull();
+  });
+
+  // A viewer cannot act on the payout currency, so the reason they receive says
+  // nothing about it beyond what the guest list itself shows: whether guests
+  // are offered money at all.
+  for (const [label, row, editorSees, viewerSees] of [
+    [
+      "money on, an account in US dollars",
+      { cashGiftsEnabled: true, stripeDefaultCurrency: "USD" },
+      "currency_mismatch",
+      "not_offered",
+    ],
+    [
+      "money on, no settlement currency named",
+      { cashGiftsEnabled: true, stripeDefaultCurrency: null },
+      "stripe_currency_unknown",
+      "not_offered",
+    ],
+    [
+      "money off, an account in US dollars",
+      { cashGiftsEnabled: false, stripeDefaultCurrency: "USD" },
+      "currency_mismatch",
+      "cash_gifts_off",
+    ],
+    [
+      "money off, an account in the wedding's currency",
+      { cashGiftsEnabled: false },
+      "cash_gifts_off",
+      "cash_gifts_off",
+    ],
+    [
+      "money off, Stripe not charging",
+      { stripeChargesEnabled: false },
+      "stripe_not_ready",
+      "stripe_not_ready",
+    ],
+  ] as const) {
+    it(`tells an editor ${editorSees} and a viewer ${viewerSees} for ${label}`, async () => {
+      const app = buildApp({ tier: "gold", ...paying, seed: settingsRow(row) });
+      expect((await read(app, EDITOR)).moneyGiftsBlockedBy).toBe(editorSees);
+      const res = await req(app, "GET", base, VIEWER);
+      const text = await res.text();
+      const settings = (JSON.parse(text) as RegistrySnapshot).settings;
+      expect(settings.moneyGiftsBlockedBy).toBe(viewerSees);
+      expect(Object.keys(settings)).not.toContain("stripeDefaultCurrency");
+      expect(text).not.toContain("USD");
+    });
+  }
+
+  it("answers a refused money save with the row as it stands and why guests cannot give", async () => {
+    const app = buildApp({
+      tier: "gold",
+      ...paying,
+      seed: settingsRow({ stripeDefaultCurrency: "USD" }),
+    });
+    const refused = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: string; settings: Settings };
+    expect(body.error).toBe("currency_mismatch");
+    expect(body.settings.cashGiftsEnabled).toBe(false);
+    expect(body.settings.moneyGiftsBlockedBy).toBe("currency_mismatch");
+  });
+
+  it("answers a money save refused for an unnamed payout currency with the row as it stands", async () => {
+    const app = buildApp({
+      tier: "gold",
+      ...paying,
+      seed: settingsRow({ stripeDefaultCurrency: null, headline: "Ours" }),
+    });
+    const refused = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: string; settings: Settings };
+    expect(body.error).toBe("stripe_currency_unknown");
+    expect(body.settings.headline).toBe("Ours");
+    expect(body.settings.moneyGiftsBlockedBy).toBe("stripe_currency_unknown");
   });
 });
 

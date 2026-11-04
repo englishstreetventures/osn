@@ -97,7 +97,6 @@ import { plusOneService } from "../../src/services/plus-one";
 import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
 import { spendRealtimeSubscribe } from "../../src/services/realtime";
 import {
-  CurrencyMismatch,
   registryGuestService,
   registryService,
   SettingsChanged,
@@ -255,6 +254,9 @@ const runEffect = <A, E>(eff: Effect.Effect<A, E, EffectDbService>): Promise<A> 
 
 const run = <A, E>(eff: Effect.Effect<A, E, DbService>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+
+/** A deployment that takes money gifts: what the settings' reason is judged on. */
+const PAYING_SITE = { takesPayments: true } as const;
 
 async function seed(): Promise<void> {
   const now = new Date();
@@ -2050,25 +2052,45 @@ describe("cire/api over real D1 (Miniflare)", () => {
       // when the WHERE fails — a property of the engine, so it is pinned on D1
       // as well as on bun:sqlite.
       await run(
-        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-          published: true,
-          shippingAddress: "1 Example St",
-        }),
+        registryService.updateSettings(
+          BOOTSTRAP_WEDDING_ID,
+          {
+            published: true,
+            shippingAddress: "1 Example St",
+          },
+          PAYING_SITE,
+        ),
       );
-      await run(registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { shippingAddress: null }));
+      await run(
+        registryService.updateSettings(
+          BOOTSTRAP_WEDDING_ID,
+          { shippingAddress: null },
+          PAYING_SITE,
+        ),
+      );
 
       const exit = await Effect.runPromiseExit(
         registryService
-          .updateSettings(BOOTSTRAP_WEDDING_ID, {
-            shippingAddress: "2 Example St",
-            expected: { shippingAddress: "1 Example St" },
-          })
+          .updateSettings(
+            BOOTSTRAP_WEDDING_ID,
+            {
+              shippingAddress: "2 Example St",
+              expected: { shippingAddress: "1 Example St" },
+            },
+            PAYING_SITE,
+          )
           .pipe(Effect.provideService(DbService, db)),
       );
       const error = Exit.isFailure(exit)
         ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
         : undefined;
       expect(error).toBeInstanceOf(SettingsChanged);
+      // The row it carries comes from the joined settings-and-currency read:
+      // the stored row on D1, not the defaults.
+      const current = (error as SettingsChanged | undefined)?.current;
+      expect(current?.published).toBe(true);
+      expect(current?.shippingAddress).toBeNull();
+      expect(current?.moneyGiftsBlockedBy).toBe("stripe_not_ready");
 
       const [row] = await db
         .select({ shippingAddress: registrySettings.shippingAddress })
@@ -2076,12 +2098,23 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
       expect(row?.shippingAddress).toBeNull();
 
+      // An empty save answers the same read: the row as stored.
+      const unchanged = await run(
+        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {}, PAYING_SITE),
+      );
+      expect(unchanged.published).toBe(true);
+      expect(unchanged.shippingAddress).toBeNull();
+
       // A matching expectation writes.
       const saved = await run(
-        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, {
-          shippingAddress: "2 Example St",
-          expected: { shippingAddress: null },
-        }),
+        registryService.updateSettings(
+          BOOTSTRAP_WEDDING_ID,
+          {
+            shippingAddress: "2 Example St",
+            expected: { shippingAddress: null },
+          },
+          PAYING_SITE,
+        ),
       );
       expect(saved.shippingAddress).toBe("2 Example St");
     },
@@ -2580,18 +2613,33 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(await currency()).toBe("USD");
       const mismatched = await run(
         Effect.exit(
-          registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+          registryService.updateSettings(
+            BOOTSTRAP_WEDDING_ID,
+            { cashGiftsEnabled: true },
+            PAYING_SITE,
+          ),
         ),
       );
       expect(Exit.isFailure(mismatched)).toBe(true);
       if (Exit.isFailure(mismatched)) {
-        expect(mismatched.cause.toString()).toContain(new CurrencyMismatch()._tag);
+        expect(mismatched.cause.toString()).toContain("CurrencyMismatch");
       }
+      // A save that writes reads the wedding's currency back in the upsert's
+      // own RETURNING, as a subquery on the wedding row. USD here, so the
+      // answer names the mismatch; the "AUD" fallback would say money is off.
+      const saved = await run(
+        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { headline: "Ours" }, PAYING_SITE),
+      );
+      expect(saved.moneyGiftsBlockedBy).toBe("currency_mismatch");
 
       // Once the two agree, the upsert's EXISTS lets the switch on.
       await run(weddingSettingsService.update(BOOTSTRAP_WEDDING_ID, { currency: "AUD" }, "usr_d1"));
       const enabled = await run(
-        registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+        registryService.updateSettings(
+          BOOTSTRAP_WEDDING_ID,
+          { cashGiftsEnabled: true },
+          PAYING_SITE,
+        ),
       );
       expect(enabled.cashGiftsEnabled).toBe(true);
     },

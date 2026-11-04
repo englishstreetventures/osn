@@ -1274,14 +1274,16 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
       // from every route here, and the portal fades that module's nav row and
       // offers the upgrade rather than opening it. Mounting it unconditionally
       // is deliberate — the lock is the tier, not the absence of a route, so
-      // moving one wedding to Gold opens it with no deploy. The read tells the
-      // portal `takesPayments`, so it never says guests can give money where
-      // the guest list offers none.
+      // moving one wedding to Gold opens it with no deploy. The read, a
+      // settings save and a Stripe refresh all take `takesPayments`, so the
+      // reason they give for guests not giving money (`moneyGiftsBlockedBy`)
+      // is the guest list's own, and the portal never says guests can give
+      // money where the guest list offers none.
       .use(createRegistryReadRoutes(db, osnAuthOptions, { takesPayments }))
       // `assets` goes to the write factory for ONE reason: deleting an item has to
       // reap the R2 object its `image_key` pointed at, and D1's cascade stops at
       // the row.
-      .use(createRegistryWriteRoutes(db, osnAuthOptions, assets))
+      .use(createRegistryWriteRoutes(db, osnAuthOptions, { takesPayments, assets }))
       // Stripe Connect onboarding — its own instance because its gate is
       // `weddingOwner`, not `weddingEditor`: it names the bank account the money
       // lands in. Mounted only when Stripe is configured at all.
@@ -1292,6 +1294,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
               limiter: registryStripeLimiter,
               organiserOrigin,
               defaultCountry: stripeAccountCountry,
+              takesPayments,
             })
           : new Elysia(),
       )

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import RegistrySettingsView from "../../src/components/RegistrySettingsView";
 import {
   __resetRegistryCache,
+  dropRegistry,
   peekCachedRegistry,
   type RegistryItem,
   type RegistrySnapshot,
@@ -29,6 +30,17 @@ import {
 
 const authFetch = vi.fn();
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
+
+const { haptic } = vi.hoisted(() => ({ haptic: vi.fn() }));
+vi.mock("../../src/lib/haptics", () => ({ haptic }));
+
+// Only `redirectToLogin` is replaced — it assigns `window.location.href`, which
+// happy-dom cannot follow. `apiUrl` and `isAuthExpired` stay real.
+const redirectToLogin = vi.hoisted(() => vi.fn());
+vi.mock("../../src/lib/api", async () => ({
+  ...(await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api")),
+  redirectToLogin,
+}));
 
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
@@ -70,6 +82,9 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot =>
       shippingVisibleFrom: null,
       stripeConnected: false,
       stripeChargesEnabled: false,
+      // What the server says for no Stripe account. A test that renders a
+      // money state sets the reason the server would send for it.
+      moneyGiftsBlockedBy: "stripe_not_ready",
       updatedAt: null,
       ...over.settings,
     },
@@ -118,6 +133,8 @@ beforeEach(() => {
   authFetch.mockReset();
   toastError.mockReset();
   toastSuccess.mockReset();
+  haptic.mockReset();
+  redirectToLogin.mockReset();
 });
 
 describe("publishing", () => {
@@ -164,15 +181,25 @@ describe("publishing", () => {
   });
 
   it("counts a cash fund only while guests can give to it", async () => {
-    // Guests see a fund only while money gifts are on. A list of funds alone,
-    // with money off, would publish a page with nothing on it.
+    // Guests see a fund only while the server says they can give money. A list
+    // of funds alone, otherwise, would publish a page with nothing on it.
     const funds = [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })];
-    setCachedRegistry("wed_1", snapshot({ items: funds }));
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: funds,
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "cash_gifts_off",
+        } as never,
+      }),
+    );
     const { unmount } = renderPanel();
     const blocked = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
     expect(blocked.disabled).toBe(true);
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
-      /cash funds count once money gifts are on/i,
+      /cash funds count once money gifts are on\.$/i,
     );
     unmount();
 
@@ -184,24 +211,157 @@ describe("publishing", () => {
           cashGiftsEnabled: true,
           stripeConnected: true,
           stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: null,
         } as never,
       }),
     );
     const { unmount: unmountOpen } = renderPanel();
     const open = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
     expect(open.disabled).toBe(false);
+    expect(document.getElementById("registry-publish-blocked")).toBeNull();
     unmountOpen();
 
-    // Half on is off: the switch off with Stripe charging, or the reverse.
-    for (const half of [
-      { cashGiftsEnabled: false, stripeConnected: true, stripeChargesEnabled: true },
-      { cashGiftsEnabled: true, stripeConnected: true, stripeChargesEnabled: false },
-    ]) {
+    // Half on is off: Stripe charging with the switch off, or the switch on
+    // with Stripe not charging — each with the reason the server sends.
+    for (const [half, tail] of [
+      [
+        {
+          cashGiftsEnabled: false,
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "cash_gifts_off",
+        },
+        /cash funds count once money gifts are on\.$/i,
+      ],
+      [
+        {
+          cashGiftsEnabled: true,
+          stripeConnected: true,
+          stripeChargesEnabled: false,
+          moneyGiftsBlockedBy: "stripe_not_ready",
+        },
+        /cash funds count once Stripe can take payments for you and money gifts are on\.$/i,
+      ],
+    ] as const) {
       setCachedRegistry("wed_1", snapshot({ items: funds, settings: half as never }));
       const { unmount: unmountHalf } = renderPanel();
       const halfOn = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
       expect(halfOn.disabled).toBe(true);
+      expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(tail);
       unmountHalf();
+    }
+  });
+
+  /** A list of one fund, with the server's reason for guests not giving money. */
+  const fundsOnly = (moneyGiftsBlockedBy: unknown, currency = "AUD"): RegistrySnapshot => ({
+    ...snapshot({
+      items: [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })],
+      settings: {
+        cashGiftsEnabled: true,
+        stripeConnected: true,
+        stripeChargesEnabled: true,
+        moneyGiftsBlockedBy,
+      } as never,
+    }),
+    currency,
+  });
+  const publishNotice = () => document.getElementById("registry-publish-blocked")?.textContent;
+
+  it("counts no fund while the account pays out in another currency, and says so", async () => {
+    // Money on, Stripe charging, the site taking payments: only the currency
+    // stands between the couple and a list guests can see.
+    setCachedRegistry("wed_1", fundsOnly("currency_mismatch", "NZD"));
+    const { unmount } = renderPanel();
+    const blocked = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(blocked.disabled).toBe(true);
+    expect(publishNotice()).toMatch(
+      /cash funds don’t count: your Stripe account pays out in a currency other than NZD\.$/i,
+    );
+    expect(publishNotice()).not.toMatch(/once money gifts are on/i);
+    expect(screen.getByTestId("money-gifts-currency").textContent).toMatch(
+      /guests aren’t offered money gifts or cash funds: your Stripe account pays out in a currency other than NZD, the one every gift is charged in/i,
+    );
+    unmount();
+
+    // The same snapshot with the currencies agreeing: publishable, and quiet.
+    setCachedRegistry("wed_1", fundsOnly(null, "NZD"));
+    renderPanel();
+    const open = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(open.disabled).toBe(false);
+    expect(publishNotice()).toBeUndefined();
+    expect(screen.queryByTestId("money-gifts-currency")).toBeNull();
+  });
+
+  it("counts no fund until Stripe names the currency, and tells each role what to do", async () => {
+    setCachedRegistry("wed_1", fundsOnly("stripe_currency_unknown"));
+    authFetch.mockResolvedValue(
+      json({
+        connected: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        moneyGiftsBlockedBy: "stripe_currency_unknown",
+      }),
+    );
+    const owner = renderPanel({ canManage: true });
+    expect(((await screen.findByTestId("registry-publish")) as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect(publishNotice()).toMatch(
+      /cash funds don’t count until Stripe says which currency your account pays out in\.$/i,
+    );
+    expect(screen.getByTestId("money-gifts-currency").textContent).toMatch(
+      /until Stripe says which currency your account pays out in\. Check again to ask it\.$/,
+    );
+    owner.unmount();
+
+    __resetRegistryCache();
+    setCachedRegistry("wed_1", fundsOnly("stripe_currency_unknown"));
+    renderPanel({ canManage: false });
+    await screen.findByTestId("registry-publish");
+    expect(screen.getByTestId("money-gifts-currency").textContent).toMatch(
+      /Ask an owner to check the Stripe connection\.$/,
+    );
+  });
+
+  it("names Stripe, not the switch, when the switch is on and Stripe cannot charge", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })],
+        settings: {
+          cashGiftsEnabled: true,
+          stripeConnected: true,
+          stripeChargesEnabled: false,
+          moneyGiftsBlockedBy: "stripe_not_ready",
+        } as never,
+      }),
+    );
+    authFetch.mockResolvedValue(
+      json({
+        connected: true,
+        chargesEnabled: false,
+        payoutsEnabled: false,
+        moneyGiftsBlockedBy: "stripe_not_ready",
+      }),
+    );
+    renderPanel();
+    await screen.findByTestId("registry-publish");
+    expect(publishNotice()).toMatch(
+      /once Stripe can take payments for you and money gifts are on/i,
+    );
+    expect(screen.queryByTestId("money-gifts-currency")).toBeNull();
+  });
+
+  it("counts no fund for a reason it has no words for", async () => {
+    // A reason a newer API sends, or none from one that predates the field.
+    for (const reason of ["something_new", undefined]) {
+      __resetRegistryCache();
+      setCachedRegistry("wed_1", fundsOnly(reason));
+      const view = renderPanel();
+      const publish = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+      expect(publish.disabled).toBe(true);
+      expect(publishNotice()).toMatch(/cash funds don’t count while guests can’t see them\.$/i);
+      view.unmount();
     }
   });
 
@@ -218,6 +378,7 @@ describe("publishing", () => {
           cashGiftsEnabled: true,
           stripeConnected: true,
           stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "payments_unavailable",
         } as never,
       }),
     );
@@ -370,6 +531,38 @@ describe("what gets saved", () => {
     expect(cached?.settings.headline).toBe("Our list");
     // The list is untouched — switching back to the gift list costs no fetch.
     expect(cached?.items).toHaveLength(1);
+  });
+});
+
+describe("a save that changes whether guests can give", () => {
+  it("stops counting a fund once the save says money is off", async () => {
+    const funds = [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })];
+    const open = {
+      ...snapshot().settings,
+      cashGiftsEnabled: true,
+      stripeConnected: true,
+      stripeChargesEnabled: true,
+      moneyGiftsBlockedBy: null,
+    };
+    setCachedRegistry("wed_1", snapshot({ items: funds, settings: open as never }));
+    authFetch.mockResolvedValue(
+      json({
+        settings: { ...open, cashGiftsEnabled: false, moneyGiftsBlockedBy: "cash_gifts_off" },
+      }),
+    );
+    const { container } = renderPanel();
+    expect(((await screen.findByTestId("registry-publish")) as HTMLInputElement).disabled).toBe(
+      false,
+    );
+
+    fireEvent.click(screen.getByTestId("cash-gifts"));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect((screen.getByTestId("registry-publish") as HTMLInputElement).disabled).toBe(true);
+    expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
+      /cash funds count once money gifts are on/i,
+    );
   });
 });
 
@@ -549,7 +742,11 @@ describe("money gifts", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "cash_gifts_off",
+        } as never,
       }),
     );
     authFetch.mockImplementation(async (url: string) =>
@@ -587,6 +784,68 @@ describe("money gifts", () => {
     expect(message).toMatch(/owner/);
     const urls = authFetch.mock.calls.map((c) => String(c[0]));
     expect(urls.some((u) => u.includes("/registry/stripe/refresh"))).toBe(false);
+  });
+
+  /** A money-on save refused for an editor, with `body` as the 409's answer:
+   *  JSON, or a whole `Response` for a body that is not. */
+  async function editorRefused(body: unknown) {
+    // Loaded as "money off"; a co-host has since moved the wedding to a
+    // currency the account does not pay out in.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })],
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "cash_gifts_off",
+        } as never,
+      }),
+    );
+    authFetch.mockResolvedValue(body instanceof Response ? body : json(body, 409));
+    const { container } = renderPanel({ canManage: false });
+    fireEvent.click(await screen.findByTestId("cash-gifts"));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+  }
+
+  it("shows the reason a refused money save carries, without asking again", async () => {
+    const now = snapshot({
+      items: [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })],
+      settings: {
+        stripeConnected: true,
+        stripeChargesEnabled: true,
+        moneyGiftsBlockedBy: "currency_mismatch",
+      } as never,
+    });
+    await editorRefused({ error: "currency_mismatch", settings: now.settings });
+
+    await waitFor(() => expect(screen.getByTestId("money-gifts-currency")).toBeTruthy());
+    expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
+      /pays out in a currency other than AUD/,
+    );
+    // The refusal was the whole answer: no second request, no Stripe read.
+    expect(authFetch).toHaveBeenCalledTimes(1);
+    // The list stays as it was: only the settings row was patched.
+    expect(peekCachedRegistry("wed_1")?.items).toHaveLength(1);
+  });
+
+  it("keeps what it holds when a refusal carries no settings, and says nothing more", async () => {
+    // An API that predates the field answers with the code alone.
+    await editorRefused({ error: "currency_mismatch" });
+    expect(peekCachedRegistry("wed_1")?.settings.moneyGiftsBlockedBy).toBe("cash_gifts_off");
+    expect(screen.getByTestId("stripe-status").textContent).toMatch(
+      /connected and can take payments/i,
+    );
+    expect(authFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("says only that Stripe cannot take a payment when a refusal's body is not JSON", async () => {
+    // A proxy in front of the API can answer 409 with a page of its own.
+    await editorRefused(new Response("Conflict", { status: 409 }));
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(String(toastError.mock.calls[0]?.[0])).toMatch(/Stripe can’t take a payment/);
+    expect(peekCachedRegistry("wed_1")?.settings.moneyGiftsBlockedBy).toBe("cash_gifts_off");
   });
 });
 
@@ -685,10 +944,52 @@ describe("the live Stripe read", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "cash_gifts_off",
+        } as never,
       }),
     );
     renderPanel();
+    await screen.findByTestId("registry-publish");
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("happens for an owner whose Stripe can charge but has not named its currency", async () => {
+    // The account is live, but money cannot open until Stripe names the payout
+    // currency — which the webhook may be seconds behind on.
+    const unnamed = () =>
+      snapshot({
+        items: [item()],
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "stripe_currency_unknown",
+        } as never,
+      });
+    setCachedRegistry("wed_1", unnamed());
+    authFetch.mockResolvedValue(
+      json({
+        connected: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        moneyGiftsBlockedBy: "cash_gifts_off",
+      }),
+    );
+    renderPanel({ canManage: true });
+    await waitFor(() =>
+      expect(peekCachedRegistry("wed_1")?.settings.moneyGiftsBlockedBy).toBe("cash_gifts_off"),
+    );
+    const urls = authFetch.mock.calls.map((c) => String(c[0]));
+    expect(urls.filter((u) => u.includes("/registry/stripe/refresh"))).toHaveLength(1);
+
+    // An editor cannot ask Stripe, so the panel does not try.
+    cleanup();
+    __resetRegistryCache();
+    authFetch.mockReset();
+    setCachedRegistry("wed_1", unnamed());
+    renderPanel({ canManage: false });
     await screen.findByTestId("registry-publish");
     expect(authFetch).not.toHaveBeenCalled();
   });
@@ -750,6 +1051,132 @@ describe("what the panel says about the account", () => {
 });
 
 describe("checking on Stripe by hand", () => {
+  it("opens a list of funds alone once the answer says guests can give", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })],
+        settings: {
+          cashGiftsEnabled: true,
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "stripe_currency_unknown",
+        } as never,
+      }),
+    );
+    // The one-shot mount read answers as Stripe did then; the press, as now.
+    authFetch
+      .mockResolvedValueOnce(
+        json({
+          connected: true,
+          chargesEnabled: true,
+          payoutsEnabled: true,
+          moneyGiftsBlockedBy: "stripe_currency_unknown",
+        }),
+      )
+      .mockResolvedValue(
+        json({
+          connected: true,
+          chargesEnabled: true,
+          payoutsEnabled: true,
+          moneyGiftsBlockedBy: null,
+        }),
+      );
+    renderPanel();
+    await screen.findByTestId("money-gifts-currency");
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Check again/i }));
+
+    await waitFor(() =>
+      expect((screen.getByTestId("registry-publish") as HTMLInputElement).disabled).toBe(false),
+    );
+    expect(screen.queryByTestId("money-gifts-currency")).toBeNull();
+    expect(String(toastSuccess.mock.calls.at(-1)?.[0])).toMatch(/Stripe is ready/);
+    // A patch of the cached settings, not a re-read of the whole registry.
+    const urls = authFetch.mock.calls.map((c) => String(c[0]));
+    expect(urls.every((u) => u.includes("/registry/stripe/refresh"))).toBe(true);
+  });
+
+  it.each([
+    [false, "stripe_not_ready", /still has something outstanding/, "reject"],
+    [
+      true,
+      "stripe_currency_unknown",
+      /hasn’t said which currency your account pays out in/,
+      "reject",
+    ],
+    [true, "currency_mismatch", /pays out in a currency other than NZD/, "reject"],
+    [true, "payments_unavailable", /money gifts aren’t available on this site yet/, "reject"],
+    [true, "cash_gifts_off", /^Stripe is ready — you can let guests give money\.$/, "commit"],
+    [true, null, /^Stripe is ready — you can let guests give money\.$/, "commit"],
+  ] as const)(
+    "calls an account ready only when nothing on Stripe's side keeps guests from giving (charges %s, %s)",
+    async (chargesEnabled, reason, words, feel) => {
+      setCachedRegistry("wed_1", {
+        ...snapshot({
+          items: [item()],
+          settings: {
+            stripeConnected: true,
+            stripeChargesEnabled: true,
+            moneyGiftsBlockedBy: "cash_gifts_off",
+          } as never,
+        }),
+        currency: "NZD",
+      });
+      authFetch.mockResolvedValue(
+        json({
+          connected: true,
+          chargesEnabled,
+          payoutsEnabled: true,
+          moneyGiftsBlockedBy: reason,
+        }),
+      );
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: /Check again/i }));
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+      const message = String(toastSuccess.mock.calls.at(-1)?.[0]);
+      expect(message).toMatch(words);
+      // Only good news says "ready": a toast for a blocked account never does.
+      expect(/ready/i.test(message)).toBe(feel === "commit");
+      expect(haptic).toHaveBeenLastCalledWith(feel);
+    },
+  );
+
+  it("still reports what Stripe said when the registry is let go while it asks", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "cash_gifts_off",
+        } as never,
+      }),
+    );
+    let answer: (res: Response) => void = () => {};
+    authFetch.mockReturnValue(new Promise<Response>((resolve) => (answer = resolve)));
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /Check again/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    // The organiser leaves the wedding mid-read: its snapshot is released.
+    dropRegistry("wed_1");
+    answer(
+      json({
+        connected: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        moneyGiftsBlockedBy: "currency_mismatch",
+      }),
+    );
+    // The answer is still Stripe's, in the currency the API falls back to —
+    // not a made-up "couldn't reach Stripe".
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(String(toastSuccess.mock.calls[0]?.[0])).toMatch(/a currency other than AUD,/);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("says so when Stripe cannot be reached, and changes nothing", async () => {
     setCachedRegistry(
       "wed_1",

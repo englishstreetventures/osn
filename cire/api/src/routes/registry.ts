@@ -11,6 +11,7 @@ import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
+import { decideCapability } from "../middleware/wedding-role";
 import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import {
@@ -39,7 +40,7 @@ import type { LinkPreviewOptions } from "../services/link-preview";
 import { createTransformBreakers, linkThumbnailService } from "../services/link-thumbnail";
 import type { TransformBreakers } from "../services/link-thumbnail";
 import { reapR2Objects } from "../services/r2-cleanup";
-import { registryService } from "../services/registry";
+import { registryService, settingsForReader } from "../services/registry";
 import type { RegistrySettingsDto } from "../services/registry";
 import { registryImageService } from "../services/registry-image";
 import type { RegistryImageError } from "../services/registry-image";
@@ -72,12 +73,16 @@ const conflict = (set: { status?: number | string }, error: string) =>
     return { error };
   });
 
-/** 409 `settings_changed`, with the row as it now stands so the caller can
- *  show what the other organiser saved. */
-const settingsChanged = (set: { status?: number | string }, settings: RegistrySettingsDto) =>
+/** A 409 with the settings row as it now stands: for `settings_changed`, what
+ *  the other organiser saved; for a money refusal, why guests cannot give. */
+const conflictWithSettings = (
+  set: { status?: number | string },
+  error: string,
+  settings: RegistrySettingsDto,
+) =>
   Effect.sync(() => {
     set.status = 409;
-    return { error: "settings_changed", settings };
+    return { error, settings };
   });
 
 const badRequestCode = (set: { status?: number | string }, error: string) =>
@@ -165,9 +170,12 @@ function parseOffset(raw: unknown): number {
  * `/registry` is the whole snapshot with page one of the gift log, plus
  * `takesPayments`: whether this deployment can take a money gift at all (a
  * Stripe key AND the Connect webhook secret). It sits beside the settings, not
- * in them, because it is the deployment's and the same for every wedding; the
- * portal reads it so it never tells a couple their guests can give money, or
- * see a cash fund, where the guest list offers neither.
+ * in them, because it is the deployment's and the same for every wedding. The
+ * settings carry `moneyGiftsBlockedBy`, which the service decides with it by
+ * the guest list's own rule, so the portal never tells a couple their guests
+ * can give money, or see a cash fund, where the guest list offers neither. A
+ * member who cannot edit gets it without the payout-currency reasons
+ * (`settingsForReader`).
  * `/registry/gifts?offset=` is every further page, and nothing else: the portal
  * already holds the settings, items and totals, so a further page reads the gift
  * log's own tables and no others.
@@ -195,12 +203,19 @@ export const createRegistryReadRoutes = (
       group
         .use(weddingMember(db))
         .use(weddingTier(db, "gold"))
-        .get("/registry", async ({ weddingId, set }) => {
-          if (!weddingId) return internalSync(set);
+        .get("/registry", async ({ weddingId, weddingRole, set }) => {
+          if (!weddingId || !weddingRole) return internalSync(set);
           set.headers["cache-control"] = "no-store";
+          // A member who cannot edit gets no reason that speaks of the payout
+          // currency: see `settingsForReader`.
+          const canEdit = decideCapability(weddingRole, "editor").allowed;
           return runCire(
-            registryService.get(weddingId).pipe(
-              Effect.map((snapshot) => ({ ...snapshot, takesPayments: deps.takesPayments })),
+            registryService.get(weddingId, deps).pipe(
+              Effect.map((snapshot) => ({
+                ...snapshot,
+                settings: settingsForReader(snapshot.settings, canEdit),
+                takesPayments: deps.takesPayments,
+              })),
               Effect.provideService(DbService, db),
               Effect.tapDefect(logDefect(weddingId)),
               Effect.catchDefect(() => internal(set)),
@@ -254,11 +269,15 @@ export const createRegistryReadRoutes = (
  * R2. Optional, because a deployment without the binding must still be able to
  * delete items — the reaper logs and moves on, and the reconcile sweep
  * (`asset-reconcile.ts`) is the backstop for anything it misses.
+ *
+ * `takesPayments` is the read factory's: the settings a save answers with name
+ * why guests cannot give money (`moneyGiftsBlockedBy`), judged on this
+ * deployment, so a save leaves the portal as right as the read did.
  */
 export const createRegistryWriteRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
-  assets?: AssetsBucket,
+  deps: { readonly takesPayments: boolean; readonly assets?: AssetsBucket },
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -277,17 +296,23 @@ export const createRegistryWriteRoutes = (
                 // The cash-gifts and currency invariants live in the service,
                 // not here: reading them through the whole snapshot — items,
                 // gift log, currency — would load all of it to check one row.
-                const settings = yield* registryService.updateSettings(weddingId, body);
+                const settings = yield* registryService.updateSettings(weddingId, body, deps);
                 return { settings };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
-                Effect.catchTag("StripeNotReady", () => conflict(set, "stripe_not_ready")),
-                Effect.catchTag("CurrencyMismatch", () => conflict(set, "currency_mismatch")),
-                Effect.catchTag("SettlementCurrencyUnknown", () =>
-                  conflict(set, "stripe_currency_unknown"),
+                Effect.catchTag("StripeNotReady", (e) =>
+                  conflictWithSettings(set, "stripe_not_ready", e.current),
                 ),
-                Effect.catchTag("SettingsChanged", (e) => settingsChanged(set, e.current)),
+                Effect.catchTag("CurrencyMismatch", (e) =>
+                  conflictWithSettings(set, "currency_mismatch", e.current),
+                ),
+                Effect.catchTag("SettlementCurrencyUnknown", (e) =>
+                  conflictWithSettings(set, "stripe_currency_unknown", e.current),
+                ),
+                Effect.catchTag("SettingsChanged", (e) =>
+                  conflictWithSettings(set, "settings_changed", e.current),
+                ),
                 Effect.tapDefect(logDefect(weddingId)),
                 Effect.catchDefect(() => internal(set)),
               ),
@@ -395,7 +420,7 @@ export const createRegistryWriteRoutes = (
               // delete: two items may name the same key, and reaping on the
               // first delete would blank the survivor's picture.
               Effect.tap(({ imageKey, imageKeyOrphaned }) =>
-                reapAfterResponse(request, assets, imageKeyOrphaned ? imageKey : null),
+                reapAfterResponse(request, deps.assets, imageKeyOrphaned ? imageKey : null),
               ),
               Effect.map(() => ({ ok: true as const })),
               Effect.provideService(DbService, db),
