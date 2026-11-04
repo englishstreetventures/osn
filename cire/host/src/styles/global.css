@@ -313,8 +313,9 @@
      defines `--font-ui` / `--font-flair` on :root (see astro.config.mjs); the
      aliases here are what components spell as `font-body` / `font-display`.
      Schibsted Grotesk carries the whole tool — a portal is read as data, not
-     as stationery — and Cormorant Garamond survives on exactly three things:
-     the wordmark, a wedding's name, and the invite preview. */
+     as stationery — and Cormorant Garamond survives on exactly four things:
+     the wordmark, a wedding's name, an account's initial, and the invite
+     preview. */
   --font-body: var(--font-ui);
   --font-display: var(--font-flair);
   --default-font-family: var(--font-body);
@@ -1146,20 +1147,6 @@
     grid-column: 3;
     grid-row: 1;
   }
-}
-
-/* ── The empty avatar ───────────────────────────────────────────────────────
- * A person with no photo, or one that will not load: their outline in the
- * page's own colour, cut out of a disc of faint ink. The same two tokens in
- * both ramps read as a light figure on a mid disc in light and a dark figure
- * on a mid disc in dark — nobody's photo either way, and never a pair of
- * initials (see `PersonAvatar.tsx`).
- */
-@utility blank-avatar {
-  /* `--text-faint` is translucent, and a face on a stack overlaps the one
-     before it: laid over the page's own colour, the disc is opaque. */
-  background: linear-gradient(var(--text-faint), var(--text-faint)), var(--bg);
-  color: var(--bg);
 }
 
 /* ── Print sheet ────────────────────────────────────────────────────────────

@@ -200,6 +200,31 @@ describe("ClaimApp", () => {
     expect(signInMock).toHaveBeenCalledWith(`${window.location.origin}/claim`);
   });
 
+  it("presses 'Continue with musubi' as the sign-in page does: once, then connecting", async () => {
+    // The press is `@cire/ui`'s `createSignInPress`, whose own tests hold its
+    // timer; these hold that the claim page wires the label, the status line,
+    // the ignored second press and the back-forward restore to it.
+    mockSession = null;
+    renderClaim("valid-token");
+    const button = await waitFor(() =>
+      screen.getByRole("button", { name: "Continue with musubi" }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("");
+
+    button.click();
+    expect(button).toHaveTextContent("Connecting to musubi…");
+    expect(screen.getByRole("status")).toHaveTextContent("Connecting to musubi…");
+    button.click();
+    expect(signInMock).toHaveBeenCalledTimes(1);
+
+    const restore = new Event("pageshow") as PageTransitionEvent;
+    Object.defineProperty(restore, "persisted", { value: true });
+    window.dispatchEvent(restore);
+    expect(button).toHaveTextContent("Continue with musubi");
+    button.click();
+    expect(signInMock).toHaveBeenCalledTimes(2);
+  });
+
   it("parks the token in sessionStorage so it survives the sign-in redirect", async () => {
     renderClaim("round-trip-token");
     await waitFor(() => expect(screen.getByText(/Preview Co/)).toBeInTheDocument());

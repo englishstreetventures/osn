@@ -62,15 +62,16 @@ it. This portal has no button in a row with a field, so it carries no
 rail and a side-by-side invite preview; this portal has neither. A listing form
 stretched across a widescreen is a form nobody can scan.
 
-The login and claim pages set their own much narrower measures (26rem, 40rem)
-through the same knob.
+The login and claim pages set their own much narrower measures (30rem, 40rem)
+through the same knob; the login page's is `@cire/ui`'s `SignInCard`, shared
+with the host portal.
 
 ### Type: no italic
 
 The host portal ships Cormorant's italics because its invite preview uses them.
 There is no invite preview here, so only the roman is downloaded. Cormorant is
-rationed to the wordmark, an organisation's name, and the name on a claim
-invite.
+rationed to the wordmark, an organisation's name, the name on a claim invite,
+and an account's initial (`PersonAvatar`, host §3).
 
 Lato is gone. It was the guest site's body face and this is not the guest site —
 the same split `cire/host` made.
@@ -125,7 +126,11 @@ the host portal draws on (host §7).
 - Shared with the host portal: `Button`, `buttonClass`, `proseLinkClass` (the
   link inside the claim page's warning keeps the readable gold, as host §7 says
   of a link inside a tinted `Notice`), `Card`, `cardClass`,
-  `cardBoxClass`, `Eyebrow` and `eyebrowClass` from `@cire/ui`; `Notice`,
+  `cardBoxClass`, `Eyebrow`, `eyebrowClass`, `Wordmark` and
+  `WordmarkPlaceholder` (the top bar's way home and the boot bar's copy),
+  `SignInCard` and `SignInPanel` (the login page), and `PersonAvatar` with
+  `avatarTriggerClass` (the account trigger, and its placeholder while the
+  menu's code loads) from `@cire/ui`; `Notice`,
   `EmptyState`, `Field`, `Fieldset`, `Input`, `Textarea` and `Select` from
   `@shared/ui`.
 
@@ -140,8 +145,8 @@ a headline figure or a table.
 | `Loading` | `cire/ui/src/loading.tsx` | `<p role="status">` with a pulse, for a surface waiting on its data, so no surface can forget the role: a spinner nobody announces is a blank screen. `status`, not `alert`: something starting to load is not urgent. Its words are a status line, so they stay in small caps. |
 | `Checkbox` | `shared/ui/src/ui/checkbox.tsx` | A native checkbox and its word as one clickable row, for the service-category grid. It takes its word as `label` and `box="native"`, so its box is the browser's own, as every cire box is (host §4, Checkboxes and radios). |
 
-**Corners here** follow host §4. The small steps this portal writes itself: the
-wordmark's hover wash at 6px (a nav highlight); the profile menu's panel and
+**Corners here** follow host §4. The small steps this portal draws: the
+wordmark's hover wash at 6px (a nav highlight, `Wordmark`); the profile menu's panel and
 rows take the shared menu's 10px and 6px. The quote form nested in the enquiry thread's
 card is 6px too, drawn from the card's box (`cardBoxClass({ fill: "none",
 nested: true })`) with its own 16px padding. The login card and the thread's
@@ -149,8 +154,9 @@ message bubbles take the 16px card corner. The round marks — the avatar, the
 haptics switch — are `rounded-full`.
 
 **Cards here** take a step of `cardClass` (host §7): an enquiry in the inbox is
-the interactive card at `sm`, and the sign-in card is `xl` on the wash with the
-`lip` (`LOGIN_CARD_CLASS`, `src/lib/login-card.ts`). Every label that leads a
+the interactive card at `sm`, and the sign-in card is `@cire/ui`'s
+`signInCardClass`, `xl` on the opaque surface with the lit top edge, the same
+as the host portal's. Every label that leads a
 card or a section is `Eyebrow`, and the two `.astro` pages' is `eyebrowClass`.
 `tests/components/surfaces.browser.test.tsx` draws the inbox row, the quote form
 and the sign-in card in Chromium at 390 and 1440px, light and dark, measures

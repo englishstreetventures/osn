@@ -1,6 +1,6 @@
 import { eyebrowClass } from "@cire/ui/eyebrow";
 import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
@@ -33,13 +33,17 @@ vi.mock("@shared/rp-auth/solid", async () => {
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   redirectToLogin: () => {},
+  signOutToLogin: async () => {},
 }));
 
-import SignInPanel from "../../src/components/SignInPanel";
+import { signInCardClass } from "@cire/ui/sign-in-card-class";
+import cardSource from "@cire/ui/sign-in-card.astro?raw";
+import SignInPanel, { type SignInAuth } from "@cire/ui/sign-in-panel";
+
 import VendorApp from "../../src/components/VendorApp";
-import { LOGIN_CARD_CLASS } from "../../src/lib/login-card";
 import { setThemePreference } from "../../src/lib/theme";
 import { ENQUIRY } from "../test-support/dashboard";
+import { useFallbackFonts } from "../test-support/fonts";
 
 const VIEWPORTS = [
   { name: "390", width: 390, height: 844 },
@@ -70,10 +74,42 @@ function painted(token: string, property: "color" | "backgroundColor" = "color")
   return value;
 }
 
-function useFonts() {
-  const root = document.documentElement;
-  root.style.setProperty("--font-ui", 'system-ui, -apple-system, "Segoe UI", sans-serif');
-  root.style.setProperty("--font-flair", "Georgia, serif");
+/** `text` with `find` replaced, which must appear exactly once. */
+function replaceOnce(text: string, find: string | RegExp, by: string): string {
+  const hits =
+    typeof find === "string"
+      ? text.split(find).length - 1
+      : (text.match(new RegExp(find.source, "g")) ?? []).length;
+  expect(hits, `sign-in-card.astro no longer holds ${String(find)} once`).toBe(1);
+  return text.replace(find, by);
+}
+
+/**
+ * `sign-in-card.astro`'s template as `login.astro` renders it with
+ * `portal="vendor"`, built from the component's own source so a change to the
+ * card's markup reaches this picture: the label from its map, the class
+ * expressions resolved, and the island left as an empty mount point. Every
+ * expression is accounted for, so a new one fails here rather than being
+ * drawn as text.
+ */
+function vendorSignInCard(): string {
+  const label = /vendor: "([^"]+)"/.exec(cardSource)?.[1];
+  expect(label, "sign-in-card.astro has no vendor label").toBeDefined();
+  let html = cardSource.slice(cardSource.indexOf("---", 3) + 3);
+  html = replaceOnce(html, "class={eyebrowClass()}", `class="${eyebrowClass()}"`);
+  html = replaceOnce(html, "{LABEL[portal]}", label!);
+  html = replaceOnce(
+    html,
+    "class={signInCardClass}",
+    `class="${signInCardClass}" data-testid="login-card"`,
+  );
+  html = replaceOnce(
+    html,
+    /<SignInPanel client:only="solid-js" apiBase=\{apiBase\} \/>/,
+    "<div data-island></div>",
+  );
+  expect(html, "an expression in the template is left unrendered").not.toMatch(/[{}]/);
+  return html;
 }
 
 async function settle() {
@@ -100,7 +136,7 @@ describe("the vendor portal's cards", () => {
       it(`draws the inbox row and the quote form from the card, ${viewport.name}px ${theme}`, async () => {
         await page.viewport(viewport.width, viewport.height);
         setThemePreference(theme);
-        useFonts();
+        useFallbackFonts();
         history.replaceState(null, "", "/#/enquiries");
         render(() => (
           <div class="@container/frame">
@@ -149,29 +185,31 @@ describe("the vendor portal's cards", () => {
       it(`draws the sign-in card at the largest step, ${viewport.name}px ${theme}`, async () => {
         await page.viewport(viewport.width, viewport.height);
         setThemePreference(theme);
-        useFonts();
-        // `login.astro`'s page, as it composes it: the same card class round
-        // the same panel, under the same header.
-        render(() => (
-          <div class="@container/frame">
-            <main class="page-frame flex min-h-dvh flex-col justify-center py-16 [--page-max:26rem]">
-              <header class="mb-8 flex flex-col gap-1.5 text-center">
-                <p class={eyebrowClass()}>Vendor Portal</p>
-                <h1 class="font-display text-text leading-ui-none text-[clamp(1.9rem,5cqi,2.6rem)] font-light">
-                  Sign in
-                </h1>
-              </header>
-              <div data-testid="login-card" class={LOGIN_CARD_CLASS}>
-                <SignInPanel />
-              </div>
-            </main>
-          </div>
-        ));
+        useFallbackFonts();
+        // `@cire/ui`'s `sign-in-card.astro`, as `login.astro` renders it on
+        // its `@container/frame` body (`tests/pages/pages.test.ts` holds that
+        // page), round the real panel, which a stub sign-in keeps on the page.
+        const stay: SignInAuth = {
+          startSignIn: () => {},
+          resumeSession: () => Promise.resolve(false),
+          readAuthError: () => null,
+          clearAuthError: () => {},
+        };
+        const frame = document.createElement("div");
+        frame.className = "@container/frame";
+        frame.innerHTML = vendorSignInCard();
+        document.body.append(frame);
+        onTestFinished(() => frame.remove());
+        render(() => <SignInPanel apiBase="https://api.cire.test" auth={stay} />, {
+          container: frame.querySelector<HTMLElement>("[data-island]")!,
+        });
         await settle();
+        expect(screen.getByText("Cire · Vendor portal")).toBeTruthy();
         const card = screen.getByTestId("login-card");
         expect(box(card)).toMatchObject({ corner: "16px", padding: "32px" });
-        // The lip lights the card's top edge.
+        // The lip lights the card's top edge, over the opaque surface.
         expect(getComputedStyle(card).boxShadow).toContain("inset");
+        expect(box(card).fill).toBe(painted("--ui-surface", "backgroundColor"));
         await page.screenshot({ path: shot(`login-${viewport.name}-${theme}`) });
       });
     }

@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { Toaster } from "@shared/toast";
 import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show } from "solid-js";
 
-import { redirectToLogin } from "../lib/api";
+import { redirectToLogin, signOutToLogin } from "../lib/api";
 import { createAutoSize } from "../lib/auto-size";
 import { reloadOnRestore } from "../lib/bfcache";
 import { listEnquiries } from "../lib/enquiries-store";
@@ -158,8 +158,7 @@ function Dashboard() {
   });
 
   async function signOut() {
-    await logout();
-    redirectToLogin();
+    await signOutToLogin(logout);
   }
 
   // The design law: the panel keeps its box and animates to the new content's

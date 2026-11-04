@@ -80,6 +80,7 @@ import {
   loginSurfaces,
   overviewSurfaces,
   removeGuestFaq,
+  wordmarkSwap,
 } from "../support/cire-surfaces";
 import {
   claimFromOrganiserAddress,
@@ -280,6 +281,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await claimFromOrganiserAddress(context);
   await loginSurfaces(flow, page);
   await signInToCireHost(flow, page);
+  await wordmarkSwap(flow, page);
 
   // ── The portal ────────────────────────────────────────────────────────────
   const guestsCard = page.getByText("Guests & events", { exact: true }).locator("xpath=..");

@@ -48,8 +48,8 @@ export default defineConfig({
       optimizedFallbacks: true,
     },
     {
-      // Flair only, and rationed: the wordmark, an organisation's name, and the
-      // name on a claim invite. Roman only — the portal chrome never sets
+      // Flair only, and rationed: the wordmark, an organisation's name, the
+      // name on a claim invite, and an account's initial. Roman only — the portal chrome never sets
       // Cormorant italic (see the `h1..h4` rule in `styles/global.css`), and
       // this portal has no invite preview to need it.
       name: "Cormorant Garamond",

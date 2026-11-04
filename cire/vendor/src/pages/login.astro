@@ -1,11 +1,10 @@
 ---
 import { Font } from 'astro:assets'
 
-import { eyebrowClass } from '@cire/ui/eyebrow'
+import SignInCard from '@cire/ui/sign-in-card.astro'
 
 import '../styles/global.css'
-import { LOGIN_CARD_CLASS } from '../lib/login-card'
-import SignInPanel from '../components/SignInPanel'
+import { CIRE_API_URL } from '../lib/osn'
 import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
 ---
 <!DOCTYPE html>
@@ -13,7 +12,7 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sign in — Vendor — Cire</title>
+    <title>Sign in — Vendor portal — Cire</title>
     <script is:inline set:html={THEME_BOOT_SCRIPT}></script>
     <Font cssVariable="--font-ui" preload={[{ subset: "latin" }]} />
     <Font cssVariable="--font-flair" preload={[{ subset: "latin" }]} />
@@ -24,20 +23,11 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
     with an OS that flips mid-session, and the one control that would change it
     lives behind the sign-in this page exists to get past.
 
-    `--page-max` is the knob `page-frame` reads. A sign-in card at the portal's
-    full measure is a 68rem-wide box holding two buttons.
+    The page's body is `@cire/ui`'s `SignInCard`, the same as the host
+    portal's but for the portal's name. Its heading is sized from the page's
+    container, so the body carries `@container/frame`.
   -->
   <body class="@container/frame">
-    <main class="page-frame flex min-h-dvh flex-col justify-center py-16 [--page-max:26rem]">
-      <header class="mb-8 flex flex-col gap-1.5 text-center">
-        <p class={eyebrowClass()}>Vendor Portal</p>
-        <h1 class="font-display text-text text-[clamp(1.9rem,5cqi,2.6rem)] leading-ui-none font-light">
-          Sign in
-        </h1>
-      </header>
-      <div class={LOGIN_CARD_CLASS}>
-        <SignInPanel client:only="solid-js" />
-      </div>
-    </main>
+    <SignInCard portal="vendor" apiBase={CIRE_API_URL} />
   </body>
 </html>

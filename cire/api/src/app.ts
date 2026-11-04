@@ -1140,6 +1140,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           // trusted `return_to` — the organiser login page (an allowlisted
           // origin), so the SPA can render a friendly message from `?auth_error`.
           loginFallbackUrl: `${organiserOrigin.replace(/\/+$/, "")}/login`,
+          portalOrigins: [new URL(organiserOrigin).origin, new URL(vendorPortalOrigin).origin],
           startLimiter: oidcStartLimiter,
           sessionLimiter: oidcSessionLimiter,
         }),

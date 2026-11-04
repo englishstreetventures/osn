@@ -1,3 +1,4 @@
+import PersonAvatar from "@cire/ui/person-avatar";
 import { Popover } from "@kobalte/core/popover";
 import { Notice } from "@shared/ui/ui/notice";
 import {
@@ -12,7 +13,6 @@ import {
 
 import { type HostSeat, type SeatFace, seatName } from "../lib/hosts-store";
 import { ROLE_COPY } from "../lib/wedding-roles";
-import PersonAvatar from "./PersonAvatar";
 
 /** One holder of a task, in stack order. `seat` is absent while the wedding's
  *  seats have not loaded, and there is no name or photo to give yet. A face
@@ -110,7 +110,7 @@ export default function TaskHolders(props: TaskHoldersProps) {
           const holder = () => holderById().get(hostId);
           return (
             <span data-holder={hostId} title={nameOf(holder())} class="rounded-full">
-              <PersonAvatar url={holder()?.seat?.avatarUrl} class="ring-bg size-7 ring-2" />
+              <PersonAvatar fallback="blank" ring url={holder()?.seat?.avatarUrl} class="size-7" />
             </span>
           );
         }}
@@ -458,7 +458,7 @@ function PeopleList(props: TaskHoldersProps) {
                     </svg>
                   </Show>
                 </span>
-                <PersonAvatar url={seat().avatarUrl} class="size-8" />
+                <PersonAvatar fallback="blank" url={seat().avatarUrl} class="size-8" />
                 <span class="flex min-w-0 flex-1 flex-col">
                   <span
                     data-name

@@ -339,7 +339,7 @@ of faces (`TaskHolders.tsx`): the reader's own seat first when they hold it, the
 everyone in the order they were put on it — three faces, then a "+N" bubble for
 the rest. A face is the person's OSN photo, or the empty avatar — a person's
 outline in the page's colour on a disc of faint ink, never initials — when they
-have none or it will not load (`PersonAvatar.tsx`; the portal's CSP admits no
+have none or it will not load (`@cire/ui`'s `PersonAvatar`, `fallback="blank"`; the portal's CSP admits no
 avatar host until englishstreetventures/osn#1207, so today every photo fails and
 falls back). The faces are pictures only: the row says "Held by Sam Lee and @jo"
 in screen-reader text for every role, and each face shows its name on hover.

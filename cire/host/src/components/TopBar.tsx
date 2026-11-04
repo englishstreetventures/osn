@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Wordmark from "@cire/ui/wordmark";
 import type { RpSession } from "@shared/rp-auth";
 import { Chip } from "@shared/ui/ui/chip";
 import { Tooltip } from "@shared/ui/ui/tooltip";
@@ -66,30 +67,10 @@ export default function TopBar(props: {
   };
 
   return (
-    <header class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md">
+    <header class="border-border bg-bg/95 sticky top-0 z-30 border-b backdrop-blur-md">
       <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
         {/* ── Identity + place ─────────────────────────────────────────────── */}
-        {/* Raw: the wordmark, with a hover wash and no frame, which no Button
-            variant draws. */}
-        <button
-          type="button"
-          aria-label="Cire — all weddings"
-          onClick={() => props.onAll()}
-          class="group hover:bg-surface/60 transition-ui-colors -mx-1 flex shrink-0 items-center gap-2 rounded-sm px-1.5 py-1.5 duration-(--dur-fast) ease-(--ease-out)"
-        >
-          <span
-            aria-hidden="true"
-            class="text-gold group-hover:text-gold-ink text-ui-sm leading-none transition-colors duration-(--dur-fast) ease-(--ease-out)"
-          >
-            ✦
-          </span>
-          <span
-            aria-hidden="true"
-            class="font-display text-text text-ui-md tracking-ui-wide leading-ui-none font-light"
-          >
-            Cire
-          </span>
-        </button>
+        <Wordmark label="Cire — all weddings" onClick={() => props.onAll()} />
 
         <span aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
 

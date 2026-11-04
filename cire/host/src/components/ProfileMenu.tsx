@@ -1,3 +1,5 @@
+import { avatarTriggerClass } from "@cire/ui/avatar-trigger-class";
+import PersonAvatar from "@cire/ui/person-avatar";
 import type { RpSession } from "@shared/rp-auth";
 import {
   DropdownMenu,
@@ -11,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@shared/ui/ui/dropdown-menu";
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { For, type JSX, Show } from "solid-js";
 
 import { haptic, hapticsAvailable } from "../lib/haptics";
 import {
@@ -33,13 +35,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 /** The avatar circle the menu opens from: a control with its own look, which
  *  the menu's trigger renders as (`as`), as it would a `Button`. */
 function AvatarButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button
-      type="button"
-      {...props}
-      class="border-border bg-surface/40 hover:border-gold-dim transition-ui-colors flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border duration-(--dur-fast) ease-(--ease-out)"
-    />
-  );
+  return <button type="button" {...props} class={avatarTriggerClass} />;
 }
 
 /**
@@ -50,8 +46,8 @@ function AvatarButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
  * working on"; an avatar menu splits the two and leaves the bar for the work.
  *
  * The trigger shows the account's avatar when the session carries one, else the
- * first letter of whatever identifies the account best (display name → handle →
- * email). The menu head names the account so a host juggling two OSN accounts
+ * first letter of whatever identifies the account best (display name, then
+ * handle, then email), drawn by `@cire/ui`'s `PersonAvatar`. The menu head names the account so a host juggling two OSN accounts
  * can tell which one is signed in before acting on it.
  *
  * The shared menu's accent look, as every portal menu draws it: full-ink rows,
@@ -72,54 +68,15 @@ export default function ProfileMenu(props: {
     if (s.displayName) return s.handle ? `@${s.handle}` : s.email;
     return s.handle ? s.email : null;
   };
-  const initial = () => name().charAt(0).toUpperCase();
-
-  // The avatar URL rides in from the OIDC `picture` claim with no validation
-  // at any earlier hop, so the sink enforces the scheme: render only an
-  // absolute https URL, else fall back to the initial.
-  const httpsAvatarUrl = () => {
-    const raw = props.session?.avatarUrl;
-    if (!raw) return null;
-    try {
-      return new URL(raw).protocol === "https:" ? raw : null;
-    } catch {
-      return null;
-    }
-  };
-  // An avatar that will not load — a dead link, a response that is not an
-  // image, or a host the portal's CSP `img-src` does not list (it lists none
-  // but cire-api until englishstreetventures/osn#1207 adds the avatar host) — shows
-  // the initial instead of an empty circle. Keyed on the URL, so a new one gets
-  // its own try.
-  const [failedAvatarUrl, setFailedAvatarUrl] = createSignal<string | null>(null);
-  const avatarUrl = () => {
-    const url = httpsAvatarUrl();
-    return url !== failedAvatarUrl() ? url : null;
-  };
-
   return (
     <DropdownMenu placement="bottom-end" gutter={8}>
       <DropdownMenuTrigger as={AvatarButton} aria-label="Account menu">
-        <Show
-          when={avatarUrl()}
-          fallback={
-            <span aria-hidden="true" class="font-display text-gold text-ui-base leading-none">
-              {initial()}
-            </span>
-          }
-        >
-          {(url) => (
-            <img
-              src={url()}
-              alt=""
-              /* No Referer: the image's host learns the organiser's address
-                 from the request, never which wedding page drew it. */
-              referrerpolicy="no-referrer"
-              onError={() => setFailedAvatarUrl(url())}
-              class="h-full w-full rounded-full object-cover"
-            />
-          )}
-        </Show>
+        <PersonAvatar
+          fallback="initial"
+          name={name()}
+          url={props.session?.avatarUrl}
+          class="size-full"
+        />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent variant="accent" class="min-w-52">

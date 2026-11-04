@@ -154,6 +154,28 @@ describe("SignInPanel", () => {
     expect(returnedTo()).toBe("/weddings/abc?tab=guests#row-4");
   });
 
+  it("carries a ?name= target through sign-in only when it is a path on this origin", () => {
+    // The marketing site links the organiser portal as `/?name=…`; signed out,
+    // the portal bounces through `/login?returnTo=` and must land back on that
+    // path. A crafted `returnTo` carrying the same parameter gets the dashboard.
+    at(`?returnTo=${encodeURIComponent("/?name=Amara%20%26%20Sam")}`);
+    fireEvent.click(renderPanel());
+    const kept = new URL(returnedTo(), window.location.origin);
+    expect(kept.pathname).toBe("/");
+    expect(kept.searchParams.get("name")).toBe("Amara & Sam");
+
+    for (const crafted of [
+      "https://evil.example/?name=Amara",
+      "//evil.example/?name=Amara",
+      "/\\evil.example/?name=Amara",
+    ]) {
+      cleanup();
+      at(`?returnTo=${encodeURIComponent(crafted)}`);
+      fireEvent.click(renderPanel());
+      expect(returnedTo()).toBe("/");
+    }
+  });
+
   it("drops a sign-in marker carried inside the page it resumes on", () => {
     at(`?returnTo=${encodeURIComponent("/?auth_error=sign_in_failed&tab=x#/w/1")}`);
     fireEvent.click(renderPanel());
