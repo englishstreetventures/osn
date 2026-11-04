@@ -120,6 +120,26 @@ describe("RsvpSection", () => {
     expect(queryByText("Can't make it")).toBeTruthy();
   });
 
+  it("offers no RSVP buttons on a cancelled event, and says why", () => {
+    const { queryByRole, getByText } = render(() => (
+      <RsvpSection event={{ ...baseEvent, status: "cancelled" }} currentProfileId="usr_dan" />
+    ));
+    for (const name of ["I'm going", "Maybe", "Can't make it"]) {
+      expect(queryByRole("button", { name })).toBeNull();
+    }
+    expect(getByText("RSVPs are closed because this event is cancelled.")).toBeTruthy();
+  });
+
+  it("keeps the RSVP buttons on an event that is not cancelled", () => {
+    const { queryByRole, queryByText } = render(() => (
+      <RsvpSection event={{ ...baseEvent, status: "upcoming" }} currentProfileId="usr_dan" />
+    ));
+    for (const name of ["I'm going", "Maybe", "Can't make it"]) {
+      expect(queryByRole("button", { name })).toBeTruthy();
+    }
+    expect(queryByText("RSVPs are closed because this event is cancelled.")).toBeNull();
+  });
+
   it("shows the 'invited' count only for guest_list events", async () => {
     mockFetchCounts.mockResolvedValueOnce({
       going: 0,

@@ -1,10 +1,11 @@
 import { it, expect } from "@effect/vitest";
-import { pulseUsers } from "@pulse/db/schema";
+import { eventRsvps, events, pulseUsers } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { vi, beforeEach } from "vitest";
 
+import * as metrics from "../../src/metrics";
 import type { ProfileDisplay } from "../../src/services/graphBridge";
 import { updateSettings } from "../../src/services/pulseUsers";
 import {
@@ -14,7 +15,13 @@ import {
   rsvpCounts,
   upsertRsvp,
 } from "../../src/services/rsvps";
-import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  seedCloseFriend,
+  seedEvent,
+  statementKinds,
+} from "../helpers/db";
 
 // graphBridge functions are mocked at the module level so rsvps.ts uses the
 // mocked implementations. Close-friend lookups are NOT bridge calls anymore —
@@ -150,12 +157,23 @@ it.effect("upsertRsvp fills in shareSourceFirst on a row that arrived without at
   Effect.gen(function* () {
     const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    const before = Math.floor(Date.now() / 1_000);
     const updated = yield* upsertRsvp(event.id, "usr_bob", {
       status: "going",
       shareSource: "whatsapp",
     });
+    const after = Math.floor(Date.now() / 1_000);
     expect(updated.shareSourceFirst).toBe("whatsapp");
     expect(updated.shareSourceLast).toBe("whatsapp");
+    // The first-touch time as stored: this call's second, read back as a Date.
+    const { db } = yield* Db;
+    const [row] = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.id, updated.id)),
+    );
+    expect(row.shareSourceFirstSeenAt).toBeInstanceOf(Date);
+    const seenAt = Math.floor(row.shareSourceFirstSeenAt!.getTime() / 1_000);
+    expect(seenAt).toBeGreaterThanOrEqual(before);
+    expect(seenAt).toBeLessThanOrEqual(after);
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -649,3 +667,205 @@ it.effect("latestRsvps respects an explicit limit", () =>
     expect(rows.length).toBe(1);
   }).pipe(Effect.provide(createTestLayer())),
 );
+
+// ---------------------------------------------------------------------------
+// upsertRsvp under concurrency — first-touch is decided by the database row,
+// not by a read the other request may already have overtaken.
+// ---------------------------------------------------------------------------
+
+it.effect("concurrent upserts on a source-less row keep the first writer's shareSourceFirst", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    const first = vi.spyOn(metrics, "metricRsvpAttributionFirst");
+    yield* Effect.all(
+      [
+        upsertRsvp(event.id, "usr_bob", { status: "going", shareSource: "instagram" }),
+        upsertRsvp(event.id, "usr_bob", { status: "going", shareSource: "tiktok" }),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const [row] = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(row.shareSourceFirst).not.toBeNull();
+    expect(row.shareSourceFirst).not.toBe(row.shareSourceLast);
+    // First-touch is counted once, for the request that filled it.
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(first).toHaveBeenCalledWith(row.shareSourceFirst);
+    first.mockRestore();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("concurrent first upserts for the same pair both succeed and leave one row", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    const results = yield* Effect.all(
+      [
+        upsertRsvp(event.id, "usr_bob", { status: "going" }),
+        upsertRsvp(event.id, "usr_bob", { status: "maybe" }),
+      ],
+      { concurrency: "unbounded" },
+    );
+    expect(results).toHaveLength(2);
+    const rows = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(rows).toHaveLength(1);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// RSVPs close on a cancelled event. Replies given before the cancel stay, so
+// an un-cancelled event still has its guest list.
+// ---------------------------------------------------------------------------
+
+it.effect("upsertRsvp refuses a cancelled event and writes no row", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({
+      title: "Called off",
+      startTime: "2030-06-01T10:00:00.000Z",
+      status: "cancelled",
+    });
+    const err = yield* Effect.flip(upsertRsvp(event.id, "usr_bob", { status: "going" }));
+    expect(err._tag).toBe("ValidationError");
+    const rows = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(rows).toHaveLength(0);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("upsertRsvp refuses to change a reply once the event is cancelled, and keeps it", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    yield* Effect.promise(() =>
+      db.update(events).set({ status: "cancelled" }).where(eq(events.id, event.id)),
+    );
+    const err = yield* Effect.flip(upsertRsvp(event.id, "usr_bob", { status: "not_going" }));
+    expect(err._tag).toBe("ValidationError");
+    const [row] = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(row.status).toBe("going");
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("upsertRsvp refuses a non-invitee on a cancelled guest-list event as uninvited", () =>
+  Effect.gen(function* () {
+    const event = yield* seedEvent({
+      title: "Called off",
+      startTime: "2030-06-01T10:00:00.000Z",
+      joinPolicy: "guest_list",
+      status: "cancelled",
+    });
+    // The same refusal as on a live guest-list event: the event's state is
+    // not the caller's to learn.
+    const err = yield* Effect.flip(upsertRsvp(event.id, "usr_bob", { status: "going" }));
+    expect(err._tag).toBe("NotInvited");
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// Invites are RSVP rows, so they close with the event too.
+// ---------------------------------------------------------------------------
+
+it.effect("inviteGuests refuses a cancelled event and writes no row", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({
+      title: "Called off",
+      startTime: "2030-06-01T10:00:00.000Z",
+      joinPolicy: "guest_list",
+      status: "cancelled",
+      createdByProfileId: "usr_alice",
+    });
+    const err = yield* Effect.flip(
+      inviteGuests(event.id, "usr_alice", { profileIds: ["usr_bob"] }),
+    );
+    expect(err._tag).toBe("ValidationError");
+    const rows = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(rows).toHaveLength(0);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("inviteGuests refuses an event scheduled for deletion and writes no row", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({
+      title: "Leaving",
+      startTime: "2030-06-01T10:00:00.000Z",
+      joinPolicy: "guest_list",
+      createdByProfileId: "usr_alice",
+    });
+    yield* Effect.promise(() =>
+      db
+        .update(events)
+        .set({ hardDeleteAt: 9_999_999_999, cancellationReason: "host_left" })
+        .where(eq(events.id, event.id)),
+    );
+    const err = yield* Effect.flip(
+      inviteGuests(event.id, "usr_alice", { profileIds: ["usr_bob"] }),
+    );
+    expect(err._tag).toBe("ValidationError");
+    const rows = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(rows).toHaveLength(0);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// upsertRsvp's database cost. The event and the caller's reply come back in
+// one read; the write is keyed on the (event, profile) pair.
+// ---------------------------------------------------------------------------
+
+it.effect("upsertRsvp changing a reply costs one read and one write", () => {
+  const { layer, captured } = createCapturingTestLayer();
+  return Effect.gen(function* () {
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    captured.length = 0;
+    const updated = yield* upsertRsvp(event.id, "usr_bob", { status: "not_going" });
+    expect(updated.status).toBe("not_going");
+    expect(statementKinds(captured)).toEqual(["select", "update"]);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("upsertRsvp's first reply costs one read, the profile upsert and the insert", () => {
+  const { layer, captured } = createCapturingTestLayer();
+  return Effect.gen(function* () {
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    captured.length = 0;
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    expect(statementKinds(captured)).toEqual(["select", "insert", "insert"]);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("concurrent first upserts read once each, with no read after a lost insert", () => {
+  const { layer, captured } = createCapturingTestLayer();
+  return Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    captured.length = 0;
+    yield* Effect.all(
+      [
+        upsertRsvp(event.id, "usr_bob", { status: "going" }),
+        upsertRsvp(event.id, "usr_bob", { status: "maybe" }),
+      ],
+      { concurrency: "unbounded" },
+    );
+    expect(statementKinds(captured).filter((k) => k === "select")).toHaveLength(2);
+    const rows = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(rows).toHaveLength(1);
+  }).pipe(Effect.provide(layer));
+});

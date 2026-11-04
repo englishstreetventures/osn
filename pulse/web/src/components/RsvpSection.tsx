@@ -20,6 +20,8 @@ interface Event {
   allowInterested: boolean;
   joinPolicy: "open" | "guest_list";
   createdByProfileId: string;
+  /** RSVPs close when the event is cancelled; the API refuses a reply. */
+  status?: "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
 }
 
 export function RsvpSection(props: {
@@ -120,29 +122,38 @@ export function RsvpSection(props: {
         </Show>
       </div>
 
-      <div class="flex flex-wrap gap-2">
-        <Button size="sm" disabled={submitting()} onClick={() => handleRsvp("going")}>
-          I'm going
-        </Button>
-        <Show when={props.event.allowInterested}>
+      <Show
+        when={props.event.status !== "cancelled"}
+        fallback={
+          <p class="text-muted-foreground text-xs">
+            RSVPs are closed because this event is cancelled.
+          </p>
+        }
+      >
+        <div class="flex flex-wrap gap-2">
+          <Button size="sm" disabled={submitting()} onClick={() => handleRsvp("going")}>
+            I'm going
+          </Button>
+          <Show when={props.event.allowInterested}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={submitting()}
+              onClick={() => handleRsvp("maybe")}
+            >
+              Maybe
+            </Button>
+          </Show>
           <Button
             variant="secondary"
             size="sm"
             disabled={submitting()}
-            onClick={() => handleRsvp("maybe")}
+            onClick={() => handleRsvp("not_going")}
           >
-            Maybe
+            Can't make it
           </Button>
-        </Show>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={submitting()}
-          onClick={() => handleRsvp("not_going")}
-        >
-          Can't make it
-        </Button>
-      </div>
+        </div>
+      </Show>
 
       <Show when={modalOpen()}>
         <RsvpModal

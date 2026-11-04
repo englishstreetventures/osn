@@ -3,7 +3,9 @@ import { events, eventSeries } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
+import { vi } from "vitest";
 
+import * as metrics from "../../src/metrics";
 import { updateEvent } from "../../src/services/events";
 import {
   cancelSeries,
@@ -15,7 +17,7 @@ import {
   parseRRule,
   updateSeries,
 } from "../../src/services/series";
-import { createTestLayer } from "../helpers/db";
+import { createCapturingTestLayer, createTestLayer, statementKinds } from "../helpers/db";
 
 const ALICE = { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null };
 const BOB = { createdByProfileId: "usr_bob", createdByName: "Bob", createdByAvatar: null };
@@ -375,3 +377,292 @@ it.effect("patching a series instance flips instanceOverride=true", () =>
 // Silence unused warning for eventSeries import (kept for type side-effect symmetry)
 void eventSeries;
 void and;
+
+// ---------------------------------------------------------------------------
+// cancelSeries lifecycle guards
+// ---------------------------------------------------------------------------
+
+it.effect("cancelSeries stamps cancelledAt and the organiser reason on each instance", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+        ALICE,
+      );
+      const before = Math.floor(Date.now() / 1_000);
+      yield* cancelSeries(series.id, "usr_alice");
+      const after = Math.floor(Date.now() / 1_000);
+      const rows = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.seriesId, series.id)),
+      );
+      expect(rows).toHaveLength(2);
+      for (const r of rows) {
+        // Unix seconds, stamped by this call.
+        expect(r.cancelledAt).toBeGreaterThanOrEqual(before);
+        expect(r.cancelledAt).toBeLessThanOrEqual(after);
+        expect(r.cancellationReason).toBe("organiser");
+        expect(r.hardDeleteAt).toBeNull();
+      }
+    }),
+  ),
+);
+
+it.effect("cancelSeries on an already-cancelled series cancels nothing", () =>
+  provide(
+    Effect.gen(function* () {
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+        ALICE,
+      );
+      yield* cancelSeries(series.id, "usr_alice");
+      const again = yield* cancelSeries(series.id, "usr_alice");
+      expect(again.cancelled).toBe(0);
+    }),
+  ),
+);
+
+it.effect("cancelSeries takes over a host-left instance and keeps its hard-delete date", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+        ALICE,
+      );
+      const [first] = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.seriesId, series.id)).limit(1),
+      );
+      yield* Effect.promise(() =>
+        db
+          .update(events)
+          .set({
+            status: "cancelled",
+            cancelledAt: 1_000,
+            hardDeleteAt: 9_999_999_999,
+            cancellationReason: "host_left",
+          })
+          .where(eq(events.id, first.id)),
+      );
+      const result = yield* cancelSeries(series.id, "usr_alice");
+      expect(result.cancelled).toBe(2);
+      const [after] = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.id, first.id)),
+      );
+      expect(after.cancellationReason).toBe("organiser");
+      expect(after.cancelledAt).toBe(1_000);
+      expect(after.hardDeleteAt).toBe(9_999_999_999);
+    }),
+  ),
+);
+
+it.effect("cancelSeries leaves an instance the organiser cancelled on its own untouched", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=3", dtstart: futureIso(2) },
+        ALICE,
+      );
+      const [first] = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.seriesId, series.id)).limit(1),
+      );
+      yield* updateEvent(first.id, { status: "cancelled" }, "usr_alice");
+      // An old write time, so a rewrite in the same second still shows.
+      const written = new Date(1_000_000);
+      yield* Effect.promise(() =>
+        db.update(events).set({ updatedAt: written }).where(eq(events.id, first.id)),
+      );
+      const [own] = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.id, first.id)),
+      );
+
+      const result = yield* cancelSeries(series.id, "usr_alice");
+      expect(result.cancelled).toBe(2);
+      const [after] = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.id, first.id)),
+      );
+      expect(after.updatedAt.getTime()).toBe(written.getTime());
+      expect(after.cancelledAt).toBe(own.cancelledAt);
+      expect(after.cancellationReason).toBe("organiser");
+    }),
+  ),
+);
+
+it.effect("updateSeries refuses a cancelled series", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+        ALICE,
+      );
+      yield* cancelSeries(series.id, "usr_alice");
+      const spy = vi.spyOn(metrics, "metricSeriesUpdated");
+      const err = yield* Effect.flip(updateSeries(series.id, { title: "Renamed" }, "usr_alice"));
+      expect(err._tag).toBe("ValidationError");
+      expect(spy).toHaveBeenCalledWith("all_future", "conflict");
+      spy.mockRestore();
+      const rows = yield* Effect.promise(() =>
+        db.select().from(events).where(eq(events.seriesId, series.id)),
+      );
+      for (const r of rows) expect(r.title).toBe("W");
+    }),
+  ),
+);
+
+// ---------------------------------------------------------------------------
+// updateSeries writes only what the organiser still owns, and checks the
+// series is open in the statements that write
+// ---------------------------------------------------------------------------
+
+const seriesRows = (seriesId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    return yield* Effect.promise(() =>
+      db.select().from(events).where(eq(events.seriesId, seriesId)).orderBy(events.startTime),
+    );
+  });
+
+it.effect("updateSeries leaves instances the leave flow owns", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const { series, instances } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=3", dtstart: futureIso(2) },
+        ALICE,
+      );
+      // Cancelled by the leave, and one a status write moved off cancelled
+      // while the leave's columns stayed.
+      yield* Effect.promise(() =>
+        db
+          .update(events)
+          .set({
+            status: "cancelled",
+            cancelledAt: 1_000,
+            cancellationReason: "host_left",
+            hardDeleteAt: 9_999_999_999,
+          })
+          .where(eq(events.id, instances[0]!.id)),
+      );
+      yield* Effect.promise(() =>
+        db
+          .update(events)
+          .set({ cancellationReason: "host_left", hardDeleteAt: 9_999_999_999 })
+          .where(eq(events.id, instances[1]!.id)),
+      );
+      const result = yield* updateSeries(series.id, { title: "Renamed" }, "usr_alice");
+      expect(result.updated).toBe(1);
+      const titles = (yield* seriesRows(series.id)).map((r) => r.title);
+      expect(titles).toEqual(["W", "W", "Renamed"]);
+    }),
+  ),
+);
+
+it.effect("updateSeries this_and_following updates from the given instance on", () =>
+  provide(
+    Effect.gen(function* () {
+      const { series, instances } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=3", dtstart: futureIso(2) },
+        ALICE,
+      );
+      const result = yield* updateSeries(
+        series.id,
+        { title: "Later", scope: "this_and_following", from: instances[1]!.id },
+        "usr_alice",
+      );
+      expect(result.updated).toBe(2);
+      expect((yield* seriesRows(series.id)).map((r) => r.title)).toEqual(["W", "Later", "Later"]);
+    }),
+  ),
+);
+
+it.effect("updateSeries refuses a from instance outside the series and writes nothing", () =>
+  provide(
+    Effect.gen(function* () {
+      const { series } = yield* createSeries(
+        { title: "W", rrule: "FREQ=WEEKLY;COUNT=3", dtstart: futureIso(2) },
+        ALICE,
+      );
+      const other = yield* createSeries(
+        { title: "Other", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(10) },
+        BOB,
+      );
+      for (const from of [other.instances[0]!.id, "evt_nonexistent"]) {
+        const err = yield* Effect.flip(
+          updateSeries(
+            series.id,
+            { title: "Probe", scope: "this_and_following", from },
+            "usr_alice",
+          ),
+        );
+        expect(err._tag).toBe("ValidationError");
+      }
+      expect((yield* getSeries(series.id)).title).toBe("W");
+      expect((yield* seriesRows(series.id)).map((r) => r.title)).toEqual(["W", "W", "W"]);
+    }),
+  ),
+);
+
+it.effect("updateSeries returns the template it wrote without reading it again", () => {
+  const { layer, captured } = createCapturingTestLayer();
+  return Effect.gen(function* () {
+    const { series } = yield* createSeries(
+      { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+      ALICE,
+    );
+    captured.length = 0;
+    const result = yield* updateSeries(series.id, { title: "Renamed" }, "usr_alice");
+    expect(result.series.title).toBe("Renamed");
+    expect(result.updated).toBe(2);
+    expect(statementKinds(captured)).toEqual(["select", "update", "update"]);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("updateSeries refuses a series cancelled after it was read, writing no instance", () => {
+  let target = "";
+  const { layer, captured } = createCapturingTestLayer((sql, sqlite) => {
+    // The cancel lands between updateSeries's read and its template write.
+    if (target && /^update "event_series"/i.test(sql.trimStart())) {
+      sqlite.run("UPDATE event_series SET status = 'cancelled' WHERE id = ?", [target]);
+      target = "";
+    }
+  });
+  return Effect.gen(function* () {
+    const { series } = yield* createSeries(
+      { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+      ALICE,
+    );
+    target = series.id;
+    captured.length = 0;
+    const err = yield* Effect.flip(updateSeries(series.id, { title: "Renamed" }, "usr_alice"));
+    expect(err._tag).toBe("ValidationError");
+    expect(statementKinds(captured)).toEqual(["select", "update"]);
+    expect((yield* seriesRows(series.id)).map((r) => r.title)).toEqual(["W", "W"]);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("updateSeries leaves instances a series cancel reached between its two writes", () => {
+  let target = "";
+  const { layer } = createCapturingTestLayer((sql, sqlite) => {
+    // cancelSeries's instance statement lands after updateSeries's template
+    // write and before its instance write.
+    if (target && /^update "events"/i.test(sql.trimStart())) {
+      sqlite.run(
+        "UPDATE events SET status = 'cancelled', cancelled_at = 1000, cancellation_reason = 'organiser' WHERE series_id = ?",
+        [target],
+      );
+      target = "";
+    }
+  });
+  return Effect.gen(function* () {
+    const { series } = yield* createSeries(
+      { title: "W", rrule: "FREQ=WEEKLY;COUNT=2", dtstart: futureIso(2) },
+      ALICE,
+    );
+    target = series.id;
+    const result = yield* updateSeries(series.id, { title: "Renamed" }, "usr_alice");
+    expect(result.updated).toBe(0);
+    expect((yield* seriesRows(series.id)).map((r) => r.title)).toEqual(["W", "W"]);
+  }).pipe(Effect.provide(layer));
+});

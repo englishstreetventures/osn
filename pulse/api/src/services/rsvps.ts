@@ -1,7 +1,8 @@
 import { events, eventRsvps, type Event, type EventRsvp } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { insertManyViaJsonEach, jsonEachIn } from "@shared/db-utils";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
 import { MAX_EVENT_GUESTS } from "../lib/limits";
@@ -127,22 +128,32 @@ const loadEvent = (eventId: string): Effect.Effect<Event, EventNotFound | Databa
     return rows[0]!;
   });
 
-const loadRsvp = (
+/**
+ * The event and the caller's own reply to it, in one read. The reply is joined
+ * on the `(event_id, profile_id)` pair index and is null when there is none.
+ */
+const loadEventWithRsvp = (
   eventId: string,
   profileId: string,
-): Effect.Effect<EventRsvp | null, DatabaseError, Db> =>
+): Effect.Effect<{ event: Event; existing: EventRsvp | null }, EventNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
-      try: (): Promise<EventRsvp[]> =>
+      try: (): Promise<{ event: Event; rsvp: EventRsvp | null }[]> =>
         db
-          .select()
-          .from(eventRsvps)
-          .where(and(eq(eventRsvps.eventId, eventId), eq(eventRsvps.profileId, profileId)))
-          .limit(1) as Promise<EventRsvp[]>,
+          .select({ event: events, rsvp: eventRsvps })
+          .from(events)
+          .leftJoin(
+            eventRsvps,
+            and(eq(eventRsvps.eventId, events.id), eq(eventRsvps.profileId, profileId)),
+          )
+          .where(eq(events.id, eventId))
+          .limit(1) as Promise<{ event: Event; rsvp: EventRsvp | null }[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    return rows[0] ?? null;
+    const row = rows[0];
+    if (!row) return yield* Effect.fail(new EventNotFound({ id: eventId }));
+    return { event: row.event, existing: row.rsvp };
   });
 
 // ---------------------------------------------------------------------------
@@ -284,12 +295,14 @@ const filterByAttendeePrivacy = (
 /**
  * Create or update an RSVP for the caller on a given event.
  *
- * Enforces:
+ * Enforces, in this order:
  *   - event must exist
  *   - "invited" status is never accepted from end users (organiser-only,
  *     via inviteGuests)
  *   - joinPolicy === "guest_list" → the caller must already have an
- *     "invited" row; otherwise NotInvited
+ *     "invited" row; otherwise NotInvited. First, so an uninvited caller is
+ *     refused the same way whatever state the event is in.
+ *   - event.status === "cancelled" → rejected
  *   - event.allowInterested === false → rejects status === "maybe"
  *
  * Also lazily ensures a pulse_users row exists for the caller.
@@ -304,15 +317,7 @@ export const upsertRsvp = (
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
-    const event = yield* loadEvent(eventId);
-
-    if (validated.status === "maybe" && !event.allowInterested) {
-      return yield* Effect.fail(
-        new ValidationError({ cause: "This event does not accept 'Maybe' RSVPs" }),
-      );
-    }
-
-    const existing = yield* loadRsvp(eventId, profileId);
+    const { event, existing } = yield* loadEventWithRsvp(eventId, profileId);
 
     // Guest-list events require a prior invite row for the user.
     if (event.joinPolicy === "guest_list" && event.createdByProfileId !== profileId) {
@@ -321,6 +326,18 @@ export const upsertRsvp = (
       }
       // existing row must be an invite or a prior RSVP; either way the
       // user is allowed to update their status.
+    }
+
+    // RSVPs close when the event is cancelled. Replies given before the cancel
+    // are kept, so an event that is un-cancelled still has its guest list.
+    if (event.status === "cancelled") {
+      return yield* Effect.fail(new ValidationError({ cause: "This event is cancelled" }));
+    }
+
+    if (validated.status === "maybe" && !event.allowInterested) {
+      return yield* Effect.fail(
+        new ValidationError({ cause: "This event does not accept 'Maybe' RSVPs" }),
+      );
     }
 
     const { db } = yield* Db;
@@ -337,82 +354,93 @@ export const upsertRsvp = (
       // Only lazy-create the pulse_users row on first RSVP insert. On
       // update the row must already exist, so skip the extra round-trip.
       yield* ensurePulseProfile(profileId);
-      const id = genRsvpId();
-      const shareSourceFirst = incomingSource ?? null;
-      const shareSourceFirstSeenAt = incomingSource ? now : null;
-      const shareSourceLast = incomingSource ?? null;
-      const shareSourceLastSeenAt = incomingSource ? now : null;
-      yield* Effect.tryPromise({
-        try: () =>
-          db.insert(eventRsvps).values({
-            id,
-            eventId,
-            profileId,
-            status: validated.status,
-            shareSourceFirst,
-            shareSourceFirstSeenAt,
-            shareSourceLast,
-            shareSourceLastSeenAt,
-            createdAt: now,
-          }),
+      // A concurrent first RSVP for the same pair may insert between the read
+      // above and this write; the pair index turns that into a no-op, and the
+      // request carries on as an update of the row the other one wrote, found
+      // by the same pair.
+      const inserted = yield* Effect.tryPromise({
+        try: (): Promise<EventRsvp[]> =>
+          db
+            .insert(eventRsvps)
+            .values({
+              id: genRsvpId(),
+              eventId,
+              profileId,
+              status: validated.status,
+              shareSourceFirst: incomingSource ?? null,
+              shareSourceFirstSeenAt: incomingSource ? now : null,
+              shareSourceLast: incomingSource ?? null,
+              shareSourceLastSeenAt: incomingSource ? now : null,
+              createdAt: now,
+            })
+            .onConflictDoNothing({ target: [eventRsvps.eventId, eventRsvps.profileId] })
+            .returning() as Promise<EventRsvp[]>,
         catch: (cause) => new DatabaseError({ cause }),
       });
-      metricRsvpUpserted(validated.status, true, "ok");
-      if (incomingSource) {
-        metricRsvpAttributionFirst(incomingSource);
-        metricRsvpAttributionLast(incomingSource);
+      if (inserted[0]) {
+        metricRsvpUpserted(validated.status, true, "ok");
+        if (incomingSource) {
+          metricRsvpAttributionFirst(incomingSource);
+          metricRsvpAttributionLast(incomingSource);
+        }
+        return inserted[0];
       }
-      return {
-        id,
-        eventId,
-        profileId,
-        status: validated.status,
-        invitedByProfileId: null,
-        shareSourceFirst,
-        shareSourceFirstSeenAt,
-        shareSourceLast,
-        shareSourceLastSeenAt,
-        createdAt: now,
-      };
     }
 
     // Stickiness rule: first-touch is set once and never overwritten —
     // matches first-touch UTM attribution. Last-touch always updates
     // when a new source comes in. The two columns together let
     // organisers compare discovery (first) vs. closing (last) channels.
-    const shouldFillFirst = incomingSource !== undefined && existing.shareSourceFirst === null;
-    const shouldUpdateLast = incomingSource !== undefined;
-    const updates: Partial<typeof eventRsvps.$inferInsert> = { status: validated.status };
-    if (shouldFillFirst) {
-      updates.shareSourceFirst = incomingSource;
-      updates.shareSourceFirstSeenAt = now;
-    }
-    if (shouldUpdateLast) {
+    //
+    // Whether first-touch is still empty is decided by the row as it is at
+    // write time, not by `existing`: a concurrent request may have filled it
+    // since. Both first-touch columns key on the same test so they move as a
+    // pair. The seen-at column stores unix seconds.
+    const nowSec = Math.floor(now.getTime() / 1_000);
+    const updates: SQLiteUpdateSetSource<typeof eventRsvps> = { status: validated.status };
+    if (incomingSource !== undefined) {
+      updates.shareSourceFirst = sql`CASE WHEN ${eventRsvps.shareSourceFirst} IS NULL THEN ${incomingSource} ELSE ${eventRsvps.shareSourceFirst} END`;
+      updates.shareSourceFirstSeenAt = sql`CASE WHEN ${eventRsvps.shareSourceFirst} IS NULL THEN ${nowSec} ELSE ${eventRsvps.shareSourceFirstSeenAt} END`;
       updates.shareSourceLast = incomingSource;
       updates.shareSourceLastSeenAt = now;
     }
 
-    yield* Effect.tryPromise({
-      try: () => db.update(eventRsvps).set(updates).where(eq(eventRsvps.id, existing.id)),
+    const written = yield* Effect.tryPromise({
+      try: (): Promise<EventRsvp[]> =>
+        db
+          .update(eventRsvps)
+          .set(updates)
+          .where(and(eq(eventRsvps.eventId, eventId), eq(eventRsvps.profileId, profileId)))
+          .returning() as Promise<EventRsvp[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
+    const row = written[0];
+    // The row went with its event (deleted, or swept) after it was read.
+    if (!row) return yield* Effect.fail(new EventNotFound({ id: eventId }));
+
     metricRsvpUpserted(validated.status, false, "ok");
-    if (shouldFillFirst && incomingSource) metricRsvpAttributionFirst(incomingSource);
-    if (shouldUpdateLast && incomingSource) metricRsvpAttributionLast(incomingSource);
-    return {
-      ...existing,
-      status: validated.status,
-      shareSourceFirst: shouldFillFirst ? (incomingSource ?? null) : existing.shareSourceFirst,
-      shareSourceFirstSeenAt: shouldFillFirst ? now : existing.shareSourceFirstSeenAt,
-      shareSourceLast: shouldUpdateLast ? (incomingSource ?? null) : existing.shareSourceLast,
-      shareSourceLastSeenAt: shouldUpdateLast ? now : existing.shareSourceLastSeenAt,
-    };
+    if (incomingSource) {
+      // This request filled first-touch when the stored value is its source,
+      // stamped this second. Two requests with the same source in the same
+      // second both count.
+      const seenAt = row.shareSourceFirstSeenAt;
+      if (
+        row.shareSourceFirst === incomingSource &&
+        seenAt !== null &&
+        Math.floor(seenAt.getTime() / 1_000) === nowSec
+      ) {
+        metricRsvpAttributionFirst(incomingSource);
+      }
+      metricRsvpAttributionLast(incomingSource);
+    }
+    return row;
   }).pipe(Effect.withSpan("rsvps.upsert"));
 
 /**
  * Organiser-only: bulk-invite users to a guest-list event. Creates rows
  * with status = "invited" for users that don't already have an RSVP.
  * Existing rows are left untouched (so accepted invites stay accepted).
+ * Refused on a cancelled event, or one scheduled for deletion.
  */
 export const inviteGuests = (
   eventId: string,
@@ -431,6 +459,12 @@ export const inviteGuests = (
     const event = yield* loadEvent(eventId);
     if (event.createdByProfileId !== organiserId) {
       return yield* Effect.fail(new NotEventOwner({ eventId }));
+    }
+    // An invite is an RSVP row, and RSVPs close when the event is cancelled. An
+    // event the leave flow has scheduled for deletion takes none either,
+    // whatever its status says.
+    if (event.status === "cancelled" || event.hardDeleteAt !== null) {
+      return yield* Effect.fail(new ValidationError({ cause: "This event is cancelled" }));
     }
 
     const { db } = yield* Db;

@@ -13,6 +13,44 @@ export function createTestLayer() {
   return Layer.succeed(Db, { db });
 }
 
+/** One statement drizzle sent to bun:sqlite: its SQL text and bound parameters. */
+export interface Captured {
+  sql: string;
+  params: readonly unknown[];
+}
+
+/**
+ * {@link createTestLayer}, plus drizzle's `logger` recording every statement
+ * the driver is about to run, in order. For tests that check the SQL a
+ * service emits or how many statements one call costs.
+ *
+ * `beforeStatement` runs as each statement is logged, which drizzle does just
+ * before it executes the statement: a write it makes through `sqlite` lands
+ * between the service's previous statement and this one, the way a concurrent
+ * request's write would.
+ */
+export function createCapturingTestLayer(
+  beforeStatement?: (sql: string, sqlite: Database) => void,
+): { layer: Layer.Layer<Db>; captured: Captured[] } {
+  const captured: Captured[] = [];
+  const sqlite = new Database(":memory:");
+  applySchema(sqlite);
+  const db = drizzle({
+    client: sqlite,
+    logger: {
+      logQuery: (sql, params) => {
+        captured.push({ sql, params });
+        beforeStatement?.(sql, sqlite);
+      },
+    },
+  });
+  return { layer: Layer.succeed(Db, { db }), captured };
+}
+
+/** The leading keyword of each captured statement, lower case: `select`, `update`, … */
+export const statementKinds = (captured: readonly Captured[]): string[] =>
+  captured.map((c) => c.sql.trimStart().split(/\s/, 1)[0]!.toLowerCase());
+
 /**
  * Insert an event directly into the DB, bypassing service-layer validation.
  * Used by tests that need events with past startTime (e.g. transition tests).

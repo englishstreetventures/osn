@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 
 import { it, expect } from "@effect/vitest";
-import { eventRsvps } from "@pulse/db/schema";
+import { eventRsvps, events } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
 
@@ -111,10 +112,13 @@ it.effect("excludes cancelled events the viewer was going to", () =>
     const event = yield* seedEvent({
       title: "Cancelled",
       startTime: inDays(2),
-      status: "cancelled",
       createdByProfileId: OTHER,
     });
     yield* upsertRsvp(event.id, VIEWER, { status: "going" });
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db.update(events).set({ status: "cancelled" }).where(eq(events.id, event.id)),
+    );
 
     const entries = yield* listMyCalendarEvents(VIEWER);
     expect(entries).toEqual([]);
