@@ -490,7 +490,7 @@ export default function GuestsEditor(props: {
               </Button>
             }
           >
-            <IconButton variant="quiet" size="icon" label="Add household" onClick={addHousehold}>
+            <IconButton variant="bar" size="icon" label="Add household" onClick={addHousehold}>
               <Plus aria-hidden="true" strokeWidth={1.75} class="size-4" />
             </IconButton>
           </Show>

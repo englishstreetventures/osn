@@ -218,7 +218,7 @@ export default function GettingStarted(props: {
           {/* Dismiss (X) — top-right, so an organiser who doesn't want the guide
             can hide it; the choice persists per wedding in localStorage. */}
           <Button
-            variant="quiet"
+            variant="bar"
             size="icon"
             type="button"
             onClick={dismiss}

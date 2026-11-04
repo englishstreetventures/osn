@@ -73,7 +73,6 @@ import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
 import { haptic } from "../lib/touch-feedback";
 import { IconButton } from "./ActionTip";
 import { FilterSearch, FilterSelect } from "./FilterField";
-import SectionIntro from "./SectionIntro";
 import { type MarkTone, StatusDot, StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
 
@@ -864,6 +863,27 @@ export default function RsvpView(props: RsvpViewProps) {
     </Popover>
   );
 
+  /**
+   * The whole wedding's RSVP sheet as a CSV, every event, the bar's icon
+   * button after the reply key. Owner only, as the API's `weddingOwner()` gate
+   * is, and only while some event invites someone: a file with no guests is
+   * only its header row. Named, with its name as the shell's tooltip, as the
+   * Households tab draws its own two downloads.
+   */
+  const download = () => (
+    <Show when={props.canManage && hasGuests()}>
+      <IconButton
+        variant="bar"
+        size="icon"
+        label={exporting() ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
+        onClick={() => void exportRsvps()}
+        disabled={exporting()}
+      >
+        <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
+      </IconButton>
+    </Show>
+  );
+
   const controls = (section: () => NonNullable<ReturnType<typeof selected>>) => (
     <Show
       when={compact()}
@@ -872,6 +892,7 @@ export default function RsvpView(props: RsvpViewProps) {
           {searchBox(section)}
           {replyFilter(section)}
           {replyKey()}
+          {download()}
         </>
       }
     >
@@ -894,6 +915,7 @@ export default function RsvpView(props: RsvpViewProps) {
             </For>
           </FilterSelect>
           {replyKey()}
+          {download()}
         </div>
         {replyFilter(section)}
       </div>
@@ -1001,27 +1023,9 @@ export default function RsvpView(props: RsvpViewProps) {
 
   return (
     <div class="flex flex-col gap-8">
-      <SectionIntro
-        eyebrow="RSVPs"
-        title="Replies at a glance"
-        // Owner only, as the API's `weddingOwner()` gate is: an icon beside the
-        // title, named and with its name as the shell's tooltip, as the
-        // Households tab draws its own two downloads.
-        holdActions={loading()}
-        actions={
-          <Show when={props.canManage && !error() && (loading() || hasGuests())}>
-            <IconButton
-              variant="quiet"
-              size="icon"
-              label={exporting() ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
-              onClick={() => void exportRsvps()}
-              disabled={exporting()}
-            >
-              <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
-            </IconButton>
-          </Show>
-        }
-      />
+      {/* The view's name for a reader moving by headings, as Households and
+          Edit name theirs; the chosen sub-tab already says it on screen. */}
+      <h2 class="sr-only">RSVPs</h2>
 
       {/* What the view lends the bar. While the replies load, a placeholder
           the size of each row holds its place, so the bar does not grow under

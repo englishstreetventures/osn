@@ -112,9 +112,10 @@ export default function TopBar(props: {
         {/* ── Actions ──────────────────────────────────────────────────────── */}
         <div class="ml-auto flex shrink-0 items-center gap-2">
           {/* A pill, the top bar's 36px, as a search box reads (DESIGN.md §4,
-              One pill language): the portals' pill ground and hairline, a
-              16px magnifier and the shortcut, 12px in from each end; on a
-              narrow bar the magnifier alone, in a 36px circle. */}
+              One pill language): `bar`'s pill ground and hairline, its
+              ground lifting under the pointer, a 16px magnifier and the
+              shortcut, 12px in from each end; on a narrow bar the magnifier
+              alone, in a 36px circle. */}
           {/* `buttonClass` on a native button rather than `Button`, because the
               pill sets its own sides at each width and `Button` owns its
               padding. */}
@@ -123,7 +124,7 @@ export default function TopBar(props: {
             aria-label="Search and jump to"
             aria-keyshortcuts="Meta+K Control+K"
             onClick={() => props.onOpenPalette()}
-            class={`${buttonClass({ variant: "quiet", size: "sm" })} h-9 w-9 px-0 @2xl/frame:w-auto @2xl/frame:px-3`}
+            class={`${buttonClass({ variant: "bar", size: "sm" })} h-9 w-9 px-0 @2xl/frame:w-auto @2xl/frame:px-3`}
           >
             <Search aria-hidden="true" strokeWidth={1.75} class="size-4 shrink-0" />
             <span

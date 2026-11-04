@@ -1123,7 +1123,7 @@ export default function GuestTable(props: GuestTableProps) {
           actions={
             <Show when={props.canManage && !error() && (loading() || hasGuests())}>
               <IconButton
-                variant="quiet"
+                variant="bar"
                 size="icon"
                 label={exporting() === "guests" ? "Exporting guests…" : "Download guests (CSV)"}
                 onClick={() => void exportCsv("guests")}
@@ -1132,7 +1132,7 @@ export default function GuestTable(props: GuestTableProps) {
                 <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
               </IconButton>
               <IconButton
-                variant="quiet"
+                variant="bar"
                 size="icon"
                 label={exporting() === "rsvps" ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
                 onClick={() => void exportCsv("rsvps")}

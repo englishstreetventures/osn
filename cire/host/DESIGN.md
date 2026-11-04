@@ -232,6 +232,14 @@ the guest site's lines at the guest site's own line heights. Text in a code face
 page's summaries — takes `font-ui-mono`, the platform's monospace; the portal
 loads no mono family.
 
+**A line earns its place.** A heading, an eyebrow or a label names a control, a
+region a reader moves to, or data; a line that only decorates is not drawn
+(owner, the 2026-11-05 last look, on the RSVPs page). The RSVPs view draws no
+intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
+reader moving by headings the name the visible intros of Households and Edit
+give theirs. Its download is the bar's icon button after the reply key (§4,
+One pill language).
+
 ---
 
 ## 4. Shape, depth, motion
@@ -478,8 +486,8 @@ one row:
   getting-started guide's Dismiss. A row's icon action, repeated once per
   row — a household's four actions and its "⋯" — is `quiet` at `icon`: the
   same circle, its hover a gold edge and readable gold, held while what it
-  opens is open. `round` stays the guest sheet's ×.
-  A dialog's or a drawer's own × — the event drawer's Close — stays `bare`:
+  opens is open. `round` stays the guest sheet's ×. A dialog's or a drawer's
+  own × — the event drawer's Close — stays `bare`:
   it belongs to the frame it closes, not to a bar of the page's pills, and a
   hairline circle in a panel's head would read as one more of its actions.
 - **A block pressed to choose** — the code-style and re-mint radio cards
@@ -492,8 +500,9 @@ one row:
   is the guest site's call to action, not a portal's.
 - **The top bar's ⌘K** is a 36px `bar` pill — the pill ground and hairline
   at rest, the bar's lift under the pointer — with a 16px magnifier and the
-  shortcut, 12px in from each end; on a narrow bar the magnifier alone in a 36px circle, so it reads
-  as the search it opens, between the Preview pill and the account circle.
+  shortcut, 12px in from each end; on a narrow bar the magnifier alone in a
+  36px circle, so it reads as the search it opens, between the Preview pill
+  and the account circle.
 - **The empty slot** in the wedding list is `dashed` drawn as a tile: the
   14px field corner, in the grid's next cell at a wedding tile's size (every
   row the tallest tile's height), a plus over "Create a wedding" in the
@@ -1219,8 +1228,8 @@ cannot hover it. Where the badges are icons with nothing written beside them —
 the RSVP meta line's provenance — one button in the view bar opens a key that
 names every one, with what it says: "What the reply icons mean", a 28px
 `info` glyph on the bar's icon button (`bar` at `icon`) at the end of the
-bar's second row (on a phone, the search row), on the raised surface while
-the key is open, its panel the marks' own words on the floating depth (§4,
+bar's second row, before the download (on a phone, in the search row), on the
+raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
 Depth). One stop for the page, not one per row.
 
 On a guest's meta line (§Names and meta lines) a provenance badge is an icon
