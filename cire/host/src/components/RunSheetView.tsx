@@ -365,7 +365,7 @@ function When(props: {
   muted?: boolean;
 }) {
   return (
-    <div class="font-body flex flex-col items-end text-end leading-snug">
+    <div class="font-body leading-ui-snug flex flex-col items-end text-end">
       <Show when={props.when && props.iso}>
         <time
           datetime={props.iso!}
@@ -447,7 +447,7 @@ function RunOfShow(props: { name: string; lines: readonly GuestOrderLine[] }) {
         {(line) => (
           <li
             data-run-of-show-item
-            class="font-body text-ui-sm grid grid-cols-[3.5rem_minmax(0,1fr)] items-baseline gap-x-2 leading-snug"
+            class="font-body text-ui-sm leading-ui-snug grid grid-cols-[3.5rem_minmax(0,1fr)] items-baseline gap-x-2"
           >
             <time datetime={line.time} class="text-text-muted text-ui-xs text-end tabular-nums">
               {clockLabel(line.time)}

@@ -17,7 +17,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-upgrades]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-05
 ---
 
 # Cire Landing
@@ -49,7 +49,8 @@ packages deploy and scale on their own.
 Mirrors `cire/host`: **static Astro + SolidJS islands + Tailwind v4**
 (`output: "static"`, no Cloudflare adapter), deployed to Cloudflare Pages with
 `wrangler pages deploy dist`. **Motion is CSS alone**: transitions and one
-keyframe animation, no motion library. `motion` and `three` are not
+keyframe animation on cire's motion ladder ([[#Corners, labels and motion]]),
+no motion library. `motion` and `three` are not
 dependencies, and the bundle guard's threshold (`scripts/bundle-size-budgets.txt`)
 sits at the measured build plus the usual headroom, so adding either trips the
 guard's over-budget warning ([[bundle-size-guards]]). The reduced-motion block in `src/styles/global.css` snaps every
@@ -75,6 +76,41 @@ and loads the same Google Fonts. A visitor sees on the marketing page exactly
 what their guests will see when they open the invite, so the site sells the
 product by *being* a piece of it. **If you change a brand token in one, change it
 in the other.**
+
+## Corners, labels and motion
+
+The page paints the corner roles of the four cire apps, at the same values
+(`cire/host/DESIGN.md` §4), and carries the same motion ladder;
+`cire/vendor/tests/styles/tokens.test.ts` reads this site's
+`src/styles/global.css` and fails if a role, a step or a line of the ladder
+differs. It loads no `@shared/toast`, so it sets no `--toast-radius`. Its base
+layer carries the portals' checkbox rule — an unchecked native checkbox or
+radio has no fill and a strong hairline edge, a checked one stays the
+browser's own (`cire/host/DESIGN.md` §4, Checkboxes and radios) — plus a
+`--ui-focus` ring on both, since the page has no ring of its own. No native box
+renders on the page today; the demo's dietary choices are `@cire/ui` chips.
+
+| What | Corner | Label | Motion |
+|---|---|---|---|
+| The CTAs, `.cta-primary` and `.cta-ghost` (`Hero.astro`, `Pricing.astro`, `FinalCta.astro`) | a pill, `var(--ui-radius-control)`, with `0.95rem 2.25rem` padding so the label keeps a flat edge before each round end | sentence case, normal tracking, weight 500 (Lato loads 300, 400 and 700, so it draws the 400 face) at `--ui-text-base`, the size of `Button` `lg` | colour, fill and border on `--dur-fast`; the press's `transform` too |
+| The hero's chips (`Hero.astro`, `.chips`) | the track and each chip a pill, `var(--ui-radius-pill)`, as `SegmentedTabs` draws its track and choices | sentence case at normal tracking, as a segmented strip's choices | colour, ground and inner edge on `--dur-fast` |
+| The journey's tabs and plan badge (`Journey.astro`, `.tab`, `.panel__tier`) | the tabs none: a 2px gold underline marks the chosen one; the "Included in Gold" badge a pill, `var(--ui-radius-pill)` | the tabs small caps, a tab row as the privacy row is; the badge small caps at `--ui-tracking-wider`, as `Chip`'s caps | the tabs' colour and underline on `--dur-fast` |
+| The plan cards (`Pricing.astro`, `.plan`) | 16px, `var(--ui-radius-lg)`, a card set on the page | — | — |
+| The closing field (`FinalCta.astro`, `.claim__input`) | the 14px field corner, `var(--ui-radius-field)`, as the guest site's ink field | — | its edge on `--dur-fast` |
+| The product drawings (`components/mock/`, the journey's dashboard, the closing thread) | their own, drawn at the phone's scale in `cqi` or as the portal draws its 10px module card; a round end `var(--ui-radius-pill)` | their own ([[#Product views]]) | — |
+| The masthead link, `.site-nav__cta` (`SiteNav.astro`) | none: an underlined link with no box, which a corner would curl | sentence case at 0.875rem, the footer links' size, no medium weight | `--dur-fast`; the masthead's scrolled wash on `--dur-slow` |
+| The photo (`Figure.astro`) | the 14px field corner, as a framed picture takes; the credit badge 6px, a text badge set in from the frame | — | the credit's fade on `--dur-fast` |
+| The demo invitation (`DemoRsvp.tsx`) | its frame and its two event cards 16px, as the guest event card is; the preview notice and member fieldset 6px, as in the guest sheet; Attending / Not attending pills | sentence case | the pair and the field on `--dur-fast` |
+| Legal pages (`LegalLayout.astro`) | the draft banner 6px, a notice; an inline placeholder 2px, about 16px tall, where 6px would draw a near-pill | "← Back to Cire" sentence case; the privacy tab row small caps (§Privacy pages) | — |
+| Focus rings (`SiteNav.astro`, `SiteFooter.astro`, `PrivacyNav.astro`, the FAQ summary) | `var(--radius-hair)`, 2px; a CTA's ring sets none and follows the pill | — | — |
+
+Kept in small caps: eyebrows, the demo's eyebrows, the tab rows of the privacy pages and the journey, the journey's plan badge, the
+draft banner's "Draft" and the "Anything else" field label. The footer's
+"Privacy Notice" keeps its capitals, as the name of the document. The page's
+own choreography keeps literal timings longer than `--dur-slow`: the scroll
+reveal (`[data-reveal]`, 0.7s), the hero's fan of phones (`fan-open`, 0.9s)
+and the cross-fades of the hero's screens and the journey's panels (0.45s),
+all on `var(--ease-out)`.
 
 ## Page structure (`src/pages/index.astro`)
 
@@ -122,8 +158,7 @@ move between them as between any radios.
 - **All states share one grid cell**, so switching never moves the page.
   Inactive ones are `opacity: 0; visibility: hidden`; the change is a 0.45s
   opacity and 0.5rem rise, and `transition: none` under reduced motion.
-- **Chips are at least 44px tall.** At 390px the four fit on one row by
-  dropping their tracking to 0.08em.
+- **Chips are at least 44px tall**, and at 390px the four fit on one row.
 
 ## Product views
 
@@ -139,7 +174,7 @@ carries only synthetic data.
   drawing says "Sample wedding".
 - **`PhoneFrame.astro`** draws a phone; `variant="placeholder"` is a dashed
   silhouette with a "?" and no screen, never captioned. Its corners are
-  `0.15 × --phone-w`: the house cap of 6px is for controls and panels, and a
+  `0.15 × --phone-w`: the corner roles are for controls and panels, and a
   phone's corners are part of its outline. Width comes from the parent through
   `--phone-w`, because under Astro's attribute scoping a parent's class cannot
   style a child component's root; a parent positions a wrapper of its own.
@@ -264,11 +299,13 @@ each page is its own URL and prints on its own, with the row left out.
 **The look**, in landing tokens only, no new token:
 
 - The row: four labels on a `--color-border` hairline, each as wide as its
-  word, `1.75rem` apart, wrapping if they ever run out of room. Labels in the
-  voice of the "Back to Cire" link — Lato `0.8125rem`, uppercase, `0.06em`
-  tracking. Other pages `--color-text-muted`; the current one `--color-text`
-  with a 2px `--color-gold` underline; hover `--color-text`; focus ring 2px
-  `--color-gold`, offset 3px, as the CTAs and footer links draw theirs.
+  word, `1.75rem` apart, wrapping if they ever run out of room. It is a tab
+  strip, so its labels are small caps — Lato `0.8125rem`, uppercase, `0.06em`
+  tracking — where the "Back to Cire" link above it is a link label: the same
+  size, sentence case, no tracking. Other pages `--color-text-muted`; the
+  current one `--color-text` with a 2px `--color-gold` underline; hover
+  `--color-text`, on `--dur-fast`; focus ring 2px `--color-gold`, offset 3px,
+  at the 2px `hair` corner, as the CTAs and footer links draw theirs.
 - Sections are `h2`, as on the other legal pages. The guest notice's sub-sections,
   and the four parts of the vendors' notice's "Your vendor account" section, are
   `h3`, drawn as the guest site draws its `h3`, in `--color-gold`

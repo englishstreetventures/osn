@@ -51,21 +51,36 @@ interface PulseAccountLinkProps {
   /** "Not you?" — clear the member and end the musubi sign-in. */
   onNotYou: () => void;
   /**
-   * Placement on the panel that hosts it — width, centring and spacing. The
+   * Placement on the panel that hosts it — width, centring, spacing and the
+   * corner, which depends on whether that panel is itself a card. The
    * component owns only its own surface.
    */
   class?: string;
 }
 
-/** The account's picture, or its initial when there is none or it will not load. */
+/** The URL itself when it is an absolute https URL, else null. */
+function httpsUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw).protocol === "https:" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The account's picture, or its initial when there is none, it is not an
+ * absolute https URL, or it will not load.
+ */
 function AccountPicture(props: { account: SignedInAccount }) {
   const [failed, setFailed] = createSignal(false);
+  const avatarUrl = () => httpsUrl(props.account.avatarUrl);
   const initial = () =>
     (props.account.displayName ?? props.account.handle ?? "?").trim().charAt(0).toUpperCase() ||
     "?";
   return (
     <Show
-      when={props.account.avatarUrl !== null && !failed()}
+      when={avatarUrl() !== null && !failed()}
       fallback={
         <span
           class="bg-gold/15 text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
@@ -76,7 +91,7 @@ function AccountPicture(props: { account: SignedInAccount }) {
       }
     >
       <img
-        src={props.account.avatarUrl ?? undefined}
+        src={avatarUrl() ?? undefined}
         alt=""
         width="40"
         height="40"
@@ -198,12 +213,12 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby="pulse-link-heading"
     >
       <h3
         id="pulse-link-heading"
-        class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic"
+        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic"
       >
         Link your musubi account
       </h3>

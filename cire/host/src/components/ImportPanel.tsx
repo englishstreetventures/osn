@@ -437,13 +437,13 @@ export default function ImportPanel(props: {
                 accept=".csv,text/csv"
                 ref={fileInput}
                 onChange={(e) => selectFile(e.currentTarget.files?.[0] ?? null)}
-                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
+                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
               />
             )}
           </Field>
           <Show when={file()}>
             <span class="flex items-center gap-2">
-              <span class="text-text-muted text-ui-xs font-mono">{file()?.name}</span>
+              <span class="text-text-muted text-ui-xs font-ui-mono">{file()?.name}</span>
               <Button variant="subtle" size="sm" type="button" onClick={clearFile}>
                 Remove {copy().fileName}
               </Button>
@@ -483,7 +483,7 @@ export default function ImportPanel(props: {
 
       <Show when={preview()}>
         {(p) => (
-          <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
+          <div class="border-border bg-bg/40 rounded-ui-lg flex flex-col gap-4 border p-4">
             <h3 class="font-display text-gold-ink text-ui-md">Diff preview</h3>
             {/* The reassurance under a destructive confirm is read off the
                 SERVER's echoed scope, not off what this panel believes it sent.
@@ -546,7 +546,7 @@ export default function ImportPanel(props: {
         {(s) => (
           <div class="border-gold/30 bg-gold/5 text-text text-ui-base flex flex-col gap-2 rounded-sm border p-4">
             <p class="font-display text-gold-ink text-ui-md">Applied</p>
-            <p class="text-text-muted text-ui-xs font-mono">{s().changeId}</p>
+            <p class="text-text-muted text-ui-xs font-ui-mono">{s().changeId}</p>
             <p>
               events: +{s().eventsCreated} / ~{s().eventsUpdated} / -{s().eventsRemoved} · families:
               +{s().familiesCreated} / ~{s().familiesUpdated ?? 0} / -{s().familiesRemoved} ·
@@ -581,7 +581,7 @@ export default function ImportPanel(props: {
 function Col(props: { children: string; required?: boolean }) {
   return (
     <code
-      class="text-ui-xs rounded-hair border px-1.5 py-0.5 font-mono"
+      class="text-ui-xs rounded-hair font-ui-mono border px-1.5 py-0.5"
       classList={{
         "text-gold-ink bg-gold/12 border-gold/45": props.required === true,
         "text-text-muted bg-bg/60 border-border": props.required !== true,
@@ -624,10 +624,10 @@ function KeyLegend() {
  */
 function FormattingTips(props: { children: JSX.Element }) {
   return (
-    <details class="border-gold/25 bg-gold/[0.06] group/tips rounded-sm border">
+    <details class="border-gold/25 bg-gold/6 group/tips rounded-sm border">
       <summary class="font-display text-gold-ink text-ui-base flex cursor-pointer list-none items-center gap-2 p-3 select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
         <span
-          class="text-gold inline-block not-italic transition-transform group-open/tips:rotate-90"
+          class="text-gold inline-block not-italic transition-transform duration-(--dur-fast) ease-(--ease-out) group-open/tips:rotate-90"
           aria-hidden
         >
           ›
@@ -642,7 +642,7 @@ function FormattingTips(props: { children: JSX.Element }) {
 /** The numbered circle that leads each step card. */
 function StepBadge(props: { n: number }) {
   return (
-    <span class="border-gold/50 text-gold text-ui-sm flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-mono">
+    <span class="border-gold/50 text-gold text-ui-sm font-ui-mono flex h-6 w-6 shrink-0 items-center justify-center rounded-full border">
       {props.n}
     </span>
   );
@@ -656,7 +656,7 @@ function StepBadge(props: { n: number }) {
 function MiniMatrix() {
   return (
     <div class="border-border/70 rounded-hair overflow-hidden border">
-      <table class="text-ui-xs w-full border-collapse font-mono">
+      <table class="text-ui-xs font-ui-mono w-full border-collapse">
         <thead>
           <tr class="bg-bg/50 text-gold-ink">
             <th class="px-2 py-1 text-left font-normal">Name</th>
@@ -729,11 +729,11 @@ function EventsGuidance() {
             <dt class="text-text">Timestamps</dt>
             <dd class="text-text-muted">
               <Col required>Start</Col> and <Col>End</Col> as{" "}
-              <span class="text-text font-mono">YYYY-MM-DDTHH:MM</span> — e.g.{" "}
-              <span class="text-text font-mono">2026-11-14T15:00</span> is 3 pm on 14 Nov 2026. Give
-              the LOCAL time; the <Col required>Timezone</Col> column says which clock it's on, so
-              there's no UTC offset to work out. Leave <Col>End</Col> blank for an open-ended event
-              — the invite shows just the start time.
+              <span class="text-text font-ui-mono">YYYY-MM-DDTHH:MM</span> — e.g.{" "}
+              <span class="text-text font-ui-mono">2026-11-14T15:00</span> is 3 pm on 14 Nov 2026.
+              Give the LOCAL time; the <Col required>Timezone</Col> column says which clock it's on,
+              so there's no UTC offset to work out. Leave <Col>End</Col> blank for an open-ended
+              event — the invite shows just the start time.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
@@ -748,19 +748,20 @@ function EventsGuidance() {
             <dt class="text-text">Description</dt>
             <dd class="text-text-muted">
               Shown under About in the event's details. Line breaks are kept. A cell can't begin
-              with <span class="text-text font-mono">=</span>,{" "}
-              <span class="text-text font-mono">+</span>, <span class="text-text font-mono">-</span>{" "}
-              or <span class="text-text font-mono">@</span>, so start a list with a word or a •.
+              with <span class="text-text font-ui-mono">=</span>,{" "}
+              <span class="text-text font-ui-mono">+</span>,{" "}
+              <span class="text-text font-ui-mono">-</span> or{" "}
+              <span class="text-text font-ui-mono">@</span>, so start a list with a word or a •.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Run of show</dt>
             <dd class="text-text-muted">
               <Col>Run of Show</Col> is one item per line in the cell: a 24-hour time, a space, then
-              what happens — e.g. <span class="text-text font-mono">15:30 Vows</span>. Times are the
-              event's own <Col required>Timezone</Col>. Guests see the items in time order from the
-              start, so a time earlier than <Col required>Start</Col> reads as after midnight. At
-              most 40 items of 200 characters.
+              what happens — e.g. <span class="text-text font-ui-mono">15:30 Vows</span>. Times are
+              the event's own <Col required>Timezone</Col>. Guests see the items in time order from
+              the start, so a time earlier than <Col required>Start</Col> reads as after midnight.
+              At most 40 items of 200 characters.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
@@ -796,23 +797,23 @@ function EventsGuidance() {
               >
                 IANA
               </a>{" "}
-              name, e.g. <span class="text-text font-mono">Australia/Sydney</span>.
+              name, e.g. <span class="text-text font-ui-mono">Australia/Sydney</span>.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">URLs</dt>
             <dd class="text-text-muted">
               <Col>Pinterest URL</Col> and <Col>Maps URL</Col> as full links (e.g.{" "}
-              <span class="text-text font-mono">https://www.pinterest.com/...</span>).
+              <span class="text-text font-ui-mono">https://www.pinterest.com/...</span>).
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Dress code palette</dt>
             <dd class="text-text-muted">
               <Col>Dress Code Palette</Col> as{" "}
-              <span class="text-text font-mono">DisplayName:#RGB</span>, e.g.{" "}
-              <span class="text-text font-mono">Blush:#f4c2c2</span>. Separate swatches with{" "}
-              <span class="text-text font-mono">|</span>.
+              <span class="text-text font-ui-mono">DisplayName:#RGB</span>, e.g.{" "}
+              <span class="text-text font-ui-mono">Blush:#f4c2c2</span>. Separate swatches with{" "}
+              <span class="text-text font-ui-mono">|</span>.
             </dd>
           </div>
         </dl>
@@ -872,10 +873,10 @@ function GuestsGuidance() {
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Event attendance</dt>
             <dd class="text-text-muted">
-              Mark an invited guest's event column <span class="text-text font-mono">yes</span> (or{" "}
-              <span class="text-text font-mono">true</span> /{" "}
-              <span class="text-text font-mono">1</span> /{" "}
-              <span class="text-text font-mono">x</span>); leave it{" "}
+              Mark an invited guest's event column <span class="text-text font-ui-mono">yes</span>{" "}
+              (or <span class="text-text font-ui-mono">true</span> /{" "}
+              <span class="text-text font-ui-mono">1</span> /{" "}
+              <span class="text-text font-ui-mono">x</span>); leave it{" "}
               <span class="text-text">blank</span> if not invited.
             </dd>
           </div>
@@ -932,7 +933,7 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
   return (
     <details
       open={firstTime}
-      class="border-border bg-bg/30 group rounded-sm border"
+      class="border-border bg-bg/30 group rounded-ui-lg border"
       classList={{ "attention-glow": firstTime && !touched() }}
     >
       {/* The summary's own click — NOT the details' `toggle` — is what counts as
@@ -944,7 +945,10 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
         onClick={() => setTouched(true)}
         class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition duration-(--dur-fast) ease-(--ease-out) select-none"
       >
-        <span class="text-gold inline-block transition-transform group-open:rotate-90" aria-hidden>
+        <span
+          class="text-gold inline-block transition-transform duration-(--dur-fast) ease-(--ease-out) group-open:rotate-90"
+          aria-hidden
+        >
           ›
         </span>
         How to structure your sheet — CSV format

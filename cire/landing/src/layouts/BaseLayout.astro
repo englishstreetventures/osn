@@ -44,7 +44,9 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    <meta name="theme-color" content="#0d1f17" />
+    {/* `--color-bg` as hex, since a meta reads no CSS variable: the browser's
+        chrome takes the page's own ground. */}
+    <meta name="theme-color" content="#0b1a0d" />
 
     <noscript>
       {/* No JS ⇒ the scroll-reveal observer never runs, so reveal everything up

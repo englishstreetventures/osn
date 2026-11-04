@@ -25,7 +25,7 @@ import { Portal } from "solid-js/web";
  */
 
 const PANEL =
-  "bg-surface-raised text-text border-border z-50 max-w-xs rounded-md border px-2 py-1 text-ui-xs leading-snug shadow-md";
+  "bg-surface-raised text-text border-border z-50 max-w-xs rounded-md border px-2 py-1 text-ui-xs leading-ui-snug shadow-md";
 
 /** How long a mouse rests on a control before its panel opens. */
 const OPEN_DELAY_MS = 300;

@@ -203,7 +203,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
       // once, so skipping layout and paint for the off-screen ones is the
       // difference on a phone. Focus and find-in-page still force-render a
       // contained subtree, so an open claim form is unaffected.
-      class="border-border bg-surface-raised flex w-full flex-col overflow-hidden rounded-sm border text-left [content-visibility:auto]"
+      class="border-border bg-surface-raised rounded-ui-lg flex w-full flex-col overflow-hidden border text-left [content-visibility:auto]"
       // Reserve roughly a card while it is skipped, so scrolling into a long
       // list doesn't jump.
       style={{ "contain-intrinsic-size": "auto 22rem" }}
@@ -229,7 +229,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
       </Show>
 
       <div class="flex flex-1 flex-col gap-3 p-5">
-        <h3 class="font-display text-text text-ui-md leading-snug font-light">
+        <h3 class="font-display text-text text-ui-md leading-ui-snug font-light">
           {props.item.title}
         </h3>
 
@@ -254,7 +254,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
               // handle back to this page.
               target="_blank"
               rel="noopener noreferrer"
-              class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 text-ui-sm self-start rounded-sm underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+              class="font-body text-text-muted hover:text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus transition-ui-colors self-start underline underline-offset-2 duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
             >
               View this gift
             </a>
@@ -338,7 +338,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                   // naming an id that is not in the DOM describes nothing.
                   aria-describedby={quantityHint() ? quantityHintId : undefined}
                   onInput={(e) => setQuantityText(e.currentTarget.value)}
-                  class="border-text/55 bg-text/[0.045] font-body text-text focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 tracking-normal normal-case transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+                  class="border-text/55 bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                 />
               </label>
               {/* OUTSIDE the label. The input is labelled by wrapping, so the
@@ -361,7 +361,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                 value={displayName()}
                 onInput={(e) => setDisplayName(e.currentTarget.value)}
                 placeholder="The Ashworths"
-                class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 tracking-normal normal-case transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
               />
             </label>
 
@@ -372,7 +372,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                 maxlength="500"
                 value={note()}
                 onInput={(e) => setNote(e.currentTarget.value)}
-                class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base w-full resize-y rounded-sm border px-3 py-2 tracking-normal normal-case transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full resize-y border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
               />
             </label>
 

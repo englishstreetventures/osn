@@ -40,6 +40,7 @@ import {
   typographyVars,
 } from "@cire/theme";
 import Button from "@cire/ui/button";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Notice } from "@shared/ui/ui/notice";
@@ -955,7 +956,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     // `watchBuilderWidth`.
     <section
       ref={watchBuilderWidth}
-      class="border-border bg-surface/30 @container/builder flex flex-col gap-8 rounded-sm border p-6"
+      class="border-border bg-surface/30 rounded-ui-lg @container/builder flex flex-col gap-8 border p-6"
     >
       <header class="flex flex-col gap-1">
         <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest uppercase">
@@ -969,14 +970,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         </p>
       </header>
 
-      <Show
-        when={data()}
-        fallback={
-          <p class="font-body text-text-muted text-ui-base tracking-ui-wider animate-pulse uppercase">
-            Loading invite…
-          </p>
-        }
-      >
+      <Show when={data()} fallback={<Loading label="Loading invite…" />}>
         {(d) => {
           // Memoized once per render pass and shared by the sticky side pane
           // and the mobile modal — without this, the rare frame where
@@ -1064,11 +1058,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     </span>
                     <span
                       aria-hidden
-                      class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2 tabular-nums"
+                      class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2 font-normal tabular-nums"
                     >
                       {activeIndex() + 1}/{NAV_SECTIONS.length}
                       <span
-                        class="text-gold text-ui-sm inline-block tracking-normal transition-transform duration-(--dur-fast)"
+                        class="text-gold text-ui-sm tracking-ui-normal inline-block transition-transform duration-(--dur-fast) ease-(--ease-out)"
                         classList={{ "rotate-180": sectionMenuOpen() }}
                       >
                         ▾
@@ -1089,7 +1083,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     id={SECTION_MENU_ID}
                     role="tablist"
                     data-open={sectionMenuOpen() || undefined}
-                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-sm border p-2 shadow-lg @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
+                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-md border p-2 shadow-(--elev-2) @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
                   >
                     <For each={[...NAV_SECTIONS]}>
                       {(item) => {
@@ -1108,7 +1102,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                             onKeyDown={(e) => onSectionTabKeyDown(e, item.id)}
                             // `min-h-11` is a 44px touch target in the menu; the
                             // wide row keeps the compact pill it has always been.
-                            class={`font-body text-ui-xs tracking-ui-wider flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
+                            class={`font-body text-ui-xs tracking-ui-wider transition-ui-colors flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase duration-(--dur-fast) ease-(--ease-out) @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
                               active(),
                               isHiddenState(state()),
                             )}`}
@@ -1434,7 +1428,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         design={currentDesign()}
                         panel={designLayout(currentDesign()).welcome === "panel"}
                         eyebrow="Your Invitation"
-                        heading="Enter Your Code"
+                        heading="Enter your code"
                         body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
                       />
                     </Show>
@@ -1650,7 +1644,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               {/* ── Save bar — sticky so it's reachable from any section ── */}
               <div
                 ref={trackSaveBarHeight}
-                class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur"
+                class="border-border bg-bg/90 rounded-b-ui-lg sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 border-t px-6 py-4 backdrop-blur"
               >
                 <Show when={error()}>
                   <Notice tone="danger" alert>

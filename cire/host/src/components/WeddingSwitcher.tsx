@@ -30,21 +30,25 @@ export default function WeddingSwitcher(props: {
     <DropdownMenu placement="bottom-start" gutter={8}>
       <DropdownMenu.Trigger
         aria-label="Switch wedding"
-        class="group hover:bg-surface/60 flex min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 transition-colors duration-(--dur-fast) ease-(--ease-out)"
+        class="group hover:bg-surface/60 transition-ui-colors flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 duration-(--dur-fast) ease-(--ease-out)"
       >
-        <span class="font-display text-text text-ui-md min-w-0 truncate leading-none font-light">
+        {/* `truncate` clips at this box, and at this size Cormorant's g, j, p
+            and y reach about 4.7px below the baseline, past the 3.7px a 1.1
+            line leaves. The name keeps 2px of padding inside the clip, taken
+            from the trigger's own. */}
+        <span class="font-display text-text text-ui-md leading-ui-none min-w-0 truncate py-0.5 font-light">
           {props.current.displayName}
         </span>
         <span
           aria-hidden="true"
-          class="text-text-faint group-hover:text-gold text-ui-xs shrink-0 transition-colors duration-(--dur-fast)"
+          class="text-text-faint group-hover:text-gold text-ui-xs shrink-0 transition-colors duration-(--dur-fast) ease-(--ease-out)"
         >
           ▾
         </span>
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
-        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-[min(24rem,70vh)] min-w-64 overflow-y-auto rounded-sm border p-1.5 shadow-(--elev-2) outline-none">
+        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-[min(24rem,70vh)] min-w-64 overflow-y-auto rounded-md border p-1.5 shadow-(--elev-2) outline-none">
           <Show when={others().length > 0}>
             <p class="font-body text-text-faint text-ui-xs tracking-ui-widest px-3 pt-1.5 pb-2 uppercase">
               Switch to
@@ -52,7 +56,7 @@ export default function WeddingSwitcher(props: {
             <For each={others()}>
               {(wedding) => (
                 <DropdownMenu.Item
-                  class="font-body data-[highlighted]:bg-gold/10 flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) outline-none"
+                  class="font-body data-[highlighted]:bg-gold/10 transition-ui-colors flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out) outline-none"
                   onSelect={() => props.onSelect(wedding)}
                 >
                   <span class="text-text text-ui-sm w-full truncate">{wedding.displayName}</span>
@@ -66,7 +70,7 @@ export default function WeddingSwitcher(props: {
           </Show>
 
           <DropdownMenu.Item
-            class="font-body text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold text-ui-xs tracking-ui-wider flex w-full cursor-pointer items-center gap-2 rounded-sm px-3 py-2 uppercase transition-colors duration-(--dur-fast) outline-none"
+            class="font-body text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold text-ui-sm transition-ui-colors flex w-full cursor-pointer items-center gap-2 rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out) outline-none"
             onSelect={() => props.onAll()}
           >
             <span aria-hidden="true">←</span>

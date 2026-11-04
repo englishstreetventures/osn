@@ -127,13 +127,13 @@ function respondButtonFor(container: HTMLElement, eventName: string) {
   ) as HTMLButtonElement;
 }
 
-/** The Event Details button on the card for `eventName`. */
+/** The Event details button on the card for `eventName`. */
 function detailsButtonFor(container: HTMLElement, eventName: string) {
   const card = [...container.querySelectorAll("[data-event-card]")].find((el) =>
     el.textContent?.includes(eventName),
   ) as HTMLElement;
   return [...card.querySelectorAll("button")].find(
-    (b) => b.textContent === "Event Details",
+    (b) => b.textContent === "Event details",
   ) as HTMLButtonElement;
 }
 
@@ -160,7 +160,7 @@ describe("gala InvitePage", () => {
   it("renders the claim panel initially, with the events section absent", () => {
     const { getByText, queryByTestId } = render(() => <InvitePage apiUrl="https://api.test" />);
 
-    expect(getByText("Enter Your Code")).toBeTruthy();
+    expect(getByText("Enter your code")).toBeTruthy();
     expect(queryByTestId("events-column")).toBeNull();
   });
 
@@ -172,14 +172,14 @@ describe("gala InvitePage", () => {
     const { getByPlaceholderText } = render(() => <InvitePage apiUrl="https://api.test" />);
     const cls = (getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).className;
 
-    expect(cls).toContain("bg-text/[0.045]");
+    expect(cls).toContain("bg-text/4.5");
     expect(cls).toContain("border-text/55");
     expect(cls).not.toContain("border-border");
     expect(cls).not.toContain("bg-transparent");
     // Classic asserts BOTH halves of the focus affordance, so gala must
     // too — a half-copied drift guard drifts.
     expect(cls).toContain("focus:border-gold");
-    expect(cls).toContain("focus-visible:outline-[var(--invite-focus)]");
+    expect(cls).toContain("focus-visible:outline-ui-focus");
     // A placeholder is not an accessible name, and it vanishes on input.
     expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).getAttribute("aria-label")).toBe(
       "Invitation code",
@@ -204,7 +204,7 @@ describe("gala InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
     expect(getByText("Reception")).toBeTruthy();
@@ -224,8 +224,8 @@ describe("gala InvitePage", () => {
     expect(
       [...cards].map((card) => [...card.querySelectorAll("button")].map((b) => b.textContent)),
     ).toEqual([
-      ["Event Details", "RSVP given"],
-      ["Event Details", "Respond"],
+      ["Event details", "RSVP given"],
+      ["Event details", "Respond"],
     ]);
 
     // Drain handleClaimed's own async reveal (dynamic import + mocked
@@ -257,7 +257,7 @@ describe("gala InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(getByTestId("events-column")).toBeTruthy(), { timeout: 2000 });
     const section = getByTestId("events-column").closest("section") as HTMLElement;
@@ -282,7 +282,7 @@ describe("gala InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
     const cards = container.querySelectorAll("[data-orientation]");
@@ -311,10 +311,10 @@ describe("gala InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(getByText("Dear Priya")).toBeTruthy(), { timeout: 2000 });
-    expect(queryByText("Enter Your Code")).toBeTruthy();
+    expect(queryByText("Enter your code")).toBeTruthy();
   });
 
   it("keeps a first-time guest's greeting after they send their first reply", async () => {
@@ -335,7 +335,7 @@ describe("gala InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
     await waitFor(() => expect(getByText("Dear Priya")).toBeTruthy(), { timeout: 2000 });
 
     await waitFor(() => expect(respondButtonFor(document.body, "Mehndi")).toBeTruthy(), {
@@ -372,7 +372,7 @@ describe("gala InvitePage", () => {
     expect(queryByTestId("pulse-account-link-stub")).toBeNull();
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(queryByTestId("pulse-account-link-stub")).toBeTruthy(), {
       timeout: 2000,
@@ -397,11 +397,11 @@ describe("gala InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     const link = await findByTestId("pulse-account-link-stub", {}, { timeout: 2000 });
     // The household's controls live together in the panel the guest lands on.
-    expect(link.closest("section")).toBe(getByText("Enter Your Code").closest("section"));
+    expect(link.closest("section")).toBe(getByText("Enter your code").closest("section"));
     expect(getByTestId("events-column").closest("section")!.contains(link)).toBe(false);
   });
 
@@ -422,7 +422,7 @@ describe("gala InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
     await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
     });
@@ -458,7 +458,7 @@ describe("gala InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
@@ -468,7 +468,7 @@ describe("gala InvitePage", () => {
 
     // The claim panel is back, the previously claimed household's events are
     // gone, and the field the household typed into is blank again.
-    await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
+    await waitFor(() => expect(getByText("Enter your code")).toBeTruthy());
     expect(queryByText(/Welcome back/)).toBeNull();
     expect(queryByText("Mehndi")).toBeNull();
 
@@ -479,8 +479,8 @@ describe("gala InvitePage", () => {
     const input = getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement;
     expect(input.value).toBe("");
     expect(input.disabled).toBe(false);
-    const submit = getByText("Open Invitation") as HTMLButtonElement;
-    expect(submit.textContent).toBe("Open Invitation");
+    const submit = getByText("Open invitation") as HTMLButtonElement;
+    expect(submit.textContent).toBe("Open invitation");
     fireEvent.input(input, { target: { value: "OKAFOR-LILY-AB12CD" } });
     expect(submit.disabled).toBe(false);
 
@@ -545,7 +545,7 @@ describe("gala InvitePage", () => {
     expect(rsvpVars["--invite-section-bg"]).toBe("var(--color-surface-raised)");
 
     (capturedProps.value!.onClose as () => void)();
-    fireEvent.click(getAllByRole("button", { name: /Event Details/i })[0]!);
+    fireEvent.click(getAllByRole("button", { name: /Event details/i })[0]!);
     await waitFor(() => expect(getByTestId("details-sheet-stub")).toBeTruthy());
     const detailsVars = capturedProps.value?.themeVars as Record<string, string>;
     expect(detailsVars["--invite-section-bg"]).toBe("var(--color-surface-raised)");
@@ -611,7 +611,7 @@ describe("gala InvitePage", () => {
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), {
       target: { value: "SHARMA-JOY-RK97" },
     });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     // Two events are present (per fixture) — respond to the first.
     await waitFor(() => expect(respondButtonFor(document.body, "Mehndi")).toBeTruthy(), {
@@ -741,7 +741,7 @@ describe("gala InvitePage", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/invite/"))).toBe(false);
   });
 
-  it("auto-claims from a ?code= deep-link and strips the code from the URL (S-L1)", async () => {
+  it("auto-claims from a ?code= deep-link and strips the code from the URL", async () => {
     const previewClaim: ClaimResult = { ...claim, preview: true };
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(previewClaim), {
@@ -798,7 +798,7 @@ describe("gala InvitePage", () => {
       <InvitePage apiUrl="https://api.test" />
     ));
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     fireEvent.input(await findByLabelText("First name", {}, { timeout: 2000 }), {
       target: { value: "Sam" },
@@ -1363,7 +1363,7 @@ describe("gala InvitePage", () => {
       });
 
       // `claim` has Mehndi answered and nobody invited to Reception has.
-      expect(cardButtons(container)).toEqual([["Event Details", "RSVP given"], ["Event Details"]]);
+      expect(cardButtons(container)).toEqual([["Event details", "RSVP given"], ["Event details"]]);
       expect(closedBadges().length).toBe(2);
       const given = respondButtonFor(container, "Mehndi");
       expect(given.hasAttribute("aria-disabled")).toBe(false);
@@ -1395,8 +1395,8 @@ describe("gala InvitePage", () => {
       expect(queryByText(/RSVPs closed/)).toBeNull();
       expect(closedBadges()).toEqual([]);
       expect(cardButtons(container)).toEqual([
-        ["Event Details", "RSVP given"],
-        ["Event Details", "Respond"],
+        ["Event details", "RSVP given"],
+        ["Event details", "Respond"],
       ]);
       expect(respondButtonFor(container, "Mehndi").disabled).toBe(false);
       expect(respondButtonFor(container, "Reception").disabled).toBe(false);
@@ -1510,7 +1510,7 @@ describe("gala InvitePage", () => {
       // guest loads their invite with the form still sitting on top of it. The
       // greeting assertion above cannot see that: textContent queries match
       // inside a `display: none` subtree.
-      expect((getByText("Enter Your Code").parentElement as HTMLElement).style.display).toBe(
+      expect((getByText("Enter your code").parentElement as HTMLElement).style.display).toBe(
         "none",
       );
     });
@@ -1655,13 +1655,13 @@ describe("gala InvitePage", () => {
       fireEvent.input(screen.getByPlaceholderText(/PATEL-JOY/), {
         target: { value: "SHARMA-JOY-RK97" },
       });
-      fireEvent.click(screen.getByText("Open Invitation"));
+      fireEvent.click(screen.getByText("Open invitation"));
       return screen;
     }
 
     /** The form's wrapper — the element whose `display` the swap drives. */
     const formPanel = (screen: { getByText: (t: string) => HTMLElement }) =>
-      screen.getByText("Enter Your Code").parentElement as HTMLElement;
+      screen.getByText("Enter your code").parentElement as HTMLElement;
 
     it("hides the form when the sequence reports it faded out", async () => {
       const { getByText } = await claimWith((_f, _w, _e, hooks) => {

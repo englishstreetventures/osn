@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { contrastOklch, cssRamp, type Oklch } from "@cire/theme";
+import { CONTRACT_SCALAR_TOKENS } from "@shared/design-tokens";
 import { checkContractConformance } from "@shared/design-tokens/conformance";
 import { describe, expect, it } from "vitest";
 
@@ -201,3 +202,334 @@ describe("ramp shape", () => {
     }
   });
 });
+
+/**
+ * One shape and one pace across the four cire apps.
+ *
+ * Each app declares its own copy of the corner scale and the motion ladder in
+ * its own stylesheet, because a cross-package CSS import would make Tailwind
+ * scan the other package's source for classes. Copies drift, so this reads all
+ * four from disk and holds them to one set of numbers.
+ */
+describe("one shape and one pace across cire", () => {
+  const SURFACES = {
+    host: readSheet("host"),
+    vendor: CSS,
+    invites: readSheet("invites"),
+    landing: readSheet("landing"),
+  } as const;
+
+  /**
+   * The corner each contract role paints in cire, in px. `--ui-radius-sheet`
+   * is left out by name: host and vendor never present a bottom sheet, and the
+   * guest site and landing hold theirs at 1.75rem.
+   */
+  const ROLE_PX: Record<string, number> = {
+    "--ui-radius-hair": 2,
+    "--ui-radius-sm": 6,
+    "--ui-radius-md": 10,
+    "--ui-radius-lg": 16,
+    "--ui-radius-pill": 999,
+    "--ui-radius-control": 999,
+    "--ui-radius-field": 14,
+  };
+
+  const ROLES = CONTRACT_SCALAR_TOKENS.radius.filter((name) => name !== "--ui-radius-sheet");
+
+  /** The steps an app's own `rounded-*` utilities read, in px. */
+  const SCALE_PX = {
+    "--radius-hair": 2,
+    "--radius-sm": 6,
+    "--radius-md": 10,
+    "--radius-pill": 999,
+  };
+
+  /** What a surface's stylesheet gives each corner, in px. */
+  function shape(css: string) {
+    const decls = declarations(css);
+    const scope = cascade(decls);
+    return {
+      // The contract's roles, which `rounded-ui-*` and the shared parts paint.
+      roles: Object.fromEntries(ROLES.map((role) => [role, cornerPx(scope, role)])),
+      // The steps behind the app's own `rounded-sm` and friends, so a
+      // hand-written corner means the same thing in whichever app it is written.
+      scale: Object.fromEntries(
+        decls
+          .filter((d) => isTopLevel(d, "@theme") && d.name.startsWith("--radius-"))
+          .map((d) => [d.name, cornerPx(scope, d.name)]),
+      ),
+      // The toast reads its own name, not the contract's.
+      toast: /@import\s+["']@shared\/toast\/toast\.css["']/.test(css)
+        ? cornerPx(scope, "--toast-radius")
+        : "no toast",
+    };
+  }
+
+  it("every cire surface carries one radius scale", () => {
+    const one = {
+      roles: Object.fromEntries(ROLES.map((role) => [role, ROLE_PX[role]])),
+      scale: SCALE_PX,
+      toast: 10,
+    };
+    expect(mapSurfaces(shape)).toEqual({
+      host: one,
+      vendor: one,
+      invites: one,
+      landing: { ...one, toast: "no toast" },
+    });
+  });
+
+  it("every cire surface carries one motion ladder", () => {
+    const ladders = mapSurfaces((css) => ladder(declarations(css)));
+    // A parse that found nothing would make every copy agree with it.
+    expect(Object.values(ladders.host).map((lines) => lines.length)).toEqual([4, 3, 2, 2, 2]);
+    // Nothing outside host animates with the spring, so a copy added to another
+    // app without a use is caught here.
+    const noSpring = { ...ladders.host, spring: [] };
+    expect(ladders).toEqual({
+      host: ladders.host,
+      // The one app that renders no `Modal`, so it sets no `Modal` timing.
+      vendor: { ...noSpring, modal: [] },
+      invites: noSpring,
+      landing: noSpring,
+    });
+  });
+
+  it("every cire surface defines transition-ui-colors once, with the same body", () => {
+    const bodies = mapSurfaces((css) => utilityBodies(css, "transition-ui-colors"));
+    // A parse that found nothing would make every copy agree with it.
+    expect(bodies.host).toEqual([
+      "transition-property:color,background-color,border-color,text-decoration-color",
+      "transition-timing-function:var(--tw-ease,var(--default-transition-timing-function))",
+      "transition-duration:var(--tw-duration,var(--default-transition-duration))",
+    ]);
+    expect(bodies).toEqual({
+      host: bodies.host,
+      vendor: bodies.host,
+      invites: bodies.host,
+      landing: bodies.host,
+    });
+  });
+
+  /**
+   * The rules that draw an unchecked native checkbox or radio (host DESIGN.md
+   * §4, "Checkboxes and radios"), comments dropped and whitespace collapsed, so
+   * a copy that drifts in one app is caught here rather than on a screen.
+   */
+  function uncheckedBox(css: string): string[] {
+    const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    return [...bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selector]) => selector!.includes(":not(:checked"))
+      .map(([, selector, body]) => `${selector!.trim()} { ${body!.trim()} }`.replace(/\s+/g, " "));
+  }
+
+  it("every cire surface draws an unchecked checkbox and radio alike", () => {
+    const rules = mapSurfaces(uncheckedBox);
+    // A parse that found nothing would make every copy agree with it.
+    expect(rules.host).toHaveLength(4);
+    expect(rules).toEqual({
+      host: rules.host,
+      vendor: rules.host,
+      invites: rules.host,
+      landing: rules.host,
+    });
+  });
+
+  /**
+   * The at-rules each unchecked-box rule sits inside, outermost first. The
+   * rule's own selector is not part of the path.
+   */
+  function uncheckedBoxPreludes(css: string): string[][] {
+    const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const out: string[][] = [];
+    const path: string[] = [];
+    let start = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "{") {
+        const prelude = text.slice(start, i).trim();
+        if (prelude.includes(":not(:checked")) out.push([...path]);
+        path.push(prelude);
+        start = i + 1;
+      } else if (text[i] === "}" || text[i] === ";") {
+        if (text[i] === "}") path.pop();
+        start = i + 1;
+      }
+    }
+    return out;
+  }
+
+  // Utilities such as `sr-only` and `h-4 w-4` beat the rule only while it is
+  // in `@layer base`; outside it, its `width: 13px` wins over them.
+  it("every cire surface keeps the unchecked-box rules in the base layer", () => {
+    const layers = mapSurfaces(uncheckedBoxPreludes);
+    const base = Array.from({ length: 4 }, () => ["@layer base"]);
+    expect(layers).toEqual({ host: base, vendor: base, invites: base, landing: base });
+  });
+
+  function mapSurfaces<R>(read: (css: string) => R): Record<keyof typeof SURFACES, R> {
+    return {
+      host: read(SURFACES.host),
+      vendor: read(SURFACES.vendor),
+      invites: read(SURFACES.invites),
+      landing: read(SURFACES.landing),
+    };
+  }
+});
+
+/** Another cire app's stylesheet, read from disk. */
+function readSheet(app: "host" | "invites" | "landing"): string {
+  return readFileSync(
+    fileURLToPath(new URL(`../../../${app}/src/styles/global.css`, import.meta.url)),
+    "utf8",
+  );
+}
+
+/**
+ * The declarations of every `@utility <name>` block in a stylesheet, comments
+ * dropped and whitespace removed. A utility defined twice shows up as two
+ * blocks' worth of lines, so one copy differing or doubled is caught.
+ */
+function utilityBodies(css: string, name: string): string[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const re = new RegExp(`@utility ${name}\\s*\\{([^}]*)\\}`, "g");
+  return [...text.matchAll(re)].flatMap((m) =>
+    m[1]
+      .split(";")
+      .map((line) => line.replace(/\s+/g, ""))
+      .filter((line) => line !== ""),
+  );
+}
+
+/** One custom-property declaration, with the block preludes it sits inside. */
+interface Declaration {
+  /** Outermost first: `[":root"]`, `["@theme static"]`, `["@media (pointer: fine)", ":root"]`. */
+  path: string[];
+  name: string;
+  value: string;
+}
+
+/**
+ * Every custom-property declaration in a stylesheet. Brace counting rather than
+ * a regex, because `@media` and `@supports` nest a `:root` inside them and the
+ * ladder is told apart by exactly that nesting.
+ */
+function declarations(css: string): Declaration[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const out: Declaration[] = [];
+  const path: string[] = [];
+  let start = 0;
+  const record = (chunk: string) => {
+    const m = /^\s*(--[\w-]+)\s*:([\s\S]*)$/.exec(chunk);
+    if (m) out.push({ path: [...path], name: m[1], value: m[2].trim() });
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "{") {
+      path.push(text.slice(start, i).trim());
+      start = i + 1;
+    } else if (ch === "}") {
+      record(text.slice(start, i));
+      path.pop();
+      start = i + 1;
+    } else if (ch === ";") {
+      record(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  return out;
+}
+
+/** A declaration in a top-level block: `:root` exactly, or any `@theme` block. */
+function isTopLevel(d: Declaration, block: ":root" | "@theme"): boolean {
+  if (d.path.length !== 1) return false;
+  return block === ":root" ? d.path[0] === ":root" : d.path[0].startsWith("@theme");
+}
+
+/**
+ * What each name holds at the document root once the cascade settles. Tailwind
+ * puts `@theme` into its theme layer, so an unlayered `:root` beats it whatever
+ * the source order; within each, the later declaration wins.
+ */
+function cascade(decls: Declaration[]): Map<string, string> {
+  return new Map(
+    [
+      ...decls.filter((d) => isTopLevel(d, "@theme")),
+      ...decls.filter((d) => isTopLevel(d, ":root")),
+    ].map((d) => [d.name, d.value]),
+  );
+}
+
+/** `value` with every `var()` replaced by what it names, or by its fallback. */
+function resolveVars(value: string, scope: Map<string, string>, seen: string[] = []): string {
+  const at = value.indexOf("var(");
+  if (at === -1) return value;
+  let depth = 0;
+  let end = -1;
+  for (let i = at + 3; i < value.length; i++) {
+    if (value[i] === "(") depth++;
+    else if (value[i] === ")" && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  if (end === -1) throw new Error(`unbalanced var() in \`${value}\``);
+  const inner = value.slice(at + 4, end);
+  const comma = inner.indexOf(",");
+  const name = (comma === -1 ? inner : inner.slice(0, comma)).trim();
+  if (seen.includes(name)) throw new Error(`var() cycle through ${name}`);
+  const own = scope.get(name);
+  const fallback = comma === -1 ? undefined : inner.slice(comma + 1).trim();
+  let replacement: string;
+  if (own !== undefined) replacement = resolveVars(own, scope, [...seen, name]);
+  else if (fallback !== undefined) replacement = resolveVars(fallback, scope, seen);
+  else throw new Error(`${name} is not declared`);
+  return resolveVars(value.slice(0, at) + replacement + value.slice(end + 1), scope, seen);
+}
+
+/**
+ * The corner a name holds, in px, or why it has none — a string rather than a
+ * throw, so one failing assertion lists every bad role at once.
+ */
+function cornerPx(scope: Map<string, string>, name: string): number | string {
+  const value = scope.get(name);
+  if (value === undefined) return "not declared";
+  const length = resolveVars(value, scope, [name]);
+  const m = /^(\d*\.?\d+)(px|rem)$/.exec(length);
+  if (!m) return `not a length: ${length}`;
+  return Number(m[1]) * (m[2] === "rem" ? 16 : 1);
+}
+
+/**
+ * An app's motion tokens, as `name: value` lines with the whitespace removed:
+ * the touch ladder at `:root`, the desk ladder under `(pointer: fine)` and the
+ * `Modal` durations set there, the two easings every app uses in `@theme`, and
+ * the spring, which only the app that reads it declares. A `Modal` duration set at `:root` lands in
+ * `touch`, where host has none.
+ */
+function ladder(decls: Declaration[]) {
+  // Sorted, not keyed by name, so a token declared twice shows up as two lines.
+  const lines = (where: (d: Declaration) => boolean, name: RegExp) => {
+    const out = decls
+      .filter((d) => where(d) && name.test(d.name))
+      .map((d) => `${d.name}: ${d.value.replace(/\s+/g, "")}`);
+    out.sort();
+    return out;
+  };
+  const nested = (d: Declaration, outer: string) =>
+    d.path.length === 2 && d.path[0] === outer && d.path[1] === ":root";
+  return {
+    touch: lines((d) => isTopLevel(d, ":root"), /^--(motion-scale|dur-|ui-modal-)/),
+    desk: lines((d) => nested(d, "@media (pointer: fine)"), /^--dur-/),
+    modal: lines((d) => nested(d, "@media (pointer: fine)"), /^--ui-modal-/),
+    easing: lines((d) => isTopLevel(d, "@theme"), /^--ease-(out|in-out)$/),
+    // Host reads the spring, so it alone declares it: the `@theme` fallback and
+    // the `linear()` block that replaces it.
+    spring: [
+      ...lines((d) => isTopLevel(d, "@theme"), /^--ease-spring$/),
+      ...lines(
+        (d) => nested(d, "@supports (animation-timing-function: linear(0, 1))"),
+        /^--ease-spring$/,
+      ),
+    ],
+  };
+}

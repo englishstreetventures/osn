@@ -42,7 +42,7 @@ const TRIGGER_CLASS = `${buttonClass({ variant: "touchLink", size: "md" })} min-
  * link it lands on, and an item filled for a pointer's focus reads as chosen.
  */
 const ITEM_CLASS =
-  "font-body text-text-muted hover:bg-gold hover:text-on-gold focus-visible:bg-gold focus-visible:text-on-gold active:bg-gold active:text-on-gold text-ui-sm tracking-ui-wider flex min-h-11 items-center rounded-sm px-3 uppercase transition-colors duration-200 focus-visible:outline-none";
+  "font-body text-text-muted hover:bg-gold hover:text-on-gold focus-visible:bg-gold focus-visible:text-on-gold active:bg-gold active:text-on-gold text-ui-sm tracking-ui-normal flex min-h-11 items-center rounded-sm px-3 transition-ui-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-none";
 
 /** The menu's `min-w-56`, for placing it before it has been measured. */
 const MENU_WIDTH = 224;
@@ -334,7 +334,7 @@ export function LinkMenu(props: LinkMenuProps) {
           // (`inset: 0; margin: auto`), which would otherwise fight the
           // measured `top`/`left` below and stretch the box across the
           // viewport.
-          class={`border-border bg-surface-raised fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 flex max-w-[calc(100vw-1rem)] min-w-56 flex-col gap-1 rounded-sm border p-2 shadow-lg`}
+          class={`border-border bg-surface-raised fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 flex max-w-[calc(100vw-1rem)] min-w-56 flex-col gap-1 rounded-md border p-2 shadow-lg`}
           style={{ top: `${position().top}px`, left: `${position().left}px` }}
         >
           <Index each={props.items}>

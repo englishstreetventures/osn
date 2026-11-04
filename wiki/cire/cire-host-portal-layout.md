@@ -8,7 +8,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 # Host Portal Layout System
 
@@ -220,7 +220,8 @@ component was previously reading a container it did not live in.
   code predates this pass; it was simply unreachable under the old page cap.
 
   The builder itself shows **one section at a time** (2026-07-30) — a real tab
-  switcher (`activeSection` signal + `role="tablist"`/`role="tab"` pills), not
+  switcher (`activeSection` signal + `role="tablist"`/`role="tab"`, small-caps
+  tabs at the 6px step, `cire/host/DESIGN.md` §4), not
   the old vertical stack of all eight `SectionCard`s with a `scrollIntoView`
   jump nav bolted on top. Inactive cards stay MOUNTED (`SectionCard`'s `hidden`
   prop sets the native `hidden` attribute) rather than unmounting — draft

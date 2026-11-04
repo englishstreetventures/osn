@@ -20,6 +20,7 @@ import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
@@ -452,12 +453,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
       <Show when={props.canEdit}>
         <form
           onSubmit={addTask}
-          class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
+          class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
         >
           <Field label="Task" class="min-w-48 flex-1">
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newTitle()}
                 onInput={(e) => setNewTitle(e.currentTarget.value)}
                 placeholder="Book the venue"
@@ -468,6 +470,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
             {(field) => (
               <Select
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newBucket()}
                 onChange={(e) => setNewBucket(e.currentTarget.value as TimeframeBucket)}
               >
@@ -481,13 +484,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 type="date"
                 value={newDue()}
                 onInput={(e) => setNewDue(e.currentTarget.value)}
               />
             )}
           </Field>
-          <Button type="submit" variant="primary">
+          <Button class={FORM_ACTION_CLASS} type="submit" variant="primary">
             Add task
           </Button>
         </form>
@@ -572,9 +576,9 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                       style={maybeTransformStyle(sortable.transform())}
                                       class="border-border bg-surface/10 relative flex flex-wrap items-center gap-x-3 gap-y-2 rounded-sm border px-3 py-2"
                                       classList={{
-                                        "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                        "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                           sortable.isActiveDraggable(),
-                                        "transition-transform":
+                                        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                           dndState.dragging() && !sortable.isActiveDraggable(),
                                       }}
                                     >

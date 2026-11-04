@@ -17,6 +17,15 @@
 @source "../../../zap";
 @source "../../../shared";
 
+/* The cire apps' colour-only fade, so an app component's story hovers as it
+ * does in its app: colours fade, the outline does not, so a focus ring lands at
+ * once. Each cire app stylesheet defines the same utility. */
+@utility transition-ui-colors {
+  transition-property: color, background-color, border-color, text-decoration-color;
+  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+  transition-duration: var(--tw-duration, var(--default-transition-duration));
+}
+
 /* Preview backdrops. A component that looks right on paper can disappear on
  * ink, and transparency is invisible until something is behind it. */
 @utility bg-lab-grid {

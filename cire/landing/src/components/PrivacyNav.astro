@@ -50,8 +50,9 @@ const pages: ReadonlyArray<{ readonly id: PrivacyPage; readonly label: string; r
     margin: 0;
   }
 
-  /* The label in the voice of the page's "Back to Cire" link; one word each,
-     so uppercase does not reach a screen reader as a shouted sentence. */
+  /* Small caps: the row is a strip of tabs, one per notice, and cire sets tab
+     labels in small caps where a link label takes sentence case. One word
+     each, so uppercase does not reach a screen reader as a shouted sentence. */
   .legal .privacy-nav a {
     display: block;
     padding: 0.75rem 0 0.875rem;
@@ -64,8 +65,8 @@ const pages: ReadonlyArray<{ readonly id: PrivacyPage; readonly label: string; r
     color: var(--color-text-muted);
     text-decoration: none;
     transition:
-      color 0.2s var(--ease-out),
-      border-color 0.2s var(--ease-out);
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
   }
 
   .legal .privacy-nav a:hover {
@@ -80,7 +81,7 @@ const pages: ReadonlyArray<{ readonly id: PrivacyPage; readonly label: string; r
   .legal .privacy-nav a:focus-visible {
     outline: 2px solid var(--color-gold);
     outline-offset: 3px;
-    border-radius: 0.125rem;
+    border-radius: var(--radius-hair);
   }
 
   /* On paper the page is the notice; the links lead nowhere. */

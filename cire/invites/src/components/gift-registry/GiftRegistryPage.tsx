@@ -1,3 +1,4 @@
+import { buttonClass } from "@cire/ui/button";
 import { Toaster } from "@shared/toast";
 import {
   createMemo,
@@ -388,10 +389,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 This gift list is for the couple’s guests. Enter your invite code on the invitation
                 and it opens here.
               </p>
-              <a
-                href={props.inviteHref}
-                class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
-              >
+              <a href={props.inviteHref} class={buttonClass({ variant: "cta", size: "lg" })}>
                 Open the invitation
               </a>
             </div>
@@ -408,7 +406,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               </p>
               <a
                 href={props.inviteHref}
-                class="font-body text-gold-ink focus-visible:ring-gold/60 text-ui-sm rounded-sm underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+                class="font-body text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 Back to the invitation
               </a>
@@ -465,7 +463,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 Your invite session has ended. Enter your invite code again on{" "}
                 <a
                   href={props.inviteHref}
-                  class="focus-visible:ring-gold/60 rounded-sm underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+                  class="rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                   the invitation
                 </a>{" "}

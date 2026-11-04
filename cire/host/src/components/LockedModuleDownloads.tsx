@@ -49,10 +49,10 @@ function Downloads(props: { weddingId: string; weddingSlug: string; specs: Locke
   return (
     <Show when={offered().length > 0}>
       <section aria-labelledby={headingId} class="border-border flex flex-col gap-2 border-t pt-5">
-        <h3 id={headingId} class="font-display text-text text-ui-md leading-tight font-light">
+        <h3 id={headingId} class="font-display text-text text-ui-md leading-ui-tight font-light">
           Download what you entered
         </h3>
-        <p class="font-body text-text-muted text-ui-sm leading-snug">
+        <p class="font-body text-text-muted text-ui-sm leading-ui-snug">
           Your plan no longer opens these modules. Nothing you entered in them has been deleted.
         </p>
         <For each={offered()}>

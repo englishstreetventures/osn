@@ -182,11 +182,11 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
             </Button>
           }
         >
-          <section class="border-border bg-surface/20 flex flex-col items-start gap-3 rounded-sm border p-4">
+          <section class="border-border bg-surface/20 rounded-ui-lg flex flex-col items-start gap-3 border p-4">
             <h3 class="font-display text-text text-ui-md font-light">
               Start from a suggested checklist
             </h3>
-            <p class="text-text-muted text-ui-sm max-w-prose leading-snug">
+            <p class="text-text-muted text-ui-sm leading-ui-snug max-w-prose">
               About twenty common planning tasks, each due a set time before your wedding. Pick the
               ones that fit; they become ordinary tasks you can change or delete.
             </p>
@@ -204,7 +204,7 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
           <h2 id={TITLE_ID} class="font-display text-text text-ui-md font-light">
             Starter checklist
           </h2>
-          <p class="text-text-muted text-ui-sm leading-snug">
+          <p class="text-text-muted text-ui-sm leading-ui-snug">
             Each task is due a set time before your wedding date. Untick what does not fit; you can
             change or delete any task later.
           </p>

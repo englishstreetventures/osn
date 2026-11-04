@@ -57,12 +57,12 @@ test("cire-member-step", async ({ page, context, flow }) => {
 
   const claimed = await flow.step("enter the family code", async () => {
     await page.getByLabel("Invitation code").fill(CIRE_HOUSEHOLD.code);
-    await expect(page.getByRole("button", { name: "Open Invitation" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Open invitation" })).toBeEnabled();
     // Exactly the claim: `/api/claim/member` and `/api/claim/session` share the prefix.
     const response = page.waitForResponse(
       (r) => r.url() === `${ORIGINS.cireApi}/api/claim` && r.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "Open Invitation" }).click();
+    await page.getByRole("button", { name: "Open invitation" }).click();
     return (await (await response).json()) as MemberStepBody;
   });
   flow.check("claim names no member yet", true, claimed.member === null);

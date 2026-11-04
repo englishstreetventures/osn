@@ -122,6 +122,28 @@ describe("PulseAccountLink", () => {
     expect(screen.getByText("A")).toBeTruthy();
   });
 
+  it.each([
+    ["an http: URL", "http://avatars.example/ada.png"],
+    ["a javascript: URL", "javascript:alert(1)"],
+    ["a relative URL", "/avatars/ada.png"],
+    ["a malformed URL", "https://"],
+  ])("draws the initial, not a picture, for %s", (_name, avatarUrl) => {
+    const { view } = renderBox({
+      signedIn: true,
+      linkedGuestIds: [],
+      account: { ...ACCOUNT, avatarUrl },
+    });
+    expect(view.container.querySelector("img")).toBeNull();
+    expect(screen.getByText("A")).toBeTruthy();
+  });
+
+  it("draws the picture for an https: URL, with that src", () => {
+    const { view } = renderBox({ signedIn: true, linkedGuestIds: [], account: ACCOUNT });
+    expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
+      "https://avatars.example/ada.png",
+    );
+  });
+
   it("treats a 409 already_linked as linked", async () => {
     authFetchMock.mockResolvedValueOnce(jsonResponse(409, { error: "already_linked" }));
     const { onLinked } = renderBox({ signedIn: true, linkedGuestIds: [], account: ACCOUNT });

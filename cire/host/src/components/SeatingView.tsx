@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
@@ -32,6 +32,7 @@ import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
+import { FILTER_FIELD_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
 import {
@@ -395,8 +396,9 @@ export default function SeatingView(props: SeatingViewProps) {
             {(field) => (
               <Select
                 {...field}
+                size="sm"
                 onChange={(e) => setEventId(e.currentTarget.value)}
-                class="min-w-56"
+                class={`${FILTER_FIELD_CLASS} min-w-56`}
               >
                 {/* Each option carries its own selection, so a refreshed event
                     list, which rebuilds the options, keeps showing the event
@@ -411,12 +413,15 @@ export default function SeatingView(props: SeatingViewProps) {
               </Select>
             )}
           </Field>
+          {/* The event picker is a filter — which chart to show — so it is a 28px
+              pill, and the bar's actions beside it are its height (DESIGN.md
+              §4, "One form-field height"). */}
           <div class="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => window.print()}>
+            <Button variant="outline" size="sm" class="h-7" onClick={() => window.print()}>
               Print
             </Button>
             <Show when={props.canManage}>
-              <Button variant="outline" size="sm" onClick={() => void downloadCsv()}>
+              <Button variant="outline" size="sm" class="h-7" onClick={() => void downloadCsv()}>
                 Download seating CSV
               </Button>
             </Show>
@@ -458,7 +463,7 @@ export default function SeatingView(props: SeatingViewProps) {
                         placeholder={`Table ${tables().length + 1}`}
                         maxLength={80}
                         onInput={(e) => setNewName(e.currentTarget.value)}
-                        class="w-48"
+                        class={`${FORM_FIELD_CLASS} w-48`}
                       />
                     )}
                   </Field>
@@ -471,17 +476,17 @@ export default function SeatingView(props: SeatingViewProps) {
                         max="100"
                         value={newCapacity()}
                         onInput={(e) => setNewCapacity(e.currentTarget.value)}
-                        class="w-24"
+                        class={`${FORM_FIELD_CLASS} w-24`}
                       />
                     )}
                   </Field>
-                  <Button type="submit" variant="primary" size="sm">
+                  <Button class={FORM_ACTION_CLASS} type="submit" variant="primary" size="sm">
                     Add table
                   </Button>
                 </form>
 
                 <Show when={tables().length > 1}>
-                  <details class="border-border rounded-sm border px-4 py-3">
+                  <details class="border-border rounded-ui-lg border px-4 py-3">
                     <summary class="font-body text-text text-ui-sm cursor-pointer">
                       Arrange tables
                     </summary>
@@ -593,7 +598,7 @@ function ArrangeRow(props: {
       ref={sortable.ref}
       style={maybeTransformStyle(sortable.transform())}
       class="bg-surface/30 flex items-center gap-2 rounded-sm px-2 py-1"
-      classList={{ "relative z-30 shadow-lg": sortable.isActiveDraggable() }}
+      classList={{ "relative z-30 shadow-(--elev-2)": sortable.isActiveDraggable() }}
     >
       <ReorderControls sortable={sortable} item={props.item} />
       <span class="font-body text-text text-ui-sm">{props.table.name}</span>
@@ -643,7 +648,7 @@ function Place(props: {
       aria-label={editing() ? props.title : undefined}
       data-table-id={props.table?.id}
       data-over={zone.isOver() ? "true" : "false"}
-      class={`border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-4 transition-colors duration-(--dur-fast) ${props.class ?? ""}`}
+      class={`border-border bg-surface/30 rounded-ui-lg flex flex-col gap-3 border p-4 transition-colors duration-(--dur-fast) ease-(--ease-out) ${props.class ?? ""}`}
       classList={{ "border-gold bg-gold/10": zone.isOver() }}
     >
       <Show
@@ -655,7 +660,7 @@ function Place(props: {
               value={name()}
               maxLength={80}
               onInput={(e) => setName(e.currentTarget.value)}
-              class="w-44"
+              class={`${FORM_FIELD_CLASS} w-44`}
             />
             <Input
               aria-label={`Seats at ${props.title}`}
@@ -664,12 +669,17 @@ function Place(props: {
               max="100"
               value={capacity()}
               onInput={(e) => setCapacity(e.currentTarget.value)}
-              class="w-20"
+              class={`${FORM_FIELD_CLASS} w-20`}
             />
-            <Button type="submit" variant="primary" size="sm">
+            <Button class={FORM_ACTION_CLASS} type="submit" variant="primary" size="sm">
               Save
             </Button>
-            <Button variant="quiet" size="sm" onClick={() => setEditing(false)}>
+            <Button
+              class={FORM_ACTION_CLASS}
+              variant="quiet"
+              size="sm"
+              onClick={() => setEditing(false)}
+            >
               Cancel
             </Button>
           </form>
@@ -738,8 +748,9 @@ function Place(props: {
   );
 }
 
-const menuTriggerClass =
-  "font-body text-text-muted hover:text-gold-ink text-ui-xs tracking-ui-wider shrink-0 rounded-sm px-2 py-1 uppercase";
+/** A guest's "Seat" or "Move": a word that opens a menu, so `subtle`'s text
+ *  action, with padding kept so the word is a 24px target. */
+const menuTriggerClass = `${buttonClass({ variant: "subtle", size: "sm" })} shrink-0 px-2 py-1`;
 
 /** The keys a menu button opens on, as Kobalte's trigger takes them. */
 const MENU_OPEN_KEYS = new Set(["Enter", " ", "ArrowDown", "ArrowUp"]);
@@ -749,7 +760,7 @@ type MenuOpener = (trigger: HTMLElement) => void;
 
 const menuItemClass =
   "font-body text-text-muted text-ui-sm flex w-full cursor-pointer items-center justify-between gap-4 " +
-  "rounded-sm px-3 py-2 outline-none transition-colors duration-(--dur-fast) " +
+  "rounded-sm px-3 py-2 outline-none transition-ui-colors duration-(--dur-fast) ease-(--ease-out) " +
   "data-[highlighted]:bg-gold/10 data-[highlighted]:text-text " +
   "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50";
 
@@ -768,7 +779,7 @@ function GuestRow(props: {
       ref={item.ref}
       style={maybeTransformStyle(item.transform())}
       class="bg-surface flex items-center gap-2 rounded-sm px-2 py-1.5"
-      classList={{ "relative z-30 shadow-lg": item.isActiveDraggable() }}
+      classList={{ "relative z-30 shadow-(--elev-2)": item.isActiveDraggable() }}
     >
       <Show when={props.canEdit && !props.guest.withdrawn}>
         {/* Pointer only. The menu beside it is the keyboard path, so the
@@ -885,7 +896,7 @@ function GuestMenu(props: {
               {action()}
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
-              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-sm border p-1.5 shadow-lg outline-none">
+              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-md border p-1.5 shadow-(--elev-2) outline-none">
                 <DropdownMenu.RadioGroup
                   value={props.guest.tableId ?? NOT_SEATED}
                   onChange={(value) =>

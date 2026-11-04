@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { Chip, type ChipTone } from "@shared/ui/ui/chip";
 import { createSignal, For, Show } from "solid-js";
 
 import type { EnquiryListItem } from "../lib/enquiries-store";
@@ -18,11 +19,13 @@ const STATUS_CHIP = {
   closed: "Closed",
 } satisfies Record<EnquiryListItem["status"], string>;
 
-const STATUS_CHIP_CLASS = {
-  open: "bg-surface/60 text-text-muted",
-  quoted: "bg-gold/10 text-gold-dim",
-  closed: "bg-surface/60 text-text-muted opacity-60",
-} satisfies Record<EnquiryListItem["status"], string>;
+/** The tone each status wears, the same as on the vendor portal's inbox, so an
+ *  enquiry reads alike from both ends. */
+const STATUS_TONE = {
+  open: "pending",
+  quoted: "accent",
+  closed: "neutral",
+} satisfies Record<EnquiryListItem["status"], ChipTone>;
 
 interface EnquiryInboxProps {
   items: EnquiryListItem[];
@@ -69,12 +72,15 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
               const isOpen = () => props.selectedId != null && props.selectedId === item.id;
               return (
                 <li>
+                  {/* Raw: the whole row is the control and wraps its contents,
+                      which `tile` (centred, one line) does not; it takes the
+                      tile's corner. */}
                   <button
                     type="button"
                     ref={(el) => rowButtons.set(item.id, el)}
                     onClick={() => props.onOpen(item.id)}
                     aria-current={isOpen() ? "true" : undefined}
-                    class="flex w-full flex-wrap items-center gap-3 rounded-sm border px-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out)"
+                    class="rounded-ui-field transition-ui-colors flex w-full flex-wrap items-center gap-3 border px-3 py-2 text-left duration-(--dur-fast) ease-(--ease-out)"
                     classList={{
                       "border-gold/50 bg-gold/5": isOpen(),
                       "border-border bg-surface/10 hover:bg-surface/20": !isOpen(),
@@ -91,11 +97,7 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
                     </span>
 
                     {/* Status chip */}
-                    <span
-                      class={`text-ui-xs rounded-full px-2 py-0.5 ${STATUS_CHIP_CLASS[item.status]}`}
-                    >
-                      {STATUS_CHIP[item.status]}
-                    </span>
+                    <Chip tone={STATUS_TONE[item.status]}>{STATUS_CHIP[item.status]}</Chip>
 
                     {/* Quote (when present) */}
                     <Show when={item.quotedMinor != null}>

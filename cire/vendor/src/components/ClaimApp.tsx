@@ -99,7 +99,7 @@ function ClaimContent() {
       <Show when={preview.state === "ready" && preview() !== null && !invalidLink()}>
         <Card tone="accent">
           <CardEyebrow>You've been invited to claim</CardEyebrow>
-          <p class="font-display text-text text-ui-xl leading-tight font-light">
+          <p class="font-display text-text text-ui-xl leading-ui-tight font-light">
             {preview()?.name}
           </p>
         </Card>
@@ -109,7 +109,7 @@ function ClaimContent() {
           when={session() !== null && session() !== undefined}
           fallback={
             <div class="flex flex-col gap-4">
-              <p class="font-body text-text-muted text-ui-base leading-relaxed">
+              <p class="font-body text-text-muted text-ui-base leading-ui-normal">
                 Sign in with your musubi account to continue. We'll bring you straight back here.
               </p>
               <Button

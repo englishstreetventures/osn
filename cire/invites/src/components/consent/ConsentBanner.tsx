@@ -214,7 +214,7 @@ function PromptDialog(props: { onClosedUnanswered: () => void }) {
         // and it is never in the Tab order.
         tabindex="-1"
         autofocus
-        class="font-display text-text text-ui-lg leading-tight font-light focus:outline-none"
+        class="font-display text-text text-ui-lg leading-ui-tight font-light focus:outline-none"
       >
         Privacy choices
       </h2>
@@ -235,7 +235,7 @@ function PromptDialog(props: { onClosedUnanswered: () => void }) {
  */
 function PromptCopy(props: { id?: string }) {
   return (
-    <p id={props.id} class="font-body text-text-muted text-ui-sm leading-relaxed">
+    <p id={props.id} class="font-body text-text-muted text-ui-sm leading-ui-normal">
       We use a little storage to keep you signed in to your invite. Some parts — the venue map and
       the Pinterest moodboard — load from Google and Pinterest, who can see your IP address and
       browser, so they stay off until you allow them. “Accept all” turns them on; you can change
@@ -293,6 +293,8 @@ export function ConsentPreferencesLink(props: { label?: string; class?: string }
 
   return (
     <>
+      {/* A raw button: its caller styles it as a peer of the links beside it
+          (the footer's legal row), which no `Button` variant would match. */}
       <button
         type="button"
         onClick={openConsentPreferences}

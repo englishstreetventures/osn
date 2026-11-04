@@ -351,15 +351,20 @@ describe("design-aware shape", () => {
   });
 
   it("insets gala's code-entry block as a panel, leaving classic's a full band", () => {
+    // The block is the one that holds the heading, found by its text rather
+    // than by a class the shape itself might change.
     const classic = render(() => <SectionSample {...section} design="classic" panel />);
-    const classicBlock = classic.container.querySelector(".p-4")!;
+    const classicBlock = classic.getByText(section.heading).parentElement!;
+    expect(classicBlock.classList.contains("p-4")).toBe(true);
     expect(classicBlock.className).not.toContain("border");
     cleanup();
 
     const gala = render(() => <SectionSample {...section} design="gala" panel />);
-    const galaBlock = gala.container.querySelector(".rounded-sm")!;
-    expect(galaBlock.className).toContain("border");
-    expect(galaBlock.className).toContain("m-4");
+    const galaBlock = gala.getByText(section.heading).parentElement!;
+    expect(galaBlock.classList.contains("border")).toBe(true);
+    expect(galaBlock.classList.contains("m-4")).toBe(true);
+    // A card on the surface, so the card corner the guest's code card takes.
+    expect(galaBlock.classList.contains("rounded-ui-lg")).toBe(true);
   });
 });
 
@@ -440,7 +445,7 @@ describe("inline preview wrappers forward the design", () => {
         tokens={{}}
         surface="var(--color-bg)"
         eyebrow="Your Invitation"
-        heading="Enter Your Code"
+        heading="Enter your code"
         body="We are delighted to invite you."
         design="gala"
         panel

@@ -217,7 +217,7 @@ export default function PaletteField(props: {
               Your Events
             </span>
             <div
-              class="flex flex-col gap-2 rounded-sm border p-3"
+              class="rounded-ui-lg flex flex-col gap-2 border p-3"
               style={{
                 "background-color": "var(--color-surface)",
                 "border-color": "var(--color-border)",
@@ -231,16 +231,16 @@ export default function PaletteField(props: {
               </span>
               <div class="flex gap-2">
                 <span
-                  class="text-ui-xs rounded-sm px-2 py-1"
+                  class="text-ui-xs rounded-ui-control px-3 py-1"
                   style={{ "background-color": "var(--color-gold)", color: "var(--color-on-gold)" }}
                 >
                   Respond
                 </span>
                 <span
-                  class="text-ui-xs rounded-sm border px-2 py-1"
+                  class="text-ui-xs rounded-ui-control border px-3 py-1"
                   style={{ "border-color": "var(--color-gold)", color: "var(--color-gold)" }}
                 >
-                  View event
+                  Event details
                 </span>
                 <span
                   class="h-2 w-2 self-center rounded-full"
@@ -259,7 +259,7 @@ export default function PaletteField(props: {
       <Show when={adjusted().length > 0}>
         <p
           role="status"
-          class="border-gold-dim bg-gold/5 text-text text-ui-sm rounded-sm border px-3 py-2 leading-relaxed"
+          class="border-gold-dim bg-gold/5 text-text text-ui-sm leading-ui-normal rounded-sm border px-3 py-2"
         >
           Adjusted to stay readable:{" "}
           {adjusted()
@@ -285,7 +285,7 @@ export default function PaletteField(props: {
       <div
         role="status"
         classList={{
-          "flex flex-col gap-1 rounded-sm px-3 py-2 text-ui-sm leading-relaxed": true,
+          "flex flex-col gap-1 rounded-sm px-3 py-2 text-ui-sm leading-ui-normal": true,
           "border-error/40 bg-error/5 text-text border": warnings().length > 0,
         }}
       >

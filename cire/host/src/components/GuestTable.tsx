@@ -48,6 +48,7 @@ import {
   type EventRow as CachedEventRow,
   eventsAccessor,
 } from "../lib/events-store";
+import { FILTER_FIELD_CLASS } from "../lib/form-field";
 import {
   ensureGuestsLoaded,
   guestsAccessor,
@@ -868,7 +869,7 @@ export default function GuestTable(props: GuestTableProps) {
               <Show when={plusOneControls()}>
                 <fieldset class="m-0 flex min-w-0 items-center gap-1 border-0 p-0">
                   <legend class="sr-only">Plus-ones for the {family.familyName} household</legend>
-                  <span class="font-body text-text-muted text-ui-xs mr-1 shrink-0 font-mono">
+                  <span class="font-body text-text-muted text-ui-xs font-ui-mono mr-1 shrink-0">
                     <span aria-hidden="true">
                       +1 {permission().allowed}/{permission().total}
                     </span>
@@ -942,14 +943,15 @@ export default function GuestTable(props: GuestTableProps) {
           <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
             Disable this code?
           </span>
-          <button
+          <Button
+            variant="danger"
+            size="sm"
             type="button"
             onClick={() => void toggleDeactivated(family, true)}
             disabled={togglingId() === family.familyId}
-            class="border-error bg-error font-body text-bg text-ui-xs tracking-ui-wider rounded-sm border px-2.5 py-1 uppercase transition duration-(--dur-fast) ease-(--ease-out) hover:opacity-90 disabled:opacity-40"
           >
             {togglingId() === family.familyId ? "Deactivating…" : "Confirm"}
-          </button>
+          </Button>
           <Button
             variant="subtle"
             size="sm"
@@ -1154,7 +1156,7 @@ export default function GuestTable(props: GuestTableProps) {
 
       <Show when={loading()}>
         <ViewBar slot="end">
-          <div class="bg-surface/60 h-7 w-64 max-w-full min-w-0 animate-pulse rounded-sm" />
+          <div class="bg-surface/60 rounded-ui-field h-7 w-64 max-w-full min-w-0 animate-pulse" />
         </ViewBar>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3, 4, 5]}>
@@ -1191,6 +1193,7 @@ export default function GuestTable(props: GuestTableProps) {
                 {...field}
                 type="search"
                 size="sm"
+                class={FILTER_FIELD_CLASS}
                 value={searchInput()}
                 onInput={(e) => handleSearchInput(e.currentTarget.value)}
                 placeholder={compact() ? "Search guests…" : "Search by name, household or code…"}
@@ -1361,7 +1364,7 @@ export default function GuestTable(props: GuestTableProps) {
                         {/* The count, shortened to an icon and a fraction: the
                             narrow bar holds the name, its state and this. */}
                         <Show when={compact() && plusOneControls()}>
-                          <span class="font-body text-text-muted text-ui-xs flex shrink-0 items-center gap-1 font-mono">
+                          <span class="font-body text-text-muted text-ui-xs font-ui-mono flex shrink-0 items-center gap-1">
                             <span aria-hidden="true">
                               +1 {permission().allowed}/{permission().total}
                             </span>
@@ -1444,7 +1447,7 @@ export default function GuestTable(props: GuestTableProps) {
                                   </div>
                                 </Show>
                                 <Show when={index() === 0}>
-                                  <p class="text-text-muted text-ui-sm tracking-ui-wide font-mono">
+                                  <p class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono">
                                     <span class="sr-only">Family code </span>
                                     {family.publicId}
                                   </p>
@@ -1482,7 +1485,7 @@ export default function GuestTable(props: GuestTableProps) {
                 <p id={confirmTitleId} class="font-display text-text text-ui-md font-light">
                   Disable {family().familyName}’s code?
                 </p>
-                <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                   Their link stops opening the invite. Their guests and replies are kept, and you
                   can reactivate the code at any time.
                 </p>
@@ -1557,7 +1560,7 @@ export default function GuestTable(props: GuestTableProps) {
                     when={single()}
                     fallback={
                       <>
-                        <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                        <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                           This removes{" "}
                           {removal().plusOnes.length === 1
                             ? "the plus-one"
@@ -1583,7 +1586,7 @@ export default function GuestTable(props: GuestTableProps) {
                     }
                   >
                     {(plusOne) => (
-                      <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                      <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                         {plusOne().inviterName || "Their guest"} named {plusOne().name} as their
                         plus-one. Turning this off removes {plusOne().name} from the guest list,
                         with any replies they have given. This cannot be undone.

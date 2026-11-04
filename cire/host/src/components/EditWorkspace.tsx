@@ -142,7 +142,7 @@ export default function EditWorkspace(props: {
                 onClick={() => choose(m.id)}
                 onPointerEnter={m.id === "import" ? warmImportPanel : undefined}
                 onFocus={m.id === "import" ? warmImportPanel : undefined}
-                class={`font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                class={`font-body text-ui-xs tracking-ui-wider transition-ui-colors relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase duration-(--dur-fast) ease-(--ease-out) ${
                   compact() ? "px-3.5" : "px-3"
                 } ${
                   mode() === m.id

@@ -168,8 +168,20 @@ async function shoot(name: string): Promise<Shot> {
   };
 }
 
-/** Clear of the card's rounded corners on both ends of an edge. */
-const CORNER = 12;
+/**
+ * How far in from each end an edge is read: clear of the card's rounded
+ * corner, read from the card itself so the check follows the corner role, plus
+ * a pixel for the curve's antialiasing.
+ */
+function cornerOf(card: HTMLElement): number {
+  const style = getComputedStyle(card);
+  return (
+    Math.max(
+      Number.parseFloat(style.borderTopLeftRadius),
+      Number.parseFloat(style.borderTopRightRadius),
+    ) + 1
+  );
+}
 
 /**
  * The most a channel may vary along an edge the card draws alone. Measured at
@@ -182,10 +194,10 @@ const EVEN = 4;
  * The largest spread of any colour channel along one image row across `rect`,
  * corners left out. An edge drawn by the card alone is one colour end to end.
  */
-function spreadAlong(shot: Shot, rect: DOMRect, y: number): number {
+function spreadAlong(shot: Shot, rect: DOMRect, corner: number, y: number): number {
   const { data, scale } = shot;
-  const from = Math.ceil((rect.left + CORNER) * scale);
-  const to = Math.floor((rect.right - CORNER) * scale);
+  const from = Math.ceil((rect.left + corner) * scale);
+  const to = Math.floor((rect.right - corner) * scale);
   const min = [255, 255, 255];
   const max = [0, 0, 0];
   for (let x = from; x < to; x++) {
@@ -205,8 +217,9 @@ function spreadAlong(shot: Shot, rect: DOMRect, y: number): number {
  */
 function topEdgeSpreads(shot: Shot, card: HTMLElement): number[] {
   const rect = card.getBoundingClientRect();
+  const corner = cornerOf(card);
   const top = Math.floor(rect.top * shot.scale);
-  return [top, top + 1].map((y) => spreadAlong(shot, rect, y));
+  return [top, top + 1].map((y) => spreadAlong(shot, rect, corner, y));
 }
 
 afterEach(() => {

@@ -117,7 +117,7 @@ export default function RemintPanel(props: RemintPanelProps) {
   }
 
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-5 rounded-sm border p-6">
+    <div class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-5 border p-6">
       <SectionIntro
         eyebrow="Guest codes"
         title="Change the code style"
@@ -130,7 +130,7 @@ export default function RemintPanel(props: RemintPanelProps) {
           <For each={STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                   targetStyle() === option.value
                     ? "border-gold bg-gold/5"
                     : "border-border bg-bg hover:border-gold/50"
@@ -144,11 +144,10 @@ export default function RemintPanel(props: RemintPanelProps) {
                     checked={targetStyle() === option.value}
                     disabled={busy()}
                     onChange={() => setTargetStyle(option.value)}
-                    class="accent-gold"
                   />
                   <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
-                <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
+                <span class="font-body text-text-muted text-ui-sm leading-ui-snug pl-6">
                   {option.hint}
                 </span>
               </label>
@@ -171,7 +170,7 @@ export default function RemintPanel(props: RemintPanelProps) {
       <Show when={confirming()}>
         <div class="border-error/30 bg-error/5 flex flex-col gap-3 rounded-sm border p-4">
           <Show when={sharedCount() > 0}>
-            <p class="font-body text-error text-ui-base leading-relaxed">
+            <p class="font-body text-error text-ui-base leading-ui-normal">
               {sharedCount() === 1
                 ? "1 family has already been sent their code."
                 : `${sharedCount()} families have already been sent their codes.`}{" "}

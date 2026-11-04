@@ -25,7 +25,7 @@ import {
  */
 const itemClass =
   "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-ui-sm " +
-  "tracking-ui-wider uppercase outline-none transition-colors duration-(--dur-fast) " +
+  "outline-none transition-ui-colors duration-(--dur-fast) ease-(--ease-out) " +
   "text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold";
 
 /** The same row, plus room for the indicator column the settings rows carry. */
@@ -85,7 +85,7 @@ export default function ProfileMenu(props: {
     <DropdownMenu placement="bottom-end" gutter={8}>
       <DropdownMenu.Trigger
         aria-label="Account menu"
-        class="border-border bg-surface/40 hover:border-gold-dim flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border transition-colors duration-(--dur-fast)"
+        class="border-border bg-surface/40 hover:border-gold-dim transition-ui-colors flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border duration-(--dur-fast) ease-(--ease-out)"
       >
         <Show
           when={avatarUrl()}
@@ -99,6 +99,9 @@ export default function ProfileMenu(props: {
             <img
               src={url()}
               alt=""
+              /* No Referer: the image's host learns the organiser's address
+                 from the request, never which wedding page drew it. */
+              referrerpolicy="no-referrer"
               onError={() => setFailedAvatarUrl(url())}
               class="h-full w-full rounded-full object-cover"
             />
@@ -107,7 +110,7 @@ export default function ProfileMenu(props: {
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
-        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 min-w-52 rounded-sm border p-1.5 shadow-lg outline-none">
+        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 min-w-52 rounded-md border p-1.5 shadow-(--elev-2) outline-none">
           <div class="flex flex-col gap-0.5 px-3 pt-2 pb-2.5">
             <span class="font-body text-text text-ui-sm truncate">{name()}</span>
             <Show when={detail()}>
@@ -162,7 +165,7 @@ export default function ProfileMenu(props: {
               Haptics
               <span
                 aria-hidden="true"
-                class={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-(--dur-fast) ${
+                class={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                   hapticsEnabled() ? "bg-gold" : "bg-border"
                 }`}
               >

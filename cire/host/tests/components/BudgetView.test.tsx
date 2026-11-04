@@ -730,6 +730,18 @@ describe("BudgetView — amounts in the wedding's currency", () => {
       expect(sentBody(0)).toEqual({ budgetTotalMinor: null });
     });
 
+    it("closes the budget total on Cancel, keeping the saved one and sending nothing", async () => {
+      setCachedBudget("wed_1", snap({ budgetTotalMinor: 500_000 }));
+      render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Edit budget" }));
+      fireEvent.input(screen.getByLabelText("Total budget (AUD)"), { target: { value: "1" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByLabelText("Total budget (AUD)")).toBeNull();
+      expect(screen.getByRole("button", { name: "Edit budget" })).toBeInTheDocument();
+      expect(authFetch).not.toHaveBeenCalled();
+    });
+
     it("refuses a negative estimate and sends nothing", async () => {
       setCachedBudget("wed_1", snap({ items: [] }));
       render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
