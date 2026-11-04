@@ -168,13 +168,21 @@ async function waitForState(page: Page, state: string | null): Promise<void> {
  * So `setFixedTime` first stops `Date` at the page clock's own reading, with no
  * such check; `pauseAt` then stops the timers 16 ms past that frozen time,
  * which cannot have passed; and `setSystemTime` lets `Date` move again with
- * `runFor`, which a fixed time would not.
+ * `runFor`, which a fixed time would not. A paused clock reads the same
+ * `performance.now()` either side of that last call; a clock still running
+ * moves it by each whole millisecond that passes, so a pause that does not
+ * hold fails the flow within its first few calls.
  */
 async function pauseClock(page: Page): Promise<void> {
   const now = await page.evaluate(() => Date.now());
   await page.clock.setFixedTime(now);
   await page.clock.pauseAt(now + 16);
+  const paused = await page.evaluate(() => performance.now());
   await page.clock.setSystemTime(now + 16);
+  expect(
+    await page.evaluate(() => performance.now()),
+    "the page clock holds still once paused",
+  ).toBe(paused);
 }
 
 /**
