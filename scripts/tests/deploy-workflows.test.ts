@@ -224,6 +224,7 @@ const DEV_BUILDS: Readonly<
       env: {
         PUBLIC_ORGANISER_URL: hostOutput("cire_host_origin"),
         SITE: hostOutput("cire_landing_origin"),
+        PUBLIC_BUILD_SHA: "${{ github.sha }}",
       },
     },
   ],
@@ -1192,6 +1193,7 @@ const PRODUCTION_BUILDS: Readonly<Partial<Record<SiteSurface, Record<string, str
   cire_landing: {
     PUBLIC_ORGANISER_URL: "https://host.cireweddings.com",
     SITE: "https://cireweddings.com",
+    PUBLIC_BUILD_SHA: "${{ github.sha }}",
   },
   osn_social: {
     VITE_OSN_ISSUER_URL: "https://id.musubi.social",

@@ -7,15 +7,26 @@
  * The guest notice is one component in `@cire/ui` that both sites render. A
  * step compares its text on the two sites, minus the one part that differs by
  * design: the guest site's button that opens its privacy choices.
+ *
+ * Every legal page on both sites, the guest site's `/privacy` and `/terms` and
+ * the marketing site's `/privacy`, `/terms` and `/refunds`, is `@cire/ui`'s
+ * legal layout ending on `@cire/ui`'s footer. A step per page reads the tab's
+ * title, the marketing site's line back home, the footer's legal links in
+ * order, the version line and, on the guest site, the privacy-choices control
+ * in the legal row; it checks the marketing sign-off is italic, that a tap
+ * 18px above a link's centre still lands on it (the 44px hit area), and that
+ * every footer link and the version read at 4.5:1 on the page; and it shoots
+ * the top of the page and the footer at 390 and 1280px.
  */
 
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { ORIGINS, SCREENSHOT_DIR } from "../../src/config";
-import { expect, test } from "../support/fixtures";
+import { inkRatio } from "../support/cire-buttons";
+import { expect, type Flow, test } from "../support/fixtures";
 
 const PRIVACY = `${ORIGINS.cireLanding}/privacy`;
 const SHOTS = resolve(SCREENSHOT_DIR, "cire-privacy-pages");
@@ -51,6 +62,158 @@ async function currentLink(page: Page): Promise<string> {
   const nav = page.getByRole("navigation", { name: "Privacy notices" });
   const marked = nav.locator('a[aria-current="page"]');
   return (await marked.count()) === 1 ? ((await marked.textContent()) ?? "").trim() : "";
+}
+
+/** WCAG 2's minimum contrast for body text. */
+const TEXT_MIN = 4.5;
+
+/** The legal pages each site serves, and the tab title each shows. */
+const LEGAL_PAGES = [
+  {
+    site: "guest",
+    origin: ORIGINS.cireInvites,
+    path: "/privacy",
+    title: "Privacy Notice",
+    links: "Privacy notice /privacy | Terms /terms",
+  },
+  {
+    site: "guest",
+    origin: ORIGINS.cireInvites,
+    path: "/terms",
+    title: "Terms of Use",
+    links: "Privacy notice /privacy | Terms /terms",
+  },
+  {
+    site: "marketing",
+    origin: ORIGINS.cireLanding,
+    path: "/privacy",
+    title: "Privacy — Cire",
+    links: "Privacy notice /privacy | Terms /terms | Refunds /refunds",
+  },
+  {
+    site: "marketing",
+    origin: ORIGINS.cireLanding,
+    path: "/terms",
+    title: "Terms of Service — Cire",
+    links: "Privacy notice /privacy | Terms /terms | Refunds /refunds",
+  },
+  {
+    site: "marketing",
+    origin: ORIGINS.cireLanding,
+    path: "/refunds",
+    title: "Refund Policy — Cire",
+    links: "Privacy notice /privacy | Terms /terms | Refunds /refunds",
+  },
+] as const;
+
+/** What a tap `above` px over `target`'s centre lands on: "the link", or what it hit instead. */
+function hitAbove(target: Locator, above: number): Promise<string> {
+  return target.evaluate((el, dy) => {
+    el.scrollIntoView({ block: "center", behavior: "instant" });
+    const rect = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2 - dy,
+    );
+    if (hit === el) return "the link";
+    if (!hit) return "nothing";
+    return `${hit.tagName.toLowerCase()}.${hit.className} "${(hit.textContent ?? "").trim().slice(0, 30)}"`;
+  }, above);
+}
+
+/** The checks one legal page's frame and footer must pass, then its screenshots. */
+async function legalPage(flow: Flow, page: Page, target: (typeof LEGAL_PAGES)[number]) {
+  const name = `${target.site} ${target.path}`;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${target.origin}${target.path}`);
+  await expect(page.locator("footer.site-footer")).toBeVisible();
+  // `astro dev` draws its own toolbar over the page; it is not the page.
+  await page.addStyleTag({ content: "astro-dev-toolbar { display: none !important; }" });
+  const footer = page.locator("footer.site-footer");
+  const legal = footer.locator('nav[aria-label="Legal"]');
+
+  flow.check(`${name}: the tab's title`, target.title, await page.title());
+  flow.check(
+    `${name}: the footer's legal links, in order`,
+    target.links,
+    (
+      await legal
+        .locator("a")
+        .evaluateAll((links) =>
+          links.map((a) => `${(a.textContent ?? "").trim()} ${a.getAttribute("href") ?? ""}`),
+        )
+    ).join(" | "),
+  );
+  const version = footer.locator(".version");
+  flow.check(
+    `${name}: the footer prints the build's version`,
+    true,
+    /^Version (local|[0-9a-f]{7})$/.test(((await version.textContent()) ?? "").trim()),
+  );
+
+  const actions = [...(await legal.locator("a").all()), version];
+  if (target.site === "guest") {
+    // The standing control, inside the legal row, after the links.
+    const choices = legal.getByRole("button", { name: "Privacy choices" });
+    await expect(choices).toBeVisible({ timeout: 60_000 });
+    flow.check(
+      `${name}: the privacy-choices control is in the legal row`,
+      1,
+      await choices.count(),
+    );
+    flow.check(
+      `${name}: the privacy-choices control carries the footer's class`,
+      true,
+      await choices.evaluate((el) => el.classList.contains("consent-link")),
+    );
+    actions.push(choices);
+  } else {
+    const back = page.locator("main .legal-back a");
+    flow.check(
+      `${name}: the line back to the home page`,
+      "← Back to Cire /",
+      `${((await back.textContent()) ?? "").trim()} ${(await back.getAttribute("href")) ?? ""}`,
+    );
+    flow.check(
+      `${name}: the sign-off is the italic logotype`,
+      "Cire italic",
+      await footer
+        .locator(".signoff")
+        .evaluate((el) => `${(el.textContent ?? "").trim()} ${getComputedStyle(el).fontStyle}`),
+    );
+  }
+
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    flow.check(
+      `${name} at ${width}px: a tap 18px above a footer link's centre lands on it`,
+      "the link",
+      await hitAbove(legal.locator("a").first(), 18),
+    );
+  }
+
+  const short: string[] = [];
+  for (const action of actions) {
+    const ratio = await inkRatio(action);
+    if (ratio < TEXT_MIN)
+      short.push(`${(await action.textContent())?.trim()}: ${ratio.toFixed(2)}`);
+  }
+  flow.check(`${name}: every footer link and the version read at 4.5:1`, "", short.join(", "));
+
+  mkdirSync(SHOTS, { recursive: true });
+  const file = `${target.site}${target.path.replaceAll("/", "-")}`;
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    await page.screenshot({
+      path: resolve(SHOTS, `${file}-${width}-top.png`),
+      animations: "disabled",
+    });
+    await footer.screenshot({
+      path: resolve(SHOTS, `${file}-${width}-footer.png`),
+      animations: "disabled",
+    });
+  }
 }
 
 /** The main text of the page, whitespace collapsed. */
@@ -180,6 +343,9 @@ test("cire-privacy-pages", async ({ page, browser, flow }) => {
       await invites.getByRole("heading", { name: "Who decides what", level: 2 }).count(),
     );
     // The button is a hydrated island passed through the notice's slot.
+    // The button is SSR markup until its island hydrates, and a click before
+    // that does nothing.
+    await expect(invites.locator("astro-island[ssr]")).toHaveCount(0, { timeout: 60_000 });
     await invites.getByRole("button", { name: "Open my privacy choices" }).click();
     const sheet = invites.getByRole("dialog", { name: "Your privacy choices" });
     await expect(sheet).toBeVisible();
@@ -223,6 +389,22 @@ test("cire-privacy-pages", async ({ page, browser, flow }) => {
     }
     await context.close();
   });
+
+  await flow.step("answer the guest site's consent banner", async () => {
+    // On a legal page the prompt is a banner at the foot of the window; answered,
+    // it leaves the footer below it for the checks that follow.
+    await page.goto(`${ORIGINS.cireInvites}/privacy`);
+    const banner = page.getByRole("region", { name: "Privacy choices" });
+    await expect(banner).toBeVisible({ timeout: 60_000 });
+    await banner.getByRole("button", { name: "Reject all" }).click();
+    await expect(banner).toBeHidden();
+  });
+
+  for (const target of LEGAL_PAGES) {
+    await flow.step(`read the ${target.site} site's ${target.path} frame and footer`, async () => {
+      await legalPage(flow, page, target);
+    });
+  }
 
   await flow.step("screenshot every page at phone and desktop width, light and dark", async () => {
     mkdirSync(SHOTS, { recursive: true });

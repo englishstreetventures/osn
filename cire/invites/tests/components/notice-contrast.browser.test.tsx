@@ -5,6 +5,7 @@ import {
   sectionToneVars,
   WCAG_TEXT_MIN,
 } from "@cire/theme";
+import legalLayout from "@cire/ui/legal-layout.astro?raw";
 import { Notice, type NoticeTone } from "@shared/ui/ui/notice";
 import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +22,6 @@ import type {
   FamilyMember,
   RsvpSummary,
 } from "../../src/components/types";
-import legalLayout from "../../src/layouts/LegalLayout.astro?raw";
 import type { GiftRegistryHousehold } from "../../src/lib/gift-registry";
 import type { GiftRegistry } from "../../src/lib/gift-registry-read";
 
@@ -608,8 +608,9 @@ describe.each(PALETTE_PRESET_KEYS)("the %s scheme", (palettePreset) => {
 
   it("holds a legal page's placeholder to 4.5:1 on the page", () => {
     apply();
-    // The legal pages style themselves in `LegalLayout.astro`'s global block,
-    // which no component renders, so the block is laid on the document as is.
+    // The legal pages style themselves in `@cire/ui`'s `legal-layout.astro`
+    // global block, which no component renders, so the block is laid on the
+    // document as is, under this site's `--ui-*` map.
     const css = /<style is:global>([\s\S]*?)<\/style>/.exec(legalLayout)?.[1];
     expect(css).toBeTruthy();
     const style = document.createElement("style");

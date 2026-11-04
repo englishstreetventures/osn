@@ -68,7 +68,7 @@ const TEXT_MIN = 4.5;
  * its own, translucent ones included, laid on a 1px canvas, then its ink laid
  * over that, and the WCAG 2 ratio of the two.
  */
-function inkRatio(target: Locator): Promise<number> {
+export function inkRatio(target: Locator): Promise<number> {
   return target.evaluate(async (el) => {
     // A transition the pointer replaces mid-way is cancelled, and its
     // `finished` rejects; the paint read below is the settled one either way.

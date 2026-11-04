@@ -160,7 +160,7 @@ test("cire-invite-edges", async ({ page, browser, flow }) => {
     // keyboard user can focus the privacy choices and never see them.
     const clearOfStrip = await page.evaluate(() => {
       const target = [...document.querySelectorAll<HTMLElement>("footer button, footer a")].find(
-        (el) => /Privacy Choices/.test(el.textContent ?? ""),
+        (el) => /Privacy choices/.test(el.textContent ?? ""),
       );
       if (!target) return "missing";
       target.focus();
