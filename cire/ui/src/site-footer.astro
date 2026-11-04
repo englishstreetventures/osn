@@ -54,7 +54,10 @@ const hasConsent = Astro.slots.has('consent')
   {
     signoff && (
       <>
-        <p class="signoff" data-face={signoff.face}>{signoff.title}</p>
+        {/* A name — a couple's, or the logotype — which a page translation must leave alone. */}
+        <p class="signoff" data-face={signoff.face} translate="no">
+          {signoff.title}
+        </p>
         <p class="tagline">{signoff.tagline}</p>
         <hr class="rule" />
       </>

@@ -95,6 +95,7 @@ describe("SiteFooter", () => {
     });
     expect(names.querySelector(".signoff")?.textContent).toBe("Ana & Jyoti");
     expect(names.querySelector(".signoff")?.getAttribute("data-face")).toBe("names");
+    expect(names.querySelector(".signoff")?.getAttribute("translate")).toBe("no");
     expect(names.querySelector(".tagline")?.textContent).toBe("Wedding stamped with Cire");
     expect(names.querySelector("hr")).not.toBeNull();
     const mark = await footer({
