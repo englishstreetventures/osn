@@ -1,5 +1,13 @@
 # @tools/lab
 
+## 0.3.33
+
+### Patch Changes
+
+- 7693c74: Add `cire/ui/PersonAvatar` stories: a photo from a drawn fixture, each stand-in, a ringed stack and the account trigger, on both of cire's ramps.
+- d32340d: Add `cire/ui/SignInPanel` stories: idle, connecting, each sign-in error line and an unknown marker, each in its card on both of cire's ramps.
+- d7f132f: Add `cire/ui/Wordmark` stories: at rest in a mock top bar, live hover and focus with the ring's gap to the divider, and the boot bar's copy laid over the real mark.
+
 ## 0.3.32
 
 ### Patch Changes
