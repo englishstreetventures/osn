@@ -36,6 +36,12 @@ import Button from "./button";
  * opacity fades on the base step. The list names those four properties and
  * nothing else, so the button's focus ring never animates. While hidden the button is
  * disabled and out of the tab order and the accessibility tree.
+ *
+ * The wrapper clips the button only while it is hidden, so nothing of it
+ * reaches past the box. Shown, the wrapper is exactly the button's size, and
+ * an `overflow` clip there would cut off the whole focus ring, 2px wide and
+ * 2px out; instead an inset `clip-path` 4px outside the wrapper keeps the
+ * clipped arrival and leaves the ring whole.
  */
 
 const MAX_HEIGHT = "7.5rem";
@@ -44,13 +50,16 @@ const MAX_HEIGHT = "7.5rem";
 const BOX_CLASS = `${composeControl("form", undefined, "ground", "base:px-3 base:py-1.5")} base:block base:min-w-0 base:flex-1 base:leading-5 base:resize-none base:overflow-y-auto`;
 
 const SEND_WRAP_BASE =
-  "base:flex base:shrink-0 base:overflow-hidden base:origin-center " +
+  "base:flex base:shrink-0 base:origin-center " +
   "base:transition-[width,margin-left,scale,opacity] " +
   "base:duration-[var(--dur-slow,var(--ui-dur-slow,320ms)),var(--dur-slow,var(--ui-dur-slow,320ms)),var(--dur-slow,var(--ui-dur-slow,320ms)),var(--dur-base,var(--ui-dur-base,200ms))] " +
   "base:ease-[var(--ease-spring,var(--ease-out,var(--ui-ease-out))),var(--ease-spring,var(--ease-out,var(--ui-ease-out))),var(--ease-spring,var(--ease-out,var(--ui-ease-out))),var(--ease-out,var(--ui-ease-out))]";
 
-const SEND_WRAP_SHOWN = "base:w-8.5 base:ml-2 base:scale-100 base:opacity-100";
-const SEND_WRAP_HIDDEN = "base:w-0 base:ml-0 base:scale-40 base:opacity-0";
+/** Shown: clipped where the button's focus ring ends, its 2px offset and 2px width outside the box. */
+const SEND_WRAP_SHOWN =
+  "base:w-8.5 base:ml-2 base:scale-100 base:opacity-100 base:overflow-visible base:[clip-path:inset(calc(-2px_-_2px))]";
+/** Hidden: clipped to its box, which is no width at all. */
+const SEND_WRAP_HIDDEN = "base:w-0 base:ml-0 base:scale-40 base:opacity-0 base:overflow-hidden";
 
 export interface MessageComposerProps {
   /** Resolves when the message is sent: the box clears. Rejects: the words stay. */

@@ -809,7 +809,14 @@ englishstreetventures/osn#1850):
   `primary` send button (34px, an arrow) springs in once there is something to
   send, and the box gives way from its right edge: width, left margin and scale
   on `--dur-slow` and `--ease-spring`, opacity on `--dur-base`, never the focus
-  ring. A failed send keeps the words; a caller's error shows under the box.
+  ring. The button is clipped only while hidden; shown, its clip sits 4px
+  outside it, so the focus ring shows whole. A failed send keeps the words; a
+  caller's error shows under the box.
+- **The reply box's height is not settled.** The owner approved the round-three
+  composer with the box and the button both 36px; the build uses §4's 34px
+  form-field height instead, a departure from that answer until the owner
+  chooses between the two (englishstreetventures/osn#1934, "The reply box and
+  its button at 34px").
 
 ### Who holds a task: faces, not names
 
