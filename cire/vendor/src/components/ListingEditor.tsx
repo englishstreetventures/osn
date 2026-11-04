@@ -30,7 +30,7 @@ const PRICE_BANDS = [
 function Required() {
   return (
     <>
-      <span aria-hidden="true" class="text-gold">
+      <span aria-hidden="true" class="text-gold-ink">
         {" *"}
       </span>
       <span class="sr-only"> (required)</span>

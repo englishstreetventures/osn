@@ -542,14 +542,14 @@ export default function Overview(props: {
                           // dates read as words with no redundant numeral above them.
                           if (days === 0) {
                             return (
-                              <p class="font-display text-gold text-ui-xl leading-ui-none font-light">
+                              <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
                                 Today!
                               </p>
                             );
                           }
                           if (days === 1) {
                             return (
-                              <p class="font-display text-gold text-ui-xl leading-ui-none font-light">
+                              <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
                                 Tomorrow!
                               </p>
                             );
@@ -583,7 +583,7 @@ export default function Overview(props: {
                     return (
                       <>
                         <div class="flex items-baseline gap-2">
-                          <span class="font-display text-gold text-ui-xl leading-ui-none tabular-nums">
+                          <span class="font-display text-gold-ink text-ui-xl leading-ui-none tabular-nums">
                             {r.attending}
                           </span>
                           <span class="font-body text-text-muted text-ui-sm">
@@ -693,8 +693,8 @@ export default function Overview(props: {
                         }
                       >
                         <p class="text-text text-ui-base">
-                          <span class="text-gold text-ui-lg font-semibold">{tc().open}</span> open{" "}
-                          {tc().open === 1 ? "task" : "tasks"}
+                          <span class="text-gold-ink text-ui-lg font-semibold">{tc().open}</span>{" "}
+                          open {tc().open === 1 ? "task" : "tasks"}
                         </p>
                         <p class="text-text-muted text-ui-sm">
                           {tc().done} of {tc().total} done
@@ -729,7 +729,9 @@ export default function Overview(props: {
                       }
                     >
                       <p class="text-text text-ui-base">
-                        <span class="text-gold text-ui-lg font-semibold">{vendorCountValue()}</span>{" "}
+                        <span class="text-gold-ink text-ui-lg font-semibold">
+                          {vendorCountValue()}
+                        </span>{" "}
                         {vendorCountValue() === 1 ? "vendor" : "vendors"} tracked
                       </p>
                     </Show>
@@ -764,7 +766,7 @@ export default function Overview(props: {
                       }
                     >
                       <p class="text-text text-ui-base">
-                        <span class="text-gold text-ui-lg font-semibold">
+                        <span class="text-gold-ink text-ui-lg font-semibold">
                           {formatMinor(spentSoFarMemo() ?? 0, budgetCurrency())}
                         </span>{" "}
                         <span class="text-text-muted">

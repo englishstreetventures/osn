@@ -637,7 +637,7 @@ function FormattingTips(props: { children: JSX.Element }) {
 /** The numbered circle that leads each step card. */
 function StepBadge(props: { n: number }) {
   return (
-    <span class="border-gold/50 text-gold text-ui-sm font-ui-mono flex h-6 w-6 shrink-0 items-center justify-center rounded-full border">
+    <span class="border-gold/50 text-gold-ink text-ui-sm font-ui-mono flex h-6 w-6 shrink-0 items-center justify-center rounded-full border">
       {props.n}
     </span>
   );

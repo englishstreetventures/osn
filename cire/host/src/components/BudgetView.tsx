@@ -904,7 +904,7 @@ function PaymentPanel(props: {
                 <span class="text-text-muted"> · due {p.dueAt}</span>
               </Show>
               <Show when={p.paidAt != null}>
-                <span class="text-gold-dim"> · paid</span>
+                <span class="text-gold-ink"> · paid</span>
               </Show>
             </span>
             <Show when={props.canEdit}>

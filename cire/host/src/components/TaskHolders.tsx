@@ -385,7 +385,7 @@ function PeopleList(props: TaskHoldersProps) {
               setActive(0);
             }}
             onKeyDown={(e) => onKeyDown(e, false)}
-            class="font-body text-text placeholder:text-text-faint text-ui-sm min-w-0 flex-1 bg-transparent py-2 outline-none"
+            class="font-body text-text placeholder:text-text-muted text-ui-sm min-w-0 flex-1 bg-transparent py-2 outline-none"
           />
         </div>
       </Show>

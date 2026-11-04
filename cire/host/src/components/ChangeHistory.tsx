@@ -289,7 +289,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
                       <span
                         class="font-body text-ui-xs tracking-ui-widest uppercase"
                         classList={{
-                          "text-gold": entry.status === "applied",
+                          "text-gold-ink": entry.status === "applied",
                           "text-text-muted": entry.status !== "applied",
                         }}
                       >

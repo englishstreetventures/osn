@@ -105,7 +105,7 @@ export default function WeddingList(props: {
                   <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
                     {wedding.displayName}
                   </span>
-                  <span class="font-body text-text-muted group-hover:text-gold text-ui-sm mt-2 flex items-center gap-2 transition-colors duration-(--dur-base) ease-(--ease-out)">
+                  <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm mt-2 flex items-center gap-2 transition-colors duration-(--dur-base) ease-(--ease-out)">
                     Open dashboard
                     <span
                       aria-hidden="true"

@@ -183,7 +183,7 @@ export default function RemintPanel(props: RemintPanelProps) {
           </Show>
           <p class="font-body text-text text-ui-base">
             Re-mint all {familyCount()} family codes in the{" "}
-            <span class="text-gold">{targetStyle()}</span> style? This can&apos;t be undone.
+            <span class="text-gold-ink">{targetStyle()}</span> style? This can&apos;t be undone.
           </p>
           <div class="flex flex-wrap items-center gap-3">
             <Button variant="danger" onClick={() => void remint()} disabled={busy()}>

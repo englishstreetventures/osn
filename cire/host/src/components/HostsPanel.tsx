@@ -1086,7 +1086,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                               }}
                             >
                               <span class="flex flex-wrap items-center gap-2">
-                                <span class="font-body text-gold-dim text-ui-base">
+                                <span class="font-body text-gold-ink text-ui-base">
                                   @{s.handle}
                                 </span>
                                 {/* Only on the mixed list — when every row is a
@@ -1165,7 +1165,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                   >
                     <span class="font-body text-text text-ui-base flex flex-wrap items-center gap-3">
                       {host.handle ? (
-                        <span class="text-gold-dim">@{host.handle}</span>
+                        <span class="text-gold-ink">@{host.handle}</span>
                       ) : (
                         <span
                           class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono"
