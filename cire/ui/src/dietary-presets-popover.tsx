@@ -98,12 +98,16 @@ export default function DietaryPresetsPopover<K extends string = DietaryPreset>(
             below it stands, and holds a value rather than a verb.
 
             `justify-between` and the width are placement, and stay: the caret
-            belongs at the far edge whatever the summary's length. */}
+            belongs at the far edge whatever the summary's length. `h-8.5` is
+            the portals' form-field height, `@shared/ui`'s `form` size, so the
+            trigger is level with the fields round it; only the organiser's
+            reply editor draws this popover. Until the `field` variant has
+            that height of its own: englishstreetventures/osn#1884. */}
         <PopoverTrigger
           as={Button}
           variant="field"
           disabled={props.disabled}
-          class="w-full justify-between text-left"
+          class="h-8.5 w-full justify-between text-left"
         >
           <span classList={{ "text-ui-ink-muted": props.value.length === 0 }}>
             {summarise(props.value)}

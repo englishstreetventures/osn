@@ -9,7 +9,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FIELD_BAR_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
@@ -270,8 +270,8 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Vendor name" class="min-w-48 flex-1">
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={newName()}
                 onInput={(e) => setNewName(e.currentTarget.value)}
                 placeholder="Florist, photographer…"
@@ -281,8 +281,8 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Category">
             {(field) => (
               <Select
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={newCategory()}
                 onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
               >
@@ -295,8 +295,8 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Status">
             {(field) => (
               <Select
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={newStatus()}
                 onChange={(e) => setNewStatus(e.currentTarget.value as VendorStatus)}
               >
@@ -307,8 +307,8 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Contact" class="w-36">
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={newContact()}
                 onInput={(e) => setNewContact(e.currentTarget.value)}
                 placeholder="Jane Smith"
@@ -318,8 +318,8 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Email" class="w-44">
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 type="email"
                 value={newEmail()}
                 onInput={(e) => setNewEmail(e.currentTarget.value)}
@@ -330,8 +330,8 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Quote (optional)" class="w-28">
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 type="number"
                 min="0"
                 step="0.01"
@@ -386,8 +386,7 @@ export default function VendorsView(props: VendorsViewProps) {
                           <div class="flex items-center gap-2">
                             {/* Status picker */}
                             <Select
-                              size="sm"
-                              class={FORM_FIELD_CLASS}
+                              size="form-compact"
                               aria-label={`Status for ${v.name}`}
                               value={v.status}
                               onChange={(e) =>
@@ -445,8 +444,7 @@ export default function VendorsView(props: VendorsViewProps) {
                                   {(field) => (
                                     <Input
                                       {...field}
-                                      size="sm"
-                                      class={FORM_FIELD_CLASS}
+                                      size="form-compact"
                                       type="email"
                                       value={listEmail()}
                                       onInput={(e) => setListEmail(e.currentTarget.value)}

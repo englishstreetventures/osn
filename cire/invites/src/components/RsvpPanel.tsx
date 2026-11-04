@@ -3,6 +3,8 @@ import Button, { proseLinkClass } from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets";
 import Reveal from "@cire/ui/reveal";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import {
   batch,
@@ -890,15 +892,15 @@ export function RsvpPanel(props: RsvpPanelProps) {
                       (responses()[guestId]?.dietary.trim().length ?? 0) > 0
                     }
                   >
-                    <label class="font-body text-text-muted text-ui-sm tracking-ui-wide mt-3 block uppercase">
-                      Anything else
-                      <input
+                    <label class="font-body text-text-muted text-ui-sm mt-3 block">
+                      {/* The small caps are the words' alone: a field inherits
+                          a label's case and tracking. */}
+                      <span class="tracking-ui-wide uppercase">Anything else</span>
+                      <Input
+                        fill="ink"
+                        size="touch"
+                        class="mt-1.5"
                         type="text"
-                        // No `focus:outline-none` here: it sits in Tailwind's
-                        // utilities layer and would beat the base-layer
-                        // `:focus-visible` ring, leaving a border tint as the
-                        // only focus cue on the invite's main data-entry field.
-                        class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field transition-ui-colors mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base duration-(--dur-fast) ease-(--ease-out)"
                         placeholder="e.g. no onion or garlic"
                         value={responses()[guestId]?.dietary ?? ""}
                         onInput={(e) => setDietary(guestId, e.currentTarget.value)}
@@ -939,27 +941,33 @@ export function RsvpPanel(props: RsvpPanelProps) {
           </p>
         </Show>
         <Show when={!props.closed && ownWithDietaryData().length > 0}>
-          <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
-            <input
-              type="checkbox"
-              class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-              checked={consent.checked()}
-              onChange={(e) => consent.setChecked(e.currentTarget.checked)}
-              disabled={locked()}
-              aria-describedby={refuses("consent") ? errorId : undefined}
-              aria-invalid={refuses("consent") ? "true" : undefined}
-            />
-            <span>
-              I agree to the dietary requirements above — for{" "}
-              {formatNames(ownWithDietaryData().map((m) => m.firstName))} — being stored and shared
-              with the caterers for this wedding. See our{" "}
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
-                privacy notice
-                <span class="sr-only"> (opens in a new tab)</span>
-              </a>
-              .
-            </span>
-          </label>
+          <Checkbox
+            box="native"
+            size="sm"
+            align="start"
+            checked={consent.checked()}
+            onChange={consent.setChecked}
+            disabled={locked()}
+            aria-describedby={refuses("consent") ? errorId : undefined}
+            aria-invalid={refuses("consent") ? "true" : undefined}
+            label={
+              <>
+                I agree to the dietary requirements above — for{" "}
+                {formatNames(ownWithDietaryData().map((m) => m.firstName))} — being stored and
+                shared with the caterers for this wedding. See our{" "}
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={proseLinkClass()}
+                >
+                  privacy notice
+                  <span class="sr-only"> (opens in a new tab)</span>
+                </a>
+                .
+              </>
+            }
+          />
         </Show>
 
         {/* The household's attestation for its plus-ones: a separate box,
@@ -967,28 +975,34 @@ export function RsvpPanel(props: RsvpPanelProps) {
             agreed" — and is stored under its own version. Same rules as the
             box above, over its own people. */}
         <Show when={!props.closed && plusOnesWithDietaryData().length > 0}>
-          <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
-            <input
-              type="checkbox"
-              class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-              checked={attestation.checked()}
-              onChange={(e) => attestation.setChecked(e.currentTarget.checked)}
-              disabled={locked()}
-              aria-describedby={refuses("attestation") ? errorId : undefined}
-              aria-invalid={refuses("attestation") ? "true" : undefined}
-            />
-            <span>
-              {PLUS_ONE_DIETARY_ATTESTATION.text(
-                formatNames(plusOnesWithDietaryData().map((m) => m.firstName)),
-              )}{" "}
-              See our{" "}
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
-                privacy notice
-                <span class="sr-only"> (opens in a new tab)</span>
-              </a>
-              .
-            </span>
-          </label>
+          <Checkbox
+            box="native"
+            size="sm"
+            align="start"
+            checked={attestation.checked()}
+            onChange={attestation.setChecked}
+            disabled={locked()}
+            aria-describedby={refuses("attestation") ? errorId : undefined}
+            aria-invalid={refuses("attestation") ? "true" : undefined}
+            label={
+              <>
+                {PLUS_ONE_DIETARY_ATTESTATION.text(
+                  formatNames(plusOnesWithDietaryData().map((m) => m.firstName)),
+                )}{" "}
+                See our{" "}
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={proseLinkClass()}
+                >
+                  privacy notice
+                  <span class="sr-only"> (opens in a new tab)</span>
+                </a>
+                .
+              </>
+            }
+          />
         </Show>
 
         <Show when={error()}>

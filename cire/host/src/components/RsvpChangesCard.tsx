@@ -1,6 +1,7 @@
 import Card, { CardCtaButton } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Notice } from "@shared/ui/ui/notice";
 import { type Accessor, createSignal, For, Show } from "solid-js";
 
@@ -85,16 +86,16 @@ export default function RsvpChangesCard(props: {
             </CardCtaButton>
           </Show>
           <Show when={feed().digest.available}>
-            <label class="font-body text-text-muted text-ui-sm border-border/40 flex items-center gap-2 border-t pt-3">
-              <input
-                type="checkbox"
-                class="h-4 w-4 shrink-0 cursor-pointer"
+            <div class="border-border/40 border-t pt-3">
+              <Checkbox
+                box="native"
+                size="sm"
                 checked={feed().digest.enabled}
                 disabled={saving()}
-                onChange={(e) => void toggleDigest(e.currentTarget.checked)}
+                onChange={(next) => void toggleDigest(next)}
+                label="Email me a daily summary"
               />
-              Email me a daily summary
-            </label>
+            </div>
             <Show when={saveFailed()}>
               <Notice size="inline" tone="danger" alert>
                 Could not save that. Please try again.

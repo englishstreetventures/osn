@@ -12,7 +12,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FORM_ACTION_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { type HostSeat, invalidateHosts, setFreshHosts } from "../lib/hosts-store";
 import { useMembersChanged } from "../lib/members-changed";
@@ -1021,13 +1021,11 @@ export default function HostsPanel(props: HostsPanelProps) {
                     the organiser types. The manual type-and-submit path is
                     preserved — the dropdown is additive and never required. */}
                 <div class="relative min-w-48 flex-1">
-                  {/* `UsernameInput` puts `class` on its wrapper and fixes its
-                      inner `Input`'s own, so the form-field height reaches the
-                      box through the wrapper: this is FORM_FIELD_CLASS, written
-                      out because Tailwind reads class names whole. */}
+                  {/* `UsernameInput` hands `size` to its inner `Input`, so the
+                      form-field height reaches the box. */}
                   <UsernameInput
                     {...field}
-                    class="[&>input]:h-8.5"
+                    size="form"
                     name="osnHandle"
                     value={handle()}
                     maxLength={64}
@@ -1214,8 +1212,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                           was picked, and only a change to this expression can
                           undo it. */}
                       <Select
-                        size="sm"
-                        class={FORM_FIELD_CLASS}
+                        size="form-compact"
                         value={pendingRoleFor(host) ?? host.role}
                         disabled={roleBusyId() === host.osnProfileId}
                         aria-label={
@@ -1261,8 +1258,8 @@ export default function HostsPanel(props: HostsPanelProps) {
                             `aria-busy`, never `disabled`, while its write is
                             out: see `selectScope`. */}
                         <Select
-                          size="sm"
-                          class={`${FORM_FIELD_CLASS} w-auto`}
+                          size="form-compact"
+                          class="w-auto"
                           value={scopeShownFor(host)}
                           aria-busy={scopeWrites().has(host.osnProfileId) ? "true" : undefined}
                           aria-label={`What ${nameOf(host)} sees on the run sheet`}

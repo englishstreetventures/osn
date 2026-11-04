@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, within, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -176,6 +176,19 @@ describe("RunTimeEditor", () => {
     fireEvent.click(trigger());
     fireEvent.change(await screen.findByLabelText("Event"), { target: { value: "evt_ceremony" } });
     expect(screen.queryByLabelText("Time zone")).toBeNull();
+    // The two ways to tie the time are one named group, offset first.
+    const tie = screen.getByRole("radiogroup", { name: /^How the time follows/ });
+    const offset = within(tie).getByRole("radio", {
+      name: "Before or after the start",
+    }) as HTMLInputElement;
+    const clock = within(tie).getByRole("radio", { name: "At a clock time" }) as HTMLInputElement;
+    expect([offset.checked, clock.checked]).toEqual([true, false]);
+    expect(offset.name).not.toBe("");
+    expect(clock.name).toBe(offset.name);
+    fireEvent.click(clock);
+    expect([offset.checked, clock.checked]).toEqual([false, true]);
+    fireEvent.click(offset);
+    expect([offset.checked, clock.checked]).toEqual([true, false]);
     fireEvent.click(screen.getByRole("radio", { name: "At a clock time" }));
     fireEvent.input(screen.getByLabelText("Date"), { target: { value: "2099-06-20" } });
     fireEvent.input(screen.getByLabelText("Time"), { target: { value: "14:30" } });

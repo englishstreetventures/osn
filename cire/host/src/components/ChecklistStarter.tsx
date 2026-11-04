@@ -3,6 +3,7 @@ import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, createSignal, For, Show } from "solid-js";
@@ -152,26 +153,26 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
   }
 
   const row = (item: PreviewItem) => (
-    <li>
-      <label class="text-ui-base text-text flex cursor-pointer items-start gap-3 py-1">
-        <input
-          type="checkbox"
-          class="mt-1"
-          checked={picked().has(item.key)}
-          onChange={() => toggle(item.key)}
-        />
-        <span class="flex flex-1 flex-col">
-          <span>{item.title}</span>
-          <Show when={item.dueAt}>
-            {(due) => (
-              <span class="text-text-muted text-ui-xs" data-numeric>
-                due {due()}
-                {isPast(item) ? " · date passed" : ""}
-              </span>
-            )}
-          </Show>
-        </span>
-      </label>
+    <li class="py-1">
+      <Checkbox
+        box="native"
+        align="start"
+        checked={picked().has(item.key)}
+        onChange={() => toggle(item.key)}
+        label={
+          <span class="flex flex-col">
+            <span>{item.title}</span>
+            <Show when={item.dueAt}>
+              {(due) => (
+                <span class="text-text-muted text-ui-xs" data-numeric>
+                  due {due()}
+                  {isPast(item) ? " · date passed" : ""}
+                </span>
+              )}
+            </Show>
+          </span>
+        }
+      />
     </li>
   );
 

@@ -1,4 +1,5 @@
 import Button, { proseLinkClass } from "@cire/ui/button";
+import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 
@@ -50,16 +51,6 @@ interface PlusOnePromptProps {
 /** Longest name half the API takes (`PLUS_ONE_NAME_MAX` in
  *  `cire/api/src/schemas/plus-one.ts`). */
 const NAME_MAX = 100;
-
-/**
- * A name field on the welcome surface. The border is the page's ink at 0.55,
- * as on the code field above it, because the organiser chooses the surface
- * this sits on and a fixed token would vanish into the one that matches it;
- * 0.55 is what clears the 3:1 a control's edge needs on every palette
- * (WCAG 2.1 SC 1.4.11). 16px on phones, so iOS does not zoom on focus.
- */
-const INPUT =
-  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-ui-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
 
 const LABEL = "font-body text-text-muted text-ui-sm block";
 
@@ -438,11 +429,13 @@ function PlusOneRow(props: PlusOneRowProps) {
             <label for={firstId} class={LABEL}>
               First name
             </label>
-            <input
+            <Input
+              fill="ink"
+              size="touch"
+              class="mt-1.5"
               id={firstId}
               ref={firstInput}
               type="text"
-              class={INPUT}
               value={first()}
               onInput={(e) => setFirst(e.currentTarget.value)}
               name="firstName"
@@ -460,10 +453,12 @@ function PlusOneRow(props: PlusOneRowProps) {
             <label for={lastId} class={LABEL}>
               Last name
             </label>
-            <input
+            <Input
+              fill="ink"
+              size="touch"
+              class="mt-1.5"
               id={lastId}
               type="text"
-              class={INPUT}
               value={last()}
               onInput={(e) => setLast(e.currentTarget.value)}
               name="lastName"

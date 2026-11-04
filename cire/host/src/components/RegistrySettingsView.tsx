@@ -3,14 +3,15 @@ import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { batch, createMemo, createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import {
   claimStripeCheck,
@@ -640,19 +641,17 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
         <form class="flex flex-col gap-8" noValidate onSubmit={(event) => void save(event)}>
           {/* ── Visibility ─────────────────────────────────────────────── */}
-          {/* The description hangs off the FIELDSET, not off the blocked radio.
-              A `disabled` radio is out of the tab order and skipped by a screen
-              reader in forms mode, so a description on it would be unreachable
-              by the one person who needs it; a group description is announced
-              on entering the group, and the Draft radio beside it is always
-              reachable. Making the radio `aria-disabled` instead would let a
-              click flip the DOM's checked state while the signal stayed put. */}
-          <fieldset
-            class="flex flex-col gap-3 border-0 p-0"
-            disabled={!props.canEdit}
-            aria-describedby={canPublish() ? undefined : "registry-publish-blocked"}
-          >
-            <Eyebrow as="legend" class="mb-1">
+          {/* The description hangs off the RADIO GROUP, not off the blocked
+              radio. A `disabled` radio is out of the tab order and skipped by a
+              screen reader in forms mode, so a description on it would be
+              unreachable by the one person who needs it; a group description
+              is announced on entering the group, and the Draft radio beside it
+              is always reachable. Making the radio `aria-disabled` instead
+              would let a click flip the DOM's checked state while the signal
+              stayed put. The fieldset only disables every control at once: it
+              takes no role, so the group's name, the legend, is said once. */}
+          <fieldset role="none" class="flex flex-col gap-3 border-0 p-0" disabled={!props.canEdit}>
+            <Eyebrow as="legend" id="registry-visibility-label" class="mb-1">
               Visibility
             </Eyebrow>
 
@@ -665,28 +664,21 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               </Notice>
             </Show>
 
-            <div class="flex flex-wrap gap-4">
-              <label class="font-body text-text text-ui-base flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-visibility"
-                  checked={!published()}
-                  onChange={() => setPublished(false)}
-                />
-                Draft — only you can see it
-              </label>
-              <label class="font-body text-text text-ui-base flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-visibility"
-                  data-testid="registry-publish"
-                  checked={published()}
-                  disabled={!canPublish() && !published()}
-                  onChange={() => setPublished(true)}
-                />
-                Published — guests with a code can see it
-              </label>
-            </div>
+            <RadioGroup
+              box="native"
+              name="registry-visibility"
+              value={published() ? "published" : "draft"}
+              onChange={(value) => setPublished(value === "published")}
+              aria-labelledby="registry-visibility-label"
+              aria-describedby={canPublish() ? undefined : "registry-publish-blocked"}
+            >
+              <RadioGroupItem value="draft" label="Draft — only you can see it" />
+              <RadioGroupItem
+                value="published"
+                label="Published — guests with a code can see it"
+                disabled={!canPublish() && !published()}
+              />
+            </RadioGroup>
           </fieldset>
 
           {/* ── The couple's own words ─────────────────────────────────── */}
@@ -700,8 +692,8 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             >
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   value={headline()}
                   maxLength={120}
                   autocomplete="off"
@@ -750,8 +742,8 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             >
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="date"
                   value={shippingVisibleFrom()}
                   onInput={(event) => setShippingVisibleFrom(event.currentTarget.value)}
@@ -861,24 +853,20 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               </p>
             </Show>
 
-            <label class="font-body text-text text-ui-base mt-1 flex items-start gap-2">
-              <input
-                type="checkbox"
-                data-testid="cash-gifts"
-                class="mt-1"
-                checked={cashGifts()}
-                disabled={cashGiftsLocked()}
-                onChange={(event) => setCashGifts(event.currentTarget.checked)}
-              />
-              <span>
-                Let guests give money
+            <Checkbox
+              box="native"
+              align="start"
+              class="mt-1"
+              checked={cashGifts()}
+              disabled={cashGiftsLocked()}
+              onChange={setCashGifts}
+              label="Let guests give money"
+              description={
                 <Show when={stripeState() !== "ready"}>
-                  <span class="text-text-muted text-ui-sm block">
-                    Available once Stripe can take payments.
-                  </span>
+                  Available once Stripe can take payments.
                 </Show>
-              </span>
-            </label>
+              }
+            />
           </fieldset>
 
           <Show when={props.canEdit}>

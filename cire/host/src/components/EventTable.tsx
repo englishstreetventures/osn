@@ -1,6 +1,7 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import { eyebrowClass } from "@cire/ui/eyebrow";
+import FileInput from "@cire/ui/file-input";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -431,8 +432,7 @@ function EventImageField(props: {
         )}
       </Show>
       <div class="flex flex-wrap items-center gap-3">
-        <input
-          type="file"
+        <FileInput
           accept="image/jpeg,image/png,image/webp"
           aria-label="Event image"
           onChange={(e) => {
@@ -440,7 +440,6 @@ function EventImageField(props: {
             if (file) props.onSelect(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
         />
         <Show when={props.url}>
           <Button variant="link" type="button" onClick={() => setCropping(true)}>

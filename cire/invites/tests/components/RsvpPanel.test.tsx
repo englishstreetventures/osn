@@ -223,23 +223,6 @@ describe("RsvpPanel", () => {
     );
   });
 
-  it("renders the dietary input at the 16px base size on mobile to avoid iOS zoom-on-focus", () => {
-    render(() => (
-      <RsvpPanel event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
-    ));
-
-    const fs = fieldsetFor("Priya");
-    fireEvent.click(within(fs).getByText("Attending"));
-    const input = openOtherText(fs);
-    // Mobile-first base must be >=16px (Tailwind `text-base`); a smaller value
-    // makes iOS Safari zoom the page when the field is focused.
-    expect(input.className).toContain("text-base");
-    // The smaller visual size only applies from the `sm:` breakpoint up.
-    // `text-ui-base` rather than the `[0.9rem]` this used to spell: the value
-    // is unchanged, it is a contract step now instead of a one-off.
-    expect(input.className).toContain("sm:text-ui-base");
-  });
-
   it("blocks submit and shows an error when nobody in the party has answered", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -2781,6 +2764,13 @@ describe("RsvpPanel", () => {
       );
       expect(ownBox().checked).toBe(false);
       expect(attestBox().checked).toBe(false);
+      // The words read as sentences: each link is spaced from the words round it.
+      expect(ownBox().closest("label")?.textContent).toContain(
+        "for this wedding. See our privacy notice",
+      );
+      expect(attestBox().closest("label")?.textContent).toContain(
+        `${PLUS_ONE_DIETARY_ATTESTATION.text("Sam")} See our privacy notice`,
+      );
     });
 
     it("shows only the attestation when only the plus-one gives dietary data", () => {

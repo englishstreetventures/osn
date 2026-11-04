@@ -58,7 +58,6 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import {
   createGuestEventDraft,
   type DraftEvent,
@@ -890,8 +889,8 @@ function EventDrawer(props: {
         <Field label="Event name">
           {(field) => (
             <Input
+              size="form"
               {...field}
-              class={FORM_FIELD_CLASS}
               value={props.event.name}
               onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
             />
@@ -907,8 +906,8 @@ function EventDrawer(props: {
         <Field label="Timezone" hint={zoneHint()}>
           {(field) => (
             <Select
+              size="form"
               {...field}
-              class={FORM_FIELD_CLASS}
               value={props.event.timezone}
               onChange={(e) => setTimezone(e.currentTarget.value)}
             >
@@ -942,8 +941,8 @@ function EventDrawer(props: {
             <Field label="Time">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="time"
                   value={start().time}
                   aria-label="Start time"
@@ -965,8 +964,8 @@ function EventDrawer(props: {
             <Field label="Time">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="time"
                   value={end().time}
                   aria-label="End time"
@@ -984,8 +983,8 @@ function EventDrawer(props: {
         <Field label="Venue name" hint="Shown above the address on the invite.">
           {(field) => (
             <Input
+              size="form"
               {...field}
-              class={FORM_FIELD_CLASS}
               value={props.event.venueName ?? ""}
               placeholder="The Grounds of Alexandria"
               onInput={(e) =>
@@ -1000,8 +999,8 @@ function EventDrawer(props: {
         <Field label="Address">
           {(field) => (
             <Input
+              size="form"
               {...field}
-              class={FORM_FIELD_CLASS}
               value={props.event.address ?? ""}
               onInput={(e) =>
                 props.onPatch({
@@ -1042,8 +1041,8 @@ function EventDrawer(props: {
               <Field label="Children" class="min-w-44 flex-1">
                 {(field) => (
                   <Select
+                    size="form"
                     {...field}
-                    class={FORM_FIELD_CLASS}
                     value={props.event.childrenPolicy ?? ""}
                     onChange={(e) =>
                       props.onPatch({ childrenPolicy: childrenPolicyOf(e.currentTarget.value) })
@@ -1058,8 +1057,8 @@ function EventDrawer(props: {
               <Field label="Plus-ones" class="min-w-44 flex-1">
                 {(field) => (
                   <Select
+                    size="form"
                     {...field}
-                    class={FORM_FIELD_CLASS}
                     value={props.event.plusOnePolicy ?? ""}
                     onChange={(e) =>
                       props.onPatch({ plusOnePolicy: plusOnePolicyOf(e.currentTarget.value) })
@@ -1143,8 +1142,8 @@ function EventDrawer(props: {
                 <Field labelHidden label={`Swatch ${i() + 1} name`} class="flex-1">
                   {(field) => (
                     <Input
+                      size="form"
                       {...field}
-                      class={FORM_FIELD_CLASS}
                       data-swatch-name
                       value={swatch.name}
                       placeholder="Blush"
@@ -1183,8 +1182,8 @@ function EventDrawer(props: {
         <Field label="Pinterest URL">
           {(field) => (
             <Input
+              size="form"
               {...field}
-              class={FORM_FIELD_CLASS}
               type="url"
               value={props.event.pinterestUrl ?? ""}
               placeholder="https://www.pinterest.com/…"
@@ -1200,8 +1199,8 @@ function EventDrawer(props: {
         <Field label="Maps URL">
           {(field) => (
             <Input
+              size="form"
               {...field}
-              class={FORM_FIELD_CLASS}
               type="url"
               value={props.event.mapsUrl ?? ""}
               placeholder="https://maps.google.com/…"
@@ -1429,8 +1428,8 @@ function RunOfShowRow(props: {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 // The after-midnight line describes the time it is about.
                 aria-describedby={
                   [field["aria-describedby"], props.afterMidnight ? hintId : undefined]
@@ -1451,8 +1450,8 @@ function RunOfShowRow(props: {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 data-ros-name
                 value={props.item.label}
                 maxLength={MAX_RUN_OF_SHOW_LABEL}

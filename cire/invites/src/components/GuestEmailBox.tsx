@@ -1,5 +1,7 @@
 import { GUEST_EMAIL_CONSENT, parseGuestEmail } from "@cire/guest-email";
 import Button, { proseLinkClass } from "@cire/ui/button";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, Show } from "solid-js";
 
@@ -46,9 +48,6 @@ interface GuestEmailBoxProps {
    */
   class?: string;
 }
-
-const INPUT =
-  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-ui-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
 
 const INVALID_ADDRESS = "That doesn’t look like one email address. Please check it.";
 /** After removing an address the hosts added: the API records the opt-out. */
@@ -241,11 +240,13 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
               <label for={inputId} class="font-body text-text-muted text-ui-sm block">
                 Your email, {props.member.firstName}
               </label>
-              <input
+              <Input
+                fill="ink"
+                size="touch"
+                class="mt-1.5"
                 id={inputId}
                 ref={input}
                 type="email"
-                class={INPUT}
                 value={draft()}
                 onInput={(e) => {
                   setDraft(e.currentTarget.value);
@@ -265,28 +266,29 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 </p>
               </Show>
             </div>
-            <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
-              <input
-                type="checkbox"
-                class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-                checked={consent()}
-                onChange={(e) => setConsent(e.currentTarget.checked)}
-                disabled={busy()}
-              />
-              <span>
-                {GUEST_EMAIL_CONSENT.text} See our{" "}
-                <a
-                  href="/privacy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class={proseLinkClass()}
-                >
-                  privacy notice
-                  <span class="sr-only"> (opens in a new tab)</span>
-                </a>
-                .
-              </span>
-            </label>
+            <Checkbox
+              box="native"
+              size="sm"
+              align="start"
+              checked={consent()}
+              onChange={setConsent}
+              disabled={busy()}
+              label={
+                <>
+                  {GUEST_EMAIL_CONSENT.text} See our{" "}
+                  <a
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class={proseLinkClass()}
+                  >
+                    privacy notice
+                    <span class="sr-only"> (opens in a new tab)</span>
+                  </a>
+                  .
+                </>
+              }
+            />
             <span
               class="flex flex-wrap items-center gap-2"
               onClick={(e) => {

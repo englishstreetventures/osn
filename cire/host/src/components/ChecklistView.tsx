@@ -12,6 +12,7 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -21,7 +22,7 @@ import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { FIELD_BAR_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
@@ -456,8 +457,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
           <Field label="Task" class="min-w-48 flex-1">
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={newTitle()}
                 onInput={(e) => setNewTitle(e.currentTarget.value)}
                 placeholder="Book the venue"
@@ -467,8 +468,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
           <Field label="When">
             {(field) => (
               <Select
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={newBucket()}
                 onChange={(e) => setNewBucket(e.currentTarget.value as TimeframeBucket)}
               >
@@ -481,8 +482,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
           <Field label="Due (optional)">
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 type="date"
                 value={newDue()}
                 onInput={(e) => setNewDue(e.currentTarget.value)}
@@ -583,8 +584,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                       <Show when={props.canEdit}>
                                         <ReorderControls sortable={sortable} item={item} />
                                       </Show>
-                                      <input
-                                        type="checkbox"
+                                      <Checkbox
+                                        box="native"
                                         aria-label={task.title}
                                         checked={task.status === "done"}
                                         disabled={!props.canEdit}
