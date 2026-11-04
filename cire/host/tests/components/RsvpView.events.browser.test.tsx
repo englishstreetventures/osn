@@ -21,8 +21,8 @@ import "../../src/styles/global.css";
  *   scrolls, and that a phone draws stacked rows instead of a table, sorts
  *   them from a select and records a reply in a block under the guest;
  * - that a chip focused from the keyboard wears the focus ring, whole;
- * - that the reply key opens from the keyboard and names every mark a guest's
- *   meta line can carry.
+ * - that the reply key opens from the keyboard, takes the focus and gives it
+ *   back on Escape, and names every mark a guest's meta line can carry.
  *
  * The whole stack — every Guests tab, both sizes, focus, search and sub-tab
  * moves — is measured in `GuestsStack.browser.test.tsx`. It renders the real
@@ -659,6 +659,10 @@ describe("the reply key", () => {
     key.focus();
     await userEvent.keyboard("{Enter}");
     const dialog = await screen.findByRole("dialog", { name: "What the reply icons mean" });
+    // Kobalte moves the focus on a timer of its own: into the panel a task
+    // after it mounts, and back to the key a task after it unmounts. So each
+    // move is waited for, never read the moment the panel appears or goes.
+    await vi.waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     for (const words of [
       "Changed by the guest since you last looked",
       "Host-entered",
@@ -672,7 +676,7 @@ describe("the reply key", () => {
     }
     await userEvent.keyboard("{Escape}");
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(key);
+    await vi.waitFor(() => expect(document.activeElement).toBe(key));
   });
 
   it("sits in the phone's search row at the search box's height", async () => {
