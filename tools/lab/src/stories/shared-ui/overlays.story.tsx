@@ -11,9 +11,13 @@ import {
 } from "@shared/ui/ui/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@shared/ui/ui/dropdown-menu";
@@ -27,6 +31,7 @@ import { Tooltip } from "@shared/ui/ui/tooltip";
 import { createSignal } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
+import { type CireTheme, cireStyle } from "../cire-ui/cire-mapping.ts";
 
 export const meta = { title: "shared/ui/overlays", layout: "padded" as const };
 
@@ -70,7 +75,10 @@ export const Dropdown = () => {
           Account
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuLabel>Signed in as ada</DropdownMenuLabel>
+          {/* Kobalte names a label by its group, and throws on one outside it. */}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Signed in as ada</DropdownMenuLabel>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setPicked("Profile")}>Profile</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setPicked("Settings")}>Settings</DropdownMenuItem>
@@ -82,6 +90,79 @@ export const Dropdown = () => {
     </div>
   );
 };
+
+/**
+ * One menu holding every kind of row: a group label, a radio group, a check
+ * row, a switch row, a link and a disabled row. Open on load, and not modal,
+ * so the panel is there to look at; it still closes on Escape or a click
+ * outside, and the trigger opens it again.
+ *
+ * `variant` is set once, on the panel, and every row inside follows it.
+ */
+function EveryRow(props: { variant?: "default" | "accent"; theme?: CireTheme }) {
+  const [theme, setTheme] = createSignal("system");
+  const [past, setPast] = createSignal(true);
+  const [haptics, setHaptics] = createSignal(false);
+  const style = () => (props.theme ? cireStyle(props.theme) : undefined);
+  return (
+    <div
+      class="bg-ui-ground text-ui-ink rounded-ui-lg flex min-h-96 items-start p-5"
+      style={style()}
+    >
+      <DropdownMenu defaultOpen modal={false} placement="bottom-start">
+        <DropdownMenuTrigger as={Button} variant="outline">
+          Account
+        </DropdownMenuTrigger>
+        {/* The panel portals out of the wrapper above, so it takes the
+            mapping itself. */}
+        <DropdownMenuContent variant={props.variant} style={style()} class="w-60">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel tone="eyebrow">Appearance</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={theme()} onChange={setTheme}>
+              <DropdownMenuRadioItem value="system" closeOnSelect={false}>
+                Match system
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="light" closeOnSelect={false}>
+                Light
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="dark" closeOnSelect={false}>
+                Dark
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem checked={past()} onChange={setPast}>
+            Show past events
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem checked={haptics()} onChange={setHaptics} indicator="switch">
+            Haptics
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem as="a" href="#account" target="_blank">
+            Account settings
+          </DropdownMenuItem>
+          <DropdownMenuItem>Security and passkeys</DropdownMenuItem>
+          <DropdownMenuItem disabled>Export guest list</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+/** Every row kind in the shared default look: what musubi and pulse would draw. */
+export const MenuItems = () => <EveryRow />;
+
+/**
+ * The `accent` variant under cire's mapping, dark: the raised panel at the
+ * 10px corner with the floating shadow, rows in full ink, the highlighted row
+ * a 10% accent wash in readable gold, a check in readable gold on the chosen
+ * rows, the shared `Switch` itself in the switch row, and a muted
+ * small-caps group label. Arrow down to see the highlight.
+ */
+export const MenuItemsCireDark = () => <EveryRow variant="accent" theme="dark" />;
+
+/** The same, on cire's light ramp. */
+export const MenuItemsCireLight = () => <EveryRow variant="accent" theme="light" />;
 
 export const PopoverStory = () => (
   <Popover>
