@@ -440,8 +440,11 @@ export default function EventsEditor(props: { weddingId: string }) {
         </Notice>
       </Show>
 
+      {/* Busy while the first read is out: it holds the placeholders and what
+          replaces them, never a form or the heading. Hidden when empty, so it
+          adds no gap. */}
       <div
-        class="flex flex-col gap-8"
+        class="flex flex-col gap-8 empty:hidden"
         aria-busy={!store.loaded() && !loadError() ? "true" : undefined}
       >
         <Show when={!store.loaded() && !loadError()}>

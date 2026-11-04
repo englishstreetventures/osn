@@ -22,12 +22,14 @@ import "../../src/styles/global.css";
  * - the view bar is the same height while the RSVP replies load as after, at
  *   1280px and at 390px, and its divider stands where the loaded one does;
  * - `aria-busy` marks the region that holds the placeholders while it loads,
- *   never a form or the view's heading, and is gone once the content lands.
+ *   never a form or the view's heading, and is gone once the content lands;
+ *   left empty by a failed read, the region takes no room and adds no gap.
  *
  * Artifacts: `cire/host/.vitest/skeletons/results.json`, one pass or fail per
- * named check, with no pixel values so a rerun writes the same file; and
- * `measurements.json` beside it, the heights and gaps read on this machine.
- * Both are gitignored.
+ * named check, with no pixel values so a rerun writes the same file;
+ * `measurements.json` beside it, the heights and gaps read on this machine;
+ * and a picture of the window per view, width and theme, loading and loaded,
+ * in `__screenshots__/` beside this file. All are gitignored.
  */
 
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
@@ -81,15 +83,19 @@ const json = (body: unknown) =>
     headers: { "Content-Type": "application/json" },
   });
 
-/** Answer every read by its path, holding `held` back until the gate opens. */
-function serve(held: Read): () => void {
+/**
+ * Answer every read by its path, holding `held` back until the gate opens —
+ * or, with `fail`, answering it with a server error once it does.
+ */
+function serve(held: Read, fail = false): () => void {
   let open!: () => void;
   const gate = new Promise<void>((resolve) => {
     open = resolve;
   });
   const read = async (name: Read, body: unknown) => {
-    if (name === held) await gate;
-    return json(body);
+    if (name !== held) return json(body);
+    await gate;
+    return fail ? new Response("{}", { status: 500 }) : json(body);
   };
   authFetch.mockImplementation(async (input: unknown) => {
     const url = String(input);
@@ -138,6 +144,7 @@ afterEach(() => {
   __resetGuestsCache();
   __resetEventsCache();
   __resetHouseholdsCache();
+  delete document.documentElement.dataset.theme;
 });
 
 const sorted = (record: Record<string, unknown>) =>
@@ -165,6 +172,23 @@ const viewBar = () => document.querySelector<HTMLElement>("[data-view-bar]")!;
 
 /** The placeholders `Skeleton` draws, in document order. */
 const blocks = (scope: Element) => [...scope.querySelectorAll('[class*="animate-[pulse"]')];
+
+/** A picture of the window, in each theme, named for the view and the moment. */
+async function screenshots(name: string) {
+  const frame = document.createElement("div");
+  frame.style.cssText = "position:fixed;inset:0;pointer-events:none";
+  document.body.append(frame);
+  for (const theme of ["light", "dark"] as const) {
+    document.documentElement.dataset.theme = theme;
+    await frames();
+    await page.screenshot({
+      path: `__screenshots__/skeletons.browser.test.tsx/${name}-${theme}.png`,
+      element: frame,
+    });
+  }
+  delete document.documentElement.dataset.theme;
+  frame.remove();
+}
 
 /** The space between two boxes stacked one over the other. */
 const gapBetween = (a: Element, b: Element) => rect(b).top - rect(a).bottom;
@@ -295,6 +319,8 @@ describe("loading placeholders", () => {
       });
       await settle();
 
+      const slug = `${name.replaceAll(/[ ,]+/g, "-")}-${view.width ?? 1280}`;
+      await screenshots(`${slug}-loading`);
       const held = blocks(scope());
       const heights = held.map((el) => rect(el).height);
       const gaps = view.gaps.map(([a, b]) => gapBetween(held[a]!, held[b]!));
@@ -320,6 +346,7 @@ describe("loading placeholders", () => {
       await settle();
 
       const content = view.content(scope());
+      await screenshots(`${slug}-loaded`);
       expectPass(
         `${name}: no busy region once loaded`,
         document.querySelector('[aria-busy="true"]') === null,
@@ -360,6 +387,7 @@ describe("loading placeholders", () => {
         timeout: 10_000,
       });
       await settle();
+      await screenshots(`rsvp-bar-${width}-loading`);
       const barWhileLoading = rect(viewBar()).height;
       const divider = viewBar().querySelector("[data-bar-divider]");
       const dividerLeft = divider ? rect(divider).left : Number.NaN;
@@ -383,4 +411,28 @@ describe("loading placeholders", () => {
       );
     });
   }
+
+  it("takes no room when a failed read leaves the busy region empty", async () => {
+    await page.viewport(1280, 800);
+    const open = serve("events", true);
+    renderOrganiserPage({ module: "events", sub: "edit" });
+    await vi.waitFor(() => expect(blocks(panel("events")).length).toBeGreaterThan(0), {
+      timeout: 10_000,
+    });
+    const region = panel("events").querySelector('[aria-busy="true"]')!;
+    open();
+    await vi.waitFor(() => expect(panel("events").querySelector('[role="alert"]')).toBeTruthy(), {
+      timeout: 10_000,
+    });
+    await settle();
+    // Solid leaves empty text nodes behind; `:empty` passes over them.
+    expectPass(
+      "failed read: the busy region holds nothing",
+      region.children.length === 0 && region.textContent === "",
+    );
+    expectPass(
+      "failed read: the empty region is not laid out",
+      getComputedStyle(region).display === "none",
+    );
+  });
 });

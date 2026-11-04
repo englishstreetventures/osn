@@ -212,7 +212,10 @@ export default function EventTable(props: EventTableProps) {
         }
       />
 
-      <div class="flex flex-col gap-6" aria-busy={loading() ? "true" : undefined}>
+      {/* Busy while the first read is out: it holds the placeholders and what
+          replaces them, never a form or the heading. Hidden when empty, so it
+          adds no gap. */}
+      <div class="flex flex-col gap-6 empty:hidden" aria-busy={loading() ? "true" : undefined}>
         <Show when={loading()}>
           {/* Event cards at the height a loaded card draws (DESIGN.md §4,
             Skeletons). */}

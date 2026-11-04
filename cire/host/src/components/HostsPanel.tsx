@@ -1124,7 +1124,10 @@ export default function HostsPanel(props: HostsPanelProps) {
         </form>
       </Show>
 
-      <div class="flex flex-col gap-8" aria-busy={loading() ? "true" : undefined}>
+      {/* Busy while the first read is out: it holds the placeholders and what
+          replaces them, never a form or the heading. Hidden when empty, so it
+          adds no gap. */}
+      <div class="flex flex-col gap-8 empty:hidden" aria-busy={loading() ? "true" : undefined}>
         <Show when={loading()}>
           {/* Co-host rows at the height and spacing a loaded row draws
             (DESIGN.md §4, Skeletons). */}
