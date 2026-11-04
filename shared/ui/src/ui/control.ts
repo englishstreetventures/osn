@@ -32,11 +32,16 @@ export type ControlSize = "sm" | "md";
  * `readonly`, `required` and `selected` — not `invalid`. This is the pair that
  * makes `Field`'s error state visible on the control itself rather than only in
  * the message below it, so it is load-bearing rather than decorative.
+ *
+ * The corner is the contract's `field` radius role (`--ui-radius-field`), not
+ * the `control` role `Button` takes, so an app can give its buttons pill ends
+ * and its text fields a softer square. An app that maps no field radius gets
+ * its control radius here.
  */
 const CONTROL_BASE =
   "base:border-ui-hairline-strong base:bg-ui-ground base:text-ui-ink " +
   "base:ring-offset-ui-ground base:placeholder:text-ui-ink-secondary " +
-  "base:w-full base:rounded-ui-control base:border " +
+  "base:w-full base:rounded-ui-field base:border " +
   "base:focus-visible:ring-ui-focus base:focus-visible:outline-none " +
   "base:focus-visible:ring-2 base:focus-visible:ring-offset-2 " +
   "base:aria-[invalid=true]:border-ui-danger " +

@@ -912,6 +912,7 @@
       "name": "@tools/lab",
       "version": "0.3.27",
       "dependencies": {
+        "@cire/ui": "workspace:*",
         "@shared/color": "workspace:*",
         "@shared/design-tokens": "workspace:*",
         "@shared/ui": "workspace:*",

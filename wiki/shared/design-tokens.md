@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-28
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -101,8 +101,8 @@ which name a new package, token or identifier takes.
 
 Scales, each spelled as a Tailwind utility: `text-ui-xs` … `2xl`,
 `tracking-ui-tight` … `ultra`, `leading-ui-none` … `relaxed`,
-`rounded-ui-hair` … `pill` plus the two role radii `rounded-ui-control` and
-`rounded-ui-sheet`, `font-ui-body` /
+`rounded-ui-hair` … `pill` plus the three role radii `rounded-ui-control`,
+`rounded-ui-field` and `rounded-ui-sheet`, `font-ui-body` /
 `-display` / `-mono`, and the measure scale `max-w-ui-xs` … `3xl` — declared
 as `--container-ui-*`, which is the namespace Tailwind reads a `max-w-*` from.
 
@@ -115,13 +115,28 @@ and `CONTRACT_SCALAR_TOKENS` in `src/index.ts` are the enumerable form of both
 lists, and `tests/tokens-css-agrees.test.ts` fails if they and `tokens.css`
 drift apart.
 
-**`control` and `sheet` are roles, not sizes**, the same way `focus` is its own
-colour rather than an alias of the accent. How round a _button_ is turns out to
-be independent of how round a card is — musubi's house style is pill CTAs,
-cire's a sharp 4px — and so is how pronounced the top edge of a _bottom sheet_
-is, where cire wants 28px against its own 10px cards. Both default to a sized
-step (`control` to `md`, `sheet` to `lg`), so an app with no opinion gets its own
-value rather than one from the package.
+**`control`, `field` and `sheet` are roles, not sizes**, the same way `focus` is
+its own colour rather than an alias of the accent. How round a _button_ is turns
+out to be independent of how round a card is, and so is how round a _text
+field_ is: `Button` reads `control`, while `Input`, `Textarea` and `Select` read
+`field` (`shared/ui/src/ui/control.ts`), so an app can give its buttons pill
+ends without making its fields pills, which read as search boxes. The top edge
+of a _bottom sheet_ is a third: a sheet's grip is measured against the screen
+edge it is pulled from, not against a card.
+
+Each role falls back to a sized step, so an app with no opinion gets its own
+value rather than one from the package: `control` to `md`, `sheet` to `lg`.
+`field` falls back to `control` first and only then to `md`, so an app that maps
+`control` alone keeps its fields and its buttons alike.
+
+| Role      | musubi               | pulse                            | cire                                     |
+| --------- | -------------------- | -------------------------------- | ---------------------------------------- |
+| `control` | pill                 | `--radius`, the same as its `md` | pill                                     |
+| `field`   | not mapped: a pill   | not mapped: `--radius`           | 14px                                     |
+| `sheet`   | not mapped: its `lg` | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
+
+cire's sized steps are 2px `hair`, 6px `sm`, 10px `md` and 16px `lg`, the same
+in all four of its stylesheets (englishstreetventures/osn#1821).
 
 Two names are worth reading twice. **`ground-deep` is not "darker"** — it is
 what the page recedes _to_, behind a sticky bar or under a scrim, and on a dark
