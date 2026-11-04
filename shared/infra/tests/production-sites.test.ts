@@ -11,6 +11,7 @@ import {
   PRODUCTION_SITE_MODES,
   PRODUCTION_STAGING_HOSTS,
   productionHost,
+  RETIRED_STAGING_HOSTS,
   productionHostOutputs,
   SITE_BUILDS,
   SITE_SURFACES,
@@ -50,7 +51,7 @@ describe("production-sites.ts", () => {
   });
 
   test("PS4: a staged site serves its spare host, a worker its production host, an off site none; a staged site with no spare host is refused", () => {
-    expect(siteDomain("cire_host", "staged")).toBe("next-host.cireweddings.com");
+    expect(siteDomain("cire_host", "staged")).toBe("next.host.cireweddings.com");
     expect(siteDomain("osn_social", "staged")).toBe("next.musubi.social");
     expect(siteDomain("cire_host", "worker")).toBe("host.cireweddings.com");
     expect(siteDomain("musubi_landing", "worker")).toBe("www.musubi.social");
@@ -85,10 +86,31 @@ describe("production-sites.ts", () => {
     }
   });
 
+  test("PS7: each retired spare host sits in its site's zone and is no production host or current spare host", () => {
+    const inUse = new Set<string>([
+      ...Object.values(PRODUCTION_HOSTS),
+      ...SITE_SURFACES.flatMap((surface) => PRODUCTION_STAGING_HOSTS[surface] ?? []),
+    ]);
+    for (const surface of SITE_SURFACES) {
+      for (const host of RETIRED_STAGING_HOSTS[surface] ?? []) {
+        expect({ surface, host, zone: zoneOf(host), inUse: inUse.has(host) }).toEqual({
+          surface,
+          host,
+          zone: zoneOf(productionHost(surface)),
+          inUse: false,
+        });
+      }
+    }
+    expect(RETIRED_STAGING_HOSTS).toEqual({
+      cire_host: ["next-host.cireweddings.com"],
+      cire_vendor: ["next-vendor.cireweddings.com"],
+    });
+  });
+
   test("production-hosts names each non-off site's origin at its mode, the origin its smoke check probes", () => {
     expect(Object.fromEntries(productionHostOutputs())).toEqual({
-      cire_host_origin: "https://next-host.cireweddings.com",
-      cire_vendor_origin: "https://next-vendor.cireweddings.com",
+      cire_host_origin: "https://next.host.cireweddings.com",
+      cire_vendor_origin: "https://next.vendor.cireweddings.com",
       cire_landing_origin: "https://next.cireweddings.com",
       osn_social_origin: "https://next.musubi.social",
       musubi_landing_origin: "https://www.musubi.social",
