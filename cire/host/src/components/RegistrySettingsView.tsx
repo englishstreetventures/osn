@@ -264,6 +264,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     const me = activeProfileId();
     return me !== null && settings()?.stripeConnectedByOsnProfileId === me;
   };
+  /** An owner looking at an account they did not connect, or nobody's on record. */
+  const accountIsAnotherOwners = () =>
+    props.canManage === true && stripeState() !== "none" && !canOpenStripe();
   /** The reason the onboarding button is not this organiser's, by its id. */
   const stripeReasonId = () => (props.canManage ? "stripe-connector-only" : "stripe-owner-only");
 
@@ -520,6 +523,13 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               ? "Only the wedding’s owner can connect the account gifts are paid into."
               : "Couldn’t reach Stripe just now. Try again in a moment.",
         );
+        // The wedding has an account and it is not this owner's, whatever the
+        // page loaded with. Say so until the next read names who connected it,
+        // rather than offer the button again.
+        const current = settings();
+        if (refusal?.error === "stripe_connector_only" && current) {
+          patchCache({ ...current, stripeConnected: true, stripeConnectedByOsnProfileId: null });
+        }
         return;
       }
       const body = (await res.json()) as { url?: string };
@@ -778,11 +788,17 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               </Notice>
             </Show>
 
+            {/* An owner who did not connect the account is not told it is
+                theirs: it carries the identity and bank of whoever connected it. */}
             <p class={hintClass} data-testid="stripe-status">
               {stripeState() === "ready"
-                ? "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
+                ? accountIsAnotherOwners()
+                  ? "Stripe is connected and can take payments. Gifts go straight to the account of the person who connected it — we never hold the money."
+                  : "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
                 : stripeState() === "incomplete"
-                  ? "Stripe has your account but still wants something before it can take payments."
+                  ? accountIsAnotherOwners()
+                    ? "Stripe has the account but still wants something from the person who connected it before it can take payments."
+                    : "Stripe has your account but still wants something before it can take payments."
                   : "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money."}
             </p>
 

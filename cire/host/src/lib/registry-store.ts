@@ -41,7 +41,7 @@ export interface RegistrySettings {
   stripeConnected: boolean;
   /** The OSN profile of the owner who connected the account, the only one the
    *  API hands its onboarding link. `null` with no account, with nobody on
-   *  record (then no owner may), and for a member who cannot edit. */
+   *  record (then no owner may), and for anyone who is not an owner. */
   stripeConnectedByOsnProfileId: string | null;
   stripeChargesEnabled: boolean;
   /** `null` exactly when the guest list offers money and cash funds — the

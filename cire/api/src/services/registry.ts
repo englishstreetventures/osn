@@ -251,12 +251,12 @@ export type MoneyGiftsBlock =
  * The settings as the organiser API sends them — the registry snapshot and the
  * settings PUT. Every co-host with read access receives this, so it carries only
  * what the settings view shows: whether an account is connected, not its id;
- * which owner connected it; whether it can charge, not whether it pays out; and
- * why guests cannot give money. For an editor or an owner that reason can say
- * whether the account settles in the wedding's currency — and so which
- * currency, when it does. A member who cannot edit gets the settings through
- * {@link settingsForReader}, which says nothing about the payout currency and
- * names no connector.
+ * whether it can charge, not whether it pays out; and why guests cannot give
+ * money. For an editor or an owner that reason can say whether the account
+ * settles in the wedding's currency — and so which currency, when it does. A
+ * route sends it through {@link settingsForReader}, which names the owner who
+ * connected the account to owners only, and tells a member who cannot edit
+ * nothing about the payout currency.
  */
 export interface RegistrySettingsDto {
   weddingId: string;
@@ -270,7 +270,7 @@ export interface RegistrySettingsDto {
   /**
    * The OSN profile of the owner who connected the account: the one owner the
    * portal offers its onboarding link. Null with no account, with nobody
-   * recorded, and for a member who cannot edit.
+   * recorded, and for anyone who is not an owner.
    */
   stripeConnectedByOsnProfileId: string | null;
   stripeChargesEnabled: boolean;
@@ -632,23 +632,34 @@ const moneyIsOpen = (
   currency: string,
 ): boolean => moneyGiftsBlock({ takesPayments }, settings, currency) === null;
 
+/** What the reader of a settings body may do: edit the list, and manage the wedding. */
+export interface SettingsReader {
+  readonly canEdit: boolean;
+  readonly canManage: boolean;
+}
+
 /**
- * The settings as a member who cannot edit them receives them. The two
- * currency reasons are an editor's to act on, and they say whether the payout
- * account settles in the wedding's currency, so this reader is told only what
- * follows from what they already see: money gifts are off (`cash_gifts_off`)
- * or, with them on, guests are not offered money (`not_offered`). The other
- * reasons follow from `takesPayments` and the Stripe flags, which every member
- * receives, and pass through. Nor is this reader told which owner connected the
- * account: they never reach the settings tab, where only that owner is offered
- * its onboarding link, and need not know whose bank the gifts reach.
+ * The settings as one reader receives them; every organiser response that
+ * carries settings goes through here.
+ *
+ * Only an owner is told which owner connected the account: the portal needs
+ * it to offer that owner, and no one else, the onboarding link, and an editor
+ * or a viewer need not know whose bank the gifts reach.
+ *
+ * A member who cannot edit is also told less about why guests cannot give
+ * money. The two currency reasons are an editor's to act on, and they say
+ * whether the payout account settles in the wedding's currency, so this reader
+ * is told only what follows from what they already see: money gifts are off
+ * (`cash_gifts_off`) or, with them on, guests are not offered money
+ * (`not_offered`). The other reasons follow from `takesPayments` and the Stripe
+ * flags, which every member receives, and pass through.
  */
 export function settingsForReader(
   settings: RegistrySettingsDto,
-  canEdit: boolean,
+  reader: SettingsReader,
 ): RegistrySettingsDto {
-  if (canEdit) return settings;
-  const told = { ...settings, stripeConnectedByOsnProfileId: null };
+  const told = reader.canManage ? settings : { ...settings, stripeConnectedByOsnProfileId: null };
+  if (reader.canEdit) return told;
   switch (settings.moneyGiftsBlockedBy) {
     case "stripe_currency_unknown":
     case "currency_mismatch":
@@ -3465,7 +3476,6 @@ function resolveVisibleRegistry(
           shippingAddress: registrySettings.shippingAddress,
           shippingVisibleFrom: registrySettings.shippingVisibleFrom,
           stripeAccountId: registrySettings.stripeAccountId,
-          stripeConnectedByOsnProfileId: registrySettings.stripeConnectedByOsnProfileId,
           stripeChargesEnabled: registrySettings.stripeChargesEnabled,
           stripePayoutsEnabled: registrySettings.stripePayoutsEnabled,
           stripeDefaultCurrency: registrySettings.stripeDefaultCurrency,
@@ -3522,14 +3532,17 @@ interface GateRow {
   shippingAddress: string | null;
   shippingVisibleFrom: string | null;
   stripeAccountId: string | null;
-  stripeConnectedByOsnProfileId: string | null;
   stripeChargesEnabled: boolean | null;
   stripePayoutsEnabled: boolean | null;
   stripeDefaultCurrency: string | null;
   updatedAt: Date | null;
 }
 
-/** The settings half of a gate row whose wedding HAS a settings row. */
+/**
+ * The settings half of a gate row whose wedding HAS a settings row. The guest
+ * gate does not read who connected the account — no guest path uses it — so the
+ * record says nobody, which no authorisation check would match.
+ */
 const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   weddingId: r.id,
   published: r.published === true,
@@ -3539,7 +3552,7 @@ const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   shippingAddress: r.shippingAddress,
   shippingVisibleFrom: r.shippingVisibleFrom,
   stripeAccountId: r.stripeAccountId,
-  stripeConnectedByOsnProfileId: r.stripeConnectedByOsnProfileId,
+  stripeConnectedByOsnProfileId: null,
   stripeChargesEnabled: r.stripeChargesEnabled === true,
   stripePayoutsEnabled: r.stripePayoutsEnabled === true,
   stripeDefaultCurrency: r.stripeDefaultCurrency,

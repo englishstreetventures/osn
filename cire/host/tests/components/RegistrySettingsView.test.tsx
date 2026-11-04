@@ -938,6 +938,7 @@ describe("who may continue on Stripe once an account is connected", () => {
     const button = await screen.findByRole("button", { name: /Continue on Stripe/i });
     expect(button.getAttribute("aria-disabled")).toBeNull();
     expect(screen.queryByTestId("stripe-connector-only")).toBeNull();
+    expect(screen.getByTestId("stripe-status").textContent).toMatch(/straight to your account/i);
     fireEvent.click(button);
 
     await waitFor(() =>
@@ -965,10 +966,11 @@ describe("who may continue on Stripe once an account is connected", () => {
     );
 
     renderPanel({ canManage: true });
-    // The account's status, as its connector sees it.
-    expect((await screen.findByTestId("stripe-status")).textContent).toMatch(
-      /connected and can take payments/i,
-    );
+    // The account's status — and not that it is this owner's account.
+    const status = (await screen.findByTestId("stripe-status")).textContent;
+    expect(status).toMatch(/connected and can take payments/i);
+    expect(status).toMatch(/account of the person who connected it/i);
+    expect(status).not.toMatch(/your account/i);
     const button = screen.getByRole("button", { name: /Continue on Stripe/i });
     expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(button.getAttribute("aria-describedby")).toBe("stripe-connector-only");
@@ -1001,6 +1003,31 @@ describe("who may continue on Stripe once an account is connected", () => {
       /only the person who connected this Stripe account/i,
     );
     expect(assign).not.toHaveBeenCalled();
+    // And the panel stops offering the link it was just refused.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Continue on Stripe/i }).getAttribute("aria-disabled"),
+      ).toBe("true"),
+    );
+    expect(screen.getByTestId("stripe-connector-only")).toBeTruthy();
+  });
+
+  it("stops offering Connect when another owner connected the account meanwhile", async () => {
+    // Loaded with no account; another owner connected one before this press.
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    authFetch.mockResolvedValue(json({ error: "stripe_connector_only" }, 403));
+
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: /Connect an account/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Continue on Stripe/i }).getAttribute("aria-disabled"),
+      ).toBe("true"),
+    );
+    expect(screen.getByTestId("stripe-status").textContent).toMatch(
+      /from the person who connected it/i,
+    );
   });
 });
 

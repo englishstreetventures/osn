@@ -104,7 +104,7 @@ the merge.
    still say Stripe collects the couple's KYC directly, and that cire
    records which owner connected the account
    (`registry_settings.stripe_connected_by_osn_profile_id`, shown to the
-   wedding's owners and editors) — see [[data-map]].
+   wedding's owners) — see [[data-map]].
 6. **Create the webhook endpoint** in the Dashboard →
    `https://api.cireweddings.com/api/stripe/webhook`, subscribed to the
    nine events [[stripe-webhooks]] lists; capture the signing secret.
