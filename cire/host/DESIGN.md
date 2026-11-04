@@ -1227,9 +1227,9 @@ A badge stays out of the tab order, so a host on a phone or at the keyboard
 cannot hover it. Where the badges are icons with nothing written beside them —
 the RSVP meta line's provenance — one button in the view bar opens a key that
 names every one, with what it says: "What the reply icons mean", a 28px
-`info` glyph on the bar's icon button (`bar` at `icon`) at the end of the
-bar's second row, before the download (on a phone, in the search row), on the
-raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
+`info` glyph on the bar's icon button (`bar` at `icon`), the last control in
+the bar's second row (on a phone, in the search row) but for the owner's
+download after it, on the raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
 Depth). One stop for the page, not one per row.
 
 On a guest's meta line (§Names and meta lines) a provenance badge is an icon
