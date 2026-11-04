@@ -3,7 +3,16 @@ import { createAutoSize } from "@cire/ui/lib/auto-size";
 import Loading from "@cire/ui/loading";
 import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { Toaster } from "@shared/toast";
-import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  lazy,
+  onCleanup,
+  onMount,
+  type ParentProps,
+  Show,
+  Suspense,
+} from "solid-js";
 
 import { redirectToLogin, signOutToLogin } from "../lib/api";
 import { reloadOnRestore } from "../lib/bfcache";
@@ -16,8 +25,16 @@ import ListingEditor from "./ListingEditor";
 import OrgPicker from "./OrgPicker";
 import TopBar from "./TopBar";
 import VendorEnquiryInbox from "./VendorEnquiryInbox";
-import VendorEnquiryThread from "./VendorEnquiryThread";
 import type { VendorView } from "./ViewTabs";
+
+/**
+ * The enquiry thread, in its own chunk. The island is `client:only`, so every
+ * byte on its first load blocks the first frame, and the thread shows only
+ * once a vendor opens an enquiry. The dashboard starts the fetch as soon as
+ * the enquiries view is showing, so opening a thread rarely waits on it.
+ */
+const loadThread = () => import("./VendorEnquiryThread");
+const VendorEnquiryThread = lazy(loadThread);
 
 /**
  * Gate: session() is undefined while the SDK restores the session, null
@@ -82,6 +99,12 @@ function Dashboard() {
 
   // Selected enquiry id — null when the inbox is shown; set to render the thread.
   const [selectedEnquiryId, setSelectedEnquiryId] = createSignal<string | null>(null);
+
+  // Warm the thread's chunk while the vendor reads the inbox. The import is
+  // fetched once; every later call returns the same promise.
+  createEffect(() => {
+    if (view() === "enquiries") void loadThread();
+  });
 
   function goEnquiries() {
     setView("enquiries");
@@ -223,11 +246,16 @@ function Dashboard() {
                       fallback={<VendorEnquiryInbox inbox={inbox} onOpen={setSelectedEnquiryId} />}
                     >
                       {(id) => (
-                        <VendorEnquiryThread
-                          enquiryId={id()}
-                          ownProfileId={activeProfileId() ?? ""}
-                          onBack={() => setSelectedEnquiryId(null)}
-                        />
+                        // Its own boundary, with no fallback, so only the
+                        // thread waits on its chunk: nothing else in the island
+                        // falls back while it loads.
+                        <Suspense>
+                          <VendorEnquiryThread
+                            enquiryId={id()}
+                            ownProfileId={activeProfileId() ?? ""}
+                            onBack={() => setSelectedEnquiryId(null)}
+                          />
+                        </Suspense>
                       )}
                     </Show>
                   </Show>

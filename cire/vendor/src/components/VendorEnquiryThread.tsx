@@ -14,6 +14,7 @@ import {
   getEnquiryMessages,
   replyToEnquiry,
   submitQuote,
+  type VendorEnquiryMessage,
 } from "../lib/enquiries-store";
 import { haptic } from "../lib/touch-feedback";
 
@@ -37,7 +38,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
   const { authFetch } = useAuth();
 
   // ── Messages resource ─────────────────────────────────────────────────────
-  const [messages, { refetch }] = createResource(() =>
+  const [messages, { mutate, refetch }] = createResource(() =>
     getEnquiryMessages(authFetch, props.enquiryId),
   );
 
@@ -62,8 +63,9 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
   /** Rejects on failure, so the reply box keeps the words. */
   async function send(text: string) {
     setReplyError(null);
+    let sent: VendorEnquiryMessage;
     try {
-      await replyToEnquiry(authFetch, props.enquiryId, text);
+      sent = await replyToEnquiry(authFetch, props.enquiryId, text);
     } catch (err) {
       haptic("reject");
       const message = friendlyEnquiryError(err);
@@ -72,7 +74,13 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
       throw err;
     }
     haptic("commit");
-    void refetch();
+    // Put the sent message into the thread rather than reading the whole
+    // thread back to learn one row the server has just returned. First,
+    // because the API lists a thread newest first. A thread not yet read has
+    // no list to add it to, and its read may have gone out before the reply,
+    // so it is read again.
+    if (messages.state === "ready") mutate((list) => [sent, ...(list ?? [])]);
+    else void refetch();
   }
 
   // ── Quote form state ──────────────────────────────────────────────────────
