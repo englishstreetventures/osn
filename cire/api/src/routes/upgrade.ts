@@ -15,9 +15,10 @@
  * catalogue costs no query of its own for it.
  *
  * **Key-optional, and only beside the webhook that grants.** With no
- * `STRIPE_SECRET_KEY`, or no `STRIPE_PLATFORM_WEBHOOK_SECRET`, these routes are
- * not mounted, so a deployment that could not grant a tier has no purchase
- * surface rather than one that takes money and grants nothing.
+ * `STRIPE_SECRET_KEY`, or no `STRIPE_PLATFORM_WEBHOOK_SECRET` (on a deployed
+ * tier, also one equal to `STRIPE_WEBHOOK_SECRET`), these routes are not
+ * mounted, so a deployment that could not grant a tier has no purchase surface
+ * rather than one that takes money and grants nothing.
  *
  * **Nothing here grants anything.** A 200 from the session route means a
  * payment page exists, never that it was paid. Only a signature-verified

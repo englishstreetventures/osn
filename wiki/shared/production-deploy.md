@@ -697,7 +697,7 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 ```
 
 > [!warning]
-> Reusing the Connect endpoint's signing secret for the platform endpoint means **every** delivery to it is refused with a 400 and Stripe retries for days, while nothing grants. The two secrets come from two different dashboard endpoints.
+> The two secrets come from two different dashboard endpoints. Set the Connect endpoint's secret as `STRIPE_PLATFORM_WEBHOOK_SECRET` and cire-api sells no tier: it mounts no upgrade route and logs `upgrades disabled: STRIPE_PLATFORM_WEBHOOK_SECRET is the same value as STRIPE_WEBHOOK_SECRET` when it builds the app. Any other wrong value passes that check, and then **every** delivery to the platform endpoint is refused with a 400 and Stripe retries for days, while nothing grants.
 
 **Fail-closed, per move.** A tier with no configured Price for the wedding's current tier is not for sale: absent from the catalogue and a 404 from checkout. With `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD` unset a Gold wedding is not offered Crimson at all. Absent configuration never means free. The three vars sit commented out in every environment of `cire/api/wrangler.toml` until the Prices exist. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset or blank neither the endpoint nor the upgrade routes exist, so no tier is sold: nothing but that endpoint moves a purchase off `pending`, and a checkout there could be paid and never granted. The portal's dialog says upgrades are not available, and where a Price id is set the Worker logs `upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET` when it builds the app. Set the secret, then deploy.
 

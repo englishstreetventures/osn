@@ -554,6 +554,9 @@ const handler: ExportedHandler<Env> = {
         stripe,
         stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET ?? null,
         stripePlatformWebhookSecret: env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
+        // Two dashboard endpoints, two secrets: a deployed tier refuses one
+        // value in both. A local `wrangler dev` with one `stripe listen` does not.
+        requireDistinctStripeSecrets: isDeployedTier(env),
         upgradePrices: {
           gold: env.STRIPE_UPGRADE_PRICE_GOLD,
           crimson: env.STRIPE_UPGRADE_PRICE_CRIMSON,

@@ -600,6 +600,31 @@ describe("upgrades need the platform webhook secret on the Worker", () => {
     expect(logs).not.toContain(KEY);
     expect(logs).not.toContain(PLATFORM_SECRET);
   });
+
+  const SHARED =
+    "upgrades disabled: STRIPE_PLATFORM_WEBHOOK_SECRET is the same value as STRIPE_WEBHOOK_SECRET";
+  const oneValueForBoth = {
+    STRIPE_WEBHOOK_SECRET: PLATFORM_SECRET,
+    STRIPE_PLATFORM_WEBHOOK_SECRET: PLATFORM_SECRET,
+  };
+
+  it("sells no tier on a deployed tier whose two webhook secrets are one value, and says so once", async () => {
+    const { statuses, bodies, logs } = await catalogueThroughWorker(oneValueForBoth);
+    expect(statuses).toEqual([404, 404]);
+    expect(bodies).toEqual([{ error: "Not found" }, { error: "Not found" }]);
+    expect(logs.split(SHARED).length - 1).toBe(1);
+    expect(logs).not.toContain(PLATFORM_SECRET);
+    expect(logs).not.toContain(KEY);
+  });
+
+  it("mounts the routes on the local tier, where one stripe listen signs for both", async () => {
+    const { statuses, logs } = await catalogueThroughWorker({
+      ...oneValueForBoth,
+      OSN_ENV: undefined,
+    });
+    expect(statuses).toEqual([401, 401]);
+    expect(logs).not.toContain(SHARED);
+  });
 });
 
 describe("D1 session routing at the entry points", () => {

@@ -95,7 +95,8 @@ await applyE2eOrganiserAssets(assets, process.env);
 // locally both variables carry the SAME value. Deployed tiers have two
 // dashboard endpoints and therefore two different secrets; that difference is
 // what the wrong-secret test pins, and it is a deployed property, not a local
-// one.
+// one. The Worker on a deployed tier sells no tier on one value in both; this
+// server does not check.
 const stripe = createStripeClientFromEnv({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY });
 
 // Organiser sign-in's JWKS URL. The Worker's boot requires `OSN_JWKS_URL`;

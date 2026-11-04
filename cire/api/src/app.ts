@@ -731,6 +731,14 @@ export interface AppOptions {
    * and a Price id come without the secret.
    */
   stripePlatformWebhookSecret?: string | null;
+  /**
+   * True on a deployed tier, where the two webhooks are two Stripe dashboard
+   * endpoints and each signs with its own secret: one value in both
+   * variables means one endpoint verifies nothing, so the upgrade routes are
+   * not mounted and building the app logs an error. False locally, where one
+   * `stripe listen` signs for both and the same value is right.
+   */
+  requireDistinctStripeSecrets?: boolean;
   /** Country for a newly created connected account (`AU` unless overridden). */
   stripeAccountCountry?: string;
   /**
@@ -866,6 +874,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     stripe = null,
     stripeWebhookSecret = null,
     stripePlatformWebhookSecret = null,
+    requireDistinctStripeSecrets = false,
     stripeAccountCountry,
     registryStripeLimiter = defaultRegistryStripeLimiter,
     upgradeLimiter = defaultUpgradeLimiter,
@@ -1456,15 +1465,33 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
   // purchase off `pending`, so where it cannot mount (no signing secret) no
   // tier is sold — an owner would pay and never get it. Both use one upgrade
   // service, which needs the Stripe client. No client, no purchase surface.
-  if (
+  //
+  // A deployed tier's two webhooks are two dashboard endpoints, each with its
+  // own signing secret, so one value in both means one of them verifies
+  // nothing — and this one may be it. Locally one `stripe listen` signs both.
+  const sharesConnectSecret =
+    requireDistinctStripeSecrets &&
+    platformWebhookSecret !== null &&
+    platformWebhookSecret === connectWebhookSecret;
+  // Each once per app build: per isolate on the Worker, once at boot locally.
+  // Each names variables, never their values.
+  if (stripe && sharesConnectSecret) {
+    runCireSync(
+      Effect.logError(
+        "upgrades disabled: STRIPE_PLATFORM_WEBHOOK_SECRET is the same value as STRIPE_WEBHOOK_SECRET",
+        {
+          detail:
+            "each Stripe endpoint signs with its own secret; set the platform endpoint's and redeploy the Worker",
+        },
+      ),
+    );
+  } else if (
     stripe &&
     !platformWebhookSecret &&
     // A blank Price id sells nothing, as the catalogue reads it: a deployment
     // with no Price sells no tier anyway, and the secret would change nothing.
     Object.values(upgradePrices).some((priceId) => Boolean(priceId?.trim()))
   ) {
-    // Once per app build: per isolate on the Worker, once at boot locally.
-    // Names the variables, never their values.
     runCireSync(
       Effect.logWarning(
         "upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET",
@@ -1475,7 +1502,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
       ),
     );
   }
-  if (!stripe || !platformWebhookSecret) return withStripeWebhook;
+  if (!stripe || !platformWebhookSecret || sharesConnectSecret) return withStripeWebhook;
   // ONE catalogue, shared by the routes and the service. Two would mean two
   // price caches in the same isolate, so every cached read would be paid for
   // twice against the platform's Stripe quota.

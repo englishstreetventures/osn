@@ -175,7 +175,12 @@ Without the webhook an owner could pay and the purchase would stay `pending`
 for good. Where the key and a Price id come without the secret, the Worker logs
 `upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET`
 once when it builds the app; set the secret, then deploy, since a warm isolate
-keeps the app it built.
+keeps the app it built. On a deployed tier the same holds when
+`STRIPE_PLATFORM_WEBHOOK_SECRET` is the same value as `STRIPE_WEBHOOK_SECRET`:
+the two are separate Stripe endpoints, each with its own secret, so one value
+in both means one of them verifies nothing. The Worker sells no tier and logs
+`upgrades disabled: STRIPE_PLATFORM_WEBHOOK_SECRET is the same value as STRIPE_WEBHOOK_SECRET`.
+Locally one `stripe listen` signs both, and the same value is right.
 
 Prices are cached per isolate for ten minutes (`PRICE_CACHE_TTL_MS`) — the
 catalogue is read on every upgrade dialog, and each would otherwise spend a
