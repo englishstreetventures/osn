@@ -19,7 +19,10 @@ import "../../src/styles/global.css";
  * Same canvas method as `ModuleSidebar.contrast.browser.test.tsx`.
  */
 
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
+vi.mock("../../src/lib/touch-feedback", () => ({
+  haptic: () => {},
+  hapticsAvailable: () => false,
+}));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch: vi.fn() }) }));
 
 import type { WeddingSummary } from "../../src/components/CreateWeddingForm";

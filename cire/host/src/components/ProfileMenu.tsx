@@ -15,14 +15,14 @@ import {
 } from "@shared/ui/ui/dropdown-menu";
 import { For, type JSX, Show } from "solid-js";
 
-import { haptic, hapticsAvailable } from "../lib/haptics";
 import {
   hapticsEnabled,
   setHapticsEnabled,
   setThemePreference,
   type ThemePreference,
   themePreference,
-} from "../lib/theme";
+} from "../lib/preferences";
+import { haptic, hapticsAvailable } from "../lib/touch-feedback";
 
 /** "System" first because it is the default, and the only one that keeps
  *  following the host's OS after they close the menu. */
@@ -36,6 +36,16 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
  *  the menu's trigger renders as (`as`), as it would a `Button`. */
 function AvatarButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type="button" {...props} class={avatarTriggerClass} />;
+}
+
+/**
+ * The first seven characters of the commit this portal was built from, which
+ * CI sets as `PUBLIC_BUILD_SHA` on each deploy build; "local" for a build
+ * without it, as the guest site's footer says.
+ */
+function buildVersion(): string {
+  const sha = import.meta.env.PUBLIC_BUILD_SHA?.trim();
+  return sha ? sha.slice(0, 7) : "local";
 }
 
 /**
@@ -130,6 +140,16 @@ export default function ProfileMenu(props: {
           Security &amp; passkeys
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => props.onSignOut()}>Sign out</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {/* The build, as the guest site's and the marketing site's footers
+            print it, so a report from a phone names the build it saw. Not a
+            row: nothing to choose, so the keyboard passes it by. */}
+        <p
+          class="font-body text-text-muted text-ui-xs px-3 pt-1.5 pb-2 tabular-nums"
+          translate="no"
+        >
+          Version {buildVersion()}
+        </p>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -38,7 +38,7 @@ const activeProfileId = vi.fn<() => string | null>(() => ME);
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch, activeProfileId }) }));
 
 const { haptic } = vi.hoisted(() => ({ haptic: vi.fn() }));
-vi.mock("../../src/lib/haptics", () => ({ haptic }));
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic }));
 
 // Only `redirectToLogin` is replaced — it assigns `window.location.href`, which
 // happy-dom cannot follow. `apiUrl` and `isAuthExpired` stay real.

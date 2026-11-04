@@ -13,7 +13,6 @@ import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack 
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { FORM_ACTION_CLASS } from "../lib/form-field";
-import { haptic } from "../lib/haptics";
 import { type HostSeat, invalidateHosts, setFreshHosts } from "../lib/hosts-store";
 import { useMembersChanged } from "../lib/members-changed";
 import {
@@ -33,6 +32,7 @@ import {
 import { markRunSheetStale } from "../lib/run-sheet-store";
 import { invalidateTasks, peekCachedTasks } from "../lib/tasks-store";
 import { type PaidTier, type Tier, TIER_LABEL, tierAtLeast } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import {
   type AssignableRole,
   assignableRolesFor,

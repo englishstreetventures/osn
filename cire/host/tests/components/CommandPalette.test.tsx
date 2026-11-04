@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CommandPalette from "../../src/components/CommandPalette";
 import type { WeddingSummary } from "../../src/components/CreateWeddingForm";
 import type { Module } from "../../src/lib/dashboard-route";
-import { setThemePreference } from "../../src/lib/theme";
+import { setThemePreference } from "../../src/lib/preferences";
 
 /**
  * ⌘K is the keyboard route to anywhere in the portal, and the reason the chrome

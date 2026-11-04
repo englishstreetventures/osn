@@ -8,12 +8,12 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { haptic } from "../lib/haptics";
 import { invalidateRegistry, peekCachedRegistry } from "../lib/registry-store";
 import { invalidateTasks } from "../lib/tasks-store";
 import { TIER_LABEL } from "../lib/tiers";
 import type { PaidTier, Tier } from "../lib/tiers";
 import { browserTimeZone, describeTimeZone } from "../lib/timezones";
+import { haptic } from "../lib/touch-feedback";
 import DatePicker from "./DatePicker";
 import DeleteWeddingDialog from "./DeleteWeddingDialog";
 import LockedModuleDownloads from "./LockedModuleDownloads";

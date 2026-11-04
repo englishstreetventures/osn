@@ -1,23 +1,40 @@
 import Button from "@cire/ui/button";
+import { createAutoSize } from "@cire/ui/lib/auto-size";
 import Loading from "@cire/ui/loading";
 import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { Toaster } from "@shared/toast";
-import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  lazy,
+  onCleanup,
+  onMount,
+  type ParentProps,
+  Show,
+  Suspense,
+} from "solid-js";
 
 import { redirectToLogin, signOutToLogin } from "../lib/api";
-import { createAutoSize } from "../lib/auto-size";
 import { reloadOnRestore } from "../lib/bfcache";
 import { listEnquiries } from "../lib/enquiries-store";
 import { createEnquiryInbox } from "../lib/enquiry-inbox";
 import { CIRE_API_URL } from "../lib/osn";
-import { initTheme } from "../lib/theme";
+import { initTheme } from "../lib/preferences";
 import { drainClaimedListing, type OrgSummary } from "../lib/vendor-store";
 import ListingEditor from "./ListingEditor";
 import OrgPicker from "./OrgPicker";
 import TopBar from "./TopBar";
 import VendorEnquiryInbox from "./VendorEnquiryInbox";
-import VendorEnquiryThread from "./VendorEnquiryThread";
 import type { VendorView } from "./ViewTabs";
+
+/**
+ * The enquiry thread, in its own chunk. The island is `client:only`, so every
+ * byte on its first load blocks the first frame, and the thread shows only
+ * once a vendor opens an enquiry. The dashboard starts the fetch as soon as
+ * the enquiries view is showing, so opening a thread rarely waits on it.
+ */
+const loadThread = () => import("./VendorEnquiryThread");
+const VendorEnquiryThread = lazy(loadThread);
 
 /**
  * Gate: session() is undefined while the SDK restores the session, null
@@ -82,6 +99,12 @@ function Dashboard() {
 
   // Selected enquiry id — null when the inbox is shown; set to render the thread.
   const [selectedEnquiryId, setSelectedEnquiryId] = createSignal<string | null>(null);
+
+  // Warm the thread's chunk while the vendor reads the inbox. The import is
+  // fetched once; every later call returns the same promise.
+  createEffect(() => {
+    if (view() === "enquiries") void loadThread();
+  });
 
   function goEnquiries() {
     setView("enquiries");
@@ -163,7 +186,7 @@ function Dashboard() {
 
   // The design law: the panel keeps its box and animates to the new content's
   // height, so nothing in the chrome above it moves when a view is swapped.
-  // The frame holds no height at rest — see `lib/auto-size.ts`.
+  // The frame holds no height at rest — see `@cire/ui/lib/auto-size`.
   const panel = createAutoSize();
 
   // What the panel is currently showing, as one value. The key on the inner
@@ -223,11 +246,16 @@ function Dashboard() {
                       fallback={<VendorEnquiryInbox inbox={inbox} onOpen={setSelectedEnquiryId} />}
                     >
                       {(id) => (
-                        <VendorEnquiryThread
-                          enquiryId={id()}
-                          ownProfileId={activeProfileId() ?? ""}
-                          onBack={() => setSelectedEnquiryId(null)}
-                        />
+                        // Its own boundary, with no fallback, so only the
+                        // thread waits on its chunk: nothing else in the island
+                        // falls back while it loads.
+                        <Suspense>
+                          <VendorEnquiryThread
+                            enquiryId={id()}
+                            ownProfileId={activeProfileId() ?? ""}
+                            onBack={() => setSelectedEnquiryId(null)}
+                          />
+                        </Suspense>
                       )}
                     </Show>
                   </Show>

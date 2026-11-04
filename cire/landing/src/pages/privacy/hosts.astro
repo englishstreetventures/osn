@@ -2,7 +2,7 @@
 // The privacy notice for hosts: couples, co-hosts and organisers. Guests and
 // vendors have their own (`guests.astro`, `vendors.astro`), and `index.astro`
 // introduces all three.
-import LegalLayout from '../../layouts/LegalLayout.astro'
+import LegalPage from '../../layouts/LegalPage.astro'
 import PrivacyNav from '../../components/PrivacyNav.astro'
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 
@@ -15,7 +15,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 // is still a token.
 const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDataRetention)
 ---
-<LegalLayout title="Privacy Notice for Hosts">
+<LegalPage title="Privacy Notice for Hosts">
   {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this notice is not final. Some details of the operator are
@@ -178,4 +178,4 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
     <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
     <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
-</LegalLayout>
+</LegalPage>

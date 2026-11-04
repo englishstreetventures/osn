@@ -13,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 # Invite design selector
 
@@ -786,7 +786,7 @@ differs. On the guest site each corner paints:
 | 16px, `rounded-ui-lg` | the event card, gala's code-entry card, both packs' hero title panel, the gift money panel and the gift item card, whose `overflow-hidden` clips its picture to the corner |
 | 1.75rem, `rounded-t-ui-sheet` | the top corners of a bottom sheet (`Modal presentation="sheet"`) |
 | 10px, `rounded-md` | the link menu |
-| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner and owner note — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
+| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
 | 2px, `--radius-hair` | nothing on the guest site: a legal page's inline placeholder (`.placeholder`) draws no highlight, so no box to round |
 | round, `rounded-full` | the "RSVPs closed" badge (`Chip`); the sheet's close cross (`Button` `round`, the `pill` step), the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 
@@ -842,8 +842,17 @@ differs. On the guest site each corner paints:
   with no highlight. `tests/components/notice-contrast.browser.test.tsx` holds
   each at 4.5:1 in every scheme on every ground it can sit on, and fails any
   fill between a gold word and its site's own box.
-- **The owner note** on a legal page is square on its ruled side
-  (`0 var(--radius-sm) var(--radius-sm) 0`), so the 2px rule stays straight.
+- **The footer** is `@cire/ui`'s `site-footer.astro`, which the guest site
+  fills in one file, `src/components/GuestFooter.astro`, and every page
+  renders: the invitation, the gift page, `/privacy`, `/terms` and the 404. On
+  an invitation it signs off with the couple's names in roman at weight 300,
+  the weight of an invitation's closing line, over "Wedding stamped with
+  Cire" and a gold rule; on the legal pages and the 404 it starts at the legal
+  row. The row holds "Privacy notice", "Terms" and the "Privacy choices"
+  control, joined by middle dots, then the build's version on its own line
+  ([[cire-invite-builder#The footer's version]]). Each link keeps the word's
+  size, underline and focus ring, and takes a 44px hit area laid over it, so
+  a tap 18px above its centre still lands on it.
 - **The closing band image is square.** It runs edge to edge below 1536px and
   has no frame.
 
@@ -852,9 +861,9 @@ differs. On the guest site each corner paints:
 "Save choices", "See the gift list", "Back to the invitation" — and shows as
 written, at normal tracking, with a medium weight on a boxed label. Lato loads
 300, 400 and 700 only, so the medium weight draws the 400 face. Proper names
-keep their capitals: "Google Calendar", "Apple Maps", "musubi", and the
-footer's "Privacy Notice" and "Privacy Choices", the names of the legal
-document and of the control the guest privacy notice quotes by name
+keep their capitals: "Google Calendar", "Apple Maps", "musubi". The footer's
+"Privacy notice" and "Privacy choices" are labels too, in sentence case, and
+the guest privacy notice quotes the control as it reads, "Privacy choices"
 (`cire/ui/src/guest-privacy-notice.astro`). Small caps stay on what is not a
 label: eyebrows, the details panel's section heads, field labels, the "RSVPs
 closed" badge, the account link's status word, the

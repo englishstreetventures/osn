@@ -9,10 +9,10 @@ import Sun from "lucide-solid/icons/sun";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
-import { haptic } from "../lib/haptics";
 import { isModuleLocked, MODULE_NAV } from "../lib/module-nav";
-import { setThemePreference, theme } from "../lib/theme";
+import { setThemePreference, theme } from "../lib/preferences";
 import { tierOf } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import { normaliseWeddingRole, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleIcon from "./ModuleIcon";

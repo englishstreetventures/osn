@@ -17,7 +17,7 @@
  *
  * Each view is shot at a phone width and a desktop width, light and dark, into
  * `screenshots/cire-soft-shapes/`. The portal follows the colour scheme (with
- * no stored choice, `lib/theme.ts` puts the system's on `data-theme`); the
+ * no stored choice, `lib/preferences.ts` puts the system's on `data-theme`); the
  * guest site has no dark theme, so its dark shots show the same page as its
  * light ones.
  *

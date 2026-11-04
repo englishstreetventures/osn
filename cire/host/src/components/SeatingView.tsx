@@ -43,7 +43,6 @@ import { Portal } from "solid-js/web";
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { FORM_ACTION_CLASS } from "../lib/form-field";
-import { haptic } from "../lib/haptics";
 import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
 import {
   guestName,
@@ -58,6 +57,7 @@ import {
   seatingApi,
 } from "../lib/seating-api";
 import { sameButOrder } from "../lib/sortable-rows";
+import { haptic } from "../lib/touch-feedback";
 import ReorderControls from "./ReorderControls";
 
 const PLACE_CLASS = `${cardClass({ padding: "sm" })} transition-ui-colors duration-(--dur-fast) ease-(--ease-out)`;

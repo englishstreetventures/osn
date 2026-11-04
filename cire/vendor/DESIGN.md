@@ -42,9 +42,12 @@ The one gap is by design: this portal renders no `Modal`, so it sets no
 test task's inputs, so a change to any of them re-runs this suite rather than
 replaying a cached pass. What each corner paints is host §4.
 
-`src/lib/` carries two verbatim ports: `theme.ts` / `theme-boot.ts` and
-`auto-size.ts`. They are generic and have their own tests. The sliding pill is
-`@cire/ui`'s, shared with the host portal. This portal declares the spring
+The theme and haptics preference, the theme boot script, touch feedback and
+the auto-sized frame are `@cire/ui`'s (`lib/theme`, `lib/theme-boot`,
+`lib/haptics`, `lib/auto-size`), shared with the host portal and tested there.
+`src/lib/` holds only this portal's wiring: `preference-keys.ts` (the storage
+keys and the boot script), `preferences.ts` and `touch-feedback.ts`. The
+sliding pill is `@cire/ui`'s too. This portal declares the spring
 (`--ease-spring` and its `@supports` block, host §4), because its glass strip
 slides on it.
 Every form field here takes `@shared/ui`'s `size="form"` and is 34px, as host
@@ -78,8 +81,9 @@ the same split `cire/host` made.
 
 ### Haptics: three names, not five
 
-`commit`, `reject`, `dismiss`. The host portal's vocabulary has `pickup` and
-`step` because it has drag-to-reorder; this portal has neither, and a name with
+`commit`, `reject`, `dismiss`: the `names` `src/lib/touch-feedback.ts` passes
+to `createHaptics`, which plays no other. The host portal's vocabulary has
+`pickup` and `step` because it has drag-to-reorder; this portal has neither, and a name with
 no call site is a name the next person will find a use for.
 
 ### Storage keys: `cire.vendor.*`
@@ -87,7 +91,7 @@ no call site is a name the next person will find a use for.
 Not `cire.host.*`. `localStorage` is partitioned by origin and the two portals
 are two hosts, so they could not share a value even if the names matched — a
 shared name would only promise a continuity it cannot deliver.
-`tests/lib/theme.test.ts` pins this, because the obvious way to add a preference
+`tests/lib/preferences.test.ts` pins this, because the obvious way to add a preference
 here is to paste one from the host portal.
 
 ### Navigation: a two-tab strip, no command palette
@@ -114,7 +118,7 @@ redirected would be a hop that exists only to be got past. The row is the
 shared menu's link row (`DropdownMenuItem as="a"`) to `PUBLIC_OSN_ACCOUNT_URL`
 with `target="_blank"`, which adds `noopener noreferrer` itself. The menu is
 the shared `DropdownMenu` on its accent look, as every portal menu is (host
-§7).
+§7), and ends on the build's version as the host's account menu does.
 
 ---
 
@@ -150,8 +154,9 @@ a headline figure or a table.
 wordmark's hover wash at 6px (a nav highlight, `Wordmark`); the profile menu's panel and
 rows take the shared menu's 10px and 6px. The quote form nested in the enquiry thread's
 card is 6px too, drawn from the card's box (`cardBoxClass({ fill: "none",
-nested: true })`) with its own 16px padding. The login card and the thread's
-message bubbles take the 16px card corner. The round marks — the avatar, the
+nested: true })`) with its own 16px padding. The login card takes the 16px card
+corner. The thread's messages and reply box are `MessageThread`'s, drawn as host
+§7, An enquiry thread, says; this portal adds no corner of its own to them. The round marks — the avatar, the
 haptics switch — are `rounded-full`.
 
 **Cards here** take a step of `cardClass` (host §7): an enquiry in the inbox is

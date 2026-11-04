@@ -11,11 +11,11 @@ import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show }
 import { redirectToLogin } from "../lib/api";
 import { splitIso } from "../lib/event-datetime";
 import type { EventRow } from "../lib/events-store";
-import { haptic } from "../lib/haptics";
 import { type ZonedTime, zonedTime } from "../lib/run-sheet-display";
 import { type RunTimePatch, type RunTimeRefusal, saveTaskRunTime } from "../lib/run-time-write";
 import type { TaskRow } from "../lib/tasks-store";
 import { browserTimeZone, describeTimeZone, timeZoneGroups } from "../lib/timezones";
+import { haptic } from "../lib/touch-feedback";
 import { ClockGlyph, UnlinkGlyph } from "./RunGlyphs";
 
 /**

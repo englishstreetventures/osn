@@ -8,9 +8,9 @@ import { createEffect, createSignal, Match, Show, Switch } from "solid-js";
 
 import { navigateTo, redirectToLogin } from "../lib/api";
 import type { Module } from "../lib/dashboard-route";
-import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
 import { type PaidTier, TIER_LABEL, tierAtLeast } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import {
   type CatalogueEntry,
   fetchCatalogue,

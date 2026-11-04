@@ -44,7 +44,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { FORM_ACTION_CLASS } from "../lib/form-field";
-import { haptic } from "../lib/haptics";
+import { haptic } from "../lib/touch-feedback";
 /** Mirrors `MAX_IMAGE_BYTES` in `cire/api/src/services/invite-assets.ts`. Checked
  *  here only to spare the organiser a five-megabyte upload that ends in a 413 —
  *  the cap that counts is the server's. */

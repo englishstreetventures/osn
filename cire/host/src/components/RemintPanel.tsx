@@ -7,8 +7,8 @@ import { createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { invalidateGuests } from "../lib/guests-store";
-import { haptic } from "../lib/haptics";
 import { invalidateHouseholds } from "../lib/households-store";
+import { haptic } from "../lib/touch-feedback";
 import type { CodeStyle } from "./CreateWeddingForm";
 import SectionIntro from "./SectionIntro";
 

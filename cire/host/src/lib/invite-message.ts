@@ -1,5 +1,5 @@
-import { haptic } from "./haptics";
 import { CIRE_WEB_URL } from "./osn";
+import { haptic } from "./touch-feedback";
 
 /**
  * Build the ready-to-send invite message an organiser copies for a family. A

@@ -35,7 +35,7 @@ type TextareaProps = Omit<SafeProps<"textarea">, "size"> & {
    * note.
    *
    * `"none"` exists for the case that default is wrong — a textarea inside an
-   * auto-sized frame (cire's `lib/auto-size.ts`). That observer's reflow guard
+   * auto-sized frame (`@cire/ui/lib/auto-size`). That observer's reflow guard
    * watches width only; dragging this textarea's own resize grip changes height
    * at a fixed width, which the guard reads as a content change on every
    * delivery, forcing continuous relayout for as long as the drag continues.

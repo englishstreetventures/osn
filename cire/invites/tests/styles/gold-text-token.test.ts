@@ -192,11 +192,12 @@ describe("gold token usage", () => {
   });
 
   it("sets no text colour from raw CSS in the metal gold", () => {
-    // `SiteFooter.astro` and `LegalLayout.astro` colour text with
-    // `var(--color-gold…)` directly rather than through a utility, so the scan
-    // above cannot see them. Swept over EVERY walked file rather than a
-    // hand-maintained pair, so a third file styling text this way is caught the
-    // day it appears.
+    // A `<style>` block can colour text with `var(--color-gold…)` directly
+    // rather than through a utility, which the scan above cannot see. The
+    // footer and the legal pages' styles, which once did, are `@cire/ui`'s now
+    // and held to `--ui-accent-ink` by its own tests; this sweeps EVERY walked
+    // file, so a file here that styles text this way is caught the day it
+    // appears.
     const offenders = sourceFiles(SRC).flatMap((path) =>
       (stripComments(readFileSync(path, "utf8")).match(CSS_TEXT_COLOUR) ?? [])
         .filter((declaration) => !declaration.includes("--color-gold-ink"))
@@ -205,14 +206,24 @@ describe("gold token usage", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("still finds the raw-CSS declarations it is meant to be checking", () => {
-    // Vacuity guard for the test above: if the selector, the file layout or the
-    // variable name changes, an empty match set would let it pass while
-    // checking nothing.
-    const found = sourceFiles(SRC).flatMap(
-      (path) => stripComments(readFileSync(path, "utf8")).match(CSS_TEXT_COLOUR) ?? [],
-    );
-    expect(found.length).toBeGreaterThan(0);
+  it("still matches the raw-CSS declarations it is meant to be checking", () => {
+    // Vacuity guard for the test above. No file in `src/` colours text in raw
+    // CSS today, so an empty sweep proves nothing; instead the pattern must
+    // still catch a fixed sample of each form, and spare the readable gold.
+    const sample = `
+      .a { color: var(--color-gold); }
+      .b { color:var(--color-gold-dim) }
+      .c { color: "var(--color-gold)" }
+      .d { color: var(--color-gold-ink); }
+      .e { background-color: var(--color-gold); }
+    `;
+    const found = sample.match(CSS_TEXT_COLOUR) ?? [];
+    expect(found).toHaveLength(4);
+    expect(found.filter((declaration) => !declaration.includes("--color-gold-ink"))).toEqual([
+      "color: var(--color-gold)",
+      "color:var(--color-gold-dim)",
+      'color: "var(--color-gold)',
+    ]);
   });
 
   it("declares the prose token so every swapped utility resolves", () => {

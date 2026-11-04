@@ -1,3 +1,4 @@
+import { createAutoSize } from "@cire/ui/lib/auto-size";
 import SegmentedTabs from "@cire/ui/segmented-tabs";
 import BriefcaseBusiness from "lucide-solid/icons/briefcase-business";
 import Compass from "lucide-solid/icons/compass";
@@ -29,7 +30,6 @@ import {
   Suspense,
 } from "solid-js";
 
-import { createAutoSize } from "../lib/auto-size";
 import { peekCachedBudget } from "../lib/budget-store";
 import {
   DEFAULT_MODULE,

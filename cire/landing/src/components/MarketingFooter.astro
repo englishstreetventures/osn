@@ -1,0 +1,42 @@
+---
+// The marketing site's footer: `@cire/ui`'s footer as this site fills it, the
+// back of the envelope. It signs off in the italic logotype and the tagline;
+// below the rule, the section links, then the legal pages (privacy, terms,
+// refunds), which must be reachable from every page (the privacy notice is
+// linked at the point of collection).
+//
+// And the build's version, under the small print: the first seven characters
+// of the commit this site was built from, so a report from a phone says which
+// build it was. CI sets `PUBLIC_BUILD_SHA` on the build (`deploy.yml` for dev,
+// `production-release.yml` for production); a build without it — a local one,
+// the end-to-end suite's dev server — says "local", as the guest site does.
+import SiteFooter from '@cire/ui/site-footer.astro'
+import { ORGANISER_URL } from '../lib/site'
+
+const sha = import.meta.env.PUBLIC_BUILD_SHA?.trim()
+const version = sha ? sha.slice(0, 7) : 'local'
+
+const signoff = {
+  title: 'Cire',
+  tagline: 'Invitations worthy of the moment.',
+  face: 'wordmark' as const,
+}
+const sections = [
+  { href: '/#journey', label: 'How it works' },
+  { href: '/#pricing', label: 'Pricing' },
+  { href: '/#faq', label: 'Questions' },
+  { href: ORGANISER_URL, label: 'Create an invitation' },
+]
+const links = [
+  { href: '/privacy', label: 'Privacy notice' },
+  { href: '/terms', label: 'Terms' },
+  { href: '/refunds', label: 'Refunds' },
+]
+---
+<SiteFooter
+  signoff={signoff}
+  sections={sections}
+  links={links}
+  smallPrint="© 2026 Cire. Made with care."
+  version={version}
+/>

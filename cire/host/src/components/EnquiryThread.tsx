@@ -1,17 +1,17 @@
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import MessageThread, { type MessageThreadItem } from "@cire/ui/message-thread";
 import { toast } from "@shared/toast";
 import { Chip } from "@shared/ui/ui/chip";
-import { Field } from "@shared/ui/ui/field";
 import { Notice } from "@shared/ui/ui/notice";
-import { Textarea } from "@shared/ui/ui/textarea";
-import { createSignal, For, Show } from "solid-js";
+import { Show } from "solid-js";
 
 import type { EnquiryListItem, EnquiryMessage } from "../lib/enquiries-store";
-import { haptic } from "../lib/haptics";
 // Shared, memoised formatters — see `lib/money.ts`.
 import { formatMinor } from "../lib/money";
 import { categoryLabel } from "../lib/service-categories";
+import { haptic } from "../lib/touch-feedback";
+
 interface EnquiryThreadProps {
   enquiry: EnquiryListItem;
   messages: EnquiryMessage[];
@@ -30,39 +30,34 @@ const fmtMinor = (minor: number, currency: string): string =>
   formatMinor(minor, currency, { wholeUnits: true });
 
 export default function EnquiryThread(props: EnquiryThreadProps) {
-  const [draft, setDraft] = createSignal("");
-  const [sending, setSending] = createSignal(false);
+  const messages = () =>
+    props.messages.map((m): MessageThreadItem => ({
+      id: m.id,
+      from: m.senderProfileId === props.ownProfileId ? "me" : "them",
+      body: m.body,
+      sentAt: m.createdAt,
+      // The API's stand-in for the couple's first message, held until the
+      // vendor has an account to receive it.
+      undelivered: m.id === "pending",
+    }));
 
-  const handleSend = () => {
-    const text = draft().trim();
-    if (!text || sending()) return;
-    setSending(true);
-    props
-      .onSend(text)
-      .then(() => {
-        setDraft("");
-        haptic("commit");
-      })
-      .catch(() => {
-        haptic("reject");
-        toast.error("Couldn't send your message. Please try again.");
-      })
-      .finally(() => {
-        setSending(false);
-      });
-  };
+  /** Rejects on failure, so the reply box keeps the words. */
+  async function send(text: string) {
+    try {
+      await props.onSend(text);
+    } catch (err) {
+      haptic("reject");
+      toast.error("Couldn't send your message. Please try again.");
+      throw err;
+    }
+    haptic("commit");
+  }
 
   return (
     <div class="flex flex-col gap-4">
       {/* Back + header */}
       <div class="flex items-center gap-3">
-        <Button
-          variant="link"
-          type="button"
-          onClick={props.onBack}
-
-          aria-label="Back"
-        >
+        <Button variant="link" type="button" onClick={props.onBack} aria-label="Back">
           ← Back
         </Button>
         <div class="flex flex-1 flex-wrap items-center gap-2">
@@ -104,64 +99,13 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
         </div>
       </Show>
 
-      {/* Message list */}
-      <div class="flex flex-col gap-2">
-        <Show when={props.loading}>
-          <p class="text-text-muted text-ui-sm italic">Loading messages…</p>
-        </Show>
-        <Show when={props.error}>
-          <Notice tone="danger" alert>
-            {props.error}
-          </Notice>
-        </Show>
-        <For each={props.messages}>
-          {(m) => {
-            const isMine = m.senderProfileId === props.ownProfileId;
-            return (
-              <div
-                data-mine={String(isMine)}
-                class={`text-ui-base rounded-ui-lg max-w-3/4 px-3 py-2 ${
-                  isMine ? "bg-gold/20 text-text self-end" : "bg-surface/30 text-text self-start"
-                }`}
-              >
-                {m.body}
-              </div>
-            );
-          }}
-        </For>
-      </div>
-
-      {/* Send box (hidden when !canEdit) */}
-      <Show when={props.canEdit}>
-        <div class="flex items-end gap-2">
-          {/* The label is hidden, not absent: the box sits under a thread whose
-              heading already says whose it is, but a screen reader still needs
-              the control named. */}
-          <Field label="Reply" labelHidden class="flex-1">
-            {(field) => (
-              <Textarea
-                {...field}
-                placeholder="Write a reply…"
-                value={draft()}
-                onInput={(e) => setDraft(e.currentTarget.value)}
-                rows={3}
-                // Every module view renders inside `ModuleShell`'s
-                // auto-sized frame, whose reflow guard keys on width only.
-                // A `resize-y` grip changes height alone, which the guard
-                // misreads as a content swap — keep this one `resize="none"`.
-                resize="none"
-              />
-            )}
-          </Field>
-          <Button
-            variant="primary"
-            onClick={handleSend}
-            disabled={sending() || draft().trim() === ""}
-          >
-            Send
-          </Button>
-        </div>
-      </Show>
+      <MessageThread
+        messages={messages()}
+        loading={props.loading}
+        error={props.error}
+        emptyHint="Your message will start the thread."
+        reply={props.canEdit ? { onSend: send } : undefined}
+      />
     </div>
   );
 }

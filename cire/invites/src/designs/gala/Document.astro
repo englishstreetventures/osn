@@ -12,7 +12,7 @@ import { ENVELOPE_BOOT_SCRIPT, envelopeStyle } from '@cire/envelope/boot'
 import { envelopeKeyFor } from '../../components/envelope-key'
 import { Z_CLASS, Z_LAYER } from '../../lib/z-index'
 import { GiftRegistryTeaserIsland } from '../../components/gift-registry/GiftRegistryTeaserIsland'
-import SiteFooter from '../../components/SiteFooter.astro'
+import GuestFooter from '../../components/GuestFooter.astro'
 import { ConsentBanner } from '../../components/consent/ConsentBanner'
 import type { InviteDesignProps } from '../types'
 
@@ -151,7 +151,7 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
     <div class="text-center">
       <button type="button" data-envelope-replay>Open the envelope again</button>
     </div>
-    <SiteFooter closing={initialInvite?.hero.title ?? null} />
+    <GuestFooter closing={initialInvite?.hero.title ?? null} />
     {/* Site-wide consent surface. `client:idle` so it never competes with the
         invite's first paint — nothing third-party can load before it hydrates
         anyway, since every ConsentGate defaults to denied until then. */}

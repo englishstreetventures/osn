@@ -42,7 +42,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 }));
 
 import VendorApp from "../../src/components/VendorApp";
-import { setThemePreference } from "../../src/lib/theme";
+import { setThemePreference } from "../../src/lib/preferences";
 import { LISTING, ORGS } from "../test-support/dashboard";
 import { useFallbackFonts } from "../test-support/fonts";
 

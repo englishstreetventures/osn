@@ -1,10 +1,5 @@
-import {
-  contrastRatio,
-  PALETTE_PRESET_KEYS,
-  SECTION_TONES,
-  sectionToneVars,
-  WCAG_TEXT_MIN,
-} from "@cire/theme";
+import { PALETTE_PRESET_KEYS, SECTION_TONES, sectionToneVars, WCAG_TEXT_MIN } from "@cire/theme";
+import legalLayout from "@cire/ui/legal-layout.astro?raw";
 import { Notice, type NoticeTone } from "@shared/ui/ui/notice";
 import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,9 +16,9 @@ import type {
   FamilyMember,
   RsvpSummary,
 } from "../../src/components/types";
-import legalLayout from "../../src/layouts/LegalLayout.astro?raw";
 import type { GiftRegistryHousehold } from "../../src/lib/gift-registry";
 import type { GiftRegistry } from "../../src/lib/gift-registry-read";
+import { composite, wordsRatio } from "../test-support/paint";
 
 /**
  * Notes and gold words on the guest site, held to 4.5:1 in every colour scheme
@@ -59,34 +54,6 @@ const LAYOUTS = ["band", "panel"] as const satisfies readonly LoginSectionLayout
 
 /** Long enough for a lazy chunk's first download in the browser tier. */
 const LAZY = { timeout: 5_000 };
-
-/** Paint `layers` bottom-up on a 1px canvas and read back plain `rgb`. */
-function composite(layers: readonly string[]): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 1;
-  const ctx = canvas.getContext("2d")!;
-  for (const layer of layers) {
-    ctx.fillStyle = layer;
-    ctx.fillRect(0, 0, 1, 1);
-  }
-  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-/**
- * The contrast of `el`'s words against what is painted under them: the page,
- * then every ancestor's background down to `el`'s own, translucent ones
- * included.
- */
-function wordsRatio(el: Element): number {
-  const layers: string[] = [];
-  for (let node: Element | null = el; node; node = node.parentElement) {
-    layers.unshift(getComputedStyle(node).backgroundColor);
-  }
-  const page = getComputedStyle(document.documentElement).getPropertyValue("--color-bg");
-  const under = composite([page, ...layers]);
-  return contrastRatio(composite([under, getComputedStyle(el).color]), under)!;
-}
 
 /** The `Notice` inside the status region that holds `words`. */
 function noticeHolding(words: RegExp): Element {
@@ -608,8 +575,9 @@ describe.each(PALETTE_PRESET_KEYS)("the %s scheme", (palettePreset) => {
 
   it("holds a legal page's placeholder to 4.5:1 on the page", () => {
     apply();
-    // The legal pages style themselves in `LegalLayout.astro`'s global block,
-    // which no component renders, so the block is laid on the document as is.
+    // The legal pages style themselves in `@cire/ui`'s `legal-layout.astro`
+    // global block, which no component renders, so the block is laid on the
+    // document as is, under this site's `--ui-*` map.
     const css = /<style is:global>([\s\S]*?)<\/style>/.exec(legalLayout)?.[1];
     expect(css).toBeTruthy();
     const style = document.createElement("style");

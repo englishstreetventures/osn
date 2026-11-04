@@ -5,7 +5,7 @@ import { Modal } from "@shared/ui/ui/modal";
 import { createSignal } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { haptic } from "../lib/haptics";
+import { haptic } from "../lib/touch-feedback";
 
 interface LeaveWeddingProps {
   weddingId: string;

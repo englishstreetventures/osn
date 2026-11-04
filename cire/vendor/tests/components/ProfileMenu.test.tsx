@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ProfileMenu from "../../src/components/ProfileMenu";
 
@@ -27,6 +27,52 @@ describe("ProfileMenu", () => {
   afterEach(() => {
     cleanup();
     localStorage.clear();
+  });
+
+  it("ends the open menu on the build's version, which the keyboard passes by", async () => {
+    vi.stubEnv("PUBLIC_BUILD_SHA", "0123456789abcdef0123456789abcdef01234567");
+    try {
+      render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
+      openMenu();
+      const line = await screen.findByText("Version 0123456");
+      expect(line.getAttribute("translate")).toBe("no");
+      expect(line.closest("[role='menuitem']")).toBeNull();
+      expect(line.hasAttribute("tabindex")).toBe(false);
+      // The menu's focus-trap sentinels are not part of what it draws.
+      const drawn = [...screen.getByRole("menu").children].filter(
+        (el) => !el.hasAttribute("data-focus-trap"),
+      );
+      expect(drawn.at(-1)).toBe(line);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reads a commit with spaces around it, and spaces alone as no commit", async () => {
+    try {
+      vi.stubEnv("PUBLIC_BUILD_SHA", "  0123456789abcdef  ");
+      const first = render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
+      openMenu();
+      expect(await screen.findByText("Version 0123456")).toBeTruthy();
+      first.unmount();
+      vi.stubEnv("PUBLIC_BUILD_SHA", "   ");
+      render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
+      openMenu();
+      expect(await screen.findByText("Version local")).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("says a build made from no commit is local", async () => {
+    vi.stubEnv("PUBLIC_BUILD_SHA", "");
+    try {
+      render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
+      openMenu();
+      expect(await screen.findByText("Version local")).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("renders an initial from the display name when there is no avatar image", () => {
@@ -156,7 +202,7 @@ describe("ProfileMenu", () => {
 
   it("offers a haptics switch at all, and defaults it on", async () => {
     // Whether a *stored* preference is honoured is `readHapticsPreference`'s
-    // contract and is covered in `lib/theme.test.ts`, which re-imports the
+    // contract and is covered in `lib/preferences.test.ts`, which re-imports the
     // module per case — the signal here is initialised once at module load, so
     // writing localStorage from this file could not affect it anyway.
     //

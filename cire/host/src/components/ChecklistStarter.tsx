@@ -10,9 +10,9 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
-import { haptic } from "../lib/haptics";
 import { toLocalDateKey } from "../lib/overview-agenda";
 import { readTaskRow, setFreshTasks, type TaskWire } from "../lib/tasks-store";
+import { haptic } from "../lib/touch-feedback";
 
 const STARTER_CLASS = `${cardClass({ padding: "sm" })} items-start`;
 

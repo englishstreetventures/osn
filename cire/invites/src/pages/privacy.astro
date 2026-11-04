@@ -8,7 +8,7 @@
 // origin.
 export const prerender = true
 import GuestPrivacyNotice from '@cire/ui/guest-privacy-notice.astro'
-import LegalLayout from '../layouts/LegalLayout.astro'
+import LegalPage from '../layouts/LegalPage.astro'
 import { ConsentPreferencesLink } from '../components/consent/ConsentBanner'
 import { LEGAL_ENTITY, draftPending } from '@shared/legal'
 
@@ -17,7 +17,7 @@ import { LEGAL_ENTITY, draftPending } from '@shared/legal'
 // can go while that field is still a token.
 const draft = draftPending(LEGAL_ENTITY.regulator)
 ---
-<LegalLayout title="Privacy Notice">
+<LegalPage title="Privacy Notice">
   {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this notice is not final. Some details of the operator are
@@ -30,4 +30,4 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <GuestPrivacyNotice>
     <ConsentPreferencesLink slot="choices" client:idle label="Open my privacy choices" />
   </GuestPrivacyNotice>
-</LegalLayout>
+</LegalPage>

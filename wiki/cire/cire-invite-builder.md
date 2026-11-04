@@ -183,22 +183,21 @@ guests, so they read as a matched pair — and the builder gains no extra knob f
 a section whose whole job is a sentence and an image. `THEME_SECTIONS` holds four
 lanes, none of them the closing section's.
 
-**It is NOT part of `SiteFooter`.** Two different things live at the bottom of
+**It is NOT part of the footer.** Two different things live at the bottom of
 an invite and the distinction is load-bearing:
 
-| | `InviteClosing.astro` | `SiteFooter.astro` |
+| | `InviteClosing.tsx` | `GuestFooter.astro` (`@cire/ui`'s `site-footer.astro`) |
 |---|---|---|
-| What | Invite content — the couple's closing image + note | Site chrome — couple's title + Privacy/Terms/Privacy-choices + the build's version ([[#The footer's version]]) |
-| Where | Only the invite, immediately above the footer | Every document (invite, `/privacy`, `/terms`, 404) |
+| What | Invite content — the couple's closing image + note | Site chrome — the couple's names over "Wedding stamped with Cire", then Privacy notice / Terms / Privacy choices and the build's version ([[#The footer's version]]) |
+| Where | Only the invite, immediately above the footer | Every document (invite, gift page, `/privacy`, `/terms`, 404) |
 | When | Conditional — nothing set ⇒ **renders nothing at all** | Always (a compliance requirement) |
 | Themed | Yes — reuses the **welcome** tone, no setting of its own | No — inherits the root palette |
 | Gated | Yes — only after the guest claims their code | No — always |
 
-The first implementation put the note and image *inside* `SiteFooter`. That was
-wrong in three ways: it would have rendered invite content on the legal pages,
-it left the couple's words stranded in a legal-links block instead of a section
-of their own, and — because `SiteFooter` is outside the island — it exposed the
-note to anyone with the URL, before any code was entered.
+The note and image never go *inside* the footer: that would render invite
+content on the legal pages, strand the couple's words in a legal-links block
+instead of a section of their own, and — because the footer is outside the
+island — expose the note to anyone with the URL, before any code is entered.
 
 **Naming.** Storage and the wire say `footer_*` / `footer` (the image slot's R2
 namespace and public URL segment too); the builder says "Closing Section". The
@@ -1204,7 +1203,8 @@ its animations are untouched.
 
 ### The footer's version
 
-The footer ([`SiteFooter.astro`](../../cire/invites/src/components/SiteFooter.astro))
+The footer ([`GuestFooter.astro`](../../cire/invites/src/components/GuestFooter.astro),
+filling `@cire/ui`'s `site-footer.astro`)
 prints the build's version on its own line under the legal row — "Version"
 and the first seven characters of the commit the guest site was built from —
 so a report from a guest's phone, or the owner's, names the build it came
@@ -1213,7 +1213,7 @@ fourth item in the row, because the three legal links already fill a 320px
 phone.
 
 - **Where it comes from.** `PUBLIC_BUILD_SHA`, set to `github.sha` on the
-  build step of `deploy-cire-invites-dev` (`deploy.yml`) and
+  build step of `stack-cire-dev` (`deploy.yml`) and
   `deploy-cire-invites` (`production-release.yml`), and typed in
   `cire/invites/env.d.ts`. Astro inlines it like `PUBLIC_API_URL`, into the
   SSR Worker and the prerendered legal pages alike.
@@ -1226,6 +1226,11 @@ phone.
   the release that last deployed it, not `main`'s head.
 - **Without it** — a local build, the end-to-end suite's `astro dev` — the
   line reads "Version local", which the `cire-rsvp` flow checks.
+- **The marketing site** prints its own the same way, from the same variable
+  on its own build step (`MarketingFooter.astro`, [[cire-landing]]).
+- **The host and vendor portals** print theirs as the last line of the account
+  menu (`ProfileMenu.tsx` in each), from the same variable on each portal's
+  build step in both workflows, typed in each portal's `src/env.d.ts`.
 
 ### Organiser links
 

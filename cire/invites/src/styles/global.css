@@ -475,7 +475,7 @@
      most: the legal pages (`/privacy`, `/terms`) never receive a derived palette
      — `paletteRootVars` is applied only by the two invite Documents — so they
      paint these static values verbatim. Composited, the old 0.5 alpha put the
-     draft-banner and owner-note copy at 4.24:1 on `--color-surface-raised`,
+     draft-banner copy at 4.24:1 on `--color-surface-raised`,
      under the 4.5 bar the derivation was just raised to, and no contrast check
      anywhere sees an alpha (`contrastOklch` ignores it by design). This is the
      value `derivePalette(evergreen)` produces, pinned by the lockstep test. */

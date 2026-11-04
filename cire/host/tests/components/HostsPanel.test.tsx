@@ -39,7 +39,7 @@ vi.mock("../../src/components/UpgradeDialog", () => ({
 
 // The tap each outcome gives is pinned where a test names it; nothing buzzes.
 const { haptic } = vi.hoisted(() => ({ haptic: vi.fn() }));
-vi.mock("../../src/lib/haptics", () => ({ haptic }));
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic }));
 
 import { createSignal } from "solid-js";
 

@@ -23,12 +23,12 @@ import {
 import { Portal } from "solid-js/web";
 
 import type { Module } from "../lib/dashboard-route";
-import { haptic } from "../lib/haptics";
 import { type LockedExport as LockedExportSpec, lockedExportFor } from "../lib/locked-exports";
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
 import { createPointerDwell } from "../lib/pointer-dwell";
 import { readRailCollapsed, writeRailCollapsed } from "../lib/rail-preference";
 import { type Tier, TIER_LABEL } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import LockedExport from "./LockedExport";
 import ModuleIcon from "./ModuleIcon";
 import UpgradeDialog from "./UpgradeDialog";

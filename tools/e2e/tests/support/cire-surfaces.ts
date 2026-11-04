@@ -79,7 +79,7 @@ const hostTheme = (page: Page, target?: Locator) => async (scheme: Scheme) => {
 
 /**
  * Light, at a desktop width: where the checks read. The portal follows the
- * scheme a moment after it changes (`lib/theme.ts` writes `data-theme` from a
+ * scheme a moment after it changes (`lib/preferences.ts` writes `data-theme` from a
  * media listener), so a read straight after a dark shot would see the dark
  * ramp; the guest and marketing sites carry no `data-theme`.
  */

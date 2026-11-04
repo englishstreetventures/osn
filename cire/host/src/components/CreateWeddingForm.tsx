@@ -8,8 +8,8 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { haptic } from "../lib/haptics";
 import type { Tier } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import type { WeddingRole } from "../lib/wedding-roles";
 
 const FORM_CLASS = `${cardClass({ padding: "lg" })} gap-4`;

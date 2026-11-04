@@ -115,6 +115,54 @@ describe("ProfileMenu", () => {
     }
   });
 
+  it("ends the open menu on the build's version, which the keyboard passes by", async () => {
+    vi.stubEnv("PUBLIC_BUILD_SHA", "0123456789abcdef0123456789abcdef01234567");
+    try {
+      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      openMenu();
+      const line = await screen.findByText("Version 0123456");
+      expect(line.getAttribute("translate")).toBe("no");
+      expect(line.closest("[role='menuitem']")).toBeNull();
+      expect(line.hasAttribute("tabindex")).toBe(false);
+      // The menu's focus-trap sentinels are not part of what it draws.
+      const drawn = [...screen.getByRole("menu").children].filter(
+        (el) => !el.hasAttribute("data-focus-trap"),
+      );
+      expect(drawn.at(-1)).toBe(line);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reads a commit with spaces around it, and spaces alone as no commit", async () => {
+    try {
+      vi.stubEnv("PUBLIC_BUILD_SHA", "  0123456789abcdef  ");
+      const first = render(() => (
+        <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />
+      ));
+      openMenu();
+      expect(await screen.findByText("Version 0123456")).toBeTruthy();
+      first.unmount();
+      vi.stubEnv("PUBLIC_BUILD_SHA", "   ");
+      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      openMenu();
+      expect(await screen.findByText("Version local")).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("says a build made from no commit is local", async () => {
+    vi.stubEnv("PUBLIC_BUILD_SHA", "");
+    try {
+      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      openMenu();
+      expect(await screen.findByText("Version local")).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("names the account (display name + handle) at the top of the open menu", async () => {
     render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
     openMenu();
@@ -192,7 +240,7 @@ describe("ProfileMenu", () => {
   });
 
   it("chooses the theme from its radio rows, and stays open to compare", async () => {
-    const { themePreference, setThemePreference } = await import("../../src/lib/theme");
+    const { themePreference, setThemePreference } = await import("../../src/lib/preferences");
     setThemePreference("system");
     render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
     openMenu();

@@ -15,7 +15,6 @@ import { isPreviewExpired } from "../lib/change-revision";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
-import { haptic } from "../lib/haptics";
 import { invalidateHouseholds } from "../lib/households-store";
 import { formatImportError } from "../lib/import-errors";
 import type { ImportErrorBody } from "../lib/import-errors";
@@ -30,6 +29,7 @@ import {
   buildGuestsTemplateCsv,
 } from "../lib/import-templates";
 import { scheduleChanged } from "../lib/schedule-changed";
+import { haptic } from "../lib/touch-feedback";
 import ChangeHistory from "./ChangeHistory";
 import {
   type ApplyChangeBody,

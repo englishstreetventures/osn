@@ -12,7 +12,6 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { batch, createMemo, createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { haptic } from "../lib/haptics";
 import {
   claimStripeCheck,
   ensureRegistryLoaded,
@@ -23,6 +22,7 @@ import {
   type RegistrySettings,
   type RegistrySnapshot,
 } from "../lib/registry-store";
+import { haptic } from "../lib/touch-feedback";
 import SectionIntro from "./SectionIntro";
 
 const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-6`;

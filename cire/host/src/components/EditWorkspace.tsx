@@ -4,7 +4,7 @@ import TableProperties from "lucide-solid/icons/table-properties";
 import type { Component, JSX } from "solid-js";
 import { createSignal, createUniqueId, For, lazy, Show, Suspense } from "solid-js";
 
-import { haptic } from "../lib/haptics";
+import { haptic } from "../lib/touch-feedback";
 import { confirmNavigation } from "../lib/unsaved-guard";
 import type { ImportKind } from "./ImportPanel";
 import PanelLoading from "./PanelLoading";

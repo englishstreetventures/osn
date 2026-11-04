@@ -279,7 +279,7 @@ describe("the legal pages' banner", () => {
           ))}
         </main>
         <footer style={{ padding: "24px 0" }}>
-          <button type="button">Privacy Choices</button>
+          <button type="button">Privacy choices</button>
         </footer>
         <ConsentBanner prompt="banner" />
       </>
@@ -303,7 +303,7 @@ describe("the legal pages' banner", () => {
 
     // The footer's own consent control, the last thing on the page, is what a
     // tap at its centre reaches — not the banner.
-    const choices = getByText("Privacy Choices");
+    const choices = getByText("Privacy choices");
     const rect = choices.getBoundingClientRect();
     expect(rect.bottom).toBeLessThanOrEqual(panel.getBoundingClientRect().top);
     expect(

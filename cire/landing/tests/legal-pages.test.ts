@@ -2,7 +2,7 @@ import guestNotice from "@cire/ui/guest-privacy-notice.astro?raw";
 import { LEGAL_ENTITY, isPlaceholder } from "@shared/legal";
 import { describe, expect, it } from "vitest";
 
-import footer from "../src/components/SiteFooter.astro?raw";
+import footer from "../src/components/MarketingFooter.astro?raw";
 import guestsPage from "../src/pages/privacy/guests.astro?raw";
 import hosts from "../src/pages/privacy/hosts.astro?raw";
 import privacy from "../src/pages/privacy/index.astro?raw";
@@ -164,8 +164,10 @@ describe("legal pages", () => {
   });
 
   it("footer links every legal page", () => {
+    // The footer hands its links to `@cire/ui`'s footer as data, in either
+    // quote: the formatter does not reach `.astro` files.
     for (const name of footerPages) {
-      expect(footer).toContain(`href="/${name}"`);
+      expect(footer).toMatch(new RegExp(`href: ['"]/${name}['"]`));
     }
   });
 });
