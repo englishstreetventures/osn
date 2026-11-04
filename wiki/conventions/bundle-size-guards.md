@@ -226,8 +226,8 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 353457 B | 365157 B *(re-baselined, englishstreetventures/osn#1845 — see below)* |
-| cire/vendor | static | 88647 B | 92986 B *(re-baselined, englishstreetventures/osn#1845 — see below)* |
+| cire/host | static | 358408 B | 370108 B *(re-baselined, englishstreetventures/osn#1845 — see below)* |
+| cire/vendor | static | 88664 B | 93003 B *(re-baselined, englishstreetventures/osn#1845 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
@@ -399,14 +399,17 @@ wrapper's rows and accent classes.
 
 | App | Row held | Measured | Threshold |
 |---|---:|---:|---:|
-| cire/host | 349653 B (# measured 337953) | **353457 B**, 83 files | **365157 B** (+11700) |
-| cire/vendor | 86142 B (# measured 81803) | **88647 B**, 10 files | **92986 B** (+4339) |
+| cire/host | 349653 B (# measured 337953) | **358408 B**, 83 files | **370108 B** (+11700) |
+| cire/vendor | 86142 B (# measured 81803) | **88664 B**, 10 files | **93003 B** (+4339) |
 
-Vendor keeps its ~4.3 KB headroom, host the ~11.7 KB default.
+Vendor keeps its ~4.3 KB headroom, host the ~11.7 KB default. The host figure
+includes `main`'s own host code since the branch's first measurement (353457
+B): the rebase onto `origin/main` `7d2ad85d1` brought it under this build, and
+the row it holds, `main`'s, was not re-measured with it.
 
-*Measured 2026-11-04 — `rm -rf cire/<app>/dist && CLAUDECODE= bun run --cwd
+*Measured 2026-11-05 — `rm -rf cire/<app>/dist && CLAUDECODE= bun run --cwd
 cire/<app> build`, each app alone, reading the total the guard prints, on
-`feat/cire-nav` at `0113ab7fa`.*
+`feat/cire-nav` at `acdfa44e5`, rebased onto `origin/main` `7d2ad85d1`.*
 
 ### `cire/invites` re-baselined after the zod override
 

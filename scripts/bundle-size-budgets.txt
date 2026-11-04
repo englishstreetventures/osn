@@ -49,8 +49,8 @@
 
 cire/invites   worker  200900   # measured 190660
 # cire/host and cire/vendor are set for the shared menus and glass strips both portals take from @shared/ui and @cire/ui.
-cire/host      static  365157   # measured 353457
-cire/vendor    static  92986    # measured 88647
+cire/host      static  370108   # measured 358408
+cire/vendor    static  93003    # measured 88664
 cire/landing   static  52425    # measured 40725
 musubi/landing static  26865    # measured 15206
 pulse/landing  static  28366    # measured 16683
