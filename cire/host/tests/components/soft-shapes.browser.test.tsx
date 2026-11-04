@@ -17,10 +17,10 @@ import "../../src/styles/global.css";
  *   34px, so the same corner leaves a straight side. A button in a row with one
  *   is 34px too: the budget's Add item, Add payment and the budget's own Save
  *   and Cancel, the registry's Find pictures, the co-host form's Add host.
- * - Every one of those heights is the call site's own, not the font's: an `sm`
- *   `Select` without one takes its padding plus the font's line, 28px on macOS
- *   and 27px on Linux, so the filters are measured again under a font with a
- *   tall line, where only a height of their own holds them at 28px.
+ * - None of those heights is the font's: a field or a button drawn from its
+ *   padding and the font's line would be 27px on Linux where macOS draws 28px,
+ *   so the filters are measured again under a font with a tall line, where
+ *   only a fixed height holds them at 28px.
  *
  * The corners come from the host stylesheet's role map (`--ui-radius-field`,
  * `--ui-radius-control`), which no unit test resolves: happy-dom computes no
@@ -517,8 +517,8 @@ describe("the filters outside a view bar", () => {
  * Arial, Helvetica, Liberation Sans and DejaVu Sans the machine has, with its
  * ascent and descent overridden to a 2em line. Forced onto every field and
  * button, it stands in for a platform whose line metrics differ from this
- * one's — Linux draws a `size="sm"` `Select` that takes its height from its
- * padding and the font's line at 27px where macOS draws 28px.
+ * one's — Linux draws a control that takes its height from its padding and the
+ * font's line a pixel shorter than macOS does.
  */
 const TALL_FACE = "Tall line";
 const TALL_FONT_CSS = `

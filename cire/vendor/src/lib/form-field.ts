@@ -4,14 +4,14 @@
  *
  * A form field — any `Input` or `Select` that enters or edits a value, at
  * either size — is 34px, so the 14px field corner leaves a straight side and
- * the box reads as a form field. A shared `Input` is 28px at `sm` and 36px at
- * `md`, and a shared `Select` has no height of its own at either size, so the
- * call site sets it.
+ * the box reads as a form field. A shared `Input` and `Select` are 28px at
+ * `sm` and 36px at `md`, so the call site sets it until the shared `form` size
+ * takes its place (englishstreetventures/osn#1842).
  * Every shared class is `base:` (zero specificity), so a plain class here wins
  * whatever the stylesheet order.
  *
  * Height only: `shadcn/no-restyle` lets a call site size a shared part but not
- * pad it, so an `md` field keeps its padding and the engine centres its text.
+ * pad it, and the engine centres the text.
  * Not for a `Textarea`, which `base:min-h-15` holds at its own height. This
  * portal has no button in a row with a field, so it needs no action height.
  */
