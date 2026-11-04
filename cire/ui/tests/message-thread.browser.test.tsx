@@ -417,10 +417,13 @@ describe("MessageThread from the keyboard", () => {
     await userEvent.keyboard("{Shift>}{F10}{/Shift}");
     const panel = await menuOpens();
     expect(panel.textContent).toContain("They sent");
-    const box = first.getBoundingClientRect();
-    const placed = panel.getBoundingClientRect();
-    expect(Math.abs(placed.left - box.left)).toBeLessThan(12);
-    expect(placed.top).toBeGreaterThanOrEqual(box.bottom - 1);
+    // The menu places its panel after it opens, so the box is read once it settles.
+    await waitFor(() => {
+      const box = first.getBoundingClientRect();
+      const placed = panel.getBoundingClientRect();
+      expect(Math.abs(placed.left - box.left)).toBeLessThan(12);
+      expect(placed.top).toBeGreaterThanOrEqual(box.bottom - 1);
+    });
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toBe(first));
   });
