@@ -1,5 +1,13 @@
 # @osn/pulse
 
+## 0.24.47
+
+### Patch Changes
+
+- b204d58: The event page shows no RSVP buttons on a cancelled event, and says RSVPs are closed instead.
+- Updated dependencies [b204d58]
+  - @pulse/api@0.28.7
+
 ## 0.24.46
 
 ### Patch Changes
