@@ -21,7 +21,7 @@ related:
   - "[[observability-setup]]"
 packages:
   - "@cire/api"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-11-05
 ---
 
 # D1 Read Replication and the Sessions API
@@ -262,8 +262,9 @@ however it is spelt.
   reports about itself.
 - **When.** Not while a dev deploy of the cire stack is running: migrations and
   freshly deployed isolates both inflate the timings. The job has its own
-  concurrency group rather than the deploy's, because joining `deploy-dev-cire`
-  would let a probe cancel a queued dev deploy. So nothing stops an overlap; the
+  concurrency group rather than the deploy's, because in `deploy-dev-cire` a
+  probe would wait behind every queued dev deploy and hold the next one up
+  while it ran. So nothing stops an overlap; the
   report prints the run's window, and a run that overlapped a deploy is
   discarded and repeated.
 - **Pacing.** Requests are spaced from the top-level `CLAIM_SESSION_RATE_LIMITER`

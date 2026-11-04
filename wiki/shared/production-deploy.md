@@ -866,7 +866,10 @@ what holds it.
    theirs. A surface whose last dev record is older than that is held too. This does
    not heal by itself — dev only redeploys a stack on a push that touches it. Dispatch
    **Deploy** (which deploys every dev stack and leaves a fresh record for every
-   surface that passes); the next release then ships it.
+   surface that passes); the next release then ships it. A dev stack job's own record
+   counts only when its deploy step ran: a stack job that refused a commit older than
+   one its stack already passed on dev succeeds without deploying
+   ([[dev-environment#Concurrency]]).
 4. **`production is newer`** means production already runs a commit that contains the
    release commit: an older release was re-run in full. A release never ships an older
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke
