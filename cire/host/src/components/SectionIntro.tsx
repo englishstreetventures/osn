@@ -36,7 +36,11 @@ export default function SectionIntro(props: {
         </Show>
       </div>
       <Show when={props.actions}>
-        <div class="flex shrink-0 items-center gap-3" classList={{ invisible: props.holdActions }}>
+        <div
+          data-intro-actions
+          class="flex shrink-0 items-center gap-3"
+          classList={{ invisible: props.holdActions }}
+        >
           {props.actions}
         </div>
       </Show>

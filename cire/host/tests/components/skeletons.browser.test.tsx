@@ -233,6 +233,8 @@ interface View {
    * checked.
    */
   sized?: boolean;
+  /** How many actions the view's intro holds, unseen, while it loads. */
+  actions?: number;
 }
 
 const VIEWS: Record<string, View> = {
@@ -253,6 +255,7 @@ const VIEWS: Record<string, View> = {
     held: "events",
     content: (scope) => [...scope.querySelectorAll("ul.auto-grid > li")].slice(0, 4),
     gaps: [[0, 2]],
+    actions: 1,
   },
   "events editor": {
     module: "events",
@@ -260,6 +263,7 @@ const VIEWS: Record<string, View> = {
     held: "events",
     content: (scope) => [...scope.querySelectorAll("ul > li")].slice(0, 3),
     gaps: [[0, 1]],
+    actions: 1,
   },
   households: {
     module: "guests",
@@ -274,6 +278,7 @@ const VIEWS: Record<string, View> = {
       [1, 2],
     ],
     heads: 1,
+    actions: 2,
   },
   "guests editor": {
     module: "guests",
@@ -295,9 +300,11 @@ const VIEWS: Record<string, View> = {
       [1, 2],
     ],
     heads: 1,
+    actions: 1,
   },
   "households, phone": {
     width: 390,
+    actions: 2,
     module: "guests",
     sub: "list",
     held: "guests",
@@ -306,6 +313,7 @@ const VIEWS: Record<string, View> = {
   },
   "rsvp list, phone": {
     width: 390,
+    actions: 1,
     module: "guests",
     sub: "rsvps",
     held: "rsvps",
@@ -365,6 +373,28 @@ describe("loading placeholders", () => {
         busy[0]?.querySelector("button, input, select, textarea, a[href], [tabindex]") === null,
       );
 
+      // An intro's actions arrive with the list. While it loads they keep
+      // their room, but nothing can see, press or reach them.
+      const introActions = () => [
+        ...scope().querySelectorAll<HTMLElement>("[data-intro-actions] button"),
+      ];
+      const actions = introActions();
+      expectPass(
+        `${name}: the intro holds its actions while loading`,
+        actions.length === (view.actions ?? 0),
+        `${actions.length} held`,
+      );
+      expectPass(
+        `${name}: a held action cannot be seen or focused`,
+        actions.every((button) => {
+          button.focus();
+          return (
+            !button.checkVisibility({ visibilityProperty: true }) &&
+            document.activeElement !== button
+          );
+        }),
+      );
+
       open();
       await vi.waitFor(() => expect(blocks(scope())).toEqual([]), { timeout: 10_000 });
       await vi.waitFor(() => expect(view.content(scope()).length).toBe(held.length), {
@@ -377,6 +407,11 @@ describe("loading placeholders", () => {
       expectPass(
         `${name}: no busy region once loaded`,
         document.querySelector('[aria-busy="true"]') === null,
+      );
+      expectPass(
+        `${name}: the intro's actions are drawn once loaded`,
+        introActions().length === actions.length &&
+          introActions().every((button) => button.checkVisibility({ visibilityProperty: true })),
       );
       const lands = rect(content[0]!).top;
       measured[`${name} top content`] = Math.round(lands * 10) / 10;
