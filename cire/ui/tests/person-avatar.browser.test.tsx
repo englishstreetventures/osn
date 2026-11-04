@@ -34,11 +34,17 @@ afterEach(async () => {
   cleanup();
 });
 
-function Ramp(props: { ramp: Ramp; children: JSX.Element; class?: string }) {
+function Ramp(props: {
+  ramp: Ramp;
+  children: JSX.Element;
+  class?: string;
+  style?: JSX.CSSProperties;
+}) {
   return (
     <div
       data-ramp={props.ramp === "light" ? "light" : undefined}
       class={`bg-ui-ground flex items-center gap-4 p-4 ${props.class ?? ""}`}
+      style={props.style}
     >
       {props.children}
     </div>
@@ -146,8 +152,13 @@ describe("PersonAvatar", () => {
 describe("avatarTriggerClass", () => {
   for (const ramp of RAMPS) {
     it(`turns the avatar's edge under the pointer and draws the house ring, ${ramp}`, async () => {
+      // The ground the portals set (`--pill-ground`), which the trigger reads,
+      // declared where the ramp is so it takes that ramp's surface.
+      const portal = {
+        "--pill-ground": "color-mix(in oklab, var(--ui-surface) 30%, transparent)",
+      } as JSX.CSSProperties;
       render(() => (
-        <Ramp ramp={ramp}>
+        <Ramp ramp={ramp} style={portal}>
           <button type="button" aria-label="Account menu" class={avatarTriggerClass}>
             <PersonAvatar fallback="initial" name="Ada" class="size-full" />
           </button>
@@ -156,10 +167,11 @@ describe("avatarTriggerClass", () => {
       const button = screen.getByRole("button", { name: "Account menu" });
       const avatar = button.firstElementChild!;
       expect(button.getBoundingClientRect().width).toBe(36);
-      // The trigger lays the portals' 40% surface; the avatar adds no fill.
+      // The trigger lays the portals' pill ground, the surface at 30%; the
+      // avatar adds no fill.
       const surface = token(button, "--ui-surface");
       expect(composite(["#000", getComputedStyle(button).backgroundColor])).toEqual(
-        composite(["#000", `color-mix(in oklab, ${surface} 40%, transparent)`]),
+        composite(["#000", `color-mix(in oklab, ${surface} 30%, transparent)`]),
       );
       expect(composite(["#000", getComputedStyle(avatar).backgroundColor])).toEqual([0, 0, 0]);
       for (const letter of screen.getAllByText("A")) {

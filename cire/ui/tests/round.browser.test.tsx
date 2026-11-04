@@ -1,12 +1,11 @@
 /**
  * `Button variant="round"`, measured in Chromium against cire's two ramps.
  *
- * A round button is a glyph on an opaque disc: the reply key beside the RSVP
- * search box (28px) and the event sheet's close × (44px), which must hide
- * what scrolls under it. Each case is one way it can stop being that: it
- * loses the disc, gains an edge, comes out the wrong size or shape, washes
- * its fill under the pointer, shows nothing while its popover is open, draws
- * the wrong ring, or lets its glyph fall under 4.5:1.
+ * A round button is a glyph on an opaque disc: the event sheet's close ×
+ * (44px), which must hide what scrolls under it. Each case is one way it can
+ * stop being that: it loses the disc, gains an edge, comes out the wrong size
+ * or shape, washes its fill under the pointer, draws the wrong ring, or lets
+ * its glyph fall under 4.5:1.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -45,14 +44,9 @@ async function settled(el: Element) {
   await Promise.all(el.getAnimations().map((a) => a.finished));
 }
 
-function Round(props: { size?: ButtonSize; label?: string; "aria-expanded"?: "true" | "false" }) {
+function Round(props: { size?: ButtonSize; label?: string }) {
   return (
-    <Button
-      variant="round"
-      size={props.size}
-      aria-label={props.label ?? "Close"}
-      aria-expanded={props["aria-expanded"]}
-    >
+    <Button variant="round" size={props.size} aria-label={props.label ?? "Close"}>
       <span aria-hidden="true">×</span>
     </Button>
   );
@@ -84,27 +78,6 @@ describe('Button variant="round"', () => {
         </Ramp>
       ));
       expect(inkRatio(screen.getByRole("button"))).toBeGreaterThanOrEqual(4.5);
-    });
-
-    it(`marks an open popover with the raised surface and the body ink, ${ramp}`, () => {
-      render(() => (
-        <Ramp ramp={ramp}>
-          <Round label="closed" aria-expanded="false" />
-          <Round label="open" aria-expanded="true" />
-        </Ramp>
-      ));
-      const open = screen.getByRole("button", { name: "open" });
-      const closed = screen.getByRole("button", { name: "closed" });
-      const ground = getComputedStyle(open.parentElement!).backgroundColor;
-      expect(over(ground, getComputedStyle(open).backgroundColor)).toBe(
-        over(ground, token(open, "--ui-surface-raised")),
-      );
-      expect(over(ground, getComputedStyle(open).color)).toBe(
-        over(ground, token(open, "--ui-ink")),
-      );
-      expect(over(ground, getComputedStyle(closed).backgroundColor)).toBe(
-        over(ground, token(closed, "--ui-surface")),
-      );
     });
   }
 

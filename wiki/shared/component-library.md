@@ -1254,7 +1254,7 @@ width, so it takes none from its contents.
 `avatarTriggerClass` (`avatar-trigger-class.ts`, a module of its own so the guest
 site, which draws no trigger, leaves its classes out) is the 36px round button an
 account menu opens from: the
-surface at 40% and `Button`'s ring; the `initial` avatar inside it
+portals' pill ground (`--pill-ground`, the surface at 30%) and `Button`'s ring; the `initial` avatar inside it
 (`class="size-full"`) draws the hairline, and its edge turns `--ui-accent-soft`
 under the trigger's pointer (`group/avatar-trigger`). The fill is the
 trigger's, not the avatar's, because the guest site lays no ground of its own
@@ -1273,34 +1273,44 @@ opaque blank disc, the trigger's edge and ring, and the edge's fade.
 `@cire/ui`'s `Button` is the house style rather than the shadcn set — pill
 actions, sentence-case labels at normal tracking in a medium weight, a gold
 primary — and on a cire surface it is where a call site's colour, shape and
-padding have to come from. Seventeen variants, grouped by the job rather than
+padding have to come from. Nineteen variants, grouped by the job rather than
 by the look:
 
 | Group          | Variants                              | What each is for                                                                                                                                                                                                                              |
 | -------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Commit         | `primary`, `cta`                      | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
-| Secondary      | `outline`, `quiet`, `dashed`          | A gold edge, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_. `outline`'s 40% edge turns full gold under the pointer and nothing fills, so its gold word keeps its rest contrast wherever it sits (`cire/ui/tests/outline.browser.test.tsx`) |
+| Secondary      | `outline`, `quiet`, `bar`, `dashed`   | A gold edge, a neutral action, the portals' bar icon button, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_. `outline`'s 40% edge turns full gold under the pointer and nothing fills, so its gold word keeps its rest contrast wherever it sits (`cire/ui/tests/outline.browser.test.tsx`). `quiet` holds its hover look (gold edge, readable gold) while what it opens is open (`aria-expanded`); at `icon` it is a portal row's icon action. `bar` rests as `quiet` does; under the pointer its ground lifts to the surface at 60% with the body ink and a gold edge, and while what it opens is open (`aria-expanded`) it stands on the raised surface in the body ink and its hairline, which the pointer does not move — the hover is gated on `not-aria-expanded` (`cire/ui/tests/portal-pills.browser.test.tsx`) |
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
 | Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one. A link set inside a sentence is not a `Button` at all: it takes `proseLinkClass`, below |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
 | Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: an input's padding and weight, the text field's corner, transparent like the inputs around it |
-| Chrome         | `chip`, `round`                       | A control in a sheet's own chrome rather than its content. `chip`: the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button — a pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere. `round`: a glyph on that same opaque disc with no edge — the sheet's close ×, the RSVP page's reply key — muted ink that brightens on hover while the fill stays, and the raised surface while the popover it opens shows (`aria-expanded`) |
-| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same — an accent edge, accent ink and a 2px 60% ring; and the control that _is_ a block — a card, a row — where a hairline stops describing the target. Under the pointer an unchosen `choice` goes halfway to chosen (edge and ink a `color-mix` of rest and chosen, a 1px 30% ring, so chosen and hovered differ by the ring's width and not by gold alone), on `--dur-base`. Locked with `aria-disabled` while its answer saves, a `choice` keeps its look and only stops answering the pointer; every other variant fades to 40%, and `disabled` fades a `choice` too |
+| Chrome         | `chip`, `round`                       | A control in a sheet's own chrome rather than its content. `chip`: the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button — a pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere. `round`: a glyph on that same opaque disc with no edge — the sheet's close × — muted ink that brightens on hover while the fill stays |
+| State and fill | `choice`, `glass`, `tile`             | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same — an accent edge, accent ink and a 2px 60% ring; and the control that _is_ a block — a card, a row — where a hairline stops describing the target. Under the pointer an unchosen `choice` goes halfway to chosen (edge and ink a `color-mix` of rest and chosen, a 1px 30% ring, so chosen and hovered differ by the ring's width and not by gold alone), its hover on `--dur-fast` with the arriving curve and its choosing on `--dur-base` with `ease-in-out`. Locked with `aria-disabled` while its answer saves, a `choice` keeps its look and only stops answering the pointer; every other variant fades to 40%, and `disabled` fades a `choice` too. `glass` is the portals' one of several (a scheme preset, the preview's Desktop and Phone, a crop's shape): the glass track's look at rest, a strip choice's halfway hover, and chosen the strip's glass in readable gold at medium weight, the rest at normal — the cue that is not colour, as a strip's, with each word's width held by an unseen medium copy drawn as generated content (`GLASS_WORD`, the strip's own) and the pill named by its word — on the same two clocks; its classes are `GLASS_CHOICE` in `lib/glass.ts`, held to the strip's by `cire/ui/tests/glass.test.ts`, and the guest site keeps `choice`, as does a swatch whose own fill is what is chosen |
 
-Five sizes, and they are not one scale:
+Six sizes, and they are not one scale:
 
 | Size             | What it gives                                     | For                                                                                                              |
 | ---------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `sm`, `md`, `lg` | three steps of label padding and type             | An ordinary control                                                                                              |
+| `sm`, `md`, `lg` | three steps of label padding and type; `sm` takes `--pill-sm-height` where an app sets it (the portals: 28px) and its padding's own 31px elsewhere | An ordinary control                                       |
+| `form`           | md's sides and type at the 34px form-field height (`field`: its own padding and type at 34px) | A button beside a portal form field                                  |
 | `swatch`         | one hairline of padding, no type at all           | A control whose content is the thing itself — a colour swatch, a product thumbnail. The picture is what sizes it |
-| `icon`           | square, sized to the glyph rather than to a label; boxed, a 32px circle | A single glyph                                                                                     |
+| `icon`           | square, sized to the glyph rather than to a label; boxed, a 28px circle | A single glyph                                                                                     |
+
+**The portals' two tokens.** `Button` reads two app tokens the host and vendor
+portals set and the guest site and the marketing site leave unset:
+`--pill-ground`, the ground every non-primary boxed pill sits on (`cta`,
+`outline`, `quiet`, `bar`, `quietDanger`, `dashed`, `danger`, `choice`, `glass`; in
+the portals the surface at 30%, the glass track's ground; unset, transparent),
+and `--pill-sm-height` (above). `avatarTriggerClass` and `FileInput`'s button
+read the ground too. `cire/ui/tests/portal-pills.browser.test.tsx` measures
+both with the portals' values and without.
 
 Five sizing tables, picked by the variant. The borderless ones take the type
 step and none of the box padding or weight, because `px-5 py-2` around a text
 link is a word floating in a gap. `tile` takes square block padding, because its
 interior is a small layout — a numbered marker beside two lines of text — rather
-than a word. `field` takes an input's padding and weight. `round` takes a square per step — 28px at `sm` (the reply key, at the search box's height), 32px at
-`md`, `icon` and `swatch`, 44px at `lg` (the close ×, the guest site's touch floor) — its glyph on the
+than a word. `field` takes an input's padding and weight. `round` takes a square per step — 28px at `sm`, 32px at
+`md`, `icon` and `swatch`, 34px at `form`, 44px at `lg` (the close ×, the guest site's touch floor) — its glyph on the
 `base` text step, and the close × on `lg`. A `round` button, and any `Button` at the `icon` size, holds one glyph hidden
 from assistive tech, so its type requires `aria-label` or `aria-labelledby`
 when the variant or size is written as a literal. Everything else takes

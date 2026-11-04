@@ -1,14 +1,16 @@
 /**
- * Cire's buttons and links, read from computed style and pictured: the glyph
- * on an opaque disc `Button`'s `round` draws, the answer pair its `choice`
- * draws, and the link inside a sentence `proseLinkClass` draws
- * (`cire/host/DESIGN.md` §7). Shots go to `screenshots/cire-buttons/`.
+ * Cire's buttons and links, read from computed style and pictured: the bar's
+ * icon button `Button`'s `bar` draws at `icon`, the glyph on an opaque disc
+ * its `round` draws, the answer pair its `choice` draws, and the link inside a
+ * sentence `proseLinkClass` draws (`cire/host/DESIGN.md` §7). Shots go to
+ * `screenshots/cire-buttons/`.
  *
  * Four places the `cire-soft-shapes` flow already stands, so it signs in no
  * more than it did:
  *
- * - the host's RSVP table at a desktop width, where the reply key is a 28px
- *   filled disc whose fill lifts while its popover is open;
+ * - the host's RSVP table at a desktop width, where the reply key is the
+ *   bar's 28px icon button, a circle on the portals' pill ground in a
+ *   hairline, on the raised surface while its popover is open;
  * - the guest site's consent prompt, whose "Privacy notice" is underlined at
  *   rest, since a phone has no hover to reveal it;
  * - the guest RSVP sheet on a phone, in both designs, with Attending chosen:
@@ -36,9 +38,10 @@ const CLEAR = "rgba(0, 0, 0, 0)";
 
 /**
  * A control as painted, once its transitions have finished: its box, fill,
- * corner, the width of the ring a chosen `choice` wears (0 for none) and its
- * underline. Tailwind writes every ring layer into `box-shadow`, so the ring is
- * the one layer that is not transparent, and its last length is the spread.
+ * edge, corner, the width of the ring a chosen `choice` wears (0 for none) and
+ * its underline. Tailwind writes every ring layer into `box-shadow`, so the
+ * ring is the one layer that is not transparent, and its last length is the
+ * spread.
  */
 function painted(target: Locator) {
   return target.evaluate(async (el) => {
@@ -52,6 +55,7 @@ function painted(target: Locator) {
       size: `${Math.round(box.width)}x${Math.round(box.height)}`,
       height: box.height,
       fill: style.backgroundColor,
+      edge: style.borderTopColor,
       radius: Number.parseFloat(style.borderTopLeftRadius),
       ring: spread ? Number.parseFloat(spread) : 0,
       underline: style.textDecorationLine,
@@ -125,20 +129,22 @@ async function shoot(
 }
 
 /**
- * The RSVP table's reply key, at a desktop width: a 28px filled disc that
- * lifts its fill while the popover it opens is showing. Leaves it closed.
+ * The RSVP table's reply key, at a desktop width: the bar's 28px icon button,
+ * a circle on the portals' pill ground in a hairline, which stands on the
+ * raised surface in its hairline while the popover it opens is showing, the
+ * pointer still on it. Leaves it closed.
  */
 export async function replyKey(flow: Flow, page: Page): Promise<void> {
   const key = page.getByRole("button", { name: "What the reply icons mean" });
   await page.setViewportSize(DESKTOP);
   await page.emulateMedia({ colorScheme: "light" });
-  // The portal puts the scheme it resolved on `data-theme`; both fills are
-  // read in light, so the lift is the popover's and not a theme change.
+  // The portal puts the scheme it resolved on `data-theme`; both looks are
+  // read in light, so the change is the popover's and not a theme change.
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   const shut = await painted(key);
   flow.check("buttons: the reply key's box", "28x28", shut.size);
   flow.check(
-    "buttons: the reply key is a filled disc",
+    "buttons: the reply key is a grounded circle",
     true,
     shut.fill !== CLEAR && shut.radius >= 14,
   );
@@ -146,11 +152,21 @@ export async function replyKey(flow: Flow, page: Page): Promise<void> {
     await key.click();
     await expect(key).toHaveAttribute("aria-expanded", "true");
   });
-  flow.check(
-    "buttons: the open reply key lifts its fill",
-    true,
-    (await painted(key)).fill !== shut.fill,
-  );
+  // The portal's raised surface and hairline, as this page paints them, read
+  // through a probe.
+  const [raised, hairline] = await page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.style.backgroundColor = "var(--surface-raised)";
+    probe.style.borderTopColor = "var(--border)";
+    document.body.append(probe);
+    const style = getComputedStyle(probe);
+    const colors = [style.backgroundColor, style.borderTopColor];
+    probe.remove();
+    return colors;
+  });
+  const open = await painted(key);
+  flow.check("buttons: the open reply key stands on the raised surface", raised, open.fill);
+  flow.check("buttons: the open reply key keeps its hairline", hairline, open.edge);
   await flow.step("buttons: shoot the reply key open", () =>
     shoot(page, "host-reply-key-open", DESKTOP, async () => {
       await expect(key).toHaveAttribute("aria-expanded", "true");

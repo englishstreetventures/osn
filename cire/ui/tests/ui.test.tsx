@@ -162,6 +162,7 @@ describe("Button — corners and case", () => {
       { variant: "cta", corner: "base:rounded-ui-control" },
       { variant: "outline", corner: "base:rounded-ui-control" },
       { variant: "quiet", corner: "base:rounded-ui-control" },
+      { variant: "bar", corner: "base:rounded-ui-control" },
       { variant: "quietDanger", corner: "base:rounded-ui-control" },
       { variant: "danger", corner: "base:rounded-ui-control" },
       { variant: "choice", corner: "base:rounded-ui-control" },
@@ -306,15 +307,6 @@ describe("Button — round", () => {
     const unnamedIcon = () => <Button size="icon">+</Button>;
     expect(unnamedIcon).toBeTypeOf("function");
   });
-
-  it("holds the raised surface and the body ink while its popover is open", () => {
-    expect(buttonClass({ variant: "round" }).split(/\s+/)).toEqual(
-      expect.arrayContaining([
-        "base:aria-expanded:bg-ui-surface-raised",
-        "base:aria-expanded:text-ui-ink",
-      ]),
-    );
-  });
 });
 
 describe("Button — the variants that carry state or fill", () => {
@@ -352,14 +344,19 @@ describe("Button — the variants that carry state or fill", () => {
   });
 });
 
+/** The variants that mark one of several as chosen, on the two-clock motion. */
+const CHOOSERS: readonly ButtonVariant[] = ["choice", "glass"];
+
 /** Every variant, as a record so a variant added to the type and not here fails to compile. */
 const EVERY_VARIANT = Object.keys({
   primary: true,
   cta: true,
   outline: true,
   quiet: true,
+  bar: true,
   quietDanger: true,
   choice: true,
+  glass: true,
   tile: true,
   dashed: true,
   field: true,
@@ -389,32 +386,93 @@ describe("Button — outline", () => {
   });
 });
 
+describe("Button — bar", () => {
+  // Its browser tier (`portal-pills.browser.test.tsx`) proves the painted
+  // result; this reads the class string, which is what mutation testing sees.
+  const cls = () => buttonClass({ variant: "bar", size: "icon" }).split(/\s+/);
+  const GATE = "not-aria-expanded:hover:base:";
+
+  it("rests as `quiet` does: a hairline on the portals' ground, the secondary ink", () => {
+    expect(cls()).toEqual(
+      expect.arrayContaining([
+        "base:border-ui-hairline",
+        "base:bg-[color:var(--pill-ground,transparent)]",
+        "base:text-ui-ink-secondary",
+      ]),
+    );
+  });
+
+  it("lifts the ground to the surface at 60%, in the body ink and a gold edge, only while closed", () => {
+    expect(cls().filter((c) => c.includes("hover:"))).toEqual([
+      `${GATE}border-ui-accent`,
+      `${GATE}bg-ui-surface/60`,
+      `${GATE}text-ui-ink`,
+    ]);
+  });
+
+  it("stands on the raised surface in the body ink while what it opens is open", () => {
+    expect(cls().filter((c) => c.includes("aria-expanded:") && !c.startsWith("not-"))).toEqual([
+      "base:aria-expanded:bg-ui-surface-raised",
+      "base:aria-expanded:text-ui-ink",
+    ]);
+  });
+});
+
 describe("Button — motion", () => {
   it("fades only what a hover changes, so the focus ring shows at once", () => {
     // Tailwind's `transition-colors` includes `outline-color`, which would fade
     // the focus ring in over the hover's duration. The ring must show the
     // moment focus lands, so the transition names its properties instead.
     // `choice` names its own list, with the ring's `box-shadow` (below).
-    const wrong = EVERY_VARIANT.filter((variant) => variant !== "choice").filter((variant) => {
-      const cls = buttonClass({ variant }).split(/\s+/);
-      return (
-        cls.includes("base:transition-colors") ||
-        !cls.includes("base:transition-[color,background-color,border-color,text-decoration-color]")
-      );
-    });
+    const wrong = EVERY_VARIANT.filter((variant) => !CHOOSERS.includes(variant)).filter(
+      (variant) => {
+        const cls = buttonClass({ variant }).split(/\s+/);
+        return (
+          cls.includes("base:transition-colors") ||
+          !cls.includes(
+            "base:transition-[color,background-color,border-color,text-decoration-color]",
+          )
+        );
+      },
+    );
     expect(wrong).toEqual([]);
   });
 
   it("takes its hover duration from the app's motion token", () => {
     // A literal duration ignores the app's ladder, which is shorter under a
     // fine pointer. The fallback is for an app that declares no ladder.
-    const wrong = EVERY_VARIANT.filter((variant) => variant !== "choice").filter((variant) => {
-      const durations = buttonClass({ variant })
-        .split(/\s+/)
-        .filter((c) => c.includes("duration-"));
-      return durations.length !== 1 || durations[0] !== "base:duration-(--dur-fast,100ms)";
-    });
+    const wrong = EVERY_VARIANT.filter((variant) => !CHOOSERS.includes(variant)).filter(
+      (variant) => {
+        const durations = buttonClass({ variant })
+          .split(/\s+/)
+          .filter((c) => c.includes("duration-"));
+        return durations.length !== 1 || durations[0] !== "base:duration-(--dur-fast,100ms)";
+      },
+    );
     expect(wrong).toEqual([]);
+  });
+
+  it("moves a choice's hover on the fast step and its choosing on the base step", () => {
+    // The one motion rule (cire/host DESIGN.md §4): a hover comes and goes on
+    // --dur-fast with the arriving curve; a choice being made, marked by
+    // `aria-pressed` or `aria-checked`, arrives on --dur-base with in-out.
+    for (const variant of CHOOSERS) {
+      const cls = buttonClass({ variant }).split(/\s+/);
+      expect(cls.filter((c) => c.includes("transition"))).toEqual([
+        "base:transition-[color,background-color,border-color,box-shadow]",
+      ]);
+      const timing = cls.filter((c) => c.includes("duration-") || /:ease-/.test(c));
+      const expected = [
+        "base:duration-(--dur-fast,100ms)",
+        "base:ease-out",
+        "base:aria-pressed:duration-(--dur-base,150ms)",
+        "base:aria-pressed:ease-in-out",
+        "base:aria-checked:duration-(--dur-base,150ms)",
+        "base:aria-checked:ease-in-out",
+      ];
+      expect(timing).toHaveLength(expected.length);
+      expect(timing).toEqual(expect.arrayContaining(expected));
+    }
   });
 });
 
@@ -503,16 +561,6 @@ describe("proseLinkClass", () => {
 describe("Button — choice, halfway and locked", () => {
   const classes = (variant: ButtonVariant) => buttonClass({ variant }).split(/\s+/);
   const GATE = "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:";
-
-  it("moves its colours and its ring on the app's base duration, and nothing else", () => {
-    const cls = classes("choice");
-    expect(cls.filter((c) => c.includes("transition"))).toEqual([
-      "base:transition-[color,background-color,border-color,box-shadow]",
-    ]);
-    expect(cls.filter((c) => c.includes("duration-"))).toEqual([
-      "base:duration-(--dur-base,150ms)",
-    ]);
-  });
 
   it("keeps a locked choice at full strength, and fades every other locked variant", () => {
     // The answer a guest just gave is locked while it saves; faded, it would be

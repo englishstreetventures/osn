@@ -17,7 +17,9 @@ afterEach(cleanup);
 
 /** `base:hover:x` → `base:enabled:hover:file:x`; `base:x` → `base:file:x`. */
 function onFileButton(utility: string): string {
-  const parts = utility.split(":");
+  // Split on the variants' colons only, never one inside an arbitrary value
+  // (`bg-[color:var(…)]`).
+  const parts = utility.split(/:(?![^[]*\])/);
   const last = parts.pop()!;
   const states = parts.slice(1);
   const lead = states.includes("hover") ? ["base", "enabled", ...states] : ["base", ...states];
@@ -84,24 +86,25 @@ describe("FileInput", () => {
 });
 
 describe("FILE_BUTTON", () => {
-  it("is quiet at md, utility for utility, at the form-field height, and nothing more", () => {
-    const { variant, size } = buttonLook({ variant: "quiet", size: "md" });
-    // Every class of the variant and the size, on the file button. `py-2` gives
-    // way to the fixed height.
+  it("is quiet at the form height, utility for utility, and nothing more", () => {
+    const { variant, size } = buttonLook({ variant: "quiet", size: "form" });
+    // Every class of the variant and the size, on the file button, but the
+    // open state: a file input opens no popover, so `aria-expanded` never
+    // reaches it.
     const fromButton = [...variant.split(/\s+/), ...size.split(/\s+/)]
-      .filter((c) => c !== "base:py-2")
+      .filter((c) => !c.includes("aria-expanded"))
       .map(onFileButton);
-    // What a button beside a file name needs that `quiet` and `md` do not say:
-    // an edge and no fill, the pill corner and body face every `Button` takes,
-    // the field height, a gap before the name, the cursor for each state, and
-    // `Button`'s fade, stopped under reduced motion.
+    // What a button beside a file name needs that `quiet` and `form` do not
+    // say: an edge, the pill corner and body face every `Button` takes, no
+    // padding top or bottom (the size's height decides), a gap before the
+    // name, the cursor for each state, and `Button`'s fade, stopped under
+    // reduced motion. The form height is the shared control's.
+    expect(size.split(/\s+/)).toContain(CONTROL_HEIGHT.form);
     const extras = [
       "base:file:border",
-      "base:file:bg-transparent",
       "base:file:rounded-ui-control",
       "base:file:font-ui-body",
       "base:file:py-0",
-      CONTROL_HEIGHT.form.replace("base:", "base:file:"),
       "base:file:mr-3",
       "base:enabled:file:cursor-pointer",
       "base:disabled:file:cursor-not-allowed",

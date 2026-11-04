@@ -4,10 +4,10 @@ import { splitProps, type JSX } from "solid-js";
 export type FileInputProps = Omit<SafeProps<"input">, "type">;
 
 /**
- * `quiet` at `md`, drawn on a file input's `::file-selector-button`, at the
- * 34px form-field height (`@shared/ui`'s `CONTROL_HEIGHT.form`, and the
- * portal's `FORM_ACTION_CLASS`), so a picker lines up with the fields and
- * buttons in its row.
+ * `quiet` at `form`, drawn on a file input's `::file-selector-button`: the
+ * 34px form-field height (`@shared/ui`'s `CONTROL_HEIGHT.form`) and the
+ * portals' pill ground, so a picker lines up with the fields and buttons in
+ * its row.
  *
  * A literal, not `buttonClass` with `file:` added at run time: Tailwind writes
  * CSS only for the classes it finds in the source, so a computed class emits
@@ -21,7 +21,7 @@ export type FileInputProps = Omit<SafeProps<"input">, "type">;
  * and stops under reduced motion, which a page's `*` rule does not reach.
  */
 export const FILE_BUTTON =
-  "base:file:border base:file:border-ui-hairline base:file:bg-transparent base:file:text-ui-ink-secondary " +
+  "base:file:border base:file:border-ui-hairline base:file:bg-[color:var(--pill-ground,transparent)] base:file:text-ui-ink-secondary " +
   "base:enabled:hover:file:border-ui-accent base:enabled:hover:file:text-ui-accent-ink " +
   "base:file:rounded-ui-control base:file:font-ui-body " +
   "base:file:px-5 base:file:py-0 base:file:h-8.5 base:file:text-ui-sm base:file:font-medium base:file:tracking-ui-normal " +
