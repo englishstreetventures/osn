@@ -8,8 +8,10 @@
  *    version goes up and the access boundary comes due now.
  *    On D1 the two commit atomically (one batch); on bun:sqlite they run in
  *    that order, one after the other.
- *  - Compare-and-set methods answer whether they won; they never overwrite a
- *    newer value.
+ *  - Compare-and-set methods never overwrite a newer value. Those whose caller
+ *    acts on the outcome answer whether they won; the rest (`abandonCheckout`,
+ *    `clearCheckout`, `markTrialUsed`, `releaseEvent`, `finishEvent`) return
+ *    nothing.
  */
 
 import type { Effect } from "effect";
@@ -86,7 +88,7 @@ export interface ReconcileSelection {
   readonly limit: number;
   /** Rows attempted at or after this are skipped. */
   readonly attemptedBefore: Date;
-  /** Case (b): an active period that started inside [from, to) and is not yet confirmed paid. */
+  /** An active period that started inside [from, to) and is not yet confirmed paid is due too. */
   readonly unconfirmedFrom: Date;
   readonly unconfirmedTo: Date;
 }
@@ -176,7 +178,7 @@ export interface BillingStorage {
    * Takes the customer's access lease when free or expired, raising the access
    * version and returning the raised value from the same statement; `null`
    * while another holds it. The lease's expiry is its token. A version only
-   * rises, and never falls below the one a row erased before it reached.
+   * rises and never falls below the clock (1,000 per millisecond).
    */
   acquireAccess(input: {
     readonly customerRef: string;

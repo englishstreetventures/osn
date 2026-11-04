@@ -55,10 +55,12 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
     sql`CASE WHEN ${c.nextAccessBoundaryAt} IS NULL OR ${c.nextAccessBoundaryAt} > ${at.getTime()} THEN ${at.getTime()} ELSE ${c.nextAccessBoundaryAt} END`;
 
   /**
-   * The next access version: one more than the last, and never below the
+   * The next access version: the larger of one more than the last and the
    * clock (1,000 per millisecond). So a version only rises, and a row created
    * again after `forgetCustomer` starts above every version the erased row
-   * handed out, unless that row took 1,000 versions in its last millisecond.
+   * handed out, provided its first lease comes at least a millisecond later
+   * by the same clock and the erased row took fewer than 1,000 versions in
+   * its last millisecond.
    */
   const nextVersion = (now: Date): SQL => sql`MAX(${c.accessVersion} + 1, ${now.getTime() * 1000})`;
 

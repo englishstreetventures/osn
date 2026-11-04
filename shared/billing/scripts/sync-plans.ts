@@ -5,8 +5,8 @@
  *     --plans <path to a module that exports `plans`> [--apply] [--live]
  *
  * `--plans` resolves from the directory the command runs in (`shared/billing`
- * under `--cwd`). A live key (`sk_live_…`, or a restricted `rk_live_…`) also
- * needs `--live` to apply. Prints each plan's product and price diffs, and the
+ * under `--cwd`). Any key that is not a test key (`sk_test_…` or a restricted
+ * `rk_test_…`) also needs `--live` to apply. Prints each plan's product and price diffs, and the
  * portal configuration id the consumer stores.
  */
 

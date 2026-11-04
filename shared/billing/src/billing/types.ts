@@ -52,7 +52,7 @@ export interface Tuning {
   readonly catalogueTtlMs: number;
   /** A subscription reconcile attempted inside this is skipped. */
   readonly reconcileRetryMs: number;
-  /** Case (b): an unconfirmed active period older than the first, younger than the second. */
+  /** An active period not yet confirmed paid is reconciled once older than the first, until the second. */
   readonly unconfirmedMinAgeMs: number;
   readonly unconfirmedMaxAgeMs: number;
 }
@@ -126,12 +126,14 @@ export interface AccessDecision<
   PlanId extends string = string,
 > extends BillingStatus<PlanId, FeatureId> {
   /**
-   * A fencing token: every call to the hook carries a larger one than the call
-   * before it, including a call that only time changed (a grant expiring, grace
-   * running out) and the first call for a customer created again after
-   * `forgetCustomer`. Store it with what the hook writes, and write only when
-   * it is greater than the stored one (`WHERE applied_version < :version`),
-   * when the order of two calls matters.
+   * A fencing token: every call to the hook for one customer row carries a
+   * larger one than the call before it, including a call that only time
+   * changed (a grant expiring, grace running out). Store it with what the hook
+   * writes, and write only when it is greater than the stored one
+   * (`WHERE applied_version < :version`), when the order of two calls matters.
+   * It never falls below the clock (1,000 per millisecond), so a ref created
+   * again after `forgetCustomer` normally starts above the erased row; delete
+   * your own copy when you call `forgetCustomer` and nothing depends on that.
    */
   readonly version: number;
   readonly decidedAt: Date;

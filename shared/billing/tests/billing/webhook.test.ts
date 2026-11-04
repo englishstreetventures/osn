@@ -470,14 +470,18 @@ describe("handleWebhook", () => {
     expect([result.status, result.body.outcome]).toEqual([500, "error"]);
   });
 
-  it("answers 500 when the finished event cannot be recorded", async () => {
+  it("answers 500 when the finished event cannot be recorded, and frees it for the redelivery", async () => {
     const h = await createHarness();
     await customerWithStripe(h);
     stripeHas(h);
+    const finish = h.storage.finishEvent;
     (h.storage as { finishEvent: unknown }).finishEvent = () =>
       Effect.fail(new BillingStorageError({ operation: "finishEvent", message: "disk" }));
     const result = await deliver(h, subEvent("evt_1"));
     expect([result.status, result.body.outcome]).toEqual([500, "error"]);
+    (h.storage as { finishEvent: unknown }).finishEvent = finish;
+    const again = await deliver(h, subEvent("evt_1"));
+    expect([again.status, again.body.outcome]).toEqual([200, "processed"]);
   });
 });
 

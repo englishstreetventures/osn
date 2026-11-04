@@ -204,7 +204,14 @@ export const handleWebhook = (
       const finished = yield* Effect.result(
         ctx.storage.finishEvent(event.id, processed.value, leaseUntil),
       );
-      if (finished._tag === "Failure") return result(500, "error");
+      if (finished._tag === "Failure") {
+        // Processing landed; let the redelivery record it at once.
+        yield* ctx.storage.releaseEvent(event.id, leaseUntil).pipe(Effect.ignore);
+        yield* Effect.logError("billing: could not record a finished webhook event").pipe(
+          Effect.annotateLogs({ operation: finished.failure.operation }),
+        );
+        return result(500, "error");
+      }
       return result(200, processed.value);
     }).pipe(
       Effect.catchDefect((defect) =>
