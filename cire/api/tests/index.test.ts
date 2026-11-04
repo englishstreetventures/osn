@@ -179,7 +179,7 @@ describe("Worker boot (no bootstrap-owner config)", () => {
   });
 });
 
-// C1/C4 fail-closed guard: the native claim rate-limit binding is MANDATORY in
+// Fail-closed guard: the native claim rate-limit binding is MANDATORY in
 // any deployed tier. Absent, createApp would silently fall back to a per-isolate
 // in-memory limiter — no real cross-request brute-force defence on the guest
 // claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
@@ -805,17 +805,18 @@ describe("D1 session routing at the entry points", () => {
     expect(withCookie.probe.bindingQueries).toEqual([]);
   });
 
-  // The per-IP limiter on a guest route must answer before `sessionAuth` looks
-  // the cookie up: a refused request costs no D1 query. Each case mounts a
-  // refusing binding for the limiter that route reads, and sends an unknown
-  // `cire_session` cookie that would otherwise cost one `sessions` lookup. The
-  // account-link POST also checks an OSN credential, so it is sent once more
-  // with an unknown `cire_org_session` cookie, which would otherwise cost one
-  // `organiser_sessions` lookup. The invite builder's organiser routes read the
-  // same binding, so they are sent the organiser cookie alone. An unknown
-  // cookie names no profile, so these cases pin `osnAuth`'s place behind the
-  // limiter, not the role gates'; `tests/app.test.ts` covers those with a live
-  // session.
+  // The per-IP limiter on each route below must answer before `sessionAuth`
+  // looks the cookie up: a refused request costs no D1 query. (The registry
+  // contribute route checks the session first; `tests/app.test.ts` pins that.)
+  // Each case mounts a refusing binding for the limiter that route reads, and
+  // sends an unknown `cire_session` cookie that would otherwise cost one
+  // `sessions` lookup. The account-link POST also checks an OSN credential, so
+  // it is sent once more with an unknown `cire_org_session` cookie, which would
+  // otherwise cost one `organiser_sessions` lookup. The invite builder's
+  // organiser routes read the same binding, so they are sent the organiser
+  // cookie alone. An unknown cookie names no profile, so these cases pin
+  // `osnAuth`'s place behind the limiter, not the role gates';
+  // `tests/app.test.ts` covers those with a live session.
   describe("a refused guest request never reaches the session lookup", () => {
     const refusingLimiter = { limit: async () => ({ success: false }) };
     const GUEST_COOKIE = "cire_session=no-such-session";

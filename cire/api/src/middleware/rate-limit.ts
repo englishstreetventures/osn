@@ -20,7 +20,7 @@ export class RateLimiterUnbound extends Error {
  * Elysia plugin enforcing per-IP rate limiting via @shared/rate-limit.
  * Returns 429 with Retry-After when the limit is exceeded.
  *
- * C4 fail-closed: when the client IP cannot be resolved (no/invalid
+ * Fail-closed: when the client IP cannot be resolved (no/invalid
  * `cf-connecting-ip` — e.g. a request that somehow reached the Worker without
  * passing Cloudflare's edge), the request is denied with 429 rather than keyed
  * on a shared fallback bucket. Bucketing unresolved requests together is both a
@@ -30,7 +30,11 @@ export class RateLimiterUnbound extends Error {
  * Mount it first in a route's chain — before `sessionAuth()`, `osnAuth()` and
  * any role gate, all of which run in the same before-handle phase in `.use`
  * order — so a refused request costs no session lookup, token verify or gate
- * query.
+ * query. One route mounts it after `sessionAuth()` instead: the registry
+ * contribute route, so only a request carrying a live guest session spends its
+ * budget (its header in `routes/registry-guest.ts` says why). There a caller
+ * with no session gets `sessionAuth`'s 401 and never reaches this deny, and a
+ * session holder with no resolvable address still gets the 429.
  */
 export function rateLimitMiddleware(limiter: RateLimiterBackend) {
   return new Elysia().onBeforeHandle({ as: "scoped" }, async ({ request, set }) => {

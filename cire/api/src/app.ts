@@ -380,8 +380,13 @@ const defaultUnlockCodeLimiter = createRateLimiter({ maxRequests: 5, windowMs: 6
 // a NAT'd venue or hotel wifi is ONE address for a whole reception, and the
 // budget has to cover the room rather than a household. Five would have
 // the sixth guest of an evening meet a 429 on their way to paying, which is the
-// highest-value action in the product. It answers before `sessionAuth`, so a
-// caller with no claimed session spends the same budget as a guest.
+// highest-value action in the product. It is the one per-IP limiter that
+// answers AFTER `sessionAuth`, so only a request carrying a live guest session
+// spends it: venue wifi shares one address, every call the route admits is an
+// outbound Stripe request, and a caller with no session costs no Stripe call,
+// so letting that caller spend the room's budget would buy nothing. A session
+// for any wedding's household spends it, the host preview's included: the
+// household-in-wedding check runs after the limiter.
 const defaultRegistryContributeLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the pre-auth OIDC redirect legs (`/oidc/start`,
