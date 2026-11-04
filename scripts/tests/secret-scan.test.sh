@@ -8,7 +8,8 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCAN="$HERE/../secret-scan.sh"
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+XDEV=
+trap 'rm -rf "$WORK" ${XDEV:+"$XDEV"}' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
@@ -26,10 +27,10 @@ expect() { # name, want, actual
 
 token() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c36; }
 
-# A repository with one base commit and one commit adding a leaking file.
-# Sets REPO and TOK. origin/main points at the base commit.
+# A repository with one base commit and one commit adding a leaking file, in
+# directory $1 (default $WORK). Sets REPO and TOK. origin/main points at the base commit.
 leaky_repo() {
-  REPO="$WORK/r$RANDOM$RANDOM"
+  REPO="${1:-$WORK}/r$RANDOM$RANDOM"
   mkdir -p "$REPO"
   git -C "$REPO" init -q
   git -C "$REPO" commit -q --allow-empty -m base
@@ -228,6 +229,46 @@ printf 'k = "ghp_%s"\n' "$TOK" > "$REPO/c.txt"; git -C "$REPO" add c.txt
 ( cd "$REPO" && bash "$SCAN" staged >"$WORK/out28" 2>&1 ); rc=$?
 expect "28 staged leak exits 2" 2 "$rc"
 expect "28b the output says leaks found" 1 "$(grep -q 'leaks found' "$WORK/out28" && echo 1 || echo 0)"
+
+# 29: the range scan's clone works when the checkout is on another filesystem
+# from the scan's temp directory, where a hard link fails. That directory comes
+# from the same bare `mktemp -d` as $WORK, so it shares $WORK's filesystem, and a
+# repository on another one is across a device from it. On GitHub's Linux runners
+# /dev/shm is its own mount, so CI always has one; with none, CI fails and a
+# local run skips. On macOS, point RUNNER_TEMP at a mounted disk image to run it.
+dev_of() { stat -c %d "$1" 2>/dev/null || stat -f %d "$1"; }
+for d in /dev/shm "${RUNNER_TEMP:-}" /var/tmp /tmp; do
+  [ -n "$d" ] && [ -d "$d" ] && [ -w "$d" ] || continue
+  [ "$(dev_of "$d")" != "$(dev_of "$WORK")" ] || continue
+  XDEV=$(mktemp -d "$d/secret-scan-xdev.XXXXXX") && break
+done
+if [ -n "$XDEV" ]; then
+  leaky_repo "$XDEV"
+  run_in range origin/main HEAD >"$WORK/out29" 2>&1; rc=$?
+  expect "29 a range scan of a checkout on another filesystem exits 2" 2 "$rc"
+  expect "29b the clone did not fail" 0 "$(grep -c 'could not clone' "$WORK/out29")"
+elif [ -n "${CI:-}" ]; then
+  FAIL=$((FAIL + 1)); echo "FAIL 29: no writable directory on another filesystem from $WORK"
+else
+  echo "skip 29 no writable directory on another filesystem from $WORK"
+fi
+
+# 30: a checkout the clone cannot copy fails the scan at the clone. The leak's
+# blob is made unreadable: the script reads no blob before cloning, a copy has
+# to read every object file, and a hard link needs none, so this also fails if
+# the clone links again. Root reads any file, so a root run skips.
+if [ "$(id -u)" != 0 ]; then
+  leaky_repo
+  BLOB=$(git -C "$REPO" rev-parse HEAD:b.txt)
+  OBJ="$REPO/.git/objects/${BLOB:0:2}/${BLOB:2}"
+  chmod 000 "$OBJ"
+  run_in range origin/main HEAD >"$WORK/out30" 2>&1; rc=$?
+  chmod 644 "$OBJ"
+  expect "30 a checkout the clone cannot copy exits 1" 1 "$rc"
+  expect "30b the reason is the clone" 1 "$(grep -c 'could not clone' "$WORK/out30")"
+else
+  echo "skip 30 root reads an unreadable file"
+fi
 
 echo "secret-scan tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
