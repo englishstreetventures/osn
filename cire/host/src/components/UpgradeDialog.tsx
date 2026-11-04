@@ -222,7 +222,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
           </Button>
         </div>
 
-        <p class="text-text-faint text-ui-xs leading-ui-snug">
+        <p class="text-text-muted text-ui-xs leading-ui-snug">
           Payment is handled by Stripe. You will come back here once it is done.
         </p>
       </div>

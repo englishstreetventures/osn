@@ -1098,7 +1098,7 @@ export default function RsvpView(props: RsvpViewProps) {
                   so they scroll away under it with the rest. */}
                 <dl class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-4 gap-y-1">
                   <div class="flex items-center gap-1.5">
-                    <dt class="text-gold tracking-ui-wider uppercase">Attending</dt>
+                    <dt class="text-gold-ink tracking-ui-wider uppercase">Attending</dt>
                     <dd class="text-text font-ui-mono">{section().event.attending}</dd>
                   </div>
                   <div class="flex items-center gap-1.5">
@@ -1320,7 +1320,7 @@ export default function RsvpView(props: RsvpViewProps) {
       >
         <p class="font-body text-text text-ui-sm">
           Recording for{" "}
-          <span class="text-gold">
+          <span class="text-gold-ink">
             {guest.firstName} {guest.lastName}
           </span>
         </p>

@@ -734,7 +734,7 @@ function Place(props: {
       <Show
         when={props.guests.length > 0}
         fallback={
-          <p class="font-body text-text-faint text-ui-sm">
+          <p class="font-body text-text-muted text-ui-sm">
             {props.table
               ? props.canEdit
                 ? "Drop guests here."

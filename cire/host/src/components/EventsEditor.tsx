@@ -610,7 +610,7 @@ export default function EventsEditor(props: { weddingId: string }) {
               </div>
             </div>
             <Show when={store.warnings().length > 0 && !hasErrors()}>
-              <p class="border-gold/20 bg-gold/5 text-gold-dim page-frame text-ui-sm border-t py-2">
+              <p class="border-gold/20 bg-gold/5 text-gold-ink page-frame text-ui-sm border-t py-2">
                 {store.warnings().join(" ")}
               </p>
             </Show>
@@ -887,7 +887,7 @@ function EventDrawer(props: {
        `container-type`, the dialog ARIA — is the element's. */
     <Modal open onClose={props.onClose} label="Edit event" presentation="drawer" class="max-w-md">
       <div class="mb-6 flex items-center justify-between">
-        <h2 class="font-display text-gold-dim text-ui-lg">Event details</h2>
+        <h2 class="font-display text-gold-ink text-ui-lg">Event details</h2>
         <Button variant="bare" size="icon" type="button" onClick={props.onClose} aria-label="Close">
           ✕
         </Button>

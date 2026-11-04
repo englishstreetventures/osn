@@ -164,7 +164,7 @@ export function SliderField(props: {
     <label class="flex flex-col gap-1.5">
       <span class="flex items-baseline justify-between gap-2">
         <span class={LABEL_CLASS}>{props.label}</span>
-        <span class="font-body text-gold text-ui-xs tabular-nums">{props.value}</span>
+        <span class="font-body text-gold-ink text-ui-xs tabular-nums">{props.value}</span>
       </span>
       <input
         type="range"

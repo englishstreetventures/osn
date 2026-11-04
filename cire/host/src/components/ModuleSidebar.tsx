@@ -62,14 +62,12 @@ const railActive = "text-gold-ink";
  * A locked row: dimmer than an idle one, and it changes nothing on hover
  * because it does not navigate.
  *
- * `text-faint` rather than `text-muted` with an `opacity` on top. Both text
- * tokens are already translucent (see the ink ramp in `styles/global.css`), so
- * stacking `opacity-50` on `text-muted` multiplies the two and lands the label
- * under every token on the ramp. One token is the whole fade, and the ramp's
- * own comment says what it buys: `text-faint` clears 3:1, not the 4.5:1 that
- * normal-size text wants. That is a deliberate trade for a control whose
- * purpose is to be de-emphasised, and the lock is carried in the row's
- * accessible name rather than by its colour, so nothing depends on reading it.
+ * The row's ink is `text-faint`, which its icon takes: a graphic, held to the
+ * 3:1 that token clears. The row is still a control — it opens the module's
+ * offer — so its name is a word a host reads and takes `text-muted`, 4.5:1,
+ * where the row's `Body` sets it. The lock is carried in the row's accessible
+ * name rather than by its colour. No `opacity` on top: both text tokens are
+ * already translucent, and stacking one would multiply the two.
  */
 const rowLocked = "text-text-faint cursor-default";
 
@@ -637,7 +635,7 @@ export default function ModuleSidebar(props: {
                     class={
                       collapsed()
                         ? "w-0 overflow-hidden whitespace-nowrap"
-                        : `min-w-0 truncate ${moved() ? "rail-label" : ""}`
+                        : `min-w-0 truncate ${moved() ? "rail-label" : ""} ${locked() ? "text-text-muted" : ""}`
                     }
                   >
                     {mod.label}
@@ -770,7 +768,9 @@ export default function ModuleSidebar(props: {
                           class={isActive() ? "text-gold" : "text-gold-dim"}
                         />
                         <span class="flex min-w-0 flex-col gap-1">
-                          <span class="truncate">{mod.label}</span>
+                          <span class={locked() ? "text-text-muted truncate" : "truncate"}>
+                            {mod.label}
+                          </span>
                           <span class="text-text-muted text-ui-xs leading-ui-snug tracking-ui-normal normal-case">
                             {mod.hint}
                           </span>

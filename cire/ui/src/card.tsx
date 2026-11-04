@@ -178,7 +178,7 @@ export default function Card(props: CardLook & { class?: string; children: JSX.E
  */
 export function CardCta(props: { children: JSX.Element }) {
   return (
-    <span class="base:font-ui-body base:text-ui-accent-ink base:hover:text-ui-accent group/cta base:flex base:items-center base:gap-1.5 base:self-start base:text-ui-sm base:transition-[color,background-color,border-color,text-decoration-color] base:duration-(--dur-fast,100ms)">
+    <span class="base:font-ui-body base:text-ui-accent-ink group/cta base:flex base:items-center base:gap-1.5 base:self-start base:text-ui-sm base:transition-[color,background-color,border-color,text-decoration-color] base:duration-(--dur-fast,100ms)">
       {props.children}
       <span
         aria-hidden="true"

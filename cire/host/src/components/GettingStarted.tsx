@@ -246,7 +246,7 @@ export default function GettingStarted(props: {
             {/* Read out, not hidden. The rail beneath used to carry the count in
               its own `aria-valuenow`; the shared Meter reports a percentage
               instead, so "two of four" now lives here or nowhere. */}
-            <span class="font-body text-gold-dim text-ui-sm tracking-ui-wider shrink-0 uppercase tabular-nums">
+            <span class="font-body text-gold-ink text-ui-sm tracking-ui-wider shrink-0 uppercase tabular-nums">
               {completed()} / {total()} done
             </span>
           </div>
@@ -306,8 +306,8 @@ function StepMarker(props: { n: number; complete: boolean }) {
       aria-hidden
       class="font-body text-ui-sm mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors duration-(--dur-fast) ease-(--ease-out)"
       classList={{
-        "border-gold bg-gold text-bg": props.complete,
-        "border-gold/40 text-gold-dim group-hover:border-gold/70": !props.complete,
+        "border-gold bg-gold text-on-gold": props.complete,
+        "border-gold/40 text-gold-ink group-hover:border-gold/70": !props.complete,
       }}
     >
       {props.complete ? "✓" : props.n}

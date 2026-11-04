@@ -268,7 +268,7 @@ export default function ChangePreview(props: ChangePreviewProps) {
   };
   return (
     <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
-      <h3 class="font-display text-gold-dim text-ui-md">Diff preview</h3>
+      <h3 class="font-display text-gold-ink text-ui-md">Diff preview</h3>
       <Show when={props.clears}>
         {(clears) => (
           <Notice tone="warn" id={clearsId}>

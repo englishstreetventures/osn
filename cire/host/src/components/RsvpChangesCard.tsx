@@ -63,7 +63,7 @@ export default function RsvpChangesCard(props: {
             }
           >
             <p class="text-text text-ui-base">
-              <span class="text-gold text-ui-lg font-semibold tabular-nums">
+              <span class="text-gold-ink text-ui-lg font-semibold tabular-nums">
                 {feed().truncated ? `${feed().households}+` : feed().households}
               </span>{" "}
               {feed().households === 1
