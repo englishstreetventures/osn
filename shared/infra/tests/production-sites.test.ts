@@ -11,7 +11,6 @@ import {
   PRODUCTION_SITE_MODES,
   PRODUCTION_STAGING_HOSTS,
   productionHost,
-  RETIRED_STAGING_HOSTS,
   productionHostOutputs,
   SITE_BUILDS,
   SITE_SURFACES,
@@ -84,26 +83,6 @@ describe("production-sites.ts", () => {
       const build = SITE_BUILDS[surface];
       expect(build.directory).toBe(`${build.package.slice(1)}/dist`);
     }
-  });
-
-  test("PS7: each retired spare host sits in its site's zone, is no production host or current spare host, and is listed under one site only", () => {
-    const inUse = new Set<string>([
-      ...Object.values(PRODUCTION_HOSTS),
-      ...SITE_SURFACES.flatMap((surface) => PRODUCTION_STAGING_HOSTS[surface] ?? []),
-    ]);
-    for (const surface of SITE_SURFACES) {
-      for (const host of RETIRED_STAGING_HOSTS[surface] ?? []) {
-        expect({ surface, host, zone: zoneOf(host), inUse: inUse.has(host) }).toEqual({
-          surface,
-          host,
-          zone: zoneOf(productionHost(surface)),
-          inUse: false,
-        });
-      }
-    }
-    // A host listed under two sites is one either site's Worker may give up.
-    const listed = SITE_SURFACES.flatMap((surface) => RETIRED_STAGING_HOSTS[surface] ?? []);
-    expect(listed.filter((host, at) => listed.indexOf(host) !== at)).toEqual([]);
   });
 
   test("production-hosts names each non-off site's origin at its mode, the origin its smoke check probes", () => {
