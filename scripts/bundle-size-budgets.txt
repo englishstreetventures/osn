@@ -49,8 +49,8 @@
 
 cire/invites   worker  200900   # measured 190660
 # cire/host and cire/vendor are set for the enquiry thread and the theme, haptics and auto-size helpers both portals take from @cire/ui.
-cire/host      static  373347   # measured 361647
-cire/vendor    static  103361   # measured 99022
+cire/host      static  378182   # measured 366482
+cire/vendor    static  103718   # measured 99379
 cire/landing   static  52425    # measured 40725
 musubi/landing static  26865    # measured 15206
 pulse/landing  static  28366    # measured 16683
