@@ -422,7 +422,14 @@ export function createInternalGraphRoutes(
                     db
                       .update(serviceAccountKeys)
                       .set({ revokedAt: nowSecs })
-                      .where(eq(serviceAccountKeys.keyId, params.keyId)),
+                      // A key already revoked keeps the time it stopped being
+                      // accepted, so a repeat revoke stays a no-op.
+                      .where(
+                        and(
+                          eq(serviceAccountKeys.keyId, params.keyId),
+                          isNull(serviceAccountKeys.revokedAt),
+                        ),
+                      ),
                   catch: (cause) => new Error("DB error revoking key", { cause }),
                 });
               }),

@@ -1675,6 +1675,44 @@ describe("internal graph routes (ARC-protected)", () => {
       expect(rows[0]?.revokedAt).not.toBeNull();
     });
 
+    it("a second revoke keeps the time the key was first revoked", async () => {
+      const { keyId } = await setupArcService("revoke-twice-svc", "graph:read");
+      const FIRST_REVOKED_AT = 1_000;
+      await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db
+                .update(serviceAccountKeys)
+                .set({ revokedAt: FIRST_REVOKED_AT })
+                .where(eq(serviceAccountKeys.keyId, keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const rows = await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db.select().from(serviceAccountKeys).where(eq(serviceAccountKeys.keyId, keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+      expect(rows[0]?.revokedAt).toBe(FIRST_REVOKED_AT);
+    });
+
     it("after revocation, ARC-protected requests using the key return 401", async () => {
       const { token, keyId } = await setupArcService("evict-test-svc", "graph:read");
 
