@@ -122,6 +122,33 @@ Five more, and the first three fail quietly:
   `Schema.parseJson(S)` is `Schema.fromJsonString(S)`; `DateFromSelf` is `Date`;
   `Schema.Record({key, value})` is positional, `Schema.Record(key, value)`.
 
+## Changed in 4.1
+
+The repository runs 4.1.1. Its own code needed no edit for it: nothing here
+uses an API 4.1 removed or reshaped. These are the ones a model still writes
+from 4.0 memory:
+
+- **`effect/Crypto` is gone.** Its services are split under `effect/crypto/*`:
+  `SecureRandom` for random bytes and UUIDs, `Digest` for hashing
+  (`Digest.sha256`). Neither is in `BunServices.layer` or
+  `NodeServices.layer` any more; provide one explicitly, with `BunCrypto` or
+  `NodeCrypto` from the platform package or a module's `layerWebCrypto`. An
+  import of `effect/Crypto` fails when the module loads, and a type-check with
+  `skipLibCheck` does not catch it in a dependency's declarations. Alchemy
+  2.0.0-beta.84 still imports it, so the repository patches that release
+  ([[infrastructure-as-code#Dependency review]]).
+- **HTTP request methods are typed `string`.** An exhaustive `switch` over a
+  request's method needs a fallback or a guard with `HttpMethod.isHttpMethod`.
+- **A custom `KeyValueStore.make` store must provide `keys`.**
+- **`fromFileSystem` lives in `effect/sql/MigratorFileSystem`**, not
+  `effect/sql/Migrator`.
+- **`HttpClient.withCookiesRef` takes a `Ref<ReadonlyArray<Cookie>>`**, seeded
+  with `Cookies.mergeIntoArray`.
+
+Unchanged, and worth knowing because a dependency trips on it: a record whose
+values are optional, `Schema.Record(Schema.String, Schema.optional(Schema.String))`,
+still throws when it is built. Use `Schema.UndefinedOr` for the value.
+
 ## Logging
 
 `Logger.layer([…])` **replaces the whole active set**, so
