@@ -21,6 +21,10 @@
     "./file-input": "./src/file-input.tsx",
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./legal-layout.astro": "./src/legal-layout.astro",
+    "./lib/auto-size": "./src/lib/auto-size.ts",
+    "./lib/haptics": "./src/lib/haptics.ts",
+    "./lib/theme": "./src/lib/theme.ts",
+    "./lib/theme-boot": "./src/lib/theme-boot.ts",
     "./loading": "./src/loading.tsx",
     "./message-thread": "./src/message-thread.tsx",
     "./note": "./src/note.tsx",
@@ -49,7 +53,8 @@
     "@shared/design-tokens": "workspace:*",
     "@shared/legal": "workspace:*",
     "@shared/rp-auth": "workspace:*",
-    "@shared/ui": "workspace:*"
+    "@shared/ui": "workspace:*",
+    "web-haptics": "0.0.6"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",

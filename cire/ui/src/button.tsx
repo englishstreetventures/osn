@@ -31,7 +31,7 @@ import { splitProps } from "solid-js";
  *
  * ## No haptic here
  *
- * Tempting, and wrong. The vocabulary in `haptics.ts` is deliberately five
+ * Tempting, and wrong. The vocabulary in `lib/haptics.ts` is deliberately five
  * names, fired at the moment a change *takes* — not at the moment a button is
  * pressed. A press that opens a dialog, switches a tab or starts a request that
  * then fails has nothing to confirm yet. Buzzing on every press is exactly the

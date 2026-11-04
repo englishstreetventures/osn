@@ -23,6 +23,13 @@ the footer's and the layout's render them with Astro's container API, in the
 `astro` test project (`vitest.astro.config.ts`, `tests/*.astro.test.ts`). Any
 change under `src/` redeploys all four cire frontends.
 
+`src/lib/` holds the helpers both portals use and neither renders:
+`createAutoSize` (a box animated between two content heights),
+`createPreferences` and `themeBootScript` (the theme and haptics switch, and
+the inline script that sets the theme before first paint, under each portal's
+own storage keys), and `createHaptics` (touch feedback by event name). The
+guest and marketing sites import none of them.
+
 `UsernameInput` is the one apparent duplicate, and the reason is the API rather
 than the styling: `@shared/ui`'s is controlled and renders its own debounced
 availability status, this one spreads raw input props because its single call

@@ -142,6 +142,10 @@ cire/ui/src/
 ├── legal-layout.astro      ← LegalLayout: the legal pages' document, its four slots and the .legal type
 ├── sign-in-press.ts        ← createSignInPress: what a "Continue with musubi" button does once pressed
 ├── lib/sliding-pill.ts     ← createSlidingPill: one highlight that moves between items
+├── lib/auto-size.ts        ← createAutoSize: a box animated between two content heights
+├── lib/theme.ts            ← createPreferences: a portal's theme and haptics switch, under its own keys
+├── lib/theme-boot.ts       ← themeBootScript: the inline script that sets the theme before first paint
+├── lib/haptics.ts          ← createHaptics: touch feedback by event name, limited to a portal's names
 ├── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
 └── wordmark.tsx            ← Wordmark: the portals' "✦ Cire" way home; WordmarkPlaceholder, its still copy
 ```
