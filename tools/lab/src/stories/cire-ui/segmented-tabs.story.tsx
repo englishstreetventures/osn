@@ -250,3 +250,82 @@ export const Counts: Story<ThemeArgs> = {
     );
   },
 };
+
+/** A dot the colour of a reply, standing for its word. */
+function dot(colour: string) {
+  return (props: { class?: string; "aria-hidden"?: "true" }) => (
+    <span
+      aria-hidden={props["aria-hidden"]}
+      class={`inline-block size-2.5 shrink-0 rounded-full ${props.class ?? ""}`}
+      style={{ background: colour }}
+    />
+  );
+}
+
+/**
+ * An RSVP list's reply filter: a radiogroup with a count after each word, then
+ * the same strip as a phone draws it — the replies as their dots, "All" keeping
+ * its word.
+ */
+export const Marks: Story<ThemeArgs> = {
+  args: { cireTheme: "both" },
+  controls: themeControl,
+  render: (args) => {
+    const count = (n: number) => (chosen: boolean) => (
+      <span
+        class={`font-ui-mono text-ui-xs ${chosen ? "text-ui-accent-ink" : "text-ui-ink-secondary"}`}
+      >
+        {n}
+      </span>
+    );
+    const replies = (marks: boolean) => [
+      { value: "all", label: "All", name: "All, 12 guests", after: count(12) },
+      {
+        value: "attending",
+        label: "Attending",
+        name: "Attending, 5 guests",
+        icon: dot("#3f8f5a"),
+        iconOnly: marks,
+        after: count(5),
+      },
+      {
+        value: "declined",
+        label: "Declined",
+        name: "Declined, 2 guests",
+        icon: dot("#b23a3a"),
+        iconOnly: marks,
+        after: count(2),
+      },
+      {
+        value: "maybe",
+        label: "Maybe",
+        name: "Maybe, 1 guest",
+        icon: dot("#c9a46a"),
+        iconOnly: marks,
+        after: count(1),
+      },
+    ];
+    return (
+      <Panels theme={args.cireTheme}>
+        {() => (
+          <>
+            <Working
+              items={replies(false)}
+              initial="attending"
+              label="Filter by reply"
+              semantics="radio"
+              scroll
+            />
+            <Working
+              items={replies(true)}
+              initial="attending"
+              label="Filter by reply (phone)"
+              semantics="radio"
+              scroll
+            />
+          </>
+        )}
+      </Panels>
+    );
+  },
+};

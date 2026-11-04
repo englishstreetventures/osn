@@ -1081,13 +1081,17 @@ colour, since the theme drops the glass.
 
 `semantics` keeps each strip's meaning: `tabs` (a named tablist, one tab stop,
 arrows, Home and End moving focus, Enter or a click choosing), `radio` (a
-named radiogroup, each radio a tab stop, a refused choice never shown as made)
-and `current` (a named group of buttons, the chosen one `aria-current="page"`).
-Items are keyed by `value`, so a call site may rebuild them on every keystroke;
-`icon`, `name` (a fuller accessible name), `describedBy` and `after` (a count,
-a mark) are read as they change. `iconOnly` hides the labels for assistive
+named radiogroup with one tab stop, the checked radio; the arrows move to the
+next or previous radio, wrapping, and ask to choose it, as the ARIA radio group
+does; a refused choice is never shown as made) and `current` (a named group of
+buttons, the chosen one `aria-current="page"`). Items are keyed by `value`, so a
+call site may rebuild them on every keystroke; `icon`, `name` (a fuller
+accessible name), `describedBy`, `after` (a count, a mark) and `iconOnly` are
+read as they change. `iconOnly` on the strip hides every label for assistive
 technology alone and hands each to `tipAttribute`, the attribute the app's
-tooltip layer reads (`data-tip` in the host portal). `scroll` keeps the strip
+tooltip layer reads (`data-tip` in the host portal); on an item it does the same
+for that item alone, so some choices can show as their marks beside a word that
+stays. `scroll` keeps the strip
 on one row and scrolls it sideways inside its box, the chosen choice and one
 the arrows reach kept in view without moving the page. `class` sets the
 strip's place in its row only.

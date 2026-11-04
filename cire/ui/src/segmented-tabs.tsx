@@ -44,10 +44,13 @@ import { createSlidingPill } from "./lib/sliding-pill";
  *   site's ids and panel, one tab stop, the arrows, Home and End moving focus
  *   without choosing, Enter, Space or a click choosing (manual activation: a
  *   view mounts and fetches, so passing over one must not open it).
- * - `radio` — alternative ways to do one job: a named `radiogroup` of
- *   `radio`s, each its own tab stop. `aria-checked` follows `value` alone, so
- *   a choice the call site refuses (an unsaved draft it will not drop) never
- *   shows as made.
+ * - `radio` — alternative ways to do one job, or one filter of several: a
+ *   named `radiogroup` of `radio`s with one tab stop, the checked radio (the
+ *   first while none is). The arrows move to the next or previous radio,
+ *   wrapping at both ends, and ask to choose it, as the ARIA radio group does;
+ *   a click asks the same. `aria-checked` follows `value` alone, so a choice
+ *   the call site refuses (an unsaved draft it will not drop) never shows as
+ *   made, and the tab stop stays on the checked radio.
  * - `current` — places the page can be: a named `group` of buttons, the
  *   chosen one `aria-current="page"`.
  *
@@ -58,8 +61,11 @@ import { createSlidingPill } from "./lib/sliding-pill";
  * state in a name) and keep each choice's element, focus and highlight.
  * `icon` draws before the label; `iconOnly` hides the label for assistive
  * technology alone and hands it to `tipAttribute`, the attribute the app's
- * own tooltip layer reads. `name` replaces the accessible name when it says
- * more than the label; `after` draws a count or a mark after it.
+ * own tooltip layer reads. An item's own `iconOnly` does the same for that
+ * item alone, so a strip can draw some choices as their marks beside a word
+ * that stays (an RSVP list's replies as their dots on a phone, beside "All").
+ * `name` replaces the accessible name when it says more than the label;
+ * `after` draws a count or a mark after it.
  *
  * `scroll` keeps the strip on one row and lets it scroll sideways inside its
  * box, with room for the focus ring and no scrollbar; the chosen choice, and
@@ -76,6 +82,8 @@ export interface SegmentedItem<V extends string = string> {
   name?: string;
   describedBy?: string;
   after?: (chosen: boolean) => JSX.Element;
+  /** This item's label for assistive technology and the tip alone. */
+  iconOnly?: boolean;
 }
 
 export type SegmentedSemantics = "tabs" | "radio" | "current";
@@ -189,30 +197,36 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
   // mounted: a deep link to a choice past the edge opens on it.
   createEffect(() => reveal(refs.get(props.value)));
 
-  function focusAt(index: number) {
+  /** Focus the item at `index`, wrapping, and hand back its value. */
+  function focusAt(index: number): V | undefined {
     const list = values();
-    if (list.length === 0) return;
-    const el = refs.get(list[((index % list.length) + list.length) % list.length]!);
+    if (list.length === 0) return undefined;
+    const value = list[((index % list.length) + list.length) % list.length]!;
+    const el = refs.get(value);
     el?.focus({ preventScroll: true });
     reveal(el);
+    return value;
   }
 
   function onKeyDown(event: KeyboardEvent, index: number) {
-    if (props.semantics !== "tabs") return;
+    if (props.semantics === "current") return;
+    const radio = props.semantics === "radio";
     const last = values().length - 1;
     const to =
-      event.key === "ArrowRight"
+      event.key === "ArrowRight" || (radio && event.key === "ArrowDown")
         ? index + 1
-        : event.key === "ArrowLeft"
+        : event.key === "ArrowLeft" || (radio && event.key === "ArrowUp")
           ? index - 1
-          : event.key === "Home"
+          : !radio && event.key === "Home"
             ? 0
-            : event.key === "End"
+            : !radio && event.key === "End"
               ? last
               : null;
     if (to === null) return;
     event.preventDefault();
-    focusAt(to);
+    const value = focusAt(to);
+    // A radio group chooses where the arrows land; a tablist only moves.
+    if (radio && value !== undefined && value !== props.value) props.onChange(value);
   }
 
   const track = (
@@ -228,6 +242,7 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
         {(value, index) => {
           const item = () => byValue().get(value)!;
           const chosen = () => isChosen(value);
+          const wordHidden = () => props.iconOnly === true || item().iconOnly === true;
           return (
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a radio whose choice can be refused cannot be a native one: it has moved its own state by the time the handler runs.
             <button
@@ -242,7 +257,7 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
                 createEffect(() => {
                   const attribute = props.tipAttribute;
                   if (!attribute) return;
-                  if (props.iconOnly) el.setAttribute(attribute, item().label);
+                  if (wordHidden()) el.setAttribute(attribute, item().label);
                   else el.removeAttribute(attribute);
                   onCleanup(() => el.removeAttribute(attribute));
                 });
@@ -263,11 +278,11 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
               aria-checked={props.semantics === "radio" ? chosen() : undefined}
               aria-current={props.semantics === "current" && chosen() ? "page" : undefined}
               tabindex={
-                props.semantics === "tabs"
-                  ? chosen() || (unmatched() && index() === 0)
+                props.semantics === "current"
+                  ? undefined
+                  : chosen() || (unmatched() && index() === 0)
                     ? 0
                     : -1
-                  : undefined
               }
               aria-label={item().name ?? item().label}
               aria-describedby={item().describedBy}
@@ -283,7 +298,7 @@ export default function SegmentedTabs<V extends string>(props: SegmentedTabsProp
                   <Dynamic component={icon()} aria-hidden="true" strokeWidth={1.75} class={ICON} />
                 )}
               </Show>
-              <span data-label={item().label} class={props.iconOnly ? "base:sr-only" : WORD}>
+              <span data-label={item().label} class={wordHidden() ? "base:sr-only" : WORD}>
                 {item().label}
               </span>
               {item().after?.(chosen())}

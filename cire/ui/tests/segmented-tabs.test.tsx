@@ -83,6 +83,9 @@ describe("as tabs", () => {
     expect(document.activeElement).toBe(third);
     fireEvent.keyDown(third, { key: "Home" });
     expect(document.activeElement).toBe(first);
+    // A key the strip does not use leaves focus where it is.
+    fireEvent.keyDown(first, { key: "a" });
+    expect(document.activeElement).toBe(first);
     expect(onChange).not.toHaveBeenCalled();
     // Choosing what is already chosen changes nothing, so it asks for nothing.
     fireEvent.click(first);
@@ -114,39 +117,47 @@ describe("a value that names no item", () => {
 });
 
 describe("as radios", () => {
-  it("is a named radiogroup, each radio its own tab stop, and a refused choice stays unmade", () => {
-    const [mode, setMode] = createSignal<"editor" | "import">("editor");
-    let allow = false;
-    const asked: string[] = [];
-    render(() => (
+  function Modes(props: { allow: () => boolean; asked: string[]; initial?: string }) {
+    const [mode, setMode] = createSignal(props.initial ?? "editor");
+    return (
       <SegmentedTabs
         items={[
           { value: "editor", label: "Web editor" },
           { value: "import", label: "Spreadsheet import" },
+          { value: "paste", label: "Paste a list" },
         ]}
         value={mode()}
         onChange={(v) => {
-          asked.push(v);
-          if (allow) setMode(v);
+          props.asked.push(v);
+          if (props.allow()) setMode(v);
         }}
         label="How do you want to edit?"
         semantics="radio"
       />
-    ));
+    );
+  }
+
+  it("is a named radiogroup with one tab stop, the checked radio, and a refused click stays unmade", () => {
+    let allow = false;
+    const asked: string[] = [];
+    render(() => <Modes allow={() => allow} asked={asked} />);
     expect(screen.getByRole("radiogroup", { name: "How do you want to edit?" })).toBeTruthy();
-    const [editor, spreadsheet] = screen.getAllByRole("radio") as [HTMLElement, HTMLElement];
+    const [editor, spreadsheet, paste] = screen.getAllByRole("radio") as [
+      HTMLElement,
+      HTMLElement,
+      HTMLElement,
+    ];
     expect(editor.getAttribute("aria-checked")).toBe("true");
-    expect(editor.getAttribute("tabindex")).not.toBe("-1");
-    expect(spreadsheet.getAttribute("tabindex")).not.toBe("-1");
-    for (const radio of [editor, spreadsheet]) {
+    expect([editor, spreadsheet, paste].map((r) => r.getAttribute("tabindex"))).toEqual([
+      "0",
+      "-1",
+      "-1",
+    ]);
+    for (const radio of [editor, spreadsheet, paste]) {
       for (const name of ["aria-selected", "aria-controls", "aria-current", "id"]) {
         expect(radio.hasAttribute(name)).toBe(false);
       }
     }
-    // Each radio is its own tab stop, so the arrows are left to the page.
-    editor.focus();
-    fireEvent.keyDown(editor, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(editor);
     // The chosen radio asks for nothing: a refusal prompt would fire for a
     // click that changes nothing.
     fireEvent.click(editor);
@@ -154,9 +165,59 @@ describe("as radios", () => {
     fireEvent.click(spreadsheet);
     expect(spreadsheet.getAttribute("aria-checked")).toBe("false");
     expect(editor.getAttribute("aria-checked")).toBe("true");
+    expect(editor.getAttribute("tabindex")).toBe("0");
     allow = true;
     fireEvent.click(spreadsheet);
     expect(spreadsheet.getAttribute("aria-checked")).toBe("true");
+    expect([editor, spreadsheet].map((r) => r.getAttribute("tabindex"))).toEqual(["-1", "0"]);
+  });
+
+  it("moves with the arrows and asks to choose where it lands, wrapping at both ends", () => {
+    let allow = true;
+    const asked: string[] = [];
+    render(() => <Modes allow={() => allow} asked={asked} />);
+    const [editor, spreadsheet, paste] = screen.getAllByRole("radio") as [
+      HTMLElement,
+      HTMLElement,
+      HTMLElement,
+    ];
+    editor.focus();
+    fireEvent.keyDown(editor, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(spreadsheet);
+    expect(spreadsheet.getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(spreadsheet, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(paste);
+    fireEvent.keyDown(paste, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(editor);
+    fireEvent.keyDown(editor, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(paste);
+    fireEvent.keyDown(paste, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(spreadsheet);
+    expect(asked).toEqual(["import", "paste", "editor", "paste", "import"]);
+    expect(spreadsheet.getAttribute("aria-checked")).toBe("true");
+    // Refused: focus moves, the choice and the tab stop stay where they were.
+    allow = false;
+    fireEvent.keyDown(spreadsheet, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(paste);
+    expect(paste.getAttribute("aria-checked")).toBe("false");
+    expect(spreadsheet.getAttribute("aria-checked")).toBe("true");
+    expect(spreadsheet.getAttribute("tabindex")).toBe("0");
+    // Back onto the checked radio: it asks for nothing.
+    fireEvent.keyDown(paste, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(spreadsheet);
+    expect(asked).toEqual(["import", "paste", "editor", "paste", "import", "paste"]);
+    // Home and End are a tablist's keys, not a radio group's.
+    for (const key of ["Home", "End", "a"]) {
+      fireEvent.keyDown(spreadsheet, { key });
+      expect([key, document.activeElement]).toEqual([key, spreadsheet]);
+    }
+  });
+
+  it("leaves the first radio as the one tab stop when the value names none", () => {
+    render(() => <Modes allow={() => true} asked={[]} initial="gone" />);
+    const radios = screen.getAllByRole("radio");
+    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["0", "-1", "-1"]);
+    expect(radios.some((r) => r.getAttribute("aria-checked") === "true")).toBe(false);
   });
 });
 
@@ -188,6 +249,11 @@ describe("as the page you are on", () => {
         expect(button.hasAttribute(name)).toBe(false);
       }
     }
+    // Each button is its own tab stop, so the arrows are left to the page.
+    const listings = screen.getByRole("button", { name: "Listings" });
+    listings.focus();
+    fireEvent.keyDown(listings, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(listings);
     // The vendor's top bar test reads the first hidden element as the glass's
     // layer and expects it to let clicks through.
     const firstHidden = container.querySelector('[aria-hidden="true"]');
@@ -220,6 +286,40 @@ describe("an item's content", () => {
     setIconOnly(false);
     expect(tab.hasAttribute("data-tip")).toBe(false);
     expect(screen.getByText("Households").getAttribute("class") ?? "").not.toContain("sr-only");
+  });
+
+  it("hides one item's word behind its icon when that item asks, and keeps the others' words", () => {
+    const Dot = (props: { class?: string; "aria-hidden"?: "true" }) => <svg data-icon {...props} />;
+    const [marks, setMarks] = createSignal(true);
+    render(() => (
+      <SegmentedTabs
+        items={[
+          { value: "all", label: "All" },
+          {
+            value: "yes",
+            label: "Attending",
+            icon: Dot,
+            get iconOnly() {
+              return marks();
+            },
+          },
+        ]}
+        value="all"
+        onChange={() => {}}
+        label="Filter by reply"
+        semantics="radio"
+        tipAttribute="data-tip"
+      />
+    ));
+    const yes = screen.getByRole("radio", { name: "Attending" });
+    const all = screen.getByRole("radio", { name: "All" });
+    expect(screen.getByText("Attending").getAttribute("class")).toContain("sr-only");
+    expect(yes.getAttribute("data-tip")).toBe("Attending");
+    expect(screen.getByText("All").getAttribute("class") ?? "").not.toContain("sr-only");
+    expect(all.hasAttribute("data-tip")).toBe(false);
+    setMarks(false);
+    expect(screen.getByText("Attending").getAttribute("class") ?? "").not.toContain("sr-only");
+    expect(yes.hasAttribute("data-tip")).toBe(false);
   });
 
   it("takes a fuller name, a description and what follows the label", () => {
