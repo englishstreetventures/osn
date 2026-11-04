@@ -7,7 +7,7 @@
  * here ADDITIONALLY scopes by `wedding_id`, so an editor of wedding A can never
  * mutate wedding B's vendor even with a leaked id.
  */
-import { vendors } from "@cire/db";
+import { vendors, type VendorStatus } from "@cire/db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -22,7 +22,7 @@ export interface VendorDto {
   directoryVendorId: string | null;
   name: string;
   category: string;
-  status: string;
+  status: VendorStatus;
   contactName: string | null;
   email: string | null;
   phone: string | null;
@@ -37,7 +37,7 @@ export interface CreateVendorInput {
   weddingId: string;
   name: string;
   category: string;
-  status?: string;
+  status?: VendorStatus;
   contactName: string | null;
   email: string | null;
   phone: string | null;
@@ -49,7 +49,7 @@ export interface CreateVendorInput {
 export interface UpdateVendorPatch {
   name?: string;
   category?: string;
-  status?: string;
+  status?: VendorStatus;
   contactName?: string | null;
   email?: string | null;
   phone?: string | null;
@@ -63,7 +63,7 @@ interface VendorRow {
   directoryVendorId: string | null;
   name: string;
   category: string;
-  status: string;
+  status: VendorStatus;
   contactName: string | null;
   email: string | null;
   phone: string | null;
@@ -198,7 +198,7 @@ export const vendorsService = {
 
   reorder(
     weddingId: string,
-    status: string,
+    status: VendorStatus,
     orderedIds: readonly string[],
   ): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {

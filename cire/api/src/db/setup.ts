@@ -756,6 +756,16 @@ WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS (
 BEGIN
   SELECT RAISE(ABORT, 'seating table plan is not a plan of its event');
 END;
+CREATE TRIGGER IF NOT EXISTS vendors_status_stage BEFORE INSERT ON vendors
+WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'declined')
+BEGIN
+  SELECT RAISE(ABORT, 'vendor status is not a pipeline stage');
+END;
+CREATE TRIGGER IF NOT EXISTS vendors_status_stage_update BEFORE UPDATE OF status ON vendors
+WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'declined')
+BEGIN
+  SELECT RAISE(ABORT, 'vendor status is not a pipeline stage');
+END;
 `;
 
 export function createDb(path: string = ":memory:") {

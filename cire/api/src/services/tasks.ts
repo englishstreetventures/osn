@@ -517,8 +517,12 @@ export const tasksService = {
       if (patch.sortOrder !== undefined) set.sortOrder = patch.sortOrder;
       if (patch.status !== undefined) {
         set.status = patch.status;
-        // done stamps completed_at; reopening clears it.
-        set.completedAt = patch.status === "done" ? new Date() : null;
+        // done stamps completed_at, keeping the time a task already done was
+        // first completed; reopening clears it. The column stores seconds.
+        set.completedAt =
+          patch.status === "done"
+            ? sql`CASE WHEN ${tasks.status} = 'done' AND ${tasks.completedAt} IS NOT NULL THEN ${tasks.completedAt} ELSE ${Math.floor(Date.now() / 1_000)} END`
+            : null;
         // A done task kept its date while the wedding date moved. Reopened, a
         // date that follows the wedding date catches up with it.
         if (patch.status === "open" && patch.dueAt === undefined) {

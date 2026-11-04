@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, vendors } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { BOOTSTRAP_WEDDING_ID, vendors, type VendorStatus } from "@cire/db";
+import { eq, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
@@ -49,6 +49,47 @@ describe("vendorsService", () => {
     if (!Exit.isSuccess(list)) throw new Error("list failed");
     expect(list.value.map((v) => v.name)).toEqual(["Bloom"]);
     expect(list.value[0]!.status).toBe("researching");
+  });
+
+  it("the database refuses a vendor status outside the pipeline", async () => {
+    const db = db0();
+    const created = await run(
+      db,
+      vendorsService.create({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        name: "Florist",
+        category: "florals",
+        status: "researching",
+        contactName: null,
+        email: null,
+        phone: null,
+        notes: null,
+        quotedMinor: null,
+      }),
+    );
+    if (!Exit.isSuccess(created)) throw new Error("create failed");
+    const refusal = (write: () => unknown): string => {
+      try {
+        write();
+        return "accepted";
+      } catch (error) {
+        return String((error as { cause?: unknown }).cause ?? error);
+      }
+    };
+    expect(
+      refusal(() =>
+        db.run(sql`UPDATE vendors SET status = 'shortlisted' WHERE id = ${created.value.id}`),
+      ),
+    ).toContain("vendor status is not a pipeline stage");
+    expect(
+      refusal(() =>
+        db.run(
+          sql`INSERT INTO vendors (id, wedding_id, name, category, status, sort_order, created_at, updated_at) VALUES ('ven_bad', ${BOOTSTRAP_WEDDING_ID}, 'X', 'florals', 'maybe', 0, 1, 1)`,
+        ),
+      ),
+    ).toContain("vendor status is not a pipeline stage");
+    const [row] = db.select().from(vendors).where(eq(vendors.id, created.value.id)).all();
+    expect(row!.status).toBe("researching");
   });
 
   it("rejects updating another wedding's vendor (tenancy)", async () => {
@@ -119,7 +160,7 @@ describe("vendorsService.create sort order", () => {
   function seedVendor(
     db: ReturnType<typeof createDb>,
     weddingId: string,
-    status: string,
+    status: VendorStatus,
     sortOrder: number,
   ) {
     const now = new Date();
@@ -141,7 +182,7 @@ describe("vendorsService.create sort order", () => {
     weddingId: BOOTSTRAP_WEDDING_ID,
     name: "New",
     category: "florals",
-    status: "contacted",
+    status: "contacted" as const,
     contactName: null,
     email: null,
     phone: null,

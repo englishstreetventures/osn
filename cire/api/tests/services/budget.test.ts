@@ -151,6 +151,38 @@ describe("budgetService", () => {
     ]);
   });
 
+  it("keeps paid_at when a paid payment is marked paid again", async () => {
+    const db = db0();
+    const created = await run(db, budgetService.createItem(newItem()));
+    if (!Exit.isSuccess(created)) throw new Error("create failed");
+    const itemId = created.value.id;
+    const pay = await run(
+      db,
+      budgetService.addPayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        label: "Deposit",
+        amountMinor: 250000,
+        dueAt: "2026-03-01",
+      }),
+    );
+    if (!Exit.isSuccess(pay)) throw new Error("add payment failed");
+    const FIRST_PAID = new Date(1_000_000);
+    db.update(payments).set({ paidAt: FIRST_PAID }).where(eq(payments.id, pay.value.id)).run();
+
+    const again = await run(
+      db,
+      budgetService.updatePayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        paymentId: pay.value.id,
+        patch: { paid: true },
+      }),
+    );
+    if (!Exit.isSuccess(again)) throw new Error("mark paid again failed");
+    expect(again.value.paidAt).toBe(FIRST_PAID.getTime());
+  });
+
   it("adds a payment, marks it paid then unpaid, and blocks a cross-tenant add", async () => {
     const db = db0();
     const created = await run(db, budgetService.createItem(newItem()));
@@ -181,6 +213,20 @@ describe("budgetService", () => {
     );
     if (!Exit.isSuccess(paid)) throw new Error("mark paid failed");
     expect(typeof paid.value.paidAt).toBe("number");
+    expect(Math.abs(paid.value.paidAt! - Date.now())).toBeLessThan(5_000);
+
+    // A patch that does not name `paid` leaves the paid time alone.
+    const relabelled = await run(
+      db,
+      budgetService.updatePayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        paymentId: pay.value.id,
+        patch: { label: "Deposit (paid)" },
+      }),
+    );
+    if (!Exit.isSuccess(relabelled)) throw new Error("relabel failed");
+    expect(relabelled.value.paidAt).toBe(paid.value.paidAt);
 
     const unpaid = await run(
       db,

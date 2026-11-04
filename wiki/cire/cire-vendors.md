@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-04
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -54,7 +54,7 @@ Wedding-scoped vendor CRM rows. Each is an organiser's record of a vendor they a
 | `directory_vendor_id` | Nullable, no FK. At most one row per `(wedding_id, directory_vendor_id)` — the partial unique index `vendors_wedding_directory_uniq` |
 | `name` | Organiser's label (may differ from the directory name) |
 | `category` | Service category |
-| `status` | `researching`, `contacted`, `quoted`, `booked` or `declined` (`VENDOR_STATUSES` in `cire/api/src/schemas/vendors.ts`) |
+| `status` | `researching`, `contacted`, `quoted`, `booked` or `declined` (`VENDOR_STATUSES` in `cire/db/src/schema.ts`). The triggers `vendors_status_stage` and `vendors_status_stage_update` refuse any other value on insert and update |
 | `contact_name`, `email`, `phone` | Contact details (sole-trader PII) |
 | `notes` | Organiser free text |
 | `quoted_minor` | The vendor's quote, in minor units |

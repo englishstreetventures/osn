@@ -837,11 +837,17 @@ export const budgetService = {
       // collapse to one UPDATE .. RETURNING round trip.
       yield* requireItem(weddingId, itemId);
 
-      const set: Partial<PaymentRow> = {};
+      const set: SQLiteUpdateSetSource<typeof payments> = {};
       if (patch.label !== undefined) set.label = patch.label;
       if (patch.amountMinor !== undefined) set.amountMinor = patch.amountMinor;
       if (patch.dueAt !== undefined) set.dueAt = patch.dueAt;
-      if (patch.paid !== undefined) set.paidAt = patch.paid ? new Date() : null;
+      // A payment already paid keeps the time it was first paid; the column
+      // stores seconds.
+      if (patch.paid !== undefined) {
+        set.paidAt = patch.paid
+          ? sql`COALESCE(${payments.paidAt}, ${Math.floor(Date.now() / 1_000)})`
+          : null;
+      }
 
       // An empty patch degrades to a plain read (drizzle rejects an empty SET).
       const [updated] = yield* dbQuery(() =>

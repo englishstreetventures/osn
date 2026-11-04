@@ -1479,7 +1479,7 @@ describe("directoryService.browse + getLiveListingById", () => {
         directoryVendorId: "LA",
         name: "Acorn Estate",
         category: "venue",
-        status: "confirmed",
+        status: "booked",
         contactName: null,
         email: null,
         phone: null,
