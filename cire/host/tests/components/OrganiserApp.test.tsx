@@ -239,6 +239,7 @@ import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
 import { registerUnsavedGuard } from "../../src/lib/unsaved-guard";
+import { pollDelayMs } from "../../src/lib/upgrade-return";
 import { hasCachedCatalogue, setCatalogue } from "../../src/lib/upgrade-store";
 import {
   __resetVendorsCache,
@@ -557,6 +558,97 @@ describe("OrganiserApp Dashboard", () => {
     expect(listReads).toBe(2);
     expect(window.location.search).toBe("");
     toastSuccess.mockReset();
+  });
+
+  /**
+   * Back from Stripe, the purchase answering each of `statuses` in turn (the
+   * last one repeats); `"unreachable"` is a read that never reaches the API.
+   * Fake timers go in before `render`: the poll starts at
+   * mount and schedules its first sleep straight after the first read. The
+   * caller restores real timers in a `finally`, and uses no `waitFor` meanwhile:
+   * its deadline is a faked `setTimeout` too, so a failure would hang.
+   */
+  function returnFromStripe(statuses: string[]) {
+    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
+    const reads = { purchase: 0, list: 0 };
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/upgrade/purchases/upg_1")) {
+        const status = statuses[Math.min(reads.purchase, statuses.length - 1)];
+        reads.purchase += 1;
+        if (status === "unreachable") throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({ purchase: { status, tier: "gold" } }), {
+          status: 200,
+        });
+      }
+      reads.list += 1;
+      return listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", tier: "ivory" }]);
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    render(() => <OrganiserApp />);
+    return reads;
+  }
+
+  it("ends the poll on a payment that bought nothing, and says to contact support", async () => {
+    // The organiser is back before the webhook lands, and the webhook then
+    // finds the payment does not match what the purchase sold.
+    const reads = returnFromStripe(["pending", "mismatch"]);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads.purchase).toBe(1);
+      expect(toastError).not.toHaveBeenCalled();
+      expect(toastInfo).not.toHaveBeenCalled();
+      expect(toastSuccess).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(pollDelayMs(0));
+      expect(reads.purchase).toBe(2);
+      // Pinned until closed: it is the organiser's next step, and the only
+      // place the portal says the money arrived and bought nothing.
+      expect(toastError).toHaveBeenCalledWith(
+        "Your payment went through, but it did not upgrade this wedding. Please contact support.",
+        { duration: Number.POSITIVE_INFINITY, dismissible: true },
+      );
+
+      // The poll is over: no third read, and never "still being confirmed".
+      await vi.advanceTimersByTimeAsync(pollDelayMs(1));
+      expect(reads.purchase).toBe(2);
+      expect(toastError).toHaveBeenCalledTimes(1);
+      expect(toastInfo).not.toHaveBeenCalled();
+      expect(toastSuccess).not.toHaveBeenCalled();
+      // Nothing was granted, so the list the nav locks by is not read again.
+      expect(reads.list).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends the poll on a refunded purchase, and says it was refunded", async () => {
+    // Only an operator writes `refunded`, and only over a purchase that had
+    // succeeded, so the poll meets it straight away: a return URL opened again
+    // after the purchase was taken back. The first read never reaches the API,
+    // which is not a failed purchase, so the poll asks again.
+    const reads = returnFromStripe(["unreachable", "refunded"]);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads.purchase).toBe(1);
+      expect(toastInfo).not.toHaveBeenCalled();
+      expect(toastError).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(pollDelayMs(0));
+      expect(reads.purchase).toBe(2);
+      expect(toastInfo).toHaveBeenCalledWith(
+        "That purchase was refunded, so it no longer applies to this wedding.",
+      );
+
+      // The poll is over.
+      await vi.advanceTimersByTimeAsync(pollDelayMs(1));
+      expect(reads.purchase).toBe(2);
+      expect(toastInfo).toHaveBeenCalledTimes(1);
+      expect(toastError).not.toHaveBeenCalled();
+      expect(toastSuccess).not.toHaveBeenCalled();
+      expect(reads.list).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("auto-opens a freshly created wedding's dashboard", async () => {

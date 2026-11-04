@@ -853,7 +853,9 @@ function Dashboard() {
    * Back from Stripe.
    *
    * The tier is raised by the webhook, not by this page, so all this does is
-   * ask what happened and refresh the list once it has. The params are
+   * ask what happened and refresh the list once it has. Each settled status
+   * ends the poll with its own message; `pending`, a purchase not found and a
+   * failed read keep it going until the last attempt. The params are
    * stripped the moment they are read: `setRoute` rebuilds the URL as
    * `pathname + search + hash` on every hash write and the login bounce carries
    * `search` through, so leaving them would re-run this on every later
@@ -920,6 +922,22 @@ function Dashboard() {
         }
         if (state?.status === "failed" || state?.status === "expired") {
           if (!cancelled) toast.error("That payment did not go through. Nothing was charged.");
+          return;
+        }
+        if (state?.status === "mismatch") {
+          // Paid, and nothing granted: a person has to refund it or apply it.
+          // Pinned, because this is the organiser's next step and nowhere else
+          // in the portal says the money arrived.
+          toast.error(
+            "Your payment went through, but it did not upgrade this wedding. Please contact support.",
+            { duration: Number.POSITIVE_INFINITY, dismissible: true },
+          );
+          return;
+        }
+        if (state?.status === "refunded") {
+          // Only an operator writes this, over a purchase that had succeeded
+          // (`grant-tier.ts --lower`), so it is met on a return URL opened again.
+          toast.info("That purchase was refunded, so it no longer applies to this wedding.");
           return;
         }
         // No sleep after the final attempt — there is nothing left to wait

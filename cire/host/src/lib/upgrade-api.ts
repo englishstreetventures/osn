@@ -54,7 +54,7 @@ export interface Catalogue {
 }
 
 export interface PurchaseState {
-  status: "pending" | "succeeded" | "failed" | "expired";
+  status: "pending" | "succeeded" | "failed" | "expired" | "refunded" | "mismatch";
   /** The tier the purchase buys. `null` for a purchase that names no tier this
    *  build knows. */
   tier: PaidTier | null;
