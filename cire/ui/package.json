@@ -24,7 +24,8 @@
     "./reveal": "./src/reveal.tsx",
     "./segmented-tabs": "./src/segmented-tabs.tsx",
     "./sliding-pill": "./src/lib/sliding-pill.ts",
-    "./username-input": "./src/username-input.tsx"
+    "./username-input": "./src/username-input.tsx",
+    "./wordmark": "./src/wordmark.tsx"
   },
   "scripts": {
     "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",

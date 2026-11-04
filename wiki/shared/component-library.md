@@ -44,7 +44,7 @@ product layer, and which one a component belongs in is decided by
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `SegmentedTabs`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
 _why_ the line falls there, and is not re-argued here. The short version is that
@@ -131,7 +131,8 @@ cire/ui/src/
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
 ├── segmented-tabs.tsx      ← SegmentedTabs: a glass track of choices with one sliding highlight
 ├── lib/sliding-pill.ts     ← createSlidingPill: one highlight that moves between items
-└── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
+├── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
+└── wordmark.tsx            ← Wordmark: the portals' "✦ Cire" way home; WordmarkPlaceholder, its still copy
 ```
 
 ### `SafeProps` — why the primitives do not accept `innerHTML`
@@ -503,11 +504,12 @@ RSVP table ([[cire-rsvp-table]]) and household tables, in page mode.
 
 Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
-exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its ten
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its twelve
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `reveal` — are **default** exports, while `username-input` is named,
+`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `reveal`, `segmented-tabs`, `wordmark` — are **default** exports, while `username-input` is named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
-default, and `eyebrow` a named `eyebrowClass`. So a named `Button` import from `@cire/ui/button` resolves to nothing:
+default, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL` and
+`wordmark` a named `WordmarkPlaceholder`. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
 ```typescript
 import { Button } from "@shared/ui/ui/button";
@@ -1124,6 +1126,33 @@ it, and the module rail's marker: `ease: "out"` (the default) or `"spring"`.
 `cire/ui/tests/segmented-tabs.test.tsx` holds the roles and keys,
 `segmented-tabs.browser.test.tsx` where the glass lands, the 28px and 22px
 heights, each label's 4.5:1 on both ramps, the ring and the scrolling strip.
+
+### cire's `Wordmark` — the way home, and its still copy
+
+Both portals' top bars open with the same mark (`cire/ui/src/wordmark.tsx`):
+a readable-gold ✦ and "Cire" in the display face at the `md` step, wide
+tracking and light weight, in a 6px box (`rounded-ui-sm`, `px-1.5 py-1.5`)
+that takes the surface at 60% under the pointer — the nav-row highlight the
+portal menus and the module rail draw. It is a button named by `label` alone
+("Cire — all weddings", "Cire — your listings"), which its type holds to open
+with "Cire — ", the word on screen, so a voice user who says "click Cire"
+reaches it (WCAG 2.5.3); the star and the word are `aria-hidden`. The star stays readable gold under the pointer, so the hover
+changes only the wash, and that fade names its one property on `--dur-fast`
+and `--ease-out`. The focus ring is `Button`'s own, 2px at a 2px offset from
+`--ui-focus`, because a library part cannot count on its app's blanket
+`:focus-visible` rule. The box pulls 4px left (`-ml-1`) and never right: with
+a pull on both sides the ring lands on the divider (or vendor's tabs) 8px
+along the bar's `gap-2` row, and left only it clears them by 4px. It takes no
+`class`, `size` or `variant`.
+
+`WordmarkPlaceholder` is the same box and glyphs with no role, no tab stop, no
+hover and `aria-hidden`, for the static bar a portal's `index.astro` paints
+until the island mounts, rendered to HTML with no client directive. The two share one box string and one glyphs component, so the swap
+moves nothing. `cire/ui/tests/wordmark.test.tsx` holds the name, the click, the
+form, the placeholder's inertness, the readable star, the left-only pull and
+the ring's classes; `wordmark.browser.test.tsx` the star and the word at
+4.5:1 on the bar and on the wash in both ramps, the ring and its gap to the
+divider, and the copy's glyphs landing where the button's do.
 
 ### cire's `Button`, as a vocabulary
 

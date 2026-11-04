@@ -11,6 +11,9 @@
 /* Nor a segmented strip: its glass rules stay out. A page that draws
    `SegmentedTabs` needs this line gone. */
 @source not "../../../ui/src/segmented-tabs.tsx";
+/* Nor the portals' wordmark. A page that draws `Wordmark` needs this line
+   gone. */
+@source not "../../../ui/src/wordmark.tsx";
 /* Nor any menu. A page that draws `DropdownMenu`, or a touch menu, needs the
    matching line gone. */
 @source not "../../../../shared/ui/src/ui/dropdown-menu.tsx";
