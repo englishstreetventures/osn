@@ -507,9 +507,9 @@ shadow (`var(--inner-lip), 0 12px 32px -8px …`), so **every floating panel is
 one depth**: the raised surface, lit by the lip, on the floating shadow, at the
 10px corner (owner, the 2026-11-04 consistency audit, item 5). That is every
 popover the portal draws on Kobalte directly (the date and colour pickers, the
-module card, the droplet popovers), every portal menu (the shared menu's accent
-look reads `--elev-2`), the reply key's panel (the shared `Popover`, given
-`shadow-(--elev-2)`), the co-host suggestion list and a row lifted by a drag;
+module card, the droplet popovers, the reply key's panel), every portal menu (the shared menu's accent
+look reads `--elev-2`), the co-host suggestion list and a row lifted by a
+drag;
 the command palette takes the same raised surface and depth at its 16px modal
 corner. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
 `shadow-md`, the shadow `@shared/ui`'s `Tooltip` paints, so a tooltip here
@@ -622,8 +622,8 @@ until its animation ends.
 **Every other menu and picker pops.** Every portal menu — the account menu,
 the wedding switcher, the seat menu, the household menu, the invite builder's
 phone menu — is the shared `DropdownMenu` on its accent look, whose panel pops
-at this file's `--dur-fast` and `--ease-out`; the date and colour pickers and
-the module card carry `menu-pop`, the same short scale-and-fade from the side
+at this file's `--dur-fast` and `--ease-out`; the date and colour pickers,
+the module card and the reply key's panel carry `menu-pop`, the same short scale-and-fade from the side
 of the trigger they opened on (`--kb-popper-content-transform-origin`, which
 Kobalte sets for popovers and menus alike), with no overshoot. Neither has an
 exit: these menus are worked from the keyboard, and a closing menu held mounted
