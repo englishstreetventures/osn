@@ -487,8 +487,8 @@ one row:
   row — a household's four actions and its "⋯" — is `quiet` at `icon`: the
   same circle, its hover a gold edge and readable gold, held while what it
   opens is open. `round` stays the guest sheet's ×. A dialog's or a drawer's
-  own × — the event drawer's Close — stays `bare`:
-  it belongs to the frame it closes, not to a bar of the page's pills, and a
+  own × — the event drawer's Close, the module drawer's Close modules —
+  stays `bare`: it belongs to the frame it closes, not to a bar of the page's pills, and a
   hairline circle in a panel's head would read as one more of its actions.
 - **A block pressed to choose** — the code-style and re-mint radio cards
   (14px), a design card (16px) — is marked as `choice` marks an answer, at
