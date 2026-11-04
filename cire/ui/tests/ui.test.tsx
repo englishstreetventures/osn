@@ -19,6 +19,7 @@ import Card, {
   cardBoxClass,
   cardClass,
 } from "../src/card";
+import { PULSE } from "../src/lib/pulse";
 import Loading from "../src/loading";
 import { UsernameInput } from "../src/username-input";
 
@@ -830,5 +831,13 @@ describe("Loading", () => {
     expect(el).toHaveTextContent("Loading enquiries…");
     // `status`, not `alert`: something starting to load is not urgent.
     expect(el).not.toHaveAttribute("role", "alert");
+  });
+
+  it("pulses on the same pulse as Skeleton, and no other", () => {
+    // Two loaders on one screen pulse in step; the pulse reads the motion
+    // tokens (`lib/pulse.ts`), never Tailwind's fixed `animate-pulse`.
+    render(() => <Loading label="Loading enquiries…" />);
+    const cls = screen.getByRole("status").className.split(/\s+/);
+    expect(cls.filter((c) => c.includes("animate"))).toEqual([PULSE]);
   });
 });

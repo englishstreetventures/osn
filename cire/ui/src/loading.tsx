@@ -1,3 +1,5 @@
+import { PULSE } from "./lib/pulse";
+
 /**
  * "This is on its way."
  *
@@ -11,8 +13,9 @@
  * portal that cuts across a screen reader mid-sentence to say "Loading…" is
  * worse than one that waits its turn.
  *
- * The pulse is a Tailwind animation, so each app's reduced-motion kill switch
- * stops it without this component knowing.
+ * It pulses on `Skeleton`'s pulse (`lib/pulse.ts`), on the app's motion
+ * tokens, so a line and the blocks beside it pulse in step; each app's
+ * reduced-motion kill switch stops it without this component knowing.
  */
 export default function Loading(props: { label: string }) {
   // oxlint-disable jsx-a11y/prefer-tag-over-role -- `<output>` is the tag that
@@ -24,7 +27,7 @@ export default function Loading(props: { label: string }) {
   return (
     <p
       role="status"
-      class="base:font-ui-body base:text-ui-ink-secondary base:animate-pulse base:text-ui-base base:tracking-ui-wider base:uppercase"
+      class={`base:font-ui-body base:text-ui-ink-secondary ${PULSE} base:text-ui-base base:tracking-ui-wider base:uppercase`}
     >
       {props.label}
     </p>

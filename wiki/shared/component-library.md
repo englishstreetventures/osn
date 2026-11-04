@@ -44,7 +44,7 @@ product layer, and which one a component belongs in is decided by
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Skeleton`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
 _why_ the line falls there, and is not re-argued here. The short version is that
@@ -141,6 +141,8 @@ cire/ui/src/
 ├── site-footer.astro       ← SiteFooter: both guest-facing sites' footer — sign-off, rule, links, version
 ├── legal-layout.astro      ← LegalLayout: the legal pages' document, its four slots and the .legal type
 ├── sign-in-press.ts        ← createSignInPress: what a "Continue with musubi" button does once pressed
+├── skeleton.tsx            ← Skeleton: a loading placeholder, in the corner and fill of what it stands in for
+├── lib/pulse.ts            ← PULSE: the loaders' pulse on the motion tokens, for Loading and Skeleton; not exported
 ├── lib/sliding-pill.ts     ← createSlidingPill: one highlight that moves between items
 ├── lib/auto-size.ts        ← createAutoSize: a box animated between two content heights
 ├── lib/theme.ts            ← createPreferences: a portal's theme and haptics switch, under its own keys
@@ -519,12 +521,12 @@ RSVP table ([[cire-rsvp-table]]) and household tables, in page mode.
 
 Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
-exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its fifteen
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its sixteen
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`disclosure`, `eyebrow`, `file-input`, `loading`, `message-thread`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class`, `sign-in-press` and `avatar-trigger-class` are named,
+`disclosure`, `eyebrow`, `file-input`, `loading`, `message-thread`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `skeleton`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class`, `sign-in-press` and `avatar-trigger-class` are named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
 default, `message-thread` the `MessageThreadItem` and `MessageThreadReply` types, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL`,
-`sign-in-panel` the `SignInAuth` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, and
+`sign-in-panel` the `SignInAuth` type, `skeleton` the `SkeletonStandIn` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, and
 `wordmark` a named `WordmarkPlaceholder`. `sign-in-card.astro`, `site-footer.astro` and `legal-layout.astro` are Astro components, imported by default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
 ```typescript
