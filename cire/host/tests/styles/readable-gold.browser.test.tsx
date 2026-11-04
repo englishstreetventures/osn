@@ -322,3 +322,67 @@ for (const theme of THEMES) {
     }
   });
 }
+
+/*
+ * Two marks of the 2026-11-04 consistency audit measured on parts this file
+ * already draws: the command palette floats at the one panel depth, on the
+ * raised surface lit by the inner lip (item 5), and a chosen design card is a
+ * block marked as `choice` marks an answer, a gold edge and a 2px ring with no
+ * wash (item 4).
+ */
+describe("the palette's depth and a chosen design card", () => {
+  const paint = (value: string) => {
+    const probe = document.createElement("div");
+    probe.style.backgroundColor = value;
+    document.body.append(probe);
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  };
+
+  it("floats the palette on the raised surface, lit, on the floating shadow", async () => {
+    await page.viewport(1280, 800);
+    render(() => (
+      <CommandPalette
+        open
+        onOpenChange={() => {}}
+        wedding={RUTH}
+        weddings={[RUTH]}
+        onModule={() => {}}
+        onWedding={() => {}}
+        onAll={() => {}}
+        onSecurity={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
+    const dialog = await vi.waitFor(() => screen.getByRole("dialog"));
+    const style = getComputedStyle(dialog);
+    expect(style.backgroundColor).toBe(paint("var(--surface-raised)"));
+    expect(style.borderTopLeftRadius).toBe("16px");
+    const shadows = style.boxShadow.split(/,(?![^(]*\))/).map((s) => s.trim());
+    expect(shadows.some((s) => s.includes("inset") && s.includes("0px 1px 0px"))).toBe(true);
+    expect(shadows.some((s) => s.includes("12px 32px -8px"))).toBe(true);
+  });
+
+  it("marks the chosen design with a gold edge and a 2px ring, no wash", async () => {
+    render(() => (
+      <DesignPicker
+        entitlements={[]}
+        currentId="classic"
+        saving={false}
+        onSelect={() => {}}
+        previewHref={(id) => `https://guests.test/?design=${id}`}
+      />
+    ));
+    const chosen = screen.getByRole("radio", { checked: true }).closest("div")!;
+    await Promise.all(chosen.getAnimations().map((a) => a.finished));
+    const style = getComputedStyle(chosen);
+    const gold = document.createElement("div");
+    gold.style.color = "var(--gold)";
+    document.body.append(gold);
+    expect(style.borderTopColor).toBe(getComputedStyle(gold).color);
+    gold.remove();
+    expect(style.boxShadow).toMatch(/0px 0px 0px 2px/);
+    expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  });
+});

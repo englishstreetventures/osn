@@ -725,6 +725,89 @@ describe("the reply key", () => {
   });
 });
 
+/** A colour as one comparable paint, whatever form the engine reports it in. */
+function paint(color: string): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 1, 1);
+  return ctx.getImageData(0, 0, 1, 1).data.slice(0, 3).join(",");
+}
+
+const rootToken = (name: string) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+describe("the RSVP bar's one pill language", () => {
+  it("draws every pill in the bar, and the section's download, at 28px", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const bar = within(viewBar());
+    const heights = {
+      search: bar.getByRole("searchbox").getBoundingClientRect().height,
+      events: strip().getBoundingClientRect().height,
+      replies: bar.getByRole("radiogroup").getBoundingClientRect().height,
+      key: bar.getByRole("button", { name: "What the reply icons mean" }).getBoundingClientRect()
+        .height,
+      download: screen.getByRole("button", { name: "Download RSVPs (CSV)" }).getBoundingClientRect()
+        .height,
+    };
+    expect(heights).toEqual({ search: 28, events: 28, replies: 28, key: 28, download: 28 });
+  });
+
+  it("rests the search box on the track's look, led by a magnifier, its edge strong under the pointer and on focus", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const search = within(viewBar()).getByRole("searchbox");
+    const rest = getComputedStyle(search);
+    expect(paint(rest.borderTopColor)).toBe(paint(rootToken("--border")));
+    expect(paint(rest.backgroundColor)).toBe(paint(getComputedStyle(strip()).backgroundColor));
+    // The 3:1 mark that says "a field": a magnifier in the secondary ink.
+    const glyph = search.parentElement!.querySelector("svg[data-filter-glyph]")!;
+    expect(glyph).toBeTruthy();
+    expect(glyph.getBoundingClientRect().left).toBeLessThan(
+      search.getBoundingClientRect().left + 16,
+    );
+    expect(paint(getComputedStyle(glyph).color)).toBe(paint(rootToken("--text-muted")));
+    await userEvent.hover(search);
+    expect(paint(getComputedStyle(search).borderTopColor)).toBe(
+      paint(rootToken("--border-strong")),
+    );
+    await userEvent.unhover(search);
+    search.focus();
+    expect(paint(getComputedStyle(search).borderTopColor)).toBe(
+      paint(rootToken("--border-strong")),
+    );
+  });
+
+  it("draws the reply key as the bar's icon button, gold-edged while its panel floats lit", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const key = within(viewBar()).getByRole("button", { name: "What the reply icons mean" });
+    const search = within(viewBar()).getByRole("searchbox");
+    expect(key.getBoundingClientRect().width).toBe(28);
+    expect(paint(getComputedStyle(key).borderTopColor)).toBe(paint(rootToken("--border")));
+    expect(paint(getComputedStyle(key).backgroundColor)).toBe(
+      paint(getComputedStyle(search).backgroundColor),
+    );
+    await userEvent.click(key);
+    const dialog = await screen.findByRole("dialog", { name: "What the reply icons mean" });
+    expect(paint(getComputedStyle(key).borderTopColor)).toBe(paint(rootToken("--gold")));
+    const panel = getComputedStyle(dialog);
+    expect(paint(panel.backgroundColor)).toBe(paint(rootToken("--surface-raised")));
+    expect(panel.borderTopLeftRadius).toBe("10px");
+    // The inner lip and the floating shadow, as every panel draws them.
+    expect(panel.boxShadow).toMatch(/inset/);
+    expect(panel.boxShadow).toMatch(/12px 32px -8px/);
+    await userEvent.keyboard("{Escape}");
+  });
+});
+
 /** A picture of the window, not the whole page: an element screenshot of a
  *  box fixed over the viewport. */
 async function screenshotWindow(path: string) {

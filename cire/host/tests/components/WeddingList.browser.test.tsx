@@ -86,3 +86,25 @@ describe("the wedding list at a phone's width", () => {
     expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)");
   });
 });
+
+/*
+ * The empty slot (the 2026-11-04 consistency audit, item 9): "Create a
+ * wedding" stands in the grid's next cell as a dashed tile, the 14px field
+ * corner, the size of a wedding's tile, not a pill under the grid.
+ */
+describe("the empty slot", () => {
+  it("is a dashed 14px tile in the grid, the size of a wedding's tile", async () => {
+    await page.viewport(1280, 900);
+    render(() => <WeddingList weddings={WEDDINGS} onSelect={() => {}} onCreated={() => {}} />);
+    const slot = screen.getByRole("button", { name: "Create a wedding" });
+    const tile = screen.getByRole("button", { name: new RegExp(WEDDINGS[0]!.displayName) });
+    const style = getComputedStyle(slot);
+    expect([style.borderTopStyle, style.borderTopLeftRadius]).toEqual(["dashed", "14px"]);
+    expect(slot.closest("ul")).toBe(tile.closest("ul"));
+    const [a, b] = [slot.getBoundingClientRect(), tile.getBoundingClientRect()];
+    expect([Math.round(a.width), Math.round(a.height)]).toEqual([
+      Math.round(b.width),
+      Math.round(b.height),
+    ]);
+  });
+});

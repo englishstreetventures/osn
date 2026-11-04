@@ -8,10 +8,12 @@ import { describe, expect, it } from "vitest";
  * `form` size, or `form-compact` in a narrow cell (DESIGN.md §4, "One
  * form-field height"). A field added without one renders at 36px beside 34px
  * neighbours and nothing on screen says so, so this reads every `<Input` and
- * `<Select` tag under `src/` and names those without it. Those are the
- * filters: `size="sm"`, 28px with round ends. A height class on a field would
- * fight its size, so none carries `h-8.5` or `h-7`. Each filter is found by its
- * file and a marker in its own handler, not by line number.
+ * `<Select` tag under `src/` and names those without it. The only two are the
+ * filter parts in `FilterField.tsx`, `size="sm"`, 28px with round ends, in the
+ * track's look; every filter is one of them (`<FilterSearch`, `<FilterSelect`),
+ * found by its file and a marker in its own handler, not by line number. A
+ * height class on a field would fight its size, so none carries `h-8.5` or
+ * `h-7`.
  *
  * Static: a tag runs from its name to the first `>` outside braces and quotes,
  * so an arrow function's `=>` inside a prop cannot end it early.
@@ -46,13 +48,16 @@ function fields(): Array<{ file: string; at: string; tag: string }> {
   );
   for (const file of files) {
     const text = readFileSync(join(SRC, file), "utf8");
-    for (const m of text.matchAll(/<(Input|Select)(?=[\s/>])/g)) {
+    for (const m of text.matchAll(/<(Input|Select|FilterSearch|FilterSelect)(?=[\s/>])/g)) {
       const line = text.slice(0, m.index).split("\n").length;
       found.push({ file, at: `${file}:${line}`, tag: openingTag(text, m.index) });
     }
   }
   return found;
 }
+
+/** The two filter parts: the only `sm` fields, by their own tags. */
+const FILTER_PARTS = ["components/FilterField.tsx:<Input", "components/FilterField.tsx:<Select"];
 
 /** Each filter: the file it is in and text unique to its own tag. */
 const FILTERS = [
@@ -71,19 +76,25 @@ describe("Input and Select", () => {
     // A scan that found nothing would pass whatever the source says.
     expect(all.length).toBeGreaterThan(50);
     expect(all.filter((f) => /\bh-(8\.5|7)\b/.test(f.tag)).map((f) => f.at)).toEqual([]);
-    const without = all.filter((f) => !/\bsize="form(-compact)?"/.test(f.tag));
-    const named = without.map((f) => {
+    const controls = all.filter((f) => /^<(Input|Select)\b/.test(f.tag));
+    const without = controls.filter((f) => !/\bsize="form(-compact)?"/.test(f.tag));
+    expect(without.map((f) => `${f.file}:${f.tag.match(/^<\w+/)![0]}`)).toEqual(FILTER_PARTS);
+    expect(without.every((f) => /\bsize="sm"/.test(f.tag))).toBe(true);
+    const filters = all.filter((f) => /^<Filter(Search|Select)\b/.test(f.tag));
+    const named = filters.map((f) => {
       const filter = FILTERS.find((x) => x.file === f.file && f.tag.includes(x.marker));
       return filter ? `${filter.file} ${filter.marker}` : f.at;
     });
-    expect(named.sort()).toEqual(FILTERS.map((x) => `${x.file} ${x.marker}`).sort());
+    expect(named.toSorted()).toEqual(FILTERS.map((x) => `${x.file} ${x.marker}`).toSorted());
+    // A filter part takes its size from itself, never from its caller.
+    expect(filters.filter((f) => /\bsize=/.test(f.tag)).map((f) => f.at)).toEqual([]);
   });
 
-  it("keep each named filter at 28px, size sm", () => {
-    const sizes = FILTERS.map((filter) => {
+  it("keep each named filter on a filter part", () => {
+    const parts = FILTERS.map((filter) => {
       const tag = fields().find((f) => f.file === filter.file && f.tag.includes(filter.marker));
-      return `${filter.file} ${filter.marker}: ${/\bsize="sm"/.test(tag?.tag ?? "") ? "sm" : "not sm"}`;
+      return `${filter.file} ${filter.marker}: ${/^<Filter(Search|Select)\b/.test(tag?.tag ?? "") ? "filter" : "not a filter"}`;
     });
-    expect(sizes).toEqual(FILTERS.map((x) => `${x.file} ${x.marker}: sm`));
+    expect(parts).toEqual(FILTERS.map((x) => `${x.file} ${x.marker}: filter`));
   });
 });

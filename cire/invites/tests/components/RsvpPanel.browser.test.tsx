@@ -276,3 +276,38 @@ describe("the answer pair, as painted", () => {
     expect(declined.scrollWidth).toBeLessThanOrEqual(declined.clientWidth);
   });
 });
+
+/*
+ * Every control a guest presses in the RSVP sheet stands at one height (the
+ * owner's guest answer on the 2026-11-04 consistency audit): the answer pair,
+ * and the bar's Cancel and Save, at 2.75rem — 44px on a phone's 16px root and
+ * 46.75px on the 17px desk root.
+ */
+describe("the sheet's controls, as tall as each other", () => {
+  afterEach(async () => {
+    cleanup();
+    await page.viewport(...DEFAULT_VIEWPORT);
+  });
+
+  for (const [name, size] of [
+    ["a phone", [390, 844]],
+    ["a desk", [1280, 900]],
+  ] as const) {
+    it(`sets Cancel and Save at the answer pair's height, on ${name}`, async () => {
+      await page.viewport(...size);
+      const { getByRole } = await open();
+      const { attending } = pair();
+      const answer = attending.getBoundingClientRect().height;
+      const root = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+      expect(answer).toBeCloseTo(2.75 * root, 1);
+      expect(getByRole("button", { name: "Save" }).getBoundingClientRect().height).toBeCloseTo(
+        answer,
+        1,
+      );
+      expect(getByRole("button", { name: "Cancel" }).getBoundingClientRect().height).toBeCloseTo(
+        answer,
+        1,
+      );
+    });
+  }
+});

@@ -1,7 +1,7 @@
 import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
-import { cleanup, render } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { commands, page } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -168,4 +168,35 @@ describe("the host top bar's words, over what scrolls beneath it", () => {
       }
     }
   }
+});
+
+/*
+ * The top bar's actions in the one pill language (the 2026-11-04 consistency
+ * audit, items 9 and 11): ⌘K a 36px pill with a 16px magnifier, as a search
+ * box reads, and Preview invite the portals' secondary `outline`, which takes
+ * no fill under the pointer.
+ */
+describe("the top bar's actions", () => {
+  it("draws ⌘K as a 36px pill led by a 16px magnifier, and Preview invite as an outline", async () => {
+    await page.viewport(1280, 800);
+    mount(RUTH);
+    const palette = screen.getByRole("button", { name: "Search and jump to" });
+    const box = palette.getBoundingClientRect();
+    expect(box.height).toBe(36);
+    expect(Number.parseFloat(getComputedStyle(palette).borderTopLeftRadius)).toBeGreaterThanOrEqual(
+      18,
+    );
+    const glyph = palette.querySelector("svg")!.getBoundingClientRect();
+    expect([glyph.width, glyph.height]).toEqual([16, 16]);
+    // Even room either side of what it holds.
+    const words = palette.lastElementChild!.getBoundingClientRect();
+    expect(Math.abs(glyph.left - box.left - (box.right - words.right))).toBeLessThanOrEqual(1);
+
+    const preview = screen.getByRole("button", { name: "Preview invite" });
+    const rest = getComputedStyle(preview).backgroundColor;
+    await userEvent.hover(preview);
+    await Promise.all(preview.getAnimations().map((a) => a.finished));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(getComputedStyle(preview).backgroundColor).toBe(rest);
+  });
 });

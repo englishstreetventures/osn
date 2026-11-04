@@ -79,3 +79,31 @@ describe("focusable controls", () => {
     expect(all.filter((c) => c.text.includes("transition-colors")).map((c) => c.at)).toEqual([]);
   });
 });
+
+/**
+ * And nothing else either (the 2026-11-04 consistency audit, item 7): a span
+ * inside a control, a label, a marker — every colour change in both portals
+ * names its properties, so no element ever fades an outline colour and one
+ * motion rule reads the same everywhere. Read line by line over every source
+ * file in both portals, comments included, since a class can sit anywhere.
+ */
+describe("every colour change in the portals", () => {
+  it("names its properties rather than fading every colour", () => {
+    const roots = [SRC, join(import.meta.dirname, "..", "..", "..", "vendor", "src")];
+    const found: string[] = [];
+    let scanned = 0;
+    for (const root of roots) {
+      for (const file of readdirSync(root, { recursive: true, encoding: "utf8" })) {
+        if (!/\.(tsx?|astro|css)$/.test(file)) continue;
+        scanned += 1;
+        readFileSync(join(root, file), "utf8")
+          .split("\n")
+          .forEach((line, i) => {
+            if (/\btransition-colors\b/.test(line)) found.push(`${file}:${i + 1}`);
+          });
+      }
+    }
+    expect(scanned).toBeGreaterThan(100);
+    expect(found).toEqual([]);
+  });
+});

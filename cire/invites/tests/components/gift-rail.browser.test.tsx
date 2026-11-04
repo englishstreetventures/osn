@@ -1,0 +1,44 @@
+import { cleanup, render } from "@solidjs/testing-library";
+import { afterEach, describe, expect, it } from "vitest";
+
+import "../../src/styles/global.css";
+
+/*
+ * The gift page says its way back once (owner, the 2026-11-04 audit): the
+ * sticky rail (`GiftRegistryDocument.astro`'s `data-gift-rail`) while the list
+ * is open, and only the closed page's own pill (`GiftRegistryPage.tsx`'s
+ * `data-gift-closed` block) once the couple have closed it. Measured under the
+ * site's stylesheet, with the two marks the page and the island write.
+ */
+
+afterEach(cleanup);
+
+function Page(props: { closed: boolean }) {
+  return (
+    <div>
+      <nav data-gift-rail aria-label="Invitation">
+        <a href="/invite">Back to the invitation</a>
+      </nav>
+      {props.closed ? (
+        <div data-gift-closed>
+          <a href="/invite">Back to the invitation</a>
+        </div>
+      ) : (
+        <ul aria-label="Gifts" />
+      )}
+    </div>
+  );
+}
+
+describe("the gift page's way back", () => {
+  it("rides the rail while the list is open", () => {
+    const { container } = render(() => <Page closed={false} />);
+    expect(getComputedStyle(container.querySelector("[data-gift-rail]")!).display).not.toBe("none");
+  });
+
+  it("is the closed page's pill alone once the list is closed", () => {
+    const { container } = render(() => <Page closed />);
+    expect(getComputedStyle(container.querySelector("[data-gift-rail]")!).display).toBe("none");
+    expect(container.querySelectorAll("a")).toHaveLength(2);
+  });
+});
