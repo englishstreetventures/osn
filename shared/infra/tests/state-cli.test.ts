@@ -17,11 +17,26 @@
  * It runs the installed Alchemy tree, which the lockfile, the root manifest
  * and the patches decide (`RUNS_ALCHEMY`). Both runs start together, before
  * any test, and each test reads its run's result.
+ *
+ * A run loads only the modules the CLI imports at start-up, through Bun's
+ * `src/` copies. SC6 reads the rest of the tree: every Effect module any file
+ * of an installed Alchemy package names, in either copy or a type
+ * declaration, must exist in the installed Effect, so a module that would fail
+ * only when a deploy first reaches it fails here too.
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { beforeAll, describe, expect, test } from "vitest";
@@ -42,10 +57,11 @@ const DISCOVERY_FAILURES = [
   "Unknown state backend",
   "Skipping @alchemy.run/cloudflare",
   "Could not load cloudflare",
+  "Could not import a provider module",
   "both contribute a state store",
 ];
 
-/** What Effect throws when a module declares a record of optional values, which Effect 4.0.7 refuses. */
+/** What Effect throws when a module declares a record of optional values, which Effect refuses. */
 const OPTIONAL_RECORD = "Cannot use `Schema.optionalKey`";
 
 interface Run {
@@ -147,5 +163,124 @@ describe("state:bootstrap with no credentials", () => {
     for (const failure of DISCOVERY_FAILURES) expect(output).not.toContain(failure);
     expect(output).toContain(NO_CREDENTIALS);
     expect(exitCode).not.toBe(0);
+  });
+});
+
+/** The packages SC6 reads: Alchemy's core, its scoped packages and the Cloudflare SDK they share. */
+const TREE_PACKAGE = /^(alchemy|@alchemy\.run\/[^/]+|@distilled\.cloud\/[^/]+)$/;
+
+/** The packages each stack depends on, from which SC6 walks the rest of the tree. */
+const TREE_ROOTS = ["alchemy", "@alchemy.run/cloudflare"];
+
+/** Source and declaration files whose imports a runtime or the type-checker follows. */
+const MODULE_FILE = /\.(?:[cm]?[jt]s|tsx)$/;
+
+/**
+ * Each Effect module a file names — `from "…"`, `import("…")`, `require("…")`
+ * or a bare `import "…"` — as the package (group 1) and the whole specifier.
+ */
+const EFFECT_SPECIFIER =
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)["']((effect|@effect\/[\w.-]+)(?:\/[^"']*)?)["']/gm;
+
+/**
+ * The real directory of package `name` as a module in `fromDir` finds it: the
+ * first `node_modules/<name>` from `fromDir` upwards. Bun's isolated install
+ * links each package's dependencies and peers beside it in the store, so this
+ * reaches the copy that package loads, never a stale store entry.
+ */
+function packageDirFrom(name: string, fromDir: string): string | undefined {
+  for (let current = fromDir; ; current = dirname(current)) {
+    const manifest = join(current, "node_modules", name, "package.json");
+    if (existsSync(manifest)) return realpathSync(dirname(manifest));
+    if (dirname(current) === current) return undefined;
+  }
+}
+
+type TreeManifest = {
+  readonly dependencies?: Readonly<Record<string, string>>;
+  readonly peerDependencies?: Readonly<Record<string, string>>;
+  readonly optionalDependencies?: Readonly<Record<string, string>>;
+};
+
+/** Every installed Alchemy-tree package the stacks reach, by real directory. */
+function treePackages(): string[] {
+  const found = new Set<string>();
+  const pending = TREE_ROOTS.map((name) => {
+    const dir = packageDirFrom(name, packageDir);
+    if (dir === undefined) throw new Error(`${name} is not installed in ${packageDir}`);
+    return dir;
+  });
+  for (let dir = pending.pop(); dir !== undefined; dir = pending.pop()) {
+    if (found.has(dir)) continue;
+    found.add(dir);
+    const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as TreeManifest;
+    const names = Object.keys({
+      ...manifest.dependencies,
+      ...manifest.peerDependencies,
+      ...manifest.optionalDependencies,
+    }).filter((name) => TREE_PACKAGE.test(name));
+    // An optional peer that is not installed, such as the frontend
+    // frameworks package, is not part of the tree.
+    for (const name of names) {
+      const next = packageDirFrom(name, dir);
+      if (next !== undefined) pending.push(next);
+    }
+  }
+  return [...found].toSorted();
+}
+
+/** Every module file under `dir`, outside any nested `node_modules`. */
+function moduleFiles(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .filter((path) => MODULE_FILE.test(path) && !path.split("/").includes("node_modules"))
+    .map((path) => join(dir, path));
+}
+
+describe("the installed Alchemy tree", () => {
+  test("SC6: every Effect module its packages name, in any copy or declaration, exists in the installed Effect", () => {
+    // Named exports are not checked: the runs above load the start-up path,
+    // and a missing export there fails SC1 and SC5. An `@effect/*` package
+    // that is not installed is an optional peer (a SQL driver no stack uses),
+    // which Alchemy imports only for a resource that needs it.
+    const packages = treePackages();
+    expect(packages.length).toBeGreaterThan(TREE_ROOTS.length);
+    const missing: string[] = [];
+    let checked = 0;
+    for (const dir of packages) {
+      const installed = new Map<string, boolean>();
+      const resolves = new Map<string, boolean>();
+      const isInstalled = (name: string): boolean => {
+        let known = installed.get(name);
+        if (known === undefined) {
+          known = name === "effect" || packageDirFrom(name, dir) !== undefined;
+          installed.set(name, known);
+        }
+        return known;
+      };
+      const resolvesFrom = (specifier: string): boolean => {
+        let known = resolves.get(specifier);
+        if (known === undefined) {
+          try {
+            Bun.resolveSync(specifier, dir);
+            known = true;
+          } catch {
+            known = false;
+          }
+          resolves.set(specifier, known);
+        }
+        return known;
+      };
+      for (const file of moduleFiles(dir)) {
+        for (const match of readFileSync(file, "utf8").matchAll(EFFECT_SPECIFIER)) {
+          const specifier = match[1] ?? "";
+          if (!isInstalled(match[2] ?? "")) continue;
+          checked += 1;
+          if (!resolvesFrom(specifier))
+            missing.push(`${relative(dirname(dir), file)}: ${specifier}`);
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+    expect(missing).toEqual([]);
   });
 });
