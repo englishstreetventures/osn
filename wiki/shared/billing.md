@@ -42,8 +42,9 @@ allowance ledger that reads `status()` is englishstreetventures/osn#1485.
 concept. A consumer's own states — a directory listing's moderation status, a
 lead's qualification, a usage counter — stay in the consumer's tables and are
 never written into billing tables or read by `check()`. Connect (money moving
-on someone else's Stripe account) never goes through it: no call sets
-`Stripe-Account`, and the webhook refuses any event naming an account.
+on someone else's Stripe account) never goes through it: the billing core never
+sets `Stripe-Account` (the request helper's `stripeAccount` option is there for
+Cire's own Connect calls), and the webhook refuses any event naming an account.
 
 ## Entry points
 
@@ -60,9 +61,11 @@ on someone else's Stripe account) never goes through it: no call sets
 
 The Stripe request helper, the verifier and `readBoundedText` are copies of
 Cire's (`cire/api/src/services/stripe.ts`, `cire/api/src/lib/webhook-body.ts`),
-with three changes: GET parameters go in the query string, arrays encode as
-`key[0]=` (the form stripe-node sends), and one timeout covers the fetch and
-the body read. englishstreetventures/osn#1175 moves Cire onto them.
+with these differences: GET parameters go in the query string, arrays encode
+as `key[0]=` (the form stripe-node sends), the fetch is `instrumentedFetch`
+unless a `fetchImpl` is passed, and the one timeout over the fetch and the body
+read is an option (`timeoutMs`, default 10 s). englishstreetventures/osn#1175
+moves Cire onto them.
 
 ## Plans and features
 
@@ -108,8 +111,9 @@ plan's price back by lookup key, with each currency's amount and the price's
    ```
 
    The consumer also adds the tables to its data map ([[data-map]]) and a
-   retention row ([[retention]]). They hold no address, tax id, email or
-   amount: customer refs, Stripe ids, statuses, plan ids and period times. Its
+   retention row ([[retention]]). The package writes no address, tax id, email
+   or amount into them: customer refs, Stripe ids, statuses, plan ids and period
+   times, and `customer_ref` and `granted_by` hold whatever the consumer passes. Its
    account-deletion path calls `forgetCustomer({ customerRef })`. Under the
    customer's access lease, that hands `onAccess` a final decision denying every
    feature, then deletes the customer's grants, subscriptions and row in one
@@ -137,10 +141,12 @@ plan's price back by lookup key, with each currency's amount and the price's
    `runPromise` as `run`: it carries the logger that redacts.
 
    `createBilling` throws at boot on a configuration that would weaken a
-   check: a `policy` or `tuning` number that is not finite (or, for tuning, not
-   above zero), an access lease no longer than the hook timeout plus the
-   budget, an event lease no longer than that plus one provider call, or a
-   `returnOrigins` entry that is not a bare origin. A key passed as `undefined`
+   check: a `policy` number that is not finite or is below zero; a `tuning`
+   number that is not finite or not above zero; an access lease that does not
+   outlast the hook timeout plus the budget; an event lease that does not
+   outlast that plus one provider call; an empty `returnOrigins`, or an entry
+   that is not a bare origin; `tax.requireTaxId` without `tax.collectTaxIds`;
+   and two plans sharing an id or a lookup key. A key passed as `undefined`
    keeps its default.
 
 3. **The webhook** on its own endpoint with its own signing secret, mounted only
@@ -184,35 +190,60 @@ listing live or lapsed. It is idempotent and always given the **current**
 decision for every feature, never a delta, from every webhook delivery, every
 sweep visit, reconcile, `grant`, `revokeGrant` and `reapplyAll`.
 
-It runs under a per-customer lease (`access_lock_until`). Every write access
-depends on bumps the customer's `access_version` in the same D1 batch, and so
-does taking the lease. The holder keeps the version the lease gave it and
-releases only if it has not moved, otherwise it reads again and calls the hook
-again. So a write that lands while a decision is being applied is never left
-behind it. A caller that finds the lease taken waits (up to 3 s), polling by
-reading the row alone from 100 ms, doubling up to 800 ms, and takes the lease
-again only once the row shows it free; a caller after a write stops early once
-a completed application covers that write. The sweep never waits: it skips a
-customer whose lease is held, and one it cannot apply (the hook fails or times
-out) is due again 15 minutes later, behind the customers not yet tried —
-unless a write landed during the attempt, which keeps it due at once.
+It runs under a per-customer lease (`access_lock_until`, whose expiry is its
+token). Every write access depends on raises the customer's `access_version` in
+the same D1 batch, and so does taking the lease. The holder keeps the version
+the lease gave it and completes only if it has not moved; otherwise it reads
+again and calls the hook again, so a write that lands while a decision is being
+applied is never left behind it.
 
-`decision.version` is a fencing token: every call to the hook carries a larger
-one than the call before, including a call that only time changed — a grant
-expiring or grace running out, which the sweep applies with no write — and the
-first call for a ref created again after `forgetCustomer`. Each version is one
-more than the last and never below the clock (1,000 per millisecond), so it
-does not restart when a row does. A hook
-whose write must never be overtaken by an older one stores it and writes only a
-larger one (`WHERE applied_version < :version`). The hook runs under a 3 s timeout; past
-it the signal aborts, the lease is kept until it expires (30 s), so a write the
-hook is still making cannot land after a newer holder's, and the customer is
-left due for the sweep. Every timing is a `tuning` option (`DEFAULT_TUNING` in
-`src/billing/types.ts`), sized so a webhook fits inside Stripe's 20 s.
+```mermaid
+flowchart TD
+    A[Take the lease] ==>|taken| B[Read subscriptions and grants, decide]
+    A ==>|held by another| W{How does the caller wait?}
+    W ==>|sweep| X[AccessBusy: skip, the row stays due]
+    W ==>|after a write, or reapplyAll| P[Poll the row: 100 ms, doubling to 800 ms]
+    P ==>|a completed application covers the write| C[Done: covered]
+    P ==>|the row shows the lease free| A
+    P ==>|3 s budget spent| X2[AccessBusy: the row stays due]
+    B ==> H[onAccess, under a 3 s timeout]
+    H ==>|fails| R[Release; the row is due now, or in 15 min from the sweep]
+    H ==>|times out| K[Keep the lease until it expires; the row is due]
+    H ==>|done| D{Version unchanged?}
+    D ==>|yes| E[Complete: free the lease, write the next boundary]
+    D ==>|no, a write landed| A
+```
+
+| Timing | Default (`DEFAULT_TUNING`, `src/billing/types.ts`) |
+|---|---|
+| Lease | 30 s, longer than the hook timeout plus the budget |
+| Hook timeout | 3 s; past it the signal aborts and the lease is kept until it expires |
+| Budget for one call | 3 s |
+| Poll of a busy lease | 100 ms, doubling up to 800 ms; one row read per poll |
+| Sweep retry after a failed hook | 15 min, only while no write landed during the attempt |
+
+Every timing is a `tuning` option, sized so a webhook fits inside Stripe's 20 s.
+The sweep never waits on a lease: `listDueCustomers` skips a held one. Keeping a
+timed-out hook's lease means a write it is still making cannot land after a
+newer holder's.
+
+`decision.version` is a fencing token. For one customer row every call to the
+hook carries a larger one than the call before, including a call that only
+time changed — a grant expiring or grace running out, which the sweep applies
+with no write. A hook whose write must never be overtaken by an older one
+stores it and writes only a larger one (`WHERE applied_version < :version`).
+Each version is the larger of one more than the last and the clock (1,000 per
+millisecond), so a ref created again after `forgetCustomer` starts above the
+erased row's versions when its first lease comes at least a millisecond later
+by the same clock. A consumer that deletes its own fenced copy when it calls
+`forgetCustomer` needs nothing more.
 
 When a call cannot apply — the lease stayed busy, the hook failed or timed
 out — the customer's `next_access_boundary_at` is left due: the webhook answers
 500 so Stripe redelivers, and the next sweep visits the row in any case.
+`grant`, `revokeGrant`, `reapplyAll` (per ref) and `forgetCustomer` fail with
+`AccessBusy`, `AccessHookError` or `BillingStorageError`; `grant` and
+`revokeGrant` also with `UnknownFeature`.
 
 ### Paid periods
 
@@ -239,38 +270,39 @@ period: the consumer's ledger owns refunds.
 
 ## The webhook
 
-1. `content-length` over 64 KB → 400; the body is read with the same cap as it
-   streams.
+1. A `content-length` over 64 KB answers 400; the body is read with the same
+   cap as it streams.
 2. HMAC verified: v1 signatures, 300 s tolerance, every candidate compared with
-   no early exit → 400 on failure, with the reason.
-3. An event with `account` set (Connect) → 200 `refused_connect`; nothing read
-   or written.
+   no early exit. A failure answers 400, with the reason.
+3. An event with `account` set (Connect) answers 200 `refused_connect`; nothing
+   is read or written.
 4. A type outside the list above, or a Checkout session whose `mode` is not
-   `subscription` → 200 `ignored`.
-5. The event id is claimed under a 60 s lease: already done → 200 `duplicate`;
-   lease held → 500 so Stripe retries; lease expired → taken over. The lease's
-   expiry is the claim's token: a delivery that overran its lease can no longer
-   release or finish the event under the one that took it over.
+   `subscription`, answers 200 `ignored`.
+5. The event id is claimed under a 60 s lease: one already done answers 200
+   `duplicate`; one whose lease is held answers 500 so Stripe retries; one
+   whose lease has expired is taken over. The lease's expiry is the claim's
+   token: a delivery that overran its lease cannot release or finish the event
+   under the one that took it over.
 6. The subscription is re-fetched from Stripe; the event body is never trusted
-   for state. Price → plan by `price.metadata.plan_id`, else the product
+   for state. A price maps to a plan by `price.metadata.plan_id`, else the product
    `billing_<planId>`, never by lookup key (a new price takes the key over and
    would strand existing subscribers).
 7. The row is upserted with `WHERE excluded.fetch_started_at >= stored`, the
    timestamp taken before the request goes out, so a slow fetch of older state
    never overwrites a newer one. `>=` lets two fetches started in the same
    millisecond both land.
-8. Access is applied; the event is marked done → 200.
+8. Access is applied; the event is marked done and answers 200.
 
-Any storage, provider, lease or hook failure in steps 6–8 releases the claim and
-answers 500. A subscription whose Stripe customer is not one this package made
+Any storage, provider, lease or hook failure in steps 6–8, recording the event
+done included, releases the claim, is logged and answers 500. A subscription whose Stripe customer is not one this package made
 (another product on the account, a reset test account) is ignored with a 200:
 checkout stores the Stripe customer id before any session exists, so only those
 are unknown.
 
 ## Checkout and the portal
 
-`checkout({ customerRef, planId, currency, successUrl, cancelUrl })` → `{ url,
-reused }`. Both URLs, and the portal's `returnUrl`, must be on one of
+`checkout({ customerRef, planId, currency, successUrl, cancelUrl })` answers
+`{ url, reused }`. Both URLs, and the portal's `returnUrl`, must be on one of
 `returnOrigins`, or the call fails `ReturnUrlRefused` before any write or Stripe
 call: build them on the server, never from the request. It refuses `AlreadySubscribed` while the customer holds a non-ended
 subscription in the plan's group, `CurrencyNotOffered` when the price has no
@@ -310,7 +342,7 @@ whatever else the cron runs.
 
 | Call | Per item |
 |---|---|
-| `reconcile` | 1 Stripe call, 2 when the current period is unconfirmed (the latest invoice); about 10 queries; the hook's own. A busy lease adds 1 read per poll, about 6 in its 3 s |
+| `reconcile` | 1 selection query per run; per row 1 Stripe call, 2 when the current period is unconfirmed (the latest invoice), about 10 queries and the hook's own. A busy lease adds 1 read per poll, about 6 in its 3 s |
 | `sweepAccess` | about 4 queries, plus one listing per run; the hook's own. A lease taken under it costs 1 query and no wait |
 | `reapplyAll` | about 6 queries per ref; the hook's own. The list is the bound. A busy lease adds about 6 reads |
 | `pruneWebhookEvents` | 1 query per run, writing up to 3 rows per claim deleted (the row and two indexes), so up to 3 × `limit` |
@@ -323,7 +355,7 @@ seeks its own index, and a test reads the real query's plan.
 trialing) has passed, and active ones whose current period started 2 hours to 7
 days ago and is unconfirmed. Each pick is stamped `reconciled_at` before its
 call and skipped for an hour, so failing rows cannot hold the head of the queue.
-A subscription Stripe no longer has is marked `canceled`.
+A subscription missing at Stripe is marked `canceled`.
 
 ## Storage
 
@@ -359,7 +391,7 @@ STRIPE_SECRET_KEY=sk_test_… bun run --cwd shared/billing sync-plans -- --plans
 ```
 
 A dry run: it reads Stripe and prints each plan's product and price changes —
-per currency, such as `NZD: missing → 5200` or `GBP: 3000 → removed` — and the
+per currency, such as an NZD amount the price lacks or a GBP one the plan dropped — and the
 portal configuration's. Add `--apply` to write; any key that is not a test key
 (`sk_test_`, `rk_test_`) also needs `--live`, so a key of a shape the script
 does not know is treated as live.
@@ -431,7 +463,8 @@ and portal pages were read at their current version.
 
 - **Spans:** `billing.checkout`, `.portal`, `.catalogue`, `.check`, `.status`,
   `.grant`, `.revoke_grant`, `.webhook.handle` with `.verify` and `.apply`,
-  `.access.apply`, `.reconcile`, `.sweep`, `.reapply`, `.sync`,
+  `.access.apply`, `.reconcile`, `.sweep`, `.reapply`, `.prune_webhook_events`,
+  `.forget_customer`, `.sync`,
   `billing.stripe.<op>`, `billing.storage.<operation>`. Outbound calls go
   through `instrumentedFetch`.
 - **Metrics** (`src/metrics.ts`, [[shared/observability/metrics|metrics]]):
