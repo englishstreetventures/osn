@@ -100,11 +100,21 @@ describe("the empty slot", () => {
     const tile = screen.getByRole("button", { name: new RegExp(WEDDINGS[0]!.displayName) });
     const style = getComputedStyle(slot);
     expect([style.borderTopStyle, style.borderTopLeftRadius]).toEqual(["dashed", "14px"]);
-    expect(slot.closest("ul")).toBe(tile.closest("ul"));
     const [a, b] = [slot.getBoundingClientRect(), tile.getBoundingClientRect()];
-    expect([Math.round(a.width), Math.round(a.height)]).toEqual([
+    expect([Math.round(a.width), Math.round(a.height), Math.round(a.top)]).toEqual([
       Math.round(b.width),
       Math.round(b.height),
+      Math.round(b.top),
     ]);
+  });
+
+  it("counts only the weddings in its list, the empty slot outside it", async () => {
+    await page.viewport(1280, 900);
+    render(() => <WeddingList weddings={WEDDINGS} onSelect={() => {}} onCreated={() => {}} />);
+    const list = page.getByRole("list");
+    expect(list.getByRole("listitem").elements()).toHaveLength(WEDDINGS.length);
+    expect(list.element().contains(screen.getByRole("button", { name: "Create a wedding" }))).toBe(
+      false,
+    );
   });
 });
