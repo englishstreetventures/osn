@@ -1652,10 +1652,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 }
 
 /** A control that takes focus in the section cards stops below the stuck stack:
- *  the top bar, the view bar and the sticky section tabs (3rem), plus half a
- *  rem (DESIGN.md §The stuck stack). */
+ *  the top bar and the view bar, whose measured height holds Content's
+ *  sections, plus half a rem (DESIGN.md §The stuck stack). */
 const CLEAR_OF_STUCK_STACK =
-  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+3.5rem)]";
+  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+0.5rem)]";
 
 /** A control that takes focus in the section cards stops clear of the sticky
  *  save bar at the foot of the page: the bar's measured height (`--save-bar-h`,

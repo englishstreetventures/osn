@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
-import { batch, createSignal, type JSX, onCleanup } from "solid-js";
+import { batch, createEffect, createSignal, type JSX, onCleanup } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
@@ -113,8 +113,11 @@ vi.mock("../../src/components/RsvpView", () => ({
 // `canManage` where `canEdit` belongs would type-check.
 let builderMounts = 0;
 // Set by a test that stands in for the builder's phone pill, which hides the
-// shell's own strip while it is mounted.
+// shell's own strip while it is mounted. The pill mounts when the test says,
+// as the real one does once the builder's read is in: a builder chunk already
+// loaded mounts in the same render, so the builder mounting is no gate.
 let builderReplacesTabs = false;
+const [pillMounted, setPillMounted] = createSignal(false);
 vi.mock("../../src/components/InviteBuilder", async () => {
   const { useViewBar } = await import("../../src/components/ViewBar");
   return {
@@ -131,11 +134,14 @@ vi.mock("../../src/components/InviteBuilder", async () => {
         // Two replacements, the first released twice: only the second, held
         // until the builder goes, keeps the strip hidden.
         const bar = useViewBar();
-        const first = bar?.replaceTabs();
-        const second = bar?.replaceTabs();
-        first?.();
-        first?.();
-        onCleanup(() => second?.());
+        createEffect(() => {
+          if (!pillMounted()) return;
+          const first = bar?.replaceTabs();
+          const second = bar?.replaceTabs();
+          first?.();
+          first?.();
+          onCleanup(() => second?.());
+        });
       }
       return (
         <div
@@ -517,10 +523,12 @@ describe("ModuleShell", () => {
         module: "invite",
         sub: "style",
       });
-      // Until the view mounts, the strip is there to leave by.
+      // Until the view's own way between views mounts, the strip is there to
+      // leave by.
       const views = screen.getByRole("tablist", { name: "Views" });
-      expect(views.closest(".hidden")).toBeNull();
       await screen.findByTestId("invite-builder");
+      expect(views.closest(".hidden")).toBeNull();
+      setPillMounted(true);
       // Hidden, not removed: the panel is still named by its chosen tab.
       expect(views.isConnected).toBe(true);
       expect(views.closest(".hidden")).not.toBeNull();
@@ -539,6 +547,7 @@ describe("ModuleShell", () => {
       cleanup();
     } finally {
       builderReplacesTabs = false;
+      setPillMounted(false);
     }
   });
 

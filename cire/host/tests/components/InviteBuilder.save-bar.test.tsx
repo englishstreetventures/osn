@@ -60,6 +60,7 @@ function renderBuilder() {
       weddingId="wed_1"
       weddingSlug="anita-ben"
       weddingName="Anita & Ben"
+      view="template"
       canEdit
       entitlements={[]}
     />

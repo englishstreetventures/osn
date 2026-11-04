@@ -18,7 +18,8 @@ import "../../src/styles/global.css";
  *   `scroll-margin-bottom` is the bar's height plus 8px;
  * - the same holds after a failed save grows the bar with an error row;
  * - a control reached backwards (Shift+Tab) stops below the stuck stack (top
- *   bar, view bar, section tabs), by its computed `scroll-margin-top`;
+ *   bar, and the view bar that holds Content's sections), by its computed
+ *   `scroll-margin-top`;
  * - "Unsaved changes" in the bar is text, so it clears the 4.5:1 WCAG asks;
  * - the bar's own Save button carries no such margin, so focusing it does not
  *   move the page.
@@ -122,6 +123,7 @@ async function mount() {
       weddingId="wed_1"
       weddingSlug="anita-ben"
       weddingName="Anita & Ben"
+      view="template"
       canEdit
       entitlements={[]}
     />
@@ -191,9 +193,10 @@ describe("InviteBuilder save bar, as laid out", () => {
 });
 
 describe("InviteBuilder stuck stack, as laid out", () => {
-  it("stops a control reached backwards below the top bar, view bar and section tabs", async () => {
+  it("stops a control reached backwards below the top bar and the view bar", async () => {
     // The page's own wrapper defines these (`.chrome-scope`, `ModuleShell`);
-    // stand-in bars of the same heights stick above the real section tabs.
+    // stand-in bars of the same heights stick above the builder. In the shell,
+    // Content's sections sit in the view bar, so `--bar-h` already counts them.
     render(() => (
       <div style={{ "--chrome-h": "3.5rem", "--bar-h": "2.5rem" }}>
         <div
@@ -210,6 +213,7 @@ describe("InviteBuilder stuck stack, as laid out", () => {
           weddingId="wed_1"
           weddingSlug="anita-ben"
           weddingName="Anita & Ben"
+          view="template"
           canEdit
           entitlements={[]}
         />
@@ -217,8 +221,8 @@ describe("InviteBuilder stuck stack, as laid out", () => {
     ));
     await waitFor(() => screen.getByText("Save invite"));
     await settle();
-    const tabs = screen.getAllByRole("tablist")[0]!.closest(".sticky")!;
-    const stackBottom = () => tabs.getBoundingClientRect().bottom;
+    const viewBar = screen.getByTestId("view-bar");
+    const stackBottom = () => viewBar.getBoundingClientRect().bottom;
     const control = screen.getAllByRole("radio")[0]!;
 
     // Scrolled to the foot, the first card is under the stack; Shift+Tab lands on it.
@@ -231,8 +235,8 @@ describe("InviteBuilder stuck stack, as laid out", () => {
     control.focus();
     await settle();
 
-    // 3.5rem top bar + 2.5rem view bar + 3.5rem tabs and half a rem of air.
-    expect(parseFloat(getComputedStyle(control).scrollMarginTop)).toBeCloseTo(152, 1);
+    // 3.5rem top bar + 2.5rem view bar and half a rem of air.
+    expect(parseFloat(getComputedStyle(control).scrollMarginTop)).toBeCloseTo(104, 1);
     expect(control.getBoundingClientRect().top).toBeGreaterThanOrEqual(stackBottom() - 0.5);
   });
 });
