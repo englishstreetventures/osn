@@ -27,7 +27,7 @@ view. For a component's full range of variants and states, open its own group:
 | `shared/ui`          | Everything, one state each                                                      |
 | `shared/ui/Button`   | All variants, all sizes, live playground                                        |
 | `shared/ui/display`  | Badge, Avatar, Card                                                             |
-| `shared/ui/forms`    | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
+| `shared/ui/forms`    | Input, Label, Textarea, Select, Field, Fieldset, Checkbox and RadioGroup (each state, drawn and native), UsernameInput, OtpInput |
 | `shared/ui/feedback` | Notice, Chip, EmptyState, Stat                                                  |
 | `shared/ui/data`     | Table, Meter                                                                    |
 | `shared/ui/overlays` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs                |
