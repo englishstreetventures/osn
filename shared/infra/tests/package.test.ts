@@ -148,6 +148,20 @@ describe("pinned Alchemy", () => {
     }
   });
 
+  test("the lockfile resolves every @effect/* package at the Effect version this package pins", () => {
+    // Effect releases `effect` and every `@effect/*` package together, and a
+    // package one release behind can call an export the installed `effect`
+    // no longer has, which fails only when that package's code first runs.
+    const lock = readFileSync(join(repoRoot, "bun.lock"), "utf8");
+    const resolved = [...lock.matchAll(/"(@effect\/[\w.-]+)@([^"]+)"/g)].map(
+      ([, name, version]) => `${name}@${version}`,
+    );
+    expect(resolved.length).toBeGreaterThan(0);
+    expect(
+      new Set(resolved.filter((entry) => !entry.endsWith(`@${own.dependencies?.effect}`))),
+    ).toEqual(new Set());
+  });
+
   test("the lockfile resolves no @distilled.cloud/aws and neither of the provider's optional Alchemy peers", () => {
     // `@distilled.cloud/aws` builds a record of optional values, a schema
     // Effect refuses, and the provider reaches it lazily, from an R2

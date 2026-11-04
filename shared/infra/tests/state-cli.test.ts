@@ -243,7 +243,16 @@ describe("the installed Alchemy tree", () => {
     // that is not installed is an optional peer (a SQL driver no stack uses),
     // which Alchemy imports only for a resource that needs it.
     const packages = treePackages();
-    expect(packages.length).toBeGreaterThan(TREE_ROOTS.length);
+    // The walk reaches the Cloudflare SDK the provider deploys through, so a
+    // narrowed walk fails here rather than checking almost nothing.
+    const provider = packageDirFrom("@alchemy.run/cloudflare", packageDir) ?? "";
+    expect(packages).toEqual(
+      expect.arrayContaining(
+        ["@distilled.cloud/cloudflare", "@distilled.cloud/core"].map((name) =>
+          packageDirFrom(name, provider),
+        ),
+      ),
+    );
     const missing: string[] = [];
     let checked = 0;
     for (const dir of packages) {
