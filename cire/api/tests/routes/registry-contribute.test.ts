@@ -38,9 +38,9 @@ import { insertWedding } from "../test-helpers/wedding";
  *     `pending` until the webhook says the money moved;
  *   - the amount is bounded, so a fat-fingered zero is a validation error
  *     rather than a card charge;
- *   - the address's 20 a minute is spent by claimed guests alone, so a
- *     reception sharing one venue address is not turned away by callers who
- *     hold no claim.
+ *   - the address's 20 a minute is spent only by requests carrying a live
+ *     guest session, so a reception sharing one venue address is not turned
+ *     away by callers who hold none.
  */
 
 const SLUG = "cire-wedding";
@@ -326,7 +326,7 @@ describe("who may give", () => {
 // each test sends from an address no other test uses, so its bucket starts
 // empty. A second run of this file in the same process inside a minute
 // (`bun test --rerun-each`) would find both buckets spent.
-describe("the address's 20 a minute is spent by claimed guests alone", () => {
+describe("the address's 20 a minute is spent only by requests with a live guest session", () => {
   function contributeFrom(app: App, ip: string, cookie: string | null) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -371,6 +371,23 @@ describe("the address's 20 a minute is spent by claimed guests alone", () => {
     // rest read that page back.
     expect(stripe.sessions).toHaveLength(1);
     expect(stripe.retrieved).toHaveLength(19);
+  });
+
+  it("counts a household of another wedding against the address, then refuses this wedding's guest", async () => {
+    // The budget is per address and the household-in-wedding check comes
+    // after it, so any live session spends it, whatever wedding it names.
+    const ip = "198.51.100.83";
+    const stripe = stripeStub();
+    const { app } = buildApp({ stripe: stripe.client, defaultContributeLimiter: true });
+    const foreign = await guestCookie(app, FOREIGN_FAMILY);
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 20; i++) statuses.push((await contributeFrom(app, ip, foreign)).status);
+    expect(statuses).toEqual(Array.from({ length: 20 }, () => 404));
+
+    const res = await contributeFrom(app, ip, await guestCookie(app));
+    expect(res.status).toBe(429);
+    expect(stripe.sessions).toHaveLength(0);
   });
 });
 

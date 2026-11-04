@@ -348,11 +348,13 @@ export interface RegistryContributeDeps {
  *
  * **The one per-IP limiter that answers after `sessionAuth`.** A reception on
  * venue wifi is one address, so the budget is the whole room's; checking the
- * session first means a caller with no claimed session gets 401 and spends none
- * of it, and costs no Stripe call either way. The price: a refused request that
- * carries a cookie costs the session lookup, which `GET /registry` beside this
- * already spends with no limiter at all. A claimed guest with no resolvable
- * address still meets the limiter's 429.
+ * session first means a caller with no live guest session gets 401 and spends
+ * none of it, and costs no Stripe call either way. Any live session spends it,
+ * whichever wedding's household it names (the host preview's included): the
+ * household-in-wedding check runs after the limiter, in `contributionContext`.
+ * The price: a refused request that carries a cookie costs the session lookup,
+ * which `GET /registry` beside this already spends with no limiter at all. A
+ * session holder with no resolvable address still meets the limiter's 429.
  *
  * **The gates that matter run before Stripe does** (`contributionContext`): the
  * registry must be visible, the household must belong to THIS wedding and not

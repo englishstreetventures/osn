@@ -179,7 +179,7 @@ describe("Worker boot (no bootstrap-owner config)", () => {
   });
 });
 
-// C1/C4 fail-closed guard: the native claim rate-limit binding is MANDATORY in
+// Fail-closed guard: the native claim rate-limit binding is MANDATORY in
 // any deployed tier. Absent, createApp would silently fall back to a per-isolate
 // in-memory limiter — no real cross-request brute-force defence on the guest
 // claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
