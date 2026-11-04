@@ -69,7 +69,7 @@ Owner, 2026-10-28: labels are rewritten to true sentence case in the source text
 ### Button details
 
 - The corner leaves `BASE` and is chosen once per variant and size, so exactly one `base:` corner class is emitted and the caller's plain `class` still wins (`button.tsx:29-36`). Action variants take `base:rounded-ui-control`; `tile` and `field` take `base:rounded-ui-field`; the `swatch` size takes `base:rounded-ui-field` whatever the variant, so a framed thumbnail is a soft square, not a lozenge (`RegistryImageField.tsx:534`, the only `swatch` caller). Palette presets (`PaletteField.tsx:124-130`) and the Desktop/Phone toggle (`invite/previews.tsx:63`) are `choice` at ordinary sizes and become pills. Boxed `icon` buttons become circles (32px square with a pill corner) — my call, matching Partiful's round icon buttons.
-- `chip`'s own `rounded-full` goes; the per-variant corner already is one.
+- `chip`'s plain `rounded-full` becomes `base:rounded-ui-pill`: it sits beside a round close button and stays round whatever an app maps `control` to, including the 4px cire maps until the last pull request of the stack (decided in Phase 2, when the invites sheet test showed square chips).
 - Pill buttons need more side padding than a rectangle to look balanced: `md` moves from `px-4` to `px-5`, `lg` from `px-6` to `px-7`, `sm` from `px-3` to `px-4`. Heights stay the same, so no layout moves vertically.
 
 ### Sweep rules
