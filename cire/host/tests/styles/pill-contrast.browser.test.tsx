@@ -83,10 +83,10 @@ function composite(layers: readonly string[]): string {
 function backdropOf(element: Element): string {
   const layers: string[] = [];
   for (let node: Element | null = element; node; node = node.parentElement) {
-    layers.push(getComputedStyle(node).backgroundColor);
+    layers.unshift(getComputedStyle(node).backgroundColor);
   }
   const ground = getComputedStyle(document.documentElement).getPropertyValue("--bg");
-  return composite([ground, ...[...layers].reverse()]);
+  return composite([ground, ...layers]);
 }
 
 function ratioOf(pill: Element): number {
