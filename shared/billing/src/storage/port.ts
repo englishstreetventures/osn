@@ -146,23 +146,30 @@ export interface BillingStorage {
   /** Removes the grant; then marks the customer dirty. Answers whether one existed. */
   deleteGrant(customerRef: string, featureId: string, now: Date): Effect.Effect<boolean, E>;
 
-  /** Claims an event: `done` when already processed, `held` while another claim's lease runs. */
+  /**
+   * Claims an event: `done` when already processed, `held` while another
+   * claim's lease runs. A won claim's `leaseUntil` is its token.
+   */
   claimEvent(input: {
     readonly eventId: string;
     readonly type: string;
     readonly now: Date;
     readonly leaseUntil: Date;
   }): Effect.Effect<EventClaim, E>;
-  finishEvent(eventId: string, outcome: EventOutcome): Effect.Effect<void, E>;
-  /** Drops an unfinished claim so the next delivery can take it at once. */
-  releaseEvent(eventId: string): Effect.Effect<void, E>;
+  /** Records the outcome, only while the claim is still the one `token` names. */
+  finishEvent(eventId: string, outcome: EventOutcome, token: Date): Effect.Effect<void, E>;
+  /**
+   * Drops an unfinished claim so the next delivery can take it at once, only
+   * while it is still the one `token` names.
+   */
+  releaseEvent(eventId: string, token: Date): Effect.Effect<void, E>;
   /** Deletes every event received before `before`, finished or not. */
   pruneEvents(before: Date): Effect.Effect<number, E>;
 
   /**
-   * Takes the customer's access lease when free or expired, returning the
-   * access version read in the same statement; `null` while another holds it.
-   * The lease's expiry is its token.
+   * Takes the customer's access lease when free or expired, raising the access
+   * version by one and returning the raised value from the same statement;
+   * `null` while another holds it. The lease's expiry is its token.
    */
   acquireAccess(input: {
     readonly customerRef: string;
@@ -189,4 +196,13 @@ export interface BillingStorage {
   markAccessDue(customerRef: string, dueAt: Date): Effect.Effect<void, E>;
   /** Customer refs whose boundary is due, earliest first. */
   listDueCustomers(now: Date, limit: number): Effect.Effect<readonly string[], E>;
+
+  /**
+   * Deletes the customer's grants, subscriptions and row together, children
+   * first. Answers the provider customer id the row held; `null` when there
+   * was no row.
+   */
+  forgetCustomer(
+    customerRef: string,
+  ): Effect.Effect<{ readonly providerCustomerId: string | null } | null, E>;
 }

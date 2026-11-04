@@ -10,6 +10,7 @@ import type {
   CurrencyNotOffered,
   NoBillingCustomer,
   PlanUnavailable,
+  ReturnUrlRefused,
   UnknownFeature,
   UnknownPlan,
 } from "../errors";
@@ -19,7 +20,12 @@ import type { AccessPolicy, FeatureAccess } from "../policy";
 import type { BillingProvider, TaxOptions } from "../provider/port";
 import type { BillingStorage } from "../storage/port";
 
-/** Timings, with defaults sized to fit a webhook inside Stripe's 20 s. */
+/**
+ * Timings, with defaults sized to fit a webhook inside Stripe's 20 s. Every
+ * value is a finite number above zero, and `createBilling` throws unless
+ * `leaseMs` exceeds `hookTimeoutMs + accessBudgetMs` and `eventLeaseMs` exceeds
+ * that plus one provider call (`BillingProvider.callTimeoutMs`).
+ */
 export interface Tuning {
   /** How long an access lease lasts. Longer than the hook timeout plus the budget. */
   readonly leaseMs: number;
@@ -28,7 +34,7 @@ export interface Tuning {
   /** How long one call keeps trying to apply access (lease busy, or written under). */
   readonly accessBudgetMs: number;
   readonly backoffMs: number;
-  /** How long a webhook claim holds an event. */
+  /** How long a webhook claim holds an event. Longer than the slowest delivery. */
   readonly eventLeaseMs: number;
   /** How long a checkout waits for another request's session; covers a Stripe call. */
   readonly checkoutWaitMs: number;
@@ -111,9 +117,11 @@ export interface AccessDecision<
   PlanId extends string = string,
 > extends BillingStatus<PlanId, FeatureId> {
   /**
-   * The access version the decision was read at. A fencing token: store it with
-   * what the hook writes and refuse a write carrying a lower one
-   * (`WHERE applied_version < :version`) when the order of two calls matters.
+   * A fencing token: every call to the hook carries a larger one than the call
+   * before it, including a call that only time changed (a grant expiring, grace
+   * running out). Store it with what the hook writes, and write only when it is
+   * greater than the stored one (`WHERE applied_version < :version`), when the
+   * order of two calls matters.
    */
   readonly version: number;
   readonly decidedAt: Date;
@@ -137,6 +145,12 @@ export interface BillingOptions<Plans extends readonly AnyPlan[]> {
   readonly storage: BillingStorage;
   readonly provider: BillingProvider;
   readonly policy?: Partial<AccessPolicy>;
+  /**
+   * The origins a Checkout success or cancel URL and a portal return URL may
+   * point at, such as `["https://app.example.com"]`. Any other URL is refused
+   * with `ReturnUrlRefused` before Stripe is called.
+   */
+  readonly returnOrigins: readonly string[];
   readonly tax?: TaxOptions;
   readonly hooks?: BillingHooks<FeatureIdOf<Plans>, PlanIdOf<Plans>>;
   readonly now?: () => Date;
@@ -211,6 +225,13 @@ export type CheckoutError =
   | CurrencyNotOffered
   | AlreadySubscribed
   | CheckoutInFlight
+  | ReturnUrlRefused
+  | BillingStorageError
+  | BillingProviderError;
+
+export type PortalError =
+  | NoBillingCustomer
+  | ReturnUrlRefused
   | BillingStorageError
   | BillingProviderError;
 
@@ -223,10 +244,7 @@ export interface Billing<PlanId extends string, FeatureId extends string> {
   portal(input: {
     readonly customerRef: string;
     readonly returnUrl: string;
-  }): Effect.Effect<
-    { readonly url: string },
-    NoBillingCustomer | BillingStorageError | BillingProviderError
-  >;
+  }): Effect.Effect<{ readonly url: string }, PortalError>;
   /** Every plan with its amounts, currencies and tax behaviour as Stripe has them. Cached. */
   catalogue(): Effect.Effect<readonly CatalogueEntry<PlanId>[], BillingProviderError>;
   /** Database only. */
@@ -251,4 +269,13 @@ export interface Billing<PlanId extends string, FeatureId extends string> {
   reapplyAll(input: { readonly customerRefs: readonly string[] }): Effect.Effect<ReapplyReport>;
   /** Deletes webhook event claims received before `before`. */
   pruneWebhookEvents(input: { readonly before: Date }): Effect.Effect<number, BillingStorageError>;
+  /**
+   * Erasure: deletes the customer's grants, subscriptions and customer row in
+   * one batch, and calls no hook. Answers the Stripe customer id it held, so the
+   * consumer can delete that customer at Stripe too, which cancels its
+   * subscriptions; `null` when the package held no row for the ref.
+   */
+  forgetCustomer(input: {
+    readonly customerRef: string;
+  }): Effect.Effect<{ readonly providerCustomerId: string | null } | null, BillingStorageError>;
 }

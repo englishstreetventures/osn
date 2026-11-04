@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { subscriptionWrite } from "../storage/contract";
-import { createHarness, flip, run } from "../support/billing";
+import { APP_ORIGIN, createHarness, flip, run } from "../support/billing";
 import { priceJson } from "../support/fake-stripe";
 
 const input = (over: Partial<{ planId: "monthly" | "annual"; currency: string }> = {}) => ({
@@ -325,6 +325,23 @@ describe("which price a plan is sold at", () => {
 });
 
 describe("tax options", () => {
+  it.each([
+    ["successUrl", { successUrl: "https://evil.example/done" }],
+    ["cancelUrl", { cancelUrl: "http://app.example.test/billing" }],
+    ["successUrl", { successUrl: "https://app.example.test.evil.example/done" }],
+  ] as const)(
+    "refuses a %s on an origin it was not given, before any write or Stripe call",
+    async (field, over) => {
+      const h = await createHarness();
+      expect(await flip(h.billing.checkout({ ...input(), ...over }))).toMatchObject({
+        _tag: "ReturnUrlRefused",
+        field,
+      });
+      expect(h.stripe.calls).toEqual([]);
+      expect(await run(h.storage.findCustomer("org_1"))).toBeNull();
+    },
+  );
+
   it("refuses to create billing that requires tax ids without collecting them", async () => {
     await expect(
       createHarness({ tax: { automatic: false, collectTaxIds: false, requireTaxId: true } }),
@@ -392,6 +409,7 @@ describe("catalogue", () => {
         webhookSecret: null,
         fetchImpl: h.stripe.fetchImpl,
       }),
+      returnOrigins: [APP_ORIGIN],
     });
     const entries = await run(billing.catalogue());
     const calls = h.stripe.callsTo("GET", "/v1/prices");
@@ -421,7 +439,21 @@ describe("portal", () => {
   it("refuses a customer who never reached checkout", async () => {
     const h = await createHarness();
     expect(
-      (await flip(h.billing.portal({ customerRef: "org_9", returnUrl: "https://x.test" })))._tag,
+      (await flip(h.billing.portal({ customerRef: "org_9", returnUrl: `${APP_ORIGIN}/billing` })))
+        ._tag,
     ).toBe("NoBillingCustomer");
+  });
+
+  it("refuses a return URL on an origin it was not given, before calling Stripe", async () => {
+    const h = await createHarness();
+    await run(h.billing.checkout(input()));
+    const before = h.stripe.calls.length;
+    for (const returnUrl of ["https://evil.example/billing", "/billing", "javascript:alert(1)"]) {
+      expect(await flip(h.billing.portal({ customerRef: "org_1", returnUrl }))).toMatchObject({
+        _tag: "ReturnUrlRefused",
+        field: "returnUrl",
+      });
+    }
+    expect(h.stripe.calls.length).toBe(before);
   });
 });

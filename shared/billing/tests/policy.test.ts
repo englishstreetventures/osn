@@ -81,6 +81,23 @@ describe("decideSubscription", () => {
     expect([decision.allowed, decision.unknownStatus]).toEqual([false, true]);
   });
 
+  it.each([
+    ["past_due", { graceDays: Number.NaN }, { status: "past_due", pastDueSince: at(-DAY) }],
+    [
+      "active",
+      { periodLeewayHours: Number.NaN },
+      { status: "active", currentPeriodEnd: at(-HOUR) },
+    ],
+    ["trialing", { periodLeewayHours: Number.NaN }, { status: "trialing", trialEnd: at(-HOUR) }],
+  ] as const)(
+    "refuses a %s subscription when the policy number is NaN",
+    (_status, policy, facts) => {
+      expect(decideSubscription(sub(facts), { ...DEFAULT_POLICY, ...policy }, now).allowed).toBe(
+        false,
+      );
+    },
+  );
+
   it("says until when access ends", () => {
     const decision = decideSubscription(sub({ currentPeriodEnd: at(DAY) }), DEFAULT_POLICY, now);
     expect(decision.until).toEqual(at(DAY + LEEWAY));

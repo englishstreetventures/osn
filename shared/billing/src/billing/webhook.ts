@@ -173,13 +173,10 @@ export const handleWebhook = (
         return result(200, "ignored");
 
       const now = ctx.now();
+      // The claim's token: release and finish touch the event only while it holds.
+      const leaseUntil = after(now, ctx.tuning.eventLeaseMs);
       const claim = yield* Effect.result(
-        ctx.storage.claimEvent({
-          eventId: event.id,
-          type: event.type,
-          now,
-          leaseUntil: after(now, ctx.tuning.eventLeaseMs),
-        }),
+        ctx.storage.claimEvent({ eventId: event.id, type: event.type, now, leaseUntil }),
       );
       if (claim._tag === "Failure") {
         yield* Effect.logError("billing: could not claim a webhook event").pipe(
@@ -196,14 +193,16 @@ export const handleWebhook = (
       );
       if (processed._tag === "Failure") {
         // Let the redelivery take the event at once rather than after the lease.
-        yield* ctx.storage.releaseEvent(event.id).pipe(Effect.ignore);
+        yield* ctx.storage.releaseEvent(event.id, leaseUntil).pipe(Effect.ignore);
         yield* Effect.logError(
           "billing: webhook event failed; Stripe will redeliver",
           processed.cause,
         );
         return result(500, "error");
       }
-      const finished = yield* Effect.result(ctx.storage.finishEvent(event.id, processed.value));
+      const finished = yield* Effect.result(
+        ctx.storage.finishEvent(event.id, processed.value, leaseUntil),
+      );
       if (finished._tag === "Failure") return result(500, "error");
       return result(200, processed.value);
     }).pipe(

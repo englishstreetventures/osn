@@ -20,6 +20,7 @@ describe("the Promise facade", () => {
         webhookSecret: null,
         fetchImpl: stripe.fetchImpl,
       }),
+      returnOrigins: ["https://x.test"],
       run: Effect.runPromise,
       hooks: { onAccess: async (decision) => void seen.push(decision.features.workspace.allowed) },
     });

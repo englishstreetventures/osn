@@ -53,6 +53,9 @@ type HarnessOptions = Partial<
   Pick<BillingOptions<typeof PLANS>, "tax" | "policy" | "tuning" | "hooks">
 >;
 
+/** The one origin the harness's return URLs may point at. */
+export const APP_ORIGIN = "https://app.example.test";
+
 export async function createHarness(options: HarnessOptions = {}) {
   const { storage, db, schema } = await createTestStorage();
   const stripe = createFakeStripe();
@@ -86,6 +89,7 @@ export async function createHarness(options: HarnessOptions = {}) {
     storage,
     provider,
     now: () => clock,
+    returnOrigins: [APP_ORIGIN],
     hooks: options.hooks ?? {
       onAccess: (decision) => Effect.sync(() => void decisions.push(decision)),
     },

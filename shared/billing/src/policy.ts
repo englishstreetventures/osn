@@ -129,7 +129,8 @@ export function decideSubscription(
 ): SubscriptionDecision {
   const unknownStatus = !isKnownStatus(facts.status);
   const end = accessEnd(facts, policy);
-  if (end === null || end.getTime() <= now.getTime()) {
+  // Written so that an end that is not a number (NaN) refuses access.
+  if (end === null || !(end.getTime() > now.getTime())) {
     return { allowed: false, reason: "none", until: null, unknownStatus };
   }
   return {

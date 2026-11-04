@@ -19,7 +19,12 @@ import type {
   ProviderSubscription,
   SubscriptionCheckoutInput,
 } from "../provider/port";
-import { createStripeRequest, type StripeFormParams, type StripeRequestConfig } from "./http";
+import {
+  createStripeRequest,
+  STRIPE_CALL_TIMEOUT_MS,
+  type StripeFormParams,
+  type StripeRequestConfig,
+} from "./http";
 import { decodeStripe, stripeCall } from "./instrument";
 import { invoiceSubscriptionId, paidPeriodOf } from "./paid-period";
 import {
@@ -200,6 +205,7 @@ export function createStripeProvider(config: StripeProviderConfig): BillingProvi
     });
 
   return {
+    callTimeoutMs: config.timeoutMs ?? STRIPE_CALL_TIMEOUT_MS,
     createCustomer: (input) =>
       stripeCall(
         "create_customer",

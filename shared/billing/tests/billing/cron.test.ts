@@ -53,6 +53,38 @@ describe("sweepAccess", () => {
   });
 });
 
+describe("the fencing token", () => {
+  it("lets a hook that fences on decision.version apply a lapse only time caused", async () => {
+    // The fence the hook contract documents: write only a larger version.
+    const mirror = { appliedVersion: -1, allowed: false };
+    const h = await createHarness({
+      hooks: {
+        onAccess: (decision) =>
+          Effect.sync(() => {
+            if (mirror.appliedVersion < decision.version) {
+              mirror.appliedVersion = decision.version;
+              mirror.allowed = decision.features.workspace.allowed;
+            }
+          }),
+      },
+    });
+    await run(
+      h.billing.grant({
+        customerRef: "org_1",
+        featureId: "workspace",
+        source: "comp",
+        grantedBy: "ops",
+        expiresAt: later(DAY),
+      }),
+    );
+    expect(mirror.allowed).toBe(true);
+    // No write happens; the grant simply runs out.
+    h.advance(2 * DAY);
+    expect(await run(h.billing.sweepAccess({ limit: 10 }))).toMatchObject({ applied: 1 });
+    expect(mirror.allowed).toBe(false);
+  });
+});
+
 describe("reconcile", () => {
   it("repairs a lost renewal before the sweep would lapse it, and confirms the paid period", async () => {
     const h = await createHarness();

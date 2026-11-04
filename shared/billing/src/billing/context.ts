@@ -16,6 +16,8 @@ export interface BillingContext {
   readonly policy: AccessPolicy;
   readonly tax: TaxOptions;
   readonly tuning: Tuning;
+  /** Origins a return URL may point at, each as `URL.origin` gives it. */
+  readonly returnOrigins: ReadonlySet<string>;
   readonly portalConfiguration: string | undefined;
   readonly onAccess:
     | ((decision: AccessDecision, context: AccessHookContext) => Effect.Effect<void, unknown>)
@@ -30,6 +32,7 @@ export function createContext(input: {
   policy: Partial<AccessPolicy> | undefined;
   tax: TaxOptions | undefined;
   tuning: Partial<Tuning> | undefined;
+  returnOrigins: readonly string[];
   portalConfiguration: string | undefined;
   onAccess: BillingContext["onAccess"];
   now: (() => Date) | undefined;
@@ -38,6 +41,38 @@ export function createContext(input: {
   if (tax.requireTaxId && !tax.collectTaxIds) {
     throw new Error("tax.requireTaxId needs tax.collectTaxIds");
   }
+  const policy: AccessPolicy = { ...DEFAULT_POLICY, ...definedOnly(input.policy) };
+  for (const key of ["graceDays", "periodLeewayHours"] as const) {
+    // A NaN here would make every period end a NaN, which no comparison orders.
+    if (!Number.isFinite(policy[key]) || policy[key] < 0) {
+      throw new Error(`policy.${key} must be a finite number of at least 0`);
+    }
+  }
+  const tuning: Tuning = { ...DEFAULT_TUNING, ...definedOnly(input.tuning) };
+  for (const [key, value] of Object.entries(tuning)) {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`tuning.${key} must be a finite number above 0`);
+    }
+  }
+  // The lease must outlive the longest application, or a newer holder could
+  // take it while an older hook is still writing.
+  const longestApply = tuning.hookTimeoutMs + tuning.accessBudgetMs;
+  if (tuning.leaseMs <= longestApply) {
+    throw new Error("tuning.leaseMs must exceed hookTimeoutMs + accessBudgetMs");
+  }
+  if (tuning.eventLeaseMs <= longestApply + input.provider.callTimeoutMs) {
+    throw new Error(
+      "tuning.eventLeaseMs must exceed hookTimeoutMs + accessBudgetMs + the provider's callTimeoutMs",
+    );
+  }
+  const returnOrigins = new Set<string>();
+  for (const origin of input.returnOrigins) {
+    if (originOf(origin) !== origin) {
+      throw new Error(`returnOrigins: ${origin} is not an origin such as https://app.example.com`);
+    }
+    returnOrigins.add(origin);
+  }
+  if (returnOrigins.size === 0) throw new Error("returnOrigins must name at least one origin");
   const features = new Set<string>();
   for (const plan of input.plans) for (const feature of plan.features) features.add(feature.id);
   return {
@@ -46,9 +81,10 @@ export function createContext(input: {
     featureIds: [...features],
     storage: input.storage,
     provider: input.provider,
-    policy: { ...DEFAULT_POLICY, ...input.policy },
+    policy,
     tax,
-    tuning: { ...DEFAULT_TUNING, ...input.tuning },
+    tuning,
+    returnOrigins,
     portalConfiguration: input.portalConfiguration,
     onAccess: input.onAccess,
     now: input.now ?? (() => new Date()),
@@ -56,3 +92,21 @@ export function createContext(input: {
 }
 
 export const after = (date: Date, ms: number) => new Date(date.getTime() + ms);
+
+/** The URL's origin, or `null` when it does not parse. */
+export function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** `overrides` without the keys it sets to `undefined`, which keep their default. */
+function definedOnly<T extends object>(overrides: Partial<T> | undefined): Partial<T> {
+  const out: Partial<T> = {};
+  for (const key in overrides) {
+    if (overrides[key] !== undefined) out[key] = overrides[key];
+  }
+  return out;
+}

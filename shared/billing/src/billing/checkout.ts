@@ -15,19 +15,27 @@ import {
   CurrencyNotOffered,
   NoBillingCustomer,
   PlanUnavailable,
+  ReturnUrlRefused,
   UnknownPlan,
   type BillingProviderError,
-  type BillingStorageError,
 } from "../errors";
 import { metricCheckout, metricPortal, type CheckoutOutcome } from "../metrics";
 import { productIdFor, type AnyPlan } from "../plans";
 import { isTerminalStatus } from "../policy";
 import type { ProviderPrice } from "../provider/port";
 import type { CustomerRecord } from "../storage/port";
-import type { BillingContext } from "./context";
-import type { CatalogueEntry, CheckoutError, CheckoutInput } from "./types";
+import { originOf, type BillingContext } from "./context";
+import type { CatalogueEntry, CheckoutError, CheckoutInput, PortalError } from "./types";
 
 const CUSTOMER_CREATE_ATTEMPTS = 3;
+
+/** Refuses a return URL whose origin is not one the consumer named. */
+const allowedReturn = (ctx: BillingContext, field: ReturnUrlRefused["field"], url: string) => {
+  const origin = originOf(url);
+  return origin !== null && ctx.returnOrigins.has(origin)
+    ? Effect.void
+    : Effect.fail(new ReturnUrlRefused({ field }));
+};
 const newNonce = () => crypto.randomUUID().replaceAll("-", "");
 
 /**
@@ -132,6 +140,8 @@ export function createCheckout(ctx: BillingContext, catalogue: ReturnType<typeof
     Effect.gen(function* () {
       const plan = ctx.planById.get(input.planId);
       if (!plan) return yield* Effect.fail(new UnknownPlan({ planId: input.planId }));
+      yield* allowedReturn(ctx, "successUrl", input.successUrl);
+      yield* allowedReturn(ctx, "cancelUrl", input.cancelUrl);
       const currency = input.currency.toUpperCase();
       const started = ctx.now();
       const customer0 = yield* storage.ensureCustomer(input.customerRef, started);
@@ -267,11 +277,9 @@ export function createCheckout(ctx: BillingContext, catalogue: ReturnType<typeof
   const portal = (input: {
     customerRef: string;
     returnUrl: string;
-  }): Effect.Effect<
-    { url: string },
-    NoBillingCustomer | BillingStorageError | BillingProviderError
-  > =>
+  }): Effect.Effect<{ url: string }, PortalError> =>
     Effect.gen(function* () {
+      yield* allowedReturn(ctx, "returnUrl", input.returnUrl);
       const customer = yield* storage.findCustomer(input.customerRef);
       if (customer?.providerCustomerId == null) return yield* Effect.fail(new NoBillingCustomer());
       return yield* provider.createPortalSession({
@@ -283,7 +291,13 @@ export function createCheckout(ctx: BillingContext, catalogue: ReturnType<typeof
       Effect.tap(() => Effect.sync(() => metricPortal("opened"))),
       Effect.tapError((error) =>
         Effect.sync(() =>
-          metricPortal(error._tag === "NoBillingCustomer" ? "no_customer" : "error"),
+          metricPortal(
+            error._tag === "NoBillingCustomer"
+              ? "no_customer"
+              : error._tag === "ReturnUrlRefused"
+                ? "return_url_refused"
+                : "error",
+          ),
         ),
       ),
       Effect.withSpan("billing.portal"),
@@ -306,6 +320,9 @@ const checkoutOutcome = (error: CheckoutError): CheckoutOutcome => {
     case "PlanUnavailable":
     case "UnknownPlan": {
       return "plan_unavailable";
+    }
+    case "ReturnUrlRefused": {
+      return "return_url_refused";
     }
     default: {
       return "error";

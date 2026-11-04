@@ -5,9 +5,11 @@
  *
  * What these deliberately do not read: an invoice carries `customer_address`,
  * `customer_email`, `customer_name`, `customer_phone`, `customer_shipping` and
- * `customer_tax_ids`, and a customer carries `address`, `email`, `name` and
- * `tax_ids`. They arrive in webhook bodies and responses all the same, so
- * `@shared/observability`'s redaction list names each one.
+ * `customer_tax_ids`; a Checkout session carries `customer_details`, the
+ * buyer's name, email, phone, address and tax ids; and a customer carries
+ * `address`, `email`, `name` and `tax_ids`. They arrive in webhook bodies and
+ * responses all the same, so `@shared/observability`'s redaction list names
+ * each one but a customer's bare `name`, which is too broad a key to deny.
  */
 
 import { Schema } from "effect";

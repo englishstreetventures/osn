@@ -332,18 +332,19 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
         ]),
       ),
 
-    deleteGrant: (customerRef, featureId, now) =>
-      Effect.gen(function* () {
-        // Delete first: its row count is the answer, and the mark must follow it.
-        const result = yield* q("delete_grant", () =>
-          db
-            .delete(g)
-            .where(and(eq(g.customerRef, customerRef), eq(g.featureId, featureId)))
-            .run(),
+    deleteGrant: (customerRef, featureId, now) => {
+      const grant = and(eq(g.customerRef, customerRef), eq(g.featureId, featureId));
+      return Effect.gen(function* () {
+        // Read first for the answer; the delete and its mark then commit together.
+        const found = yield* q("find_grant", () =>
+          db.select({ featureId: g.featureId }).from(g).where(grant).limit(1).all(),
         );
-        yield* q("mark_dirty", () => markDirty(customerRef, now).run());
-        return rowsChanged(result) > 0;
-      }),
+        yield* q("delete_grant", () =>
+          commitBatch(db, [db.delete(g).where(grant), markDirty(customerRef, now)]),
+        );
+        return found.length > 0;
+      });
+    },
 
     claimEvent: (input) =>
       Effect.gen(function* () {
@@ -379,17 +380,27 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
         return rows[0]?.outcome === "processing" ? "held" : "done";
       }),
 
-    finishEvent: (eventId, outcome) =>
+    finishEvent: (eventId, outcome, token) =>
       q("finish_event", () =>
-        db.update(ev).set({ outcome, processingUntil: null }).where(eq(ev.eventId, eventId)).run(),
+        db
+          .update(ev)
+          .set({ outcome, processingUntil: null })
+          .where(and(eq(ev.eventId, eventId), eq(ev.processingUntil, token)))
+          .run(),
       ).pipe(Effect.asVoid),
 
-    releaseEvent: (eventId) =>
+    releaseEvent: (eventId, token) =>
       q("release_event", () =>
         db
           .update(ev)
           .set({ processingUntil: null })
-          .where(and(eq(ev.eventId, eventId), eq(ev.outcome, "processing")))
+          .where(
+            and(
+              eq(ev.eventId, eventId),
+              eq(ev.outcome, "processing"),
+              eq(ev.processingUntil, token),
+            ),
+          )
           .run(),
       ).pipe(Effect.asVoid),
 
@@ -402,7 +413,10 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
       q("acquire_access", () =>
         db
           .update(c)
-          .set({ accessLockUntil: input.until })
+          // Each grant of the lease takes a new version, so every decision the
+          // hook is handed carries a larger token than the one before, even
+          // one that only the passing of time changed.
+          .set({ accessLockUntil: input.until, accessVersion: sql`${c.accessVersion} + 1` })
           .where(
             and(
               eq(c.customerRef, input.customerRef),
@@ -460,5 +474,19 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
           .limit(limit)
           .all(),
       ).pipe(Effect.map((rows) => rows.map((row) => row.customerRef))),
+
+    forgetCustomer: (customerRef) =>
+      Effect.gen(function* () {
+        const row = yield* findCustomerWhere("find_customer", eq(c.customerRef, customerRef));
+        if (row === null) return null;
+        yield* q("forget_customer", () =>
+          commitBatch(db, [
+            db.delete(g).where(eq(g.customerRef, customerRef)),
+            db.delete(s).where(eq(s.customerRef, customerRef)),
+            db.delete(c).where(eq(c.customerRef, customerRef)),
+          ]),
+        );
+        return { providerCustomerId: row.providerCustomerId };
+      }),
   };
 }

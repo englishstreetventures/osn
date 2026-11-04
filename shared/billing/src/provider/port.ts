@@ -116,6 +116,8 @@ export type ProviderEvent =
     };
 
 export interface BillingProvider {
+  /** The longest one call may take before it fails as a timeout. */
+  readonly callTimeoutMs: number;
   createCustomer(input: {
     readonly billingCustomerId: string;
     readonly idempotencyKey: string;

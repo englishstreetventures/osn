@@ -48,8 +48,9 @@ describe("sync-plans script", () => {
     expect(stripe.calls).toEqual([]);
   });
 
-  it.each(["sk_live_x", "rk_live_x"])(
-    "refuses to apply the live key %s without --live",
+  // Any key that is not a test key, including a shape nobody listed.
+  it.each(["sk_live_x", "rk_live_x", "sk_x", "ek_live_x"])(
+    "refuses to apply the key %s without --live",
     async (key) => {
       const stripe = createFakeStripe();
       const { out, io: deps } = io(stripe);
@@ -60,4 +61,13 @@ describe("sync-plans script", () => {
       expect(stripe.calls).toEqual([]);
     },
   );
+
+  it.each(["sk_test_x", "rk_test_x"])("applies with the test key %s alone", async (key) => {
+    const stripe = createFakeStripe();
+    const { io: deps } = io(stripe);
+    expect(
+      await main(["--plans", plansModule(), "--apply"], { STRIPE_SECRET_KEY: key }, deps),
+    ).toBe(0);
+    expect(stripe.calls.some((c) => c.method === "POST")).toBe(true);
+  });
 });

@@ -145,12 +145,13 @@ describe("applying access", () => {
         expiresAt: null,
       }),
     );
-    // Wait until the grant has written (version 1) and is polling the busy lease.
+    // Wait until the grant has written (version 2: the lease took 1) and is
+    // polling the busy lease.
     for (let i = 0; i < 200; i += 1) {
-      if ((await run(h.storage.findCustomer("org_1")))!.accessVersion >= 1) break;
+      if ((await run(h.storage.findCustomer("org_1")))!.accessVersion >= 2) break;
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
-    // The other holder lets go, applies version 1 itself, and the lease is busy again.
+    // The other holder lets go, applies the grant itself, and the lease is busy again.
     await run(
       Effect.gen(function* () {
         yield* h.storage.releaseAccess({
@@ -280,5 +281,19 @@ describe("check and status", () => {
     expect((await run(h.billing.check("org_1", "reports"))).allowed).toBe(false);
     await run(h.billing.status("org_1"));
     expect(h.stripe.calls).toHaveLength(0);
+  });
+});
+
+describe("forgetCustomer", () => {
+  it("leaves no access and no row behind, and answers the Stripe customer it held", async () => {
+    const h = await createHarness();
+    await run(h.storage.ensureCustomer("org_1", h.now()));
+    await activeUntil(h, later(10 * DAY));
+    expect(await run(h.billing.forgetCustomer({ customerRef: "org_1" }))).toEqual({
+      providerCustomerId: null,
+    });
+    expect((await run(h.billing.check("org_1", "workspace"))).allowed).toBe(false);
+    expect(await run(h.storage.findCustomer("org_1"))).toBeNull();
+    expect(await run(h.billing.forgetCustomer({ customerRef: "org_1" }))).toBeNull();
   });
 });

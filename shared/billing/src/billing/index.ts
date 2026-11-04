@@ -27,6 +27,7 @@ export function createBilling<const Plans extends readonly AnyPlan[]>(
     policy: options.policy,
     tax: options.tax,
     tuning: options.tuning,
+    returnOrigins: options.returnOrigins,
     portalConfiguration: options.portalConfiguration,
     now: options.now,
     onAccess: options.hooks?.onAccess as BillingContext["onAccess"],
@@ -108,6 +109,11 @@ export function createBilling<const Plans extends readonly AnyPlan[]>(
     reapplyAll: (input) => reapplyAll(ctx, input.customerRefs),
     pruneWebhookEvents: (input) =>
       ctx.storage.pruneEvents(input.before).pipe(Effect.withSpan("billing.prune_webhook_events")),
+
+    forgetCustomer: (input) =>
+      ctx.storage
+        .forgetCustomer(input.customerRef)
+        .pipe(Effect.withSpan("billing.forget_customer")),
   };
   return billing as Billing<PlanIdOf<Plans>, FeatureIdOf<Plans>>;
 }

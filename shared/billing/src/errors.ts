@@ -34,6 +34,14 @@ export class AlreadySubscribed extends Data.TaggedError("AlreadySubscribed")<{
  */
 export class CheckoutInFlight extends Data.TaggedError("CheckoutInFlight")<{}> {}
 
+/**
+ * A Checkout or portal return URL whose origin is not one of `returnOrigins`.
+ * Refused before any provider call, so Stripe never sends a buyer to it.
+ */
+export class ReturnUrlRefused extends Data.TaggedError("ReturnUrlRefused")<{
+  readonly field: "successUrl" | "cancelUrl" | "returnUrl";
+}> {}
+
 /** The customer has never been to checkout, so there is no portal to open. */
 export class NoBillingCustomer extends Data.TaggedError("NoBillingCustomer")<{}> {}
 

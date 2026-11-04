@@ -22,6 +22,7 @@ export {
   type GrantInput,
   type GrantStatus,
   type PaidPeriodStatus,
+  type PortalError,
   type ReapplyReport,
   type ReconcileReport,
   type SubscriptionStatus,

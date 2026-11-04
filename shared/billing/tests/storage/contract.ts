@@ -285,9 +285,31 @@ export function storageContract(
       expect(await claim(0)).toBe("claimed");
       expect(await claim(1_000)).toBe("held");
       expect(await claim(61_000)).toBe("claimed");
-      await run(storage.releaseEvent("evt_1"));
+      await run(storage.releaseEvent("evt_1", at(121_000)));
       expect(await claim(62_000)).toBe("claimed");
-      await run(storage.finishEvent("evt_1", "processed"));
+      await run(storage.finishEvent("evt_1", "processed", at(122_000)));
+      expect(await claim(500_000)).toBe("done");
+    });
+
+    it("lets only the current claim release or finish an event", async () => {
+      const storage = await fresh();
+      const claim = (now: number) =>
+        run(
+          storage.claimEvent({
+            eventId: "evt_1",
+            type: "invoice.paid",
+            now: at(now),
+            leaseUntil: at(now + 60_000),
+          }),
+        );
+      expect(await claim(0)).toBe("claimed");
+      // The first claim overran its lease and a redelivery took the event.
+      expect(await claim(61_000)).toBe("claimed");
+      await run(storage.releaseEvent("evt_1", at(60_000)));
+      expect(await claim(62_000)).toBe("held");
+      await run(storage.finishEvent("evt_1", "processed", at(60_000)));
+      expect(await claim(63_000)).toBe("held");
+      await run(storage.finishEvent("evt_1", "processed", at(121_000)));
       expect(await claim(500_000)).toBe("done");
     });
 
@@ -312,7 +334,8 @@ export function storageContract(
       const lease = await run(
         storage.acquireAccess({ customerRef: "org_1", now: at(0), until: at(60_000) }),
       );
-      expect(lease).toEqual({ version: 0 });
+      // Each grant of the lease raises the version, so each holder's token is new.
+      expect(lease).toEqual({ version: 1 });
       expect(
         await run(storage.acquireAccess({ customerRef: "org_1", now: at(1), until: at(60_001) })),
       ).toBeNull();
@@ -324,7 +347,7 @@ export function storageContract(
           storage.completeAccess({
             customerRef: "org_1",
             token: at(60_000),
-            version: 0,
+            version: 1,
             boundary: null,
           }),
         ),
@@ -334,14 +357,14 @@ export function storageContract(
       const second = await run(
         storage.acquireAccess({ customerRef: "org_1", now: at(4), until: at(60_004) }),
       );
-      expect(second).toEqual({ version: 1 });
+      expect(second).toEqual({ version: 3 });
       // The first holder's token no longer completes or releases anything.
       expect(
         await run(
           storage.completeAccess({
             customerRef: "org_1",
             token: at(60_000),
-            version: 1,
+            version: 3,
             boundary: null,
           }),
         ),
@@ -351,7 +374,7 @@ export function storageContract(
           storage.completeAccess({
             customerRef: "org_1",
             token: at(60_004),
-            version: 1,
+            version: 3,
             boundary: at(DAY),
           }),
         ),
@@ -359,7 +382,7 @@ export function storageContract(
       const done = (await run(storage.findCustomer("org_1")))!;
       expect([done.nextAccessBoundaryAt, done.accessAppliedVersion, done.accessLockUntil]).toEqual([
         at(DAY),
-        1,
+        3,
         null,
       ]);
     });
@@ -373,7 +396,7 @@ export function storageContract(
         await run(
           storage.acquireAccess({ customerRef: "org_1", now: at(60_000), until: at(120_000) }),
         ),
-      ).toEqual({ version: 0 });
+      ).toEqual({ version: 2 });
     });
 
     it("lists due customers earliest first, within the limit, never a NULL boundary", async () => {
@@ -475,7 +498,7 @@ export function storageContract(
       await run(
         storage.claimEvent({ eventId: "evt_old_done", type: "x", now: at(0), leaseUntil: at(1) }),
       );
-      await run(storage.finishEvent("evt_old_done", "processed"));
+      await run(storage.finishEvent("evt_old_done", "processed", at(1)));
       await run(
         storage.claimEvent({ eventId: "evt_old_stuck", type: "x", now: at(0), leaseUntil: at(1) }),
       );
@@ -518,6 +541,44 @@ export function storageContract(
         ),
       );
       expect([subscription._tag, grant._tag]).toEqual(["Failure", "Failure"]);
+    });
+
+    it("forgets a customer's grants, subscriptions and row, and no one else's", async () => {
+      const storage = await fresh();
+      const kept = await run(storage.ensureCustomer("org_2", at(0)));
+      const gone = (await run(storage.findCustomer("org_1")))!;
+      await run(storage.setProviderCustomerId(gone.id, "cus_1"));
+      for (const ref of ["org_1", "org_2"]) {
+        await run(
+          storage.upsertSubscription(
+            subscriptionWrite({ providerSubscriptionId: `sub_${ref}`, customerRef: ref }),
+            at(1),
+          ),
+        );
+        await run(
+          storage.upsertGrant(
+            {
+              customerRef: ref,
+              featureId: "workspace",
+              source: "comp",
+              grantedBy: "ops",
+              expiresAt: null,
+            },
+            at(2),
+          ),
+        );
+      }
+      expect(await run(storage.forgetCustomer("org_1"))).toEqual({ providerCustomerId: "cus_1" });
+      expect([
+        await run(storage.findCustomer("org_1")),
+        await run(storage.findCustomerByProviderId("cus_1")),
+        await run(storage.listSubscriptions("org_1")),
+        await run(storage.listGrants("org_1")),
+      ]).toEqual([null, null, [], []]);
+      expect((await run(storage.findCustomer("org_2")))!.id).toBe(kept.id);
+      expect((await run(storage.listSubscriptions("org_2"))).length).toBe(1);
+      expect((await run(storage.listGrants("org_2"))).length).toBe(1);
+      expect(await run(storage.forgetCustomer("org_1"))).toBeNull();
     });
   });
 }

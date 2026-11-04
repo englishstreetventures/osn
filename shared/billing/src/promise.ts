@@ -51,6 +51,9 @@ export interface PromiseBilling<PlanId extends string, FeatureId extends string>
   sweepAccess(input: { readonly limit: number }): Promise<SweepReport>;
   reapplyAll(input: { readonly customerRefs: readonly string[] }): Promise<ReapplyReport>;
   pruneWebhookEvents(input: { readonly before: Date }): Promise<number>;
+  forgetCustomer(input: {
+    readonly customerRef: string;
+  }): Promise<{ readonly providerCustomerId: string | null } | null>;
 }
 
 export interface PromiseBillingOptions<Plans extends readonly AnyPlan[]> extends Omit<
@@ -93,5 +96,6 @@ export function createBilling<const Plans extends readonly AnyPlan[]>(
     sweepAccess: (input) => run(billing.sweepAccess(input)),
     reapplyAll: (input) => run(billing.reapplyAll(input)),
     pruneWebhookEvents: (input) => run(billing.pruneWebhookEvents(input)),
+    forgetCustomer: (input) => run(billing.forgetCustomer(input)),
   };
 }

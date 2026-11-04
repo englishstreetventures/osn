@@ -28,8 +28,8 @@ export interface ScriptIo {
 const USAGE =
   "usage: STRIPE_SECRET_KEY=sk_test_… bun run sync-plans -- --plans <module exporting plans> [--apply] [--live]";
 
-/** A secret or restricted key for a live-mode account. */
-const LIVE_KEY = /^[sr]k_live_/;
+/** A secret or restricted test-mode key. Any other key needs `--live` to apply. */
+const TEST_KEY = /^[sr]k_test_/;
 
 function flag(argv: readonly string[], name: string): string | undefined {
   const at = argv.indexOf(name);
@@ -65,9 +65,9 @@ export async function main(
     io.write(USAGE);
     return 2;
   }
-  if (apply && LIVE_KEY.test(secretKey) && !argv.includes("--live")) {
+  if (apply && !TEST_KEY.test(secretKey) && !argv.includes("--live")) {
     io.write(
-      "refusing to apply with a live key without --live: tax_behavior cannot be changed once set",
+      "refusing to apply with a key that is not a test key without --live: tax_behavior cannot be changed once set",
     );
     return 2;
   }

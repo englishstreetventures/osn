@@ -89,8 +89,9 @@ export type CheckoutOutcome =
   | "in_flight"
   | "currency_not_offered"
   | "plan_unavailable"
+  | "return_url_refused"
   | "error";
-export type PortalOutcome = "opened" | "no_customer" | "error";
+export type PortalOutcome = "opened" | "no_customer" | "return_url_refused" | "error";
 export type WebhookOutcome =
   | "processed"
   | "ignored"
