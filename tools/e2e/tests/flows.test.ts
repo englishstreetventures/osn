@@ -65,20 +65,22 @@ describe("flow sources", () => {
   // spends two of cire-api's OIDC redirect legs (15 a minute per address,
   // `defaultOidcStartLimiter` in cire/api/src/app.ts), one osn-api `/dev/login`
   // (10 a minute, osn/api/src/routes/auth/dev-login.ts) and one osn-api
-  // `/authorize` (20 a minute, shared with the Pulse flow's two sign-ins). All
-  // of it from the suite's one address, in fixed windows, so a sign-in past the
-  // budget fails only on a fast machine. Six keeps every window with room:
+  // `/authorize` (20 a minute, `oidcAuthorize` in
+  // osn/api/src/routes/auth/limiters.ts). A Pulse sign-in, `signInToPulse`,
+  // spends one `/authorize` too. All of it from the suite's one address, in
+  // fixed windows, so a sign-in past the budget fails only on a fast machine.
+  // Six organiser sign-ins and two Pulse ones keep every window with room:
   // 12 of the 15 redirect legs, 6 of the 10 dev logins, 8 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     const dir = join(import.meta.dirname, "flows");
-    const signIns = readdirSync(dir)
-      .map((file) => readFileSync(join(dir, file), "utf8"))
-      .reduce(
-        (sum, source) => sum + (source.match(/signInToCireHost\(|\/dev\/login\?/g)?.length ?? 0),
-        0,
-      );
+    const sources = readdirSync(dir).map((file) => readFileSync(join(dir, file), "utf8"));
+    const count = (pattern: RegExp) =>
+      sources.reduce((sum, source) => sum + (source.match(pattern)?.length ?? 0), 0);
+    const signIns = count(/signInToCireHost\(|\/dev\/login\?/g);
+    const pulseSignIns = count(/signInToPulse\(/g);
     expect(signIns).toBeGreaterThan(0);
     expect(signIns).toBeLessThanOrEqual(6);
+    expect(signIns + pulseSignIns).toBeLessThanOrEqual(8);
   });
 
   // osn-api allows 5 sign-up begins a minute per client address

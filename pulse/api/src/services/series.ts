@@ -2,9 +2,10 @@ import { events, eventSeries } from "@pulse/db/schema";
 import type { Event, EventSeries, NewEvent, NewEventSeries } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { insertManyViaJsonEach } from "@shared/db-utils";
-import { and, eq, gt, gte, lt, or } from "drizzle-orm";
+import { and, eq, gt, gte, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
+import { canBatch } from "../lib/batch";
 import {
   metricSeriesCancelled,
   metricSeriesCreated,
@@ -18,7 +19,7 @@ import { applyTransitions, DatabaseError, NotEventOwner, ValidationError } from 
 export const MAX_SERIES_INSTANCES = 260; // weekly × 5yr
 
 /**
- * Iteration ceiling for `expandRRule`'s walk (S-L2). Was 10,000, which let a
+ * Iteration ceiling for `expandRRule`'s walk. Was 10,000, which let a
  * pathological rule allocate ~70k `Date`s before giving up.
  *
  * `MAX_SERIES_INSTANCES` is the right number and cannot truncate a legitimate
@@ -69,10 +70,10 @@ export interface ParsedRRule {
  * `COUNT`, `UNTIL` (ISO-8601). Anything else is rejected.
  *
  * `dtstart` is optional because the grammar itself doesn't need it — pass it
- * when the caller knows the series start, and `UNTIL` is checked against it
- * (S-L2). Without that check an `UNTIL` before `dtstart` parses cleanly and
- * silently produces a series with zero instances, which the organiser only
- * discovers by finding an empty calendar.
+ * when the caller knows the series start, and `UNTIL` is checked against it.
+ * Without that check an `UNTIL` before `dtstart` parses cleanly and silently
+ * produces a series with zero instances, which the organiser only discovers by
+ * finding an empty calendar.
  */
 export const parseRRule = (
   input: string,
@@ -588,7 +589,7 @@ export const listInstances = (
     }).pipe(Effect.tapError((e) => Effect.logError("series.list_instances failed", e)));
 
     // Apply status transitions so the client sees derived statuses.
-    // Batched into one UPDATE per (from → to) group (P-W1) instead of
+    // Batched into one UPDATE per (from → to) group instead of
     // up to `limit` individual writes per GET.
     const transitioned = yield* applyTransitions(rows);
     return transitioned;
@@ -611,6 +612,12 @@ export const updateSeries = (
       metricSeriesUpdated("all_future", "forbidden");
       return yield* Effect.fail(new NotEventOwner({ id }));
     }
+    // A cancelled series is closed: its template and instances stay as they
+    // were when it was cancelled.
+    if (existing.status === "cancelled") {
+      metricSeriesUpdated("all_future", "conflict");
+      return yield* Effect.fail(new ValidationError({ cause: "series is cancelled" }));
+    }
 
     const validated = yield* Schema.decodeUnknownEffect(UpdateSeriesSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
@@ -625,22 +632,46 @@ export const updateSeries = (
     };
     if (commsChannels) templateUpdate.commsChannels = JSON.stringify(commsChannels);
 
-    yield* Effect.tryPromise({
-      try: () => db.update(eventSeries).set(templateUpdate).where(eq(eventSeries.id, id)),
-      catch: (cause) => new DatabaseError({ cause }),
-    }).pipe(Effect.tapError((e) => Effect.logError("series.update template failed", e)));
-
-    // Determine cutoff. For `all_future`, everything from now on; for
-    // `this_and_following`, everything at or after the `from` instance's
-    // start time.
+    // Determine cutoff, before anything is written. For `all_future`,
+    // everything from now on; for `this_and_following`, everything at or after
+    // the `from` instance's start time. `from` must be an instance of this
+    // series: its start time is read from no other event.
     let cutoff = now;
     if (scope === "this_and_following" && from) {
       const anchor = yield* Effect.tryPromise({
-        try: (): Promise<Event[]> =>
-          db.select().from(events).where(eq(events.id, from)).limit(1) as Promise<Event[]>,
+        try: () =>
+          db
+            .select({ startTime: events.startTime })
+            .from(events)
+            .where(and(eq(events.id, from), eq(events.seriesId, id)))
+            .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      if (anchor.length > 0) cutoff = anchor[0]!.startTime;
+      if (anchor.length === 0) {
+        metricSeriesUpdated("this_and_following", "validation_error");
+        return yield* Effect.fail(
+          new ValidationError({ cause: "from is not an instance of this series" }),
+        );
+      }
+      cutoff = anchor[0]!.startTime;
+    }
+
+    // The template write matches only an open series, and its RETURNING is the
+    // series the caller gets back. No row means the series was cancelled after
+    // the read above, and its instances are left as the cancel left them.
+    const written = yield* Effect.tryPromise({
+      try: (): Promise<EventSeries[]> =>
+        db
+          .update(eventSeries)
+          .set(templateUpdate)
+          .where(and(eq(eventSeries.id, id), ne(eventSeries.status, "cancelled")))
+          .returning() as Promise<EventSeries[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    }).pipe(Effect.tapError((e) => Effect.logError("series.update template failed", e)));
+    const fresh = written[0];
+    if (!fresh) {
+      metricSeriesUpdated(scope, "conflict");
+      return yield* Effect.fail(new ValidationError({ cause: "series is cancelled" }));
     }
 
     // Build the per-instance update: pick only the template fields that
@@ -669,11 +700,15 @@ export const updateSeries = (
     }
     if (commsChannels) instanceUpdate.commsChannels = JSON.stringify(commsChannels);
 
-    // P-W2: single conditional UPDATE … RETURNING instead of
-    // SELECT-then-UPDATE. The `instanceOverride = false` predicate is
-    // evaluated atomically at write time, so an override flip landing
-    // between the old read and write can no longer be clobbered — and
-    // the extra round-trip is gone.
+    // Single conditional UPDATE … RETURNING instead of
+    // SELECT-then-UPDATE. Every predicate is evaluated at write time:
+    //   - `instanceOverride = false`: an instance the organiser edited on its
+    //     own keeps its edit;
+    //   - no `hardDeleteAt` and no reason but the organiser's: the erasure
+    //     flow owns those rows, as it does for `updateEvent`;
+    //   - not cancelled: a series cancel cancels the instances before it
+    //     closes the series, so one landing after the template write above
+    //     still keeps its instances as it left them.
     const updatedRows = yield* Effect.tryPromise({
       try: () =>
         db
@@ -684,13 +719,15 @@ export const updateSeries = (
               eq(events.seriesId, id),
               eq(events.instanceOverride, false),
               gte(events.startTime, cutoff),
+              isNull(events.hardDeleteAt),
+              or(isNull(events.cancellationReason), eq(events.cancellationReason, "organiser")),
+              ne(events.status, "cancelled"),
             ),
           )
           .returning({ id: events.id }),
       catch: (cause) => new DatabaseError({ cause }),
     }).pipe(Effect.tapError((e) => Effect.logError("series.update instances failed", e)));
 
-    const fresh = yield* getSeries(id);
     metricSeriesUpdated(scope === "this_and_following" ? "this_and_following" : "all_future", "ok");
     return { series: fresh, updated: updatedRows.length };
   }).pipe(Effect.withSpan("pulse.series.update"));
@@ -708,29 +745,57 @@ export const cancelSeries = (
       return yield* Effect.fail(new NotEventOwner({ id }));
     }
 
-    const now = new Date();
-    // P-W3: single UPDATE … RETURNING replaces the SELECT-then-UPDATE
-    // pair — the future-instance predicate is applied atomically at
-    // write time and the count comes back in the same round-trip.
-    const future = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .update(events)
-          .set({ status: "cancelled", updatedAt: now })
-          .where(and(eq(events.seriesId, id), gt(events.startTime, now)))
-          .returning({ id: events.id }),
-      catch: (cause) => new DatabaseError({ cause }),
-    }).pipe(Effect.tapError((e) => Effect.logError("series.cancel instances failed", e)));
+    if (existing.status === "cancelled") {
+      metricSeriesCancelled("ok");
+      return { cancelled: 0 };
+    }
 
-    yield* Effect.tryPromise({
-      try: () =>
-        db
-          .update(eventSeries)
-          .set({ status: "cancelled", updatedAt: now })
-          .where(eq(eventSeries.id, id)),
+    const now = new Date();
+    const nowSec = Math.floor(now.getTime() / 1_000);
+    // Future instances become organiser-cancelled. One the host-left flow had
+    // already cancelled is taken over too — the series cancel outlives a
+    // cancelled erasure — but keeps its `cancelledAt` and `hardDeleteAt`, so a
+    // host who goes on to leave still has it hard-deleted on schedule.
+    const instances = db
+      .update(events)
+      .set({
+        status: "cancelled",
+        cancelledAt: sql`COALESCE(${events.cancelledAt}, ${nowSec})`,
+        cancellationReason: "organiser",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(events.seriesId, id),
+          gt(events.startTime, now),
+          or(ne(events.status, "cancelled"), eq(events.cancellationReason, "host_left")),
+        ),
+      )
+      .returning({ id: events.id });
+    const close = db
+      .update(eventSeries)
+      .set({ status: "cancelled", updatedAt: now })
+      .where(and(eq(eventSeries.id, id), ne(eventSeries.status, "cancelled")));
+    // Each statement matches only rows still in the state it moves them out
+    // of, so a repeated cancel writes nothing. Instances go first: a series
+    // edit racing the cancel skips cancelled instances.
+    const cancelled = yield* Effect.tryPromise({
+      try: async () => {
+        // The D1 driver sends both as one batch, one round trip, and commits
+        // them together.
+        if (canBatch(db)) {
+          const [rows] = await db.batch([instances, close]);
+          return rows.length;
+        }
+        // In turn on bun:sqlite. A retry after a failure between the two
+        // finishes the cancel.
+        const rows = await instances;
+        await close;
+        return rows.length;
+      },
       catch: (cause) => new DatabaseError({ cause }),
-    }).pipe(Effect.tapError((e) => Effect.logError("series.cancel series failed", e)));
+    }).pipe(Effect.tapError((e) => Effect.logError("series.cancel failed", e)));
 
     metricSeriesCancelled("ok");
-    return { cancelled: future.length };
+    return { cancelled };
   }).pipe(Effect.withSpan("pulse.series.cancel"));

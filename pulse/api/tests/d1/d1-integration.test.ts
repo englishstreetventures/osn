@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 
 import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
-import { events, pulseAccountPurges, pulseDeletionJobs } from "@pulse/db/schema";
+import { events, eventSeries, pulseAccountPurges, pulseDeletionJobs } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { createSchemaSql } from "@pulse/db/testing";
 import { createD1Db, insertManyViaJsonEach } from "@shared/db-utils";
+import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -14,6 +15,7 @@ import {
   purgeAccount,
   requestErasure,
 } from "../../src/services/accountErasure";
+import { cancelSeries, createSeries } from "../../src/services/series";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
 // These exercise the ASYNCHRONOUS D1 driver path the `dev`/`staging`/`prod`
@@ -63,13 +65,62 @@ describe("pulse/api account erasure over real D1 (Miniflare)", () => {
     expect(status.scheduled).toBe(true);
   });
 
+  // Both erasure batches run over hosted rows here: on D1 the statements of a
+  // batch run in order inside one transaction, which is what `requestErasure`'s
+  // second events UPDATE and `cancelErasure`'s CASE update rely on.
   it("cancelErasure clears the job via the async batch path", async () => {
+    const now = new Date();
+    const hosted = (id: string) => ({
+      id,
+      title: id,
+      startTime: new Date(now.getTime() + 86_400_000),
+      status: "upcoming" as const,
+      visibility: "public" as const,
+      guestListVisibility: "public" as const,
+      joinPolicy: "open" as const,
+      allowInterested: true,
+      commsChannels: '["email"]',
+      instanceOverride: false,
+      createdByProfileId: "usr_p2",
+      createdByName: "Leaving Host",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await rawDb.insert(events).values(hosted("evt_p2_live"));
+    await rawDb.insert(events).values({
+      ...hosted("evt_p2_called_off"),
+      status: "cancelled",
+      cancelledAt: 1_000,
+      cancellationReason: "organiser",
+    });
+    const read = async (id: string) =>
+      (await rawDb.select().from(events).where(eq(events.id, id)).all())[0]!;
+
     await run(requestErasure({ profileId: "usr_p2", accountId: "acc_2" }));
+    const left = await read("evt_p2_live");
+    expect(left.status).toBe("cancelled");
+    expect(left.cancellationReason).toBe("host_left");
+    expect(left.hardDeleteAt).toBeGreaterThan(0);
+    const calledOff = await read("evt_p2_called_off");
+    expect(calledOff.hardDeleteAt).toBe(left.hardDeleteAt);
+    expect(calledOff.cancellationReason).toBe("organiser");
+
     const cancelled = await run(cancelErasure("usr_p2"));
     expect(cancelled.cancelled).toBe(true);
 
     const status = await run(getDeletionStatus("usr_p2"));
     expect(status.scheduled).toBe(false);
+
+    const restored = await read("evt_p2_live");
+    expect(restored.status).toBe("upcoming");
+    expect(restored.cancelledAt).toBeNull();
+    expect(restored.cancellationReason).toBeNull();
+    expect(restored.hardDeleteAt).toBeNull();
+    const kept = await read("evt_p2_called_off");
+    expect(kept.status).toBe("cancelled");
+    expect(kept.cancelledAt).toBe(1_000);
+    expect(kept.cancellationReason).toBe("organiser");
+    expect(kept.hardDeleteAt).toBeNull();
   });
 
   // `hostedEventIds` is read unbounded, then bound into four DELETEs inside
@@ -125,5 +176,43 @@ describe("pulse/api account erasure over real D1 (Miniflare)", () => {
     // Second call finds the ledger row written by the first batch → no-op.
     const second = await run(purgeAccount("acc_3", ["usr_p3"]));
     expect(second).toMatchObject({ purged: 0, alreadyProcessed: true });
+  });
+});
+
+describe("pulse/api series cancel over real D1 (Miniflare)", () => {
+  // The instances and the series are cancelled in one batch: one request, one
+  // transaction, and the count comes from the first statement's RETURNING.
+  it("cancelSeries sends one batch and counts the instances it cancelled", async () => {
+    const { series } = await run(
+      createSeries(
+        {
+          title: "Weekly on D1",
+          rrule: "FREQ=WEEKLY;COUNT=3",
+          dtstart: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+        },
+        { createdByProfileId: "usr_series", createdByName: "Series Host", createdByAvatar: null },
+      ),
+    );
+    const batch = spyOn(rawDb as unknown as { batch: (...a: unknown[]) => unknown }, "batch");
+    try {
+      const first = await run(cancelSeries(series.id, "usr_series"));
+      expect(first.cancelled).toBe(3);
+      expect(batch).toHaveBeenCalledTimes(1);
+    } finally {
+      batch.mockRestore();
+    }
+    const instances = await rawDb.select().from(events).where(eq(events.seriesId, series.id)).all();
+    expect(instances.map((r) => [r.status, r.cancellationReason])).toEqual([
+      ["cancelled", "organiser"],
+      ["cancelled", "organiser"],
+      ["cancelled", "organiser"],
+    ]);
+    const [closed] = await rawDb
+      .select()
+      .from(eventSeries)
+      .where(eq(eventSeries.id, series.id))
+      .all();
+    expect(closed!.status).toBe("cancelled");
+    expect((await run(cancelSeries(series.id, "usr_series"))).cancelled).toBe(0);
   });
 });

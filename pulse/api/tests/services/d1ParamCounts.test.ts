@@ -27,13 +27,9 @@
  *   6. events.ts        applyTransitions (via listTodayEvents)
  */
 
-import { Database } from "bun:sqlite";
-
 import { events, eventSeries, type EventSeries } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { applySchema } from "@pulse/db/testing";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { purgeAccount } from "../../src/services/accountErasure";
@@ -44,30 +40,7 @@ import { applyTransitions } from "../../src/services/events";
 import { getAttendanceVisibilityBatch } from "../../src/services/pulseUsers";
 import { inviteGuests } from "../../src/services/rsvps";
 import { materializeInstances, parseRRule } from "../../src/services/series";
-import { seedEvent } from "../helpers/db";
-
-interface Captured {
-  sql: string;
-  params: readonly unknown[];
-}
-
-/**
- * Same shape as `../helpers/db`'s `createTestLayer`, plus a `logger` that
- * records every statement drizzle actually sends to bun:sqlite. Kept local
- * to this file rather than added to the shared helper — no other suite
- * needs to inspect emitted SQL, and threading a capture array through the
- * shared helper's signature would be dead weight everywhere else.
- */
-function createCapturingTestLayer(): { layer: Layer.Layer<Db>; captured: Captured[] } {
-  const captured: Captured[] = [];
-  const sqlite = new Database(":memory:");
-  applySchema(sqlite);
-  const db = drizzle({
-    client: sqlite,
-    logger: { logQuery: (sql, params) => captured.push({ sql, params }) },
-  });
-  return { layer: Layer.succeed(Db, { db }), captured };
-}
+import { type Captured, createCapturingTestLayer, seedEvent } from "../helpers/db";
 
 /** The one statement in `captured` whose SQL contains every one of `needles`. */
 function findStatement(captured: Captured[], ...needles: string[]): Captured {
@@ -383,9 +356,9 @@ describe("events.ts applyTransitions (events.ts:296)", () => {
     expect(transitioned.every((e) => e.status === "ongoing")).toBe(true);
 
     const stmt = findStatement(captured, 'update "events"', "json_each");
-    // status = ?, updated_at = ?, id IN json_each(?), status = ? (the
-    // status the group was derived from) — 4 total, never ids.length + 3
-    // (which would be 153 for this test's 150 rows).
-    expect(stmt.params).toHaveLength(4);
+    // status = ?, updated_at = ?, id IN json_each(?) — 3 total; the
+    // terminal-status guard is a literal and binds nothing. Never
+    // ids.length + 2 (which would be 152 for this test's 150 rows).
+    expect(stmt.params).toHaveLength(3);
   });
 });

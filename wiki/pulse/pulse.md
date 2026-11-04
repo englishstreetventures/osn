@@ -15,7 +15,7 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-03
+last-reviewed: 2026-11-04
 ---
 
 # Pulse
@@ -56,9 +56,24 @@ Full event lifecycle management:
 
 ### Lifecycle Transitions
 
-Events move through statuses: `upcoming` → `ongoing` → `finished`. Events can also be `cancelled` at any point by the organiser.
+Events move through statuses: `upcoming` → `ongoing` → `finished`. Events can also be `cancelled`.
 
-Transitions are derived when an event is read and written back by `applyTransition` (one event) or `applyTransitions` (a list page, one `UPDATE` per from → to pair). Each write applies only while the row still has the status it was derived from, so a cancel or early close committed between the read and the write is left as it is.
+`cancelled` and `finished` are terminal for automatic transitions: `applyTransition` writes a derived status only `WHERE status NOT IN ('cancelled', 'finished')`, so a read that loaded the row before a cancel cannot overwrite it.
+
+A cancelled event records who cancelled it in `cancellationReason`, with `cancelledAt` beside it:
+
+| Reason | Written by | Organiser can undo |
+|---|---|---|
+| `organiser` | `PATCH /events/:id { status: "cancelled" }`, `createEvent` with that status, or `cancelSeries` for every future instance | Yes, unless the event has a `hardDeleteAt` |
+| `host_left` | `requestErasure` when the host leaves Pulse; `cancelErasure` restores it | No |
+
+`PATCH /events/:id` refuses (422, `metricEventValidationFailure("update", "system_cancelled")`) any change to an event that is `host_left` or has a `hardDeleteAt`, and refuses `status: "maybe_finished"` (`status_not_settable`). Setting any other status clears `cancelledAt` and `cancellationReason`.
+
+`updateSeries` refuses a cancelled series (422), including one cancelled after the request read it: the template write matches only an open series, and its result is what the request returns. The instance write skips every instance that is cancelled, `host_left` or has a `hardDeleteAt`, as well as those the organiser edited on their own. A `this_and_following` edit takes its cutoff from the `from` instance only when that instance belongs to the series; any other `from` is refused (422) before anything is written.
+
+When the host leaves, one UPDATE cancels their events that are neither finished nor cancelled (`host_left`) and gives them, and every one the host had already cancelled, the same 14-day `hardDeleteAt`. `cancelErasure` clears `hardDeleteAt` from every hosted event that has one, whatever its status, since that is the column the sweeper deletes by. A series cancel takes over a future `host_left` instance (reason becomes `organiser`, `cancelledAt` and `hardDeleteAt` kept), so cancelling the erasure leaves it cancelled.
+
+Transitions are derived when an event is read and written back by `applyTransition` (one event) or `applyTransitions` (a list page, one `UPDATE` per from → to pair). Each write applies only while the row is neither `cancelled` nor `finished`, so a cancel or early close committed between the read and the write is left as it is.
 
 Events created **without an explicit `endTime`** follow a tighter ladder so they do not stay `ongoing` for ever:
 
@@ -73,9 +88,13 @@ Events **with** an explicit `endTime` keep the original single-transition behavi
 Users can RSVP to events with one of four statuses:
 
 - **going** -- confirmed attendance
-- **interested** -- tentative
+- **maybe** -- tentative (refused when the event sets `allowInterested: false`)
 - **not_going** -- declined
 - **invited** -- added by organiser, not yet responded
+
+RSVPs close when the event is `cancelled`: `upsertRsvp` refuses a new reply or a change (422), and the event page shows no RSVP buttons. Replies given before the cancel are kept, so an event the organiser un-cancels still has its guest list. On a guest-list event the invite check runs first, so a caller with no invite gets `403 Invitation required` whatever the event's state. An invite is an RSVP row too: `POST /events/:id/invite` is refused (422) on a cancelled event or one with a `hardDeleteAt`.
+
+Two concurrent replies for the same person are safe: a first RSVP that loses the race to insert becomes an update of the winner's row, and first-touch attribution (`shareSourceFirst`) is decided against the row at write time.
 
 The social graph filters RSVP visibility. The system serves counts, latest RSVPs, and attendee lists with close-friend indicators.
 

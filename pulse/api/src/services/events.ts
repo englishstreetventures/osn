@@ -2,7 +2,8 @@ import { events, eventRsvps } from "@pulse/db/schema";
 import type { Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { jsonEachIn } from "@shared/db-utils";
-import { and, asc, eq, gte, inArray, lte, ne, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
+import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
 import {
@@ -218,6 +219,14 @@ const deriveStatus = (event: Event, now: Date): Event["status"] => {
   return "ongoing";
 };
 
+/**
+ * The WHERE every automatic transition carries: `cancelled` and `finished`
+ * are terminal, so a transition derived from a copy read before a cancel (or
+ * an organiser's early close) matches nothing instead of overwriting it.
+ * Written as a literal so it binds no parameter.
+ */
+const notTerminal = sql`${events.status} NOT IN ('cancelled', 'finished')`;
+
 export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseError, Db> => {
   const now = new Date();
   const derived = deriveStatus(event, now);
@@ -237,17 +246,18 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
   const previous = event.status;
   return Effect.gen(function* () {
     const { db } = yield* Db;
-    yield* Effect.tryPromise({
-      // A transition is derived from the status the row was read with, so
-      // it applies only while the row still has it: a cancel or early close
-      // committed since the read is left as it is.
+    const written = yield* Effect.tryPromise({
       try: () =>
         db
           .update(events)
           .set({ status: derived, updatedAt: now })
-          .where(and(eq(events.id, event.id), eq(events.status, previous))),
+          .where(and(eq(events.id, event.id), notTerminal))
+          .returning({ id: events.id }),
       catch: (cause) => new DatabaseError({ cause }),
     });
+    // The row reached a terminal state after `event` was read. The caller
+    // keeps the copy it read; the next read sees the stored state.
+    if (written.length === 0) return event;
     metricEventStatusTransition(previous, derived);
     return { ...event, status: derived, updatedAt: now };
   }).pipe(
@@ -258,12 +268,12 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
 };
 
 /**
- * Batch variant of {@link applyTransition} for the list read paths. The
- * per-row version issues one `UPDATE` per transitioning event, so a page
- * of N stale rows costs N writes. This helper derives every row's status
- * with a single `now`, groups the rows that need persisting by their
- * (fromStatus → toStatus) pair, and issues ONE
- * `UPDATE events SET status = ? WHERE id IN (…) AND status = ?` per
+ * Batch variant of {@link applyTransition} for the list read paths.
+ * The per-row version issues one `UPDATE` per
+ * transitioning event, so a page of N stale rows costs N writes.
+ * This helper derives every row's status with a single `now`, groups
+ * the rows that need persisting by their (fromStatus → toStatus) pair,
+ * and issues ONE `UPDATE events SET status = ? WHERE id IN (…) AND status NOT IN ('cancelled', 'finished')` per
  * group — at most a handful of writes per page regardless of N.
  *
  * Semantics are identical to mapping `applyTransition` over the rows:
@@ -293,19 +303,22 @@ export const applyTransitions = (
   }
 
   // `rows` is readonly (shared with callers); in-place mutation is not
-  // acceptable here — the spread copies are the point.
-  const project = (): Event[] =>
+  // acceptable here — the spread copies are the point. A row whose write
+  // matched nothing (it went terminal after it was read) keeps the copy read.
+  const project = (written: ReadonlySet<string>): Event[] =>
     // oxlint-disable-next-line no-map-spread
     derivedRows.map(({ event, derived }) => {
       if (derived === event.status) return event;
       if (derived === "maybe_finished") return { ...event, status: derived };
+      if (!written.has(event.id)) return event;
       return { ...event, status: derived, updatedAt: now };
     });
 
-  if (groups.size === 0) return Effect.sync(project);
+  if (groups.size === 0) return Effect.sync(() => project(new Set()));
 
   return Effect.gen(function* () {
     const { db } = yield* Db;
+    const written = new Set<string>();
     yield* Effect.forEach(
       [...groups.values()],
       ({ from, to, ids }) =>
@@ -326,11 +339,15 @@ export const applyTransitions = (
             db
               .update(events)
               .set({ status: to, updatedAt: now })
-              .where(and(inArray(events.id, jsonEachIn(ids)), eq(events.status, from))),
+              .where(and(inArray(events.id, jsonEachIn(ids)), notTerminal))
+              .returning({ id: events.id }),
           catch: (cause) => new DatabaseError({ cause }),
         }).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => metricEventStatusTransitionBatch(from, to, ids.length)),
+          Effect.tap((hits) =>
+            Effect.sync(() => {
+              for (const r of hits) written.add(r.id);
+              if (hits.length > 0) metricEventStatusTransitionBatch(from, to, hits.length);
+            }),
           ),
           Effect.withSpan("events.apply_transition", {
             attributes: { "event.from": from, "event.to": to },
@@ -339,7 +356,7 @@ export const applyTransitions = (
       // Groups are disjoint id sets (at most a handful of from → to pairs).
       { concurrency: "unbounded" },
     );
-    return project();
+    return project(written);
   });
 };
 
@@ -375,7 +392,7 @@ export const listEvents = (
     // in JS would silently shrink the page), and (b) the
     // `events_visibility_start_time_idx` index actually gets used.
     // Shared predicate with `discoverEvents` and `canViewEvent` — any
-    // divergence re-opens the S-H12..S-H16 regression class.
+    // divergence lets a viewer read private events they cannot see.
     filters.push(buildVisibilityFilter(params.viewerId ?? null));
 
     const results = yield* Effect.tryPromise({
@@ -392,9 +409,9 @@ export const listEvents = (
     });
 
     // Run the batched transition writer and the viewer's close-friends
-    // lookup in parallel — neither depends on the other (P-W1).
+    // lookup in parallel — neither depends on the other.
     // Transitions are grouped into one UPDATE per (from → to) pair
-    // (P-W5) instead of one write per stale row.
+    // instead of one write per stale row.
     const [transitioned, closeFriendIds] = yield* Effect.all(
       [
         applyTransitions(results),
@@ -427,7 +444,7 @@ export const listEvents = (
   }).pipe(Effect.withSpan("events.list"));
 
 /**
- * P-W3: DB-level cap on the "today" feed. The route exposes no limit
+ * DB-level cap on the "today" feed. The route exposes no limit
  * param, so a fixed ceiling bounds the page instead — 200 matches the
  * hard ceiling used by `listRsvps`/`listVenueEvents` and is double
  * `listEvents`' 100 max, since a whole day can legitimately hold more
@@ -440,7 +457,7 @@ const TODAY_EVENTS_LIMIT = 200;
  *
  * `viewerId` is not optional with a default: this list shipped without any
  * visibility predicate at all, so every private event starting today was
- * readable by an unauthenticated caller (the S-H12..S-H16 class the
+ * readable by an unauthenticated caller (the leak the
  * `buildVisibilityFilter` header warns about). Requiring the argument means
  * a new caller has to say who is asking rather than inherit a leak.
  */
@@ -470,7 +487,7 @@ export const listTodayEvents = (
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    // Batched status-transition writer (P-W5) — see applyTransitions.
+    // Batched status-transition writer — see applyTransitions.
     const transitioned = yield* applyTransitions(results);
     metricEventsListed("today", transitioned.length);
     return transitioned;
@@ -496,7 +513,7 @@ export interface CalendarEntry {
  * `canViewEvent`). Today's already-finished events still belong on the
  * day's agenda, so we bound only on `startTime`, not the derived status.
  *
- * P-W1: split into two index-friendly arms instead of one OR query
+ * Split into two index-friendly arms instead of one OR query
  * spanning both tables. The original `events.createdBy = viewer OR
  * rsvp.status IN (…)` shape couldn't be satisfied by any single index,
  * so SQLite range-scanned every upcoming event globally before
@@ -582,7 +599,7 @@ export const listMyCalendarEvents = (
 
     // Apply lifecycle transitions so the calendar shows accurate
     // ongoing/finished labels. Batched into one UPDATE per (from → to)
-    // group (P-W5) — applyTransitions preserves row order, so the
+    // group — applyTransitions preserves row order, so the
     // parallel myStatus array zips back by index.
     const transitionedEvents = yield* applyTransitions(merged.map((m) => m.event));
     const entries = transitionedEvents.map((e, i): CalendarEntry => ({
@@ -668,9 +685,13 @@ export const createEvent = (
       updatedAt: now,
       ...priceFields,
     };
+    if (rest.status === "cancelled") {
+      row.cancelledAt = Math.floor(now.getTime() / 1_000);
+      row.cancellationReason = "organiser";
+    }
     if (commsChannels) row.commsChannels = JSON.stringify(commsChannels);
 
-    // P-I7: RETURNING * gives back the full row (incl. column defaults)
+    // RETURNING * gives back the full row (incl. column defaults)
     // in the same round-trip, replacing the previous INSERT + getEvent
     // pair. applyTransition is kept so a caller-supplied status is still
     // normalised exactly as the old read-back path did.
@@ -687,6 +708,14 @@ export const createEvent = (
     return result;
   }).pipe(withEventCreateDuration, Effect.withSpan("events.create"));
 
+/** An organiser's change to an event the erasure flow owns. */
+const refuseSystemCancelled = Effect.suspend(() => {
+  metricEventValidationFailure("update", "system_cancelled");
+  return Effect.fail(
+    new ValidationError({ cause: "event was cancelled by the system and cannot be changed" }),
+  );
+});
+
 export const updateEvent = (
   id: string,
   data: unknown,
@@ -700,11 +729,28 @@ export const updateEvent = (
       metricEventUpdated("forbidden");
       return yield* Effect.fail(new NotEventOwner({ id }));
     }
+    // The erasure flow owns an event it scheduled for hard delete or cancelled
+    // itself; the organiser does not. Refused here from the row just read; the
+    // UPDATE below carries the same condition for a leave that lands after it.
+    if (
+      existing.hardDeleteAt !== null ||
+      (existing.cancellationReason !== null && existing.cancellationReason !== "organiser")
+    ) {
+      return yield* refuseSystemCancelled;
+    }
 
     const validated = yield* Schema.decodeUnknownEffect(UpdateEventSchema)(data).pipe(
       Effect.tapError(() => Effect.sync(() => metricEventValidationFailure("update", "schema"))),
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
+    // `maybe_finished` is a projection `applyTransition` computes on read and
+    // never stores; an organiser cannot set it.
+    if (validated.status === "maybe_finished") {
+      metricEventValidationFailure("update", "status_not_settable");
+      return yield* Effect.fail(
+        new ValidationError({ cause: "status maybe_finished cannot be set" }),
+      );
+    }
 
     // Compute the effective times that the event will have after this
     // patch lands, so that patching only `endTime` still validates
@@ -731,22 +777,53 @@ export const updateEvent = (
     // If this event is part of a series, flag it as a single-instance
     // divergence so subsequent series-level bulk updates skip it.
     const overrideFlag = existing.seriesId ? { instanceOverride: true as const } : {};
-    const update: Partial<typeof events.$inferInsert> = {
+    const update: SQLiteUpdateSetSource<typeof events> = {
       ...rest,
       ...overrideFlag,
       updatedAt: now,
       ...priceFields,
     };
     if (commsChannels) update.commsChannels = JSON.stringify(commsChannels);
-    yield* Effect.tryPromise({
-      try: () => db.update(events).set(update).where(eq(events.id, id)),
+    // The cancellation columns move with the status: cancelling stamps them
+    // (keeping the first cancel's time), any other status clears them.
+    if (validated.status === "cancelled") {
+      update.cancelledAt = sql`COALESCE(${events.cancelledAt}, ${Math.floor(now.getTime() / 1_000)})`;
+      update.cancellationReason = "organiser";
+    } else if (validated.status !== undefined) {
+      update.cancelledAt = null;
+      update.cancellationReason = null;
+    }
+    // The organiser owns the row only while the erasure flow does not: not
+    // cancelled because the host left, and not scheduled for hard delete. The
+    // check sits in the WHERE so a host-left cancel landing after `existing`
+    // was read is not overwritten.
+    const written = yield* Effect.tryPromise({
+      try: (): Promise<Event[]> =>
+        db
+          .update(events)
+          .set(update)
+          .where(
+            and(
+              eq(events.id, id),
+              isNull(events.hardDeleteAt),
+              or(isNull(events.cancellationReason), eq(events.cancellationReason, "organiser")),
+            ),
+          )
+          .returning() as Promise<Event[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
+    if (written.length === 0) {
+      // Gone, or owned by the erasure flow.
+      const still = yield* Effect.tryPromise({
+        try: () => db.select({ id: events.id }).from(events).where(eq(events.id, id)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (still.length === 0) return yield* Effect.fail(new EventNotFound({ id }));
+      return yield* refuseSystemCancelled;
+    }
 
-    // Build the updated event in-memory rather than re-fetching from DB.
     // applyTransition is still called in case startTime/endTime changed.
-    const updated = { ...existing, ...update } as Event;
-    const result = yield* applyTransition(updated);
+    const result = yield* applyTransition(written[0]!);
     metricEventUpdated("ok");
     return result;
   }).pipe(Effect.withSpan("events.update"));
