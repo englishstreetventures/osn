@@ -14,10 +14,13 @@ import { instrumentedFetch } from "@shared/observability/fetch";
  * for Cloudflare Workers. cire/api runs on workerd, so it mints ARC tokens via
  * the DB-free, metric-free `@shared/crypto/jwk` subpath. The outbound call goes
  * through `instrumentedFetch` (from `@shared/observability/fetch`, which imports
- * only the workerd-safe `@opentelemetry/api` surface, never the SDK) so the S2S
- * request carries a W3C `traceparent`; osn-api adopts a caller's trace only
- * when the call is ARC-authenticated. The wrapper leaves the
- * `Authorization: ARC` header untouched.
+ * only the workerd-safe `@opentelemetry/api` surface, never the SDK). It starts
+ * its client span and writes its `traceparent` through the global
+ * `@opentelemetry/api` registry, where nothing in cire-api registers a tracer
+ * provider or a propagator, so the span records nothing and the call carries no
+ * `traceparent`. The osn-api Worker mounts no observability plugin, so it would
+ * read none either: osn-api's spans never join cire's trace. The wrapper leaves
+ * the `Authorization: ARC` header untouched.
  *
  * Key distribution: cire holds a stable ES256 private key (the
  * `CIRE_API_ARC_PRIVATE_KEY` wrangler secret); the matching public key is

@@ -185,8 +185,8 @@ export interface ZapChatClientConfig {
   arcKeyId: string;
   /**
    * Injectable fetch implementation — exists ONLY for tests. Production code
-   * passes nothing and the client falls back to `instrumentedFetch` so every
-   * outbound request carries a W3C `traceparent`.
+   * passes nothing and the client falls back to `instrumentedFetch`; the module
+   * comment in `osn-bridge.ts` says what that wrapper sends.
    */
   fetchImpl?: typeof fetch;
 }
