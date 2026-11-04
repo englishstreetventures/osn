@@ -31,7 +31,6 @@ vi.mock("@shared/rp-auth/solid", () => ({
   useAuth: () => ({ authFetch, activeProfileId: () => null }),
 }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
 vi.mock("../../src/lib/touch-feedback", () => ({
   haptic: () => {},
   hapticsAvailable: () => false,
