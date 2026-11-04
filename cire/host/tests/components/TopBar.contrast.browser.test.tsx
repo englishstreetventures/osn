@@ -183,6 +183,13 @@ describe("the top bar's actions", () => {
     const palette = screen.getByRole("button", { name: "Search and jump to" });
     const box = palette.getBoundingClientRect();
     expect(box.height).toBe(36);
+    // `quiet`: the hairline on the portals' pill ground, as it was a tile's.
+    const probe = document.createElement("div");
+    probe.style.cssText = "border:1px solid var(--border);background:var(--pill-ground)";
+    document.body.append(probe);
+    expect(getComputedStyle(palette).borderTopColor).toBe(getComputedStyle(probe).borderTopColor);
+    expect(getComputedStyle(palette).backgroundColor).toBe(getComputedStyle(probe).backgroundColor);
+    probe.remove();
     expect(Number.parseFloat(getComputedStyle(palette).borderTopLeftRadius)).toBeGreaterThanOrEqual(
       18,
     );

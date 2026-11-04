@@ -35,8 +35,7 @@ const SELECT_EDGE =
  * room the shared field's padding does not leave and `Input` owns its padding.
  * `type` stays the caller's: a box that searches is `search`.
  */
-export function FilterSearch(props: Omit<SafeProps<"input">, "size">) {
-  const [own, rest] = splitProps(props, ["class"]);
+export function FilterSearch(props: Omit<SafeProps<"input">, "size" | "class">) {
   return (
     <span class="relative flex w-full min-w-0 items-center">
       <Search
@@ -46,8 +45,8 @@ export function FilterSearch(props: Omit<SafeProps<"input">, "size">) {
         class="text-text-muted pointer-events-none absolute start-2.5 size-3.5"
       />
       <input
-        {...rest}
-        class={`flex ${CONTROL_HEIGHT.sm} ${controlClass("sm", `ps-7.5 ${EDGE}${own.class ? ` ${own.class}` : ""}`)}`}
+        {...props}
+        class={`flex ${CONTROL_HEIGHT.sm} ${controlClass("sm", `ps-7.5 ${EDGE}`)}`}
       />
     </span>
   );

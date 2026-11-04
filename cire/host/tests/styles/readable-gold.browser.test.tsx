@@ -384,5 +384,17 @@ describe("the palette's depth and a chosen design card", () => {
     gold.remove();
     expect(style.boxShadow).toMatch(/0px 0px 0px 2px/);
     expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    // A choice arrives on the base clock; the cards not chosen sit on the fast.
+    const idle = screen.getAllByRole("radio", { checked: false })[0]!.closest("div")!;
+    const clock = (token: string) => {
+      const probe = document.createElement("div");
+      probe.style.transitionDuration = `var(${token})`;
+      document.body.append(probe);
+      const value = getComputedStyle(probe).transitionDuration;
+      probe.remove();
+      return value;
+    };
+    expect(style.transitionDuration).toBe(clock("--dur-base"));
+    expect(getComputedStyle(idle).transitionDuration).toBe(clock("--dur-fast"));
   });
 });

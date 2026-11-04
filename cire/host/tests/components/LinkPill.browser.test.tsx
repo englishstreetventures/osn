@@ -62,6 +62,13 @@ describe("LinkPill", () => {
       expect(word(link).width).toBeGreaterThan(10);
       const radius = Number.parseFloat(getComputedStyle(link).borderTopLeftRadius);
       expect(radius).toBeGreaterThanOrEqual(14);
+      // `Button`'s `sm`: its label on the small step, medium weight.
+      const probe = document.createElement("div");
+      probe.style.fontSize = "var(--ui-text-xs)";
+      document.body.append(probe);
+      expect(getComputedStyle(link).fontSize).toBe(getComputedStyle(probe).fontSize);
+      probe.remove();
+      expect(getComputedStyle(link).fontWeight).toBe("500");
     }
   });
 

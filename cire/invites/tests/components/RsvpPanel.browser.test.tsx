@@ -300,10 +300,13 @@ describe("the sheet's controls, as tall as each other", () => {
       const answer = attending.getBoundingClientRect().height;
       const root = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
       expect(answer).toBeCloseTo(2.75 * root, 1);
-      expect(getByRole("button", { name: "Save" }).getBoundingClientRect().height).toBeCloseTo(
-        answer,
-        1,
+      const save = getByRole("button", { name: "Save" });
+      expect(save.getBoundingClientRect().height).toBeCloseTo(answer, 1);
+      // Still the sheet's gold-edged pill.
+      expect(Number.parseFloat(getComputedStyle(save).borderTopLeftRadius)).toBeGreaterThanOrEqual(
+        answer / 2,
       );
+      expect(getComputedStyle(save).borderTopWidth).toBe("1px");
       expect(getByRole("button", { name: "Cancel" }).getBoundingClientRect().height).toBeCloseTo(
         answer,
         1,

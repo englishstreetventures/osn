@@ -115,6 +115,10 @@ describe("Security", () => {
     const heading = screen.getByRole("heading", { name: /devices & passkeys/i });
     expect(getComputedStyle(heading).fontWeight).toBe("300");
     const link = screen.getByRole("link", { name: /manage on musubi/i });
+    // `outline`: a gold word in a gold edge, not the hairline and the
+    // secondary ink a quiet pill rests in.
+    expect(getComputedStyle(link).color).toBe(paint("color", "var(--gold-ink)"));
+    expect(getComputedStyle(link).borderTopColor).not.toBe(paint("color", "var(--border)"));
     const rest = getComputedStyle(link).backgroundColor;
     await userEvent.hover(link);
     await settled(link);
