@@ -21,10 +21,12 @@
  * Then, on the same page, the owner collapses the module rail to its icons,
  * reads a module's label from the keyboard, reloads to find the rail still
  * collapsed, opens and closes the locked Vendors card from the narrow rail,
- * expands the rail again and scrolls to check it sticks below the top bar.
+ * presses its Upgrade to find nothing for sale on this stack, which has no
+ * platform webhook to grant a tier, expands the rail again and scrolls to
+ * check it sticks below the top bar.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { Page, Request } from "@playwright/test";
@@ -32,6 +34,7 @@ import type { Page, Request } from "@playwright/test";
 import {
   CIRE_ORGANISER,
   DB_FILES,
+  LOG_DIR,
   ORIGINS,
   REALTIME_KEEPALIVE,
   SCREENSHOT_DIR,
@@ -487,6 +490,41 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   );
   flow.check("rail: a second click on the locked icon closes its card", true, card.closedByClick);
   flow.check("rail: Escape hands focus back to the locked row", true, card.returned);
+
+  // This stack's cire-api holds a Stripe key and a Price but no platform
+  // webhook secret: it could take an upgrade's money and never grant the tier,
+  // so it mounts no upgrade route, and the portal reads that as nothing for sale.
+  const upgrade = await flow.step("press Upgrade where no tier can be granted", async () => {
+    const catalogue = page.waitForResponse(
+      (res) =>
+        res.url() === `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/upgrade/catalogue`,
+    );
+    await vendors.click();
+    await page
+      .getByRole("dialog", { name: "Vendors & directory" })
+      .getByRole("button", { name: "Upgrade to Crimson" })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Upgrade: Crimson" });
+    await expect(dialog.getByText("Upgrades are not available on this site yet.")).toBeVisible();
+    const status = (await catalogue).status();
+    const payDisabled = await dialog
+      .getByRole("button", { name: "Continue to payment" })
+      .isDisabled();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+    return { status, payDisabled };
+  });
+  flow.check("upgrade: cire-api has no catalogue route", 404, upgrade.status);
+  flow.check("upgrade: the dialog offers no payment", true, upgrade.payDisabled);
+  // The stack is the one these labels name: cire-api logs this only with a key
+  // and a Price and no platform secret, once, when it builds the app.
+  flow.check(
+    "upgrade: cire-api warned once of a Stripe key with no platform webhook secret",
+    1,
+    readFileSync(resolve(LOG_DIR, "cireApi.log"), "utf8").split(
+      "upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET",
+    ).length - 1,
+  );
 
   const expanded = await flow.step("expand the module rail", async () => {
     await page.getByRole("button", { name: "Expand sidebar" }).click();

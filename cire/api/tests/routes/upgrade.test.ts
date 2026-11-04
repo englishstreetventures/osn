@@ -10,6 +10,7 @@ import { createDb, seedDb } from "../../src/db/setup";
 import { StripeError, type StripeClient } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
 import { appRequest, beforeStatement, failLikeD1, jsonBody, setTier } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -22,8 +23,9 @@ import type { OsnTestAuth } from "../test-helpers/osn-token";
  *   - a value this surface does not sell is a 404, never a checkout;
  *   - the catalogue offers only tiers above the wedding's own, priced for the
  *     move from where it is;
- *   - with no Stripe configured the routes do not exist at all, so a keyless
- *     deployment has no purchase surface rather than a broken one;
+ *   - with no Stripe configured, or no platform webhook secret, the routes do
+ *     not exist at all, so a deployment that could not grant a tier has no
+ *     purchase surface rather than one that takes money and grants nothing;
  *   - nothing here grants anything. A 200 means a payment page exists.
  */
 
@@ -69,14 +71,24 @@ function stripeStub(opts: { failCreate?: boolean } = {}) {
 
 const PRICES = { gold: "price_g", crimson: "price_c", crimsonFromGold: "price_cg" };
 
+const PLATFORM_SECRET = "whsec_upgrade_test_platform";
+
 function buildApp({
   stripe,
   prices = PRICES,
   tier = "ivory",
+  platformSecret = PLATFORM_SECRET,
+  connectSecret = null,
+  deployed,
 }: {
   stripe?: StripeClient | null;
-  prices?: Record<string, string>;
+  prices?: Record<string, string | undefined>;
   tier?: Tier;
+  platformSecret?: string | null;
+  connectSecret?: string | null;
+  /** A deployed tier, where the two webhook secrets must differ. Unset, as
+   *  the local server builds the app, it is the app's own default. */
+  deployed?: boolean;
 } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
@@ -96,6 +108,9 @@ function buildApp({
     osnTestKey: auth.key,
     organiserOrigin: "https://host.test",
     stripe: stripe === undefined ? stripeStub().client : stripe,
+    stripePlatformWebhookSecret: platformSecret,
+    stripeWebhookSecret: connectSecret,
+    requireDistinctStripeSecrets: deployed,
     upgradePrices: prices,
     // A fresh limiter per app: the module-level default is shared
     // process-wide, so the eleventh call in this file would otherwise 429
@@ -408,6 +423,118 @@ describe("when Stripe is not configured", () => {
     const { app } = buildApp({ stripe: null });
     expect((await get(app, `${base}/catalogue`, OWNER)).status).toBe(404);
     expect((await startSession(app, OWNER, { tier: "gold" })).status).toBe(404);
+  });
+});
+
+describe("when nothing could grant a purchase", () => {
+  /**
+   * Only the platform webhook moves a purchase off `pending`, and it exists
+   * only with its signing secret. With a key and Prices but no secret, an
+   * owner could pay and never get the tier, so the routes must not exist: the
+   * framework's own 404, not the session route's `not_purchasable` or the
+   * poll's `not_found`.
+   */
+  it("has no upgrade routes without a platform webhook secret, or with a blank one", async () => {
+    for (const platformSecret of [null, "   "]) {
+      const stripe = stripeStub();
+      const { app } = buildApp({ stripe: stripe.client, platformSecret });
+      const catalogue = await get(app, `${base}/catalogue`, OWNER);
+      expect(catalogue.status, String(platformSecret)).toBe(404);
+      expect(await jsonBody(catalogue)).toEqual({ error: "Not found" });
+      const session = await startSession(app, OWNER, { tier: "gold" });
+      expect(session.status, String(platformSecret)).toBe(404);
+      expect(await jsonBody(session)).toEqual({ error: "Not found" });
+      const poll = await get(app, `${base}/purchases/upg_any`, OWNER);
+      expect(poll.status, String(platformSecret)).toBe(404);
+      expect(await jsonBody(poll)).toEqual({ error: "Not found" });
+      expect(stripe.created).toEqual([]);
+    }
+  });
+
+  const WARNING =
+    "upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET";
+  const warningsBuilding = async (opts: Parameters<typeof buildApp>[0]) =>
+    (await captureLogs(() => buildApp(opts))).split(WARNING).length - 1;
+
+  it("says why once when it is built with a Price to sell and no secret", async () => {
+    // One Price is enough: that deployment means to sell a tier.
+    expect(await warningsBuilding({ platformSecret: null, prices: { gold: "price_g" } })).toBe(1);
+    expect(await warningsBuilding({ platformSecret: "   " })).toBe(1);
+    // As the Worker hands them over: an unset var is `undefined`, not absent.
+    const fromEnv = { gold: undefined, crimson: "price_c", crimsonFromGold: undefined };
+    expect(await warningsBuilding({ platformSecret: null, prices: fromEnv })).toBe(1);
+  });
+
+  it("says nothing where there is no tier to sell, or nothing missing", async () => {
+    // No key: no payment surface to explain. No Price, or only a blank one: a
+    // deployment that sells no tier anyway, so the secret would change nothing.
+    expect(await warningsBuilding({ stripe: null, platformSecret: null })).toBe(0);
+    expect(await warningsBuilding({ platformSecret: null, prices: {} })).toBe(0);
+    expect(await warningsBuilding({ platformSecret: null, prices: { gold: "  " } })).toBe(0);
+    expect(await warningsBuilding({})).toBe(0);
+  });
+});
+
+describe("where one value signs for both webhooks", () => {
+  /**
+   * A deployed tier has two Stripe dashboard endpoints, each with its own
+   * signing secret, so one value in both variables means one endpoint
+   * verifies nothing: an owner could pay and never get the tier. Locally one
+   * `stripe listen` signs for both, and the same value is right there.
+   */
+  const SAME = "whsec_one_value_for_both";
+  const ERROR =
+    "upgrades disabled: STRIPE_PLATFORM_WEBHOOK_SECRET is the same value as STRIPE_WEBHOOK_SECRET";
+
+  it("has no upgrade routes on a deployed tier, and says why once, naming no value", async () => {
+    const stripe = stripeStub();
+    let app!: App;
+    const logs = await captureLogs(() => {
+      app = buildApp({
+        stripe: stripe.client,
+        platformSecret: SAME,
+        connectSecret: ` ${SAME} `,
+        deployed: true,
+      }).app;
+    });
+    expect(logs.split(ERROR).length - 1).toBe(1);
+    expect(logs).toContain("each Stripe endpoint signs with its own secret");
+    expect(logs).not.toContain(SAME);
+    for (const res of [
+      await get(app, `${base}/catalogue`, OWNER),
+      await startSession(app, OWNER, { tier: "gold" }),
+      await get(app, `${base}/purchases/upg_any`, OWNER),
+    ]) {
+      expect(res.status).toBe(404);
+      expect(await jsonBody(res)).toEqual({ error: "Not found" });
+    }
+    expect(stripe.created).toEqual([]);
+  });
+
+  it("sells as usual with two values on a deployed tier, and with one value locally", async () => {
+    for (const opts of [
+      { connectSecret: "whsec_connect_endpoint", deployed: true },
+      // As `src/local.ts` builds it: no tier flag at all.
+      { connectSecret: PLATFORM_SECRET },
+    ]) {
+      let app!: App;
+      const logs = await captureLogs(() => {
+        app = buildApp(opts).app;
+      });
+      expect(logs, JSON.stringify(opts)).not.toContain(ERROR);
+      expect((await get(app, `${base}/catalogue`, OWNER)).status, JSON.stringify(opts)).toBe(200);
+    }
+  });
+
+  it("reads two missing secrets as missing, not as one value", async () => {
+    // Neither set, on a deployed tier: the missing-secret warning, not this one.
+    const logs = await captureLogs(() =>
+      buildApp({ platformSecret: null, connectSecret: "  ", deployed: true }),
+    );
+    expect(logs).not.toContain(ERROR);
+    expect(logs).toContain(
+      "upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET",
+    );
   });
 });
 

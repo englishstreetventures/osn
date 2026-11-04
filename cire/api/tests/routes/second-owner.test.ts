@@ -100,6 +100,8 @@ function buildApp() {
     osnTestKey: auth.key,
     organiserOrigin: "https://host.test",
     stripe,
+    // Upgrades are sold only where the platform webhook can grant them.
+    stripePlatformWebhookSecret: "whsec_second_owner_platform",
     upgradePrices: { crimsonFromGold: "price_cg" },
     upgradeLimiter: limiter(),
     unlockCodeLimiter: limiter(),

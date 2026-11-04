@@ -195,6 +195,11 @@ export function appSpecs(): AppSpec[] {
         // Not a real key, and nothing in a flow sends it anywhere: no flow
         // reaches a route that calls Stripe.
         STRIPE_SECRET_KEY: "e2e-placeholder-no-stripe-account",
+        // A Gold Price beside that key, and no platform webhook secret: a
+        // deployment that means to sell a tier but could never grant one, so
+        // cire-api mounts no upgrade route. The checklist flow checks that the
+        // portal offers no payment. Not a real Price; nothing reads it there.
+        STRIPE_UPGRADE_PRICE_GOLD: "price_e2e_placeholder_gold",
         // What osn-api presents to end organiser sessions; the same value as its own.
         CIRE_INTERNAL_REVOKE_SECRET,
       },

@@ -74,8 +74,10 @@ await applyE2eOrganiserAssets(assets, process.env);
 // `STRIPE_SECRET_KEY` and the organiser Connect routes are not mounted, no
 // `STRIPE_WEBHOOK_SECRET` and `/api/stripe/webhook` does not exist — and guests
 // are offered no money gift, which needs both (the key alone logs a warning at
-// boot). Both come from the shell, never from a committed file — the webhook
-// secret in particular is whatever `stripe listen` prints for THIS session:
+// boot). No `STRIPE_PLATFORM_WEBHOOK_SECRET` and no tier is for sale (the key
+// with a Price id logs a warning at boot). They come from the shell, never from
+// a committed file — the webhook secrets in particular are whatever
+// `stripe listen` prints for THIS session:
 //
 //   stripe listen --forward-connect-to localhost:8787/api/stripe/webhook \
 //                 --forward-to         localhost:8787/api/stripe/platform-webhook
@@ -93,7 +95,8 @@ await applyE2eOrganiserAssets(assets, process.env);
 // locally both variables carry the SAME value. Deployed tiers have two
 // dashboard endpoints and therefore two different secrets; that difference is
 // what the wrong-secret test pins, and it is a deployed property, not a local
-// one.
+// one. The Worker on a deployed tier sells no tier on one value in both; this
+// server does not check.
 const stripe = createStripeClientFromEnv({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY });
 
 // Organiser sign-in's JWKS URL. The Worker's boot requires `OSN_JWKS_URL`;

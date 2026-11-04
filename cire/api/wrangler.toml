@@ -143,8 +143,11 @@ ZAP_API_URL = "http://localhost:3002"
 # aren't available on this site yet."
 # STRIPE_WEBHOOK_SECRET UNSET ⇒ /api/stripe/webhook does not exist (gifts).
 # STRIPE_PLATFORM_WEBHOOK_SECRET UNSET ⇒ /api/stripe/platform-webhook does not
-# exist (upgrades), so a purchase could be paid and never granted — nothing else
-# moves a purchase off `pending`.
+# exist (upgrades), and nor do the upgrade routes: nothing else moves a purchase
+# off `pending`, so no tier is sold where none could be granted. With the key and
+# a STRIPE_UPGRADE_PRICE_* set, the Worker logs "upgrades disabled:
+# STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET" when it builds
+# the app.
 # Nothing else authenticates either endpoint — the signature IS the
 # authentication — so without a signing secret neither may be reachable.
 #
@@ -155,7 +158,9 @@ ZAP_API_URL = "http://localhost:3002"
 # All three are SECRETS, never [vars]: the API key can move money, and a signing
 # secret is what stops anyone else's body being believed. The two webhook
 # secrets come from DIFFERENT endpoints in the Stripe dashboard; reusing one for
-# both means every delivery to the other is refused.
+# both means every delivery to the other is refused. A deployed tier holding one
+# value in both mounts no upgrade route and logs "upgrades disabled:
+# STRIPE_PLATFORM_WEBHOOK_SECRET is the same value as STRIPE_WEBHOOK_SECRET".
 #
 # STRIPE_ACCOUNT_COUNTRY is an ordinary var (default "AU" in code). Stripe fixes
 # an account's country at creation, so it is a per-deployment default rather

@@ -66,9 +66,10 @@ const NOTHING_FOR_SALE: Catalogue = { tier: null, upgrades: [] };
 /**
  * What this wedding can buy.
  *
- * A 404 means the deployment has no Stripe configured at all, so the routes are
- * not mounted — an empty catalogue rather than an error, because the portal's
- * honest answer there is "no purchase path", not "something broke".
+ * A 404 means the deployment sells no tier — no Stripe key, or no platform
+ * webhook to grant one — so the routes are not mounted: an empty catalogue
+ * rather than an error, because the portal's honest answer there is "no
+ * purchase path", not "something broke".
  *
  * An entry for a tier this build does not know is dropped: the dialog offers a
  * tier by name, and one it cannot name is not one it can sell.

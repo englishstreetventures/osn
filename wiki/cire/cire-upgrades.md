@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-development]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-04
 ---
 
 # Self-serve upgrades — buying a plan tier
@@ -127,9 +127,11 @@ same URL without `upgrade` on cancel.
 > query that finds the caller's seat, and that is what the catalogue prices
 > from, so it costs no query of its own. See [[cire-entitlements]].
 
-They are mounted after `createApp`'s route chain, with the platform webhook:
-both use one upgrade service, which exists only with a Stripe client
-([[cire-development#Mounting a route]]).
+They are mounted after `createApp`'s route chain, with the platform webhook,
+and only with both a Stripe client and `STRIPE_PLATFORM_WEBHOOK_SECRET`: the
+routes open a checkout, and only the platform webhook grants the tier it pays
+for, so where the webhook cannot exist no tier is sold. Both use one upgrade
+service ([[cire-development#Mounting a route]]).
 
 ---
 
@@ -163,8 +165,22 @@ production fails at checkout.
 sale: absent from the catalogue, 404 from the checkout route. In particular,
 with `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD` unset a Gold wedding is not
 offered Crimson at all — never at the full price again. Absent configuration
-never means free, and a blank or whitespace var counts as absent. With no
-`STRIPE_SECRET_KEY` the routes are not mounted.
+never means free, and a blank or whitespace var counts as absent.
+
+**No webhook, no sale.** With no `STRIPE_SECRET_KEY`, or no
+`STRIPE_PLATFORM_WEBHOOK_SECRET` (blank counts as none), the upgrade routes are
+not mounted: the catalogue and the checkout route answer 404, and the portal
+reads that as nothing for sale, so the dialog says upgrades are not available.
+Without the webhook an owner could pay and the purchase would stay `pending`
+for good. Where the key and a Price id come without the secret, the Worker logs
+`upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET`
+once when it builds the app; set the secret, then deploy, since a warm isolate
+keeps the app it built. On a deployed tier the same holds when
+`STRIPE_PLATFORM_WEBHOOK_SECRET` is the same value as `STRIPE_WEBHOOK_SECRET`:
+the two are separate Stripe endpoints, each with its own secret, so one value
+in both means one of them verifies nothing. The Worker sells no tier and logs
+`upgrades disabled: STRIPE_PLATFORM_WEBHOOK_SECRET is the same value as STRIPE_WEBHOOK_SECRET`.
+Locally one `stripe listen` signs both, and the same value is right.
 
 Prices are cached per isolate for ten minutes (`PRICE_CACHE_TTL_MS`) — the
 catalogue is read on every upgrade dialog, and each would otherwise spend a

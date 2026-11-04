@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 
 # Cire development guide
@@ -124,7 +124,7 @@ on one fluent Elysia chain. Where a new route goes:
 | Where | What goes there |
 |---|---|
 | Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
-| After the chain | The Stripe mounts: the Connect webhook, the upgrade routes and the platform webhook. The upgrade routes and the platform webhook share one upgrade service, which exists only with a Stripe client, and the `if (!stripe)` return skips both without one. No type limit keeps the two webhooks here |
+| After the chain | The Stripe mounts: the Connect webhook, the upgrade routes and the platform webhook. The upgrade routes and the platform webhook share one upgrade service and mount together, only with both a Stripe client and the platform webhook secret (on a deployed tier, one that differs from the Connect secret): the early return skips both otherwise, since only that webhook grants what the routes sell. No type limit keeps the two webhooks here |
 | Anywhere else | Inside the chain, after the guard. A route that exists only under a setting mounts as `setting ? routes : new Elysia()`, as Connect onboarding does |
 
 The two Stripe webhooks sit after the guard and skip it by exact path instead —
