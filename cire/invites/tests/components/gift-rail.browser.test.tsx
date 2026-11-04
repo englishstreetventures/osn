@@ -5,7 +5,7 @@ import "../../src/styles/global.css";
 import documentSource from "../../src/components/gift-registry/GiftRegistryDocument.astro?raw";
 
 /*
- * The gift page says its way back once (owner, the 2026-11-04 audit): the
+ * The gift page says its way back once: the
  * sticky rail (`GiftRegistryDocument.astro`'s `data-gift-rail`) while the list
  * is open, and only the closed page's own pill (`GiftRegistryPage.tsx`'s
  * `data-gift-closed` block) once the couple have closed it. Measured under the

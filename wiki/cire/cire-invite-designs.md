@@ -805,8 +805,8 @@ differs. On the guest site each corner paints:
   on a phone, so iOS does not zoom, and 44px from 640px; heights are rem, so on
   the 17px desk root it is 46.75px, never under the 44px floor. Every control
   a guest presses in the RSVP sheet stands at that one height too: the answer
-  pair, its Cancel and its Save (`min-h-11`, 2.75rem; owner, the 2026-11-04
-  consistency audit). Respond stays the event card's one filled gold control;
+  pair, its Cancel and its Save (`min-h-11`, 2.75rem; the owner's choice).
+  Respond stays the event card's one filled gold control;
   its label is `--color-on-gold`, which `derivePalette` holds at 4.5:1 on the
   gold, the light schemes included — 4.60:1 on chapel's darker gold in a dark
   ink, 4.96:1 and 4.63:1 on fog's and garden's in a light one — as

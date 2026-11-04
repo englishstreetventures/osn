@@ -72,10 +72,10 @@ describe("the profile menu's version line", () => {
 });
 
 /*
- * Every floating panel is one depth (the 2026-11-04 consistency audit, item
- * 5): the raised surface, lit along its top by the inner lip, on the floating
- * shadow, at the 10px corner. The shared menu's accent look reads `--elev-2`,
- * which carries the lip, so the profile menu shows it.
+ * Every floating panel is one depth (DESIGN.md §4, Depth): the raised
+ * surface, lit along its top by the inner lip, on the floating shadow, at the
+ * 10px corner. The shared menu's accent look reads `--elev-2`, which carries
+ * the lip, so the profile menu shows it.
  */
 describe("the profile menu's depth", () => {
   it("floats raised, lit by the inner lip, on the floating shadow, at 10px", async () => {

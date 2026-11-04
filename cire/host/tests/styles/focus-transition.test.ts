@@ -81,7 +81,7 @@ describe("focusable controls", () => {
 });
 
 /**
- * And nothing else either (the 2026-11-04 consistency audit, item 7): a span
+ * And nothing else either (DESIGN.md §4, One motion rule): a span
  * inside a control, a label, a marker — every colour change in both portals
  * names its properties, so no element ever fades an outline colour and one
  * motion rule reads the same everywhere. Read line by line over every source

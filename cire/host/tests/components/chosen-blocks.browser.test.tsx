@@ -22,7 +22,7 @@ import RemintPanel from "../../src/components/RemintPanel";
 import SecurityPanel from "../../src/components/SecurityPanel";
 
 /*
- * A block pressed to choose (the 2026-11-04 consistency audit, item 4): the
+ * A block pressed to choose (DESIGN.md §4, One pill language): the
  * code-style radio cards on a new wedding and in the re-mint panel are marked
  * as `choice` marks an answer, at their own 14px corner — a gold edge and a 2px
  * ring at 60%, no wash — and an unchosen card under the pointer goes halfway,

@@ -88,7 +88,7 @@ describe("the wedding list at a phone's width", () => {
 });
 
 /*
- * The empty slot (the 2026-11-04 consistency audit, item 9): "Create a
+ * The empty slot (DESIGN.md §4, One pill language): "Create a
  * wedding" stands in the grid's next cell as a dashed tile, the 14px field
  * corner, the size of a wedding's tile, not a pill under the grid.
  */

@@ -324,11 +324,10 @@ for (const theme of THEMES) {
 }
 
 /*
- * Two marks of the 2026-11-04 consistency audit measured on parts this file
- * already draws: the command palette floats at the one panel depth, on the
- * raised surface lit by the inner lip (item 5), and a chosen design card is a
- * block marked as `choice` marks an answer, a gold edge and a 2px ring with no
- * wash (item 4).
+ * Two rules of DESIGN.md §4 measured on parts this file already draws: the
+ * command palette floats at the one panel depth, on the raised surface lit by
+ * the inner lip, and a chosen design card is a block marked as `choice` marks
+ * an answer, a gold edge and a 2px ring with no wash.
  */
 describe("the palette's depth and a chosen design card", () => {
   const paint = (value: string) => {

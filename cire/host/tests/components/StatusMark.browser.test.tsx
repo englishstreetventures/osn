@@ -6,8 +6,7 @@ import "../../src/styles/global.css";
 import { StatusDot, StatusMark, type MarkTone } from "../../src/components/StatusMark";
 
 /**
- * A reply's glyph sits in the middle of its circle as painted (owner, the
- * 2026-11-04 audit: "the icon is poorly spaced in the circle"). Layout cannot
+ * A reply's glyph sits in the middle of its circle as painted. Layout cannot
  * show it: a circle drawn as a box's background snaps to the pixel grid while
  * a glyph drawn as an SVG inside it does not, so at a fractional position —
  * which a row of text puts a mark at as often as not — the two part by up to

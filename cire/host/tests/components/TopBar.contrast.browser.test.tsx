@@ -171,10 +171,9 @@ describe("the host top bar's words, over what scrolls beneath it", () => {
 });
 
 /*
- * The top bar's actions in the one pill language (the 2026-11-04 consistency
- * audit, items 9 and 11): ⌘K a 36px pill with a 16px magnifier, as a search
- * box reads, and Preview invite the portals' secondary `outline`, which takes
- * no fill under the pointer.
+ * The top bar's actions in the one pill language (DESIGN.md §4): ⌘K a 36px
+ * pill with a 16px magnifier, as a search box reads, and Preview invite the
+ * portals' secondary `outline`, which takes no fill under the pointer.
  */
 describe("the top bar's actions", () => {
   it("draws ⌘K as a 36px pill led by a 16px magnifier, and Preview invite as an outline", async () => {

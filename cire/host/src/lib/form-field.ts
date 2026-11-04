@@ -7,7 +7,7 @@
  * field. A filter is `FilterSearch` or `FilterSelect`, 28px, where the same
  * corner rounds the ends and reads as a search box. A boxed `Button` in a row
  * with a form field is `size="form"`, the field's height, so the row lines up
- * (owner, 2026-10-29; DESIGN.md §4, "One form-field height").
+ * (DESIGN.md §4, "One form-field height").
  */
 
 import { cardClass } from "@cire/ui/card";

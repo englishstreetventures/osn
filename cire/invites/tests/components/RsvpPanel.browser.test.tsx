@@ -279,7 +279,7 @@ describe("the answer pair, as painted", () => {
 
 /*
  * Every control a guest presses in the RSVP sheet stands at one height (the
- * owner's guest answer on the 2026-11-04 consistency audit): the answer pair,
+ * owner's choice): the answer pair,
  * and the bar's Cancel and Save, at 2.75rem — 44px on a phone's 16px root and
  * 46.75px on the 17px desk root.
  */
