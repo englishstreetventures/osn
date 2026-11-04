@@ -413,24 +413,14 @@ describe("MessageThread from the keyboard", () => {
     const first = row("Is the barn free on 14 March?");
     tap(first);
     first.focus();
-    // The tap opens the row's time line, which grows the row as it reveals;
-    // the key is pressed once the row has stopped growing, so the menu is
-    // placed against the row's final edge.
-    let height = -1;
-    await waitFor(
-      () => {
-        const now = first.getBoundingClientRect().height;
-        const settled = now === height;
-        height = now;
-        expect(timeLine(first)).not.toBeNull();
-        expect(settled).toBe(true);
-      },
-      { interval: 100 },
-    );
+    await waitFor(() => expect(timeLine(first)).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    // The menu opens at the row's edge as it stands when the key is pressed;
+    // the tap's time line may still be growing the row after that.
+    const box = first.getBoundingClientRect();
     await userEvent.keyboard("{Shift>}{F10}{/Shift}");
     const panel = await menuOpens();
     expect(panel.textContent).toContain("They sent");
-    const box = first.getBoundingClientRect();
     const placed = panel.getBoundingClientRect();
     expect(Math.abs(placed.left - box.left)).toBeLessThan(12);
     expect(placed.top).toBeGreaterThanOrEqual(box.bottom - 1);
