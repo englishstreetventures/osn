@@ -217,8 +217,9 @@ export default function EventTable(props: EventTableProps) {
           adds no gap. */}
       <div class="flex flex-col gap-6 empty:hidden" aria-busy={loading() ? "true" : undefined}>
         <Show when={loading()}>
-          {/* Event cards at the height a loaded card draws (DESIGN.md §4,
-            Skeletons). */}
+          {/* The count line's room, empty, then event cards at the height a
+              loaded card draws (DESIGN.md §4, Skeletons). */}
+          <div aria-hidden="true" class="h-5" />
           <div class="auto-grid [--auto-grid-min:26rem]">
             <For each={[1, 2, 3, 4]}>{() => <Skeleton class="h-58" />}</For>
           </div>

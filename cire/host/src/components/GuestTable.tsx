@@ -1153,9 +1153,13 @@ export default function GuestTable(props: GuestTableProps) {
           <ViewBar slot="end">
             <Skeleton standsFor="field" class="h-7 w-64 max-w-full min-w-0" />
           </ViewBar>
-          {/* The list's head strip, where the layout has one, then households
-            at the height a loaded one draws, a hairline apart as the rows of
-            the frame are (DESIGN.md §4, Skeletons). */}
+          {/* On a phone, the count line's room, empty; then the list's head
+              strip, where the layout has one, and households at the height a
+              loaded one draws, a hairline apart as the rows of the frame are
+              (DESIGN.md §4, Skeletons). */}
+          <Show when={compact()}>
+            <div aria-hidden="true" class="h-5" />
+          </Show>
           <div class="flex flex-col gap-px">
             <Show when={!compact()}>
               <Skeleton standsFor="row" class="h-8.75" />

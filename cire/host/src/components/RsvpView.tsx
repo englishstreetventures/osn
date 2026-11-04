@@ -1054,16 +1054,20 @@ export default function RsvpView(props: RsvpViewProps) {
           adds no gap. */}
       <div class="flex flex-col gap-8 empty:hidden" aria-busy={loading() ? "true" : undefined}>
         <Show when={loading()}>
-          {/* The table's head row, then rows at the height a loaded one draws,
-            a hairline apart as the table's are; on a phone, the stacked
-            replies (DESIGN.md §4, Skeletons). */}
-          <div class="flex flex-col gap-px">
-            <Show when={!compact()}>
-              <Skeleton standsFor="row" class="h-10.5" />
-            </Show>
-            <For each={[1, 2, 3]}>
-              {() => <Skeleton standsFor="row" class={compact() ? "h-16.5" : "h-14"} />}
-            </For>
+          {/* The legend line's room, empty — two lines on a phone — then the
+              table's head row and rows at the height a loaded one draws, a
+              hairline apart as the table's are; on a phone, the stacked
+              replies (DESIGN.md §4, Skeletons). */}
+          <div class="flex flex-col gap-4">
+            <div aria-hidden="true" class={compact() ? "h-11" : "h-5"} />
+            <div class="flex flex-col gap-px">
+              <Show when={!compact()}>
+                <Skeleton standsFor="row" class="h-10.5" />
+              </Show>
+              <For each={[1, 2, 3]}>
+                {() => <Skeleton standsFor="row" class={compact() ? "h-16.5" : "h-14"} />}
+              </For>
+            </div>
           </div>
         </Show>
 

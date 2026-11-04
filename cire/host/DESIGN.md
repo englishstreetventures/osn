@@ -277,8 +277,9 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   — the first item's, where the items differ — and a table's rows stand a
   hairline apart (`gap-px`), as the frame's rows are. The two views that draw
   another layout on a phone, the households and the RSVP replies, take the
-  phone's there. `tests/components/skeletons.browser.test.tsx` holds each to
-  2px; the count and legend lines above a list are not held.
+  phone's there. A count or legend line over a list is held as empty room of
+  its height, so the first placeholder stands where the first item lands.
+  `tests/components/skeletons.browser.test.tsx` holds each to 2px.
   `tests/styles/skeleton.test.ts` fails on a hand-drawn `animate-pulse`.
 - **The invite preview** gives an element it mirrors the guest element's corner.
 - **A card holding a stuck head** clips with `overflow-clip`, never

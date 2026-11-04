@@ -14,6 +14,8 @@ import "../../src/styles/global.css";
  * held back by a gate; the placeholders are measured, the gate opens, and the
  * content is measured. What is checked:
  *
+ * - the first placeholder stands where the first item lands, so nothing under
+ *   it moves: a count or legend line over a list is held as empty room;
  * - at 1280px, each placeholder is the height of the item it stands for (the
  *   first, in a list whose items differ), and
  *   a list of them is spaced as the list it stands for, to 2px; at 390px too
@@ -219,6 +221,11 @@ interface View {
    * whose items differ, and takes the first item's height.
    */
   heads?: number;
+  /**
+   * Whether the first placeholder must stand where its content lands. Off
+   * only where something above the list, not a placeholder, grows on load.
+   */
+  holdsPlace?: boolean;
 }
 
 const VIEWS: Record<string, View> = {
@@ -284,6 +291,9 @@ const VIEWS: Record<string, View> = {
   },
   "households, phone": {
     width: 390,
+    // The intro's export actions arrive with the list and, on a phone, take a
+    // row of their own under the title. Off until englishstreetventures/osn#1943 lands.
+    holdsPlace: false,
     module: "guests",
     sub: "list",
     held: "guests",
@@ -323,6 +333,7 @@ describe("loading placeholders", () => {
       await screenshots(`${slug}-loading`);
       const held = blocks(scope());
       const heights = held.map((el) => rect(el).height);
+      const top = rect(held[0]!).top;
       const gaps = view.gaps.map(([a, b]) => gapBetween(held[a]!, held[b]!));
 
       // While loading, one region says so, and it holds every placeholder and
@@ -351,6 +362,16 @@ describe("loading placeholders", () => {
         `${name}: no busy region once loaded`,
         document.querySelector('[aria-busy="true"]') === null,
       );
+      const want = rect(content[0]!).top;
+      measured[`${name} top content`] = Math.round(want * 10) / 10;
+      measured[`${name} top placeholder`] = Math.round(top * 10) / 10;
+      if (view.holdsPlace !== false) {
+        expectPass(
+          `${name}: the first placeholder stands where its content lands`,
+          Math.abs(top - want) <= 2,
+          `${top} against ${want}`,
+        );
+      }
       const heads = view.heads ?? 0;
       content.forEach((_, i) => {
         const want = rect(content[Math.min(i, heads)]!).height;
