@@ -1,5 +1,6 @@
 import Card, { CardCtaButton, cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
+import Skeleton from "@cire/ui/skeleton";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
 import { Stat } from "@shared/ui/ui/stat";
@@ -463,16 +464,17 @@ export default function Overview(props: {
   // No section header of its own: the module shell prints the panel header —
   // the module's label and its one-line hint — directly above this.
   return (
-    <div class="flex flex-col gap-8">
+    // Busy while the first read is out: the placeholders are all it holds then.
+    <div class="flex flex-col gap-8" aria-busy={data.loading ? "true" : undefined}>
       <Show when={data.loading}>
+        {/* The agenda band and the snapshot cards at the heights they draw
+            for a wedding the size weddings reach (DESIGN.md §4, Skeletons). */}
         <div class="flex flex-col gap-4">
-          <div class="bg-surface rounded-ui-lg h-30 animate-pulse" />
+          <Skeleton class="h-47" />
           {/* Same intrinsic grid as the real cards, so the skeleton has the
               same column count at every width. */}
           <div class="auto-grid [--auto-grid-min:15rem]">
-            <For each={[1, 2, 3]}>
-              {() => <div class="bg-surface rounded-ui-lg h-32.5 animate-pulse" />}
-            </For>
+            <For each={[1, 2, 3]}>{() => <Skeleton class="h-86" />}</For>
           </div>
         </div>
       </Show>

@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
+import Skeleton from "@cire/ui/skeleton";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -439,62 +440,71 @@ export default function EventsEditor(props: { weddingId: string }) {
         </Notice>
       </Show>
 
-      <Show when={!store.loaded() && !loadError()}>
-        <div class="flex flex-col gap-3">
-          <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface rounded-ui-lg h-18 animate-pulse" />}
-          </For>
-        </div>
-      </Show>
+      <div
+        class="flex flex-col gap-8"
+        aria-busy={!store.loaded() && !loadError() ? "true" : undefined}
+      >
+        <Show when={!store.loaded() && !loadError()}>
+          {/* Event rows at the height a loaded row draws (DESIGN.md §4,
+            Skeletons). */}
+          <div class="flex flex-col gap-3">
+            <For each={[1, 2, 3]}>{() => <Skeleton class="h-20" />}</For>
+          </div>
+        </Show>
 
-      <Show when={store.loaded()}>
-        <Show
-          when={store.draft.events.length > 0}
-          fallback={
-            <EmptyState
-              title="No events yet"
-              description="Add an event to start building your schedule. Guests are matched to events that exist."
-              action={
-                <Button variant="outline" size="sm" onClick={handleAdd}>
-                  Add event
-                </Button>
-              }
-            />
-          }
-        >
-          {/* `DragDropSensors` registers the pointer sensor; the keyboard and
+        <Show when={store.loaded()}>
+          <Show
+            when={store.draft.events.length > 0}
+            fallback={
+              <EmptyState
+                title="No events yet"
+                description="Add an event to start building your schedule. Guests are matched to events that exist."
+                action={
+                  <Button variant="outline" size="sm" onClick={handleAdd}>
+                    Add event
+                  </Button>
+                }
+              />
+            }
+          >
+            {/* `DragDropSensors` registers the pointer sensor; the keyboard and
               screen-reader paths come from `createSortableList` above.
               `closestCenter` is the right detector for a single-column list. */}
-          <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
-            <DragDropSensors />
-            <ul class="flex flex-col gap-3" data-testid="event-list">
-              <SortableProvider ids={eventKeys()}>
-                <For each={store.draft.events}>
-                  {(event, index) => (
-                    <EventRowCard
-                      event={event}
-                      index={index()}
-                      count={store.draft.events.length}
-                      hasError={(errorsByKey().get(event.key)?.length ?? 0) > 0}
-                      onEdit={() => setEditingKey(event.key)}
-                      onDelete={() => handleDelete(event)}
-                      sortableItem={reorder.item(event.key, index, () => store.draft.events.length)}
-                    />
-                  )}
-                </For>
-              </SortableProvider>
-            </ul>
-          </DragDropProvider>
+            <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
+              <DragDropSensors />
+              <ul class="flex flex-col gap-3" data-testid="event-list">
+                <SortableProvider ids={eventKeys()}>
+                  <For each={store.draft.events}>
+                    {(event, index) => (
+                      <EventRowCard
+                        event={event}
+                        index={index()}
+                        count={store.draft.events.length}
+                        hasError={(errorsByKey().get(event.key)?.length ?? 0) > 0}
+                        onEdit={() => setEditingKey(event.key)}
+                        onDelete={() => handleDelete(event)}
+                        sortableItem={reorder.item(
+                          event.key,
+                          index,
+                          () => store.draft.events.length,
+                        )}
+                      />
+                    )}
+                  </For>
+                </SortableProvider>
+              </ul>
+            </DragDropProvider>
 
-          {/* Keyboard instructions, referenced by every grip's aria-describedby —
+            {/* Keyboard instructions, referenced by every grip's aria-describedby —
               the drag affordance is invisible to a screen-reader user otherwise.
               The id is generated per list, so several sortable lists can share a
               page without every grip describing itself with whichever won. */}
-          <p {...reorder.hintProps()}>{reorder.hintText}</p>
-          {/* Screen-reader feedback for a completed move (drag or keyboard). */}
-          <p {...reorder.liveRegionProps()}>{reorder.announcement()}</p>
+            <p {...reorder.hintProps()}>{reorder.hintText}</p>
+            {/* Screen-reader feedback for a completed move (drag or keyboard). */}
+            <p {...reorder.liveRegionProps()}>{reorder.announcement()}</p>
+          </Show>
         </Show>
-      </Show>
+      </div>
 
       {/* Drawer form for the event being edited/added. */}
       <Show when={editingEvent()}>

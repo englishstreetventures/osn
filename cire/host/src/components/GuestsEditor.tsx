@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Skeleton from "@cire/ui/skeleton";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Checkbox } from "@shared/ui/ui/checkbox";
@@ -518,52 +519,57 @@ export default function GuestsEditor(props: {
         </Notice>
       </Show>
 
-      <Show when={!store.loaded() && !loadError()}>
-        <div class="flex flex-col gap-3">
-          <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface rounded-ui-lg h-20 animate-pulse" />}
-          </For>
-        </div>
-      </Show>
-
-      <Show when={store.loaded()}>
-        <Show
-          when={store.draft.families.length > 0}
-          fallback={
-            <EmptyState
-              title="No households yet"
-              description="Add a household to start building your guest list."
-              action={
-                <Button variant="outline" size="sm" onClick={addHousehold}>
-                  Add household
-                </Button>
-              }
-            />
-          }
-        >
+      <div
+        class="flex flex-col gap-8"
+        aria-busy={!store.loaded() && !loadError() ? "true" : undefined}
+      >
+        <Show when={!store.loaded() && !loadError()}>
+          {/* Household cards at the height and spacing a loaded card draws
+            (DESIGN.md §4, Skeletons). */}
           <div class="flex flex-col gap-6">
-            <For each={store.draft.families}>
-              {(family, index) => (
-                <FamilyCard
-                  family={family}
-                  events={eventColumns()}
-                  errorsByKey={errorsByKey()}
-                  store={store}
-                  compact={compact}
-                  clipped={clipped}
-                  onHead={toggleHead}
-                  isOpenHead={isOpenHead}
-                  nameRef={(el) => {
-                    nameFields.set(family.key, el);
-                    onCleanup(() => nameFields.delete(family.key));
-                    if (index() === 0) queueMicrotask(measureHeads);
-                  }}
-                />
-              )}
-            </For>
+            <For each={[1, 2, 3]}>{() => <Skeleton class="h-58" />}</For>
           </div>
         </Show>
-      </Show>
+
+        <Show when={store.loaded()}>
+          <Show
+            when={store.draft.families.length > 0}
+            fallback={
+              <EmptyState
+                title="No households yet"
+                description="Add a household to start building your guest list."
+                action={
+                  <Button variant="outline" size="sm" onClick={addHousehold}>
+                    Add household
+                  </Button>
+                }
+              />
+            }
+          >
+            <div class="flex flex-col gap-6">
+              <For each={store.draft.families}>
+                {(family, index) => (
+                  <FamilyCard
+                    family={family}
+                    events={eventColumns()}
+                    errorsByKey={errorsByKey()}
+                    store={store}
+                    compact={compact}
+                    clipped={clipped}
+                    onHead={toggleHead}
+                    isOpenHead={isOpenHead}
+                    nameRef={(el) => {
+                      nameFields.set(family.key, el);
+                      onCleanup(() => nameFields.delete(family.key));
+                      if (index() === 0) queueMicrotask(measureHeads);
+                    }}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </div>
 
       {/* The cut-short heads' one popover, at whichever head was pressed. It
           goes when that head does — a card removed, or its column grown to

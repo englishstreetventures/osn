@@ -7,6 +7,7 @@ import Button, { proseLinkClass } from "@cire/ui/button";
 import DietaryPresetsInline from "@cire/ui/dietary-presets";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import SegmentedTabs from "@cire/ui/segmented-tabs";
+import Skeleton from "@cire/ui/skeleton";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Checkbox } from "@shared/ui/ui/checkbox";
@@ -1020,11 +1021,20 @@ export default function RsvpView(props: RsvpViewProps) {
         when={!loading()}
         fallback={
           <>
+            {/* The divider the event tabs follow, so they land where their
+                placeholder stood. */}
             <ViewBar slot="end">
-              <div class="bg-surface/60 mr-auto h-7 w-56 max-w-full min-w-0 animate-pulse rounded-full" />
+              <span data-bar-divider aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
+              <Skeleton standsFor="pill" class="mr-auto h-7 w-56 max-w-full min-w-0" />
             </ViewBar>
+            {/* On a phone the search and the reply chips take a line each. */}
             <ViewBar slot="row2">
-              <div class="bg-surface/60 rounded-ui-field h-7 w-full animate-pulse" />
+              <Show when={compact()} fallback={<Skeleton standsFor="field" class="h-7 w-full" />}>
+                <div class="flex w-full min-w-0 flex-col gap-2">
+                  <Skeleton standsFor="field" class="h-7 w-full" />
+                  <Skeleton standsFor="pill" class="h-7 w-full" />
+                </div>
+              </Show>
             </ViewBar>
           </>
         }
@@ -1039,98 +1049,106 @@ export default function RsvpView(props: RsvpViewProps) {
         </Show>
       </Show>
 
-      <Show when={loading()}>
-        <div class="flex flex-col gap-3">
-          <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-30 animate-pulse rounded-sm" />}
-          </For>
-        </div>
-      </Show>
+      <div class="flex flex-col gap-8" aria-busy={loading() ? "true" : undefined}>
+        <Show when={loading()}>
+          {/* The table's head row, then rows at the height a loaded one draws,
+            a hairline apart as the table's are; on a phone, the stacked
+            replies (DESIGN.md §4, Skeletons). */}
+          <div class="flex flex-col gap-px">
+            <Show when={!compact()}>
+              <Skeleton standsFor="row" class="h-10.5" />
+            </Show>
+            <For each={[1, 2, 3]}>
+              {() => <Skeleton standsFor="row" class={compact() ? "h-16.5" : "h-14"} />}
+            </For>
+          </div>
+        </Show>
 
-      <Show when={error()}>
-        <Notice tone="danger">{error()}</Notice>
-      </Show>
+        <Show when={error()}>
+          <Notice tone="danger">{error()}</Notice>
+        </Show>
 
-      <Show when={!loading() && !error() && !hasEvents()}>
-        <EmptyState
-          title="No events yet"
-          description="Add your events and invite guests — their replies will appear here."
-        />
-      </Show>
+        <Show when={!loading() && !error() && !hasEvents()}>
+          <EmptyState
+            title="No events yet"
+            description="Add your events and invite guests — their replies will appear here."
+          />
+        </Show>
 
-      <Show when={!loading() && !error() && hasEvents() && layout.known()}>
-        <Show when={selected()}>
-          {(section) => (
-            <div
-              role="tabpanel"
-              id={panelId}
-              aria-labelledby={tabId(selected()?.event.id ?? "")}
-              class="flex flex-col gap-4"
-            >
-              {/* The API's own tallies for the event. Not the filter's counts: those
+        <Show when={!loading() && !error() && hasEvents() && layout.known()}>
+          <Show when={selected()}>
+            {(section) => (
+              <div
+                role="tabpanel"
+                id={panelId}
+                aria-labelledby={tabId(selected()?.event.id ?? "")}
+                class="flex flex-col gap-4"
+              >
+                {/* The API's own tallies for the event. Not the filter's counts: those
                   count the rows listed, and a guest taken off the event after
                   replying keeps a row but is no longer invited. Below the bar,
                   so they scroll away under it with the rest. */}
-              <dl class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-4 gap-y-1">
-                <div class="flex items-center gap-1.5">
-                  <dt class="text-gold tracking-ui-wider uppercase">Attending</dt>
-                  <dd class="text-text font-ui-mono">{section().event.attending}</dd>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <dt class="tracking-ui-wider uppercase">Declined</dt>
-                  <dd class="text-text font-ui-mono">{section().event.declined}</dd>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <dt class="tracking-ui-wider uppercase">Maybe</dt>
-                  <dd class="text-text font-ui-mono">{section().event.maybe}</dd>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <dt class="tracking-ui-wider uppercase">No reply</dt>
-                  <dd class="text-text font-ui-mono">{section().event.noResponse}</dd>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  <dt class="tracking-ui-wider uppercase">Invited</dt>
-                  <dd class="text-text font-ui-mono">{section().event.invited}</dd>
-                </div>
-              </dl>
+                <dl class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-4 gap-y-1">
+                  <div class="flex items-center gap-1.5">
+                    <dt class="text-gold tracking-ui-wider uppercase">Attending</dt>
+                    <dd class="text-text font-ui-mono">{section().event.attending}</dd>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <dt class="tracking-ui-wider uppercase">Declined</dt>
+                    <dd class="text-text font-ui-mono">{section().event.declined}</dd>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <dt class="tracking-ui-wider uppercase">Maybe</dt>
+                    <dd class="text-text font-ui-mono">{section().event.maybe}</dd>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <dt class="tracking-ui-wider uppercase">No reply</dt>
+                    <dd class="text-text font-ui-mono">{section().event.noResponse}</dd>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <dt class="tracking-ui-wider uppercase">Invited</dt>
+                    <dd class="text-text font-ui-mono">{section().event.invited}</dd>
+                  </div>
+                </dl>
 
-              {/* Two readings of one fact: the printed count updates as you
+                {/* Two readings of one fact: the printed count updates as you
                   type, the announced one waits for you to stop. Kept out of
                   the stuck bar, so the bar is one height whatever is typed. */}
-              <Show when={filtering()}>
-                <p class="font-body text-text-muted text-ui-sm">{showing()}</p>
-              </Show>
-              <p role="status" class="sr-only">
-                {announcement()}
-              </p>
+                <Show when={filtering()}>
+                  <p class="font-body text-text-muted text-ui-sm">{showing()}</p>
+                </Show>
+                <p role="status" class="sr-only">
+                  {announcement()}
+                </p>
 
-              <div ref={results}>
-                <Show
-                  when={section().rows().length > 0}
-                  fallback={
-                    <p class="font-body text-text-muted text-ui-sm italic">
-                      No guests to show for this event.
-                    </p>
-                  }
-                >
+                <div ref={results}>
                   <Show
-                    when={section().visible().length > 0}
+                    when={section().rows().length > 0}
                     fallback={
                       <p class="font-body text-text-muted text-ui-sm italic">
-                        No guests match this filter.
+                        No guests to show for this event.
                       </p>
                     }
                   >
-                    <Show when={compact()} fallback={renderTable(section)}>
-                      {renderBlocks(section)}
+                    <Show
+                      when={section().visible().length > 0}
+                      fallback={
+                        <p class="font-body text-text-muted text-ui-sm italic">
+                          No guests match this filter.
+                        </p>
+                      }
+                    >
+                      <Show when={compact()} fallback={renderTable(section)}>
+                        {renderBlocks(section)}
+                      </Show>
                     </Show>
                   </Show>
-                </Show>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </Show>
         </Show>
-      </Show>
+      </div>
     </div>
   );
 
