@@ -36,6 +36,7 @@
     "./sign-in-panel": "./src/sign-in-panel.tsx",
     "./sign-in-press": "./src/sign-in-press.ts",
     "./site-footer.astro": "./src/site-footer.astro",
+    "./skeleton": "./src/skeleton.tsx",
     "./sliding-pill": "./src/lib/sliding-pill.ts",
     "./username-input": "./src/username-input.tsx",
     "./wordmark": "./src/wordmark.tsx"
