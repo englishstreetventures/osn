@@ -481,7 +481,9 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         open={modalListing() !== null}
         onClose={closeModal}
         label={shownListing()?.name ?? "Vendor"}
-        class="flex max-h-[90vh] w-full max-w-lg flex-col gap-4 overflow-y-auto"
+        // `open:` because a display class on a `<dialog>` beats the browser's
+        // own `display: none` for a closed one, and this one stays mounted.
+        class="max-h-[90vh] w-full max-w-lg gap-4 overflow-y-auto open:flex open:flex-col"
       >
         <Show when={shownListing()}>
           {(ml) => (
