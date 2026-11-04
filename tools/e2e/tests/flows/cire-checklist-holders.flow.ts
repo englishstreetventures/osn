@@ -257,28 +257,35 @@ test("cire-checklist-holders", async ({ page, flow }) => {
         .locator("#invite-hero")
         .getByRole("checkbox", { name: "Show on the invite" });
       const heroTitle = page.locator("#invite-hero").getByLabel("Couple title");
-      // The builder's own tabs; the module's view bar has a "Design" tab too.
-      const sections = page.getByLabel("Invite sections");
-      await sections.getByRole("tab", { name: /^Hero/ }).click();
+      // The hero is a section of the Content view, the envelope picker in the
+      // Template view's Design card: each move is a view, then a section.
+      const views = page.getByRole("tablist", { name: "Views" });
+      const sections = page.getByRole("tablist", { name: "Invite sections" });
+      const toHero = async () => {
+        await views.getByRole("tab", { name: "Content" }).click();
+        await sections.getByRole("tab", { name: /^Hero/ }).click();
+      };
+      const toTemplate = () => views.getByRole("tab", { name: "Template" }).click();
+      await toHero();
       await heroSwitch.uncheck();
-      await sections.getByRole("tab", { name: /^Design/ }).click();
+      await toTemplate();
       await expect(heroNote).toContainText("Turn the hero on to show it");
       // Back on, so the draft is clean and no navigation below meets the
       // unsaved-changes guard.
-      await sections.getByRole("tab", { name: /^Hero/ }).click();
+      await toHero();
       await heroSwitch.check();
-      await sections.getByRole("tab", { name: /^Design/ }).click();
+      await toTemplate();
       await expect(heroNote).toContainText("Add a title, a subtitle or an image");
       // A hero with a title is shown, so the envelope has somewhere to open.
-      await sections.getByRole("tab", { name: /^Hero/ }).click();
+      await toHero();
       await heroTitle.fill("Holders Wedding");
-      await sections.getByRole("tab", { name: /^Design/ }).click();
+      await toTemplate();
       await expect(heroNote).toHaveCount(0);
       // Cleared again, so the draft is clean and no navigation below meets the
       // unsaved-changes guard.
-      await sections.getByRole("tab", { name: /^Hero/ }).click();
+      await toHero();
       await heroTitle.fill("");
-      await sections.getByRole("tab", { name: /^Design/ }).click();
+      await toTemplate();
       await expect(heroNote).toContainText("Add a title, a subtitle or an image");
       await expect(unsaved).toHaveCount(0);
     },
