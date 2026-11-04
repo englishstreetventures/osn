@@ -594,7 +594,7 @@ export async function landingSurfaces(flow: Flow, landing: Page): Promise<void> 
   );
 
   await reading(landing);
-  const hero = landing.getByText("Bespoke digital wedding invitations", { exact: true });
+  const hero = landing.getByText("Digital wedding invitations", { exact: true });
   flow.check("landing: the hero's label is 0.16em wide", "0.16", await trackingRatio(hero));
 
   const faq = landing.locator("#faq");
