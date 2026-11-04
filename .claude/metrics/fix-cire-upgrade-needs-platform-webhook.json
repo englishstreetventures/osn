@@ -1,0 +1,186 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 1949,
+    "branch": "fix/cire-upgrade-needs-platform-webhook",
+    "base_sha": "0d83bb048f5f6dfae017192f1c3315a69a755d15",
+    "head_sha": "8511e5e8aa104f99a4f216b13133897ec25377f4",
+    "generated_at": "2026-11-04T03:53:52.956Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1656,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-11-04T03:00:45.025Z",
+    "last_ts": "2026-11-04T03:53:49.555Z",
+    "span_seconds": 3185,
+    "active_seconds": 3215,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 28.959494999999997,
+    "tokens": {
+      "input": 710,
+      "output": 227294,
+      "thinking": 85150,
+      "cache_write_5m": 717035,
+      "cache_write_1h": 0,
+      "cache_read": 52064000
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 710,
+          "output": 227294,
+          "thinking": 85150,
+          "cache_write_5m": 717035,
+          "cache_write_1h": 0,
+          "cache_read": 52064000
+        },
+        "usd_equivalent": 28.959494999999997,
+        "messages": 343
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 10,
+          "output": 1396,
+          "thinking": 604,
+          "cache_write_5m": 27919,
+          "cache_write_1h": 0,
+          "cache_read": 76899
+        },
+        "usd_equivalent": 0.1983146,
+        "messages": 5
+      },
+      "subagent": {
+        "tokens": {
+          "input": 700,
+          "output": 225898,
+          "thinking": 84546,
+          "cache_write_5m": 689116,
+          "cache_write_1h": 0,
+          "cache_read": 51987101
+        },
+        "usd_equivalent": 28.761180399999997,
+        "messages": 338
+      }
+    },
+    "effort": {
+      "medium": 5,
+      "high": 86,
+      "xhigh": 252
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 6,
+      "docs": 4,
+      "config": 1,
+      "source": 7
+    },
+    "loc": {
+      "generated": {
+        "added": 7,
+        "deleted": 0
+      },
+      "test": {
+        "added": 266,
+        "deleted": 9
+      },
+      "docs": {
+        "added": 43,
+        "deleted": 17
+      },
+      "config": {
+        "added": 8,
+        "deleted": 3
+      },
+      "source": {
+        "added": 110,
+        "deleted": 42
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 287,
+      "Read": 29,
+      "Edit": 17,
+      "Skill": 10,
+      "Write": 4,
+      "Agent": 3,
+      "SubagentHandback": 3,
+      "Grep": 3,
+      "StructuredOutput": 2,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 5
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "write-pr": 1,
+      "review-security": 1,
+      "write-issue": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 2
+    },
+    "requests": {
+      "main": 5,
+      "subagent": 338,
+      "with_tools": 339,
+      "with_one_tool": 321,
+      "context_median": 126416,
+      "context_p90": 309538
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 2,
+    "located": 2,
+    "acted_on": 1,
+    "paired": 2,
+    "acted_on_paired": 1,
+    "control_changed": 1,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}
