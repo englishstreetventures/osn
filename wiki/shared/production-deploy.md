@@ -1183,15 +1183,27 @@ automatically once you attach them.
    ([[infrastructure-as-code#Production sites]]).
 3. **Site Worker custom domains (Alchemy, verify only).** The production stacks attach
    each site Worker's domain on deploy: `www.musubi.social` for musubi landing, and while a
-   site is staged its spare host (`next-host.cireweddings.com`,
-   `next-vendor.cireweddings.com`, `next.cireweddings.com`, `next.musubi.social`). No
-   dashboard step; before the first release run `bun run scripts/pages-domain.ts check`
-   with `CLOUDFLARE_PAGES_DNS_TOKEN` for each to confirm no Pages project or DNS record
-   holds it. The token must reach the production account and exactly `cireweddings.com`
-   and `musubi.social`, and be able to list its account: `pages-domain.ts` refuses it
-   otherwise, before any other request, and `alchemy-plan`'s precheck then fails every
-   release that ships the musubi stack. A site turned on in another zone (pulse landing
-   on `pulse.events`) needs the token minted again with that zone, the same day.
+   site is staged its spare host (`next.host.cireweddings.com`,
+   `next.vendor.cireweddings.com`, `next.cireweddings.com`, `next.musubi.social`). No
+   dashboard step. Before a release first attaches one, confirm nothing holds it: for
+   `www.musubi.social` run `bun run scripts/pages-domain.ts check musubi_landing` with
+   `CLOUDFLARE_PAGES_DNS_TOKEN`; that command reads production hosts only, so for each
+   spare host check that `dig +short <host> A`, `AAAA` and `CNAME` answer nothing and
+   that no Pages project lists it. The token must reach the production account and
+   exactly `cireweddings.com` and `musubi.social`, and be able to list its account:
+   `pages-domain.ts` refuses it otherwise, before any other request, and
+   `alchemy-plan`'s precheck then fails every release that ships the musubi stack. A
+   site turned on in another zone (pulse landing on `pulse.events`) needs the token
+   minted again with that zone, the same day.
+   A spare host two labels below its zone gets its own certificate about two minutes
+   after the deploy that attaches it ([[dev-environment#1. Tier map]]), longer than the
+   stack job's 60 s smoke check. So the release that moves a staged site to a new spare
+   host, or first attaches one, can fail that check without rolling back ("did not
+   answer as a working Worker does within 60 s, but the Worker never answered wrongly —
+   not rolling back"). Wait about three minutes, check that each new host answers 200
+   with HTML (`curl -sI https://<host>/`), then dispatch **Production release** again:
+   the stack job left no successful record, so that release ships the stack again,
+   with no domain change, and its smoke check passes.
 4. **Re-check the allowlists** once the domains resolve: the live guest, organiser,
    vendor and identity origins must exactly match cire-api `WEB_ORIGIN` and osn-api
    `OSN_CORS_ORIGIN`. `OSN_ORIGIN` is a shorter list on purpose — only `https://musubi.social`,
