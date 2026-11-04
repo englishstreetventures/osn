@@ -294,7 +294,7 @@ describe("the sheet's controls, as tall as each other", () => {
     ["a desk", [1280, 900]],
   ] as const) {
     it(`sets Cancel and Save at the answer pair's height, on ${name}`, async () => {
-      await page.viewport(...size);
+      await page.viewport(size[0], size[1]);
       const { getByRole } = await open();
       const { attending } = pair();
       const answer = attending.getBoundingClientRect().height;

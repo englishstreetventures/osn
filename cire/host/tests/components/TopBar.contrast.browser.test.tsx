@@ -195,8 +195,25 @@ describe("the top bar's actions", () => {
     const preview = screen.getByRole("button", { name: "Preview invite" });
     const rest = getComputedStyle(preview).backgroundColor;
     await userEvent.hover(preview);
-    await Promise.all(preview.getAnimations().map((a) => a.finished));
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await vi.waitFor(() => expect(preview.getAnimations()).toEqual([]));
     expect(getComputedStyle(preview).backgroundColor).toBe(rest);
+  });
+
+  it("draws ⌘K on a narrow bar as a 36px circle round its magnifier, still named", async () => {
+    await page.viewport(390, 844);
+    mount(RUTH);
+    const palette = screen.getByRole("button", { name: "Search and jump to" });
+    const box = palette.getBoundingClientRect();
+    expect([box.width, box.height]).toEqual([36, 36]);
+    expect(Number.parseFloat(getComputedStyle(palette).borderTopLeftRadius)).toBeGreaterThanOrEqual(
+      18,
+    );
+    const glyph = palette.querySelector("svg")!.getBoundingClientRect();
+    expect(Math.abs(glyph.left + glyph.width / 2 - (box.left + box.width / 2))).toBeLessThanOrEqual(
+      1,
+    );
+    expect(Math.abs(glyph.top + glyph.height / 2 - (box.top + box.height / 2))).toBeLessThanOrEqual(
+      1,
+    );
   });
 });

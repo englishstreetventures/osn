@@ -1065,7 +1065,8 @@ body.invite-page {
    list is open, and the closed page's own pill under its message carries it
    once the couple have closed the list, so the rail stands down. The island
    marks the closed answer (`data-gift-closed`) after the document has drawn
-   the rail, so the rule reads the page, not the island. */
+   the rail, so the rule reads the page, not the island; the rail keeps its
+   box, unseen, so nothing under it moves when the answer lands. */
 :root:has([data-gift-closed]) [data-gift-rail] {
-  display: none;
+  visibility: hidden;
 }

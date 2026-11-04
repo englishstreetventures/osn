@@ -134,7 +134,7 @@ export default function RemintPanel(props: RemintPanelProps) {
           <For each={STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-[color,background-color,border-color,box-shadow] ${
+                class={`rounded-ui-field bg-bg flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-[color,background-color,border-color,box-shadow] ${
                   targetStyle() === option.value ? BLOCK_CHOSEN : BLOCK_IDLE
                 } ${busy() ? "opacity-40" : ""}`}
               >

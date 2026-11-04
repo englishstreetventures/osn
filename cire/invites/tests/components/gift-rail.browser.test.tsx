@@ -2,6 +2,7 @@ import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
 import "../../src/styles/global.css";
+import documentSource from "../../src/components/gift-registry/GiftRegistryDocument.astro?raw";
 
 /*
  * The gift page says its way back once (owner, the 2026-11-04 audit): the
@@ -33,12 +34,21 @@ function Page(props: { closed: boolean }) {
 describe("the gift page's way back", () => {
   it("rides the rail while the list is open", () => {
     const { container } = render(() => <Page closed={false} />);
-    expect(getComputedStyle(container.querySelector("[data-gift-rail]")!).display).not.toBe("none");
+    expect(getComputedStyle(container.querySelector("[data-gift-rail]")!).visibility).toBe(
+      "visible",
+    );
   });
 
-  it("is the closed page's pill alone once the list is closed", () => {
+  it("is the closed page's pill alone once the list is closed, the rail's box kept so nothing moves", () => {
     const { container } = render(() => <Page closed />);
-    expect(getComputedStyle(container.querySelector("[data-gift-rail]")!).display).toBe("none");
-    expect(container.querySelectorAll("a")).toHaveLength(2);
+    const rail = container.querySelector("[data-gift-rail]")!;
+    expect(getComputedStyle(rail).visibility).toBe("hidden");
+    expect(rail.getBoundingClientRect().height).toBeGreaterThan(0);
+  });
+
+  it("holds the mark the document writes on its rail", () => {
+    // The island's end, `data-gift-closed`, is held by
+    // `GiftRegistryPage.test.tsx`; this is the document's.
+    expect(documentSource).toMatch(/<nav[^>]*\sdata-gift-rail\b/);
   });
 });

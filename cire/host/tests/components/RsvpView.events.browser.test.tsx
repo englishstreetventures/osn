@@ -784,6 +784,24 @@ describe("the RSVP bar's one pill language", () => {
     );
   });
 
+  it("rests the phone's sort select on the track's look, its edge strong under the pointer and on focus", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const sort = within(viewBar()).getByRole("combobox", { name: "Sort guests" });
+    const search = within(viewBar()).getByRole("searchbox");
+    expect(sort.getBoundingClientRect().height).toBe(28);
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border")));
+    expect(paint(getComputedStyle(sort).backgroundColor)).toBe(
+      paint(getComputedStyle(search).backgroundColor),
+    );
+    await userEvent.hover(sort);
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border-strong")));
+    await userEvent.unhover(sort);
+    sort.focus();
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border-strong")));
+  });
+
   it("draws the reply key as the bar's icon button, gold-edged while its panel floats lit", async () => {
     await page.viewport(1280, 900);
     renderPage(THREE);
