@@ -812,11 +812,13 @@ englishstreetventures/osn#1850):
   ring. The button is clipped only while hidden; shown, its clip sits 4px
   outside it, so the focus ring shows whole. A failed send keeps the words; a
   caller's error shows under the box.
-- **The reply box's height is not settled.** The owner approved the round-three
-  composer with the box and the button both 36px; the build uses §4's 34px
-  form-field height instead, a departure from that answer until the owner
-  chooses between the two (englishstreetventures/osn#1934, "The reply box and
-  its button at 34px").
+- **The reply box stays a 34px field, and the pill is one line away.** The
+  owner kept §4's form-field height for the box and its button (2026-11-04),
+  over the round-three demo's 36px pill. `message-composer.tsx` holds both
+  looks: `COMPOSER_SIZE = "field"` is what both portals draw, and setting it
+  to `"pill"` moves both to 36px with the box a pill at one line (an 18px
+  corner it keeps as it grows). `tests/message-thread.browser.test.tsx` holds
+  each look's height, corner, growth and whole focus ring.
 
 ### Who holds a task: faces, not names
 

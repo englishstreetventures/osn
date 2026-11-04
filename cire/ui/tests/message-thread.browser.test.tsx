@@ -8,9 +8,11 @@
  * pointer was a finger; the menu's lazy module never trips the boundary a
  * portal wraps its view in. Then what it paints: every word at 4.5:1 on the
  * two grounds a thread sits on (the host's bare page, the vendor's card), the
- * reply box and its button at one 34px height, the button's arrival on a
- * transition list that leaves its focus ring alone, and that ring drawn whole
- * once the button has arrived.
+ * reply box and its button at one height and the box's corner — for both of
+ * the composer's looks, the 34px field the portals draw and the 36px pill
+ * `COMPOSER_SIZE` switches them to — the button's arrival on a transition list
+ * that leaves its focus ring alone, and that ring drawn whole once the button
+ * has arrived.
  */
 
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
@@ -21,6 +23,7 @@ import { userEvent } from "vitest/browser";
 
 import { cardClass } from "../src/card";
 import { clockTime } from "../src/lib/message-time";
+import MessageComposer, { COMPOSER_SIZE, type ComposerSize } from "../src/message-composer";
 import MessageThread, { type MessageThreadItem } from "../src/message-thread";
 import { inkRatio } from "./test-support/paint";
 
@@ -40,6 +43,16 @@ const GROUNDS = [
   { name: "the page", class: "" },
   { name: "a card", class: cardClass() },
 ] as const;
+
+/**
+ * The composer's two looks, as painted: one line's height (a 20px line inside
+ * the padding and a 1px edge), three lines', and the box's corner. Five lines
+ * cap at 120px (`7.5rem`) in both.
+ */
+const SIZES = [
+  { size: "field", line: 34, three: 74, corner: "14px" },
+  { size: "pill", line: 36, three: 76, corner: "18px" },
+] as const satisfies readonly { size: ComposerSize; line: number; three: number; corner: string }[];
 
 const MINUTE = 60_000;
 /** Noon today, so the thread's segments do not depend on the hour the suite runs. */
@@ -532,117 +545,141 @@ describe("MessageThread as painted", () => {
     expect(mine!.getBoundingClientRect().height).toBe(theirs!.getBoundingClientRect().height);
   });
 
-  it("holds the reply box and its button at one 34px height", async () => {
+  it("draws the reply box at the look COMPOSER_SIZE names", () => {
     render(() => (
       <OnGround ramp="dark" class="">
         <MessageThread messages={[]} emptyHint="Hint" reply={{ onSend: vi.fn() }} />
       </OnGround>
     ));
+    const look = SIZES.find((s) => s.size === COMPOSER_SIZE)!;
     const box = screen.getByRole("textbox", { name: "Reply" });
-    expect(box.getBoundingClientRect().height).toBe(34);
-    await userEvent.fill(box, "Hello");
-    const send = screen.getByRole("button", { name: "Send" });
-    await waitFor(() => expect(send.getBoundingClientRect().height).toBe(34));
-    await waitFor(() => expect(send.parentElement!.getBoundingClientRect().width).toBe(34));
-    expect(box.getBoundingClientRect().height).toBe(34);
+    expect(box.getBoundingClientRect().height).toBe(look.line);
+    expect(getComputedStyle(box).borderTopLeftRadius).toBe(look.corner);
   });
 
-  it("draws the send button's focus ring whole when Tab reaches it from the box", async () => {
-    render(() => (
-      <OnGround ramp="dark" class="">
-        <MessageThread messages={[]} emptyHint="Hint" reply={{ onSend: vi.fn() }} />
-      </OnGround>
-    ));
-    const box = screen.getByRole("textbox", { name: "Reply" });
-    await userEvent.fill(box, "Hello");
-    const send = screen.getByRole("button", { name: "Send" });
-    const wrap = send.parentElement!;
-    await waitFor(() => expect(getComputedStyle(wrap).scale).toBe("1"));
-    await waitFor(() => expect(wrap.getBoundingClientRect().width).toBe(34));
-    await userEvent.tab();
-    expect(document.activeElement).toBe(send);
-    expect(getComputedStyle(wrap).overflow).toBe("visible");
-    const style = getComputedStyle(send);
-    expect(style.outlineStyle).toBe("solid");
-    const reach = Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth);
-    expect(reach).toBeGreaterThan(0);
-    const button = send.getBoundingClientRect();
-    const ring = {
-      left: button.left - reach,
-      top: button.top - reach,
-      right: button.right + reach,
-      bottom: button.bottom + reach,
-    };
-    // Every box between the button and the page that clips what overflows it,
-    // by `overflow` or by an inset `clip-path`, must hold the whole ring.
-    const clips: { name: string; left: number; top: number; right: number; bottom: number }[] = [];
-    const unread: string[] = [];
-    for (let el = send.parentElement; el && el !== document.body; el = el.parentElement) {
-      const s = getComputedStyle(el);
-      const rect = el.getBoundingClientRect();
-      const name = `${el.tagName.toLowerCase()}.${el.className}`;
-      const overflows = s.overflowX !== "visible" || s.overflowY !== "visible";
-      if (overflows) clips.push({ name, ...rect.toJSON() });
-      if (s.clipPath === "none") continue;
-      const inset = /^inset\((-?[\d.]+)px\)$/.exec(s.clipPath);
-      if (!inset) {
-        unread.push(s.clipPath);
-        continue;
+  for (const look of SIZES) {
+    it(`holds the ${look.size} box and its button at one ${look.line}px height, the box at a ${look.corner} corner`, async () => {
+      render(() => (
+        <OnGround ramp="dark" class="">
+          <MessageComposer size={look.size} onSend={vi.fn()} />
+        </OnGround>
+      ));
+      const box = screen.getByRole("textbox", { name: "Reply" });
+      expect(box.getBoundingClientRect().height).toBe(look.line);
+      expect(getComputedStyle(box).borderTopLeftRadius).toBe(look.corner);
+      await userEvent.fill(box, "Hello");
+      const send = screen.getByRole("button", { name: "Send" });
+      await waitFor(() => expect(send.getBoundingClientRect().height).toBe(look.line));
+      await waitFor(() =>
+        expect(send.parentElement!.getBoundingClientRect().width).toBe(look.line),
+      );
+      expect(box.getBoundingClientRect().height).toBe(look.line);
+    });
+  }
+
+  for (const look of SIZES) {
+    it(`draws the ${look.size} look's send button focus ring whole when Tab reaches it from the box`, async () => {
+      render(() => (
+        <OnGround ramp="dark" class="">
+          <MessageComposer size={look.size} onSend={vi.fn()} />
+        </OnGround>
+      ));
+      const box = screen.getByRole("textbox", { name: "Reply" });
+      await userEvent.fill(box, "Hello");
+      const send = screen.getByRole("button", { name: "Send" });
+      const wrap = send.parentElement!;
+      await waitFor(() => expect(getComputedStyle(wrap).scale).toBe("1"));
+      await waitFor(() => expect(wrap.getBoundingClientRect().width).toBe(look.line));
+      await userEvent.tab();
+      expect(document.activeElement).toBe(send);
+      expect(getComputedStyle(wrap).overflow).toBe("visible");
+      const style = getComputedStyle(send);
+      expect(style.outlineStyle).toBe("solid");
+      const reach = Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth);
+      expect(reach).toBeGreaterThan(0);
+      const button = send.getBoundingClientRect();
+      const ring = {
+        left: button.left - reach,
+        top: button.top - reach,
+        right: button.right + reach,
+        bottom: button.bottom + reach,
+      };
+      // Every box between the button and the page that clips what overflows it,
+      // by `overflow` or by an inset `clip-path`, must hold the whole ring.
+      const clips: { name: string; left: number; top: number; right: number; bottom: number }[] =
+        [];
+      const unread: string[] = [];
+      for (let el = send.parentElement; el && el !== document.body; el = el.parentElement) {
+        const s = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        const name = `${el.tagName.toLowerCase()}.${el.className}`;
+        const overflows = s.overflowX !== "visible" || s.overflowY !== "visible";
+        if (overflows) clips.push({ name, ...rect.toJSON() });
+        if (s.clipPath === "none") continue;
+        const inset = /^inset\((-?[\d.]+)px\)$/.exec(s.clipPath);
+        if (!inset) {
+          unread.push(s.clipPath);
+          continue;
+        }
+        const by = Number.parseFloat(inset[1]!);
+        clips.push({
+          name: `${name} clip-path`,
+          left: rect.left + by,
+          top: rect.top + by,
+          right: rect.right - by,
+          bottom: rect.bottom - by,
+        });
       }
-      const by = Number.parseFloat(inset[1]!);
-      clips.push({
-        name: `${name} clip-path`,
-        left: rect.left + by,
-        top: rect.top + by,
-        right: rect.right - by,
-        bottom: rect.bottom - by,
-      });
-    }
-    expect(unread).toEqual([]);
-    const outside = clips.filter(
-      (clip) =>
-        ring.left < clip.left ||
-        ring.top < clip.top ||
-        ring.right > clip.right ||
-        ring.bottom > clip.bottom,
-    );
-    expect(outside.map((clip) => clip.name)).toEqual([]);
-  });
+      expect(unread).toEqual([]);
+      const outside = clips.filter(
+        (clip) =>
+          ring.left < clip.left ||
+          ring.top < clip.top ||
+          ring.right > clip.right ||
+          ring.bottom > clip.bottom,
+      );
+      expect(outside.map((clip) => clip.name)).toEqual([]);
+    });
+  }
 
-  it("clips the hidden button away, so nothing of it reaches past the box", () => {
-    render(() => (
-      <OnGround ramp="dark" class="">
-        <MessageThread messages={[]} emptyHint="Hint" reply={{ onSend: vi.fn() }} />
-      </OnGround>
-    ));
-    const box = screen.getByRole("textbox", { name: "Reply" });
-    const wrap = document.querySelector<HTMLElement>("button[aria-label='Send']")!.parentElement!;
-    expect(getComputedStyle(wrap).overflow).toBe("hidden");
-    expect(wrap.getBoundingClientRect().width).toBe(0);
-    const line = box.parentElement!;
-    expect(line.scrollWidth).toBe(line.clientWidth);
-  });
+  for (const look of SIZES) {
+    it(`clips the ${look.size} look's hidden button away, so nothing of it reaches past the box`, () => {
+      render(() => (
+        <OnGround ramp="dark" class="">
+          <MessageComposer size={look.size} onSend={vi.fn()} />
+        </OnGround>
+      ));
+      const box = screen.getByRole("textbox", { name: "Reply" });
+      const wrap = document.querySelector<HTMLElement>("button[aria-label='Send']")!.parentElement!;
+      expect(getComputedStyle(wrap).overflow).toBe("hidden");
+      expect(wrap.getBoundingClientRect().width).toBe(0);
+      const line = box.parentElement!;
+      expect(line.scrollWidth).toBe(line.clientWidth);
+    });
+  }
 
-  it("grows the box with wrapped lines up to five, and back to one after a send", async () => {
-    const onSend = vi.fn().mockResolvedValue(undefined);
-    render(() => (
-      <OnGround ramp="dark" class="">
-        <MessageThread messages={[]} emptyHint="Hint" reply={{ onSend }} />
-      </OnGround>
-    ));
-    const box = screen.getByRole("textbox", { name: "Reply" }) as HTMLTextAreaElement;
-    await userEvent.fill(box, "One\nTwo\nThree");
-    box.dispatchEvent(new Event("input", { bubbles: true }));
-    const three = box.getBoundingClientRect().height;
-    expect(three).toBe(74);
-    await userEvent.fill(box, Array.from({ length: 12 }, (_, i) => `Line ${i}`).join("\n"));
-    box.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(box.getBoundingClientRect().height).toBe(120);
-    await userEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(box.value).toBe(""));
-    expect(box.getBoundingClientRect().height).toBe(34);
-    expect(document.activeElement).toBe(box);
-  });
+  for (const look of SIZES) {
+    it(`grows the ${look.size} box with wrapped lines up to five, and back to one after a send`, async () => {
+      const onSend = vi.fn().mockResolvedValue(undefined);
+      render(() => (
+        <OnGround ramp="dark" class="">
+          <MessageComposer size={look.size} onSend={onSend} />
+        </OnGround>
+      ));
+      const box = screen.getByRole("textbox", { name: "Reply" }) as HTMLTextAreaElement;
+      await userEvent.fill(box, "One\nTwo\nThree");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      const three = box.getBoundingClientRect().height;
+      expect(three).toBe(look.three);
+      await userEvent.fill(box, Array.from({ length: 12 }, (_, i) => `Line ${i}`).join("\n"));
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(box.getBoundingClientRect().height).toBe(120);
+      await userEvent.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(box.value).toBe(""));
+      expect(box.getBoundingClientRect().height).toBe(look.line);
+      expect(document.activeElement).toBe(box);
+    });
+  }
 
   it("brings the button in on width, margin, scale and opacity alone, on durations above zero", () => {
     render(() => <MessageThread messages={[]} emptyHint="Hint" reply={{ onSend: vi.fn() }} />);
