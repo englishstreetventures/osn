@@ -13,7 +13,9 @@
  * pill given one; a chosen `glass` pill that is not the strip's glass, whose
  * word falls under 4.5:1, that shifts its row, that builds its content
  * twice, or that a contrast theme leaves unmarked; a halfway hover that is not the strip's; an open `quiet`
- * button that looks closed; or a change that runs on the wrong clock.
+ * button that looks closed; a bar's icon button whose hover does not lift its
+ * ground, whose open look is not the raised surface or falls under 4.5:1; or a
+ * change that runs on the wrong clock.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -221,6 +223,7 @@ describe("the ground", () => {
     "cta",
     "outline",
     "quiet",
+    "bar",
     "quietDanger",
     "dashed",
     "danger",
@@ -465,6 +468,113 @@ describe("an open quiet button", () => {
   });
 });
 
+describe("the bar's icon button", () => {
+  /** The bar's three looks, read once the colours have landed. */
+  function Bar(props: { ramp: Ramp }) {
+    return (
+      <Ground ramp={props.ramp} style={{ "--dur-fast": "0ms" } as JSX.CSSProperties}>
+        <Button variant="bar" size="icon" aria-label="Download RSVPs (CSV)">
+          ↓
+        </Button>
+        <Button variant="bar" size="icon" aria-label="What the reply icons mean" aria-expanded>
+          i
+        </Button>
+        <Button variant="bar" size="icon" aria-label="Closed" aria-expanded={false}>
+          i
+        </Button>
+      </Ground>
+    );
+  }
+
+  /** The word's or glyph's ink against what it is painted over, the page under it. */
+  function inkOnPage(el: Element): number {
+    const page = getComputedStyle(el.parentElement!).backgroundColor;
+    const style = getComputedStyle(el);
+    return ratio(
+      composite([page, style.backgroundColor, style.color]),
+      composite([page, style.backgroundColor]),
+    );
+  }
+
+  for (const ramp of RAMPS) {
+    it(`rests on the ground in a hairline, lifts the ground to 60% under the pointer and the raised surface while open, at 4.5:1 each, ${ramp}`, async () => {
+      render(() => <Bar ramp={ramp} />);
+      const download = screen.getByRole("button", { name: "Download RSVPs (CSV)" });
+      const open = screen.getByRole("button", { name: "What the reply icons mean" });
+      const closed = screen.getByRole("button", { name: "Closed" });
+      const page = download.parentElement!;
+      const ground = `color-mix(in oklab, ${token(page, "--ui-surface")} 30%, transparent)`;
+      const lifted = `color-mix(in oklab, ${token(page, "--ui-surface")} 60%, transparent)`;
+
+      // At rest: the ground and the hairline, the secondary ink.
+      const rest = getComputedStyle(download);
+      expect(onPage(download, rest.backgroundColor)).toEqual(onPage(download, ground));
+      expect(painted(rest.borderTopColor)).toBe(painted(token(download, "--ui-hairline")));
+      expect(painted(rest.color)).toBe(painted(token(download, "--ui-ink-secondary")));
+      expect(inkOnPage(download)).toBeGreaterThanOrEqual(4.5);
+      expect(onPage(closed, getComputedStyle(closed).backgroundColor)).toEqual(
+        onPage(closed, ground),
+      );
+
+      // Under the pointer: the ground at 60%, the body ink, a gold edge.
+      await userEvent.hover(download);
+      await settle(50);
+      const hovered = getComputedStyle(download);
+      expect(onPage(download, hovered.backgroundColor)).toEqual(onPage(download, lifted));
+      expect(painted(hovered.color)).toBe(painted(token(download, "--ui-ink")));
+      expect(painted(hovered.borderTopColor)).toBe(painted(token(download, "--ui-accent")));
+      expect(inkOnPage(download)).toBeGreaterThanOrEqual(4.5);
+
+      // Open: the raised surface, the body ink, the hairline — and the same
+      // under the pointer, so open reads as one look.
+      for (const pointer of ["away", "on"] as const) {
+        if (pointer === "on") await userEvent.hover(open);
+        else await userEvent.unhover(download);
+        await settle(50);
+        const style = getComputedStyle(open);
+        expect([pointer, painted(style.backgroundColor)]).toEqual([
+          pointer,
+          painted(token(open, "--ui-surface-raised")),
+        ]);
+        expect([pointer, painted(style.color)]).toEqual([
+          pointer,
+          painted(token(open, "--ui-ink")),
+        ]);
+        expect([pointer, painted(style.borderTopColor)]).toEqual([
+          pointer,
+          painted(token(open, "--ui-hairline")),
+        ]);
+        expect(inkOnPage(open)).toBeGreaterThanOrEqual(4.5);
+        // Open stands apart from a closed one at rest by its fill.
+        expect(onPage(open, style.backgroundColor)).not.toEqual(
+          onPage(closed, getComputedStyle(closed).backgroundColor),
+        );
+      }
+      await userEvent.unhover(open);
+    });
+  }
+
+  it("is a 28px circle at icon and level with the strips at sm", () => {
+    render(() => (
+      <Ground>
+        <Button variant="bar" size="icon" aria-label="Add household">
+          +
+        </Button>
+        <Button variant="bar" size="sm">
+          ⌘K
+        </Button>
+      </Ground>
+    ));
+    const icon = screen.getByRole("button", { name: "Add household" });
+    const box = icon.getBoundingClientRect();
+    expect([box.width, box.height]).toEqual([28, 28]);
+    expect(Number.parseFloat(getComputedStyle(icon).borderTopLeftRadius)).toBeGreaterThanOrEqual(
+      14,
+    );
+    expect(height(screen.getByRole("button", { name: "⌘K" }))).toBe(28);
+  });
+});
+
 describe("the clock each change runs on", () => {
   const LADDER = {
     "--dur-fast": "70ms",
@@ -509,4 +619,24 @@ describe("the clock each change runs on", () => {
       expect(properties).not.toMatch(/outline|all/);
     });
   }
+
+  it("moves the bar's hover and its opening on the fast step, and never the outline", () => {
+    render(() => (
+      <Ground style={LADDER}>
+        <Button variant="bar" size="icon" aria-label="Closed">
+          i
+        </Button>
+        <Button variant="bar" size="icon" aria-label="Open" aria-expanded>
+          i
+        </Button>
+      </Ground>
+    ));
+    for (const name of ["Closed", "Open"]) {
+      const button = screen.getByRole("button", { name });
+      expect([name, ...clock(button)]).toEqual([name, "0.07s", "cubic-bezier(0.1, 0.9, 0.2, 1)"]);
+      const properties = getComputedStyle(button).transitionProperty;
+      expect(properties).toContain("background-color");
+      expect(properties).not.toMatch(/outline|all/);
+    }
+  });
 });

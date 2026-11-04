@@ -12,12 +12,14 @@ import "../../src/styles/global.css";
  * Every pill that sits on `--pill-ground` (DESIGN.md §4, One pill language)
  * holds its word to 4.5:1 in this portal's own palette: on the page and on a
  * card, in both themes, at rest and under the pointer, a chosen `choice` and
- * `glass` included. The ground is the surface at 30%, lighter than the page in
- * dark, so a gold or red word loses some of its contrast on it; `@cire/ui`'s
- * own tests measure on their own ramps, which this stylesheet can drift from.
+ * `glass` and an open `bar` included. The ground is the surface at 30%,
+ * lighter than the page in dark, so a gold or red word loses some of its
+ * contrast on it; `@cire/ui`'s own tests measure on their own ramps, which
+ * this stylesheet can drift from.
  * Each word is measured against what it is painted over: the page, the card,
  * the pill's own fill — the ground at rest, `danger`'s red wash and `cta`'s
- * gold under the pointer.
+ * gold under the pointer, the bar's 60% ground under it and the raised
+ * surface while it is open.
  */
 
 const THEMES = ["dark", "light"] as const;
@@ -26,12 +28,15 @@ interface Case {
   readonly name: string;
   readonly variant: ButtonVariant;
   readonly pressed?: "true" | "false";
+  readonly expanded?: boolean;
 }
 
 const CASES: readonly Case[] = [
   { name: "Call to action", variant: "cta" },
   { name: "Outline", variant: "outline" },
   { name: "Quiet", variant: "quiet" },
+  { name: "Bar", variant: "bar" },
+  { name: "Bar open", variant: "bar", expanded: true },
   { name: "Quiet danger", variant: "quietDanger" },
   { name: "Danger", variant: "danger" },
   { name: "Dashed", variant: "dashed" },
@@ -103,7 +108,7 @@ describe("a grounded pill's word in this portal's palette", () => {
           wrap(
             <>
               {CASES.map((c) => (
-                <Button variant={c.variant} aria-pressed={c.pressed}>
+                <Button variant={c.variant} aria-pressed={c.pressed} aria-expanded={c.expanded}>
                   {c.name}
                 </Button>
               ))}

@@ -162,6 +162,7 @@ describe("Button — corners and case", () => {
       { variant: "cta", corner: "base:rounded-ui-control" },
       { variant: "outline", corner: "base:rounded-ui-control" },
       { variant: "quiet", corner: "base:rounded-ui-control" },
+      { variant: "bar", corner: "base:rounded-ui-control" },
       { variant: "quietDanger", corner: "base:rounded-ui-control" },
       { variant: "danger", corner: "base:rounded-ui-control" },
       { variant: "choice", corner: "base:rounded-ui-control" },
@@ -306,15 +307,6 @@ describe("Button — round", () => {
     const unnamedIcon = () => <Button size="icon">+</Button>;
     expect(unnamedIcon).toBeTypeOf("function");
   });
-
-  it("holds the raised surface and the body ink while its popover is open", () => {
-    expect(buttonClass({ variant: "round" }).split(/\s+/)).toEqual(
-      expect.arrayContaining([
-        "base:aria-expanded:bg-ui-surface-raised",
-        "base:aria-expanded:text-ui-ink",
-      ]),
-    );
-  });
 });
 
 describe("Button — the variants that carry state or fill", () => {
@@ -361,6 +353,7 @@ const EVERY_VARIANT = Object.keys({
   cta: true,
   outline: true,
   quiet: true,
+  bar: true,
   quietDanger: true,
   choice: true,
   glass: true,
@@ -390,6 +383,38 @@ describe("Button — outline", () => {
       ]),
     );
     expect(cls.filter((c) => /hover:bg-/.test(c))).toEqual([]);
+  });
+});
+
+describe("Button — bar", () => {
+  // Its browser tier (`portal-pills.browser.test.tsx`) proves the painted
+  // result; this reads the class string, which is what mutation testing sees.
+  const cls = () => buttonClass({ variant: "bar", size: "icon" }).split(/\s+/);
+  const GATE = "not-aria-expanded:hover:base:";
+
+  it("rests as `quiet` does: a hairline on the portals' ground, the secondary ink", () => {
+    expect(cls()).toEqual(
+      expect.arrayContaining([
+        "base:border-ui-hairline",
+        "base:bg-[color:var(--pill-ground,transparent)]",
+        "base:text-ui-ink-secondary",
+      ]),
+    );
+  });
+
+  it("lifts the ground to the surface at 60%, in the body ink and a gold edge, only while closed", () => {
+    expect(cls().filter((c) => c.includes("hover:"))).toEqual([
+      `${GATE}border-ui-accent`,
+      `${GATE}bg-ui-surface/60`,
+      `${GATE}text-ui-ink`,
+    ]);
+  });
+
+  it("stands on the raised surface in the body ink while what it opens is open", () => {
+    expect(cls().filter((c) => c.includes("aria-expanded:") && !c.startsWith("not-"))).toEqual([
+      "base:aria-expanded:bg-ui-surface-raised",
+      "base:aria-expanded:text-ui-ink",
+    ]);
   });
 });
 
