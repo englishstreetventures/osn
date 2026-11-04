@@ -362,14 +362,14 @@ describe("loading placeholders", () => {
         `${name}: no busy region once loaded`,
         document.querySelector('[aria-busy="true"]') === null,
       );
-      const want = rect(content[0]!).top;
-      measured[`${name} top content`] = Math.round(want * 10) / 10;
+      const lands = rect(content[0]!).top;
+      measured[`${name} top content`] = Math.round(lands * 10) / 10;
       measured[`${name} top placeholder`] = Math.round(top * 10) / 10;
       if (view.holdsPlace !== false) {
         expectPass(
           `${name}: the first placeholder stands where its content lands`,
-          Math.abs(top - want) <= 2,
-          `${top} against ${want}`,
+          Math.abs(top - lands) <= 2,
+          `${top} against ${lands}`,
         );
       }
       const heads = view.heads ?? 0;
