@@ -160,10 +160,21 @@ async function waitForState(page: Page, state: string | null): Promise<void> {
     .toBe(state);
 }
 
-/** Stops the page clock where it is, so frames and timers advance only through `runFor`. */
+/**
+ * Stops the page clock one frame on from where it is, so frames and timers
+ * advance only through `runFor`, however long each call takes to reach the
+ * page. `pauseAt` takes an absolute time and refuses one the running clock has
+ * passed, and a time read from the page is already behind by the trip back.
+ * So `setFixedTime` first stops `Date` at the page clock's own reading, with no
+ * such check; `pauseAt` then stops the timers 16 ms past that frozen time,
+ * which cannot have passed; and `setSystemTime` lets `Date` move again with
+ * `runFor`, which a fixed time would not.
+ */
 async function pauseClock(page: Page): Promise<void> {
   const now = await page.evaluate(() => Date.now());
+  await page.clock.setFixedTime(now);
   await page.clock.pauseAt(now + 16);
+  await page.clock.setSystemTime(now + 16);
 }
 
 /**
