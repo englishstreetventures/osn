@@ -413,17 +413,27 @@ describe("MessageThread from the keyboard", () => {
     const first = row("Is the barn free on 14 March?");
     tap(first);
     first.focus();
-    await new Promise((r) => setTimeout(r, 50));
+    // The tap opens the row's time line, which grows the row as it reveals;
+    // the key is pressed once the row has stopped growing, so the menu is
+    // placed against the row's final edge.
+    let height = -1;
+    await waitFor(
+      () => {
+        const now = first.getBoundingClientRect().height;
+        const settled = now === height;
+        height = now;
+        expect(timeLine(first)).not.toBeNull();
+        expect(settled).toBe(true);
+      },
+      { interval: 100 },
+    );
     await userEvent.keyboard("{Shift>}{F10}{/Shift}");
     const panel = await menuOpens();
     expect(panel.textContent).toContain("They sent");
-    // The menu places its panel after it opens, so the box is read once it settles.
-    await waitFor(() => {
-      const box = first.getBoundingClientRect();
-      const placed = panel.getBoundingClientRect();
-      expect(Math.abs(placed.left - box.left)).toBeLessThan(12);
-      expect(placed.top).toBeGreaterThanOrEqual(box.bottom - 1);
-    });
+    const box = first.getBoundingClientRect();
+    const placed = panel.getBoundingClientRect();
+    expect(Math.abs(placed.left - box.left)).toBeLessThan(12);
+    expect(placed.top).toBeGreaterThanOrEqual(box.bottom - 1);
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toBe(first));
   });
