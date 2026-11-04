@@ -483,6 +483,22 @@ function cornerFor(variant: ButtonVariant, size: ButtonSize): string {
   return "base:rounded-ui-control";
 }
 
+/** A variant's own classes and a size's own, from {@link buttonLook}. */
+export interface ButtonLook {
+  readonly variant: string;
+  readonly size: string;
+}
+
+/**
+ * A variant's own classes and a size's own, without the base every `Button`
+ * shares — for a part that draws a button's look on something that is not a
+ * button, such as a file input's button: `file-input.tsx`'s `FILE_BUTTON` is
+ * held to `quiet` at `md` through this.
+ */
+export function buttonLook(options: { variant: ButtonVariant; size: ButtonSize }): ButtonLook {
+  return { variant: VARIANT[options.variant], size: SIZE[options.size] };
+}
+
 /**
  * The classes on their own, for a call site that needs a different element — an
  * `<a>` that looks like a button, a Kobalte trigger rendered `as`. Reaching for
