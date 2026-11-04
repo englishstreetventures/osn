@@ -319,7 +319,10 @@ export function createInternalGraphRoutes(
                 const rows = yield* Effect.tryPromise({
                   try: () =>
                     db
-                      .select({ serviceId: serviceAccountKeys.serviceId })
+                      .select({
+                        serviceId: serviceAccountKeys.serviceId,
+                        revokedAt: serviceAccountKeys.revokedAt,
+                      })
                       .from(serviceAccountKeys)
                       .where(eq(serviceAccountKeys.keyId, body.keyId))
                       .limit(1),
@@ -331,6 +334,12 @@ export function createInternalGraphRoutes(
             if (existing && existing.serviceId !== body.serviceId) {
               set.status = 409;
               return { error: "kid_serviceid_mismatch" };
+            }
+            // A revoked key id stays revoked: a service brings a new key under
+            // a new id.
+            if (existing && existing.revokedAt !== null) {
+              set.status = 409;
+              return { error: "kid_revoked" };
             }
             await run(
               Effect.gen(function* () {
@@ -370,8 +379,13 @@ export function createInternalGraphRoutes(
                         set: {
                           publicKeyJwk: body.publicKeyJwk,
                           expiresAt: body.expiresAt ?? null,
-                          revokedAt: null,
                         },
+                        // Only the same service's live key is refreshed; a
+                        // revocation landing after the check above holds.
+                        setWhere: and(
+                          eq(serviceAccountKeys.serviceId, body.serviceId),
+                          isNull(serviceAccountKeys.revokedAt),
+                        ),
                       }),
                   catch: (cause) => new Error("DB error upserting service_account_keys", { cause }),
                 });
@@ -396,8 +410,10 @@ export function createInternalGraphRoutes(
       // -----------------------------------------------------------------------
       // Revoke a service key by ID
       //
-      // Sets revokedAt on the key row; the key will be rejected by
-      // resolvePublicKey immediately (no wait for natural expiry).
+      // Sets revokedAt on the key row. resolvePublicKey rejects it on every
+      // cache miss from then on, and this isolate's cache entry is evicted;
+      // another isolate's cached entry lasts until its TTL. 404 for an unknown
+      // key id; a repeat revoke answers `alreadyRevoked` and keeps the first time.
       // Protected by the same INTERNAL_SERVICE_SECRET.
       // -----------------------------------------------------------------------
       .delete(
@@ -414,23 +430,48 @@ export function createInternalGraphRoutes(
           }
           try {
             const nowSecs = Math.floor(Date.now() / 1000);
-            await run(
+            const outcome = await run(
               Effect.gen(function* () {
                 const { db } = yield* Db;
-                yield* Effect.tryPromise({
+                const revoked = yield* Effect.tryPromise({
                   try: () =>
                     db
                       .update(serviceAccountKeys)
                       .set({ revokedAt: nowSecs })
-                      .where(eq(serviceAccountKeys.keyId, params.keyId)),
+                      // A key already revoked keeps its first revocation time.
+                      .where(
+                        and(
+                          eq(serviceAccountKeys.keyId, params.keyId),
+                          isNull(serviceAccountKeys.revokedAt),
+                        ),
+                      )
+                      .returning({ keyId: serviceAccountKeys.keyId }),
                   catch: (cause) => new Error("DB error revoking key", { cause }),
                 });
+                if (revoked.length > 0) return "revoked" as const;
+                // Nothing changed: either no such key, or one already revoked.
+                const known = yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .select({ keyId: serviceAccountKeys.keyId })
+                      .from(serviceAccountKeys)
+                      .where(eq(serviceAccountKeys.keyId, params.keyId))
+                      .limit(1),
+                  catch: (cause) => new Error("DB error reading key", { cause }),
+                });
+                return known.length > 0 ? ("already_revoked" as const) : ("unknown" as const);
               }),
             );
-            // Evict immediately so the revocation takes effect in this process
-            // without waiting for the 5-minute cache TTL.
+            if (outcome === "unknown") {
+              set.status = 404;
+              return { error: "Key not found" };
+            }
+            // Evicts this isolate's cache entry. Other isolates holding the key
+            // in cache accept it until their entry's TTL runs out.
             evictPublicKeyCacheEntry(params.keyId);
-            return { ok: true };
+            return outcome === "already_revoked"
+              ? { ok: true, alreadyRevoked: true }
+              : { ok: true };
           } catch (e) {
             set.status = 500;
             return { error: safeError(e) };
