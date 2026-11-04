@@ -786,7 +786,8 @@ describe("money gifts", () => {
     expect(urls.some((u) => u.includes("/registry/stripe/refresh"))).toBe(false);
   });
 
-  /** A money-on save refused for an editor, with `body` as the 409's answer. */
+  /** A money-on save refused for an editor, with `body` as the 409's answer:
+   *  JSON, or a whole `Response` for a body that is not. */
   async function editorRefused(body: unknown) {
     // Loaded as "money off"; a co-host has since moved the wedding to a
     // currency the account does not pay out in.
@@ -801,7 +802,7 @@ describe("money gifts", () => {
         } as never,
       }),
     );
-    authFetch.mockResolvedValue(json(body, 409));
+    authFetch.mockResolvedValue(body instanceof Response ? body : json(body, 409));
     const { container } = renderPanel({ canManage: false });
     fireEvent.click(await screen.findByTestId("cash-gifts"));
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
@@ -837,6 +838,14 @@ describe("money gifts", () => {
       /connected and can take payments/i,
     );
     expect(authFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("says only that Stripe cannot take a payment when a refusal's body is not JSON", async () => {
+    // A proxy in front of the API can answer 409 with a page of its own.
+    await editorRefused(new Response("Conflict", { status: 409 }));
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(String(toastError.mock.calls[0]?.[0])).toMatch(/Stripe can’t take a payment/);
+    expect(peekCachedRegistry("wed_1")?.settings.moneyGiftsBlockedBy).toBe("cash_gifts_off");
   });
 });
 
