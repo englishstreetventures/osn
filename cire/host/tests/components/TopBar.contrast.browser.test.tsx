@@ -206,6 +206,37 @@ describe("the top bar's actions", () => {
     expect(getComputedStyle(preview).backgroundColor).toBe(rest);
   });
 
+  for (const scheme of ["light", "dark"] as const) {
+    it(`lifts ⌘K's ground under the pointer, in the body ink with a gold edge, its words at 4.5:1, ${scheme}`, async () => {
+      await page.viewport(1280, 800);
+      await commands.emulateMedia({ colorScheme: scheme });
+      const { container } = mount(RUTH);
+      const bar = container.querySelector("header")!;
+      const palette = screen.getByRole("button", { name: "Search and jump to" });
+      await userEvent.hover(palette);
+      await vi.waitFor(() => expect(palette.getAnimations()).toEqual([]));
+      // The bar's hover, as the portal paints it, read off a probe.
+      const probe = document.createElement("div");
+      probe.style.cssText =
+        "border:1px solid var(--gold);background-color:color-mix(in oklab, var(--surface) 60%, transparent);color:var(--text)";
+      document.body.append(probe);
+      const want = getComputedStyle(probe);
+      const style = getComputedStyle(palette);
+      expect([style.borderTopColor, style.backgroundColor, style.color]).toEqual([
+        want.borderTopColor,
+        want.backgroundColor,
+        want.color,
+      ]);
+      probe.remove();
+      for (const [content, colour] of Object.entries(CONTENT)) {
+        const words = readings(bar, colour).filter((r) => r.line.startsWith("⌘K"));
+        expect(words.map((r) => [content, r.ratio >= WCAG_TEXT_MIN, r.line])).toEqual([
+          [content, true, words[0]?.line],
+        ]);
+      }
+    });
+  }
+
   it("draws ⌘K on a narrow bar as a 36px circle round its magnifier, still named", async () => {
     await page.viewport(390, 844);
     mount(RUTH);
