@@ -17,7 +17,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-upgrades]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-05
 ---
 
 # Cire Landing
@@ -93,13 +93,18 @@ renders on the page today; the demo's dietary choices are `@cire/ui` chips.
 | What | Corner | Label | Motion |
 |---|---|---|---|
 | The CTAs, `.cta-primary` and `.cta-ghost` (`Hero.astro`, `Pricing.astro`, `FinalCta.astro`) | a pill, `var(--ui-radius-control)`, with `0.95rem 2.25rem` padding so the label keeps a flat edge before each round end | sentence case, normal tracking, weight 500 (Lato loads 300, 400 and 700, so it draws the 400 face) at `--ui-text-base`, the size of `Button` `lg` | colour, fill and border on `--dur-fast`; the press's `transform` too |
+| The hero's chips (`Hero.astro`, `.chips`) | the track and each chip a pill, `var(--ui-radius-pill)`, as `SegmentedTabs` draws its track and choices | sentence case at normal tracking, as a segmented strip's choices | colour, ground and inner edge on `--dur-fast` |
+| The journey's tabs and plan badge (`Journey.astro`, `.tab`, `.panel__tier`) | the tabs none: a 2px gold underline marks the chosen one; the "Included in Gold" badge a pill, `var(--ui-radius-pill)` | the tabs small caps, a tab row as the privacy row is; the badge small caps at `--ui-tracking-wider`, as `Chip`'s caps | the tabs' colour and underline on `--dur-fast` |
+| The plan cards (`Pricing.astro`, `.plan`) | 16px, `var(--ui-radius-lg)`, a card set on the page | — | — |
+| The closing field (`FinalCta.astro`, `.claim__input`) | the 14px field corner, `var(--ui-radius-field)`, as the guest site's ink field | — | its edge on `--dur-fast` |
+| The product drawings (`components/mock/`, the journey's dashboard, the closing thread) | their own, drawn at the phone's scale in `cqi` or as the portal draws its 10px module card; a round end `var(--ui-radius-pill)` | their own ([[#Product views]]) | — |
 | The masthead link, `.site-nav__cta` (`SiteNav.astro`) | none: an underlined link with no box, which a corner would curl | sentence case at 0.875rem, the footer links' size, no medium weight | `--dur-fast`; the masthead's scrolled wash on `--dur-slow` |
 | The photo (`Figure.astro`) | the 14px field corner, as a framed picture takes; the credit badge 6px, a text badge set in from the frame | — | the credit's fade on `--dur-fast` |
 | The demo invitation (`DemoRsvp.tsx`) | its frame and its two event cards 16px, as the guest event card is; the preview notice and member fieldset 6px, as in the guest sheet; Attending / Not attending pills | sentence case | the pair and the field on `--dur-fast` |
 | Legal pages (`LegalLayout.astro`) | the draft banner 6px, a notice; an inline placeholder 2px, about 16px tall, where 6px would draw a near-pill | "← Back to Cire" sentence case; the privacy tab row small caps (§Privacy pages) | — |
 | Focus rings (`SiteNav.astro`, `SiteFooter.astro`, `PrivacyNav.astro`, the FAQ summary) | `var(--radius-hair)`, 2px; a CTA's ring sets none and follows the pill | — | — |
 
-Kept in small caps: eyebrows, the demo's eyebrows, the privacy tab row, the
+Kept in small caps: eyebrows, the demo's eyebrows, the tab rows of the privacy pages and the journey, the journey's plan badge, the
 draft banner's "Draft" and the "Anything else" field label. The footer's
 "Privacy Notice" keeps its capitals, as the name of the document. The page's
 own choreography keeps literal timings longer than `--dur-slow`: the scroll
@@ -153,8 +158,7 @@ move between them as between any radios.
 - **All states share one grid cell**, so switching never moves the page.
   Inactive ones are `opacity: 0; visibility: hidden`; the change is a 0.45s
   opacity and 0.5rem rise, and `transition: none` under reduced motion.
-- **Chips are at least 44px tall.** At 390px the four fit on one row by
-  dropping their tracking to 0.08em.
+- **Chips are at least 44px tall**, and at 390px the four fit on one row.
 
 ## Product views
 
@@ -170,7 +174,7 @@ carries only synthetic data.
   drawing says "Sample wedding".
 - **`PhoneFrame.astro`** draws a phone; `variant="placeholder"` is a dashed
   silhouette with a "?" and no screen, never captioned. Its corners are
-  `0.15 × --phone-w`: the house cap of 6px is for controls and panels, and a
+  `0.15 × --phone-w`: the corner roles are for controls and panels, and a
   phone's corners are part of its outline. Width comes from the parent through
   `--phone-w`, because under Astro's attribute scoping a parent's class cannot
   style a child component's root; a parent positions a wrapper of its own.

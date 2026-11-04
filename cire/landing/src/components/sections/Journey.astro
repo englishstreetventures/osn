@@ -385,8 +385,8 @@ const STEPS: readonly Step[] = [
     white-space: nowrap;
     cursor: pointer;
     transition:
-      color 0.2s var(--ease-out),
-      border-color 0.2s var(--ease-out);
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
   }
 
   .tab:hover {
@@ -469,10 +469,11 @@ const STEPS: readonly Step[] = [
     margin: 0 0 0.9rem;
     padding: 0.3rem 0.75rem;
     border: 1px solid var(--color-gold-dim);
-    border-radius: 999px;
+    border-radius: var(--ui-radius-pill);
     color: var(--color-text-muted);
     font-size: 0.7rem;
-    letter-spacing: 0.1em;
+    /* A badge, so small caps at a status word's tracking, as `Chip`'s caps. */
+    letter-spacing: var(--ui-tracking-wider);
     text-transform: uppercase;
   }
 
@@ -668,7 +669,7 @@ const STEPS: readonly Step[] = [
     width: 1.6rem;
     height: 1.6rem;
     border: 1px solid var(--color-border-strong);
-    border-radius: 999px;
+    border-radius: var(--ui-radius-pill);
   }
 
   .message {
