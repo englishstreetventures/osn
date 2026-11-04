@@ -1,5 +1,14 @@
 # @tools/lab
 
+## 0.3.34
+
+### Patch Changes
+
+- 9d3a9a1: The lab gains `cire/ui/Skeleton`: each stand-in in cire's dark and light mapping, captioned with its painted corner and fill; the shapes in place on the RSVP page's view bar and table and in a grid of cards; and a playground with what it stands in for, a height and the pulse's pace.
+- 9d2302b: The lab shows `cire/ui/MessageThread`: a thread on the host's page and in the vendor's card, long messages, a tapped time, the info menu, an undelivered message, the empty, loading and failed states, and the reply box, in cire's light and dark mappings.
+- Updated dependencies [5be7d49]
+  - @shared/ui@0.10.1
+
 ## 0.3.33
 
 ### Patch Changes

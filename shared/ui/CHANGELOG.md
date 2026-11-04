@@ -1,5 +1,11 @@
 # @shared/ui
 
+## 0.10.1
+
+### Patch Changes
+
+- 5be7d49: `Textarea`'s note on the resize prop names `@cire/ui/lib/auto-size` as the auto-sized frame it guards against. A comment only; nothing renders differently.
+
 ## 0.10.0
 
 ### Minor Changes
