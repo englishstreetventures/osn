@@ -561,6 +561,7 @@ describe("RsvpView", () => {
     const noReply = chip(/^No reply/i);
     expect(noReply.textContent).toContain("1");
     expect(noReply.getAttribute("aria-label")).toBe("No reply, 1 guest");
+    expect(chip(/^All/i).getAttribute("aria-label")).toBe("All, 4 guests");
     // "All" is the checked one until a host picks another.
     expect(chip(/^All/i).getAttribute("aria-checked")).toBe("true");
 
