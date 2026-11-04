@@ -96,17 +96,6 @@ describe("DietaryPresetsPopover", () => {
     expect(screen.getByRole("button", { name: /vegetarian, nuts \+1/i })).toBeTruthy();
   });
 
-  it("quiets the words of an empty selection, and only those", () => {
-    // The class the browser tier measures (`dietary-presets.browser.test.tsx`),
-    // read as written, so Stryker, which runs this tier, sees it.
-    render(() => <Harness />);
-    const empty = screen.getByText("Add dietary requirements");
-    expect(empty.className.split(/\s+/)).toContain("text-ui-ink-secondary");
-    cleanup();
-    render(() => <Harness initial={["vegan"]} />);
-    expect(screen.getByText("Vegan").className.split(/\s+/)).not.toContain("text-ui-ink-secondary");
-  });
-
   it("disables the trigger when the form is locked", () => {
     render(() => <DietaryPresetsPopover value={[]} onChange={() => {}} disabled />);
     expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(true);

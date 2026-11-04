@@ -100,10 +100,13 @@ export interface DietaryPresetsProps<K extends string = DietaryPreset> {
 const LAYOUT = {
   // A scrolling track clips, so it keeps 4px of room all round inside a
   // matching margin: room for a ticked pill's 2px ring and the focus outline
-  // 2px off its edge, which it would otherwise cut at its top and ends.
+  // 2px off its edge, which it would otherwise cut at its top and ends. Each
+  // band's start is a snap point as well as each pill's, so the track opens
+  // at its start, its first band's label in view, rather than snapping past
+  // it to the first pill.
   scroll: {
     track: "gap-4 snap-x snap-proximity overflow-x-auto -m-1 p-1 scroll-px-1",
-    band: "shrink-0 items-center",
+    band: "shrink-0 snap-start items-center",
     row: "shrink-0",
   },
   wrap: {
@@ -114,7 +117,7 @@ const LAYOUT = {
   md: {
     track:
       "gap-4 snap-x snap-proximity overflow-x-auto -m-1 p-1 scroll-px-1 md:snap-none md:overflow-x-visible md:m-0 md:p-0 md:flex-col",
-    band: "shrink-0 items-center md:flex-col md:items-start",
+    band: "shrink-0 snap-start items-center md:flex-col md:items-start",
     row: "shrink-0 md:flex-wrap",
   },
 } as const;
@@ -151,8 +154,8 @@ function toggle<K extends string>(
  */
 const PILL =
   "font-body border-ui-hairline text-ui-ink text-ui-sm relative flex shrink-0 cursor-pointer snap-start items-center gap-2 rounded-full border px-3 py-1.5 whitespace-nowrap select-none " +
-  "transition-[color,background-color,border-color,box-shadow] duration-(--dur-fast,100ms) ease-(--ease-out) " +
-  "has-[:checked]:duration-(--dur-base,150ms) has-[:checked]:ease-(--ease-in-out) " +
+  "transition-[color,background-color,border-color,box-shadow] duration-(--dur-fast,100ms) ease-[var(--ease-out,var(--ui-ease-out))] " +
+  "has-[:checked]:duration-(--dur-base,150ms) has-[:checked]:ease-[var(--ease-in-out,var(--ui-ease-in-out))] " +
   "has-[:checked]:border-ui-accent has-[:checked]:text-ui-accent-ink has-[:checked]:ring-2 has-[:checked]:ring-ui-accent/60 " +
   "not-has-[:checked]:not-has-[:disabled]:hover:border-[color:color-mix(in_oklab,var(--ui-hairline),var(--ui-accent))] " +
   "not-has-[:checked]:not-has-[:disabled]:hover:text-[color:color-mix(in_oklab,var(--ui-ink),var(--ui-accent-ink))] " +

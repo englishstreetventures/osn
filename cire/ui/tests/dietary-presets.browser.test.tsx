@@ -26,7 +26,11 @@ import "./test-support/tailwind.css";
 const RAMPS = ["dark", "light"] as const;
 type Ramp = (typeof RAMPS)[number];
 
-afterEach(cleanup);
+afterEach(async () => {
+  cleanup();
+  // A test that widens the window puts it back even when it fails.
+  await page.viewport(414, 896);
+});
 
 const settle = (ms = 400) => new Promise((resolve) => setTimeout(resolve, ms));
 const token = (el: Element, name: string) => getComputedStyle(el).getPropertyValue(name).trim();
@@ -109,6 +113,28 @@ describe("a ticked pill", () => {
     const edge = painted(getComputedStyle(idle).borderTopColor);
     expect(edge).not.toBe(painted(token(idle, "--ui-hairline")));
     expect(edge).not.toBe(painted(token(idle, "--ui-accent")));
+    const word = painted(getComputedStyle(idle).color);
+    expect(word).not.toBe(painted(token(idle, "--ui-ink")));
+    expect(word).not.toBe(painted(token(idle, "--ui-accent-ink")));
+  });
+});
+
+describe("a locked picker", () => {
+  it("fades every pill, shows it cannot be pressed, and goes nowhere under the pointer", async () => {
+    render(() => (
+      <Ground>
+        <DietaryPresets value={["vegan"]} onChange={() => {}} disabled wrap />
+      </Ground>
+    ));
+    const idle = pill("Vegetarian");
+    expect(getComputedStyle(idle).opacity).toBe("0.5");
+    expect(getComputedStyle(idle).cursor).toBe("not-allowed");
+    await userEvent.hover(idle, { force: true });
+    await settle();
+    expect(ringSpread(idle)).toBe(0);
+    expect(painted(getComputedStyle(idle).borderTopColor)).toBe(
+      painted(token(idle, "--ui-hairline")),
+    );
   });
 });
 
@@ -150,6 +176,15 @@ describe("a pill's focus", () => {
     const box = chosen.getBoundingClientRect();
     expect(box.top - clip.top).toBeGreaterThanOrEqual(4);
     expect(clip.bottom - box.bottom).toBeGreaterThanOrEqual(4);
+    // The ends: the track's first item and, scrolled to its end, its last
+    // pill keep 4px to the clip, and the room's margin shifts nothing.
+    const first = scroller.firstElementChild!.getBoundingClientRect();
+    expect(first.left - clip.left).toBeGreaterThanOrEqual(4);
+    expect(first.left).toBe(scroller.parentElement!.getBoundingClientRect().left);
+    scroller.scrollLeft = scroller.scrollWidth;
+    const pills = [...scroller.querySelectorAll("label")];
+    const last = pills.at(-1)!.getBoundingClientRect();
+    expect(clip.right - last.right).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -206,6 +241,20 @@ describe("the quiet words", () => {
         painted(token(word, "--ui-ink-secondary")),
       );
     }
-    await page.viewport(414, 896);
+  });
+
+  it("draws a chosen summary in the field's ink, its caret still secondary", async () => {
+    await page.viewport(1024, 800);
+    render(() => (
+      <Ground>
+        <DietaryPresetsPopover value={["vegan"]} onChange={() => {}} />
+      </Ground>
+    ));
+    const trigger = await screen.findByRole("button");
+    const [summary, caret] = trigger.querySelectorAll("span");
+    expect(painted(getComputedStyle(summary!).color)).toBe(painted(token(summary!, "--ui-ink")));
+    expect(painted(getComputedStyle(caret!).color)).toBe(
+      painted(token(caret!, "--ui-ink-secondary")),
+    );
   });
 });
