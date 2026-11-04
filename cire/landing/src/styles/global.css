@@ -20,6 +20,10 @@
 @source not "../../../ui/src/sign-in-card.astro";
 @source not "../../../ui/src/sign-in-card-class.ts";
 @source not "../../../ui/src/sign-in-press.ts";
+/* Nor a person's avatar or its account trigger. A page that draws
+   `PersonAvatar` or `avatarTriggerClass` needs the matching line gone. */
+@source not "../../../ui/src/person-avatar.tsx";
+@source not "../../../ui/src/avatar-trigger-class.ts";
 /* Nor any menu. A page that draws `DropdownMenu`, or a touch menu, needs the
    matching line gone. */
 @source not "../../../../shared/ui/src/ui/dropdown-menu.tsx";

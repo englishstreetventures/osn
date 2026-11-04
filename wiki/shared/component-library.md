@@ -44,7 +44,7 @@ product layer, and which one a component belongs in is decided by
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
 _why_ the line falls there, and is not re-argued here. The short version is that
@@ -129,6 +129,8 @@ cire/ui/src/
 ├── file-input.tsx          ← a file input whose button is the quiet pill (FILE_BUTTON)
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
+├── person-avatar.tsx       ← PersonAvatar: a photo, the empty avatar or an initial
+├── avatar-trigger-class.ts ← avatarTriggerClass: the round button an account menu opens from
 ├── segmented-tabs.tsx      ← SegmentedTabs: a glass track of choices with one sliding highlight
 ├── sign-in-panel.tsx       ← SignInPanel: the portals' one button to musubi and its error lines
 ├── sign-in-card-class.ts   ← signInCardClass: the sign-in card's opaque fill and lit edge
@@ -508,9 +510,9 @@ RSVP table ([[cire-rsvp-table]]) and household tables, in page mode.
 
 Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
-exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its thirteen
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its fourteen
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class` and `sign-in-press` are named,
+`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class`, `sign-in-press` and `avatar-trigger-class` are named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
 default, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL`,
 `sign-in-panel` the `SignInAuth` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, and
@@ -1198,6 +1200,56 @@ can show every state without navigating; the portals pass nothing.
 roman heading and the top-set measure; `sign-in-panel.browser.test.tsx` the
 copy, the button and the notice at 4.5:1 on the opaque card in both ramps,
 and a press that keeps the 284px button's box at a phone's width.
+
+### cire's `PersonAvatar` — a face, or an account's circle
+
+One part draws a person's photo everywhere cire shows one
+(`cire/ui/src/person-avatar.tsx`): a face on a task, the portals' account
+triggers and the guest site's account card. It is built on `@shared/ui`
+`Avatar` and `AvatarImage`, which take layout classes only, so its frame, ring
+and colours sit on its own root span. The photo is drawn only from an absolute
+`https:` URL, with `referrerpolicy="no-referrer"` and `alt=""`; the whole part
+is `aria-hidden`, and the caller names the person in text. A URL that fails to
+load joins one set for the page: the face that failed falls back at once, and
+no face that has not drawn that URL asks for it again, so vendor's placeholder
+trigger and the real one agree. One that already drew it keeps it, and a new
+URL gets its own try.
+
+`fallback` picks the stand-in, by what the face is for:
+
+- **`blank`**, a face in a stack or a list: the empty avatar, a figure in the
+  page's colour cut from a disc of faint ink (`--ui-ink-tertiary`) laid over
+  the page's colour, so it is opaque where faces overlap. Never initials. No
+  frame.
+- **`initial`**, an account's circle (it needs `name`): a hairline circle with
+  no fill of its own, round the photo too, and the name's first grapheme in
+  readable gold in the display face at weight 600, at half the circle's inside
+  width (`50cqi`, with `@container` on the root: 17px in a 36px circle, 19px in
+  a 40px one), upper-cased only when that keeps it one letter. The letter's
+  size and weight are the owner's choices.
+
+`ring` draws the stack's 2px band in the page's colour outside the circle, a
+box-shadow on the root, so the photo keeps its size; `Avatar`'s
+`ring="surface"` paints a border inside the circle instead. `class` is required
+and sets the size and the place: the root measures its letter from its own
+width, so it takes none from its contents.
+
+`avatarTriggerClass` (`avatar-trigger-class.ts`, a module of its own so the guest
+site, which draws no trigger, leaves its classes out) is the 36px round button an
+account menu opens from: the
+surface at 40% and `Button`'s ring; the `initial` avatar inside it
+(`class="size-full"`) draws the hairline, and its edge turns `--ui-accent-soft`
+under the trigger's pointer (`group/avatar-trigger`). The fill is the
+trigger's, not the avatar's, because the guest site lays no ground of its own
+under a gold word. Neither imports Kobalte,
+so a trigger can draw before a menu's code has loaded.
+
+`cire/ui/tests/person-avatar.test.tsx` holds the URL guards, the failed-URL
+set, both stand-ins and the initial's graphemes, the ring classes and the
+trigger's ring; `person-avatar-source.test.ts` that neither file imports a menu
+library; `person-avatar.browser.test.tsx` the initial at 4.5:1 on its disc in
+both ramps, the letter's size and weight, the ring outside the photo, the
+opaque blank disc, the trigger's edge and ring, and the edge's fade.
 
 ### cire's `Button`, as a vocabulary
 

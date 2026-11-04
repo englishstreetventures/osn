@@ -9,6 +9,7 @@
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "exports": {
+    "./avatar-trigger-class": "./src/avatar-trigger-class.ts",
     "./button": "./src/button.tsx",
     "./card": "./src/card.tsx",
     "./consent-categories": "./src/consent-categories.ts",
@@ -21,6 +22,7 @@
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./loading": "./src/loading.tsx",
     "./note": "./src/note.tsx",
+    "./person-avatar": "./src/person-avatar.tsx",
     "./reveal": "./src/reveal.tsx",
     "./segmented-tabs": "./src/segmented-tabs.tsx",
     "./sign-in-card-class": "./src/sign-in-card-class.ts",
