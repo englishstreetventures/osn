@@ -81,53 +81,58 @@ export default function WeddingList(props: {
         {/* Intrinsic columns rather than a `@lg/page` step: an organiser with
             six weddings gets three or four per row on a widescreen, and one on
             a phone, with no breakpoint list to keep in sync. */}
-        <ul class="auto-grid auto-rows-fr [--auto-grid-min:20rem]">
-          <For each={props.weddings}>
-            {(wedding) => (
-              <li class="flex">
-                <Button
-                  variant="tile"
-                  size="lg"
-                  type="button"
-                  onClick={() => props.onSelect(wedding)}
-                  // A long wedding name wraps inside the tile rather than
-                  // being cut off: `Button` holds a label to one line.
-                  class="group relative flex w-full flex-col overflow-hidden text-left whitespace-normal"
-                >
-                  {/* A gold rule that draws down the left edge on hover — the
-                      same marker vocabulary the module rail uses for "you are
-                      here", reused here for "this is the one you're reaching
-                      for". Scale, so it costs no layout. */}
-                  <span
-                    aria-hidden="true"
-                    class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
-                  />
-                  <span class={ROW_LABEL_CLASS}>{wedding.slug}</span>
-                  <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
-                    {wedding.displayName}
-                  </span>
-                  <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm transition-ui-colors mt-2 flex items-center gap-2 duration-(--dur-base) ease-(--ease-out)">
-                    Open dashboard
+        <div class="auto-grid auto-rows-fr [--auto-grid-min:20rem]">
+          {/* The list's box steps aside so its items are the grid's cells,
+              and the empty slot after it is the next cell without being
+              counted as a wedding. */}
+          <ul class="contents">
+            <For each={props.weddings}>
+              {(wedding) => (
+                <li class="flex">
+                  <Button
+                    variant="tile"
+                    size="lg"
+                    type="button"
+                    onClick={() => props.onSelect(wedding)}
+                    // A long wedding name wraps inside the tile rather than
+                    // being cut off: `Button` holds a label to one line.
+                    class="group relative flex w-full flex-col overflow-hidden text-left whitespace-normal"
+                  >
+                    {/* A gold rule that draws down the left edge on hover — the
+                        same marker vocabulary the module rail uses for "you are
+                        here", reused here for "this is the one you're reaching
+                        for". Scale, so it costs no layout. */}
                     <span
                       aria-hidden="true"
-                      class="transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:translate-x-1"
-                    >
-                      →
+                      class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
+                    />
+                    <span class={ROW_LABEL_CLASS}>{wedding.slug}</span>
+                    <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
+                      {wedding.displayName}
                     </span>
-                  </span>
-                </Button>
-              </li>
-            )}
-          </For>
+                    <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm transition-ui-colors mt-2 flex items-center gap-2 duration-(--dur-base) ease-(--ease-out)">
+                      Open dashboard
+                      <span
+                        aria-hidden="true"
+                        class="transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:translate-x-1"
+                      >
+                        →
+                      </span>
+                    </span>
+                  </Button>
+                </li>
+              )}
+            </For>
+          </ul>
           {/* The empty slot stands in the grid's next cell, a tile the size of
               a wedding's (every row the height of the tallest), dashed because
               something appears there. */}
           <Show when={!creating()}>
-            <li class="flex">
+            <div class="flex">
               <CreateAffordance onClick={() => setCreating(true)} />
-            </li>
+            </div>
           </Show>
-        </ul>
+        </div>
       </Show>
 
       <Show when={(props.deleted ?? []).length > 0}>
