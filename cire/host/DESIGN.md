@@ -351,8 +351,8 @@ with the 14px corner; buttons beside them match. Filters stay 28px pills."):
   `Input`. The date picker's read-only box and the invite link's are a
   `readOnly` `Input` at `form`, in full ink; the date picker's trigger takes
   `controlClass("form", …)` and `CONTROL_HEIGHT.form`, so its edge, fill and
-  focus are a form field's. The dietary picker's trigger is 34px through
-  `h-8.5` until `Button` has a 34px height of its own (#1884). A
+  focus are a form field's. The dietary picker's trigger is `Button`'s
+  `field` at `form`, 34px. A
   `Textarea` takes the size's sides and type, and no height: `base:min-h-15`
   holds it at its rows. `tests/styles/form-field.test.ts` reads every `Input`
   and `Select` in `src/` and fails on one without a form size, a filter
