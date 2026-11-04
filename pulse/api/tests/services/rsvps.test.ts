@@ -1,5 +1,5 @@
 import { it, expect } from "@effect/vitest";
-import { eventRsvps, pulseUsers } from "@pulse/db/schema";
+import { eventRsvps, events, pulseUsers } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -691,5 +691,44 @@ it.effect("concurrent first upserts for the same pair both succeed and leave one
       db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
     );
     expect(rows).toHaveLength(1);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// RSVPs close on a cancelled event. Replies given before the cancel stay, so
+// an un-cancelled event still has its guest list.
+// ---------------------------------------------------------------------------
+
+it.effect("upsertRsvp refuses a cancelled event and writes no row", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({
+      title: "Called off",
+      startTime: "2030-06-01T10:00:00.000Z",
+      status: "cancelled",
+    });
+    const err = yield* Effect.flip(upsertRsvp(event.id, "usr_bob", { status: "going" }));
+    expect(err._tag).toBe("ValidationError");
+    const rows = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(rows).toHaveLength(0);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("upsertRsvp refuses to change a reply once the event is cancelled, and keeps it", () =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    yield* Effect.promise(() =>
+      db.update(events).set({ status: "cancelled" }).where(eq(events.id, event.id)),
+    );
+    const err = yield* Effect.flip(upsertRsvp(event.id, "usr_bob", { status: "not_going" }));
+    expect(err._tag).toBe("ValidationError");
+    const [row] = yield* Effect.promise(() =>
+      db.select().from(eventRsvps).where(eq(eventRsvps.eventId, event.id)),
+    );
+    expect(row.status).toBe("going");
   }).pipe(Effect.provide(createTestLayer())),
 );

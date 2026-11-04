@@ -84,9 +84,13 @@ Events **with** an explicit `endTime` keep the original single-transition behavi
 Users can RSVP to events with one of four statuses:
 
 - **going** -- confirmed attendance
-- **interested** -- tentative
+- **maybe** -- tentative (refused when the event sets `allowInterested: false`)
 - **not_going** -- declined
 - **invited** -- added by organiser, not yet responded
+
+RSVPs close when the event is `cancelled`: `upsertRsvp` refuses a new reply or a change (422). Replies given before the cancel are kept, so an event the organiser un-cancels still has its guest list.
+
+Two concurrent replies for the same person are safe: a first RSVP that loses the race to insert becomes an update of the winner's row, and first-touch attribution (`shareSourceFirst`) is decided against the row at write time.
 
 The social graph filters RSVP visibility. The system serves counts, latest RSVPs, and attendee lists with close-friend indicators.
 

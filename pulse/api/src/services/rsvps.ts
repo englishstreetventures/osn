@@ -307,6 +307,12 @@ export const upsertRsvp = (
 
     const event = yield* loadEvent(eventId);
 
+    // RSVPs close when the event is cancelled. Replies given before the cancel
+    // are kept, so an event that is un-cancelled still has its guest list.
+    if (event.status === "cancelled") {
+      return yield* Effect.fail(new ValidationError({ cause: "This event is cancelled" }));
+    }
+
     if (validated.status === "maybe" && !event.allowInterested) {
       return yield* Effect.fail(
         new ValidationError({ cause: "This event does not accept 'Maybe' RSVPs" }),
