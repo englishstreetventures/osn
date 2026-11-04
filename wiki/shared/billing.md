@@ -153,8 +153,9 @@ plan's price back by lookup key, with each currency's amount and the price's
    Anything else is acknowledged and ignored.
 
 4. **Cron**, in this order, in one handler: `reconcile({ limit })`, then
-   `sweepAccess({ limit })`, then `pruneWebhookEvents({ before })` — reconcile
-   first, so a lost renewal webhook is repaired before anyone is lapsed.
+   `sweepAccess({ limit })`, then `pruneWebhookEvents({ before, limit })` —
+   reconcile first, so a lost renewal webhook is repaired before anyone is
+   lapsed. A prune that answers `limit` left older claims for the next run.
 
 5. **At the enforcement flip**, `reapplyAll({ customerRefs })` over every
    customer the consumer gates, so a customer with no billing row is told it has
@@ -188,8 +189,13 @@ depends on bumps the customer's `access_version` in the same D1 batch, and so
 does taking the lease. The holder keeps the version the lease gave it and
 releases only if it has not moved, otherwise it reads again and calls the hook
 again. So a write that lands while a decision is being applied is never left
-behind it. A caller that finds the lease taken waits (up to 3 s) and stops
-early once a completed application covers its own write.
+behind it. A caller that finds the lease taken waits (up to 3 s), polling by
+reading the row alone from 100 ms, doubling up to 800 ms, and takes the lease
+again only once the row shows it free; a caller after a write stops early once
+a completed application covers that write. The sweep never waits: it skips a
+customer whose lease is held, and one it cannot apply (the hook fails or times
+out) is due again 15 minutes later, behind the customers not yet tried —
+unless a write landed during the attempt, which keeps it due at once.
 
 `decision.version` is a fencing token: every call to the hook carries a larger
 one than the call before, including a call that only time changed — a grant
@@ -304,9 +310,14 @@ whatever else the cron runs.
 
 | Call | Per item |
 |---|---|
-| `reconcile` | 1 Stripe call, 2 when the current period is unconfirmed (the latest invoice); about 10 queries; the hook's own |
-| `sweepAccess` | about 4 queries, plus one listing per run; the hook's own |
-| `reapplyAll` | about 6 queries per ref; the hook's own. The list is the bound |
+| `reconcile` | 1 Stripe call, 2 when the current period is unconfirmed (the latest invoice); about 10 queries; the hook's own. A busy lease adds 1 read per poll, about 6 in its 3 s |
+| `sweepAccess` | about 4 queries, plus one listing per run; the hook's own. A lease taken under it costs 1 query and no wait |
+| `reapplyAll` | about 6 queries per ref; the hook's own. The list is the bound. A busy lease adds about 6 reads |
+| `pruneWebhookEvents` | 1 query per run, writing up to 3 rows per claim deleted (the row and two indexes), so up to 3 × `limit` |
+
+The reconcile selection reads only due rows: each of its three branches (a
+trial past its end, a live period past its end, an unconfirmed recent period)
+seeks its own index, and a test reads the real query's plan.
 
 `reconcile` picks non-ended subscriptions whose period (trial end while
 trialing) has passed, and active ones whose current period started 2 hours to 7

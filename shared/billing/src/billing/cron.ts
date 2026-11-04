@@ -5,8 +5,10 @@
  * Costs per item, for sizing `limit` against a Worker's per-invocation budget
  * (Free plan: 50 D1 queries, 50 external subrequests):
  *  - reconcile: 1–2 Stripe calls (the subscription; its latest invoice when the
- *    period is unconfirmed) and about 10 queries, plus the hook's own.
- *  - sweepAccess: about 5 queries, plus the hook's own.
+ *    period is unconfirmed) and about 10 queries, plus the hook's own; a busy
+ *    lease adds about 6 reads.
+ *  - sweepAccess: about 4 queries, plus the hook's own; it never waits on a lease.
+ *  - pruneWebhookEvents: 1 query, writing up to 3 rows per claim deleted.
  */
 
 import { Effect } from "effect";
