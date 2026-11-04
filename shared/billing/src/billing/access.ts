@@ -25,6 +25,10 @@ import type { AccessDecision, ApplyError, BillingStatus, SubscriptionStatus } fr
 
 const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
 
+/** The declared plan a stored subscription is on; `undefined` when it is on none. */
+export const planOf = (ctx: BillingContext, row: SubscriptionRecord) =>
+  row.planId === null ? undefined : ctx.planById.get(row.planId);
+
 export function subscriptionStatus(
   ctx: BillingContext,
   row: SubscriptionRecord,
@@ -39,8 +43,8 @@ export function subscriptionStatus(
       : null;
   return {
     subscriptionId: row.providerSubscriptionId,
-    planId: row.planId,
-    group: ctx.planById.get(row.planId)?.group ?? null,
+    planId: planOf(ctx, row)?.id ?? null,
+    group: planOf(ctx, row)?.group ?? null,
     status: row.status,
     interval: row.interval,
     currency: row.currency,
@@ -62,7 +66,7 @@ export function subscriptionStatus(
 const facts = (ctx: BillingContext, rows: readonly SubscriptionRecord[]): SubscriptionFacts[] =>
   rows.map((row) => ({
     status: row.status,
-    features: ctx.planById.get(row.planId)?.features.map((f) => f.id) ?? [],
+    features: planOf(ctx, row)?.features.map((f) => f.id) ?? [],
     currentPeriodEnd: row.currentPeriodEnd,
     trialEnd: row.trialEnd,
     pastDueSince: row.pastDueSince,

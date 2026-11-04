@@ -44,7 +44,8 @@ export interface CustomerRecord {
 export interface SubscriptionRecord {
   readonly providerSubscriptionId: string;
   readonly customerRef: string;
-  readonly planId: string;
+  /** `null` when its price maps to no plan; such a subscription grants nothing. */
+  readonly planId: string | null;
   readonly providerPriceId: string;
   readonly interval: string | null;
   readonly status: string;

@@ -74,7 +74,8 @@ export function createBillingSqliteSchema(options: BillingSqliteSchemaOptions = 
     {
       providerSubscriptionId: text("provider_subscription_id").primaryKey(),
       customerRef: text("customer_ref").notNull(),
-      planId: text("plan_id").notNull(),
+      /** `NULL` when the subscription's price maps to no plan: it grants nothing. */
+      planId: text("plan_id"),
       providerPriceId: text("provider_price_id").notNull(),
       /** The price's own recurring interval, as Stripe reports it. */
       interval: text("interval"),

@@ -286,7 +286,10 @@ period: the consumer's ledger owns refunds.
 6. The subscription is re-fetched from Stripe; the event body is never trusted
    for state. A price maps to a plan by `price.metadata.plan_id`, else the product
    `billing_<planId>`, never by lookup key (a new price takes the key over and
-   would strand existing subscribers).
+   would strand existing subscribers). A subscription already stored that moves
+   onto a price no plan names is still stored, its status and period kept, on
+   no plan (`planId: null` in `status()`), so it grants nothing; a new one on
+   such a price is ignored. Reconcile does the same, never keeping the old plan.
 7. The row is upserted with `WHERE excluded.fetch_started_at >= stored`, the
    timestamp taken before the request goes out, so a slow fetch of older state
    never overwrites a newer one. `>=` lets two fetches started in the same
@@ -305,7 +308,8 @@ are unknown.
 `{ url, reused }`. Both URLs, and the portal's `returnUrl`, must be on one of
 `returnOrigins`, or the call fails `ReturnUrlRefused` before any write or Stripe
 call: build them on the server, never from the request. It refuses `AlreadySubscribed` while the customer holds a non-ended
-subscription in the plan's group, `CurrencyNotOffered` when the price has no
+subscription in the plan's group, or on a plan this instance does not know
+(selling another could bill the customer twice), `CurrencyNotOffered` when the price has no
 amount in that currency, and `PlanUnavailable` when Stripe has no active price
 under the lookup key (not synced) or that price names another plan. The form:
 
@@ -369,7 +373,7 @@ on bun:sqlite.
 | Table | Key | Holds |
 |---|---|---|
 | `<prefix>customers` | `id` (`bcus_…`); `customer_ref` and `provider_customer_id` unique | trial used, the pending checkout, access lease, version, applied version, next boundary |
-| `<prefix>subscriptions` | `provider_subscription_id` | customer ref, plan, price, interval, status, currency (from the subscription), period, trial end, past due since, cancel at period end, paid period, `fetch_started_at`, `reconciled_at` |
+| `<prefix>subscriptions` | `provider_subscription_id` | customer ref, plan (`NULL` when its price maps to none), price, interval, status, currency (from the subscription), period, trial end, past due since, cancel at period end, paid period, `fetch_started_at`, `reconciled_at` |
 | `<prefix>webhook_events` | `event_id` | type, outcome, the claim's lease, received at. No payload |
 | `<prefix>grants` | (`customer_ref`, `feature_id`) | source, granted by, expiry |
 
@@ -475,7 +479,9 @@ and portal pages were read at their current version.
   No id is ever an attribute. On Workers the meter records nothing, so every
   failure is also logged.
 - **Never logged:** the secret key, the webhook secret, the `stripe-signature`
-  header, the body. Errors carry Stripe's `code`, never its message.
+  header, the body. Errors carry Stripe's `code`, never its message; a storage
+  error carries the SQLite error code (or the error's class name) and a fixed
+  message, never the database's text, which can quote SQL and bound values.
 
 ## Known limits
 

@@ -86,7 +86,8 @@ export interface PaidPeriodStatus {
 export interface SubscriptionStatus<PlanId extends string = string> {
   /** The provider's subscription id. */
   readonly subscriptionId: string;
-  readonly planId: PlanId;
+  /** `null` when its price maps to no plan this instance declares: it grants no feature. */
+  readonly planId: PlanId | null;
   readonly group: string | null;
   /** The provider's status string, as stored. */
   readonly status: string;

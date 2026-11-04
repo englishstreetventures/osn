@@ -168,6 +168,27 @@ describe("reconcile", () => {
     return (await run(h.billing.status("org_a"))).subscriptions[0]!;
   }
 
+  it("stores a subscription whose price no plan names any more on no plan, never the old one", async () => {
+    const h = await createHarness();
+    const end = later(-HOUR);
+    await subscribed(h, "org_a", end);
+    h.stripe.subscriptions.set(
+      "sub_org_a",
+      subscriptionJson({
+        id: "sub_org_a",
+        customer: "cus_org_a",
+        planId: null,
+        product: "prod_unmapped",
+        priceId: "price_unmapped",
+        periodStart: unix(end),
+        periodEnd: unix(end) + 30 * 86_400,
+      }),
+    );
+    expect(await run(h.billing.reconcile({ limit: 10 }))).toMatchObject({ refreshed: 1 });
+    expect((await run(h.storage.findSubscription("sub_org_a")))!.planId).toBeNull();
+    expect((await run(h.billing.check("org_a", "workspace"))).allowed).toBe(false);
+  });
+
   it("also confirms an active period whose invoice.paid never arrived", async () => {
     const h = await createHarness();
     expect((await renewalAwaitingInvoice(h, "paid")).currentPeriodPaid).toBe(true);

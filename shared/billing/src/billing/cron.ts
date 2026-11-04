@@ -37,7 +37,7 @@ const refresh = (ctx: BillingContext, row: SubscriptionRecord) =>
       {
         providerSubscriptionId: sub.id,
         customerRef: row.customerRef,
-        planId: planIdFor(ctx, sub) ?? row.planId,
+        planId: planIdFor(ctx, sub),
         providerPriceId: sub.priceId,
         interval: sub.interval,
         status: sub.status,

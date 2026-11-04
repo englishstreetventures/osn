@@ -220,6 +220,48 @@ describe("handleWebhook", () => {
     ]);
   });
 
+  it.each(["canceled", "active"])(
+    "keeps a stored subscription moved onto a price no plan names, %s, with no access",
+    async (status) => {
+      const h = await createHarness();
+      await customerWithStripe(h);
+      stripeHas(h);
+      await deliver(h, subEvent("evt_1"));
+      expect((await run(h.billing.check("org_1", "workspace"))).allowed).toBe(true);
+
+      stripeHas(h, { status, planId: null, product: "prod_unmapped", priceId: "price_unmapped" });
+      h.advance(1_000);
+      const result = await deliver(h, subEvent("evt_2"));
+      expect([result.status, result.body.outcome]).toEqual([200, "processed"]);
+      expect((await run(h.billing.check("org_1", "workspace"))).allowed).toBe(false);
+      const [stored] = (await run(h.billing.status("org_1"))).subscriptions;
+      expect([stored!.status, stored!.planId, stored!.group]).toEqual([status, null, null]);
+      expect(h.decisions.at(-1)!.features.workspace.allowed).toBe(false);
+    },
+  );
+
+  it("refuses a checkout while a live subscription sits on a price no plan names", async () => {
+    const h = await createHarness();
+    await customerWithStripe(h);
+    stripeHas(h, { planId: null, product: "prod_unmapped", priceId: "price_unmapped" });
+    await run(
+      h.storage.upsertSubscription(
+        subscriptionWrite({ planId: null, fetchStartedAt: h.now() }),
+        h.now(),
+      ),
+    );
+    const error = await flip(
+      h.billing.checkout({
+        customerRef: "org_1",
+        planId: "annual",
+        currency: "AUD",
+        successUrl: "https://app.example.test/done",
+        cancelUrl: "https://app.example.test/billing",
+      }),
+    );
+    expect(error._tag).toBe("AlreadySubscribed");
+  });
+
   it("never lets a slow fetch of older state overwrite a newer one", async () => {
     const h = await createHarness();
     await customerWithStripe(h);

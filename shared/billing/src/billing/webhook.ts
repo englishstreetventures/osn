@@ -62,8 +62,13 @@ export const syncSubscription = (
     if (customer === null) return "ignored" satisfies EventOutcome;
     const planId = planIdFor(ctx, sub);
     if (planId === null) {
-      yield* Effect.logWarning("billing: subscription price maps to no plan; not stored");
-      return "ignored" satisfies EventOutcome;
+      // A subscription already stored keeps being tracked, on no plan, so a
+      // cancel or a lapse on a price no plan names still ends its access.
+      if (existing === null) {
+        yield* Effect.logWarning("billing: subscription price maps to no plan; not stored");
+        return "ignored" satisfies EventOutcome;
+      }
+      yield* Effect.logWarning("billing: subscription price maps to no plan; it grants nothing");
     }
     const now = ctx.now();
     yield* ctx.storage.upsertSubscription(

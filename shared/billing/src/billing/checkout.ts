@@ -24,6 +24,7 @@ import { productIdFor, type AnyPlan } from "../plans";
 import { isTerminalStatus } from "../policy";
 import type { ProviderPrice } from "../provider/port";
 import type { CustomerRecord } from "../storage/port";
+import { planOf } from "./access";
 import { originOf, type BillingContext } from "./context";
 import type { CatalogueEntry, CheckoutError, CheckoutInput, PortalError } from "./types";
 
@@ -151,9 +152,12 @@ export function createCheckout(ctx: BillingContext, catalogue: ReturnType<typeof
         ],
         { concurrency: 2 },
       );
-      const live = subscriptions.some(
-        (s) => ctx.planById.get(s.planId)?.group === plan.group && !isTerminalStatus(s.status),
-      );
+      // A live subscription on a plan this instance does not know blocks every
+      // group: selling another could bill the customer twice.
+      const live = subscriptions.some((s) => {
+        const group = planOf(ctx, s)?.group;
+        return !isTerminalStatus(s.status) && (group === undefined || group === plan.group);
+      });
       if (live) return yield* Effect.fail(new AlreadySubscribed({ group: plan.group }));
 
       const entry = (yield* catalogue()).find((e) => e.planId === plan.id);
