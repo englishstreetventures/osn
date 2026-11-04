@@ -463,7 +463,7 @@ describe("domains: the custom domains each production site Worker holds now", ()
               success: true,
               errors: [],
               result: [
-                { hostname: "next-host.cireweddings.com", service: "cire-host" },
+                { hostname: "next.host.cireweddings.com", service: "cire-host" },
                 { hostname: "elsewhere.cireweddings.com", service: "cire-vendor" },
                 { hostname: "a-host.cireweddings.com", service: "cire-host" },
               ],
@@ -474,7 +474,7 @@ describe("domains: the custom domains each production site Worker holds now", ()
       );
       expect(read.code).toBe(0);
       expect(JSON.parse((await readOr(file)) ?? "")).toEqual({
-        cire_host: ["a-host.cireweddings.com", "next-host.cireweddings.com"],
+        cire_host: ["a-host.cireweddings.com", "next.host.cireweddings.com"],
         musubi_landing: ["www.musubi.social"],
       });
       expect(read.calls).toEqual([domainsUrl("cire-host"), domainsUrl("musubi-landing")]);
@@ -522,7 +522,7 @@ describe("domains: the custom domains each production site Worker holds now", ()
         {
           "domains:cire-host": inTurn(
             () => new Error("connection reset"),
-            () => domainList("cire-host", "next-host.cireweddings.com"),
+            () => domainList("cire-host", "next.host.cireweddings.com"),
           ),
         },
         {},

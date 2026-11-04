@@ -8,6 +8,7 @@ import type { Plan } from "alchemy/Plan";
 import { describe, expect, test } from "vitest";
 
 import {
+  domainRefusals,
   guardPlan,
   messageOf,
   parsePlan,
@@ -455,8 +456,8 @@ describe("runPlanGuardCli", () => {
   const domainsFile = join(dir, "domains.json");
   /** The hosts each staged site's Worker holds while nothing moves: its spare host. */
   const STAGED_LIVE = {
-    cire_host: ["next-host.cireweddings.com"],
-    cire_vendor: ["next-vendor.cireweddings.com"],
+    cire_host: ["next.host.cireweddings.com"],
+    cire_vendor: ["next.vendor.cireweddings.com"],
   };
   const run = (
     argv: string[],
@@ -537,7 +538,7 @@ describe("runPlanGuardCli", () => {
     for (const live of [
       "not json",
       "[]",
-      { ...STAGED_LIVE, cire_host: "next-host.cireweddings.com" },
+      { ...STAGED_LIVE, cire_host: "next.host.cireweddings.com" },
       { ...STAGED_LIVE, cire_host: [1] },
     ]) {
       const result = run(logArgs, UPDATE, live);
@@ -563,13 +564,13 @@ describe("runPlanGuardCli", () => {
         {
           site: "cire_vendor",
           added: ["vendor.cireweddings.com"],
-          removed: ["next-vendor.cireweddings.com"],
+          removed: ["next.vendor.cireweddings.com"],
         },
       ],
       unflip: null,
     });
     expect(flip.out).toContain(
-      "| `cire_vendor` | `vendor.cireweddings.com` | `next-vendor.cireweddings.com` |",
+      "| `cire_vendor` | `vendor.cireweddings.com` | `next.vendor.cireweddings.com` |",
     );
     run([...logArgs, "--flip", "cire_vendor"], UPDATE, STAGED_LIVE, vendorWorker);
     expect(readFileSync(join(dir, "record.json"), "utf8")).toBe(first);
@@ -578,8 +579,8 @@ describe("runPlanGuardCli", () => {
     expect(fresh.code).toBe(0);
     expect(record()).toMatchObject({
       domains: [
-        { site: "cire_host", added: ["next-host.cireweddings.com"], removed: [] },
-        { site: "cire_vendor", added: ["next-vendor.cireweddings.com"], removed: [] },
+        { site: "cire_host", added: ["next.host.cireweddings.com"], removed: [] },
+        { site: "cire_vendor", added: ["next.vendor.cireweddings.com"], removed: [] },
       ],
     });
     const quiet = run(logArgs, UPDATE);
@@ -600,7 +601,7 @@ describe("runPlanGuardCli", () => {
       domains: [
         {
           site: "cire_vendor",
-          added: ["next-vendor.cireweddings.com"],
+          added: ["next.vendor.cireweddings.com"],
           removed: ["vendor.cireweddings.com"],
         },
       ],
@@ -635,5 +636,74 @@ describe("runPlanGuardCli", () => {
     });
     expect(changed.code).toBe(1);
     expect(changed.out).toContain("not the one approved");
+  });
+
+  test("GD6: a Worker gives up its own site's retired spare host with no flip or unflip; another site's retired host refuses", () => {
+    const retiredLive = {
+      cire_host: ["next-host.cireweddings.com"],
+      cire_vendor: ["next-vendor.cireweddings.com"],
+    };
+    const swap = run(
+      logArgs,
+      pretty("Plan: 2 to update", "[CireHost] update", "[CireVendor] update"),
+      retiredLive,
+    );
+    expect(swap.out).not.toContain("::error::");
+    expect(swap.code).toBe(0);
+    expect(record()).toMatchObject({
+      flip: null,
+      domains: [
+        {
+          site: "cire_host",
+          added: ["next.host.cireweddings.com"],
+          removed: ["next-host.cireweddings.com"],
+        },
+        {
+          site: "cire_vendor",
+          added: ["next.vendor.cireweddings.com"],
+          removed: ["next-vendor.cireweddings.com"],
+        },
+      ],
+      unflip: null,
+    });
+    const crossed = run(logArgs, UPDATE, {
+      ...STAGED_LIVE,
+      cire_host: ["next-vendor.cireweddings.com"],
+    });
+    expect(crossed.code).toBe(1);
+    expect(crossed.out).toContain(
+      "cire_host's Worker would give up next-vendor.cireweddings.com; only a release dispatched with unflip: cire_host",
+    );
+  });
+});
+
+describe("domainRefusals", () => {
+  test("GD7: a retired host that is a production host or a current spare host never leaves on its strength", () => {
+    const removed = [
+      "host.cireweddings.com",
+      "id.musubi.social",
+      "next.vendor.cireweddings.com",
+      "old.host.cireweddings.com",
+    ];
+    const refused = domainRefusals([{ site: "cire_host", added: [], removed }], undefined, {
+      cire_host: removed,
+    });
+    expect(refused).toEqual(
+      ["host.cireweddings.com", "id.musubi.social", "next.vendor.cireweddings.com"].map(
+        (host) =>
+          `cire_host's Worker would give up ${host}; only a release dispatched with unflip: cire_host takes a production host off its Worker`,
+      ),
+    );
+  });
+
+  test("GD8: with the shipped list, a site with no retired entry gives up its spare host freely and refuses any other host", () => {
+    expect(
+      domainRefusals([{ site: "cire_landing", added: [], removed: ["next.cireweddings.com"] }]),
+    ).toEqual([]);
+    expect(
+      domainRefusals([{ site: "cire_landing", added: [], removed: ["old.cireweddings.com"] }]),
+    ).toEqual([
+      "cire_landing's Worker would give up old.cireweddings.com; only a release dispatched with unflip: cire_landing takes a production host off its Worker",
+    ]);
   });
 });

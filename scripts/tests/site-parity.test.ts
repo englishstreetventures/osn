@@ -194,9 +194,9 @@ describe("runSiteParity", () => {
     const origins = [...new Set(hosts.calls.map((url) => new URL(url).origin))].toSorted();
     expect(origins).toEqual(
       [
-        "https://next-host.cireweddings.com",
+        "https://next.host.cireweddings.com",
         "https://host.cireweddings.com",
-        "https://next-vendor.cireweddings.com",
+        "https://next.vendor.cireweddings.com",
         "https://vendor.cireweddings.com",
         "https://next.cireweddings.com",
         "https://cireweddings.com",
@@ -220,7 +220,7 @@ describe("runSiteParity", () => {
               "access-control-allow-origin": "*",
             },
           })
-        : url === `https://next-vendor.cireweddings.com${UNKNOWN_PATH}`
+        : url === `https://next.vendor.cireweddings.com${UNKNOWN_PATH}`
           ? new TypeError("fetch failed")
           : undefined,
     );
@@ -254,7 +254,7 @@ describe("runSiteParity", () => {
     const hosts = fakeHosts();
     const result = await parity(["--stack", "cire"], hosts);
     expect(result.code).toBe(0);
-    expect(hosts.calls.some((url) => url.startsWith("https://next-host.cireweddings.com/"))).toBe(
+    expect(hosts.calls.some((url) => url.startsWith("https://next.host.cireweddings.com/"))).toBe(
       true,
     );
     expect(hosts.calls.some((url) => url.startsWith("https://host.cireweddings.com/"))).toBe(true);
@@ -282,7 +282,7 @@ describe("runSiteParity", () => {
   test.each([
     [
       "a challenge on the Worker side",
-      "https://next-host.cireweddings.com/",
+      "https://next.host.cireweddings.com/",
       challenge,
       "worker",
       "Cloudflare answered 403 in the site's place (cf-mitigated: challenge)",
@@ -306,7 +306,7 @@ describe("runSiteParity", () => {
     ],
     [
       "a 429 that names no wait",
-      "https://next-host.cireweddings.com/",
+      "https://next.host.cireweddings.com/",
       tooMany,
       "worker",
       "answered 429: a rate limit or the account's daily request cap, not the site's code",
@@ -326,7 +326,7 @@ describe("runSiteParity", () => {
       // The refused side's own host, so the owner reads that zone's Security Events.
       expect(result.output).toContain(
         side === "worker"
-          ? "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Worker side (https://next-host.cireweddings.com)"
+          ? "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Worker side (https://next.host.cireweddings.com)"
           : "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Pages side (https://host.cireweddings.com)",
       );
       // The second answer is the one the refusal rests on.
@@ -338,11 +338,11 @@ describe("runSiteParity", () => {
   );
 
   test("SP6: a refused path exits 3 whatever else differs, and another site's difference on the same path is still counted and named", async () => {
-    const blockedUrl = "https://next-host.cireweddings.com/";
+    const blockedUrl = "https://next.host.cireweddings.com/";
     const hosts = fakeHosts((url) =>
       url === blockedUrl
         ? challenge()
-        : url === "https://next-vendor.cireweddings.com/"
+        : url === "https://next.vendor.cireweddings.com/"
           ? new Response("<!doctype html>", {
               status: 200,
               headers: {
@@ -375,7 +375,7 @@ describe("runSiteParity", () => {
     const forbidden = () =>
       new Response("forbidden", { status: 403, headers: { "content-type": "text/html" } });
     const hosts = fakeHosts((url) =>
-      url === `https://next-host.cireweddings.com${UNKNOWN_PATH}` ||
+      url === `https://next.host.cireweddings.com${UNKNOWN_PATH}` ||
       url === `https://host.cireweddings.com${UNKNOWN_PATH}`
         ? forbidden()
         : undefined,
@@ -425,7 +425,7 @@ describe("runSiteParity", () => {
   const ERROR_1020_PAGE = `<!DOCTYPE html>
 <html class="no-js" lang="en-US">
 <head>
-<title>Access denied | next-host.cireweddings.com used Cloudflare to restrict access</title>
+<title>Access denied | next.host.cireweddings.com used Cloudflare to restrict access</title>
 <link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/main.css" />
 </head>
 <body>
@@ -449,7 +449,7 @@ describe("runSiteParity", () => {
 `;
   const WORKER_THREW_PAGE = `<!DOCTYPE html>
 <html class="no-js" lang="en-US">
-<head><title>Worker threw exception | next-host.cireweddings.com | Cloudflare</title></head>
+<head><title>Worker threw exception | next.host.cireweddings.com | Cloudflare</title></head>
 <body>
   <div id="cf-wrapper">
     <div id="cf-error-details" class="cf-error-details-wrapper">
@@ -484,7 +484,7 @@ describe("runSiteParity", () => {
           },
         });
       const hosts = fakeHosts((url) =>
-        url === "https://next-host.cireweddings.com/" || url === "https://host.cireweddings.com/"
+        url === "https://next.host.cireweddings.com/" || url === "https://host.cireweddings.com/"
           ? blocked()
           : undefined,
       );
@@ -498,7 +498,7 @@ describe("runSiteParity", () => {
       ]);
       expect(report.differing).toBe(0);
       expect(result.output).toContain(
-        "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Worker side (https://next-host.cireweddings.com)",
+        "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Worker side (https://next.host.cireweddings.com)",
       );
       expect(result.output).not.toContain("answers as Pages does");
     },
@@ -506,7 +506,7 @@ describe("runSiteParity", () => {
 
   test("SP8: Cloudflare's page on a status other than 403, a Worker that threw (1101, 500) on a path other than `/`, is the site's own failure: a difference, never a refusal", async () => {
     const hosts = fakeHosts((url) =>
-      url === `https://next-host.cireweddings.com${UNKNOWN_PATH}`
+      url === `https://next.host.cireweddings.com${UNKNOWN_PATH}`
         ? new Response(WORKER_THREW_PAGE, {
             status: 500,
             headers: { "content-type": "text/html; charset=UTF-8" },
@@ -534,14 +534,14 @@ describe("runSiteParity", () => {
   ] as const)(
     "SP9: a 429 that %s is asked again after its Retry-After, at most 30 s, else after 15 s",
     async (_, retryAfter, wait) => {
-      const blockedUrl = "https://next-host.cireweddings.com/";
+      const blockedUrl = "https://next.host.cireweddings.com/";
       const hosts = fakeHosts((url) => (url === blockedUrl ? tooMany(retryAfter) : undefined));
       const result = await parity(["--stack", "cire"], hosts);
       expect(result.code).toBe(3);
       expect(result.slept).toEqual([wait]);
       expect(hosts.calls.filter((url) => url === blockedUrl)).toHaveLength(2);
       expect(result.output).toContain(
-        `cire_host / on the Worker side (https://next-host.cireweddings.com) when asked again ${wait / 1000} s later: answered 429`,
+        `cire_host / on the Worker side (https://next.host.cireweddings.com) when asked again ${wait / 1000} s later: answered 429`,
       );
       // The wait is the run's, never the report's.
       expect(readFileSync(result.out, "utf8")).not.toContain("retryAfter");
@@ -549,14 +549,14 @@ describe("runSiteParity", () => {
   );
 
   test("SP9: 429s are asked again one path at a time after the longest wait, beside a challenge's 2 s re-ask", async () => {
-    const holds = "https://next-host.cireweddings.com/";
+    const holds = "https://next.host.cireweddings.com/";
     const clears = "https://vendor.cireweddings.com/";
     const challenged = "https://next.cireweddings.com/";
     /** Both hosts of the two paths a 429 answered. */
     const limited = new Set([
       holds,
       "https://host.cireweddings.com/",
-      "https://next-vendor.cireweddings.com/",
+      "https://next.vendor.cireweddings.com/",
       clears,
     ]);
     const base = fakeHosts((url, asked) =>
@@ -621,7 +621,7 @@ describe("runSiteParity", () => {
   // `/` must answer both hosts as the site's own page, a 2xx with an HTML
   // content type: a zone's custom error page or custom block response
   // carries no marker, so two of them would otherwise compare as alike.
-  const HOME_WORKER = "https://next-host.cireweddings.com/";
+  const HOME_WORKER = "https://next.host.cireweddings.com/";
   const HOME_PAGES = "https://host.cireweddings.com/";
   const notAPage = (what: string) => `answered ${what}, expected a 2xx HTML page`;
   const notAPageLine = (side: "Worker" | "Pages", host: string, reason: string) =>
@@ -652,7 +652,7 @@ describe("runSiteParity", () => {
     ]);
     expect(report.differing).toBe(0);
     expect(result.output).toContain(
-      notAPageLine("Worker", "https://next-host.cireweddings.com", reason),
+      notAPageLine("Worker", "https://next.host.cireweddings.com", reason),
     );
     expect(result.output).toContain(notAPageLine("Pages", "https://host.cireweddings.com", reason));
     expect(result.output).not.toContain("Cloudflare answered in the site's place");
@@ -763,7 +763,7 @@ describe("runSiteParity", () => {
     ]);
     expect(report.differing).toBe(0);
     expect(result.output).toContain(
-      notAPageLine("Worker", "https://next-host.cireweddings.com", "no answer"),
+      notAPageLine("Worker", "https://next.host.cireweddings.com", "no answer"),
     );
   });
 
@@ -811,7 +811,7 @@ describe("runSiteParity", () => {
     const hosts = fakeHosts((url) =>
       url === HOME_PAGES
         ? html(404)
-        : url === "https://next-vendor.cireweddings.com/"
+        : url === "https://next.vendor.cireweddings.com/"
           ? challenge()
           : undefined,
     );
@@ -835,7 +835,7 @@ describe("runSiteParity", () => {
   });
 
   test("SP7: a challenge that clears when asked again 2 s later is compared as any answer", async () => {
-    const blockedUrl = "https://next-vendor.cireweddings.com/";
+    const blockedUrl = "https://next.vendor.cireweddings.com/";
     const hosts = fakeHosts((url, asked) =>
       url === blockedUrl && asked === 0 ? challenge() : undefined,
     );

@@ -33,20 +33,23 @@ const PRODUCTION_LOG = [
  * each at the host its mode declares, so no domain changes.
  */
 const LIVE_DOMAINS = {
-  cire_host: ["next-host.cireweddings.com"],
-  cire_vendor: ["next-vendor.cireweddings.com"],
+  cire_host: ["next.host.cireweddings.com"],
+  cire_vendor: ["next.vendor.cireweddings.com"],
   cire_landing: ["next.cireweddings.com"],
 };
 
-/** Runs the entry over `log` as the workflow's guard step does, with no step summary file. */
-function guard(log: string) {
+/**
+ * Runs the entry over `log` as the workflow's guard step does, with no step
+ * summary file, the site Workers holding `live`.
+ */
+function guard(log: string, live: unknown = LIVE_DOMAINS) {
   const dir = mkdtempSync(join(tmpdir(), "cire-plan-guard-"));
   try {
     const logFile = join(dir, "cire.log");
     const out = join(dir, "plan-guard", "cire.json");
     const domains = join(dir, "domains.json");
     writeFileSync(logFile, log);
-    writeFileSync(domains, JSON.stringify(LIVE_DOMAINS));
+    writeFileSync(domains, JSON.stringify(live));
     const result = Bun.spawnSync(
       ["bun", "run", "plan:guard", "--", "--log", logFile, "--out", out, "--domains", domains],
       { cwd: PACKAGE, env: { PATH: process.env.PATH } },
@@ -93,5 +96,64 @@ describe("plan:guard, the cire stack's production plan guard", () => {
       ),
     );
     expect(result.record).toMatchObject({ stack: "cire", plan: "changes", counts: { update: 2 } });
+  }, 30_000);
+
+  test("G17: allows the move off the retired spare hosts with no flip or unflip, recording both; a Worker giving up another site's refuses", () => {
+    const swapLog = [
+      "[20:17:45.301] INFO (#1): Plan: 2 to update",
+      "[20:17:45.301] INFO (#1): [CireHost] update",
+      "[20:17:45.301] INFO (#1): [CireLanding] noop",
+      "[20:17:45.301] INFO (#1): [CireVendor] update",
+      "",
+    ].join("\n");
+    const retired = {
+      ...LIVE_DOMAINS,
+      cire_host: ["next-host.cireweddings.com"],
+      cire_vendor: ["next-vendor.cireweddings.com"],
+    };
+    const swap = guard(swapLog, retired);
+    expect(swap.stdout).not.toContain("::error::");
+    expect(swap.exitCode).toBe(0);
+    expect(swap.record).toEqual({
+      stack: "cire",
+      plan: "changes",
+      counts: { update: 2 },
+      resources: [
+        { fqn: "CireHost", kind: "custom-domain", action: "update" },
+        { fqn: "CireLanding", kind: "custom-domain", action: "noop" },
+        { fqn: "CireVendor", kind: "custom-domain", action: "update" },
+      ],
+      bindings: [],
+      flip: null,
+      domains: [
+        {
+          site: "cire_host",
+          added: ["next.host.cireweddings.com"],
+          removed: ["next-host.cireweddings.com"],
+        },
+        {
+          site: "cire_vendor",
+          added: ["next.vendor.cireweddings.com"],
+          removed: ["next-vendor.cireweddings.com"],
+        },
+      ],
+      unflip: null,
+    });
+    const crossed = guard(swapLog, { ...retired, cire_host: ["next-vendor.cireweddings.com"] });
+    expect(crossed.exitCode).toBe(1);
+    expect(crossed.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
+      "::error::cire production plan refused: cire_host's Worker would give up next-vendor.cireweddings.com; only a release dispatched with unflip: cire_host takes a production host off its Worker",
+    ]);
+  }, 30_000);
+
+  test("G18: refuses the landing site's Worker giving up a host it holds beside its spare host, though the site has no retired list", () => {
+    const result = guard(PRODUCTION_LOG, {
+      ...LIVE_DOMAINS,
+      cire_landing: ["next.cireweddings.com", "old.cireweddings.com"],
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
+      "::error::cire production plan refused: cire_landing's Worker would give up old.cireweddings.com; only a release dispatched with unflip: cire_landing takes a production host off its Worker",
+    ]);
   }, 30_000);
 });

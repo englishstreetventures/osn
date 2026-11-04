@@ -6,7 +6,7 @@
 // meet first in production, runs on every `bun test`.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +30,7 @@ import {
   runSmokeCheck,
   SECRETS_CHANGED,
   SMOKE_TARGETS,
+  TIMING,
 } from "../smoke-check";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -1537,6 +1538,140 @@ describe("a production site the production stack deployed", () => {
       expect(result.apiCalls).toEqual([]);
       expect(result.output).toContain("SMOKE_");
     }
+  });
+});
+
+describe("a production site the release gives a new host", () => {
+  // A new host two labels below its zone answers no TLS handshake until its
+  // certificate arrives, about two minutes after the deploy. The stack job
+  // passes SMOKE_BUDGET_MS for such a site; every other site passes "".
+  const NEW_HOST = "https://next.host.cireweddings.com";
+  const hostEnv = (budget: string) => ({
+    SMOKE_ORIGIN: NEW_HOST,
+    SMOKE_DEPLOYMENT: DEP_THIS_JOB,
+    SMOKE_BUDGET_MS: budget,
+  });
+  /** No answer for the first `rounds` rounds (10 s apart), then a working page. */
+  const certificateAfter = (rounds: number) => ({
+    [`${NEW_HOST}/`]: (call: number) => (call <= rounds ? UNREACHABLE() : html(200)),
+  });
+
+  test("SB1: waits out a certificate that takes 200 s, still asking every 10 s and passing on the first two good rounds; with no budget set it gives up at 60 s", async () => {
+    const waited = await smoke(["cire_host", "production"], certificateAfter(20), {
+      env: hostEnv("240000"),
+    });
+    expect(waited.code).toBe(0);
+    // Twenty rounds with no answer (0 to 190 s), then two good ones at 200 and 210 s.
+    expect(waited.sleeps).toEqual(Array(21).fill(10_000));
+    expect(fetchesOf(waited, `${NEW_HOST}/`)).toBe(22);
+    expect(waited.posts).toEqual([]);
+    expect(waited.output).toContain(
+      "Smoke check passed: cire_host (production), 1 probes, 22 rounds.",
+    );
+
+    const minute = await smoke(["cire_host", "production"], certificateAfter(20), {
+      env: hostEnv(""),
+    });
+    expect(minute.code).toBe(1);
+    expect(minute.sleeps).toEqual(Array(6).fill(10_000));
+    expect(minute.posts).toEqual([]);
+    expect(minute.output).toContain("within 60 s, but the Worker never answered wrongly");
+  });
+
+  test("SB2: a host that never answers fails when the budget runs out, at 240 s, without a rollback", async () => {
+    const result = await smoke(["cire_host", "production"], certificateAfter(Infinity), {
+      env: hostEnv("240000"),
+    });
+    expect(result.code).toBe(1);
+    // Rounds at 0, 10, … 240 s.
+    expect(result.sleeps).toEqual(Array(24).fill(10_000));
+    expect(fetchesOf(result, `${NEW_HOST}/`)).toBe(25);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("within 240 s, but the Worker never answered wrongly");
+  });
+
+  test.each([
+    "240001",
+    "300000",
+    "59999",
+    "0",
+    "4m",
+    "-1",
+    "240000.5",
+    " 240000",
+    "2.4e5",
+    "0x3a980",
+  ])("SB3: SMOKE_BUDGET_MS=%j is refused with exit 2, asking nothing", async (budget) => {
+    const result = await smoke(["cire_host", "production"], certificateAfter(0), {
+      env: hostEnv(budget),
+    });
+    expect(result.code).toBe(2);
+    expect(result.calls).toEqual([]);
+    expect(result.apiCalls).toEqual([]);
+    expect(result.output).toContain("SMOKE_BUDGET_MS must be");
+  });
+
+  test("SB4: at the longest budget, the worst case ends inside the time limit of every step that sets one", async () => {
+    // Every request takes its whole timeout; each read of the deployments
+    // fails twice before it answers; the Worker answers wrongly except in the
+    // last round the budget allows, so the round that would confirm it runs
+    // past the budget, fails, and the rollback and its re-check follow.
+    let now = 0;
+    let startedAt = 0;
+    let firstProbe: number | undefined;
+    let passedOnce = false;
+    const unavailable = () => json({ success: false, errors: [], messages: [] }, 503);
+    const api = fakeApi({
+      reads: [unavailable(), unavailable(), HISTORY, unavailable(), unavailable(), HISTORY],
+    });
+    const http = fakeFetch({
+      [`${NEW_HOST}/`]: () => {
+        firstProbe ??= startedAt;
+        if (!passedOnce && startedAt - firstProbe >= TIMING.maxBudgetMs) {
+          passedOnce = true;
+          return html(200);
+        }
+        return new Response("Worker threw", { status: 500 });
+      },
+      [deploymentsUrl("cire-host")]: api.answer,
+    });
+    const lines: string[] = [];
+    const code = await runSmokeCheck({
+      args: ["cire_host", "production"],
+      env: { ...RUN_ENV, ...hostEnv(String(TIMING.maxBudgetMs)) },
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        startedAt = now;
+        now += TIMING.requestMs;
+        return http.fetch(input, init);
+      }) as typeof globalThis.fetch,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      out: (text) => lines.push(text),
+    });
+    expect(code).toBe(1);
+    expect(passedOnce).toBe(true);
+    expect(api.posts).toHaveLength(1);
+    // 33 s to read the deployments; polling until the budget plus the last
+    // round, its confirming round and the wait between; 43 s to read them
+    // again and send the rollback; 20 s for the wait and the re-check.
+    expect(now).toBe(33_000 + (TIMING.maxBudgetMs + 30_000) + 43_000 + 20_000);
+
+    const workflow = Bun.YAML.parse(
+      readFileSync(join(import.meta.dir, "../../.github/workflows/production-release.yml"), "utf8"),
+    ) as {
+      jobs: Record<
+        string,
+        { steps?: { env?: Record<string, string>; "timeout-minutes"?: number }[] }
+      >;
+    };
+    const limits = Object.values(workflow.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .filter((step) => step.env?.SMOKE_BUDGET_MS !== undefined)
+      .map((step) => (step["timeout-minutes"] ?? 0) * 60_000);
+    expect(limits.length).toBeGreaterThan(0);
+    for (const limit of limits) expect(now).toBeLessThan(limit);
   });
 });
 
