@@ -1,8 +1,8 @@
 /**
  * The dietary pills' chosen look, motion and focus, measured in Chromium
- * against cire's two portal ramps and the marketing site's ground (the
- * 2026-11-04 consistency audit: the guest's diet chips take `choice`'s chosen
- * look, the house curve and the house focus outline).
+ * against cire's two portal ramps and the marketing site's ground: the
+ * guest's diet chips take `choice`'s chosen look, the house curve and the
+ * house focus outline.
  *
  * Each case is one way a guest would see a pill break: a ticked pill marked
  * by colour alone, or by an edge with no ring; a word under 4.5:1; a pill
