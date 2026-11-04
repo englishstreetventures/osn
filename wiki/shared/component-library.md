@@ -943,13 +943,13 @@ by the look:
 | Group          | Variants                              | What each is for                                                                                                                                                                                                                              |
 | -------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Commit         | `primary`, `cta`                      | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
-| Secondary      | `outline`, `quiet`, `dashed`          | A gold wash, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_                                                                                                      |
+| Secondary      | `outline`, `quiet`, `dashed`          | A gold edge, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_. `outline`'s 40% edge turns full gold under the pointer and nothing fills, so its gold word keeps its rest contrast wherever it sits (`cire/ui/tests/outline.browser.test.tsx`) |
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
 | Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one. A link set inside a sentence is not a `Button` at all: it takes `proseLinkClass`, below |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
 | Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: an input's padding and weight, the text field's corner, transparent like the inputs around it |
 | Chrome         | `chip`, `round`                       | A control in a sheet's own chrome rather than its content. `chip`: the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button — a pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere. `round`: a glyph on that same opaque disc with no edge — the sheet's close ×, the RSVP page's reply key — muted ink that brightens on hover while the fill stays, and the raised surface while the popover it opens shows (`aria-expanded`) |
-| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
+| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same — an accent edge, accent ink and a 2px 60% ring; and the control that _is_ a block — a card, a row — where a hairline stops describing the target. Under the pointer an unchosen `choice` goes halfway to chosen (edge and ink a `color-mix` of rest and chosen, a 1px 30% ring, so chosen and hovered differ by the ring's width and not by gold alone), on `--dur-base`. Locked with `aria-disabled` while its answer saves, a `choice` keeps its look and only stops answering the pointer; every other variant fades to 40%, and `disabled` fades a `choice` too |
 
 Five sizes, and they are not one scale:
 
@@ -990,6 +990,14 @@ whatever an app maps `control` to. The borderless variants take `control` too;
 with no border and no fill, only their focus ring shows it.
 Because no default corner is a plain utility, a caller's plain `rounded-*` in
 `class` wins rather than tying with it (§Class composition above).
+
+`choice`'s hover is gated on the option being neither chosen nor locked, and the
+gate is written inside `base:` — `not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:…` —
+because Tailwind applies stacked variants left to right: `base:hover:x` compiles to
+`:where(.x):hover`, which keeps the hover's own pseudo-class weight, and a gate
+of three `:not()` before `base:` would outrank a caller's plain `hover:` class.
+Written the other way the whole selector sits in `:where()` and a caller still
+wins (`cire/ui/tests/choice.browser.test.tsx`).
 
 `cire/ui/src/button.tsx` carries the reason for each in its own doc comment, and
 that is the bar for adding one: a variant is a design concept somebody can name,
