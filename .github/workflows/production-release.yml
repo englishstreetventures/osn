@@ -359,6 +359,10 @@ jobs:
           PUBLIC_CIRE_WEB_URL: https://invite.cireweddings.com
           # The RSVP editor's privacy link: the marketing site's /privacy.
           PUBLIC_MARKETING_URL: https://cireweddings.com
+          # The commit this release is built from; the account menu prints its
+          # first seven characters as the version, as the guest site's footer
+          # does.
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
           # Marks a production deploy build: the CSP integration then fails
           # the build unless the cire-api URL is https://api.cireweddings.com.
           # turbo hashes it, so this build never replays the `build` job's
@@ -373,6 +377,8 @@ jobs:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
           # Account management deep link (see the cire/host build above).
           PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
+          # The version the account menu prints (see the cire/host build above).
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
           # A deploy build (see the cire/host build above).
           OSN_DEPLOY_TIER: production
 

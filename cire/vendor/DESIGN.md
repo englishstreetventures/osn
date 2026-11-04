@@ -118,7 +118,7 @@ redirected would be a hop that exists only to be got past. The row is the
 shared menu's link row (`DropdownMenuItem as="a"`) to `PUBLIC_OSN_ACCOUNT_URL`
 with `target="_blank"`, which adds `noopener noreferrer` itself. The menu is
 the shared `DropdownMenu` on its accent look, as every portal menu is (host
-§7).
+§7), and ends on the build's version as the host's account menu does.
 
 ---
 

@@ -1228,6 +1228,9 @@ phone.
   line reads "Version local", which the `cire-rsvp` flow checks.
 - **The marketing site** prints its own the same way, from the same variable
   on its own build step (`MarketingFooter.astro`, [[cire-landing]]).
+- **The host and vendor portals** print theirs as the last line of the account
+  menu (`ProfileMenu.tsx` in each), from the same variable on each portal's
+  build step in both workflows, typed in each portal's `src/env.d.ts`.
 
 ### Organiser links
 

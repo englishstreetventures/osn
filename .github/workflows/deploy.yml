@@ -629,6 +629,9 @@ jobs:
           PUBLIC_CIRE_WEB_URL: ${{ steps.hosts.outputs.cire_invites_origin }}
           # The RSVP editor's privacy link: the dev marketing site's /privacy.
           PUBLIC_MARKETING_URL: ${{ steps.hosts.outputs.cire_landing_origin }}
+          # The version the account menu prints, as on the guest site's build
+          # above.
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
           # A deploy build (see the guest site's build above).
           OSN_DEPLOY_TIER: dev
 
@@ -637,6 +640,9 @@ jobs:
         env:
           PUBLIC_CIRE_API_URL: ${{ steps.hosts.outputs.cire_api_origin }}
           PUBLIC_OSN_ACCOUNT_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
+          # The version the account menu prints, as on the guest site's build
+          # above.
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
           # A deploy build (see the guest site's build above).
           OSN_DEPLOY_TIER: dev
 

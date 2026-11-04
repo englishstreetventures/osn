@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ProfileMenu from "../../src/components/ProfileMenu";
 
@@ -27,6 +27,36 @@ describe("ProfileMenu", () => {
   afterEach(() => {
     cleanup();
     localStorage.clear();
+  });
+
+  it("ends the open menu on the build's version, which the keyboard passes by", async () => {
+    vi.stubEnv("PUBLIC_BUILD_SHA", "0123456789abcdef0123456789abcdef01234567");
+    try {
+      render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
+      openMenu();
+      const line = await screen.findByText("Version 0123456");
+      expect(line.getAttribute("translate")).toBe("no");
+      expect(line.closest("[role='menuitem']")).toBeNull();
+      expect(line.hasAttribute("tabindex")).toBe(false);
+      // The menu's focus-trap sentinels are not part of what it draws.
+      const drawn = [...screen.getByRole("menu").children].filter(
+        (el) => !el.hasAttribute("data-focus-trap"),
+      );
+      expect(drawn.at(-1)).toBe(line);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("says a build made from no commit is local", async () => {
+    vi.stubEnv("PUBLIC_BUILD_SHA", "");
+    try {
+      render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
+      openMenu();
+      expect(await screen.findByText("Version local")).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("renders an initial from the display name when there is no avatar image", () => {

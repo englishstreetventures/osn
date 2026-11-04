@@ -162,8 +162,8 @@ const DEV_HOST_OUTPUT: Readonly<Record<SurfaceKey, string>> = {
 /**
  * Each stack job's site builds, in order, with exactly the values each dev
  * build sets. A host is always the dev-hosts step's output; Turnstile and Maps
- * keys are dev Environment variables; the guest site's footer prints the
- * commit (PUBLIC_BUILD_SHA); ASTRO_KEY fixes the guest site's server build so
+ * keys are dev Environment variables; the guest and marketing sites' footers
+ * and the portals' account menus print the commit (PUBLIC_BUILD_SHA); ASTRO_KEY fixes the guest site's server build so
  * two builds of one commit are byte-identical; OSN_DEPLOY_TIER marks each
  * build of a site that retargets its CSP as a deploy. Pulse landing gets no
  * PUBLIC_APP_URL: the Pulse app has no dev deploy.
@@ -208,6 +208,7 @@ const DEV_BUILDS: Readonly<
         PUBLIC_OSN_ACCOUNT_URL: hostOutput("musubi_social_origin"),
         PUBLIC_CIRE_WEB_URL: hostOutput("cire_invites_origin"),
         PUBLIC_MARKETING_URL: hostOutput("cire_landing_origin"),
+        PUBLIC_BUILD_SHA: "${{ github.sha }}",
         OSN_DEPLOY_TIER: "dev",
       },
     },
@@ -216,6 +217,7 @@ const DEV_BUILDS: Readonly<
       env: {
         PUBLIC_CIRE_API_URL: hostOutput("cire_api_origin"),
         PUBLIC_OSN_ACCOUNT_URL: hostOutput("musubi_social_origin"),
+        PUBLIC_BUILD_SHA: "${{ github.sha }}",
         OSN_DEPLOY_TIER: "dev",
       },
     },
@@ -1183,11 +1185,13 @@ const PRODUCTION_BUILDS: Readonly<Partial<Record<SiteSurface, Record<string, str
     PUBLIC_OSN_ACCOUNT_URL: "https://musubi.social",
     PUBLIC_CIRE_WEB_URL: "https://invite.cireweddings.com",
     PUBLIC_MARKETING_URL: "https://cireweddings.com",
+    PUBLIC_BUILD_SHA: "${{ github.sha }}",
     OSN_DEPLOY_TIER: "production",
   },
   cire_vendor: {
     PUBLIC_CIRE_API_URL: "https://api.cireweddings.com",
     PUBLIC_OSN_ACCOUNT_URL: "https://musubi.social",
+    PUBLIC_BUILD_SHA: "${{ github.sha }}",
     OSN_DEPLOY_TIER: "production",
   },
   cire_landing: {

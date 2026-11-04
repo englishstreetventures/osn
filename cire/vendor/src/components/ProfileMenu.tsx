@@ -41,6 +41,16 @@ function AvatarButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
 }
 
 /**
+ * The first seven characters of the commit this portal was built from, which
+ * CI sets as `PUBLIC_BUILD_SHA` on each deploy build; "local" for a build
+ * without it, as the guest site's footer says.
+ */
+function buildVersion(): string {
+  const sha = import.meta.env.PUBLIC_BUILD_SHA?.trim();
+  return sha ? sha.slice(0, 7) : "local";
+}
+
+/**
  * The top bar's account affordance: an avatar button opening a menu with
  * everything scoped to the person rather than to an organisation — appearance,
  * haptics, account, sign out.
@@ -168,6 +178,16 @@ export default function ProfileMenu(props: {
           <span class="sr-only">(opens musubi in a new tab)</span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => props.onSignOut()}>Sign out</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {/* The build, as the guest site's and the marketing site's footers
+            print it, so a report from a phone names the build it saw. Not a
+            row: nothing to choose, so the keyboard passes it by. */}
+        <p
+          class="font-body text-text-muted text-ui-xs px-3 pt-1.5 pb-2 tabular-nums"
+          translate="no"
+        >
+          Version {buildVersion()}
+        </p>
       </DropdownMenuContent>
     </DropdownMenu>
   );
