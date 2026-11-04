@@ -3,6 +3,7 @@
 "@cire/vendor": patch
 "@cire/invites": patch
 "@cire/api": patch
+"@cire/ui": patch
 "@tools/e2e": patch
 ---
 
