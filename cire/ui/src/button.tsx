@@ -1,5 +1,5 @@
 import type { SafeProps } from "@shared/ui/ui/props";
-import { type JSX, splitProps } from "solid-js";
+import { children, type JSX, splitProps } from "solid-js";
 
 import { GLASS_CHOICE, GLASS_WORD } from "./lib/glass";
 
@@ -655,6 +655,9 @@ export default function Button<
   S extends ButtonSize = ButtonSize,
 >(props: ButtonProps<V, S>) {
   const [own, rest] = splitProps(props, ["variant", "size", "class", "onClick", "children"]);
+  // Solid builds JSX children afresh on every read of the prop, so they are
+  // resolved once and read from here: the name below and the content both.
+  const content = children(() => own.children);
 
   /**
    * `aria-disabled` has to mean it.
@@ -677,7 +680,7 @@ export default function Button<
       // A `glass` word's held width is generated content, which some name
       // computations read; the word alone names it. A caller's own name wins.
       aria-label={
-        own.variant === "glass" && typeof own.children === "string" ? own.children : undefined
+        own.variant === "glass" && typeof content() === "string" ? (content() as string) : undefined
       }
       {...rest}
       class={`${buttonClass({ variant: own.variant, size: own.size })}${
@@ -696,7 +699,7 @@ export default function Button<
         else if (Array.isArray(handler)) handler[0](handler[1], event);
       }}
     >
-      {own.variant === "glass" ? glassContent(own.children) : own.children}
+      {own.variant === "glass" ? glassContent(content()) : content()}
     </button>
   );
 }
@@ -713,12 +716,12 @@ export default function Button<
  * `GLASS_WORD` on its word itself, with the word as `data-label`, and names
  * the pill with `aria-label`, as `Button` does for a word.
  */
-function glassContent(children: JSX.Element): JSX.Element {
-  return typeof children === "string" ? (
-    <span data-glass-word data-label={children} class={GLASS_WORD}>
-      {children}
+function glassContent(content: JSX.Element): JSX.Element {
+  return typeof content === "string" ? (
+    <span data-glass-word data-label={content} class={GLASS_WORD}>
+      {content}
     </span>
   ) : (
-    children
+    content
   );
 }
