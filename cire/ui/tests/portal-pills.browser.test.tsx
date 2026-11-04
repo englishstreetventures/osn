@@ -353,14 +353,11 @@ describe("glass, one of several", () => {
     cleanup();
     render(() => <Pair ramp="dark" chosen="Phone" />);
     expect(widths()).toEqual(before);
-    // The room held for the medium weight is drawn, never named, and sits
-    // in the word's own cell rather than beside or under it.
-    const phone = screen.getByRole("button", { name: "Phone" });
+    // The room held for the medium weight is drawn, never named or found as
+    // text.
+    expect(screen.getByRole("button", { name: "Phone" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Phone Phone" })).toBeNull();
-    const [shown, held] = [...phone.querySelectorAll("span > span")].map((layer) =>
-      layer.getBoundingClientRect(),
-    );
-    expect([held!.left, held!.top]).toEqual([shown!.left, shown!.top]);
+    expect(screen.getAllByText("Phone")).toHaveLength(1);
   });
 
   it("marks a chosen radio as it marks a pressed button", async () => {

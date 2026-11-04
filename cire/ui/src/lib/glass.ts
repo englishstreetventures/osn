@@ -33,7 +33,7 @@ export const GLASS_FILL =
  * {@link GLASS_FILL} in the readable accent ink at medium weight, its hairline
  * cleared for the glass's own edge; at rest its word is at normal weight, so
  * the chosen pill differs by more than colour, as a strip's chosen word does
- * (`Button` holds each word's width at the wider weight). A contrast theme
+ * ({@link GLASS_WORD} holds each word's width at the wider weight). A contrast theme
  * drops the glass, so the chosen pill keeps a 1px outline there. `tests/glass.test.ts` holds the chosen and the
  * halfway looks to the strip's, declaration for declaration.
  */
@@ -49,3 +49,14 @@ export const GLASS_CHOICE =
   "base:[&:is([aria-pressed=true],[aria-checked=true])]:backdrop-blur-md " +
   "base:[&:is([aria-pressed=true],[aria-checked=true])]:backdrop-saturate-[1.6] " +
   "base:forced-colors:[&:is([aria-pressed=true],[aria-checked=true])]:outline-1";
+
+/**
+ * A word whose weight moves, its width held at the wider weight: an unseen
+ * copy at medium weight under it, with no height, drawn as generated content
+ * from the element's `data-label`, so it holds the width and no reading of the
+ * content counts the word twice. A strip's choice wears it (`SegmentedTabs`),
+ * and so does a `glass` pill's word.
+ */
+export const GLASS_WORD =
+  "base:inline-flex base:flex-col " +
+  "base:after:invisible base:after:h-0 base:after:overflow-hidden base:after:font-medium base:after:select-none base:after:content-[attr(data-label)]";

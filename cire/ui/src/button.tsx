@@ -1,7 +1,7 @@
 import type { SafeProps } from "@shared/ui/ui/props";
 import { type JSX, splitProps } from "solid-js";
 
-import { GLASS_CHOICE } from "./lib/glass";
+import { GLASS_CHOICE, GLASS_WORD } from "./lib/glass";
 
 /**
  * cire's button.
@@ -674,6 +674,11 @@ export default function Button<
     // toolbar control in a settings form means to do.
     <button
       type="button"
+      // A `glass` word's held width is generated content, which some name
+      // computations read; the word alone names it. A caller's own name wins.
+      aria-label={
+        own.variant === "glass" && typeof own.children === "string" ? own.children : undefined
+      }
       {...rest}
       class={`${buttonClass({ variant: own.variant, size: own.size })}${
         own.class ? ` ${own.class}` : ""
@@ -691,34 +696,29 @@ export default function Button<
         else if (Array.isArray(handler)) handler[0](handler[1], event);
       }}
     >
-      {own.variant === "glass" ? <GlassWord>{own.children}</GlassWord> : own.children}
+      {own.variant === "glass" ? glassContent(own.children) : own.children}
     </button>
   );
 }
 
 /**
- * A `glass` pill's content, its width held at the medium weight.
+ * A `glass` pill's word, its width held at the medium weight.
  *
  * A chosen `glass` pill sets its word at medium weight and the rest at normal,
- * so the choice is marked by more than colour. A word that changed weight
- * would change width and push the pills after it along, so the content is laid
- * twice in one grid cell: once as shown, and once at medium weight with no
- * visibility and no name (`aria-hidden`), which holds the cell at the wider
- * width. Each access to `children` draws its own copy.
+ * so the choice is marked by more than colour; a word that changed weight would
+ * change width and push the pills after it along. So a word given as text is
+ * laid in {@link GLASS_WORD}, with an unseen copy at medium weight drawn as
+ * generated content, which holds the width and is in no text a reader or a
+ * query finds. A call site whose content is more than a word wears
+ * `GLASS_WORD` on its word itself, with the word as `data-label`, and names
+ * the pill with `aria-label`, as `Button` does for a word.
  */
-function GlassWord(props: { children: JSX.Element }) {
-  return (
-    <span class="base:inline-grid">
-      <span data-glass-word class={GLASS_LAYER}>
-        {props.children}
-      </span>
-      <span aria-hidden="true" class={`${GLASS_LAYER} base:invisible base:font-medium`}>
-        {props.children}
-      </span>
+function glassContent(children: JSX.Element): JSX.Element {
+  return typeof children === "string" ? (
+    <span data-glass-word data-label={children} class={GLASS_WORD}>
+      {children}
     </span>
+  ) : (
+    children
   );
 }
-
-/** One layer of {@link GlassWord}: the button's own row, in the one cell. */
-const GLASS_LAYER =
-  "base:col-start-1 base:row-start-1 base:inline-flex base:items-center base:justify-center base:gap-2";

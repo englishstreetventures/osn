@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
-import { GLASS_FILL } from "./lib/glass";
+import { GLASS_FILL, GLASS_WORD } from "./lib/glass";
 import { createSlidingPill } from "./lib/sliding-pill";
 
 /**
@@ -143,14 +143,11 @@ const ITEM =
 const ICON = "base:size-3.5 base:shrink-0";
 
 /**
- * The word. A hidden copy at medium weight, under it with no height, holds the
- * word's width at the wider weight, so a choice moving never shifts the rest.
- * The copy is hidden generated content; the choice names itself with
- * `aria-label`, so no reading of its content counts the word twice.
+ * The word: {@link GLASS_WORD}, so a choice moving never shifts the rest. The
+ * choice names itself with `aria-label` as well, so no reading of its content
+ * counts the word twice.
  */
-const WORD =
-  "base:inline-flex base:flex-col " +
-  "base:after:invisible base:after:h-0 base:after:overflow-hidden base:after:font-medium base:after:select-none base:after:content-[attr(data-label)]";
+const WORD = GLASS_WORD;
 
 /** A strip that scrolls: 4px of room all round for the ring, inside a matching margin. */
 const SCROLLER =
