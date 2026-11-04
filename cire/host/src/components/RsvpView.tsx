@@ -167,12 +167,13 @@ type Provenance = (typeof PROVENANCE)[keyof typeof PROVENANCE];
 /** `text` closed with one full stop: a mark's explanation of two sentences already has its own. */
 const sentence = (text: string) => (text.endsWith(".") ? text : `${text}.`);
 
-/** The reply key's button: `Button`'s `round` at `sm`, the search box's 28px,
- *  so the bar's row does not grow for it. `PopoverTrigger` renders it `as`
- *  this, so its handlers, ref and `aria-expanded` arrive in `props`; the
- *  raised disc while the key is open comes from that `aria-expanded`. */
+/** The reply key's button: the bar's icon button, `Button`'s `bar` at
+ *  `icon`, the search box's 28px, so the bar's row does not grow for it.
+ *  `PopoverTrigger` renders it `as` this, so its handlers, ref and
+ *  `aria-expanded` arrive in `props`; the raised surface while the key is open
+ *  comes from that `aria-expanded`. */
 function KeyButton(props: SafeProps<"button">) {
-  return <Button variant="round" size="sm" {...props} aria-label={KEY_LABEL} class="ml-auto" />;
+  return <Button variant="bar" size="icon" {...props} aria-label={KEY_LABEL} class="ml-auto" />;
 }
 
 /** What "New" on a guest's meta line says. */

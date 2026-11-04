@@ -25,6 +25,7 @@ const VARIANTS = [
   "cta",
   "outline",
   "quiet",
+  "bar",
   "quietDanger",
   "choice",
   "glass",
@@ -46,7 +47,7 @@ const SIZES = ["sm", "md", "lg", "form", "icon", "swatch"] as const satisfies re
 /** The groups `wiki/shared/component-library.md` §cire's `Button` names, in its order. */
 const GROUPS: readonly { name: string; variants: readonly ButtonVariant[] }[] = [
   { name: "Commit", variants: ["primary", "cta"] },
-  { name: "Secondary", variants: ["outline", "quiet", "dashed"] },
+  { name: "Secondary", variants: ["outline", "quiet", "bar", "dashed"] },
   { name: "Destructive", variants: ["danger", "quietDanger", "bareDanger"] },
   { name: "Text", variants: ["link", "subtle", "touchLink"] },
   { name: "Glyph", variants: ["bare"] },
@@ -61,6 +62,7 @@ const LABEL = {
   cta: "Enter your code",
   outline: "Add an event",
   quiet: "Export guests",
+  bar: "Search and jump to",
   quietDanger: "Deactivate",
   choice: "Phone",
   glass: "Desktop",
@@ -214,7 +216,9 @@ export const PortalPills: Story<ThemeArgs> = {
           ground and a small pill is 28px, level with the strip; without them (the guest site) the
           pills stay clear and a small one keeps its 31px. <Mono>glass</Mono> wears the strip's
           glass when chosen; point at an unchosen one to see it go halfway. An open{" "}
-          <Mono>quiet</Mono> button holds its hover look.
+          <Mono>quiet</Mono> button holds its hover look. A <Mono>bar</Mono> icon button lifts its
+          ground to 60% under the pointer, in the body ink with a gold edge, and stands on the
+          raised surface while open.
         </>
       }
     >
@@ -256,11 +260,21 @@ export const PortalPills: Story<ThemeArgs> = {
                     <Button
                       variant="quiet"
                       size="icon"
+                      aria-label="Household actions, open"
+                      aria-expanded="true"
+                    >
+                      <span aria-hidden="true">⋯</span>
+                    </Button>
+                    <Specimen variant="bar" size="icon" label="Download RSVPs (CSV)" />
+                    <Button
+                      variant="bar"
+                      size="icon"
                       aria-label="What the reply icons mean, open"
                       aria-expanded="true"
                     >
                       <span aria-hidden="true">i</span>
                     </Button>
+                    <Specimen variant="bar" size="sm" label="⌘K" />
                   </div>
                 </Section>
               )}

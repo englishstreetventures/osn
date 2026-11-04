@@ -6,16 +6,16 @@ import { GLASS_CHOICE, GLASS_WORD } from "./lib/glass";
 /**
  * cire's button.
  *
- * Eighteen variants, each named for the job a control does, so a call site
- * names the job rather than writing out its classes. Thirteen draw a box:
- * `primary`, `cta`, `outline`, `quiet`, `quietDanger`, `choice`, `glass`,
- * `tile`, `dashed`, `field`, `danger`, `chip` and `round`. Five draw none:
- * `link`, `subtle`, `touchLink`, `bare` and `bareDanger` (see
+ * Nineteen variants, each named for the job a control does, so a call site
+ * names the job rather than writing out its classes. Fourteen draw a box:
+ * `primary`, `cta`, `outline`, `quiet`, `bar`, `quietDanger`, `choice`,
+ * `glass`, `tile`, `dashed`, `field`, `danger`, `chip` and `round`. Five draw
+ * none: `link`, `subtle`, `touchLink`, `bare` and `bareDanger` (see
  * {@link BORDERLESS}).
  *
  * ## Why this is not `@shared/ui`'s Button
  *
- * The vocabulary is the house's, not a general one: eighteen variants named for
+ * The vocabulary is the house's, not a general one: nineteen variants named for
  * the jobs cire's screens do — a guest site's outlined call to action, a tile,
  * a field-shaped trigger, a sheet's chrome — and a *gold* primary rather than a
  * neutral one. `@shared/ui`'s Button is the shadcn set, six variants, and an
@@ -67,6 +67,7 @@ export type ButtonVariant =
   | "cta"
   | "outline"
   | "quiet"
+  | "bar"
   | "quietDanger"
   | "choice"
   | "glass"
@@ -175,12 +176,13 @@ const VARIANT = {
   outline:
     "base:border-ui-accent/40 base:bg-[color:var(--pill-ground,transparent)] base:text-ui-accent-ink base:hover:border-ui-accent",
   /**
-   * The quiet action, and in the portals the bar's one icon button: a glyph in
-   * a 28px circle on the track's ground and hairline (`size="icon"`).
+   * The quiet action, and in the portals a row's icon action — a household's
+   * Copy message or its "⋯" — a glyph in a 28px circle on the track's ground
+   * and hairline (`size="icon"`). A bar's icon button is `bar`.
    *
-   * While what it opens is open — a popover, a menu, the reply key — it holds
-   * its hover look (Kobalte and the call sites set `aria-expanded`), so the
-   * button reads as the thing that is open.
+   * While what it opens is open — a popover, a menu — it holds its hover look
+   * (Kobalte and the call sites set `aria-expanded`), so the button reads as
+   * the thing that is open.
    */
   quiet:
     "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary base:hover:border-ui-accent base:hover:text-ui-accent-ink " +
@@ -196,6 +198,26 @@ const VARIANT = {
    * `danger`, which is red at rest and belongs on the button that finally
    * commits the destruction — the confirm, not the control that offers it.
    */
+  /**
+   * The portals' icon button that stands alone in a page's chrome — the RSVP
+   * page's reply key and download, the guest list's downloads, Add household
+   * on a narrow panel, the getting-started guide's Dismiss — and the top
+   * bar's ⌘K pill.
+   *
+   * At rest `quiet`'s look: a hairline on the portals' ground, the secondary
+   * ink. Under the pointer the ground lifts to the surface at 60%, as a
+   * tile's does, the ink turns the body ink and the edge gold. While what it
+   * opens is open (`aria-expanded`, which Kobalte and the call sites set) it
+   * stands on the raised surface, the floating panel's own, in the body ink
+   * and its hairline. The hover is gated on the button not being open, so the
+   * pointer never moves an open one and open is one look; the gate sits inside
+   * `base:` (`…:hover:base:…`), so the hover keeps zero specificity.
+   */
+  bar:
+    "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary " +
+    "not-aria-expanded:hover:base:border-ui-accent not-aria-expanded:hover:base:bg-ui-surface/60 " +
+    "not-aria-expanded:hover:base:text-ui-ink " +
+    "base:aria-expanded:bg-ui-surface-raised base:aria-expanded:text-ui-ink",
   quietDanger:
     "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary base:hover:border-ui-danger base:hover:text-ui-danger",
   /**
@@ -325,24 +347,19 @@ const VARIANT = {
     "base:border-ui-accent/40 base:bg-ui-surface base:text-ui-accent-ink " +
     "base:hover:border-ui-accent",
   /**
-   * A glyph on an opaque disc — the RSVP page's reply key beside the search
-   * box, and the guest event sheet's close × beside `chip`.
+   * A glyph on an opaque disc — the guest event sheet's close × beside `chip`.
    *
    * Filled rather than transparent, because the close × sits over a sheet
    * whose content scrolls underneath it and must hide it, and no edge, because
    * the disc is the shape. Muted ink, brightening to the body ink under the
-   * pointer; the fill does not move on hover. It does move while the popover
-   * it opens is showing: Kobalte sets `aria-expanded` on its trigger, and the
-   * raised surface holds the disc lit so the key reads as the thing that is
-   * open.
+   * pointer; the fill does not move.
    *
    * Its own sizes ({@link ROUND_SIZE}), and the `pill` step at every one of
    * them, which {@link cornerFor} picks for it: a round button stays a circle
    * whatever an app maps `control` to.
    */
   round:
-    "base:border-transparent base:bg-ui-surface base:text-ui-ink-secondary base:hover:text-ui-ink " +
-    "base:aria-expanded:bg-ui-surface-raised base:aria-expanded:text-ui-ink",
+    "base:border-transparent base:bg-ui-surface base:text-ui-ink-secondary base:hover:text-ui-ink",
 
   /*
    * The borderless ones: these four, and `bareDanger` after them.
@@ -498,7 +515,7 @@ const FIELD_SIZE = {
  * Its own steps: 28px (`sm`), 32px (`md`, and `icon` and `swatch`, which have
  * nothing else to mean here) and 44px (`lg`) for the guest event sheet's
  * close ×, the guest site's touch floor, and `form` at the 34px field height.
- * The portals' icon button is `quiet` at `icon`, not this. The glyph sits on
+ * The portals' icon buttons are `bar` and `quiet` at `icon`, not this. The glyph sits on
  * the base step, and the close × on the large one, so it reads at the size of
  * the sheet's heading rather than a label's.
  */
