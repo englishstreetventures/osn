@@ -1,7 +1,6 @@
 import { context, type Context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { Elysia } from "elysia";
 
-import { redact } from "../logger/redact";
 import { httpServerActiveRequests, recordHttpRequest } from "../metrics/http";
 import { extractTraceContext } from "../tracing/propagation";
 
@@ -100,6 +99,9 @@ const shouldHonourInboundTraceparent = (headers: Headers): boolean => {
 export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
   const tracer = trace.getTracer("@shared/observability");
 
+  // `.as("global")` at the end lifts every hook to the app that mounts the
+  // plugin. Elysia keeps a plugin's hooks local by default, and this
+  // instance has no routes of its own, so without it only `onRequest` runs.
   return new Elysia({ name: "@shared/observability/plugin" })
     .onRequest(({ request, set }) => {
       const method = request.method.toUpperCase();
@@ -189,30 +191,16 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
     .onError(({ request, error, code }) => {
       const state = REQUEST_STATE.get(request);
       if (!state) return;
-      // `span.recordException(error)` iterates the error's
-      // enumerable own properties and writes them to a span event. Effect
-      // tagged errors frequently embed `email`, `handle`, `cause` etc.
-      // as own props, which would land in trace storage unredacted.
-      // Instead, build a scrubbed shape and record that.
-      const safeError =
-        error instanceof Error
-          ? (() => {
-              const r = redact(error) as { name?: string; message?: string };
-              return Object.assign(new Error(typeof r.message === "string" ? r.message : ""), {
-                name: typeof r.name === "string" ? r.name : "Error",
-              });
-            })()
-          : new Error(String(code));
-      state.span.recordException(safeError);
-      state.span.setStatus({
-        code: SpanStatusCode.ERROR,
-        // The `message` field of setStatus is preserved verbatim in
-        // span storage — route it through redact() first.
-        message:
-          error instanceof Error
-            ? (redact({ message: error.message }) as { message: string }).message
-            : String(code),
+      // Span storage gets the error's name and Elysia's error code, never
+      // the error's message or stack: a message is free text that
+      // `redact()`, which scrubs object keys, cannot clean, and Elysia's
+      // validation errors put the rejected input in theirs.
+      const safeError = Object.assign(new Error(String(code)), {
+        name: error instanceof Error ? error.name : "Error",
+        stack: undefined,
       });
+      state.span.recordException(safeError);
+      state.span.setStatus({ code: SpanStatusCode.ERROR, message: String(code) });
     })
     .onAfterResponse(({ request, set }) => {
       const state = REQUEST_STATE.get(request);
@@ -237,5 +225,6 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       httpServerActiveRequests.dec({ "http.request.method": state.method });
 
       REQUEST_STATE.delete(request);
-    });
+    })
+    .as("global");
 };
