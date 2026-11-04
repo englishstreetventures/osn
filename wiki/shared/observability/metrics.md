@@ -8,8 +8,8 @@ related:
   - "[[logging]]"
   - "[[tracing]]"
   - "[[feature-checklist]]"
-packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto", "@shared/realtime"]
-last-reviewed: 2026-10-20
+packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto", "@shared/realtime", "@shared/billing"]
+last-reviewed: 2026-11-04
 ---
 # Metrics
 
@@ -50,6 +50,7 @@ Declare every metric **exactly once**, in a `metrics.ts` file that sits with its
 | `pulse/api/src/metrics.ts` | Pulse API domain metrics |
 | `osn/api/src/metrics.ts` | OSN auth + graph metrics |
 | `shared/crypto/src/arc-metrics.ts` | ARC token metrics |
+| `shared/billing/src/metrics.ts` | Billing: checkouts, portal sessions, webhook deliveries by event type, subscription status changes, access checks and applications, Stripe call duration, reconcile outcomes — see [[billing]] |
 | `shared/observability/src/metrics/http.ts` | Shared HTTP RED metrics (used by Elysia plugin) |
 | `shared/realtime/src/server/metrics.ts` | Realtime push: subscribe outcomes, signals published, hub capacity refusals, and client fallbacks (`realtime.client.fallbacks`, from the product's fallback beacon, by `product` and `outcome`) — see [[realtime]] |
 

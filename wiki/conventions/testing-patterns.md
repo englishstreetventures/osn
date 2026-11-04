@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 
 # Testing Patterns
@@ -702,6 +702,8 @@ Adding a column is then a one-file change in `src/schema/`. The emitter carries 
 
 `osn/db/tests/ddl-lockstep.test.ts` diffs a normalised structural snapshot of the emitted schema against the full `osn/db/drizzle/*.sql` migration chain. It compares columns, types, defaults, nullability, indexes (**including column order within an index** — SQLite serves only a leading prefix), partial predicates, foreign keys and their referential actions, and pins CHECK/trigger/view sets as empty. It fails when a migration lands without a schema change, when a schema change lands without a migration, when the emitter loses a constraint, or when the migrations directory holds anything wrangler would not apply (a folder, a `meta/` journal) — the chain is replayed through `scripts/migration-files.ts`, in wrangler's order. `zap/db` has the same test; `cire/api/tests/db/ddl-lockstep.test.ts` covers cire's three-way mirror.
 
+`@shared/billing` owns no migrations — its consumer generates them — so its tests take their DDL from drizzle-kit's own generator (`generateMigration` from `drizzle-kit/payload/sqlite`, in `shared/billing/tests/support/ddl.ts`): the statements `drizzle-kit generate` would write for the consumer.
+
 **If you extend one emitter, extend all three** — they are copies, and all three (`osn/db`, `pulse/db`, `zap/db`) now carry the lockstep test.
 
 Writing pulse's found that a `user_id` → `profile_id` rename had reached `src/schema` without ever reaching migration `0000`, and three `events` columns existed with no migration at all — so `wrangler d1 migrations apply pulse-db` against a fresh D1 would have failed. Every Pulse test builds from `applySchema()`, so nothing exercised the chain until this test did.
@@ -847,13 +849,13 @@ yet; their metric suites today assert only that a call does not throw.
 
 ## The D1 integration lane
 
-Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on. `shared/realtime` joins this lane too, though its `tests/d1/hub.test.ts` covers `TopicHub` on workerd rather than D1 — the hibernation API it exercises exists only in the runtime, so it needs the same Miniflare tier for the same reason. `shared/coordination` joins for that reason too: `tests/d1/store.test.ts` covers `CoordinationStore`, whose synchronous storage API exists only on workerd. And osn/api's lane holds `tests/d1/worker-e2e.test.ts`, osn-api end to end on workerd ([[#osn-api on workerd, end to end]]).
+Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on. `shared/realtime` joins this lane too, though its `tests/d1/hub.test.ts` covers `TopicHub` on workerd rather than D1 — the hibernation API it exercises exists only in the runtime, so it needs the same Miniflare tier for the same reason. `shared/coordination` joins for that reason too: `tests/d1/store.test.ts` covers `CoordinationStore`, whose synchronous storage API exists only on workerd. `shared/billing` joins with `tests/d1/storage.test.ts`, the storage contract its vitest suite runs on bun:sqlite, run again on D1 under `bun test` ([[billing]]). And osn/api's lane holds `tests/d1/worker-e2e.test.ts`, osn-api end to end on workerd ([[#osn-api on workerd, end to end]]).
 
 How the fast tier avoids these files differs by runner, and the difference is worth knowing before you read a CI log:
 
 | Package | Fast-tier runner | Does `bun run test` load the D1/Miniflare file? |
 |---|---|---|
-| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime`, `shared/coordination` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
+| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime`, `shared/coordination`, `shared/billing` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
 | `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. A workerd failure reddens cire's fast tier too, and a workerd timeout can stop it outright: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
 See [[realtime]] for what `hub.test.ts` covers.

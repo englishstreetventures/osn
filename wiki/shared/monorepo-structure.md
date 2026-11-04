@@ -50,6 +50,7 @@ packages:
   - "@cire/guest-email"
   - "@cire/build-tools"
   - "@cire/infra"
+  - "@shared/billing"
   - "@shared/color"
   - "@shared/coordination"
   - "@shared/crypto"
@@ -76,7 +77,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 
 # Monorepo Structure
@@ -137,6 +138,7 @@ cire/
   landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323; prod cireweddings.com)
   infra/               # @cire/infra — the Alchemy stack `cire`: cire-api with its D1, buckets and seeds, cire-invites, the three cire sites (dev only today)
 shared/
+  billing/             # @shared/billing — code-defined plans, Stripe subscriptions and webhooks, feature access from D1, plan sync to Stripe
   color/               # @shared/color — OKLCH parsing / conversion / contrast maths, lifted out of @cire/theme so no @shared/* depends on a @cire/* one
   coordination/        # @shared/coordination — the CoordinationStore Durable Object (one object per key) and its typed client: osn-api's limiters, ceremonies and lockouts
   crypto/              # @shared/crypto — ARC tokens (S2S), recovery codes, RFC 6238 TOTP; Signal Protocol pending

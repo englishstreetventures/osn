@@ -580,6 +580,24 @@
         "vitest": "5.0.5",
       },
     },
+    "shared/billing": {
+      "name": "@shared/billing",
+      "version": "0.0.0",
+      "dependencies": {
+        "@shared/db-utils": "workspace:*",
+        "@shared/observability": "workspace:*",
+        "drizzle-orm": "1.0.0-rc.5",
+        "effect": "4.0.7",
+        "elysia": "^1.4.30",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "^5.20260903.1",
+        "@shared/typescript-config": "workspace:*",
+        "drizzle-kit": "1.0.0-rc.5",
+        "miniflare": "^4.20260730.0",
+        "vitest": "5.0.5",
+      },
+    },
     "shared/color": {
       "name": "@shared/color",
       "version": "0.3.6",
@@ -1949,6 +1967,8 @@
     "@sec-ant/readable-stream": ["@sec-ant/readable-stream@0.4.1", "", {}, "sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg=="],
 
     "@shadcn/lint": ["@shadcn/lint@0.1.0", "", { "dependencies": { "@eslint/core": "^0.17.0", "@typescript-eslint/parser": "^8.40.0", "cn": "0.2.6" }, "optionalDependencies": { "oxc-parser": "^0.148.0" }, "peerDependencies": { "eslint": ">=9.30.0" }, "optionalPeers": ["eslint"] }, "sha512-UDSxO4eQa8UAclN1tChum+L336CL2uB2ZLGYiJ7r/GDrYUBOKPWWNUVoAfh2dZs4LhcwJRCn62+fKG12eAy1FQ=="],
+
+    "@shared/billing": ["@shared/billing@workspace:shared/billing"],
 
     "@shared/color": ["@shared/color@workspace:shared/color"],
 

@@ -376,6 +376,64 @@ describe("redact", () => {
     expect(out.guestId).toBe("gst_1");
   });
 
+  it("redacts the billing provider's secrets and the Stripe customer fields an invoice, a Checkout session or a customer carries", () => {
+    const input = {
+      config: {
+        secretKey: "sk_live_x",
+        webhookSecret: "whsec_x",
+        apiBase: "https://api.stripe.com",
+      },
+      invoice: {
+        id: "in_1",
+        status: "paid",
+        customer_address: { line1: "1 Test St", country: "AU" },
+        customer_email: "billing@example.test",
+        customer_name: "Example Pty Ltd",
+        customer_phone: "+61400000000",
+        customer_shipping: { name: "Example" },
+        customer_tax_ids: [{ type: "au_abn", value: "12345678901" }],
+      },
+      session: {
+        id: "cs_1",
+        mode: "subscription",
+        customer_details: { name: "Jo Example", phone: "+61400000000", email: "jo@example.test" },
+      },
+      customer: { id: "cus_1", address: { country: "AU" }, tax_ids: { data: [] } },
+    };
+    const out = redact(input) as {
+      config: Record<string, unknown>;
+      invoice: Record<string, unknown>;
+      session: Record<string, unknown>;
+      customer: Record<string, unknown>;
+    };
+    expect([out.config.secretKey, out.config.webhookSecret, out.config.apiBase]).toEqual([
+      REDACTION_PLACEHOLDER,
+      REDACTION_PLACEHOLDER,
+      "https://api.stripe.com",
+    ]);
+    for (const key of [
+      "customer_address",
+      "customer_email",
+      "customer_name",
+      "customer_phone",
+      "customer_shipping",
+      "customer_tax_ids",
+    ]) {
+      expect(out.invoice[key], `${key} was not redacted`).toBe(REDACTION_PLACEHOLDER);
+    }
+    expect([out.invoice.id, out.invoice.status]).toEqual(["in_1", "paid"]);
+    expect([out.session.id, out.session.mode, out.session.customer_details]).toEqual([
+      "cs_1",
+      "subscription",
+      REDACTION_PLACEHOLDER,
+    ]);
+    expect([out.customer.id, out.customer.address, out.customer.tax_ids]).toEqual([
+      "cus_1",
+      REDACTION_PLACEHOLDER,
+      REDACTION_PLACEHOLDER,
+    ]);
+  });
+
   it("every entry in REDACT_KEYS is actually redacted", () => {
     expect(REDACT_KEYS.size).toBeGreaterThan(0);
     for (const key of REDACT_KEYS) {
@@ -403,7 +461,7 @@ describe("redact", () => {
       sessionToken: "tok",
       // cookie: moved to deny-list (C3 — HttpOnly session cookies)
       // apiKey: on the deny-list — the email transports' bearer credential
-      secretKey: "sk",
+      // secretKey: on the deny-list — the billing provider's Stripe key
       // E2E / Signal — no messaging impl yet:
       ciphertext: "aGVsbG8=",
       plaintext: "hello",
@@ -419,7 +477,7 @@ describe("redact", () => {
       fullName: "Alice Smith",
       legalName: "Alice Smith",
       dob: "1990-01-01",
-      address: "1 Test St",
+      // address: on the deny-list — a Stripe customer's billing address
       phone: "+15551234567",
       ssn: "000-00-0000",
       taxId: "TAX",
@@ -503,6 +561,17 @@ describe("redact", () => {
       "dietarypresets",
       "osnaccountid",
       "osn_account_id",
+      "secretkey",
+      "webhooksecret",
+      "customer_details",
+      "customer_address",
+      "customer_email",
+      "customer_name",
+      "customer_phone",
+      "customer_shipping",
+      "customer_tax_ids",
+      "address",
+      "tax_ids",
     ].toSorted();
     expect([...REDACT_KEYS].toSorted()).toEqual(expected);
   });

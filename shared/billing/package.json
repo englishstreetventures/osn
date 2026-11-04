@@ -1,0 +1,44 @@
+{
+  "name": "@shared/billing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstreetventures/osn.git"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./promise": "./src/promise.ts",
+    "./stripe": "./src/stripe/index.ts",
+    "./webhook-body": "./src/http/webhook-body.ts",
+    "./storage/sqlite-schema": "./src/storage/sqlite-schema.ts",
+    "./storage/sqlite": "./src/storage/sqlite.ts",
+    "./sync": "./src/sync/sync-plans.ts",
+    "./elysia": "./src/http/elysia.ts"
+  },
+  "scripts": {
+    "check": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run",
+    "test:d1": "bun test tests/d1/",
+    "sync-plans": "bun run scripts/sync-plans.ts"
+  },
+  "dependencies": {
+    "@shared/db-utils": "workspace:*",
+    "@shared/observability": "workspace:*",
+    "drizzle-orm": "1.0.0-rc.5",
+    "effect": "4.0.7",
+    "elysia": "^1.4.30"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "@shared/typescript-config": "workspace:*",
+    "drizzle-kit": "1.0.0-rc.5",
+    "miniflare": "^4.20260730.0",
+    "vitest": "5.0.5"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  // The tests, the Miniflare tier and the sync script, which run on Bun.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "bun-types"]
+  },
+  "include": ["./**/*", "../scripts/**/*"]
+}

@@ -8,7 +8,7 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-10-23
+last-reviewed: 2026-11-04
 ---
 
 # Logging
@@ -95,6 +95,7 @@ there by hand.
 - ARC `privateKey`
 - Email transport credentials: `apiKey` (Resend) and `apiToken` (Cloudflare Email Service), so a logged transport config never carries its key
 - User PII fields that exist in the schema: `email`, `handle`, `displayName`
+- Billing: the provider's `secretKey` and `webhookSecret`, and the Stripe customer fields an invoice, a Checkout session or a customer object carries into the Worker — `customer_details`, `customer_address`, `customer_email`, `customer_name`, `customer_phone`, `customer_shipping`, `customer_tax_ids`, `address`, `tax_ids` ([[billing]]). Matching is exact-key, so `address` also scrubs any other object's `address`
 
 ### Deny-list maintenance rules
 
