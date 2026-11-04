@@ -84,7 +84,7 @@ When an attribute value comes from user input or a runtime registry whose set ca
 
 ### Route attributes default to a fixed sentinel
 
-Never set HTTP-style route labels from a raw URL path. The shared Elysia plugin defaults `http.route` to `"unmatched"` and only overwrites it with Elysia's matched route template in `onAfterHandle`. Any request that short-circuits before then (404, body validation failure) records as `unmatched`, not as a raw attacker-controlled path.
+Never set HTTP-style route labels from a raw URL path. The shared Elysia plugin defaults `http.route` to `"unmatched"` and only overwrites it with Elysia's matched route template in `onAfterHandle`. Any request that short-circuits before then (404, body validation failure) records as `unmatched`, not as a raw attacker-controlled path. The method attribute is one of the standard HTTP methods or `_OTHER` (`HTTP_METHOD_VALUES` in `attrs.ts`), so a made-up method cannot add series either.
 
 ## Canonical code examples
 

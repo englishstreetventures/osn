@@ -80,7 +80,7 @@ describe("instrumentedFetch", () => {
     expect(hdrs).toBeInstanceOf(Headers);
   });
 
-  it("reuses caller's Headers instance instead of allocating a new one (P-I3)", async () => {
+  it("reuses caller's Headers instance instead of allocating a new one", async () => {
     const callerHeaders = new Headers({ authorization: "ARC tok", "x-a": "b" });
     await instrumentedFetch("http://example.com/", { headers: callerHeaders });
     // Assertion: the exact same Headers reference was passed through
