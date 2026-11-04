@@ -1,5 +1,13 @@
 # @osn/ui
 
+## 3.0.30
+
+### Patch Changes
+
+- Updated dependencies [770d7c8]
+- Updated dependencies [3507ec6]
+  - @shared/ui@0.10.0
+
 ## 3.0.29
 
 ### Patch Changes

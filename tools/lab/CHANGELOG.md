@@ -1,5 +1,17 @@
 # @tools/lab
 
+## 0.3.32
+
+### Patch Changes
+
+- 770d7c8: `shared/ui/forms` shows every control size, with a disabled select; `InkFields` shows the ink fill on three guest palettes with each face and a textarea; `SelectChevron` shows the chevron at every size, beside a long value and sized to its content.
+- a20eead: `cire/ui/FileInput` shows the picker in one story per state — `Empty`, `FileChosen`, `Focused` (rendered with keyboard focus, one theme at a time) and `Disabled` — in cire's light and dark mapping.
+- 3507ec6: The overlays stories show one menu holding every kind of row — radio, check, switch, link and disabled — open on load, in the shared default look and in the `accent` variant under cire's mapping, dark and light.
+- cb3db28: A `cire/ui/SegmentedTabs` story for each meaning of the glass strip, in cire's dark and light mapping, with icons, icon-only labels, a refused choice, a scrolling strip of counts, and a reply filter whose replies show as their dots beside "All".
+- Updated dependencies [770d7c8]
+- Updated dependencies [3507ec6]
+  - @shared/ui@0.10.0
+
 ## 0.3.31
 
 ### Patch Changes

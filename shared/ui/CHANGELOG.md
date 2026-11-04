@@ -1,5 +1,15 @@
 # @shared/ui
 
+## 0.10.0
+
+### Minor Changes
+
+- 770d7c8: `Input`, `Textarea` and `Select` gain three sizes and a fill. `form` and `form-compact` are 34px, with `md`'s and `sm`'s sides and type; `touch` is a guest's field, 46px with 16px type on a phone and 44px from 640px. `fill="ink"` draws the edge and fill from the text colour at 55% and 4.5%, its placeholder in the secondary ink taken 15% toward the text colour so it holds 4.5:1 inside the well, focuses with the house outline and keeps 16px type below 640px, for a field on a surface the page does not choose. `Input` gains the `claim` face (an invitation's code: centred capitals, with the browser's spelling help off and a phone's keyboard in capitals) and the `amount` face (centred). The `code` face sets no attribute, so musubi's profile-ID field keeps its markup.
+
+  `Input` and `Select` take a fixed height at every size, so no field's height comes from the platform's font: a `Select` is now 28px at `sm` and 36px at `md`. `Select` draws its own chevron, 12px or 10px in from the right edge, with the value clear of it; its `class`, `classList`, `style` and `hidden` go on a box round it that places and sizes the field. With no fill, every class string at `sm` and `md` is unchanged.
+
+- 3507ec6: `DropdownMenu` gains checkbox, radio and link rows and an `accent` look. `DropdownMenuCheckboxItem` (a trailing check, or `Switch`'s own track and thumb with `indicator="switch"`), `DropdownMenuRadioGroup` and `DropdownMenuRadioItem` (a check on the chosen row), and `DropdownMenuItem as="a"`, a real anchor that the browser follows on a click, a tap, Enter or Space, closes its menu after its own click, keeps only a web, path, `mailto:` or `tel:` address, and adds `noopener noreferrer` to its caller's `rel` whenever it opens another tab or window. `DropdownMenuTrigger` and `DropdownMenuGroup` refuse `innerHTML`, `innerText` and `textContent`, as the other parts do. `DropdownMenuContent` takes `variant="accent"`, cire's portal menu: the raised panel with the floating shadow, rows in full ink, a 10% accent wash in readable accent ink when highlighted, an inset keyboard ring, and a pop open at the app's own `--dur-fast` and `--ease-out`, with no exit. `DropdownMenuLabel` takes `tone="eyebrow"`. `DropdownMenuHandle` hands a list the menu its root holds, so the one-menu-for-a-list pattern imports nothing from Kobalte. With a modal dialog open, the panel portals into it, as `PopoverContent` does. The default look, and where it portals with no modal open, are unchanged, except in a contrast theme (forced colours): there a focused default row and a focused `treatment="pill"` trigger now draw an outline, so focus stays visible in that theme. Two new subpaths with no Kobalte in them: `@shared/ui/ui/menu-classes` holds every class the menu renders, and `@shared/ui/ui/menu-touch-classes` holds `MENU_TOUCH`, the 44px rows a surface without Kobalte's menu draws.
+
 ## 0.9.0
 
 ### Minor Changes
