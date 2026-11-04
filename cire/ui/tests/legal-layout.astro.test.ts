@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import LegalLayout from "../src/legal-layout.astro";
+import { unmarkedTypeSizes } from "./test-support/type-literals";
 
 /**
  * The legal pages' document, rendered by Astro's container API: its title in
@@ -98,6 +99,10 @@ describe("LegalLayout's styles", () => {
     const rule = style.match(/\.legal \.placeholder \{[^}]*\}/)?.[0] ?? "";
     expect(rule).toContain("color: var(--ui-accent-ink);");
     expect(rule).not.toMatch(/background/);
+  });
+
+  it("marks every literal type size as having no token", () => {
+    expect(unmarkedTypeSizes(style)).toEqual([]);
   });
 
   it("colours no text in the metal gold", () => {

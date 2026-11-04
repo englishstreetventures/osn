@@ -157,14 +157,17 @@ const hasConsent = Astro.slots.has('consent')
 
   /* Rows of links sit a hit area's height apart, line to line, so the 44px box
      laid over each word (below) never reaches the link on the next line, which,
-     painted later, would take the tap. */
+     painted later, would take the tap: 2.75rem less the 1.25rem line. The line
+     is set here rather than read with `lh`, which Firefox before 120 does not
+     have (inside .browserslistrc's floor), so it would drop the gap. */
   .sections {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: calc(2.75rem - 1lh) 1.75rem;
+    line-height: 1.25rem;
+    gap: calc(2.75rem - 1.25rem) 1.75rem;
     max-width: var(--ui-measure-2xl, 64rem);
-    margin: 0 auto calc(2.75rem - 1lh);
+    margin: 0 auto calc(2.75rem - 1.25rem);
     /* No type token at 0.875rem. */
     font-size: 0.875rem;
   }
@@ -175,7 +178,8 @@ const hasConsent = Astro.slots.has('consent')
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: calc(2.75rem - 1lh) 0.5rem;
+    line-height: 1.25rem;
+    gap: calc(2.75rem - 1.25rem) 0.5rem;
     /* No type token at 0.8125rem. */
     font-size: 0.8125rem;
   }
@@ -191,6 +195,7 @@ const hasConsent = Astro.slots.has('consent')
 
   .small-print {
     margin: 0.6rem 0 0;
+    /* No type token at 0.8125rem. */
     font-size: 0.8125rem;
   }
 

@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import SiteFooter from "../src/site-footer.astro";
+import { unmarkedTypeSizes } from "./test-support/type-literals";
 
 /**
  * The footer as both guest-facing sites will serve it, rendered by Astro's
@@ -164,9 +165,22 @@ describe("SiteFooter's styles", () => {
 
   it("keeps rows of links a hit area apart, so a tap never lands on the next line's link", () => {
     expect(style).toMatch(
-      /\.sections \{[^}]*gap: calc\(2\.75rem - 1lh\) 1\.75rem;[^}]*margin: 0 auto calc\(2\.75rem - 1lh\);/,
+      /\.sections \{[^}]*line-height: 1\.25rem;[^}]*gap: calc\(2\.75rem - 1\.25rem\) 1\.75rem;[^}]*margin: 0 auto calc\(2\.75rem - 1\.25rem\);/,
     );
-    expect(style).toMatch(/\.legal-row \{[^}]*gap: calc\(2\.75rem - 1lh\) 0\.5rem;/);
+    expect(style).toMatch(
+      /\.legal-row \{[^}]*line-height: 1\.25rem;[^}]*gap: calc\(2\.75rem - 1\.25rem\) 0\.5rem;/,
+    );
+  });
+
+  // Firefox 114 to 119, inside the browser floor (.browserslistrc), have no
+  // `lh` unit and drop any declaration that uses it: the rows would lose
+  // their gap and their hit areas would overlap.
+  it("uses no `lh` unit, which part of the browser floor drops", () => {
+    expect(style).not.toMatch(/[\d.]lh\b/);
+  });
+
+  it("marks every literal type size as having no token", () => {
+    expect(unmarkedTypeSizes(style)).toEqual([]);
   });
 
   it("sets the couple's names in roman and the logotype in italic", () => {

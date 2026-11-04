@@ -129,6 +129,7 @@ const { title, siteName, back } = Astro.props
       .legal h3 {
         font-family: var(--ui-font-body);
         font-weight: 400;
+        /* No type token at 1rem. */
         font-size: 1rem;
         /* No tracking token at 0.02em. */
         letter-spacing: 0.02em;
@@ -146,6 +147,7 @@ const { title, siteName, back } = Astro.props
 
       .legal .meta {
         color: var(--ui-ink-secondary);
+        /* No type token at 0.8125rem. */
         font-size: 0.8125rem;
         margin-top: 0;
       }
@@ -165,6 +167,7 @@ const { title, siteName, back } = Astro.props
       .legal .placeholder {
         color: var(--ui-accent-ink);
         font-family: var(--ui-font-mono);
+        /* No type token at 0.85em, a share of the sentence's own size. */
         font-size: 0.85em;
       }
     </style>
