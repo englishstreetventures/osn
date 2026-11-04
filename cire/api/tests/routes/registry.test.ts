@@ -1141,6 +1141,20 @@ describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => 
     }
   });
 
+  it("names no connector to a viewer whose money reason is rewritten", async () => {
+    const app = buildApp({
+      tier: "gold",
+      ...paying,
+      seed: settingsRow({ connector: OWNER, cashGiftsEnabled: true, stripeDefaultCurrency: "USD" }),
+    });
+    const res = await req(app, "GET", base, VIEWER);
+    const text = await res.text();
+    const settings = (JSON.parse(text) as RegistrySnapshot).settings;
+    expect(settings.moneyGiftsBlockedBy).toBe("not_offered");
+    expect(settings.stripeConnectedByOsnProfileId).toBeNull();
+    expect(text).not.toContain(OWNER);
+  });
+
   it("names who connected the account in a save's answer to an owner only", async () => {
     const app = buildApp({ tier: "gold", ...paying, seed: settingsRow({ connector: OWNER }) });
     const save = (profileId: string, body: unknown) =>

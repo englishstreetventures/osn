@@ -319,13 +319,19 @@ describe("only the owner who connected the account may open its links", () => {
     const built = buildApp({ stripe: stripe.client });
     box.db = built.db;
 
-    const res = await req(built.app, `${base}/session`, SECOND);
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await req(built.app, `${base}/session`, SECOND);
+    });
 
-    expect(res.status).toBe(403);
-    expect(await jsonBody(res)).toEqual({ error: "stripe_connector_only" });
+    expect(res?.status).toBe(403);
+    expect(await jsonBody(res!)).toEqual({ error: "stripe_connector_only" });
     expect(stripe.calls.filter((c) => c.startsWith("createAccountLink:"))).toEqual([]);
     expect(row(built.db)?.stripeAccountId).toBe("acct_new");
     expect(row(built.db)?.stripeConnectedByOsnProfileId).toBe(OWNER);
+    // Stripe answered with the account that is stored: nothing is orphaned,
+    // so nothing sends an operator to look for one.
+    expect(logs).not.toContain("stripe account created but not stored");
   });
 
   it("logs the account a losing connect minted, so it is not lost without a trace", async () => {

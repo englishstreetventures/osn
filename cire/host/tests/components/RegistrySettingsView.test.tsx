@@ -909,9 +909,47 @@ describe("who may connect the account", () => {
     // the button in the tab order, and the description says whose job it is.
     expect(button.getAttribute("aria-describedby")).toBe("stripe-owner-only");
     expect(screen.getByTestId("stripe-owner-only").id).toBe("stripe-owner-only");
+    // The other owners' reason is not an editor's.
+    expect(screen.queryByTestId("stripe-connector-only")).toBeNull();
     // Focusable, but still inert — pressing it asks Stripe for nothing.
     fireEvent.click(button);
     expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("gives an editor the owners' reason, not the connector's, once an account exists", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+          moneyGiftsBlockedBy: "cash_gifts_off",
+        } as never,
+      }),
+    );
+    renderPanel({ canEdit: true, canManage: false });
+
+    const button = await screen.findByRole("button", { name: /Continue on Stripe/i });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.getAttribute("aria-describedby")).toBe("stripe-owner-only");
+    expect(screen.getByTestId("stripe-owner-only")).toBeTruthy();
+    expect(screen.queryByTestId("stripe-connector-only")).toBeNull();
+  });
+
+  it("tells an owner the role gate refused them, and changes nothing it holds", async () => {
+    // A 403 that is not about the account: this organiser is no longer an owner.
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    authFetch.mockResolvedValue(json({ error: "forbidden" }, 403));
+
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: /Connect an account/i }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const words = String(toastError.mock.calls.at(-1)?.[0]);
+    expect(words).toMatch(/only the wedding’s owner/i);
+    expect(words).not.toMatch(/person who connected/i);
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(false);
   });
 });
 
