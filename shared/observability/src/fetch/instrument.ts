@@ -9,8 +9,8 @@ import { injectTraceContext } from "../tracing/propagation";
  * etc.) should go through this instead of `globalThis.fetch`. It:
  *
  * 1. Creates a client span (`HTTP <METHOD>`) with semconv attributes
- * 2. Injects `traceparent` into the outgoing headers so the receiving
- *    service's span becomes a child of ours
+ * 2. Injects `traceparent` into the outgoing headers, which the receiving
+ *    service's observability plugin attaches to its server span as a link
  * 3. Records status + error on the span
  *
  * For S2S calls that also need ARC auth, attach the `Authorization: ARC ...`

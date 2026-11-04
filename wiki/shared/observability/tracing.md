@@ -93,9 +93,13 @@ See [[overview]] and [[observability-setup]] for the full env list.
 
 **Propagate trace context across services via the shared `fetch` wrapper.** Any outbound HTTP from our code goes through `instrumentedFetch` from `@shared/observability/fetch` -- it injects `traceparent` + (if configured) the ARC token header. Never use raw `fetch()` for service-to-service calls.
 
-## Inbound traceparent trust boundary
+## Inbound trace context
 
-**Inbound `traceparent` is only trusted from ARC-authenticated callers.** The Elysia plugin extracts upstream trace context when -- and only when -- the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans to prevent external attackers from forcing sampling decisions or injecting chosen trace IDs into our internal traces.
+**Inbound trace context becomes a span link, never the parent.** The Elysia plugin starts every server span as a root (`root: true` in [plugin.ts](../../../shared/observability/src/elysia/plugin.ts)), so the span gets a trace id of its own and the registered sampler makes its own sampling decision, whatever the caller sends. A well-formed inbound `traceparent` is attached to the span as a link when the span starts, carrying the caller's trace id, span id and sampled bit and nothing else. The plugin never parses `tracestate` or `baggage`, and a malformed `traceparent` adds no link.
+
+No header changes this, `Authorization: ARC ...` included: the plugin runs before any route checks credentials, so nothing it sees proves who sent a request. The link is the caller's unverified claim, a pointer to the caller's trace and never proof that a first-party service sent the request. A trace viewer shows a cross-service call as two traces joined by a link. Samplers must not read links: one that did would hand the caller the sampling decision.
+
+The plugin starts its spans on the global OpenTelemetry tracer and extracts through the global propagator. No service registers either, so today these spans record nothing and no link is made; the rules above hold from the day one is registered. [plugin.test.ts](../../../shared/observability/tests/plugin.test.ts) registers both to test them.
 
 ## Elysia hook limitation (known)
 
@@ -105,9 +109,7 @@ Elysia's `onRequest -> handler -> onAfterResponse` hooks run as separate invocat
 - `trace.getActiveSpan()` inside a synchronous handler does NOT see the server span
 - Effect service spans created via `Effect.withSpan` become root spans rather than children of the HTTP request
 
-**Mitigations:**
-- Distributed tracing across services still works (inbound/outbound `traceparent` propagation is unaffected)
-- For handlers that explicitly want child spans, use `getRequestContext(request)` + `context.with(...)` as an escape hatch
+**What still connects:** across services, `instrumentedFetch` sends `traceparent` and the receiving plugin links it to its server span ([[#Inbound trace context]]), once a global tracer provider and propagator are registered.
 
 ## WebSocket spans
 

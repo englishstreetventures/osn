@@ -175,7 +175,9 @@ echo -n "<instance-id>:<api-token>" | base64
 
 ### Traces Not Linked Across Services
 
-**Symptom:** Each service shows its own root spans but no parent-child relationship across services.
+Each service's server span is a root of its own by design; a call between services shows as a link from the receiving service's server span to the caller's span ([[shared/observability/tracing#Inbound trace context]]).
+
+**Symptom:** A service's server span carries no link to the calling service's trace.
 
 **Cause:** Outbound HTTP calls do not use `instrumentedFetch` from `@shared/observability/fetch`, so nothing injects the `traceparent` header.
 
@@ -183,11 +185,11 @@ echo -n "<instance-id>:<api-token>" | base64
 
 ### Inbound Trace Context Trust
 
-**Symptom:** External requests show up with attacker-controlled trace IDs in internal traces.
+**Symptom:** A server span's trace id or sampling decision seems to come from the caller.
 
-**Cause:** An inbound `traceparent` is trustworthy only from an ARC-authenticated caller.
+**Cause:** Something made the inbound trace context the span's parent. The Elysia plugin never does: it starts every server span as a root and attaches a well-formed inbound `traceparent` as a link, whatever `Authorization` header the request carries.
 
-**Fix:** The Elysia plugin only extracts upstream trace context when the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans. osn-api's Workers entry runs without that plugin, so it never extracts an inbound trace context; pulse-api and zap-api mount the plugin on Workers as well.
+**Fix:** Start server spans through the plugin, and never pass an extracted inbound context as a span's parent. A linked trace id is the caller's unverified claim, not proof of who sent the request. osn-api's Workers entry runs without the plugin, so it records no inbound trace context; pulse-api and zap-api mount the plugin on Workers as well.
 
 ## Related
 
