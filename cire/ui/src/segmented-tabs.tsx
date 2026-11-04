@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
+import { GLASS_FILL } from "./lib/glass";
 import { createSlidingPill } from "./lib/sliding-pill";
 
 /**
@@ -32,8 +33,9 @@ import { createSlidingPill } from "./lib/sliding-pill";
  * Labels are sentence case at the extra-small step, normal weight, in the
  * secondary ink; the chosen one in the readable accent ink. Under the pointer
  * an unchosen choice goes halfway: half the glass's tint and an ink between
- * the two. The colours fade on `--dur-base` and name their properties, so the
- * focus ring — the dashboard's 2px ring at 2px — never fades in.
+ * the two. A hover's colours fade on `--dur-fast` and a choice's on
+ * `--dur-base` (see {@link ITEM}); both name their properties, so the focus
+ * ring — the dashboard's 2px ring at 2px — never fades in.
  *
  * ## Meaning
  *
@@ -110,33 +112,26 @@ const TRACK =
 const CLIP =
   "base:pointer-events-none base:absolute base:inset-0 base:overflow-clip base:rounded-ui-pill";
 
-/**
- * The glass's look without its place: the raised surface at 55% under the
- * accent at 14%, composited into one colour (accent 22.8% into raised, at
- * 61.3%) so the colour a label sits on can be read back and measured, its lit
- * edges, its shadow and its frost. Exported so a lone glass pill (the invite
- * builder's place on a phone, a chosen filter chip) wears the chosen choice's
- * look, not a copy of it. A contrast theme drops the fill: a lone pill draws
- * its own outline there.
- */
-export const SEGMENTED_GLASS_FILL =
-  "base:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_22.8%,var(--ui-surface-raised))_61.3%,transparent)] " +
-  "base:shadow-[var(--inner-lip,inset_0_1px_0_rgb(255_255_255/0.06)),inset_0_0_0_1px_var(--glass-edge,rgb(255_255_255/0.1)),0_0_0_0.5px_var(--ui-hairline),var(--elev-1,var(--ui-elev-1))] " +
-  "base:backdrop-blur-md base:backdrop-saturate-[1.6]";
-
 /** The glass in the track: the fill, placed by the sliding pill. */
-const GLASS = `base:absolute base:top-0 base:left-0 base:rounded-ui-pill ${SEGMENTED_GLASS_FILL}`;
+const GLASS = `base:absolute base:top-0 base:left-0 base:rounded-ui-pill ${GLASS_FILL}`;
 
 /**
  * A choice. Chosen, its word is set at medium weight, so the choice never
  * rests on colour alone. Halfway under the pointer: the raised surface at
  * 27.5% under the accent at 7% (accent 21.5% into raised, at 32.6%), and an
  * ink midway between the secondary ink and the readable accent ink.
+ *
+ * Two clocks, by the state a choice moves to: a hover comes and goes on
+ * `--dur-fast` with `--ease-out`, and a choice being made arrives on
+ * `--dur-base` with `--ease-in-out`, the glass's own step. A browser takes a
+ * transition from the state it moves to, so the choice giving the mark up
+ * runs on the rest clock, the fast one.
  */
 const ITEM =
   "base:relative base:inline-flex base:h-5.5 base:shrink-0 base:cursor-pointer base:items-center base:gap-1.5 base:rounded-ui-pill base:px-3 " +
   "base:font-ui-body base:text-ui-xs base:font-normal base:tracking-ui-normal base:leading-none base:whitespace-nowrap base:text-ui-ink-secondary base:outline-none " +
-  "base:transition-[color,background-color] base:duration-[var(--dur-base,var(--ui-dur-base))] base:ease-[var(--ease-in-out,var(--ui-ease-in-out))] base:motion-reduce:transition-none " +
+  "base:transition-[color,background-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] base:ease-[var(--ease-out,var(--ui-ease-out))] base:motion-reduce:transition-none " +
+  "base:data-[chosen]:duration-[var(--dur-base,var(--ui-dur-base))] base:data-[chosen]:ease-[var(--ease-in-out,var(--ui-ease-in-out))] " +
   "base:data-[chosen]:text-ui-accent-ink base:data-[chosen]:font-medium " +
   "base:not-data-[chosen]:hover:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_21.5%,var(--ui-surface-raised))_32.6%,transparent)] " +
   "base:not-data-[chosen]:hover:[color:color-mix(in_srgb,var(--ui-ink-secondary),var(--ui-accent-ink))] " +

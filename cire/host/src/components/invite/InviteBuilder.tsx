@@ -46,8 +46,9 @@ import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Disclosure from "@cire/ui/disclosure";
 import Eyebrow from "@cire/ui/eyebrow";
+import { GLASS_FILL } from "@cire/ui/lib/glass";
 import Loading from "@cire/ui/loading";
-import SegmentedTabs, { SEGMENTED_GLASS_FILL } from "@cire/ui/segmented-tabs";
+import SegmentedTabs from "@cire/ui/segmented-tabs";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import {
@@ -903,7 +904,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               weight, as on a strip; a contrast theme drops the glass, so the
               pill draws its own edge there. */}
           <span
-            class={`${SEGMENTED_GLASS_FILL} font-body text-gold-ink text-ui-xs flex h-7 min-w-0 items-center gap-1.5 rounded-full px-3 leading-none font-medium forced-colors:border`}
+            class={`${GLASS_FILL} font-body text-gold-ink text-ui-xs flex h-7 min-w-0 items-center gap-1.5 rounded-full px-3 leading-none font-medium forced-colors:border`}
           >
             <Show when={place().note}>
               <HiddenSectionIcon />
@@ -911,7 +912,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
             <span class="truncate">{place().label}</span>
           </span>
           <span
-            class={`${SEGMENTED_GLASS_FILL} text-text-muted group-hover:text-gold-ink transition-ui-colors flex size-7 shrink-0 items-center justify-center rounded-full duration-(--dur-fast) ease-(--ease-out) forced-colors:border`}
+            class={`${GLASS_FILL} text-text-muted group-hover:text-gold-ink transition-ui-colors flex size-7 shrink-0 items-center justify-center rounded-full duration-(--dur-fast) ease-(--ease-out) forced-colors:border`}
           >
             <ChevronDown aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
           </span>

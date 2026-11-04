@@ -88,6 +88,20 @@ describe("the glass", () => {
     expect(Math.abs(box.height - item.height)).toBeLessThan(0.5);
   });
 
+  for (const ramp of RAMPS) {
+    it(`is lit and frosted: an inner lip, a light edge, a lift and a blur, ${ramp}`, async () => {
+      render(() => <Strip ramp={ramp} />);
+      await settle();
+      const pane = getComputedStyle(glass());
+      // The inner lip and the light edge are inset shadows; the lift is not.
+      const shadows = pane.boxShadow.split(/,(?![^(]*\))/).map((s) => s.trim());
+      expect(shadows.filter((s) => s.includes("inset"))).toHaveLength(2);
+      expect(shadows.filter((s) => !s.includes("inset")).length).toBeGreaterThanOrEqual(2);
+      expect(pane.backdropFilter).toMatch(/blur\(12px\)/);
+      expect(pane.backdropFilter).toMatch(/saturate\(1\.6\)/);
+    });
+  }
+
   it("shows nothing in a copy that is not displayed", async () => {
     render(() => (
       <div style={{ display: "none" }}>
@@ -193,6 +207,57 @@ describe("in a contrast theme", () => {
     await settle();
     expect(getComputedStyle(screen.getByRole("tab", { name: "Hero" })).outlineStyle).toBe("solid");
     expect(getComputedStyle(screen.getByRole("tab", { name: "Events" })).outlineStyle).toBe("none");
+  });
+});
+
+describe("the clock each change runs on", () => {
+  /** The duration and curve a choice's colours move on, as the browser reads them. */
+  function clock(tab: HTMLElement) {
+    const style = getComputedStyle(tab);
+    return { duration: style.transitionDuration, easing: style.transitionTimingFunction };
+  }
+
+  // Values apart from the fallbacks and from each other, so the token each
+  // state reads is the one that shows.
+  const LADDER = {
+    "--dur-fast": "70ms",
+    "--dur-base": "170ms",
+    "--ease-out": "cubic-bezier(0.1, 0.9, 0.2, 1)",
+    "--ease-in-out": "cubic-bezier(0.6, 0, 0.4, 1)",
+  } as JSX.CSSProperties;
+
+  it("moves a hover on the fast step and the arriving curve", async () => {
+    render(() => (
+      <div style={LADDER}>
+        <Strip />
+      </div>
+    ));
+    const idle = screen.getByRole("tab", { name: "Events" });
+    expect(clock(idle)).toEqual({ duration: "0.07s", easing: "cubic-bezier(0.1, 0.9, 0.2, 1)" });
+    await userEvent.hover(idle);
+    expect(clock(idle)).toEqual({ duration: "0.07s", easing: "cubic-bezier(0.1, 0.9, 0.2, 1)" });
+  });
+
+  it("moves a choice being made on the base step and the in-out curve", async () => {
+    render(() => (
+      <div style={LADDER}>
+        <Strip />
+      </div>
+    ));
+    expect(clock(screen.getByRole("tab", { name: "Hero" }))).toEqual({
+      duration: "0.17s",
+      easing: "cubic-bezier(0.6, 0, 0.4, 1)",
+    });
+    await userEvent.click(screen.getByRole("tab", { name: "Events" }));
+    expect(clock(screen.getByRole("tab", { name: "Events" }))).toEqual({
+      duration: "0.17s",
+      easing: "cubic-bezier(0.6, 0, 0.4, 1)",
+    });
+    // The choice giving the mark up goes back to the rest clock.
+    expect(clock(screen.getByRole("tab", { name: "Hero" }))).toEqual({
+      duration: "0.07s",
+      easing: "cubic-bezier(0.1, 0.9, 0.2, 1)",
+    });
   });
 });
 

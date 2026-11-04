@@ -525,7 +525,7 @@ exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its sixteen
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
 `disclosure`, `eyebrow`, `file-input`, `loading`, `message-thread`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `skeleton`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class`, `sign-in-press` and `avatar-trigger-class` are named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
-default, `message-thread` the `MessageThreadItem` and `MessageThreadReply` types, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL`,
+default, `message-thread` the `MessageThreadItem` and `MessageThreadReply` types, `eyebrow` a named `eyebrowClass`, `lib/glass` a named `GLASS_FILL`,
 `sign-in-panel` the `SignInAuth` type, `skeleton` the `SkeletonStandIn` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, and
 `wordmark` a named `WordmarkPlaceholder`. `sign-in-card.astro`, `site-footer.astro` and `legal-layout.astro` are Astro components, imported by default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
@@ -1102,7 +1102,11 @@ app token; white at 10% when unset), a hairline ring, the first lift and a
 (`--ease-spring`, falling back to the app's ease-out) at `--dur-base`, inside
 its own layer clipped to the track's shape, so an overshoot is cut by the
 track and no focus ring is. Under the pointer an unchosen choice goes halfway:
-half the tint, an ink between the two. Colours fade on named properties, so
+half the tint, an ink between the two. A hover's colours come and go on
+`--dur-fast` with `--ease-out`; a choice being made arrives on `--dur-base`
+with `--ease-in-out` (the one motion rule, host `DESIGN.md` §4; a browser takes
+a transition from the state it moves to, so the choice giving the mark up runs
+on the fast clock). Colours fade on named properties, so
 the 2px ring at 2px never fades in; a reader who turned motion down gets no
 slide and no fade. The frosted backdrop is filtered again on every frame of a
 slide: a cost on low-end phones that the owner's frosted look accepts. In a
@@ -1126,9 +1130,11 @@ on one row and scrolls it sideways inside its box, the chosen choice and one
 the arrows reach kept in view without moving the page. `class` sets the
 strip's place in its row only.
 
-`SEGMENTED_GLASS_FILL` is the glass's look without its place, for a lone glass
-pill that is no strip's choice: the invite builder's place on a phone. A
-contrast theme drops its fill, so such a pill draws its own edge there.
+`GLASS_FILL` (`@cire/ui/lib/glass`) is the glass's look without its place, for
+a lone glass pill that is no strip's choice: the invite builder's place on a
+phone. A contrast theme drops its fill, so such a pill draws its own edge
+there. The guest site and the marketing site leave `lib/glass.ts` out of their
+Tailwind scan beside `segmented-tabs.tsx`, so no glass rule reaches their CSS.
 
 Where the portals draw it: a module's views (`ModuleShell`, `tabs`, icon-only
 below 36rem with `data-tip`), the Edit modes (`EditWorkspace`, `radio`), the
