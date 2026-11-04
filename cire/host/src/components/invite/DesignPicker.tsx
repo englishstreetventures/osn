@@ -109,7 +109,7 @@ export default function DesignPicker(props: {
             return (
               <div
                 class={`${DESIGN_CARD_CLASS} transition-[color,background-color,border-color,box-shadow] ${
-                  checked() ? BLOCK_CHOSEN : "duration-(--dur-fast) ease-(--ease-out)"
+                  checked() ? BLOCK_CHOSEN : ""
                 }`}
               >
                 {/* Raw: one radio of a roving-focus group, unframed inside the

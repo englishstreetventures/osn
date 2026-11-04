@@ -740,16 +740,6 @@ function paint(color: string): string {
 const rootToken = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-/** A duration token as the browser computes it on an element. */
-function clockOf(token: string): string {
-  const probe = document.createElement("div");
-  probe.style.transitionDuration = `var(${token})`;
-  document.body.append(probe);
-  const value = getComputedStyle(probe).transitionDuration;
-  probe.remove();
-  return value;
-}
-
 describe("the RSVP bar's one pill language", () => {
   it("draws every pill in the bar, and the section's download, at 28px", async () => {
     await page.viewport(1280, 900);
@@ -792,9 +782,6 @@ describe("the RSVP bar's one pill language", () => {
     expect(paint(getComputedStyle(search).borderTopColor)).toBe(
       paint(rootToken("--border-strong")),
     );
-    // The edge moves on the hover clock and names no outline.
-    expect(getComputedStyle(search).transitionProperty).not.toMatch(/outline|all/);
-    expect(getComputedStyle(search).transitionDuration).toBe(clockOf("--dur-fast"));
   });
 
   it("rests the phone's sort select on the track's look, its edge strong under the pointer and on focus", async () => {
@@ -806,7 +793,6 @@ describe("the RSVP bar's one pill language", () => {
     expect(sort.getBoundingClientRect().height).toBe(28);
     // Its call site's own cap (`max-w-28`) reaches it through the part.
     expect(sort.getBoundingClientRect().width).toBeLessThanOrEqual(112);
-    expect(getComputedStyle(sort).transitionDuration).toBe(clockOf("--dur-fast"));
     expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border")));
     expect(paint(getComputedStyle(sort).backgroundColor)).toBe(
       paint(getComputedStyle(search).backgroundColor),

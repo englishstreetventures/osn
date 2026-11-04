@@ -69,6 +69,12 @@ describe("LinkPill", () => {
       expect(getComputedStyle(link).fontSize).toBe(getComputedStyle(probe).fontSize);
       probe.remove();
       expect(getComputedStyle(link).fontWeight).toBe("500");
+      // `outline`: the word in readable gold.
+      const ink = document.createElement("div");
+      ink.style.color = "var(--ui-accent-ink)";
+      document.body.append(ink);
+      expect(getComputedStyle(link).color).toBe(getComputedStyle(ink).color);
+      ink.remove();
     }
   });
 

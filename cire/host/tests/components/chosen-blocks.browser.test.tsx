@@ -17,6 +17,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 }));
 
 import CreateWeddingForm from "../../src/components/CreateWeddingForm";
+import { FilterSearch, FilterSelect } from "../../src/components/FilterField";
 import RemintPanel from "../../src/components/RemintPanel";
 import SecurityPanel from "../../src/components/SecurityPanel";
 
@@ -106,6 +107,49 @@ describe("a code-style card", () => {
     const chosen = radios.find((r) => (r as HTMLInputElement).checked)!.closest("label")!;
     const idle = radios.find((r) => !(r as HTMLInputElement).checked)!.closest("label")!;
     expect(await measure(chosen, idle)).toEqual(CHOSEN_AND_HALFWAY);
+  });
+});
+
+/*
+ * The filter parts' own type and clock, measured here rather than in the RSVP
+ * page's suite, which turns every transition off to read colours: a filter's
+ * words on the small step, and its edge moving on the hover clock with no
+ * outline in the list, so the focus ring lands at once.
+ */
+describe("a filter part", () => {
+  it("sets its words on the small step and moves its edge on the hover clock", () => {
+    render(() => (
+      <div class="bg-bg w-80 p-4">
+        <FilterSearch type="search" aria-label="Search guests" />
+        <FilterSelect aria-label="Event">
+          <option>Ceremony</option>
+        </FilterSelect>
+      </div>
+    ));
+    const clock = (() => {
+      const probe = document.createElement("div");
+      probe.style.transitionDuration = "var(--dur-fast)";
+      document.body.append(probe);
+      const value = getComputedStyle(probe).transitionDuration;
+      probe.remove();
+      return value;
+    })();
+    const small = (() => {
+      const probe = document.createElement("div");
+      probe.style.fontSize = "var(--ui-text-sm)";
+      document.body.append(probe);
+      const value = getComputedStyle(probe).fontSize;
+      probe.remove();
+      return value;
+    })();
+    for (const field of [
+      screen.getByRole("searchbox", { name: "Search guests" }),
+      screen.getByRole("combobox", { name: "Event" }),
+    ]) {
+      const style = getComputedStyle(field);
+      expect([style.fontSize, style.transitionDuration]).toEqual([small, clock]);
+      expect(style.transitionProperty).not.toMatch(/outline|all/);
+    }
   });
 });
 
