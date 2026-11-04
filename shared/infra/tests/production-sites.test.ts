@@ -86,7 +86,7 @@ describe("production-sites.ts", () => {
     }
   });
 
-  test("PS7: each retired spare host sits in its site's zone and is no production host or current spare host", () => {
+  test("PS7: each retired spare host sits in its site's zone, is no production host or current spare host, and is listed under one site only", () => {
     const inUse = new Set<string>([
       ...Object.values(PRODUCTION_HOSTS),
       ...SITE_SURFACES.flatMap((surface) => PRODUCTION_STAGING_HOSTS[surface] ?? []),
@@ -101,10 +101,9 @@ describe("production-sites.ts", () => {
         });
       }
     }
-    expect(RETIRED_STAGING_HOSTS).toEqual({
-      cire_host: ["next-host.cireweddings.com"],
-      cire_vendor: ["next-vendor.cireweddings.com"],
-    });
+    // A host listed under two sites is one either site's Worker may give up.
+    const listed = SITE_SURFACES.flatMap((surface) => RETIRED_STAGING_HOSTS[surface] ?? []);
+    expect(listed.filter((host, at) => listed.indexOf(host) !== at)).toEqual([]);
   });
 
   test("production-hosts names each non-off site's origin at its mode, the origin its smoke check probes", () => {

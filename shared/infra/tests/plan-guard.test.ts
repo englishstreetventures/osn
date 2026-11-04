@@ -695,4 +695,15 @@ describe("domainRefusals", () => {
       ),
     );
   });
+
+  test("GD8: with the shipped list, a site with no retired entry gives up its spare host freely and refuses any other host", () => {
+    expect(
+      domainRefusals([{ site: "cire_landing", added: [], removed: ["next.cireweddings.com"] }]),
+    ).toEqual([]);
+    expect(
+      domainRefusals([{ site: "cire_landing", added: [], removed: ["old.cireweddings.com"] }]),
+    ).toEqual([
+      "cire_landing's Worker would give up old.cireweddings.com; only a release dispatched with unflip: cire_landing takes a production host off its Worker",
+    ]);
+  });
 });
