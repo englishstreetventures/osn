@@ -19,7 +19,7 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
-import { commands, userEvent } from "vitest/browser";
+import { commands, page as browserPage, userEvent } from "vitest/browser";
 
 import Button, { type ButtonVariant } from "../src/button";
 import { GLASS_FILL } from "../src/lib/glass";
@@ -354,10 +354,36 @@ describe("glass, one of several", () => {
     render(() => <Pair ramp="dark" chosen="Phone" />);
     expect(widths()).toEqual(before);
     // The room held for the medium weight is drawn, never named or found as
-    // text.
-    expect(screen.getByRole("button", { name: "Phone" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Phone Phone" })).toBeNull();
+    // text: the browser's own accessibility tree, which reads generated
+    // content, names each pill by its word once.
+    expect(browserPage.getByRole("button", { name: "Phone", exact: true }).elements()).toHaveLength(
+      1,
+    );
+    expect(
+      browserPage.getByRole("button", { name: "Desktop", exact: true }).elements(),
+    ).toHaveLength(1);
     expect(screen.getAllByText("Phone")).toHaveLength(1);
+    // And the room sits under the word, not beside it: the word's box is its
+    // own width at the wider weight, not twice it.
+    const word = screen.getByText("Phone");
+    const range = document.createRange();
+    range.selectNodeContents(word.firstChild!);
+    expect(word.getBoundingClientRect().width).toBeLessThan(
+      range.getBoundingClientRect().width * 1.15,
+    );
+  });
+
+  it("lets content that is more than a word name itself, unwrapped", () => {
+    render(() => (
+      <Ground>
+        <Button variant="glass" aria-pressed="false">
+          <span>Wide</span>
+        </Button>
+      </Ground>
+    ));
+    const pill = browserPage.getByRole("button", { name: "Wide", exact: true });
+    expect(pill.elements()).toHaveLength(1);
+    expect(pill.element().querySelector("[data-glass-word]")).toBeNull();
   });
 
   it("marks a chosen radio as it marks a pressed button", async () => {
