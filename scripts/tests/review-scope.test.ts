@@ -3,7 +3,15 @@ import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { changeClass, classifyPath, parseRawZ, reviewScope } from "../review-scope";
+import {
+  changeClass,
+  changedLines,
+  classifyPath,
+  parseRawZ,
+  reviewScope,
+  stateCandidate,
+  writesState,
+} from "../review-scope";
 
 // --- what each path is --------------------------------------------------------
 
@@ -165,9 +173,178 @@ test("one change outside the list makes the whole diff full", () => {
   );
 });
 
-// An empty list means the wrong range was diffed, never that nothing changed.
-test("an empty list is full", () => {
-  expect(reviewScope([])).toBe("full");
+// An empty list means the wrong range was diffed, never that nothing changed,
+// so it gets every review there is, the state review included.
+test("an empty list is full-state", () => {
+  expect(reviewScope([])).toBe("full-state");
+});
+
+test("a full diff that writes state is full-state", () => {
+  expect(reviewScope([file("pulse/api/src/services/events.ts")], true)).toBe("full-state");
+  expect(reviewScope([file("pulse/api/src/services/events.ts")], false)).toBe("full");
+});
+
+// --- whether the diff writes state --------------------------------------------
+
+const SERVICE = "pulse/api/src/services/events.ts";
+const UPDATE_CHAIN = [
+  "export const close = (id: string) =>",
+  "  db",
+  "    .update(events)",
+  "    .set({",
+  '      status: "finished",',
+  "    })",
+  "    .where(eq(events.id, id));",
+].join("\n");
+
+test("only source and migrations are read for state, never tests or tooling", () => {
+  expect(stateCandidate(file(SERVICE))).toBe(true);
+  expect(stateCandidate(file("cire/db/src/schema.ts"))).toBe(true);
+  expect(stateCandidate(file("cire/db/migrations/0091_task_assignees.sql"))).toBe(true);
+  expect(stateCandidate(file("pulse/web/src/pages/Event.tsx"))).toBe(true);
+
+  expect(stateCandidate(file("pulse/api/tests/services/events.test.ts"))).toBe(false);
+  expect(stateCandidate(file("pulse/api/tests/helpers/db.ts"))).toBe(false);
+  expect(stateCandidate(file("cire/db/tests/migrations/0001_seed.sql"))).toBe(false);
+  expect(stateCandidate(file("cire/api/src/lib/claim.test.ts"))).toBe(false);
+  expect(stateCandidate(file("cire/api/src/lib/claim.spec.ts"))).toBe(false);
+
+  expect(stateCandidate(file("scripts/review-scope.ts"))).toBe(false);
+  expect(stateCandidate(file("scripts/cire-db-migrate.ts"))).toBe(false);
+  expect(stateCandidate(file("pulse/api/src/README.md"))).toBe(false);
+  expect(stateCandidate(file("cire/api/src/fixtures/rows.json"))).toBe(false);
+});
+
+test("a symlink or a submodule is never read for state", () => {
+  expect(stateCandidate({ path: SERVICE, modes: ["000000", "120000"] })).toBe(false);
+  expect(stateCandidate({ path: SERVICE, modes: ["100644", "160000"] })).toBe(false);
+  expect(stateCandidate({ path: SERVICE, modes: [], symlink: true })).toBe(false);
+});
+
+test("a status line counts when the file writes the database, though the line holds no write call", () => {
+  expect(writesState(SERVICE, ['      status: "cancelled",'], UPDATE_CHAIN)).toBe(true);
+});
+
+test("a removed guard counts: the removed line is the one naming the status", () => {
+  const patch = [
+    "diff --git a/pulse/api/src/services/events.ts b/pulse/api/src/services/events.ts",
+    "index 1111111..2222222 100644",
+    "--- a/pulse/api/src/services/events.ts",
+    "+++ b/pulse/api/src/services/events.ts",
+    "@@ -7 +7 @@",
+    '-    .where(and(eq(events.id, id), ne(events.status, "cancelled")));',
+    "+    .where(eq(events.id, id));",
+    "",
+  ].join("\n");
+
+  expect(writesState(SERVICE, changedLines(patch), UPDATE_CHAIN)).toBe(true);
+});
+
+test("timestamps, actors and reasons that travel with a state count", () => {
+  for (const line of [
+    "      completedAt: new Date(),",
+    "    set.paidAt = null;",
+    "      revokedBy: callerId,",
+    '      cancellationReason: "organiser",',
+    "      hardDeleteAt: nowSec + window,",
+    "      isArchived: true,",
+  ]) {
+    expect(writesState(SERVICE, [line], UPDATE_CHAIN)).toBe(true);
+  }
+});
+
+test("a state declared in a schema file counts", () => {
+  const schema =
+    'export const imports = sqliteTable("imports", {\n  id: text("id").primaryKey(),\n});';
+  for (const line of [
+    '    kind: text("kind", { enum: ["import", "editor"] }).notNull(),',
+    '    selected: integer("selected", { mode: "boolean" }).notNull(),',
+    'export type Tier = "gold" | "crimson";',
+    "    check(\"unlock_codes_tier_ck\", sql`tier in ('gold','crimson')`),",
+    'const Tier = Schema.Literals(["gold", "crimson"]);',
+  ]) {
+    expect(writesState("cire/db/src/schema.ts", [line], schema)).toBe(true);
+  }
+});
+
+test("a migration that adds a state column, a CHECK or a trigger counts", () => {
+  const migration = "cire/db/migrations/20261104091938_vendor_status_check.sql";
+  for (const line of [
+    "ALTER TABLE `tasks` ADD `archived_at` integer;",
+    "CREATE TRIGGER `vendors_tier` BEFORE INSERT ON `vendors`",
+    "\tCONSTRAINT `unlock_codes_tier_ck` CHECK(tier in ('gold','crimson')),",
+    "\t`payment_status` text NOT NULL,",
+  ]) {
+    expect(writesState(migration, [line], "")).toBe(true);
+  }
+});
+
+test("creation and update stamps alone are not state", () => {
+  const lines = [
+    "      createdAt: now,",
+    "      updatedAt: now,",
+    "      imagesUpdatedAt: now,",
+    "  `created_by` text NOT NULL,",
+    "  `last_updated_at` integer,",
+    "      lastUpdatedBy: callerId,",
+  ];
+  expect(writesState(SERVICE, lines, UPDATE_CHAIN)).toBe(false);
+  expect(writesState("cire/db/migrations/0092_x.sql", lines, "")).toBe(false);
+});
+
+test("orderBy and groupBy are not actor markers", () => {
+  const lines = ["    .orderBy(desc(events.startTime))", "    .groupBy(registryClaims.weddingId)"];
+  expect(writesState(SERVICE, lines, UPDATE_CHAIN)).toBe(false);
+});
+
+test("a status word in code that writes no database is not state", () => {
+  const route = 'app.get("/events/:id", ({ set }) => {\n  set.status = 404;\n});';
+  expect(writesState("pulse/api/src/routes/events.ts", ["  set.status = 404;"], route)).toBe(false);
+  expect(
+    writesState(
+      "pulse/web/src/pages/Event.tsx",
+      ["  const [status, setStatus] = createSignal();"],
+      "",
+    ),
+  ).toBe(false);
+});
+
+test("a local boolean in a file that writes the database is not a flag", () => {
+  const lines = ["    const isOwner = existing.createdByProfileId === callerId;"];
+  expect(writesState(SERVICE, lines, UPDATE_CHAIN)).toBe(false);
+});
+
+test("a comment naming a status is not state", () => {
+  const lines = [
+    "    // status moves to cancelled here",
+    "   * The status column is terminal once cancelled.",
+    "    /* status */",
+  ];
+  expect(writesState(SERVICE, lines, UPDATE_CHAIN)).toBe(false);
+  expect(writesState("cire/db/migrations/0092_x.sql", ["-- status is a stage"], "")).toBe(false);
+});
+
+test("changedLines keeps every added and removed line after the hunk header", () => {
+  const patch = [
+    "diff --git a/cire/db/migrations/0092_x.sql b/cire/db/migrations/0092_x.sql",
+    "index 1111111..2222222 100644",
+    "--- a/cire/db/migrations/0092_x.sql",
+    "+++ b/cire/db/migrations/0092_x.sql",
+    "@@ -2 +2 @@",
+    "--- an old comment",
+    "+++retries;",
+    "@@ -9,0 +10 @@",
+    "+ALTER TABLE `t` ADD `s` text;",
+    "\\ No newline at end of file",
+    "",
+  ].join("\n");
+
+  expect(changedLines(patch)).toEqual([
+    "-- an old comment",
+    "++retries;",
+    "ALTER TABLE `t` ADD `s` text;",
+  ]);
+  expect(changedLines("")).toEqual([]);
 });
 
 // --- the command, in a real repository ----------------------------------------
@@ -282,6 +459,95 @@ test("the command reads a path with a quote and a newline whole", async () => {
     git("commit", "-qm", "odd name");
 
     expect((await scope(dir)).stdout).toBe("trivial\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+const WRITER = [
+  "export const close = (id: string) =>",
+  "  db",
+  "    .update(events)",
+  "    .set({ endTime: now })",
+  "    .where(eq(events.id, id));",
+  "",
+].join("\n");
+
+test("the command finds state in committed, uncommitted and untracked source", async () => {
+  const { dir, git } = await repo();
+  try {
+    await mkdir(join(dir, "svc", "src"), { recursive: true });
+    await writeFile(join(dir, "svc", "src", "events.ts"), WRITER);
+    git("add", ".");
+    git("commit", "-qm", "a writer of no state");
+    expect((await scope(dir)).stdout).toBe("full\n");
+
+    // An uncommitted edit to the committed writer.
+    await writeFile(
+      join(dir, "svc", "src", "events.ts"),
+      WRITER.replace("{ endTime: now }", '{ endTime: now, status: "finished" }'),
+    );
+    expect((await scope(dir)).stdout).toBe("full-state\n");
+
+    // Committed, it still counts.
+    git("commit", "-qam", "close writes status");
+    expect((await scope(dir)).stdout).toBe("full-state\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the command finds state in an untracked file", async () => {
+  const { dir } = await repo();
+  try {
+    await mkdir(join(dir, "svc", "src"), { recursive: true });
+    await writeFile(
+      join(dir, "svc", "src", "events.ts"),
+      WRITER.replace("{ endTime: now }", '{\n      status: "finished",\n    }'),
+    );
+    expect((await scope(dir)).stdout).toBe("full-state\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the command finds state in a deleted writer", async () => {
+  const { dir, git } = await repo();
+  try {
+    git("checkout", "-q", "main");
+    await mkdir(join(dir, "svc", "src"), { recursive: true });
+    await writeFile(
+      join(dir, "svc", "src", "events.ts"),
+      WRITER.replace("{ endTime: now }", '{ status: "finished" }'),
+    );
+    git("add", ".");
+    git("commit", "-qm", "a writer of status");
+    git("checkout", "-q", "-B", "work");
+    git("rm", "-q", "svc/src/events.ts");
+    git("commit", "-qm", "drop the writer");
+
+    expect((await scope(dir)).stdout).toBe("full-state\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the command reads no state from test code or tooling", async () => {
+  const { dir } = await repo();
+  try {
+    await mkdir(join(dir, "svc", "tests"), { recursive: true });
+    await writeFile(
+      join(dir, "svc", "tests", "events.test.ts"),
+      WRITER.replace("{ endTime: now }", '{ status: "finished" }'),
+    );
+    expect((await scope(dir)).stdout).toBe("trivial-tests\n");
+
+    await mkdir(join(dir, "scripts"), { recursive: true });
+    await writeFile(
+      join(dir, "scripts", "seed.ts"),
+      WRITER.replace("{ endTime: now }", '{ status: "finished" }'),
+    );
+    expect((await scope(dir)).stdout).toBe("full\n");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
