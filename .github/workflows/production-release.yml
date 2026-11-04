@@ -380,12 +380,16 @@ jobs:
       #   PUBLIC_ORGANISER_URL — target of the primary "Create your invitation"
       #     CTA: the organiser portal.
       #   SITE — canonical origin for SEO meta; the apex cireweddings.com.
+      #   PUBLIC_BUILD_SHA — the commit this build is made from; the footer
+      #     prints its first seven characters as the version, so a report
+      #     from a phone says which build it was.
       - name: Build cire/landing
         if: needs.plan.outputs.stack_cire == 'true' || needs.plan.outputs.cire_landing == 'true'
         run: bun run build --filter=@cire/landing
         env:
           PUBLIC_ORGANISER_URL: https://host.cireweddings.com
           SITE: https://cireweddings.com
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
 
       # VITE_TURNSTILE_SITEKEY is the client half of the Turnstile gate, and is
       # not optional here: osn-api holds TURNSTILE_SECRET_KEY, so

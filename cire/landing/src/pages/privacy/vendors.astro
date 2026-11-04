@@ -3,7 +3,7 @@
 // a vendor portal account. It holds what the hosts' notice (`hosts.astro`) says
 // about vendors, every part of that notice that applies to them as well, and
 // what a vendor portal account holds, which the hosts' notice never covers.
-import LegalLayout from '../../layouts/LegalLayout.astro'
+import LegalPage from '../../layouts/LegalPage.astro'
 import PrivacyNav from '../../components/PrivacyNav.astro'
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 
@@ -16,7 +16,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 // is still a token.
 const draft = draftPending()
 ---
-<LegalLayout title="Privacy Notice for Vendors">
+<LegalPage title="Privacy Notice for Vendors">
   {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this notice is not final. Some details of the operator are
@@ -186,4 +186,4 @@ const draft = draftPending()
     <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
     <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
-</LegalLayout>
+</LegalPage>

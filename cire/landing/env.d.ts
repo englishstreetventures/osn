@@ -14,6 +14,13 @@ interface ImportMetaEnv {
    * left unset to fall back to the in-page interactive demo (no external link).
    */
   readonly PUBLIC_DEMO_INVITE_URL?: string;
+  /**
+   * The commit this build was made from (`github.sha`), set by the deploy
+   * workflows. The footer prints its first seven characters as the build's
+   * version; unset ⇒ "local". Baked in at build time, and in turbo's
+   * `PUBLIC_*` env hash, so a new commit never replays an older build.
+   */
+  readonly PUBLIC_BUILD_SHA?: string;
 }
 
 interface ImportMeta {

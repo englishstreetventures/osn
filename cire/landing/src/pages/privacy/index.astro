@@ -3,7 +3,7 @@
 // and who to contact, with links to each notice. Every statement here is one
 // the notices already make (`hosts.astro`, `vendors.astro`, and `@cire/ui`'s
 // guest notice); change a notice and check this page still agrees with it.
-import LegalLayout from '../../layouts/LegalLayout.astro'
+import LegalPage from '../../layouts/LegalPage.astro'
 import PrivacyNav from '../../components/PrivacyNav.astro'
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 
@@ -16,7 +16,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 // is still a token.
 const draft = draftPending(LEGAL_ENTITY.regulator)
 ---
-<LegalLayout title="Privacy">
+<LegalPage title="Privacy">
   {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this page is not final. Some details of the operator are
@@ -80,4 +80,4 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
     <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire),
     <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span>.
   </p>
-</LegalLayout>
+</LegalPage>

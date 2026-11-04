@@ -645,6 +645,8 @@ jobs:
         env:
           PUBLIC_ORGANISER_URL: ${{ steps.hosts.outputs.cire_host_origin }}
           SITE: ${{ steps.hosts.outputs.cire_landing_origin }}
+          # The version the footer prints, as on the guest site's build above.
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
 
       # Each warns (the step stays green) when its bundle is over its budget,
       # and fails, stopping the deploy, on a public source map (anywhere in a

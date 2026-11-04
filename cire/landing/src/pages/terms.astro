@@ -1,5 +1,5 @@
 ---
-import LegalLayout from '../layouts/LegalLayout.astro'
+import LegalPage from '../layouts/LegalPage.astro'
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 
 // Highlight a detail only while THAT detail is still a placeholder. A page-wide
@@ -11,7 +11,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 // is still a token.
 const draft = draftPending(LEGAL_ENTITY.governingLaw, LEGAL_ENTITY.merchantOfRecord)
 ---
-<LegalLayout title="Terms of Service">
+<LegalPage title="Terms of Service">
   {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this notice is not final. Some details of the operator are
@@ -123,4 +123,4 @@ const draft = draftPending(LEGAL_ENTITY.governingLaw, LEGAL_ENTITY.merchantOfRec
   <p>
     Questions about these terms: <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
-</LegalLayout>
+</LegalPage>
