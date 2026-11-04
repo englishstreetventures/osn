@@ -380,6 +380,15 @@ describe("EventTable events CSV export", () => {
     await waitFor(() => screen.getByText("Reception"));
     expect(screen.queryByRole("button", { name: /Download events/i })).toBeNull();
   });
+
+  // The download waits, unseen, while the events load; a wedding with no
+  // events has nothing to export, so it never arrives.
+  it("offers an owner no events download while the wedding has no events", async () => {
+    authFetchMock.mockResolvedValueOnce(json([]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" canManage />);
+    await waitFor(() => screen.getByText("No events yet"));
+    expect(screen.queryByRole("button", { name: /Download events/i })).toBeNull();
+  });
 });
 
 describe("EventTable open-ended events (endAt '')", () => {
