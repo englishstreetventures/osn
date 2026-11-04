@@ -935,6 +935,22 @@ describe("who may connect the account", () => {
     expect(button.getAttribute("aria-describedby")).toBe("stripe-owner-only");
     expect(screen.getByTestId("stripe-owner-only")).toBeTruthy();
     expect(screen.queryByTestId("stripe-connector-only")).toBeNull();
+    // An editor helps the couple, so the account is still "yours" to them.
+    expect(screen.getByTestId("stripe-status").textContent).toMatch(/straight to your account/i);
+  });
+
+  it("says Stripe could not be reached when the refusal is not a 403", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    authFetch.mockResolvedValue(json({ error: "stripe_unavailable" }, 502));
+
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: /Connect an account/i }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toBe(
+      "Couldn’t reach Stripe just now. Try again in a moment.",
+    );
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(false);
   });
 
   it("tells an owner the role gate refused them, and changes nothing it holds", async () => {
@@ -1176,7 +1192,11 @@ describe("what the panel says about the account", () => {
       "wed_1",
       snapshot({
         items: [item()],
-        settings: { stripeConnected: true, stripeChargesEnabled: false } as never,
+        settings: {
+          stripeConnected: true,
+          stripeChargesEnabled: false,
+          stripeConnectedByOsnProfileId: ME,
+        } as never,
       }),
     );
     // The mount read finds nothing has changed, so the panel stays where it was.

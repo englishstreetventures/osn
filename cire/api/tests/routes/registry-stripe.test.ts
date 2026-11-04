@@ -268,8 +268,10 @@ describe("only the owner who connected the account may open its links", () => {
     expect(stripe.calls).toEqual([]);
     expect(row(db)?.stripeAccountId).toBe("acct_first");
     expect(row(db)?.stripeConnectedByOsnProfileId).toBe(OWNER);
-    // The refusal is logged by wedding, never by person.
+    // The refusal is logged by wedding and reason, never by person.
     expect(logs).toContain("stripe onboarding refused");
+    expect(logs).toContain(BOOTSTRAP_WEDDING_ID);
+    expect(logs).toContain("not_connector");
     expect(logs).not.toContain(SECOND);
     expect(logs).not.toContain(OWNER);
   });
@@ -332,6 +334,7 @@ describe("only the owner who connected the account may open its links", () => {
     // Stripe answered with the account that is stored: nothing is orphaned,
     // so nothing sends an operator to look for one.
     expect(logs).not.toContain("stripe account created but not stored");
+    expect(logs).toContain("connected_meanwhile");
   });
 
   it("logs the account a losing connect minted, so it is not lost without a trace", async () => {
@@ -352,6 +355,7 @@ describe("only the owner who connected the account may open its links", () => {
 
     expect(res?.status).toBe(403);
     expect(row(built.db)?.stripeAccountId).toBe("acct_first");
+    expect(logs).toContain("stripe account created but not stored");
     expect(logs).toContain("acct_orphan");
   });
 

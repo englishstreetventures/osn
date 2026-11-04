@@ -264,9 +264,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     const me = activeProfileId();
     return me !== null && settings()?.stripeConnectedByOsnProfileId === me;
   };
-  /** An owner looking at an account they did not connect, or nobody's on record. */
-  const accountIsAnotherOwners = () =>
-    props.canManage === true && stripeState() !== "none" && !canOpenStripe();
+  /** An owner looking at an account they did not connect, or nobody's on record.
+   *  (An owner can always open a wedding with no account, so none is included.) */
+  const accountIsAnotherOwners = () => props.canManage === true && !canOpenStripe();
   /** The reason the onboarding button is not this organiser's, by its id. */
   const stripeReasonId = () => (props.canManage ? "stripe-connector-only" : "stripe-owner-only");
 

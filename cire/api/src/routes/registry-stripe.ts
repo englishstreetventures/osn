@@ -213,7 +213,7 @@ export const createRegistryStripeRoutes = (
                 // the one this request created — Stripe's idempotency key
                 // lasts 24h — that one exists at Stripe with nothing storing
                 // it, so its id is logged for the same manual fix as above.
-                if (saved.stripeAccountId !== null && saved.stripeAccountId !== created.id) {
+                if (saved.stripeAccountId !== created.id) {
                   yield* Effect.logError("stripe account created but not stored").pipe(
                     Effect.annotateLogs({ weddingId, stripeAccountId: created.id }),
                   );
