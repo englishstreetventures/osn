@@ -498,10 +498,10 @@ describe("the RSVP table's stuck head row", () => {
     const list = screen.getByRole("list", { name: "Replies for Ceremony" });
     expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
-    // The sort is a select in the bar; the reply filter its row of chips.
+    // The sort is a select in the bar; the reply filter its strip of radios.
     expect(within(viewBar()).getByRole("combobox", { name: "Sort guests" })).toBeTruthy();
-    const replies = within(viewBar()).getByRole("group", { name: "Filter Ceremony by reply" });
-    expect(within(replies).getAllByRole("button")).toHaveLength(5);
+    const replies = within(viewBar()).getByRole("radiogroup", { name: "Filter Ceremony by reply" });
+    expect(within(replies).getAllByRole("radio")).toHaveLength(5);
   });
 
   for (const theme of ["light", "dark"] as const) {
@@ -659,13 +659,16 @@ describe("the event tabs' and reply chips' focus ring", () => {
     // Not cut by the strip, which scrolls sideways and so clips on both axes.
     expect(ringInside(reception!, scroller())).toBe(true);
 
-    const replies = within(viewBar()).getByRole("group", { name: /^Filter .* by reply$/ });
+    // The reply filter is one tab stop, its checked radio; its strip scrolls
+    // sideways too, so the ring must fit inside the box that clips.
+    const replies = within(viewBar()).getByRole("radiogroup", { name: /^Filter .* by reply$/ });
     within(viewBar()).getByRole("searchbox").focus();
     await userEvent.keyboard("{Tab}");
     const chip = document.activeElement!;
     expect(replies.contains(chip)).toBe(true);
+    expect(chip.getAttribute("aria-checked")).toBe("true");
     expect(getComputedStyle(chip).outlineStyle).toBe("solid");
-    expect(ringInside(chip, replies)).toBe(true);
+    expect(ringInside(chip, replies.parentElement!)).toBe(true);
   });
 });
 

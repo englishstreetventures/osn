@@ -614,7 +614,7 @@ describe("moving within the stack", () => {
   // The search is not the only thing that redraws the list: a reply filter, a
   // sort and another event do too, and each is pressed deep in the list.
   const TRIGGERS = [
-    ["the No reply chip", () => within(viewBar()).getByRole("button", { name: /^No reply/ })],
+    ["the No reply filter", () => within(viewBar()).getByRole("radio", { name: /^No reply/ })],
     [
       "the Guest head's sort",
       () =>

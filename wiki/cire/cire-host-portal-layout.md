@@ -317,20 +317,20 @@ component was previously reading a container it did not live in.
   controls where it stands. A view chooses its narrow layout from the panel's
   width with `createCompact`, below the narrowest panel its wide layout fits
   and back only a rem above it, and draws one variant.
-- **RSVPs** (`RsvpView`) — one event at a time, from a row of event chips the
-  view lends the view bar after a divider, with the search and the reply chips
+- **RSVPs** (`RsvpView`) — one event at a time, from a glass strip of events the
+  view lends the view bar after a divider, with the search and the reply filter
   under them; what the page does is in [[cire-rsvp-table]]. The layout half:
 
-  - The chips are pills, not a second segmented control, so the bar holds two
-    groups that look like two (`cire/host/DESIGN.md` §Chips). Each chip row
-    scrolls sideways rather than wrapping, and scrolls a chosen or focused chip
-    into view, never the page.
+  - The events and the replies are glass strips (`cire/host/DESIGN.md` §Chips),
+    a divider setting the events apart from the sub-tabs. Each strip scrolls
+    sideways rather than wrapping, and scrolls a chosen or focused choice into
+    view, never the page.
   - The table scrolls **with the page** (`Table scroll="page"`) and its head row
     sticks under the view bar; the rule underneath is in [[frontend-patterns]]
     §`position: sticky` resolves its offsets against the scrollport.
   - Below a 45rem panel (37rem for a viewer, whose table is narrower) each row
     becomes three columns — the reply's mark over its word, the name and its
-    lines, the button — the sort a select and the reply chips a row of their
+    lines, the button — the sort a select and the reply filter a row of its
     own: a page-scrolling table is clipped, never scrolled, so it is never drawn
     narrower than its columns.
 - **Households** (`GuestTable`) — one group and one table per household under

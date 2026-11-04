@@ -188,8 +188,8 @@ function tally(section: HTMLElement, label: string) {
   return dt.parentElement?.querySelector("dd")?.textContent;
 }
 
-const chips = () => screen.getByRole("group", { name: /^Filter .+ by reply$/ });
-const chip = (name: RegExp) => within(chips()).getByRole("button", { name });
+const chips = () => screen.getByRole("radiogroup", { name: /^Filter .+ by reply$/ });
+const chip = (name: RegExp) => within(chips()).getByRole("radio", { name });
 const searchBox = () => screen.getByLabelText(/^Search .+ guests$/);
 /** An event's tab; its name starts with the event's. */
 const tab = (name: string) => screen.getByRole("tab", { name: new RegExp(`^${name}`) });
@@ -550,27 +550,31 @@ describe("RsvpView", () => {
     expect(screen.getByRole("button", { name: "Record reply for Ada Sharma" })).toBeTruthy();
   });
 
-  it("filters the event on screen by a status chip", async () => {
+  it("filters the event on screen by a reply in the filter's radio strip", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
 
     // The chips act on the event on screen, and say so.
     expect(chips().getAttribute("aria-label")).toBe("Filter Ceremony by reply");
-    // The chip carries its count: one Ceremony row owes a reply.
+    // Each reply carries its count, in its name too: one Ceremony row owes a reply.
     const noReply = chip(/^No reply/i);
     expect(noReply.textContent).toContain("1");
-    // "All" is the pressed one until a host picks another.
-    expect(chip(/^All/i).getAttribute("aria-pressed")).toBe("true");
+    expect(noReply.getAttribute("aria-label")).toBe("No reply, 1 guest");
+    // "All" is the checked one until a host picks another.
+    expect(chip(/^All/i).getAttribute("aria-checked")).toBe("true");
 
     fireEvent.click(noReply);
-    expect(noReply.getAttribute("aria-pressed")).toBe("true");
-    expect(chip(/^All/i).getAttribute("aria-pressed")).toBe("false");
+    expect(noReply.getAttribute("aria-checked")).toBe("true");
+    expect(chip(/^All/i).getAttribute("aria-checked")).toBe("false");
     expect(
       within(chips())
-        .getAllByRole("button")
-        .filter((b) => b.getAttribute("aria-pressed") === "true"),
+        .getAllByRole("radio")
+        .filter((b) => b.getAttribute("aria-checked") === "true"),
     ).toHaveLength(1);
+    // A second press keeps the reply: only All clears it.
+    fireEvent.click(noReply);
+    expect(noReply.getAttribute("aria-checked")).toBe("true");
 
     expect(within(panel()).getByText("Cleo Jones")).toBeTruthy();
     expect(within(panel()).queryByText("Ada Sharma")).toBeNull();
@@ -582,7 +586,7 @@ describe("RsvpView", () => {
     // The chip stays chosen on another event, and the tallies stay the API's.
     fireEvent.click(chip(/^Attending/i));
     const reception = show("Reception");
-    expect(chip(/^Attending/i).getAttribute("aria-pressed")).toBe("true");
+    expect(chip(/^Attending/i).getAttribute("aria-checked")).toBe("true");
     expect(within(reception).getByText(/No guests match this filter/i)).toBeTruthy();
     expect(tally(reception, "No reply")).toBe("2");
 

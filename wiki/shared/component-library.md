@@ -1107,14 +1107,15 @@ the arrows reach kept in view without moving the page. `class` sets the
 strip's place in its row only.
 
 `SEGMENTED_GLASS_FILL` is the glass's look without its place, for a lone glass
-pill that is no strip's choice: the invite builder's place on a phone and a
-chosen reply chip on the RSVP page. A contrast theme drops its fill, so such a
-pill draws its own edge there.
+pill that is no strip's choice: the invite builder's place on a phone. A
+contrast theme drops its fill, so such a pill draws its own edge there.
 
 Where the portals draw it: a module's views (`ModuleShell`, `tabs`, icon-only
 below 36rem with `data-tip`), the Edit modes (`EditWorkspace`, `radio`), the
 RSVP page's events (`RsvpView`, `tabs` with `scroll`, a count and "New" after
-each word), the invite builder's sections under Content (`tabs`, `scroll`) and
+each word) and its reply filter (`radio` with `scroll`, each reply's dot before
+its word and its count after it, the replies icon-only on a phone beside an
+"All" that keeps its word), the invite builder's sections under Content (`tabs`, `scroll`) and
 the vendor portal's two views (`current`). Host `DESIGN.md` §7 has the look and
 §A tab strip inside a view, §The invite builder's two tiers the layouts.
 

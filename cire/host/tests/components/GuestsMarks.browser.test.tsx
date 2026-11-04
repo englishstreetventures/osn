@@ -19,10 +19,12 @@ import "../../src/styles/global.css";
  *   still hears whose plus-one they are;
  * - a provenance badge is an icon, named, with nothing written beside it;
  * - the module's sections and the RSVP page's events read as two groups —
- *   two glass strips with a divider between them — and the chosen event and
- *   an applied reply filter wear the strips' glass in the readable gold;
- * - the reply chips sit in one row that scrolls sideways, and a second press
- *   on the chosen chip clears it.
+ *   two glass strips with a divider between them — and the chosen event wears
+ *   the strips' glass in the readable gold;
+ * - the reply filter is one more glass strip of radios (owner, 2026-11-04):
+ *   one row that scrolls sideways, the chosen reply on the glass in the
+ *   readable gold, a second press keeping it and All clearing it; on a phone
+ *   the replies show as their marks, "All" keeping its word.
  */
 
 const { authFetch, changes } = vi.hoisted(() => ({
@@ -349,42 +351,79 @@ describe("the RSVP page's bar", () => {
     }
   }
 
-  it("keeps the reply chips in one row that scrolls, and clears the chosen one on a second press", async () => {
-    await page.viewport(390, 844);
+  for (const theme of THEMES) {
+    it(`keeps the reply filter in one glass strip that scrolls, and only All clears it, ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      await page.viewport(390, 844);
+      routeFetch(authFetch, ROUTES);
+      renderOrganiserPage({ module: "guests", sub: "rsvps" });
+      await vi.waitFor(() => expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(20), {
+        timeout: 10_000,
+      });
+      const strip = within(bar()).getByRole("radiogroup", { name: /by reply$/ });
+      const radios = within(strip).getAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual([
+        expect.stringMatching(/^All, \d+ guests?$/),
+        expect.stringMatching(/^Attending, \d+ guests?$/),
+        expect.stringMatching(/^Declined, \d+ guests?$/),
+        expect.stringMatching(/^Maybe, \d+ guests?$/),
+        expect.stringMatching(/^No reply, \d+ guests?$/),
+      ]);
+      // One 28px track with a hairline, on one row, inside a box that scrolls.
+      expect(strip.getBoundingClientRect().height).toBeCloseTo(28, 0);
+      expect(getComputedStyle(strip).borderTopWidth).toBe("1px");
+      const tops = new Set(radios.map((r) => Math.round(r.getBoundingClientRect().top)));
+      expect(tops.size).toBe(1);
+      expect(getComputedStyle(strip.parentElement!).overflowX).toBe("auto");
+      // On a phone a reply is its mark and its count; All keeps its word.
+      const [all, , declined] = radios as [HTMLElement, HTMLElement, HTMLElement];
+      const word = (r: HTMLElement) => r.querySelector<HTMLElement>("[data-label]")!;
+      expect(word(all).className).not.toContain("sr-only");
+      for (const reply of radios.slice(1)) {
+        expect(word(reply).className).toContain("sr-only");
+        expect(reply.querySelector("[data-status-dot]")).not.toBeNull();
+      }
+      // At rest a reply's count reads on the track.
+      const count = (r: HTMLElement) => r.querySelector<HTMLElement>("[data-count]")!;
+      expect([theme, inkRatio(count(declined)) >= WCAG_TEXT_MIN]).toEqual([theme, true]);
+
+      await userEvent.click(declined);
+      expect(declined.getAttribute("aria-checked")).toBe("true");
+      // Chosen, it sits on the strip's glass, its count in the readable gold
+      // at medium weight.
+      const glass = strip.querySelector<HTMLElement>("[data-segmented-glass]")!;
+      await vi.waitFor(() =>
+        expect(
+          Math.abs(glass.getBoundingClientRect().left - declined.getBoundingClientRect().left),
+        ).toBeLessThan(1),
+      );
+      expect(getComputedStyle(declined).color).toBe(probe("text-gold-ink", "color"));
+      expect(getComputedStyle(declined).fontWeight).toBe("500");
+      const onGlass = over(getComputedStyle(glass).backgroundColor, backdrop(declined));
+      const ratio = contrastRatio(over(getComputedStyle(count(declined)).color, onGlass), onGlass)!;
+      expect([theme, ratio >= WCAG_TEXT_MIN]).toEqual([theme, true]);
+      const before = document.querySelectorAll(ROWS).length;
+      expect(before).toBeLessThan(400);
+      // A second press keeps the reply; All clears it.
+      await userEvent.click(declined);
+      expect(declined.getAttribute("aria-checked")).toBe("true");
+      expect(document.querySelectorAll(ROWS).length).toBe(before);
+      await userEvent.click(all);
+      expect(all.getAttribute("aria-checked")).toBe("true");
+      expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(before);
+    });
+  }
+
+  it("shows every reply's word beside its mark at 1280", async () => {
+    await page.viewport(1280, 800);
     routeFetch(authFetch, ROUTES);
     renderOrganiserPage({ module: "guests", sub: "rsvps" });
     await vi.waitFor(() => expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(20), {
       timeout: 10_000,
     });
-    const group = within(bar()).getByRole("group", { name: /by reply$/ });
-    const chips = within(group).getAllByRole("button");
-    expect(chips.map((c) => c.getAttribute("aria-label") ?? c.textContent)).toHaveLength(5);
-    const tops = new Set(chips.map((c) => Math.round(c.getBoundingClientRect().top)));
-    expect(tops.size).toBe(1);
-    expect(getComputedStyle(group).flexWrap).toBe("nowrap");
-    expect(getComputedStyle(group).overflowX).toBe("auto");
-
-    const declined = chips.find((c) =>
-      /declined/i.test(c.getAttribute("aria-label") ?? c.textContent ?? ""),
-    )!;
-    // At rest a chip wears the strips' track and reads on it.
-    expect(getComputedStyle(declined).borderTopWidth).toBe("1px");
-    expect(inkRatio(declined)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
-    await userEvent.click(declined);
-    expect(declined.getAttribute("aria-pressed")).toBe("true");
-    // Chosen, the chosen tab's glass: its readable gold at medium weight.
-    const glass = getComputedStyle(document.querySelector("[data-segmented-glass]")!);
-    await vi.waitFor(() =>
-      expect(getComputedStyle(declined).backgroundColor).toBe(glass.backgroundColor),
-    );
-    expect(getComputedStyle(declined).color).toBe(probe("text-gold-ink", "color"));
-    expect(getComputedStyle(declined).fontWeight).toBe("500");
-    expect(inkRatio(declined)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
-    const before = document.querySelectorAll(ROWS).length;
-    expect(before).toBeLessThan(400);
-    await userEvent.click(declined);
-    expect(declined.getAttribute("aria-pressed")).toBe("false");
-    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
-    expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(before);
+    const strip = within(bar()).getByRole("radiogroup", { name: /by reply$/ });
+    for (const radio of within(strip).getAllByRole("radio")) {
+      expect(radio.querySelector("[data-label]")!.className).not.toContain("sr-only");
+    }
   });
 });

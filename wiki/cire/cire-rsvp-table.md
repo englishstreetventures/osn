@@ -7,7 +7,7 @@ related:
   - "[[cire-rsvp-changes]]"
   - "[[cire-plus-ones]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-04
 ---
 # The RSVP table
 
@@ -30,13 +30,14 @@ download they cannot use.
 
 ## One event at a time
 
-A row of event chips in the module's view bar, after a divider beside the
-sub-tabs and outside the module's tab panel, picks the event
-(`role="tablist"`, named "Events"). Each chip is a pill with its count muted
-beside the name; the chosen one fills in the brand green, so the chips read as
-a group apart from the segmented sub-tabs. The arrows, Home and End move focus
-and Enter or Space chooses, as on the module sub-tabs: a 900-row event is not
-drawn in an instant, and every choice writes the address. Each chip's
+A glass strip of events (`SegmentedTabs`) in the module's view bar, after a
+divider beside the sub-tabs and outside the module's tab panel, picks the event
+(`role="tablist"`, named "Events"). Each event's count sits muted after its
+name; the chosen one wears the strip's glass, its word and count in the
+readable gold at medium weight, and the divider sets the strip apart from the
+sub-tabs'. The arrows, Home and End move focus and Enter or Space chooses, as
+on the module sub-tabs: a 900-row event is not drawn in an instant, and every
+choice writes the address. Each tab's
 accessible name is an `aria-label` in sentence case — "Reception, 300
 guests". Its ids carry a per-view prefix (`rsvp-<id>-tab-<n>`,
 `rsvp-<id>-panel`) and never meet the module shell's `subtab-*` and
@@ -56,22 +57,26 @@ was open, because the switch replaced the history entry rather than adding one.
 
 ## The event's controls and panel
 
-The search box and the reply chips sit in the view bar's second row, under the
-event chips, so they stay to hand however far down the list the host is. They
+The search box and the reply filter sit in the view bar's second row, under the
+event strip, so they stay to hand however far down the list the host is. They
 filter every event; the table shows the event on screen, and each tab counts
 what they leave in its own event, so a search run on one event still says
 where else it finds guests. The search's name ("Search Reception guests") and
-placeholder, the chips' group name ("Filter Reception by reply") and the status
+placeholder, the filter's name ("Filter Reception by reply") and the status
 line name the event the table shows, and the search names the event's panel
-through `aria-controls`. The chips count that event's rows whatever the search.
-The search, the chip and the sort stay when the event changes. Each reply chip
-carries its reply's mark and its count, so the row is filter, legend and
-counter at once; the chosen one fills in green with ⊗, and a second press
-clears it back to All. The row never wraps; it scrolls sideways. On a panel too
-narrow for the table the sort is a select beside the search, and the reply
-chips, their words hidden behind their marks, take a row of their own.
+through `aria-controls`. The filter counts that event's rows whatever the
+search. The search, the filter and the sort stay when the event changes. The
+filter is one more glass strip, of radios (the owner's choice, 2026-11-04):
+All, then each reply with its mark before its word and its count after it, so
+the strip is filter, legend and counter at once; each choice's name says its
+count ("No reply, 4 guests"). The chosen one wears the glass; a reply stays
+chosen until All or another reply is, so a second press changes nothing. One
+tab stop, the arrows moving and choosing. The strip never wraps; it scrolls
+sideways. On a panel too narrow for the table the sort is a select beside the
+search, and the filter takes a row of its own, each reply shown as its mark
+and count, its word its name and tip, and All keeping its word.
 
-A search, a chip, a sort or another event made deep in the list brings the
+A search, a reply, a sort or another event made deep in the list brings the
 list's top back to the foot of the stuck chrome, and leaves focus where it was;
 made with the list in view, it moves nothing
 (`cire/host/src/lib/scroll-to-results.ts`).
@@ -79,7 +84,7 @@ made with the list in view, it moves nothing
 The panel, top to bottom:
 
 1. **The tally** — Attending, Declined, Maybe, No reply, Invited — the API's
-   own numbers for the event. They are not the chips' counts: `invited` comes
+   own numbers for the event. They are not the filter's counts: `invited` comes
    from the event's guest list, and a guest taken off the event after replying
    keeps a reply row.
 2. **The status line** ("Showing 3 of 120 guests for Reception.") while a
@@ -104,7 +109,7 @@ The panel, top to bottom:
 
 The list is not grouped under status headings: the host sorts it by guest or
 household, a heading per reply would split a household and fight the sort, and
-the reply chips already show who still owes a reply in one tap.
+the reply filter already shows who still owes a reply in one tap.
 
 **A tab says "New"** while its event holds a reply changed since the host last
 looked, whatever the search, and its accessible name adds "changed since you
