@@ -9,7 +9,6 @@ import { Notice } from "@shared/ui/ui/notice";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import Globe from "lucide-solid/icons/globe";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { FIELD_BAR_CLASS } from "../lib/form-field";
