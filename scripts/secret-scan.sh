@@ -93,7 +93,9 @@ case "${1:-}" in
     base_sha=$(git rev-parse --verify --quiet "$base^{commit}") || die "base '$base' is not a commit in this checkout"
     head_sha=$(git rev-parse --verify --quiet "$head^{commit}") || die "head '$head' is not a commit in this checkout"
     write_config "$TMP/config.toml" || die "$POLICY_REF is not in this checkout; fetch it"
-    git clone -q --bare --local . "$TMP/scan.git" || die "could not clone the checkout for scanning"
+    # Copy the objects, never hard-link them: $TMP can be on another filesystem
+    # from the checkout, and with --local a failed link is fatal.
+    git clone -q --bare --local --no-hardlinks . "$TMP/scan.git" || die "could not clone the checkout for scanning"
     run_scan "$TMP/scan.git" "$TMP/config.toml" --log-opts "--diff-merges=first-parent $base_sha..$head_sha"
     ;;
 
