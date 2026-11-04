@@ -33,11 +33,14 @@ import { insertWedding } from "../test-helpers/wedding";
  *     visitor with no claim at all;
  *   - the charge is DIRECT: it names the couple's connected account, so the
  *     money is theirs from the moment it is taken;
- *   - the row is written FIRST and the session attached after (osn-tracker
- *     #528), so a payment page never exists at Stripe that we have no record
- *     of; the row stays `pending` until the webhook says the money moved;
+ *   - the row is written FIRST and the session attached after, so a payment
+ *     page never exists at Stripe that we have no record of; the row stays
+ *     `pending` until the webhook says the money moved;
  *   - the amount is bounded, so a fat-fingered zero is a validation error
- *     rather than a card charge.
+ *     rather than a card charge;
+ *   - the address's 20 a minute is spent by claimed guests alone, so a
+ *     reception sharing one venue address is not turned away by callers who
+ *     hold no claim.
  */
 
 const SLUG = "cire-wedding";
@@ -105,6 +108,7 @@ function buildApp({
   published = true,
   stripe,
   webhookSecret = "whsec_test_connect" as string | null,
+  defaultContributeLimiter = false,
 }: {
   cashGiftsEnabled?: boolean;
   chargesEnabled?: boolean;
@@ -115,6 +119,11 @@ function buildApp({
   stripe?: StripeClient | null;
   /** The Connect webhook's signing secret: what records a gift once it is paid. */
   webhookSecret?: string | null;
+  /**
+   * Leave the contribute limiter to `createApp`'s own default, the budget the
+   * Worker runs. It is one bucket per address for the whole process.
+   */
+  defaultContributeLimiter?: boolean;
 } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
@@ -165,7 +174,9 @@ function buildApp({
     stripeWebhookSecret: webhookSecret,
     // Fresh limiters: the module-level defaults are process-wide.
     claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
-    registryContributeLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+    ...(defaultContributeLimiter
+      ? {}
+      : { registryContributeLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }) }),
   });
   return { app, db };
 }
@@ -307,6 +318,59 @@ describe("who may give", () => {
       expect(db.select().from(registryContributions).all()).toEqual([]);
     });
   }
+});
+
+// A reception on venue wifi is one address, so the route's per-IP budget is
+// the whole room's. These run on `createApp`'s own default limiter, the budget
+// the Worker runs, which keeps one bucket per address for the whole process:
+// each test sends from an address no other test uses, so its bucket starts
+// empty.
+describe("the address's 20 a minute is spent by claimed guests alone", () => {
+  function contributeFrom(app: App, ip: string, cookie: string | null) {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "cf-connecting-ip": ip,
+    };
+    if (cookie) headers.Cookie = cookie;
+    return appRequest(app, `/api/invite/${SLUG}/registry/contribute`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ amountMinor: 5000 }),
+    });
+  }
+
+  it("lets a claimed guest give after 21 requests with no claim from the same address", async () => {
+    const ip = "198.51.100.81";
+    const stripe = stripeStub();
+    const { app } = buildApp({ stripe: stripe.client, defaultContributeLimiter: true });
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 21; i++) statuses.push((await contributeFrom(app, ip, null)).status);
+    expect(statuses).toEqual(Array.from({ length: 21 }, () => 401));
+
+    const res = await contributeFrom(app, ip, await guestCookie(app));
+    expect(res.status).toBe(200);
+    expect(stripe.sessions).toHaveLength(1);
+  });
+
+  it("holds a claimed guest to 20 a minute, and asks Stripe nothing for the 21st", async () => {
+    const ip = "198.51.100.82";
+    const stripe = stripeStub();
+    const { app } = buildApp({ stripe: stripe.client, defaultContributeLimiter: true });
+    const cookie = await guestCookie(app);
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 20; i++) statuses.push((await contributeFrom(app, ip, cookie)).status);
+    expect(statuses).toEqual(Array.from({ length: 20 }, () => 200));
+
+    const refused = await contributeFrom(app, ip, cookie);
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).toBe("60");
+    // Each admitted press asked Stripe once: the first minted a page and the
+    // rest read that page back.
+    expect(stripe.sessions).toHaveLength(1);
+    expect(stripe.retrieved).toHaveLength(19);
+  });
 });
 
 describe("the couple must be taking money", () => {

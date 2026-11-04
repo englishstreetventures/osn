@@ -30,7 +30,11 @@ export class RateLimiterUnbound extends Error {
  * Mount it first in a route's chain — before `sessionAuth()`, `osnAuth()` and
  * any role gate, all of which run in the same before-handle phase in `.use`
  * order — so a refused request costs no session lookup, token verify or gate
- * query.
+ * query. One route mounts it after `sessionAuth()` instead: the registry
+ * contribute route, so only claimed guests spend its budget (its header in
+ * `routes/registry-guest.ts` says why). There a caller with no session gets
+ * `sessionAuth`'s 401 and never reaches this deny, and a claimed guest with no
+ * resolvable address still gets the 429.
  */
 export function rateLimitMiddleware(limiter: RateLimiterBackend) {
   return new Elysia().onBeforeHandle({ as: "scoped" }, async ({ request, set }) => {

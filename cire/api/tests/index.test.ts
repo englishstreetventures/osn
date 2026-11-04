@@ -805,8 +805,10 @@ describe("D1 session routing at the entry points", () => {
     expect(withCookie.probe.bindingQueries).toEqual([]);
   });
 
-  // The per-IP limiter on a guest route must answer before `sessionAuth` looks
-  // the cookie up: a refused request costs no D1 query. Each case mounts a
+  // The per-IP limiter on each route below must answer before `sessionAuth`
+  // looks the cookie up: a refused request costs no D1 query. (The registry
+  // contribute route checks the session first; `tests/app.test.ts` pins that.)
+  // Each case mounts a
   // refusing binding for the limiter that route reads, and sends an unknown
   // `cire_session` cookie that would otherwise cost one `sessions` lookup. The
   // account-link POST also checks an OSN credential, so it is sent once more
