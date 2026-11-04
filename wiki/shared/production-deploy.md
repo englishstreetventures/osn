@@ -887,7 +887,8 @@ what holds it.
    so nothing in the job ever ran. Re-run the failed jobs; there is nothing to fix
    here. (Seen 2026-08-06, taking out four jobs across two consecutive runs.)
 7. **A red `Smoke check, rolling back on failure` step** means the Worker deployed but
-   did not answer as a working one does for a minute (§7). Its annotations name each
+   did not answer as a working one does for a minute, or for the longer budget a stack
+   job gives a site its release attaches a new host to (§7). Its annotations name each
    probe and what it got, and their titles say which of four things happened:
    - **The Worker answered wrongly and was rolled back** (`Smoke check failed: … rolling
      the Worker back`, then no `Rollback refused` or `Rollback failed`). The step
@@ -1197,13 +1198,16 @@ automatically once you attach them.
    minted again with that zone, the same day.
    A spare host two labels below its zone gets its own certificate about two minutes
    after the deploy that attaches it ([[dev-environment#1. Tier map]]), longer than the
-   stack job's 60 s smoke check. So the release that moves a staged site to a new spare
-   host, or first attaches one, can fail that check without rolling back ("did not
-   answer as a working Worker does within 60 s, but the Worker never answered wrongly —
-   not rolling back"). Wait about three minutes, check that each new host answers 200
-   with HTML (`curl -sI https://<host>/`), then dispatch **Production release** again:
-   the stack job left no successful record, so that release ships the stack again,
-   with no domain change, and its smoke check passes.
+   smoke check's usual minute. So the stack job gives a site whose approved plan
+   attaches a host other than a production host up to 240 s
+   ([[#The automatic check]]), and the release that moves a staged site to a new spare
+   host, or first attaches one, goes green in one run. A certificate slower than that
+   fails the check without rolling back ("did not answer as a working Worker does
+   within 240 s, but the Worker never answered wrongly — not rolling back"). Then check
+   that each new host answers 200 with HTML (`curl -sI https://<host>/`), and once it
+   does, dispatch **Production release** again: the stack job left no successful
+   record, so that release ships the stack again, with no domain change, and its smoke
+   check passes.
 4. **Re-check the allowlists** once the domains resolve: the live guest, organiser,
    vendor and identity origins must exactly match cire-api `WEB_ORIGIN` and osn-api
    `OSN_CORS_ORIGIN`. `OSN_ORIGIN` is a shorter list on purpose — only `https://musubi.social`,
@@ -1686,6 +1690,19 @@ How it decides:
   probe passes in two rounds in a row. No answer names the version that gave it, so a
   pass straight after the deploy can come from the version before; the second pass
   narrows that window, it does not close it.
+- **A site its release gives a new host gets up to 240 s.** A Workers custom domain's
+  first certificate takes about two minutes ([[dev-environment#1. Tier map]]). So in
+  each production stack job a step runs
+  [`scripts/smoke-budgets.ts`](../../scripts/smoke-budgets.ts) over the plan approved at
+  `alchemy-plan`, and each site whose plan attaches a host other than a production
+  host passes `SMOKE_BUDGET_MS=240000` to its check, which still asks every 10 seconds
+  and passes on the first two good rounds. A flip attaches the production host, which
+  the zone's own certificate covers, so a flip keeps the minute, and so does every
+  other check, the Wrangler Workers' and dev's included. The check refuses a value
+  outside 60 to 240 s before any request. Each stack smoke step has seven minutes:
+  with every request at its timeout, a 240 s check, its rollback and the re-check take
+  366 s (SB4 in `scripts/tests/smoke-check.test.ts`). When the budget step fails,
+  every check reads no budget and asks for a minute.
 - **The Worker answered wrongly** when time runs out: it restores the version that
   served before this deploy, with the message `Smoke check failed: <run URL>`, then
   asks once more and says whether the restored version answers. It reads the Worker's
@@ -1718,7 +1735,8 @@ How it decides:
   429 counts here because Cloudflare answers every Worker on the account with one once
   the daily request cap is spent, and anyone can spend it from the public hosts. The
   one probed route with a limit of its own, osn-api's `/health/coordination`, allows
-  10 calls a minute per IP, and a check asks it at most 8 times.
+  10 calls a minute per IP, and a check asks it at most 8 times: osn-api's check is
+  never given a longer budget.
 - **osn-api refused the bearer**: `/health/coordination` answered 401, so the
   `INTERNAL_SERVICE_SECRET` the job holds is not the Worker's. No rollback: new code
   cannot fix a secret. Set the Environment's value to the Worker's (`gh secret set
