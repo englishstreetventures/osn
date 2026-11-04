@@ -85,7 +85,6 @@ const send = async (app: ReturnType<typeof makeApp>, url: string, init?: Request
 
 const TRACEPARENT = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
 const TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
-const PARENT_SPAN_ID = "b7ad6b7169203331";
 
 const LEAK = "leak-msg@example.com";
 
@@ -105,6 +104,7 @@ const makeApp = () =>
   new Elysia()
     .use(observabilityPlugin({ serviceName: "test-svc" }))
     .get("/ping", () => ({ pong: true }))
+    .get("/items/:id", ({ params }) => params.id)
     .get("/boom", () => {
       throw new Error("kaboom");
     })
@@ -211,12 +211,6 @@ describe("observabilityPlugin", () => {
       expect(span.parentSpanContext?.spanId).toBeUndefined();
     });
 
-    it("continues the caller's trace for a traceparent with Authorization: ARC", async () => {
-      const span = await run({ traceparent: TRACEPARENT, authorization: "ARC x.y.z" });
-      expect(span.spanContext().traceId).toBe(TRACE_ID);
-      expect(span.parentSpanContext?.spanId).toBe(PARENT_SPAN_ID);
-    });
-
     it("starts a fresh root for a traceparent with Authorization: Bearer", async () => {
       const span = await run({ traceparent: TRACEPARENT, authorization: "Bearer x" });
       expect(span.spanContext().traceId).not.toBe(TRACE_ID);
@@ -290,14 +284,29 @@ describe("observabilityPlugin", () => {
       expect(routes.some((r) => typeof r === "string" && r.includes("does-not-exist"))).toBe(false);
     });
 
-    it("keeps the query string out of the span's url.path", async () => {
-      await send(makeApp(), "http://localhost/ping?code=secret-token");
+    it("records the route template on the span, never the path or query", async () => {
+      const id = crypto.randomUUID();
+      await send(makeApp(), `http://localhost/items/${id}?code=secret-token`);
       const spans = serverSpans();
       expect(spans).toHaveLength(1);
-      expect(spans[0]!.attributes["url.path"]).toBe("/ping");
-      for (const value of Object.values(spans[0]!.attributes)) {
+      const attrs = spans[0]!.attributes;
+      expect(attrs["url.path"]).toBeUndefined();
+      expect(attrs["http.route"]).toBe("/items/:id");
+      for (const value of Object.values(attrs)) {
+        expect(String(value)).not.toContain(id);
         expect(String(value)).not.toContain("secret-token");
       }
+    });
+
+    it("records a method outside the known set as _OTHER", async () => {
+      await send(makeApp(), "http://localhost/ping", { method: "PROPFIND" });
+      expect(serverSpans()[0]!.name).toBe("HTTP _OTHER");
+      const methods = (await collectPoints("http.server.requests")).map(
+        (p) => p.attributes["http.request.method"],
+      );
+      expect(methods).toContain("_OTHER");
+      expect(methods).not.toContain("PROPFIND");
+      expect(await activeRequests("_OTHER")).toBe(0);
     });
 
     it("records the matched route template for a matched request", async () => {

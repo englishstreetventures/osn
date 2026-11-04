@@ -1,7 +1,8 @@
 import { context, type Context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { Elysia } from "elysia";
 
-import { httpServerActiveRequests, recordHttpRequest } from "../metrics/http";
+import type { HttpMethod } from "../metrics/attrs";
+import { httpServerActiveRequests, recordHttpRequest, toHttpMethod } from "../metrics/http";
 import { extractTraceContext } from "../tracing/propagation";
 
 /**
@@ -35,7 +36,7 @@ type RequestState = {
    */
   ctx: Context;
   route: string;
-  method: string;
+  method: HttpMethod;
   requestId: string;
 };
 
@@ -85,11 +86,10 @@ const sanitizeInboundRequestId = (raw: string | null): string | null => {
  * DoS on trace ingest), inject chosen trace IDs to muddle incident
  * response, or link their requests to internal traces in dashboards.
  *
- * Rule: only honour `traceparent` when the caller presents an
- * `Authorization: ARC ...` header (first-party S2S). All other
- * requests start a fresh root span. ARC-authenticated requests
- * carry an already-trusted identity, so propagating their trace
- * context is safe and gives us end-to-end distributed traces.
+ * Rule: honour `traceparent` only when the request presents an
+ * `Authorization: ARC ...` header, the scheme first-party
+ * service-to-service calls use. Every other request starts a fresh
+ * root span.
  */
 const shouldHonourInboundTraceparent = (headers: Headers): boolean => {
   const auth = headers.get("authorization");
@@ -104,7 +104,8 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
   // instance has no routes of its own, so without it only `onRequest` runs.
   return new Elysia({ name: "@shared/observability/plugin" })
     .onRequest(({ request, set }) => {
-      const method = request.method.toUpperCase();
+      // A closed set, so a made-up method cannot mint metric series.
+      const method = toHttpMethod(request.method);
       const url = new URL(request.url);
 
       // Never echo a client-controlled id back untouched.
@@ -119,8 +120,8 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       // Increment in-flight gauge.
       httpServerActiveRequests.inc({ "http.request.method": method });
 
-      // Only extract inbound trace context from ARC-authenticated
-      // callers. Anonymous/public requests start a fresh root span.
+      // Only extract inbound trace context when the request presents an
+      // `Authorization: ARC ...` header; any other starts a fresh root span.
       const inboundCtx = shouldHonourInboundTraceparent(request.headers)
         ? extractTraceContext(request.headers)
         : undefined;
@@ -130,9 +131,9 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
           kind: SpanKind.SERVER,
           attributes: {
             "http.request.method": method,
-            // `url.path` only (no query) — query strings frequently
-            // carry OAuth codes, magic-link tokens, presigned sigs, etc.
-            "url.path": url.pathname,
+            // No `url.path` or query: paths hold handles and profile ids,
+            // and queries carry OAuth codes and magic-link tokens. The span
+            // names the matched route template (`http.route`) instead.
             "url.scheme": url.protocol.replace(":", ""),
             "server.address": url.hostname,
             "service.name": options.serviceName,
@@ -195,11 +196,10 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       // the error's message or stack: a message is free text that
       // `redact()`, which scrubs object keys, cannot clean, and Elysia's
       // validation errors put the rejected input in theirs.
-      const safeError = Object.assign(new Error(String(code)), {
+      state.span.recordException({
         name: error instanceof Error ? error.name : "Error",
-        stack: undefined,
+        message: String(code),
       });
-      state.span.recordException(safeError);
       state.span.setStatus({ code: SpanStatusCode.ERROR, message: String(code) });
     })
     .onAfterResponse(({ request, set }) => {
