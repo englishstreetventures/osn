@@ -1615,7 +1615,9 @@ curl -X POST "$OSN_ISSUER_URL/graph/internal/register-service" \
 ```
 
 (`POST /graph/internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is
-unset, 401 on a bad bearer — `routes/graph-internal.ts:203-214`.)
+unset, 401 on a bad bearer, and 409 when the `kid` belongs to another service
+(`kid_serviceid_mismatch`) or has been revoked (`kid_revoked`) — a revoked key is
+replaced under a new `kid`; `osn/api/src/routes/graph-internal.ts`.)
 
 cire-api requests four scopes, the `ARC_*_SCOPE` constants of
 `cire/api/src/services/osn-bridge.ts`: `graph:read`, `graph:resolve-account`,

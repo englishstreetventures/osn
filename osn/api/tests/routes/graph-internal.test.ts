@@ -1727,6 +1727,64 @@ describe("internal graph routes (ARC-protected)", () => {
       expect(await revokedAtOf(keyId)).toBeNull();
     });
 
+    it("answers 404 for a key id that matches no key", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/service-keys/no-such-key", {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("tells a repeat revoke that the key was already revoked", async () => {
+      const { keyId } = await setupArcService("revoke-again-svc", "graph:read");
+      const revoke = () =>
+        app.handle(
+          new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${SECRET}` },
+          }),
+        );
+      const first = await revoke();
+      expect(await first.json()).toEqual({ ok: true });
+      const second = await revoke();
+      expect(second.status).toBe(200);
+      expect(await second.json()).toEqual({ ok: true, alreadyRevoked: true });
+    });
+
+    it("refuses to re-register a revoked key id and keeps it revoked", async () => {
+      const publicKeyJwk = await exportKeyToJwk((await generateArcKeyPair()).publicKey);
+      const register = () =>
+        app.handle(
+          new Request("http://localhost/graph/internal/register-service", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
+            body: JSON.stringify({
+              serviceId: "reregister-svc",
+              keyId: "key-reregister-1",
+              publicKeyJwk,
+              allowedScopes: "graph:read",
+            }),
+          }),
+        );
+      expect((await register()).status).toBe(200);
+      const revoked = await app.handle(
+        new Request("http://localhost/graph/internal/service-keys/key-reregister-1", {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(revoked.status).toBe(200);
+      const firstRevokedAt = await revokedAtOf("key-reregister-1");
+      expect(firstRevokedAt).not.toBeNull();
+
+      const again = await register();
+      expect(again.status).toBe(409);
+      expect(await again.json()).toEqual({ error: "kid_revoked" });
+      expect(await revokedAtOf("key-reregister-1")).toBe(firstRevokedAt);
+    });
+
     it("a second revoke keeps the time the key was first revoked", async () => {
       const { keyId } = await setupArcService("revoke-twice-svc", "graph:read");
       const FIRST_REVOKED_AT = 1_000;
