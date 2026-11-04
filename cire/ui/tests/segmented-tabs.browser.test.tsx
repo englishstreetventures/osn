@@ -88,6 +88,20 @@ describe("the glass", () => {
     expect(Math.abs(box.height - item.height)).toBeLessThan(0.5);
   });
 
+  for (const ramp of RAMPS) {
+    it(`is lit and frosted: an inner lip, a light edge, a lift and a blur, ${ramp}`, async () => {
+      render(() => <Strip ramp={ramp} />);
+      await settle();
+      const pane = getComputedStyle(glass());
+      // The inner lip and the light edge are inset shadows; the lift is not.
+      const shadows = pane.boxShadow.split(/,(?![^(]*\))/).map((s) => s.trim());
+      expect(shadows.filter((s) => s.includes("inset"))).toHaveLength(2);
+      expect(shadows.filter((s) => !s.includes("inset")).length).toBeGreaterThanOrEqual(2);
+      expect(pane.backdropFilter).toMatch(/blur\(12px\)/);
+      expect(pane.backdropFilter).toMatch(/saturate\(1\.6\)/);
+    });
+  }
+
   it("shows nothing in a copy that is not displayed", async () => {
     render(() => (
       <div style={{ display: "none" }}>
@@ -238,6 +252,11 @@ describe("the clock each change runs on", () => {
     expect(clock(screen.getByRole("tab", { name: "Events" }))).toEqual({
       duration: "0.17s",
       easing: "cubic-bezier(0.6, 0, 0.4, 1)",
+    });
+    // The choice giving the mark up goes back to the rest clock.
+    expect(clock(screen.getByRole("tab", { name: "Hero" }))).toEqual({
+      duration: "0.07s",
+      easing: "cubic-bezier(0.1, 0.9, 0.2, 1)",
     });
   });
 });
