@@ -138,59 +138,88 @@ const runHook = (ctx: BillingContext, decision: AccessDecision) => {
 export type ApplyOutcome = "applied" | "covered";
 
 /**
- * Apply the current decision for `customerRef`. `afterWrite` says the caller has
- * just made a write access depends on: then, while another process holds the
- * lease, it may stop as soon as a completed application covers its write.
- * Without one (the sweep, `reapplyAll`) it waits for the lease itself.
+ * How a call waits while another process holds the lease. `write`: the caller
+ * has just made a write access depends on, so it stops as soon as a completed
+ * application covers that write. `lease`: it waits for the lease itself
+ * (`reapplyAll`). `never`: it gives up at once (the sweep, which comes back).
+ */
+export type ApplyWait = "write" | "lease" | "never";
+
+/**
+ * Apply the current decision for `customerRef`. A wait polls by reading the
+ * row alone, backing off from `backoffMs` to `backoffMaxMs`, and takes the
+ * lease again only once the row shows it free. When the hook fails the row is
+ * left due at `retryAt` when given (the sweep), else at once.
  */
 export const applyAccess = (
   ctx: BillingContext,
   customerRef: string,
   source: AccessSource,
-  afterWrite: boolean,
+  wait: ApplyWait,
+  retryAt?: Date,
 ): Effect.Effect<ApplyOutcome, ApplyError> =>
   Effect.gen(function* () {
     const { storage, tuning } = ctx;
     const deadline = performance.now() + tuning.accessBudgetMs;
+    let pause = tuning.backoffMs;
+    const backOff = Effect.suspend(() => {
+      const ms = pause;
+      pause = Math.min(pause * 2, tuning.backoffMaxMs);
+      return Effect.sleep(Duration.millis(ms));
+    });
     let target: number | null = null;
     for (;;) {
       const now = ctx.now();
       const token = after(now, tuning.leaseMs);
       const lease = yield* storage.acquireAccess({ customerRef, now, until: token });
-      if (lease !== null) {
-        const [rows, grants] = yield* readState(ctx, customerRef);
-        const status = yield* decideStatus(ctx, customerRef, rows, grants, now);
-        const decision: AccessDecision = { ...status, version: lease.version, decidedAt: now };
-        yield* runHook(ctx, decision).pipe(
-          Effect.tapError((error) =>
-            error.reason === "timeout"
-              ? // The hook may still be writing: keep the lease until it expires,
-                // so no newer holder's write can land before this one.
-                storage.markAccessDue(customerRef, now)
-              : storage.releaseAccess({ customerRef, token, dueAt: now }),
-          ),
-        );
-        const boundary = nextBoundary({
-          subscriptions: facts(ctx, rows),
-          grants: grantFacts(grants),
-          policy: ctx.policy,
-          now,
-        });
-        if (
-          yield* storage.completeAccess({ customerRef, token, version: lease.version, boundary })
-        ) {
-          return "applied" as const;
+      if (lease === null) {
+        if (wait === "never") return yield* Effect.fail(new AccessBusy());
+        // A caller after a write reads at once, so the version its write must
+        // see applied is fixed before anyone else's write can raise it.
+        let readNow = wait === "write" && target === null;
+        for (;;) {
+          if (!readNow) {
+            if (performance.now() >= deadline) return yield* Effect.fail(new AccessBusy());
+            yield* backOff;
+          }
+          readNow = false;
+          const row = yield* storage.findCustomer(customerRef);
+          if (row === null) return yield* Effect.fail(new AccessBusy());
+          if (wait === "write") {
+            target ??= row.accessVersion;
+            if (row.accessAppliedVersion >= target) return "covered" as const;
+          }
+          const lock = row.accessLockUntil;
+          if (lock === null || lock.getTime() <= ctx.now().getTime()) break;
         }
-        // A write landed while deciding: free the lease and decide again.
-        yield* storage.releaseAccess({ customerRef, token, dueAt: now });
-      } else if (afterWrite) {
-        const row = yield* storage.findCustomer(customerRef);
-        if (row === null) return yield* Effect.fail(new AccessBusy());
-        target ??= row.accessVersion;
-        if (row.accessAppliedVersion >= target) return "covered" as const;
+        continue;
       }
+      const [rows, grants] = yield* readState(ctx, customerRef);
+      const status = yield* decideStatus(ctx, customerRef, rows, grants, now);
+      const decision: AccessDecision = { ...status, version: lease.version, decidedAt: now };
+      const due = retryAt ? { dueAt: retryAt, retry: true } : { dueAt: now, retry: false };
+      yield* runHook(ctx, decision).pipe(
+        Effect.tapError((error) =>
+          error.reason === "timeout"
+            ? // The hook may still be writing: keep the lease until it expires,
+              // so no newer holder's write can land before this one.
+              storage.markAccessDue({ customerRef, ...due })
+            : storage.releaseAccess({ customerRef, token, ...due }),
+        ),
+      );
+      const boundary = nextBoundary({
+        subscriptions: facts(ctx, rows),
+        grants: grantFacts(grants),
+        policy: ctx.policy,
+        now,
+      });
+      if (yield* storage.completeAccess({ customerRef, token, version: lease.version, boundary })) {
+        return "applied" as const;
+      }
+      // A write landed while deciding: free the lease and decide again.
+      yield* storage.releaseAccess({ customerRef, token, dueAt: now, retry: false });
       if (performance.now() >= deadline) return yield* Effect.fail(new AccessBusy());
-      yield* Effect.sleep(Duration.millis(tuning.backoffMs));
+      yield* backOff;
     }
   }).pipe(
     Effect.tap((outcome) =>
@@ -245,8 +274,8 @@ export const forgetCustomer = (
         yield* runHook(ctx, { ...denied, version: lease.version, decidedAt: now }).pipe(
           Effect.tapError((error) =>
             error.reason === "timeout"
-              ? storage.markAccessDue(customerRef, now)
-              : storage.releaseAccess({ customerRef, token, dueAt: now }),
+              ? storage.markAccessDue({ customerRef, dueAt: now, retry: false })
+              : storage.releaseAccess({ customerRef, token, dueAt: now, retry: false }),
           ),
         );
         const forgotten = yield* storage.forgetCustomer({ customerRef, token });

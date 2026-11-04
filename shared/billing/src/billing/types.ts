@@ -33,7 +33,11 @@ export interface Tuning {
   readonly hookTimeoutMs: number;
   /** How long one call keeps trying to apply access (lease busy, or written under). */
   readonly accessBudgetMs: number;
+  /** The first wait between polls of a busy lease; each wait doubles, up to `backoffMaxMs`. */
   readonly backoffMs: number;
+  readonly backoffMaxMs: number;
+  /** A customer the sweep could not apply is visited again after this. */
+  readonly sweepRetryMs: number;
   /** How long a webhook claim holds an event. Longer than the slowest delivery. */
   readonly eventLeaseMs: number;
   /** How long a checkout waits for another request's session; covers a Stripe call. */
@@ -56,6 +60,8 @@ export const DEFAULT_TUNING: Tuning = {
   hookTimeoutMs: 3_000,
   accessBudgetMs: 3_000,
   backoffMs: 100,
+  backoffMaxMs: 800,
+  sweepRetryMs: 15 * 60_000,
   eventLeaseMs: 60_000,
   checkoutWaitMs: 11_000,
   checkoutPollMs: 250,

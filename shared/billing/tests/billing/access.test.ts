@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { subscriptionWrite } from "../storage/contract";
-import { createHarness, DAY, flip, run, T0 } from "../support/billing";
+import { counting, createHarness, DAY, flip, run, T0 } from "../support/billing";
 
 type Harness = Awaited<ReturnType<typeof createHarness>>;
 
@@ -107,7 +107,12 @@ describe("applying access", () => {
     setTimeout(
       () =>
         void run(
-          h.storage.releaseAccess({ customerRef: "org_1", token: later(30_000), dueAt: h.now() }),
+          h.storage.releaseAccess({
+            customerRef: "org_1",
+            token: later(30_000),
+            dueAt: h.now(),
+            retry: false,
+          }),
         ),
       20,
     );
@@ -128,6 +133,8 @@ describe("applying access", () => {
     expect(
       (await flip(h.billing.revokeGrant({ customerRef: "org_1", featureId: "workspace" })))._tag,
     ).toBe("AccessBusy");
+    // Due, and the sweep reaches it once the holder's lease runs out.
+    h.advance(30_000);
     expect(await run(h.storage.listDueCustomers(h.now(), 10))).toEqual(["org_1"]);
   });
 
@@ -158,6 +165,7 @@ describe("applying access", () => {
           customerRef: "org_1",
           token: later(30_000),
           dueAt: h.now(),
+          retry: false,
         });
         const lease = yield* h.storage.acquireAccess(held(60_000));
         yield* h.storage.completeAccess({
@@ -222,7 +230,35 @@ describe("applying access", () => {
       true,
     ]);
     expect(row.accessLockUntil).not.toBeNull();
+    // Hidden from the sweep while the lease runs, due once it has run out.
+    expect(await run(h.storage.listDueCustomers(h.now(), 10))).toEqual([]);
+    h.advance(30_000);
     expect(await run(h.storage.listDueCustomers(h.now(), 10))).toEqual(["org_1"]);
+  });
+
+  it("polls a busy lease by reading the row alone, backing off, until its budget runs out", async () => {
+    const calls = new Map<string, number>();
+    const h = await createHarness({ wrap: counting(calls) });
+    await run(h.storage.ensureCustomer("org_1", h.now()));
+    await run(
+      h.storage.acquireAccess({ customerRef: "org_1", now: h.now(), until: later(30_000) }),
+    );
+    expect(
+      (
+        await flip(
+          h.billing.grant({
+            customerRef: "org_1",
+            featureId: "workspace",
+            source: "comp",
+            grantedBy: "ops",
+            expiresAt: null,
+          }),
+        )
+      )._tag,
+    ).toBe("AccessBusy");
+    // A 150 ms budget from 2 ms, doubling: at most 9 reads, and one acquire.
+    expect(calls.get("acquireAccess")).toBe(1);
+    expect((calls.get("findCustomer") ?? 0) <= 9).toBe(true);
   });
 });
 

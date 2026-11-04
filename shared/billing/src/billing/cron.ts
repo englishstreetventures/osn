@@ -28,7 +28,7 @@ const refresh = (ctx: BillingContext, row: SubscriptionRecord) =>
       // fetched again.
       yield* Effect.logWarning("billing: subscription missing at the provider; marked canceled");
       yield* ctx.storage.upsertSubscription({ ...row, status: "canceled", fetchStartedAt }, now);
-      yield* applyAccess(ctx, row.customerRef, "reconcile", true);
+      yield* applyAccess(ctx, row.customerRef, "reconcile", "write");
       return "missing" as const;
     }
     yield* ctx.storage.upsertSubscription(
@@ -65,7 +65,7 @@ const refresh = (ctx: BillingContext, row: SubscriptionRecord) =>
         });
       }
     }
-    yield* applyAccess(ctx, row.customerRef, "reconcile", true);
+    yield* applyAccess(ctx, row.customerRef, "reconcile", "write");
     return "refreshed" as const;
   });
 
@@ -102,10 +102,14 @@ export const reconcile = (ctx: BillingContext, limit: number) =>
 
 export const sweepAccess = (ctx: BillingContext, limit: number) =>
   Effect.gen(function* () {
-    const refs = yield* ctx.storage.listDueCustomers(ctx.now(), limit);
+    const now = ctx.now();
+    const refs = yield* ctx.storage.listDueCustomers(now, limit);
     const report = { visited: refs.length, applied: 0, busy: 0, failed: 0 };
+    // A row whose hook fails goes behind the rows not yet tried, so a few
+    // failing customers cannot fill every run.
+    const retryAt = after(now, ctx.tuning.sweepRetryMs);
     for (const ref of refs) {
-      const outcome = yield* Effect.result(applyAccess(ctx, ref, "sweep", false));
+      const outcome = yield* Effect.result(applyAccess(ctx, ref, "sweep", "never", retryAt));
       if (outcome._tag === "Success") report.applied += 1;
       else if (outcome.failure._tag === "AccessBusy") report.busy += 1;
       else report.failed += 1;
@@ -121,7 +125,7 @@ export const reapplyAll = (ctx: BillingContext, customerRefs: readonly string[])
       const outcome = yield* Effect.exit(
         ctx.storage
           .ensureCustomer(ref, ctx.now())
-          .pipe(Effect.andThen(applyAccess(ctx, ref, "reapply", false))),
+          .pipe(Effect.andThen(applyAccess(ctx, ref, "reapply", "lease"))),
       );
       if (outcome._tag === "Success") applied += 1;
       else failed.push(ref);

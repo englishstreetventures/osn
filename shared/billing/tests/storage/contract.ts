@@ -360,7 +360,14 @@ export function storageContract(
           }),
         ),
       ).toBe(false);
-      await run(storage.releaseAccess({ customerRef: "org_1", token: at(60_000), dueAt: at(3) }));
+      await run(
+        storage.releaseAccess({
+          customerRef: "org_1",
+          token: at(60_000),
+          dueAt: at(3),
+          retry: false,
+        }),
+      );
 
       const second = (await run(
         storage.acquireAccess({ customerRef: "org_1", now: at(4), until: at(60_004) }),
@@ -400,7 +407,7 @@ export function storageContract(
       const first = await run(
         storage.acquireAccess({ customerRef: "org_1", now: at(0), until: at(60_000) }),
       );
-      await run(storage.markAccessDue("org_1", at(10)));
+      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(10), retry: false }));
       expect((await run(storage.findCustomer("org_1")))!.nextAccessBoundaryAt).toEqual(at(10));
       const second = await run(
         storage.acquireAccess({ customerRef: "org_1", now: at(60_000), until: at(120_000) }),
@@ -408,23 +415,44 @@ export function storageContract(
       expect(second!.version > first!.version).toBe(true);
     });
 
-    it("lists due customers earliest first, within the limit, never a NULL boundary", async () => {
+    it("lists due customers earliest first, within the limit, never a NULL boundary or a held lease", async () => {
       const storage = await fresh();
       for (const [ref, due] of [
         ["org_a", 30],
         ["org_b", 10],
         ["org_c", 20],
         ["org_d", 99_999],
+        ["org_e", 5],
       ] as const) {
         await run(storage.ensureCustomer(ref, at(0)));
-        await run(storage.markAccessDue(ref, at(due)));
+        await run(storage.markAccessDue({ customerRef: ref, dueAt: at(due), retry: false }));
       }
+      await run(storage.acquireAccess({ customerRef: "org_e", now: at(0), until: at(2_000) }));
       expect(await run(storage.listDueCustomers(at(1_000), 2))).toEqual(["org_b", "org_c"]);
       expect(await run(storage.listDueCustomers(at(1_000), 10))).toEqual([
         "org_b",
         "org_c",
         "org_a",
       ]);
+      // A lease past its expiry no longer hides the row.
+      expect(await run(storage.listDueCustomers(at(2_000), 1))).toEqual(["org_e"]);
+    });
+
+    it("moves a retried row's boundary to the retry time, and a plain release only ever earlier", async () => {
+      const storage = await fresh();
+      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(10), retry: false }));
+      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(50), retry: false }));
+      expect((await run(storage.findCustomer("org_1")))!.nextAccessBoundaryAt).toEqual(at(10));
+      await run(storage.acquireAccess({ customerRef: "org_1", now: at(20), until: at(60_020) }));
+      await run(
+        storage.releaseAccess({
+          customerRef: "org_1",
+          token: at(60_020),
+          dueAt: at(HOUR),
+          retry: true,
+        }),
+      );
+      expect((await run(storage.findCustomer("org_1")))!.nextAccessBoundaryAt).toEqual(at(HOUR));
     });
 
     it("selects for reconcile: past period or unconfirmed recent period, never terminal, oldest attempt first", async () => {

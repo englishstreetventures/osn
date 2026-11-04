@@ -458,17 +458,20 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
       q("release_access", () =>
         db
           .update(c)
-          .set({ accessLockUntil: null, nextAccessBoundaryAt: dueBy(input.dueAt) })
+          .set({
+            accessLockUntil: null,
+            nextAccessBoundaryAt: input.retry ? input.dueAt : dueBy(input.dueAt),
+          })
           .where(and(eq(c.customerRef, input.customerRef), eq(c.accessLockUntil, input.token)))
           .run(),
       ).pipe(Effect.asVoid),
 
-    markAccessDue: (customerRef, dueAt) =>
+    markAccessDue: (input) =>
       q("mark_access_due", () =>
         db
           .update(c)
-          .set({ nextAccessBoundaryAt: dueBy(dueAt) })
-          .where(eq(c.customerRef, customerRef))
+          .set({ nextAccessBoundaryAt: input.retry ? input.dueAt : dueBy(input.dueAt) })
+          .where(eq(c.customerRef, input.customerRef))
           .run(),
       ).pipe(Effect.asVoid),
 
@@ -477,7 +480,12 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
         db
           .select({ customerRef: c.customerRef })
           .from(c)
-          .where(lte(c.nextAccessBoundaryAt, now))
+          .where(
+            and(
+              lte(c.nextAccessBoundaryAt, now),
+              or(isNull(c.accessLockUntil), lte(c.accessLockUntil, now)),
+            ),
+          )
           .orderBy(asc(c.nextAccessBoundaryAt))
           .limit(limit)
           .all(),
@@ -497,7 +505,11 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
             db.delete(c).where(held),
           ]),
         );
-        const left = yield* findCustomerWhere("find_customer", held);
+        // Done only when no row is left for the ref: a lost lease deleted nothing.
+        const left = yield* findCustomerWhere(
+          "find_customer",
+          eq(c.customerRef, input.customerRef),
+        );
         return left === null ? { providerCustomerId: row.providerCustomerId } : null;
       }),
   };

@@ -187,15 +187,24 @@ export interface BillingStorage {
     readonly version: number;
     readonly boundary: Date | null;
   }): Effect.Effect<boolean, E>;
-  /** Frees the lease if still held by `token`, leaving the row due at `dueAt` or earlier. */
+  /**
+   * Frees the lease if still held by `token`, leaving the row due at `dueAt` or
+   * earlier; with `retry`, due at `dueAt` exactly, so a row the sweep could not
+   * apply goes behind the rows it has not tried yet.
+   */
   releaseAccess(input: {
     readonly customerRef: string;
     readonly token: Date;
     readonly dueAt: Date;
+    readonly retry: boolean;
   }): Effect.Effect<void, E>;
-  /** Leaves the lease to expire on its own; only marks the row due. */
-  markAccessDue(customerRef: string, dueAt: Date): Effect.Effect<void, E>;
-  /** Customer refs whose boundary is due, earliest first. */
+  /** Leaves the lease to expire on its own; only marks the row due, as `releaseAccess` does. */
+  markAccessDue(input: {
+    readonly customerRef: string;
+    readonly dueAt: Date;
+    readonly retry: boolean;
+  }): Effect.Effect<void, E>;
+  /** Customer refs whose boundary is due and whose lease is free, earliest first. */
   listDueCustomers(now: Date, limit: number): Effect.Effect<readonly string[], E>;
 
   /**

@@ -6,6 +6,7 @@ import {
   definePlan,
   type AccessDecision,
   type BillingOptions,
+  type BillingStorage,
 } from "../../src";
 import { createStripeProvider } from "../../src/stripe";
 import { createTestStorage } from "./db";
@@ -51,7 +52,10 @@ export const unix = (date: Date) => Math.floor(date.getTime() / 1000);
 
 type HarnessOptions = Partial<
   Pick<BillingOptions<typeof PLANS>, "tax" | "policy" | "tuning" | "hooks">
->;
+> & {
+  /** Stands in front of the billing instance's storage, to count or race its calls. */
+  readonly wrap?: (storage: BillingStorage) => BillingStorage;
+};
 
 /** The one origin the harness's return URLs may point at. */
 export const APP_ORIGIN = "https://app.example.test";
@@ -86,7 +90,7 @@ export async function createHarness(options: HarnessOptions = {}) {
   });
   const billing = createBilling({
     plans: PLANS,
-    storage,
+    storage: options.wrap ? options.wrap(storage) : storage,
     provider,
     now: () => clock,
     returnOrigins: [APP_ORIGIN],
@@ -123,3 +127,14 @@ export async function createHarness(options: HarnessOptions = {}) {
 
 export const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 export const flip = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(Effect.flip(effect));
+
+/** Wraps a storage so each method's calls are counted by name. */
+export function counting(calls: Map<string, number>) {
+  return (storage: BillingStorage): BillingStorage =>
+    new Proxy(storage, {
+      get(target, key, receiver) {
+        if (typeof key === "string") calls.set(key, (calls.get(key) ?? 0) + 1);
+        return Reflect.get(target, key, receiver);
+      },
+    });
+}

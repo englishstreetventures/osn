@@ -1,8 +1,9 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
+import type { BillingStorage } from "../../src";
 import { subscriptionWrite } from "../storage/contract";
-import { createHarness, DAY, HOUR, run, T0, unix } from "../support/billing";
+import { counting, createHarness, DAY, HOUR, run, T0, unix } from "../support/billing";
 import { invoiceJson, subscriptionJson } from "../support/fake-stripe";
 
 type Harness = Awaited<ReturnType<typeof createHarness>>;
@@ -214,19 +215,68 @@ describe("reconcile", () => {
 });
 
 describe("sweepAccess counts", () => {
-  it("counts a customer whose lease stays busy, and leaves the row due", async () => {
+  it("skips a customer whose lease is held, and visits it once the lease runs out", async () => {
     const h = await createHarness();
     await subscribed(h, "org_a", later(DAY));
     h.advance(4 * DAY);
-    await run(
-      h.storage.acquireAccess({
-        customerRef: "org_a",
-        now: h.now(),
-        until: new Date(h.now().getTime() + 60_000),
-      }),
-    );
+    const until = new Date(h.now().getTime() + 60_000);
+    await run(h.storage.acquireAccess({ customerRef: "org_a", now: h.now(), until }));
+    expect(await run(h.billing.sweepAccess({ limit: 10 }))).toEqual({
+      visited: 0,
+      applied: 0,
+      busy: 0,
+      failed: 0,
+    });
+    h.advance(60_000);
+    expect(await run(h.billing.sweepAccess({ limit: 10 }))).toMatchObject({ applied: 1 });
+  });
+
+  it("counts a lease taken between the listing and the apply as busy, without waiting on it", async () => {
+    const calls = new Map<string, number>();
+    const h = await createHarness({
+      wrap: (inner) => {
+        // Another process takes each listed customer's lease as the list returns.
+        const racingList: BillingStorage["listDueCustomers"] = (now, limit) =>
+          inner.listDueCustomers(now, limit).pipe(
+            Effect.tap((refs) =>
+              Effect.forEach(refs, (customerRef) =>
+                inner.acquireAccess({
+                  customerRef,
+                  now,
+                  until: new Date(now.getTime() + 60_000),
+                }),
+              ),
+            ),
+          );
+        return new Proxy(counting(calls)(inner), {
+          get: (target, key, receiver) =>
+            key === "listDueCustomers" ? racingList : Reflect.get(target, key, receiver),
+        });
+      },
+    });
+    await subscribed(h, "org_a", later(DAY));
+    h.advance(4 * DAY);
+    calls.clear();
     const report = await run(h.billing.sweepAccess({ limit: 10 }));
     expect(report).toEqual({ visited: 1, applied: 0, busy: 1, failed: 0 });
+    expect([calls.get("acquireAccess"), calls.get("findCustomer") ?? 0]).toEqual([1, 0]);
+  });
+
+  it("puts a customer whose hook fails behind the customers not yet tried", async () => {
+    const h = await createHarness({
+      hooks: {
+        onAccess: (decision) =>
+          decision.customerRef === "org_a" ? Effect.fail("broken listing") : Effect.void,
+      },
+    });
+    await subscribed(h, "org_a", later(DAY));
+    await subscribed(h, "org_b", later(2 * DAY));
+    h.advance(5 * DAY);
+    expect(await run(h.billing.sweepAccess({ limit: 1 }))).toMatchObject({ failed: 1 });
+    expect(await run(h.billing.sweepAccess({ limit: 1 }))).toMatchObject({ applied: 1 });
+    // org_a comes due again after the retry interval.
+    expect(await run(h.storage.listDueCustomers(h.now(), 10))).toEqual([]);
+    h.advance(15 * 60_000);
     expect(await run(h.storage.listDueCustomers(h.now(), 10))).toEqual(["org_a"]);
   });
 });

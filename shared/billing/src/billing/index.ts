@@ -91,7 +91,7 @@ export function createBilling<const Plans extends readonly AnyPlan[]>(
           },
           now,
         );
-        yield* applyAccess(ctx, input.customerRef, "grant", true);
+        yield* applyAccess(ctx, input.customerRef, "grant", "write");
       }).pipe(Effect.withSpan("billing.grant")),
 
     revokeGrant: (input) =>
@@ -100,7 +100,7 @@ export function createBilling<const Plans extends readonly AnyPlan[]>(
         const now = ctx.now();
         yield* ctx.storage.ensureCustomer(input.customerRef, now);
         const existed = yield* ctx.storage.deleteGrant(input.customerRef, input.featureId, now);
-        yield* applyAccess(ctx, input.customerRef, "grant", true);
+        yield* applyAccess(ctx, input.customerRef, "grant", "write");
         return existed;
       }).pipe(Effect.withSpan("billing.revoke_grant")),
 

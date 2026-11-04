@@ -97,7 +97,7 @@ export const syncSubscription = (
         now,
       });
     }
-    yield* applyAccess(ctx, customer.customerRef, "webhook", true);
+    yield* applyAccess(ctx, customer.customerRef, "webhook", "write");
     return "processed" satisfies EventOutcome;
   });
 
