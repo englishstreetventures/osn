@@ -11,8 +11,8 @@
  * its height, or off it under a tall line; an icon button that is not the
  * bar's 28px; a pill with no ground beside the grounded track, or a guest's
  * pill given one; a chosen `glass` pill that is not the strip's glass, whose
- * word falls under 4.5:1, that shifts its row, or that a contrast theme
- * leaves unmarked; a halfway hover that is not the strip's; an open `quiet`
+ * word falls under 4.5:1, that shifts its row, that builds its content
+ * twice, or that a contrast theme leaves unmarked; a halfway hover that is not the strip's; an open `quiet`
  * button that looks closed; or a change that runs on the wrong clock.
  */
 
@@ -384,6 +384,25 @@ describe("glass, one of several", () => {
     const pill = browserPage.getByRole("button", { name: "Wide", exact: true });
     expect(pill.elements()).toHaveLength(1);
     expect(pill.element().querySelector("[data-glass-word]")).toBeNull();
+  });
+
+  it("builds content that is more than a word once", () => {
+    let built = 0;
+    const Swatch = () => {
+      built += 1;
+      return <span>Wide</span>;
+    };
+    render(() => (
+      <Ground>
+        <Button variant="glass" aria-pressed="false">
+          <Swatch />
+        </Button>
+      </Ground>
+    ));
+    expect(built).toBe(1);
+    expect(browserPage.getByRole("button", { name: "Wide", exact: true }).elements()).toHaveLength(
+      1,
+    );
   });
 
   it("marks a chosen radio as it marks a pressed button", async () => {
