@@ -1,5 +1,7 @@
 import Button from "@cire/ui/button";
 import type { RpSession } from "@shared/rp-auth";
+import { Chip } from "@shared/ui/ui/chip";
+import { Tooltip } from "@shared/ui/ui/tooltip";
 import { onMount, Show } from "solid-js";
 
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
@@ -109,11 +111,15 @@ export default function TopBar(props: {
               />
               <Show when={role()}>
                 {(known) => (
-                  <span
-                    class="border-gold-dim text-gold-ink font-body text-ui-xs tracking-ui-widest hidden shrink-0 rounded-full border px-2 py-0.5 uppercase @2xl/frame:inline"
-                    title={ROLE_COPY[known()].badgeTitle}
-                  >
-                    {ROLE_COPY[known()].label}
+                  // A badge explains itself in a Tooltip, never a `title`; the
+                  // wrapper carries the narrow frame's hiding, so a hidden badge
+                  // takes its explanation with it.
+                  <span data-badge-tip class="hidden shrink-0 @2xl/frame:inline-flex">
+                    <Tooltip text={ROLE_COPY[known()].badgeTitle}>
+                      <Chip variant="outline" tone="accent">
+                        {ROLE_COPY[known()].label}
+                      </Chip>
+                    </Tooltip>
                   </span>
                 )}
               </Show>

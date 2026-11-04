@@ -409,8 +409,9 @@ test("cire-member-step", async ({ page, context, flow }) => {
     await page.route(emailUrl, handler);
     try {
       await emailBox.getByRole("button", { name: "Remove email" }).click();
+      // An alert, so a screen reader hears the refusal the moment it appears.
       await expect(
-        emailBox.getByText("Couldn’t remove your email", { exact: false }),
+        emailBox.getByRole("alert").filter({ hasText: "Couldn’t remove your email" }),
       ).toBeVisible();
       await expect(emailBox.getByText(CIRE_HOUSEHOLD.email)).toBeVisible();
     } finally {

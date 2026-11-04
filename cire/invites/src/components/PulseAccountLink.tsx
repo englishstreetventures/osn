@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import { createAuthFetch, isAuthExpired, startSignIn } from "@shared/rp-auth";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, Match, Show, Switch } from "solid-js";
 
 import type { AccountLinkState, FamilyMember, SignedInAccount } from "./types";
@@ -83,7 +84,7 @@ function AccountPicture(props: { account: SignedInAccount }) {
       when={avatarUrl() !== null && !failed()}
       fallback={
         <span
-          class="bg-gold/15 text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
+          class="text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
           aria-hidden="true"
         >
           {initial()}
@@ -213,7 +214,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby="pulse-link-heading"
     >
       <h3
@@ -296,9 +297,9 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
       </Switch>
 
       <Show when={error()}>
-        <p class="text-error text-ui-sm mt-3" role="alert">
+        <Notice size="inline" tone="danger" alert class="mt-3">
           {error()}
-        </p>
+        </Notice>
       </Show>
     </section>
   );

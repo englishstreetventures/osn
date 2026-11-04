@@ -8,6 +8,7 @@ import { EventSheet } from "../../src/components/EventSheet";
 import { SAVED_DWELL_MIN_MS, SAVED_DWELL_MS } from "../../src/components/rsvp-saved";
 import { RsvpPanel } from "../../src/components/RsvpPanel";
 import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/components/types";
+import { description } from "../test-support/described";
 import { mockViewport } from "../test-support/viewport";
 
 vi.mock("motion", () => ({
@@ -1240,6 +1241,8 @@ describe("RsvpPanel", () => {
       />
     ));
     expect(getByText(/Nothing you send here is saved/i)).toBeTruthy();
+    // A standing note, so a status region rather than an alert.
+    expect(getByText(/Nothing you send here is saved/i).closest("[role='status']")).not.toBeNull();
   });
 
   it("treats a valid submit as a no-op in preview mode: closes, never POSTs", async () => {
@@ -1379,6 +1382,10 @@ describe("RsvpPanel", () => {
 
     // Says WHEN it shut, not just that it did.
     expect(getByText(/RSVPs closed on Tuesday 1 September 2026/)).toBeTruthy();
+    // In a status region, so a screen reader is told the sheet is shut.
+    expect(
+      getByText(/RSVPs closed on Tuesday 1 September 2026/).closest("[role='status']"),
+    ).not.toBeNull();
 
     // No submit at all — a disabled Save invites clicking at a door that won't
     // open — and the one remaining button says "Close", not "Cancel".
@@ -2781,6 +2788,48 @@ describe("RsvpPanel", () => {
       fireEvent.click(screen.getByText("Save"));
       await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Sam agreed/));
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    // The line sits under both boxes, so each box names it only while it
+    // speaks of that box; a failure to send is neither box's.
+    it("names each consent box by its own refusal, and neither by another", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+      render(() => (
+        <RsvpPanel event={event} members={[bo, sam]} apiUrl="https://api.test" onClose={() => {}} />
+      ));
+      fireEvent.click(within(fieldsetFor("Bo")).getByText("Attending"));
+      fireEvent.click(within(fieldsetFor("Sam")).getByText("Attending"));
+      pickPreset(fieldsetFor("Bo"), /^vegan$/i);
+      pickPreset(fieldsetFor("Sam"), /^nuts$/i);
+      const unlinked = (box: HTMLInputElement) => [
+        box.hasAttribute("aria-describedby"),
+        box.hasAttribute("aria-invalid"),
+      ];
+      expect(unlinked(ownBox())).toEqual([false, false]);
+      expect(unlinked(attestBox())).toEqual([false, false]);
+
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/tick the box/));
+      expect(description(ownBox())).toMatch(
+        /Please tick the box to let us store your dietary requirements\./,
+      );
+      expect(ownBox().getAttribute("aria-invalid")).toBe("true");
+      expect(unlinked(attestBox())).toEqual([false, false]);
+
+      fireEvent.click(ownBox());
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Sam agreed/));
+      expect(description(attestBox())).toMatch(/Please confirm that Sam agreed/);
+      expect(attestBox().getAttribute("aria-invalid")).toBe("true");
+      expect(unlinked(ownBox())).toEqual([false, false]);
+
+      fireEvent.click(attestBox());
+      fireEvent.click(screen.getByText("Save"));
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toMatch(/Could not connect/),
+      );
+      expect(unlinked(ownBox())).toEqual([false, false]);
+      expect(unlinked(attestBox())).toEqual([false, false]);
     });
 
     it("sends the attestation's version on the plus-one's reply, and only there", async () => {

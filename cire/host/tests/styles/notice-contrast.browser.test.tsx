@@ -21,13 +21,19 @@ import "../../src/styles/global.css";
  * in light, so no note is set there, and the last test holds that fact so the
  * exclusion is looked at again if it changes.
  *
- * `danger` is not measured here. With the light ramp's red, its 5% box reads
- * 4.26:1 on the page and its line 4.20:1 in a well; raising it is a choice of
- * colour for the whole light theme, which is the owner's, not this part's.
+ * `danger` is measured with the rest. Its worst ground is a card's well, where
+ * the light ramp's red reads 4.63:1 with its 5% box on and 5.00:1 as a line;
+ * that well is why the light red sits at L 46%.
  */
 
 const THEMES = ["light", "dark"] as const;
-const TONES = ["warn", "success", "info", "accent"] as const satisfies readonly NoticeTone[];
+const TONES = [
+  "danger",
+  "warn",
+  "success",
+  "info",
+  "accent",
+] as const satisfies readonly NoticeTone[];
 const SIZES = ["inline", "sm", "md"] as const satisfies readonly NoticeSize[];
 
 const GROUNDS = {

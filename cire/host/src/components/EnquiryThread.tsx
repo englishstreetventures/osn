@@ -1,6 +1,7 @@
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
 import { toast } from "@shared/toast";
+import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
@@ -66,9 +67,7 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
         </Button>
         <div class="flex flex-1 flex-wrap items-center gap-2">
           <span class="text-text text-ui-base font-medium">{props.enquiry.vendorName}</span>
-          <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-            {categoryLabel(props.enquiry.category)}
-          </span>
+          <Chip treatment="tag">{categoryLabel(props.enquiry.category)}</Chip>
         </div>
       </div>
 

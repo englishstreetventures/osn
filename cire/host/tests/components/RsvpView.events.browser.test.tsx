@@ -595,8 +595,8 @@ describe("the RSVP page on a phone", () => {
       );
     // A preset is dietary data: saving it needs the consent box ticked.
     await userEvent.click(within(row).getByRole("button", { name: /Save reply/ }));
-    await vi.waitFor(() =>
-      expect(within(row).getByText(/consented before storing dietary requirements/)).toBeTruthy(),
+    expect((await within(row).findByRole("alert")).textContent).toMatch(
+      /consented before storing dietary requirements/,
     );
     expect(puts()).toEqual([]);
     await userEvent.click(within(row).getByRole("checkbox", { name: /consent/i }));

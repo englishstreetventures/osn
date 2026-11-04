@@ -103,8 +103,9 @@ describe("TopBar", () => {
 
   it("badges the caller's role with the reason it matters", () => {
     mount();
-    const badge = screen.getByTitle(/you own this wedding/i);
-    expect(badge.textContent).toBe("Owner");
+    // The reason is the badge's Tooltip, read once as hidden text after the word.
+    const reason = screen.getByText(/you own this wedding/i);
+    expect(reason.closest("[data-badge-tip]")?.textContent).toContain("Owner");
   });
 
   it("badges a viewer with what to do about it", () => {
@@ -121,7 +122,8 @@ describe("TopBar", () => {
         onOpenPalette={() => {}}
       />
     ));
-    expect(screen.getByTitle(/ask an owner for editor access/i).textContent).toBe("Viewer");
+    const reason = screen.getByText(/ask an owner for editor access/i);
+    expect(reason.closest("[data-badge-tip]")?.textContent).toContain("Viewer");
   });
 
   it("falls back to the least privileged badge for a role it does not know", () => {
@@ -244,7 +246,7 @@ describe("TopBar", () => {
     it("drops the role badge and the preview, keeping the palette and account", () => {
       mount({ wedding: null });
       expect(screen.queryByTestId("preview")).toBeNull();
-      expect(screen.queryByTitle(/you created this wedding/i)).toBeNull();
+      expect(screen.queryByText(/you (own|created) this wedding/i)).toBeNull();
       expect(screen.getByRole("button", { name: /search and jump to/i })).toBeTruthy();
       expect(screen.getByRole("button", { name: /account menu/i })).toBeTruthy();
     });

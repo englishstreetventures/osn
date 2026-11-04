@@ -7,6 +7,7 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 // no source dimensions (a legacy crop), so the box keeps today's fixed shape.
 const EVENT_DEFAULT_ASPECT = 4 / 3;
 import Button from "@cire/ui/button";
+import { Chip } from "@shared/ui/ui/chip";
 
 import { formatEventDay, venueLine, venueName } from "./event-details";
 import { TOTAL_DURATION_MS } from "./rsvp-responded";
@@ -252,14 +253,12 @@ export function EventCard(props: EventCardProps) {
               would rename the heading for anyone moving through the page by
               headings. A plain span with no live region — the events-section
               notice is already `role="status"` and says the same thing once.
-              It wears the closed notice's own treatment (`RsvpDeadlineNotice`):
-              a hairline and muted ink, no tint. */}
+              An outlined neutral `Chip`: a hairline and muted ink, no tint, as
+              the closed notice (`RsvpDeadlineNotice`) wears. */}
           <div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h3 class="font-display text-text text-2xl font-normal">{props.event.name}</h3>
             <Show when={props.rsvpClosed}>
-              <span class="font-body text-text-muted text-ui-xs tracking-ui-wider border-border rounded-sm border px-2 py-0.5 whitespace-nowrap uppercase">
-                RSVPs closed
-              </span>
+              <Chip variant="outline">RSVPs closed</Chip>
             </Show>
           </div>
           {/* A date, set as a date — not as an uppercase micro-label. One of
