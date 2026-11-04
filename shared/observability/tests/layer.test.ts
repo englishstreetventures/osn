@@ -1,7 +1,10 @@
-import { Effect, Logger } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 
-import type { DeploymentEnvironment } from "../src/config";
+import { Effect, Logger, ManagedRuntime } from "effect";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { DeploymentEnvironment, ObservabilityConfig } from "../src/config";
 import { loadConfig } from "../src/config";
 import { makeLoggerLayer, PrettyLoggerLive } from "../src/logger/layer";
 import { makeTracingLayer, otlpExporterUrl } from "../src/tracing/layer";
@@ -305,5 +308,72 @@ describe("makeTracingLayer", () => {
       if (prevHeaders === undefined) delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
       else process.env.OTEL_EXPORTER_OTLP_HEADERS = prevHeaders;
     }
+  });
+});
+
+describe("makeTracingLayer sampling", () => {
+  // A local collector that accepts every OTLP POST and records its path.
+  // Releasing the layer flushes the span processor and the metric reader; an
+  // endpoint that refused connections would make both retry up to the
+  // shutdown cap on every test.
+  let server: Server;
+  let endpoint: string;
+  const posted: string[] = [];
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      posted.push(req.url ?? "");
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{}");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+  });
+
+  beforeEach(() => {
+    posted.length = 0;
+  });
+
+  // Runs one root span under the layer the Bun entry points install, releases
+  // the layer so everything sampled is exported, and returns the sampling
+  // decision the span carried.
+  const rootSpanSampled = async (traceSampleRatio: number): Promise<boolean> => {
+    const config: ObservabilityConfig = {
+      ...loadConfig({ serviceName: "test", env: "dev" }),
+      otlpEndpoint: endpoint,
+      traceSampleRatio,
+    };
+    const runtime = ManagedRuntime.make(makeTracingLayer(config));
+    try {
+      return await runtime.runPromise(
+        Effect.currentSpan.pipe(
+          Effect.map((span) => span.sampled),
+          Effect.withSpan("probe.root"),
+        ),
+      );
+    } finally {
+      await runtime.dispose();
+    }
+  };
+
+  it("samples and exports no root trace at a ratio of 0", async () => {
+    expect(await rootSpanSampled(0)).toBe(false);
+    expect(posted.filter((path) => path === "/v1/traces")).toEqual([]);
+  });
+
+  it("samples and exports every root trace at a ratio of 1", async () => {
+    // Also proves the ratio-0 result is the sampler's: Effect's no-op span
+    // reports `sampled: false` as well, and exports nothing.
+    expect(await rootSpanSampled(1)).toBe(true);
+    expect(posted).toContain("/v1/traces");
   });
 });
