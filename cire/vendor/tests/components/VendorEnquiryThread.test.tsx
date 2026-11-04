@@ -140,12 +140,12 @@ describe("VendorEnquiryThread", () => {
 
   // ── Reply box ─────────────────────────────────────────────────────────────
 
-  it("calls replyToEnquiry and refetches on send", async () => {
+  it("adds the message the send returned without reading the thread again", async () => {
     const msg = makeMessage({ body: "First message" });
-    mockGetEnquiryMessages
-      .mockResolvedValueOnce([msg])
-      .mockResolvedValueOnce([msg, makeMessage({ id: "msg-2", body: "Reply sent" })]);
-    mockReplyToEnquiry.mockResolvedValue(makeMessage({ id: "msg-2", body: "Reply sent" }));
+    mockGetEnquiryMessages.mockResolvedValue([msg]);
+    mockReplyToEnquiry.mockResolvedValue(
+      makeMessage({ id: "msg-2", senderProfileId: "p-vendor", body: "Hello back!" }),
+    );
 
     render(() => (
       <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
@@ -153,32 +153,54 @@ describe("VendorEnquiryThread", () => {
 
     await waitFor(() => expect(screen.getByText("First message")).toBeInTheDocument());
 
-    const textarea = screen.getByPlaceholderText(/write a reply/i);
-    fireEvent.input(textarea, { target: { value: "Hello back!" } });
-
-    const sendBtn = screen.getByRole("button", { name: /^send$/i });
-    fireEvent.click(sendBtn);
+    fireEvent.input(screen.getByPlaceholderText(/write a reply/i), {
+      target: { value: "Hello back!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
 
     await waitFor(() =>
       expect(mockReplyToEnquiry).toHaveBeenCalledWith(mockAuthFetch, "enq_1", "Hello back!"),
     );
-    // Refetch triggered — messages updated
-    await waitFor(() => expect(mockGetEnquiryMessages).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByText("Reply sent")).toBeInTheDocument());
+    const sent = await waitFor(() => {
+      const row = document.querySelector('[data-message-id="msg-2"]');
+      expect(row).not.toBeNull();
+      return row!;
+    });
+    expect(sent).toHaveTextContent("Hello back!");
+    expect(sent.closest("[data-mine]")?.getAttribute("data-mine")).toBe("true");
+    expect(screen.getByText("First message")).toBeInTheDocument();
+    expect(mockGetEnquiryMessages).toHaveBeenCalledTimes(1);
     expect(haptic).toHaveBeenCalledWith("commit");
     expect(haptic).not.toHaveBeenCalledWith("reject");
   });
 
-  it("keeps the thread on screen while it is read again after a send", async () => {
+  it("reads the thread again when a send lands before the first read", async () => {
+    mockGetEnquiryMessages
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValueOnce([makeMessage({ id: "msg-2", body: "Sent early" })]);
+    mockReplyToEnquiry.mockResolvedValue(makeMessage({ id: "msg-2", body: "Sent early" }));
+    render(() => (
+      <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
+    ));
+    expect(await screen.findByText("Loading messages…")).toBeInTheDocument();
+    fireEvent.input(screen.getByPlaceholderText(/write a reply/i), {
+      target: { value: "Sent early" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+    await waitFor(() => expect(mockGetEnquiryMessages).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Sent early")).toBeInTheDocument();
+  });
+
+  it("keeps the thread on screen while it is read again after a quote", async () => {
     const msg = makeMessage({ body: "First message" });
     mockGetEnquiryMessages.mockResolvedValueOnce([msg]).mockReturnValueOnce(new Promise(() => {}));
-    mockReplyToEnquiry.mockResolvedValue(makeMessage({ id: "msg-2", body: "Reply sent" }));
+    mockSubmitQuote.mockResolvedValue({ id: "enq_1", status: "quoted" });
     render(() => (
       <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
     ));
     await waitFor(() => expect(screen.getByText("First message")).toBeInTheDocument());
-    fireEvent.input(screen.getByPlaceholderText(/write a reply/i), { target: { value: "Hi" } });
-    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+    fireEvent.input(screen.getByLabelText(/quote amount/i), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: /send quote/i }));
     await waitFor(() => expect(mockGetEnquiryMessages).toHaveBeenCalledTimes(2));
     expect(screen.getByText("First message")).toBeInTheDocument();
   });
