@@ -1,5 +1,12 @@
 # @musubi/infra
 
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies [9661da5]
+  - @shared/infra@0.6.5
+
 ## 0.2.4
 
 ### Patch Changes
