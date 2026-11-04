@@ -21,7 +21,7 @@ import type {
   GrantRecord,
   SubscriptionRecord,
 } from "./port";
-import type { BillingSqliteSchema } from "./sqlite-schema";
+import { LIVE_STATUS, type BillingSqliteSchema } from "./sqlite-schema";
 
 export interface SqliteBillingStorageConfig {
   readonly db: Db;
@@ -290,12 +290,15 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
           .from(s)
           .where(
             and(
-              ne(s.status, "canceled"),
-              ne(s.status, "incomplete_expired"),
               or(isNull(s.reconciledAt), lt(s.reconciledAt, sel.attemptedBefore)),
+              // Each branch seeks its own index (sqlite-schema.ts).
               or(
                 and(eq(s.status, "trialing"), lt(s.trialEnd, sel.now)),
-                and(ne(s.status, "trialing"), lt(s.currentPeriodEnd, sel.now)),
+                and(
+                  LIVE_STATUS(s.status),
+                  ne(s.status, "trialing"),
+                  lt(s.currentPeriodEnd, sel.now),
+                ),
                 and(
                   eq(s.status, "active"),
                   gte(s.currentPeriodStart, sel.unconfirmedFrom),
@@ -305,8 +308,8 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
               ),
             ),
           )
-          // Never-attempted rows first, then the oldest attempt.
-          .orderBy(sql`${s.reconciledAt} IS NOT NULL`, asc(s.reconciledAt))
+          // Never-attempted rows first (SQLite sorts NULL first), then the oldest attempt.
+          .orderBy(asc(s.reconciledAt))
           .limit(sel.limit)
           .all(),
       ).pipe(Effect.map((rows) => rows.map(toSubscription))),

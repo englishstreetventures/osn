@@ -14,7 +14,16 @@
  * or invoice amount is stored.
  */
 
-import { foreignKey, index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql, type SQL } from "drizzle-orm";
+import {
+  foreignKey,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  type AnySQLiteColumn,
+} from "drizzle-orm/sqlite-core";
 
 export interface BillingSqliteSchemaOptions {
   /** Prepended to every table and index name. Default `billing_`. */
@@ -22,6 +31,13 @@ export interface BillingSqliteSchemaOptions {
 }
 
 const ms = (name: string) => integer(name, { mode: "timestamp_ms" });
+
+/**
+ * A subscription that has not ended for good. Written with literals, never
+ * bound values, so SQLite can match a query's term to the partial index's.
+ */
+export const LIVE_STATUS = (status: AnySQLiteColumn): SQL =>
+  sql`${status} NOT IN ('canceled', 'incomplete_expired')`;
 
 export function createBillingSqliteSchema(options: BillingSqliteSchemaOptions = {}) {
   const p = options.prefix ?? "billing_";
@@ -83,7 +99,11 @@ export function createBillingSqliteSchema(options: BillingSqliteSchemaOptions = 
     },
     (t) => [
       index(`${p}subscriptions_customer_idx`).on(t.customerRef),
-      index(`${p}subscriptions_reconcile_idx`).on(t.reconciledAt),
+      // One index per branch of the reconcile selection, so each seeks to the
+      // rows that are due instead of reading every subscription ever made.
+      index(`${p}subscriptions_trial_due_idx`).on(t.status, t.trialEnd),
+      index(`${p}subscriptions_period_due_idx`).on(t.currentPeriodEnd).where(LIVE_STATUS(t.status)),
+      index(`${p}subscriptions_unconfirmed_idx`).on(t.status, t.currentPeriodStart),
       foreignKey({
         name: `${p}subscriptions_customer_fk`,
         columns: [t.customerRef],

@@ -1,3 +1,5 @@
+import type { Database } from "bun:sqlite";
+
 import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -60,5 +62,40 @@ describe("forgetCustomer under a lease lost mid-call", () => {
     expect(stolen).toBe(true);
     expect(await run(storage.findCustomer("org_1"))).not.toBeNull();
     expect(await run(storage.listSubscriptions("org_1"))).toHaveLength(1);
+  });
+});
+
+describe("the reconcile selection's query plan", () => {
+  it("seeks an index for every branch and never scans the subscriptions table", async () => {
+    const { db, storage } = await createTestStorage();
+    // drizzle's bun:sqlite session prepares each statement with `query`.
+    const client = (db as unknown as { $client: Database }).$client;
+    const seen: string[] = [];
+    const query = client.query.bind(client);
+    client.query = ((text: string) => {
+      seen.push(text);
+      return query(text);
+    }) as typeof client.query;
+    const now = new Date("2030-06-01T00:00:00.000Z");
+    await Effect.runPromise(
+      storage.listSubscriptionsToReconcile({
+        now,
+        limit: 10,
+        attemptedBefore: now,
+        unconfirmedFrom: now,
+        unconfirmedTo: now,
+      }),
+    );
+    client.query = query;
+    const select = seen.find((text) => text.includes("reconciled_at"));
+    expect(select).toBeDefined();
+    const plan = client
+      .query<{ detail: string }, []>(`EXPLAIN QUERY PLAN ${select}`)
+      .all()
+      .map((row) => row.detail);
+    expect(
+      plan.filter((step) => step.startsWith("SEARCH billing_subscriptions USING INDEX")),
+    ).toHaveLength(3);
+    expect(plan.some((step) => step.startsWith("SCAN billing_subscriptions"))).toBe(false);
   });
 });
