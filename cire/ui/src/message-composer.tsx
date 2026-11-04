@@ -122,6 +122,9 @@ export default function MessageComposer(props: MessageComposerProps): JSX.Elemen
           <textarea
             {...field}
             ref={box}
+            name="reply"
+            // A message, not a form value a browser should offer to fill.
+            autocomplete="off"
             rows={1}
             class={BOX_CLASS}
             placeholder={props.placeholder ?? "Write a reply…"}

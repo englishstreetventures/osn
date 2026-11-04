@@ -192,6 +192,8 @@ describe("MessageThread reply box", () => {
   it("asks for a reply, and names its button by what it does", () => {
     render(() => <MessageThread messages={[]} emptyHint="Hint" reply={{ onSend: vi.fn() }} />);
     expect(box()).toHaveAttribute("placeholder", "Write a reply…");
+    expect(box()).toHaveAttribute("name", "reply");
+    expect(box()).toHaveAttribute("autocomplete", "off");
     expect(send().querySelector("svg")).not.toBeNull();
   });
 
