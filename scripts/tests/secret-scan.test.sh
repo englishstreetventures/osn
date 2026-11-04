@@ -253,5 +253,22 @@ else
   echo "skip 29 no writable directory on another filesystem from $WORK"
 fi
 
+# 30: a checkout the clone cannot copy fails the scan at the clone. The leak's
+# blob is made unreadable: the script reads no blob before cloning, a copy has
+# to read every object file, and a hard link needs none, so this also fails if
+# the clone links again. Root reads any file, so a root run skips.
+if [ "$(id -u)" != 0 ]; then
+  leaky_repo
+  BLOB=$(git -C "$REPO" rev-parse HEAD:b.txt)
+  OBJ="$REPO/.git/objects/${BLOB:0:2}/${BLOB:2}"
+  chmod 000 "$OBJ"
+  run_in range origin/main HEAD >"$WORK/out30" 2>&1; rc=$?
+  chmod 644 "$OBJ"
+  expect "30 a checkout the clone cannot copy exits 1" 1 "$rc"
+  expect "30b the reason is the clone" 1 "$(grep -c 'could not clone' "$WORK/out30")"
+else
+  echo "skip 30 root reads an unreadable file"
+fi
+
 echo "secret-scan tests: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
