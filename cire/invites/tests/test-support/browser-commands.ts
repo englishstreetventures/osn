@@ -37,51 +37,53 @@ export const emulateMedia = defineBrowserCommand<[{ reducedMotion?: "reduce" | "
  * Cloudflare adapter, which a render needs nothing from. The Solid integration
  * is kept, since the footer holds the guest site's "Privacy choices" island.
  */
-export const renderGuestFooter = defineBrowserCommand<
-  [{ closing: string | null }],
-  Promise<{ html: string; css: string }>
->(async (_ctx, { closing }) => {
-  const [
-    { default: solidJs },
-    { getViteConfig },
-    { experimental_AstroContainer },
-    { createViteServer },
-  ] = await Promise.all([
-    import("@astrojs/solid-js"),
-    import("astro/config"),
-    import("astro/container"),
-    import("vitest/node"),
-  ]);
-  const root = fileURLToPath(new URL("../..", import.meta.url));
-  const footerPath = `${root}src/components/GuestFooter.astro`;
-  const config = await getViteConfig(
-    {},
-    { root, configFile: false, integrations: [solidJs()], logLevel: "error" },
-  )({ mode: "test", command: "serve" });
-  const server = await createViteServer({
-    ...config,
-    configFile: false,
-    appType: "custom",
-    server: { middlewareMode: true, hmr: false, ws: false },
-  });
-  try {
-    const footer = await server.ssrLoadModule(footerPath);
-    const solid = await server.ssrLoadModule("@astrojs/solid-js/server.js");
-    const container = await experimental_AstroContainer.create();
-    container.addServerRenderer({ renderer: solid.default });
-    container.addClientRenderer({
-      name: solid.default.name,
-      entrypoint: "@astrojs/solid-js/client.js",
+export const renderGuestFooter = defineBrowserCommand<[{ closing: string | null }]>(
+  async (_ctx, { closing }): Promise<{ html: string; css: string }> => {
+    const [
+      { default: solidJs },
+      { getViteConfig },
+      { experimental_AstroContainer },
+      { createViteServer },
+    ] = await Promise.all([
+      import("@astrojs/solid-js"),
+      import("astro/config"),
+      import("astro/container"),
+      import("vitest/node"),
+    ]);
+    const root = fileURLToPath(new URL("../..", import.meta.url));
+    const footerPath = `${root}src/components/GuestFooter.astro`;
+    const config = await getViteConfig(
+      {},
+      { root, configFile: false, integrations: [solidJs()], logLevel: "error" },
+    )({ mode: "test", command: "serve" });
+    const server = await createViteServer({
+      ...config,
+      configFile: false,
+      appType: "custom",
+      server: { middlewareMode: true, hmr: false, ws: false },
     });
-    const html = await container.renderToString(footer.default, { props: { closing } });
-    const shared = await server.pluginContainer.resolveId("@cire/ui/site-footer.astro", footerPath);
-    if (!shared)
-      throw new Error("@cire/ui/site-footer.astro does not resolve from the guest footer");
-    const style = await server.ssrLoadModule(
-      `${shared.id}?astro&type=style&index=0&inline&lang.css`,
-    );
-    return { html, css: String(style.default) };
-  } finally {
-    await server.close();
-  }
-});
+    try {
+      const footer = await server.ssrLoadModule(footerPath);
+      const solid = await server.ssrLoadModule("@astrojs/solid-js/server.js");
+      const container = await experimental_AstroContainer.create();
+      container.addServerRenderer({ renderer: solid.default });
+      container.addClientRenderer({
+        name: solid.default.name,
+        entrypoint: "@astrojs/solid-js/client.js",
+      });
+      const html = await container.renderToString(footer.default, { props: { closing } });
+      const shared = await server.pluginContainer.resolveId(
+        "@cire/ui/site-footer.astro",
+        footerPath,
+      );
+      if (!shared)
+        throw new Error("@cire/ui/site-footer.astro does not resolve from the guest footer");
+      const style = await server.ssrLoadModule(
+        `${shared.id}?astro&type=style&index=0&inline&lang.css`,
+      );
+      return { html, css: String(style.default) };
+    } finally {
+      await server.close();
+    }
+  },
+);
