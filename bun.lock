@@ -339,7 +339,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.18.25",
+      "version": "0.18.26",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -402,7 +402,7 @@
     },
     "osn/auth-ui": {
       "name": "@osn/auth-ui",
-      "version": "3.0.27",
+      "version": "3.0.28",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -549,7 +549,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.48",
+      "version": "0.24.49",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -871,7 +871,7 @@
     },
     "shared/ui": {
       "name": "@shared/ui",
-      "version": "0.7.5",
+      "version": "0.8.0",
       "dependencies": {
         "@kobalte/core": "^0.13.14",
         "class-variance-authority": "^0.7.1",
@@ -913,7 +913,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.29",
+      "version": "0.3.30",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@shared/color": "workspace:*",
@@ -937,7 +937,7 @@
     },
     "tools/metrics": {
       "name": "@tools/metrics",
-      "version": "0.2.40",
+      "version": "0.2.41",
       "dependencies": {
         "@observablehq/plot": "^0.6.17",
         "@shared/ui": "workspace:*",
