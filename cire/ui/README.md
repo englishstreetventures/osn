@@ -3,7 +3,7 @@
 cire's own component layer: the chrome `@shared/ui` should not carry, because it is
 this product's house style rather than anything a second product would want.
 
-Fifteen components: `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `PersonAvatar`,
+Sixteen components: `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`,
 `SegmentedTabs`, `SignInPanel`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, and a combobox-shaped `UsernameInput`. Everything a cire surface needs that is not house style —
 `Field`, `Notice`, `EmptyState`, `Chip`, `Stat`, `Meter`, `Table`, `Modal`,
 `SafeProps` — is in `@shared/ui`, because none of it is cire-specific; it was

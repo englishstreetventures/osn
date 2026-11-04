@@ -44,7 +44,7 @@ product layer, and which one a component belongs in is decided by
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
 _why_ the line falls there, and is not re-argued here. The short version is that
@@ -129,6 +129,9 @@ cire/ui/src/
 ├── file-input.tsx          ← a file input whose button is the quiet pill (FILE_BUTTON)
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
+├── message-thread.tsx      ← MessageThread: an enquiry's messages in timed segments, and the reply box
+├── message-bubble.tsx      message-composer.tsx  message-info-menu.tsx  ← its parts, not exported
+├── lib/message-time.ts     ← the thread's order, segments and time words
 ├── person-avatar.tsx       ← PersonAvatar: a photo, the empty avatar or an initial
 ├── avatar-trigger-class.ts ← avatarTriggerClass: the round button an account menu opens from
 ├── segmented-tabs.tsx      ← SegmentedTabs: a glass track of choices with one sliding highlight
@@ -510,11 +513,11 @@ RSVP table ([[cire-rsvp-table]]) and household tables, in page mode.
 
 Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
-exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its fourteen
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its fifteen
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`disclosure`, `eyebrow`, `file-input`, `loading`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class`, `sign-in-press` and `avatar-trigger-class` are named,
+`disclosure`, `eyebrow`, `file-input`, `loading`, `message-thread`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class`, `sign-in-press` and `avatar-trigger-class` are named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
-default, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL`,
+default, `message-thread` the `MessageThreadItem` and `MessageThreadReply` types, `eyebrow` a named `eyebrowClass`, `segmented-tabs` a named `SEGMENTED_GLASS_FILL`,
 `sign-in-panel` the `SignInAuth` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, and
 `wordmark` a named `WordmarkPlaceholder`. `sign-in-card.astro` is an Astro component, imported by default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
