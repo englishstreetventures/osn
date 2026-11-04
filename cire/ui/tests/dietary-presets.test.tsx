@@ -319,6 +319,35 @@ describe("the pill's containing block", () => {
   });
 });
 
+describe("the pill's look, as written", () => {
+  // The classes the browser tier measures (`dietary-presets.browser.test.tsx`),
+  // read as written, so Stryker, which runs this tier, sees them.
+  it("marks a ticked pill with choice's look, goes halfway under the pointer, and draws the house outline", () => {
+    const { container } = render(() => <DietaryPresets value={["vegan"]} onChange={() => {}} />);
+    const label = container.querySelector("label")!.className.split(/\s+/);
+    expect(label).toEqual(
+      expect.arrayContaining([
+        "has-[:checked]:border-ui-accent",
+        "has-[:checked]:text-ui-accent-ink",
+        "has-[:checked]:ring-2",
+        "has-[:checked]:ring-ui-accent/60",
+        "not-has-[:checked]:not-has-[:disabled]:hover:border-[color:color-mix(in_oklab,var(--ui-hairline),var(--ui-accent))]",
+        "not-has-[:checked]:not-has-[:disabled]:hover:text-[color:color-mix(in_oklab,var(--ui-ink),var(--ui-accent-ink))]",
+        "not-has-[:checked]:not-has-[:disabled]:hover:ring-1",
+        "not-has-[:checked]:not-has-[:disabled]:hover:ring-ui-accent/30",
+        "has-[:focus-visible]:outline-2",
+        "has-[:focus-visible]:outline-offset-2",
+        "has-[:focus-visible]:outline-ui-focus",
+        "has-[:disabled]:cursor-not-allowed",
+        "has-[:disabled]:opacity-50",
+      ]),
+    );
+    expect(label.filter((c) => c.includes("wash") || c.includes("focus-visible]:ring"))).toEqual(
+      [],
+    );
+  });
+});
+
 describe("the pill's motion", () => {
   it("fades its colours and ring on the app's two clocks, never the outline", () => {
     // The house's one motion rule: a hover on --dur-fast with the house's
