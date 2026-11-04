@@ -15,6 +15,7 @@ import { Effect } from "effect";
 
 import { BillingStorageError } from "../errors";
 import type {
+  AccessRetry,
   BillingStorage,
   CustomerRecord,
   EventClaim,
@@ -60,6 +61,12 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
    * handed out, unless that row took 1,000 versions in its last millisecond.
    */
   const nextVersion = (now: Date): SQL => sql`MAX(${c.accessVersion} + 1, ${now.getTime() * 1000})`;
+
+  /** Due at `retry.until` while the version is still `retry.version`, else by `dueAt`. */
+  const dueAfterFailure = (dueAt: Date, retry: AccessRetry | null): SQL =>
+    retry === null
+      ? dueBy(dueAt)
+      : sql`CASE WHEN ${c.accessVersion} = ${retry.version} THEN ${retry.until.getTime()} ELSE ${dueBy(dueAt)} END`;
 
   /** The dirty mark: a write access depends on has landed for this customer. */
   const markDirty = (customerRef: string, now: Date) =>
@@ -463,7 +470,7 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
           .update(c)
           .set({
             accessLockUntil: null,
-            nextAccessBoundaryAt: input.retry ? input.dueAt : dueBy(input.dueAt),
+            nextAccessBoundaryAt: dueAfterFailure(input.dueAt, input.retry),
           })
           .where(and(eq(c.customerRef, input.customerRef), eq(c.accessLockUntil, input.token)))
           .run(),
@@ -473,7 +480,7 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
       q("mark_access_due", () =>
         db
           .update(c)
-          .set({ nextAccessBoundaryAt: input.retry ? input.dueAt : dueBy(input.dueAt) })
+          .set({ nextAccessBoundaryAt: dueAfterFailure(input.dueAt, input.retry) })
           .where(eq(c.customerRef, input.customerRef))
           .run(),
       ).pipe(Effect.asVoid),

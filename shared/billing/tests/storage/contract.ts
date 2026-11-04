@@ -365,7 +365,7 @@ export function storageContract(
           customerRef: "org_1",
           token: at(60_000),
           dueAt: at(3),
-          retry: false,
+          retry: null,
         }),
       );
 
@@ -407,7 +407,7 @@ export function storageContract(
       const first = await run(
         storage.acquireAccess({ customerRef: "org_1", now: at(0), until: at(60_000) }),
       );
-      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(10), retry: false }));
+      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(10), retry: null }));
       expect((await run(storage.findCustomer("org_1")))!.nextAccessBoundaryAt).toEqual(at(10));
       const second = await run(
         storage.acquireAccess({ customerRef: "org_1", now: at(60_000), until: at(120_000) }),
@@ -425,7 +425,7 @@ export function storageContract(
         ["org_e", 5],
       ] as const) {
         await run(storage.ensureCustomer(ref, at(0)));
-        await run(storage.markAccessDue({ customerRef: ref, dueAt: at(due), retry: false }));
+        await run(storage.markAccessDue({ customerRef: ref, dueAt: at(due), retry: null }));
       }
       await run(storage.acquireAccess({ customerRef: "org_e", now: at(0), until: at(2_000) }));
       expect(await run(storage.listDueCustomers(at(1_000), 2))).toEqual(["org_b", "org_c"]);
@@ -438,21 +438,32 @@ export function storageContract(
       expect(await run(storage.listDueCustomers(at(2_000), 1))).toEqual(["org_e"]);
     });
 
-    it("moves a retried row's boundary to the retry time, and a plain release only ever earlier", async () => {
+    it("moves a retried row's boundary to the retry time unless a write landed meanwhile; a plain release only ever earlier", async () => {
       const storage = await fresh();
-      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(10), retry: false }));
-      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(50), retry: false }));
+      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(10), retry: null }));
+      await run(storage.markAccessDue({ customerRef: "org_1", dueAt: at(50), retry: null }));
       expect((await run(storage.findCustomer("org_1")))!.nextAccessBoundaryAt).toEqual(at(10));
-      await run(storage.acquireAccess({ customerRef: "org_1", now: at(20), until: at(60_020) }));
-      await run(
-        storage.releaseAccess({
-          customerRef: "org_1",
-          token: at(60_020),
-          dueAt: at(HOUR),
-          retry: true,
-        }),
-      );
-      expect((await run(storage.findCustomer("org_1")))!.nextAccessBoundaryAt).toEqual(at(HOUR));
+      const release = async (now: number, landed: boolean) => {
+        const lease = await run(
+          storage.acquireAccess({ customerRef: "org_1", now: at(now), until: at(now + 60_000) }),
+        );
+        if (landed)
+          await run(
+            storage.upsertSubscription(subscriptionWrite({ fetchStartedAt: at(now) }), at(now)),
+          );
+        await run(
+          storage.releaseAccess({
+            customerRef: "org_1",
+            token: at(now + 60_000),
+            dueAt: at(now),
+            retry: { until: at(HOUR), version: lease!.version },
+          }),
+        );
+        return (await run(storage.findCustomer("org_1")))!.nextAccessBoundaryAt;
+      };
+      expect(await release(20, false)).toEqual(at(HOUR));
+      // A write under the failed attempt keeps the row due now.
+      expect(await release(30, true)).toEqual(at(30));
     });
 
     it("selects for reconcile: past period or unconfirmed recent period, never terminal, oldest attempt first", async () => {

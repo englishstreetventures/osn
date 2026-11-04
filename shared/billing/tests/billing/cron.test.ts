@@ -262,6 +262,31 @@ describe("sweepAccess counts", () => {
     expect([calls.get("acquireAccess"), calls.get("findCustomer") ?? 0]).toEqual([1, 0]);
   });
 
+  it("keeps a failing customer due at once when a write landed while its hook ran", async () => {
+    const h = await createHarness({
+      hooks: {
+        onAccess: () =>
+          // A grant lands mid-attempt, then the hook fails.
+          h.storage
+            .upsertGrant(
+              {
+                customerRef: "org_a",
+                featureId: "workspace",
+                source: "comp",
+                grantedBy: "ops",
+                expiresAt: null,
+              },
+              h.now(),
+            )
+            .pipe(Effect.andThen(Effect.fail("broken listing"))),
+      },
+    });
+    await subscribed(h, "org_a", later(DAY));
+    h.advance(5 * DAY);
+    expect(await run(h.billing.sweepAccess({ limit: 1 }))).toMatchObject({ failed: 1 });
+    expect(await run(h.storage.listDueCustomers(h.now(), 10))).toEqual(["org_a"]);
+  });
+
   it("puts a customer whose hook fails behind the customers not yet tried", async () => {
     const h = await createHarness({
       hooks: {

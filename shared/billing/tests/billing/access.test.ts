@@ -111,7 +111,7 @@ describe("applying access", () => {
             customerRef: "org_1",
             token: later(30_000),
             dueAt: h.now(),
-            retry: false,
+            retry: null,
           }),
         ),
       20,
@@ -165,7 +165,7 @@ describe("applying access", () => {
           customerRef: "org_1",
           token: later(30_000),
           dueAt: h.now(),
-          retry: false,
+          retry: null,
         });
         const lease = yield* h.storage.acquireAccess(held(60_000));
         yield* h.storage.completeAccess({

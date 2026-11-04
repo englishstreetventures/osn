@@ -197,7 +197,10 @@ export const applyAccess = (
       const [rows, grants] = yield* readState(ctx, customerRef);
       const status = yield* decideStatus(ctx, customerRef, rows, grants, now);
       const decision: AccessDecision = { ...status, version: lease.version, decidedAt: now };
-      const due = retryAt ? { dueAt: retryAt, retry: true } : { dueAt: now, retry: false };
+      const due = {
+        dueAt: now,
+        retry: retryAt ? { until: retryAt, version: lease.version } : null,
+      };
       yield* runHook(ctx, decision).pipe(
         Effect.tapError((error) =>
           error.reason === "timeout"
@@ -217,7 +220,7 @@ export const applyAccess = (
         return "applied" as const;
       }
       // A write landed while deciding: free the lease and decide again.
-      yield* storage.releaseAccess({ customerRef, token, dueAt: now, retry: false });
+      yield* storage.releaseAccess({ customerRef, token, dueAt: now, retry: null });
       if (performance.now() >= deadline) return yield* Effect.fail(new AccessBusy());
       yield* backOff;
     }
@@ -274,8 +277,8 @@ export const forgetCustomer = (
         yield* runHook(ctx, { ...denied, version: lease.version, decidedAt: now }).pipe(
           Effect.tapError((error) =>
             error.reason === "timeout"
-              ? storage.markAccessDue({ customerRef, dueAt: now, retry: false })
-              : storage.releaseAccess({ customerRef, token, dueAt: now, retry: false }),
+              ? storage.markAccessDue({ customerRef, dueAt: now, retry: null })
+              : storage.releaseAccess({ customerRef, token, dueAt: now, retry: null }),
           ),
         );
         const forgotten = yield* storage.forgetCustomer({ customerRef, token });

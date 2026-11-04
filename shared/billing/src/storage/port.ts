@@ -72,6 +72,12 @@ export interface GrantRecord {
   readonly expiresAt: Date | null;
 }
 
+/** A later due time for a row whose application failed, valid only at `version`. */
+export interface AccessRetry {
+  readonly until: Date;
+  readonly version: number;
+}
+
 export type EventClaim = "claimed" | "done" | "held";
 export type EventOutcome = "processed" | "ignored";
 
@@ -189,20 +195,22 @@ export interface BillingStorage {
   }): Effect.Effect<boolean, E>;
   /**
    * Frees the lease if still held by `token`, leaving the row due at `dueAt` or
-   * earlier; with `retry`, due at `dueAt` exactly, so a row the sweep could not
-   * apply goes behind the rows it has not tried yet.
+   * earlier. With `retry`, due at `retry.until` instead, so a row the sweep
+   * could not apply goes behind the rows it has not tried yet; but only while
+   * the access version is still `retry.version`: after a newer write the row
+   * stays due at `dueAt`, so that write is applied without waiting.
    */
   releaseAccess(input: {
     readonly customerRef: string;
     readonly token: Date;
     readonly dueAt: Date;
-    readonly retry: boolean;
+    readonly retry: AccessRetry | null;
   }): Effect.Effect<void, E>;
   /** Leaves the lease to expire on its own; only marks the row due, as `releaseAccess` does. */
   markAccessDue(input: {
     readonly customerRef: string;
     readonly dueAt: Date;
-    readonly retry: boolean;
+    readonly retry: AccessRetry | null;
   }): Effect.Effect<void, E>;
   /** Customer refs whose boundary is due and whose lease is free, earliest first. */
   listDueCustomers(now: Date, limit: number): Effect.Effect<readonly string[], E>;
