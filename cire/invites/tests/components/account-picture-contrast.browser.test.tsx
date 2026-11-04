@@ -7,13 +7,14 @@
  * held to 4.5:1.
  */
 
-import { contrastRatio, PALETTE_PRESET_KEYS, WCAG_TEXT_MIN } from "@cire/theme";
+import { PALETTE_PRESET_KEYS, WCAG_TEXT_MIN } from "@cire/theme";
 import PersonAvatar from "@cire/ui/person-avatar";
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
 import "../../src/styles/global.css";
 import { applyPaletteToRoot } from "../../src/components/invite-theme";
+import { wordsRatio } from "../test-support/paint";
 
 const GROUNDS = {
   page: "bg-bg",
@@ -25,30 +26,6 @@ afterEach(() => {
   cleanup();
   applyPaletteToRoot(null);
 });
-
-/** Paint `layers` bottom-up on a 1px canvas and read back plain `rgb`. */
-function composite(layers: readonly string[]): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 1;
-  const ctx = canvas.getContext("2d")!;
-  for (const layer of layers) {
-    ctx.fillStyle = layer;
-    ctx.fillRect(0, 0, 1, 1);
-  }
-  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-/** `el`'s words against everything painted under them, the page first. */
-function wordsRatio(el: Element): number {
-  const layers: string[] = [];
-  for (let node: Element | null = el; node; node = node.parentElement) {
-    layers.unshift(getComputedStyle(node).backgroundColor);
-  }
-  const page = getComputedStyle(document.documentElement).getPropertyValue("--color-bg");
-  const under = composite([page, ...layers]);
-  return contrastRatio(composite([under, getComputedStyle(el).color]), under)!;
-}
 
 describe.each(PALETTE_PRESET_KEYS)("the %s scheme", (palettePreset) => {
   it("holds the account card's initial at 4.5:1 on every ground", () => {

@@ -15,8 +15,12 @@
  * order, the version line and, on the guest site, the privacy-choices control
  * in the legal row; it checks the marketing sign-off is italic, that a tap
  * 18px above a link's centre still lands on it (the 44px hit area), and that
- * every footer link and the version read at 4.5:1 on the page; and it shoots
- * the top of the page and the footer at 390 and 1280px.
+ * every word in the footer reads at 4.5:1 on the page — the links, the
+ * version, the guest site's control, and the marketing site's sign-off,
+ * tagline, section row and small print; and it shoots the top of the page and
+ * the footer at 390 and 1280px. The guest footer's sign-off, which only an
+ * invitation draws, is measured on every palette by the guest site's
+ * `GuestFooter` browser test.
  */
 
 import { mkdirSync } from "node:fs";
@@ -152,7 +156,7 @@ async function legalPage(flow: Flow, page: Page, target: (typeof LEGAL_PAGES)[nu
     ((await version.textContent()) ?? "").trim(),
   );
 
-  const actions = [...(await legal.locator("a").all()), version];
+  const words = [...(await legal.locator("a").all()), version];
   if (target.site === "guest") {
     // The standing control, inside the legal row, after the links.
     const choices = legal.getByRole("button", { name: "Privacy choices" });
@@ -167,7 +171,7 @@ async function legalPage(flow: Flow, page: Page, target: (typeof LEGAL_PAGES)[nu
       true,
       await choices.evaluate((el) => el.classList.contains("consent-link")),
     );
-    actions.push(choices);
+    words.push(choices);
   } else {
     const back = page.locator("main .legal-back a");
     flow.check(
@@ -182,6 +186,14 @@ async function legalPage(flow: Flow, page: Page, target: (typeof LEGAL_PAGES)[nu
         .locator(".signoff")
         .evaluate((el) => `${(el.textContent ?? "").trim()} ${getComputedStyle(el).fontStyle}`),
     );
+    // The rest of the marketing footer's words: the sign-off and its tagline,
+    // the section row and the small print.
+    words.push(
+      footer.locator(".signoff"),
+      footer.locator(".tagline"),
+      ...(await footer.locator('nav[aria-label="Sections"] a').all()),
+      footer.locator(".small-print"),
+    );
   }
 
   for (const width of [390, 1280]) {
@@ -194,12 +206,11 @@ async function legalPage(flow: Flow, page: Page, target: (typeof LEGAL_PAGES)[nu
   }
 
   const short: string[] = [];
-  for (const action of actions) {
-    const ratio = await inkRatio(action);
-    if (ratio < TEXT_MIN)
-      short.push(`${(await action.textContent())?.trim()}: ${ratio.toFixed(2)}`);
+  for (const word of words) {
+    const ratio = await inkRatio(word);
+    if (ratio < TEXT_MIN) short.push(`${(await word.textContent())?.trim()}: ${ratio.toFixed(2)}`);
   }
-  flow.check(`${name}: every footer link and the version read at 4.5:1`, "", short.join(", "));
+  flow.check(`${name}: every word in the footer reads at 4.5:1`, "", short.join(", "));
 
   mkdirSync(SHOTS, { recursive: true });
   const file = `${target.site}${target.path.replaceAll("/", "-")}`;
