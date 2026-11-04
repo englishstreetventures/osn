@@ -22,10 +22,12 @@
     "./loading": "./src/loading.tsx",
     "./note": "./src/note.tsx",
     "./reveal": "./src/reveal.tsx",
+    "./segmented-tabs": "./src/segmented-tabs.tsx",
+    "./sliding-pill": "./src/lib/sliding-pill.ts",
     "./username-input": "./src/username-input.tsx"
   },
   "scripts": {
-    "typecheck": "bun check --no-script",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
     "test": "bunx --bun vitest --project unit",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:run": "bunx --bun vitest run --project unit",

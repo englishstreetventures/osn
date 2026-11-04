@@ -129,6 +129,8 @@ cire/ui/src/
 ├── file-input.tsx          ← a file input whose button is the quiet pill (FILE_BUTTON)
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
+├── segmented-tabs.tsx      ← SegmentedTabs: a glass track of choices with one sliding highlight
+├── lib/sliding-pill.ts     ← createSlidingPill: one highlight that moves between items
 └── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
 ```
 
@@ -1051,6 +1053,54 @@ The reason the rule can be trusted at `error` is that it reads the component's
 own variants and names them in the diagnostic — `Use a variant: default,
 destructive, outline, secondary, ghost, link` — so the fix arrives with the
 error rather than needing a trip to the source.
+
+### cire's `SegmentedTabs` — one glass track, three meanings
+
+The portals' segmented controls are one part (`cire/ui/src/segmented-tabs.tsx`,
+owner's choice on englishstreetventures/osn#1845): a 28px track — a 1px hairline
+on the surface at 30%, 2px inside — and 22px choices in sentence case at the
+extra-small step, the secondary ink at normal weight at rest and the readable
+accent ink at medium weight when chosen. The weight is the cue that is not
+colour, since the glass and the inks alone read under 3:1 between the chosen
+choice and the rest; a hidden copy of each word at medium weight holds its
+width, so a choice moving shifts nothing, and each choice names itself with
+`aria-label` so that copy is never read. The chosen one sits on glass: the raised surface at
+55% under the accent at 14% (composited into one colour, so a test can read
+what the label sits on), an inner lip, a light inner edge (`--glass-edge`, an
+app token; white at 10% when unset), a hairline ring, the first lift and a
+12px frosted backdrop. The glass slides on the house spring
+(`--ease-spring`, falling back to the app's ease-out) at `--dur-base`, inside
+its own layer clipped to the track's shape, so an overshoot is cut by the
+track and no focus ring is. Under the pointer an unchosen choice goes halfway:
+half the tint, an ink between the two. Colours fade on named properties, so
+the 2px ring at 2px never fades in; a reader who turned motion down gets no
+slide and no fade. The frosted backdrop is filtered again on every frame of a
+slide: a cost on low-end phones that the owner's frosted look accepts. In a
+contrast theme the chosen choice keeps a 1px outline in the theme's text
+colour, since the theme drops the glass.
+
+`semantics` keeps each strip's meaning: `tabs` (a named tablist, one tab stop,
+arrows, Home and End moving focus, Enter or a click choosing), `radio` (a
+named radiogroup with one tab stop, the checked radio; the arrows move to the
+next or previous radio, wrapping, and ask to choose it, as the ARIA radio group
+does; a refused choice is never shown as made) and `current` (a named group of
+buttons, the chosen one `aria-current="page"`). Items are keyed by `value`, so a
+call site may rebuild them on every keystroke; `icon`, `name` (a fuller
+accessible name), `describedBy`, `after` (a count, a mark) and `iconOnly` are
+read as they change. `iconOnly` on the strip hides every label for assistive
+technology alone and hands each to `tipAttribute`, the attribute the app's
+tooltip layer reads (`data-tip` in the host portal); on an item it does the same
+for that item alone, so some choices can show as their marks beside a word that
+stays. `scroll` keeps the strip
+on one row and scrolls it sideways inside its box, the chosen choice and one
+the arrows reach kept in view without moving the page. `class` sets the
+strip's place in its row only.
+
+`createSlidingPill` (`cire/ui/src/lib/sliding-pill.ts`) is the highlight under
+it, and the module rail's marker: `ease: "out"` (the default) or `"spring"`.
+`cire/ui/tests/segmented-tabs.test.tsx` holds the roles and keys,
+`segmented-tabs.browser.test.tsx` where the glass lands, the 28px and 22px
+heights, each label's 4.5:1 on both ramps, the ring and the scrolling strip.
 
 ### cire's `Button`, as a vocabulary
 
