@@ -1028,7 +1028,7 @@ export default function RsvpView(props: RsvpViewProps) {
               <span data-bar-divider aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
               <Skeleton standsFor="pill" class="mr-auto h-7 w-56 max-w-full min-w-0" />
             </ViewBar>
-            {/* On a phone the search and the reply chips take a line each. */}
+            {/* On a phone the search and the reply filter take a line each. */}
             <ViewBar slot="row2">
               <Show when={compact()} fallback={<Skeleton standsFor="field" class="h-7 w-full" />}>
                 <div class="flex w-full min-w-0 flex-col gap-2">
