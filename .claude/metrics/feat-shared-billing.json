@@ -4,8 +4,8 @@
     "number": 1945,
     "branch": "feat/shared-billing",
     "base_sha": "c4c9c47a5b2db83f2cbd08f944c8698a63d72425",
-    "head_sha": "6eb56816b74094a91200203473bba302c31ac36c",
-    "generated_at": "2026-11-04T02:47:58.648Z",
+    "head_sha": "1730fcf7cf4fe782e5f7cd8bcf111085e1b16cdd",
+    "generated_at": "2026-11-04T02:54:18.092Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -24,35 +24,35 @@
     "issues": 1
   },
   "window": {
-    "sessions": 21,
+    "sessions": 24,
     "first_ts": "2026-11-03T15:41:08.253Z",
-    "last_ts": "2026-11-04T02:47:56.591Z",
-    "span_seconds": 40008,
-    "active_seconds": 11184,
+    "last_ts": "2026-11-04T02:54:13.003Z",
+    "span_seconds": 40385,
+    "active_seconds": 11651,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 103.73817213000004,
+    "usd_equivalent": 109.97548413000001,
     "tokens": {
-      "input": 1824,
-      "output": 1124210,
-      "thinking": 554320,
-      "cache_write_5m": 4398112,
+      "input": 1906,
+      "output": 1157270,
+      "thinking": 566711,
+      "cache_write_5m": 4582276,
       "cache_write_1h": 0,
-      "cache_read": 161319177
+      "cache_read": 172956587
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 1702,
-          "output": 996772,
-          "thinking": 475272,
-          "cache_write_5m": 3975678,
+          "input": 1784,
+          "output": 1029832,
+          "thinking": 487663,
+          "cache_write_5m": 4159842,
           "cache_write_1h": 0,
-          "cache_read": 153435486
+          "cache_read": 165072896
         },
-        "usd_equivalent": 101.19483240000001,
-        "messages": 828
+        "usd_equivalent": 107.43214439999997,
+        "messages": 868
       },
       "claude-sonnet-5-5": {
         "tokens": {
@@ -94,32 +94,32 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 120,
-          "output": 34220,
-          "thinking": 19515,
-          "cache_write_5m": 404976,
+          "input": 150,
+          "output": 40808,
+          "thinking": 23677,
+          "cache_write_5m": 555074,
           "cache_write_1h": 0,
-          "cache_read": 1459164
+          "cache_read": 1963949
         },
-        "usd_equivalent": 3.2934256000000004,
-        "messages": 60
+        "usd_equivalent": 4.377709600000001,
+        "messages": 75
       },
       "subagent": {
         "tokens": {
-          "input": 1704,
-          "output": 1089990,
-          "thinking": 534805,
-          "cache_write_5m": 3993136,
+          "input": 1756,
+          "output": 1116462,
+          "thinking": 543034,
+          "cache_write_5m": 4027202,
           "cache_write_1h": 0,
-          "cache_read": 159860013
+          "cache_read": 170992638
         },
-        "usd_equivalent": 100.44474653,
-        "messages": 827
+        "usd_equivalent": 105.59777453000004,
+        "messages": 852
       }
     },
     "effort": {
-      "medium": 113,
-      "xhigh": 531,
+      "medium": 128,
+      "xhigh": 556,
       "high": 242
     },
     "unpriced_models": []
@@ -129,7 +129,7 @@
       "generated": 2,
       "test": 25,
       "docs": 7,
-      "config": 3,
+      "config": 4,
       "source": 30
     },
     "loc": {
@@ -138,19 +138,19 @@
         "deleted": 0
       },
       "test": {
-        "added": 4342,
+        "added": 4458,
         "deleted": 4
       },
       "docs": {
-        "added": 507,
+        "added": 513,
         "deleted": 9
       },
       "config": {
-        "added": 60,
+        "added": 290,
         "deleted": 2
       },
       "source": {
-        "added": 4750,
+        "added": 4793,
         "deleted": 0
       }
     },
@@ -160,7 +160,7 @@
       "shared/observability"
     ],
     "touches_migration": false,
-    "commits": 22
+    "commits": 25
   },
   "interaction": {
     "user_turns": 0,
@@ -168,19 +168,19 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 743,
-      "Read": 65,
+      "Bash": 767,
+      "Read": 72,
       "Edit": 50,
       "WebFetch": 31,
-      "Grep": 23,
-      "StructuredOutput": 19,
+      "Grep": 29,
+      "StructuredOutput": 23,
       "Skill": 17,
-      "SubagentHandback": 11,
+      "SubagentHandback": 12,
       "Agent": 9,
       "Write": 8,
       "Monitor": 7,
       "ToolSearch": 5,
-      "Glob": 3,
+      "Glob": 4,
       "TaskStop": 1,
       "SendMessage": 1
     },
@@ -208,12 +208,12 @@
       "mechanic": 1
     },
     "requests": {
-      "main": 60,
-      "subagent": 826,
-      "with_tools": 878,
-      "with_one_tool": 822,
-      "context_median": 153828,
-      "context_p90": 403581
+      "main": 75,
+      "subagent": 851,
+      "with_tools": 918,
+      "with_one_tool": 859,
+      "context_median": 155399,
+      "context_p90": 423819
     }
   },
   "review": {
