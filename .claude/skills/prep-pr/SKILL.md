@@ -277,7 +277,7 @@ uncommitted and are never grouped into a commit.
 bun run scripts/review-scope.ts "${DIFF_BASE:?run Step 0 first}"
 ```
 
-It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, no output, or any word but the three below means `full-state`, the most review:
+It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, no output, or any word but the four below means `full-state`, the most review:
 
 | Verdict | Step 4 | Step 6 |
 |---|---|---|
@@ -443,7 +443,7 @@ Work is tracked in GitHub Issues, not in a markdown checklist. Two repos:
 
 `englishstreetventures/osn` is public. A security, performance or compliance finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks, and that includes one Step 6 gave to a state review's `## For the tracker` entry.
 
-**A `G-` finding is a correctness defect and is filed only when it stays open** — one of Step 6's three, or on the follow-up pull request that fixes it, so that pull request closes it. One this branch fixes gets no issue: the public pull request and its commit are its record. Its issue is `--type Bug`, with its ID leading the title, `product:`, `severity:` from its tier letter (`C` → `critical`, `H` → `high`, `M` → `medium`, `L` → `low`), and `area:schema` when the fix is a migration; the body is the four fields, written with `write-issue`. The rest of this step's filing rules are for the tracker.
+**A `G-` finding is a correctness defect and is filed only when it stays open** — one of Step 6's three, or one in scope this run could not finish, so it keeps an owner — or when the follow-up pull request fixes it, so that pull request closes it. One this branch fixes gets no issue: the public pull request and its commit are its record. Its issue is `--type Bug`, with its ID leading the title, `product:`, `severity:` from its tier letter (`C` → `critical`, `H` → `high`, `M` → `medium`, `L` → `low`), and `area:schema` when the fix is a migration; the body is the four fields, written with `write-issue`. The rest of this step's filing rules are for the tracker.
 
 Auditing a defect class — when a finding is an instance of a class, enumerate the *shapes* the defect can take rather than re-grepping the first form you found. Recipe and the D1 bind-cap case study: `references/auditing-defect-classes.md`.
 
