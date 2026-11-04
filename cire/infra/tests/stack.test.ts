@@ -557,8 +557,8 @@ describe("the cire stack on production", () => {
         ]),
       ),
     ).toEqual({
-      CireHost: "next-host.cireweddings.com",
-      CireVendor: "next-vendor.cireweddings.com",
+      CireHost: "next.host.cireweddings.com",
+      CireVendor: "next.vendor.cireweddings.com",
       CireLanding: "next.cireweddings.com",
     });
     const flipped = resourcesOf(
@@ -572,7 +572,7 @@ describe("the cire stack on production", () => {
       Object.fromEntries(
         Object.entries(flipped).map(([id, resource]) => [id, resource.Props.domain]),
       ),
-    ).toEqual({ CireHost: "next-host.cireweddings.com", CireVendor: "vendor.cireweddings.com" });
+    ).toEqual({ CireHost: "next.host.cireweddings.com", CireVendor: "vendor.cireweddings.com" });
     for (const resource of Object.values(resourcesOf(production))) {
       expect({ [resource.LogicalId]: resource.Props.workersDev }).toEqual({
         [resource.LogicalId]: { enabled: false, previewsEnabled: false },
