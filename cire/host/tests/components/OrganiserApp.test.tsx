@@ -563,10 +563,11 @@ describe("OrganiserApp Dashboard", () => {
   /**
    * Back from Stripe, the purchase answering each of `statuses` in turn (the
    * last one repeats); `"unreachable"` is a read that never reaches the API.
-   * Fake timers go in before `render`: the poll starts at
-   * mount and schedules its first sleep straight after the first read. The
-   * caller restores real timers in a `finally`, and uses no `waitFor` meanwhile:
-   * its deadline is a faked `setTimeout` too, so a failure would hang.
+   * `reads.list` counts reads of the wedding list alone. Fake timers go in
+   * before `render`: the poll starts at mount and schedules its first sleep
+   * straight after the first read. The caller restores real timers in a
+   * `finally`, and uses no `waitFor` meanwhile: its deadline is a faked
+   * `setTimeout` too, so a failure would hang.
    */
   function returnFromStripe(statuses: string[]) {
     history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
@@ -580,7 +581,7 @@ describe("OrganiserApp Dashboard", () => {
           status: 200,
         });
       }
-      reads.list += 1;
+      if (url.endsWith("/api/organiser/weddings")) reads.list += 1;
       return listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", tier: "ivory" }]);
     });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -623,9 +624,10 @@ describe("OrganiserApp Dashboard", () => {
 
   it("ends the poll on a refunded purchase, and says it was refunded", async () => {
     // Only an operator writes `refunded`, and only over a purchase that had
-    // succeeded, so the poll meets it straight away: a return URL opened again
-    // after the purchase was taken back. The first read never reaches the API,
-    // which is not a failed purchase, so the poll asks again.
+    // succeeded, so the poll meets it on a return URL opened again after the
+    // purchase was taken back. The failed first read is deliberate: it sends a
+    // read with no purchase state through both new checks, which must let it
+    // fall through to the next attempt rather than throw.
     const reads = returnFromStripe(["unreachable", "refunded"]);
     try {
       await vi.advanceTimersByTimeAsync(0);
