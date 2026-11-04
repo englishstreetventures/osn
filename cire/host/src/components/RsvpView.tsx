@@ -6,6 +6,7 @@ import {
 import Button, { proseLinkClass } from "@cire/ui/button";
 import DietaryPresetsInline from "@cire/ui/dietary-presets";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
+import SegmentedTabs from "@cire/ui/segmented-tabs";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Checkbox } from "@shared/ui/ui/checkbox";
@@ -22,7 +23,6 @@ import { Tooltip } from "@shared/ui/ui/tooltip";
 import ArrowDown from "lucide-solid/icons/arrow-down";
 import ArrowUp from "lucide-solid/icons/arrow-up";
 import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
-import CircleX from "lucide-solid/icons/circle-x";
 import Download from "lucide-solid/icons/download";
 import Info from "lucide-solid/icons/info";
 import Link2 from "lucide-solid/icons/link-2";
@@ -43,6 +43,7 @@ import {
   onMount,
   Show,
   untrack,
+  type JSX,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
@@ -128,29 +129,9 @@ const SORT_LABEL = {
 
 const SORT_ICON_CLASS = "size-3.5 shrink-0";
 
-/**
- * A chip: an event to show, or a reply to filter by. A pill at the search
- * box's height, on `--surface` with no border, its count muted beside its
- * name; chosen, it fills in the brand green. Pills, so they read as a group
- * apart from the module's segmented sub-tabs (DESIGN.md §Chips). Focused from
- * the keyboard it wears the dashboard's one focus ring (`global.css`).
- */
-const CHIP_BASE =
-  "font-body text-ui-sm flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 whitespace-nowrap " +
-  "transition-ui-colors duration-(--dur-fast) ease-(--ease-out)";
-const CHIP_IDLE = "bg-surface text-text hover:bg-surface-raised";
-const CHIP_CHOSEN = "bg-brand text-on-brand";
-/** A chip's count: muted beside an unchosen name, the chip's own ink on green. */
-const chipCount = (chosen: boolean) =>
-  `font-ui-mono text-ui-xs ${chosen ? "text-on-brand" : "text-text-muted"}`;
-
-/**
- * A row of chips that never wraps: it scrolls sideways under the finger. A
- * scroller clips on both axes, so the row keeps 4px of padding all round — the
- * focus ring's offset and width — inside a matching negative margin, and a
- * focused chip's ring shows whole without the row taking more room.
- */
-const CHIP_ROW = "-m-1 flex min-w-0 flex-nowrap gap-1.5 overflow-x-auto p-1 [scrollbar-width:none]";
+/** A count after a strip's word: muted at rest, the readable gold on the chosen glass. */
+const countClass = (chosen: boolean) =>
+  `font-ui-mono text-ui-xs ${chosen ? "text-gold-ink" : "text-text-muted"}`;
 
 /**
  * How a reply was given, beside the name as an icon. Each icon's name and
@@ -211,10 +192,13 @@ function provenanceIcon(p: Provenance) {
   );
 }
 
-/** A reply's circle alone, for a chip that names its reply in words. */
-function ReplyDot(props: { tone: MarkTone }) {
-  return <StatusDot tone={props.tone} />;
-}
+/** Each reply's circle alone, as the reply filter's icon: the word is the choice's own. */
+const REPLY_DOT = {
+  yes: () => <StatusDot tone="yes" />,
+  no: () => <StatusDot tone="no" />,
+  maybe: () => <StatusDot tone="maybe" />,
+  none: () => <StatusDot tone="none" />,
+} satisfies Record<MarkTone, () => JSX.Element>;
 
 /** What the sort select offers, in `RsvpSort` terms. */
 const SORT_CHOICES = [
@@ -276,7 +260,7 @@ function attestationFor(target: EditTarget) {
 
 /**
  * In-dashboard RSVP summary, one event at a time. A tab list picks the event,
- * and a search box and status chips act on that event; all three sit in the
+ * and a search box and a reply filter act on that event; all three sit in the
  * module's view bar, which sticks under the top bar (`ViewBar.tsx`). The
  * event's panel holds its status tally and every guest invited to it — those
  * who replied, with status + dietary + a provenance badge (organiser-entered,
@@ -303,7 +287,7 @@ export default function RsvpView(props: RsvpViewProps) {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
 
-  // The control bar: a search box and one status chip, applied to every event:
+  // The control bar: a search box and one reply filter, applied to every event:
   // the table shows the one on screen, and each tab counts its own. Kept
   // across a switch of event, as is the sort.
   const [query, setQuery] = createSignal("");
@@ -453,10 +437,6 @@ export default function RsvpView(props: RsvpViewProps) {
     const id = chosen();
     return all.find((section) => section.event.id === id) ?? all[0];
   });
-  const selectedIndex = () => {
-    const current = selected();
-    return current ? sections().indexOf(current) : -1;
-  };
 
   const counts = createMemo(() => statusCounts(selected()?.rows() ?? []));
   const shownCount = () => selected()?.visible().length ?? 0;
@@ -549,7 +529,7 @@ export default function RsvpView(props: RsvpViewProps) {
     onCleanup(() => clearTimeout(timer));
   });
 
-  /** The status line: how much of the event on screen the search and chip
+  /** The status line: how much of the event on screen the search and filter
    *  leave, naming the event, since that is all they act on. */
   function showing() {
     return `Showing ${shownCount()} of ${counts().all} guests for ${selected()?.event.name ?? ""}.`;
@@ -560,63 +540,7 @@ export default function RsvpView(props: RsvpViewProps) {
   // `subtab-*` / `subpanel-*` around this view.
   const idPrefix = `rsvp-${createUniqueId()}`;
   const panelId = `${idPrefix}-panel`;
-  const tabId = (index: number) => `${idPrefix}-tab-${index}`;
-
-  // Roving tabindex, as in the module shell's own strip: only the selected tab
-  // is a tab stop, and the arrow keys move focus between the rest.
-  const tabRefs: HTMLButtonElement[] = [];
-  const [strip, setStrip] = createSignal<HTMLElement>();
-
-  /**
-   * Scroll the strip, and only the strip, until a tab is wholly in it.
-   * `scrollIntoView` and a plain `focus()` would scroll the page too, which on
-   * a deep link means the page jumps as it loads.
-   */
-  function reveal(tab: HTMLElement | undefined) {
-    const track = strip();
-    if (!tab || !track) return;
-    // The tabs are laid out in the track (it is `relative`), so offsetLeft is
-    // in the track's scrolled coordinates. 4px is the track's padding.
-    const start = tab.offsetLeft - 4;
-    const end = tab.offsetLeft + tab.offsetWidth + 4;
-    if (start < track.scrollLeft) track.scrollLeft = start;
-    else if (end > track.scrollLeft + track.clientWidth) track.scrollLeft = end - track.clientWidth;
-  }
-
-  // The chosen tab in view whenever the choice changes, and once the strip
-  // first mounts — which is after the load, so a deep-linked tab far along the
-  // strip is shown rather than left past its edge.
-  createEffect(() => {
-    const index = selectedIndex();
-    if (strip()) reveal(tabRefs[index]);
-  });
-
-  function focusTab(index: number) {
-    const count = sections().length;
-    if (count === 0) return;
-    const tab = tabRefs[((index % count) + count) % count];
-    tab?.focus({ preventScroll: true });
-    reveal(tab);
-  }
-
-  function onTabKeyDown(event: KeyboardEvent, index: number) {
-    // Focus only — Enter and Space fall through to the button's native click,
-    // which is what selects. A big event is not drawn in an instant, and each
-    // selection writes the address, so passing over a tab must not choose it.
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      focusTab(index + 1);
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      focusTab(index - 1);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      focusTab(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      focusTab(sections().length - 1);
-    }
-  }
+  const tabId = (eventId: string) => `${idPrefix}-tab-${eventId}`;
 
   // A search, a reply filter, a sort or another event redraws the list. If the
   // host had scrolled into it, the page brings the list's top back to the foot
@@ -761,110 +685,111 @@ export default function RsvpView(props: RsvpViewProps) {
     }
   };
 
+  /** One item per event, made again only when the events change: a search
+   *  keystroke updates each tab's count and name where they are drawn. */
+  const eventItems = createMemo(() =>
+    sections().map((section) => ({
+      value: section.event.id,
+      label: section.event.name,
+      // The tab's whole name, in sentence case, with its count.
+      get name() {
+        const shown = section.visible().length;
+        return `${section.event.name}, ${shown} ${
+          filtering() ? "matching" : shown === 1 ? "guest" : "guests"
+        }${section.hasNew() ? ", changed since you last looked" : ""}`;
+      },
+      after: (isChosen: boolean) => (
+        <>
+          {/* The rows this tab would show: the whole list, or what the search
+              and filter leave of it — so a search run on one event still says
+              which others it would find guests in. */}
+          <span data-count class={countClass(isChosen)}>
+            {section.visible().length}
+          </span>
+          {/* Opening the table marks every event's changes seen, so an event
+              not on screen says it holds some, in a word. */}
+          <Show when={section.hasNew()}>
+            <span class="text-ui-xs tracking-ui-wider text-gold-ink font-medium uppercase">
+              New
+            </span>
+          </Show>
+        </>
+      ),
+    })),
+  );
+
   /**
-   * The event chips, lent to the view bar's first row after a divider. Pills
-   * on their own, not in a track, so they never read as more of the module's
-   * segmented sub-tabs beside them (DESIGN.md §Chips): the chosen one fills
-   * in the brand green, the rest carry their count muted. The row scrolls
-   * sideways rather than wrapping.
+   * The event tabs, lent to the view bar's first row after a divider: a glass
+   * strip like the module's own views beside it, the owner's one look for a
+   * tab strip. Each tab carries its count, and "New" while it holds changes
+   * the host has not seen. The strip scrolls sideways rather than wrapping,
+   * and brings the chosen tab, and one the arrows reach, into view without
+   * moving the page. Manual activation: a big event is not drawn in an
+   * instant, and each choice writes the address.
    */
   const eventStrip = () => (
     <>
       <span data-bar-divider aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
-      <div
-        ref={setStrip}
-        role="tablist"
-        aria-label="Events"
-        class={`${CHIP_ROW} relative mr-auto max-w-full`}
-      >
-        <For each={sections()}>
-          {(section, index) => {
-            const isSelected = () => selected() === section;
-            const shown = () => section.visible().length;
-            // The tab's whole name, in sentence case, with its count.
-            const name = () =>
-              `${section.event.name}, ${shown()} ${
-                filtering() ? "matching" : shown() === 1 ? "guest" : "guests"
-              }${section.hasNew() ? ", changed since you last looked" : ""}`;
-            return (
-              <button
-                ref={(el) => {
-                  tabRefs[index()] = el;
-                }}
-                type="button"
-                role="tab"
-                id={tabId(index())}
-                aria-controls={panelId}
-                aria-selected={isSelected()}
-                tabindex={isSelected() ? 0 : -1}
-                aria-label={name()}
-                onKeyDown={(event) => onTabKeyDown(event, index())}
-                onClick={() => selectEvent(section.event.id)}
-                class={`${CHIP_BASE} ${isSelected() ? CHIP_CHOSEN : CHIP_IDLE}`}
-              >
-                {section.event.name}
-                {/* The rows this tab would show: the whole list, or what the
-                    search and chip leave of it — so a search run on one event
-                    still says which others it would find guests in. */}
-                <span data-count class={chipCount(isSelected())}>
-                  {shown()}
-                </span>
-                {/* Opening the table marks every event's changes seen, so an
-                    event not on screen says it holds some, in a word. */}
-                <Show when={section.hasNew()}>
-                  <span
-                    class={`text-ui-xs tracking-ui-wider font-medium uppercase ${
-                      isSelected() ? "text-on-brand" : "text-gold-ink"
-                    }`}
-                  >
-                    New
-                  </span>
-                </Show>
-              </button>
-            );
-          }}
-        </For>
-      </div>
+      <SegmentedTabs
+        items={eventItems()}
+        value={selected()?.event.id ?? ""}
+        onChange={selectEvent}
+        label="Events"
+        semantics="tabs"
+        tabId={tabId}
+        panelId={() => panelId}
+        scroll
+        class="mr-auto max-w-full min-w-0"
+      />
     </>
   );
 
+  /** One choice per reply, made once: a keystroke updates each count and name in place. */
+  const replyItems = RSVP_FILTERS.map((reply) => {
+    const tone = reply.key === "all" ? undefined : STATUS_META[reply.key].tone;
+    return {
+      value: reply.key,
+      label: reply.label,
+      icon: tone ? REPLY_DOT[tone] : undefined,
+      get name() {
+        const n = counts()[reply.key];
+        return `${reply.label}, ${n} ${n === 1 ? "guest" : "guests"}`;
+      },
+      // On a phone a reply is its mark and its count; All keeps its word.
+      get iconOnly() {
+        return compact() && reply.key !== "all";
+      },
+      after: (isChosen: boolean) => (
+        <span data-count class={countClass(isChosen)}>
+          {counts()[reply.key]}
+        </span>
+      ),
+    };
+  });
+
   /**
-   * The search and the reply chips, lent to the view bar's second row. They
+   * The search and the reply filter, lent to the view bar's second row. They
    * act on the event on screen, and say so: the search names the event's tab
    * panel through `aria-controls`, and both name the event.
    *
-   * The chips are filter, legend and counter at once: each carries its reply's
-   * mark and how many rows it holds. The chosen one fills in the brand green
-   * and shows ⊗; a second press clears it back to All. On a phone the marks
-   * stand for their words, which stay the chips' names, and the chips take a
-   * row of their own under the search and the sort.
+   * The filter is one glass strip of radios (owner, 2026-11-04): All and each
+   * reply, the reply's mark before its word and how many rows it holds after
+   * it, so it is filter, legend and counter at once. Choosing a reply keeps it
+   * until All or another reply is chosen; a second press changes nothing. On a
+   * phone the marks stand for their words, which stay each choice's name and
+   * tip, and the strip takes a row of its own under the search and the sort.
    */
-  const replyChips = (section: () => NonNullable<ReturnType<typeof selected>>) => (
-    <div role="group" aria-label={`Filter ${section().event.name} by reply`} class={CHIP_ROW}>
-      <For each={RSVP_FILTERS}>
-        {(chip) => {
-          const isChosen = () => filter() === chip.key;
-          const tone = chip.key === "all" ? undefined : STATUS_META[chip.key].tone;
-          return (
-            <button
-              type="button"
-              aria-pressed={isChosen()}
-              onClick={() => setFilter(isChosen() && chip.key !== "all" ? "all" : chip.key)}
-              class={`${CHIP_BASE} ${isChosen() ? CHIP_CHOSEN : CHIP_IDLE}`}
-            >
-              <Show when={tone}>{(t) => <ReplyDot tone={t()} />}</Show>
-              <span class={compact() && chip.key !== "all" ? "sr-only" : undefined}>
-                {chip.label}
-              </span>
-              <span class={chipCount(isChosen())}>{counts()[chip.key]}</span>
-              <Show when={isChosen() && chip.key !== "all"}>
-                <CircleX aria-hidden="true" strokeWidth={1.75} class="size-3.5 shrink-0" />
-              </Show>
-            </button>
-          );
-        }}
-      </For>
-    </div>
+  const replyFilter = (section: () => NonNullable<ReturnType<typeof selected>>) => (
+    <SegmentedTabs
+      items={replyItems}
+      value={filter()}
+      onChange={setFilter}
+      label={`Filter ${section().event.name} by reply`}
+      semantics="radio"
+      tipAttribute="data-tip"
+      scroll
+      class="max-w-full min-w-0"
+    />
   );
 
   const searchBox = (section: () => NonNullable<ReturnType<typeof selected>>) => (
@@ -935,13 +860,13 @@ export default function RsvpView(props: RsvpViewProps) {
       fallback={
         <>
           {searchBox(section)}
-          {replyChips(section)}
+          {replyFilter(section)}
           {replyKey()}
         </>
       }
     >
       {/* A phone has no head row to sort from: the sort is a select beside
-          the search, and the chips take the line under them. */}
+          the search, and the reply filter takes the line under them. */}
       <div class="flex w-full min-w-0 flex-col gap-2">
         <div class="flex min-w-0 items-center gap-2">
           {searchBox(section)}
@@ -961,7 +886,7 @@ export default function RsvpView(props: RsvpViewProps) {
           </Select>
           {replyKey()}
         </div>
-        {replyChips(section)}
+        {replyFilter(section)}
       </div>
     </Show>
   );
@@ -1096,7 +1021,7 @@ export default function RsvpView(props: RsvpViewProps) {
         fallback={
           <>
             <ViewBar slot="end">
-              <div class="bg-surface/60 mr-auto h-9 w-56 max-w-full min-w-0 animate-pulse rounded-full" />
+              <div class="bg-surface/60 mr-auto h-7 w-56 max-w-full min-w-0 animate-pulse rounded-full" />
             </ViewBar>
             <ViewBar slot="row2">
               <div class="bg-surface/60 rounded-ui-field h-7 w-full animate-pulse" />
@@ -1139,10 +1064,10 @@ export default function RsvpView(props: RsvpViewProps) {
             <div
               role="tabpanel"
               id={panelId}
-              aria-labelledby={tabId(selectedIndex())}
+              aria-labelledby={tabId(selected()?.event.id ?? "")}
               class="flex flex-col gap-4"
             >
-              {/* The API's own tallies for the event. Not the chip counts: those
+              {/* The API's own tallies for the event. Not the filter's counts: those
                   count the rows listed, and a guest taken off the event after
                   replying keeps a row but is no longer invited. Below the bar,
                   so they scroll away under it with the rest. */}

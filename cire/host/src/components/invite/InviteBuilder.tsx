@@ -16,10 +16,13 @@
  * disables when clean, `beforeunload` + the dashboard's navigation guard
  * (`lib/unsaved-guard`) protect a dirty draft from being lost.
  *
- * The section nav is one tablist with two presentations, switched by a
- * container query: a static row of pills from `@3xl/builder` up, and below it
- * (phones) a trigger naming the current section that opens the same tabs as a
- * two-column grid — see {@link SECTION_MENU_ID}.
+ * It spans the Invite module's four views (`view`): Template (the design),
+ * Style (type and colours), Content (the guest page's sections, one at a time)
+ * and Codes (the invite message, beside the owner's codes). One builder stays
+ * mounted across them, so moving between views keeps the draft. Content's
+ * sections are a second glass strip lent to the module's view bar; on a phone
+ * both strips give way to one glass pill naming the place and a menu of every
+ * view and section.
  *
  * Two persistence models coexist deliberately: text/theme and the section
  * visibility switches wait for Save;
@@ -44,9 +47,20 @@ import { cardClass } from "@cire/ui/card";
 import Disclosure from "@cire/ui/disclosure";
 import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
+import SegmentedTabs, { SEGMENTED_GLASS_FILL } from "@cire/ui/segmented-tabs";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@shared/ui/ui/dropdown-menu";
 import { Notice } from "@shared/ui/ui/notice";
+import ChevronDown from "lucide-solid/icons/chevron-down";
 import {
   createEffect,
   createMemo,
@@ -61,24 +75,24 @@ import {
 import { createStore } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
+import { INVITE_VIEWS, type InviteView } from "../../lib/dashboard-route";
 import { haptic } from "../../lib/haptics";
 import type { ImageCrop } from "../../lib/image-crop";
 import { faqState, footerState, heroState, storyState } from "../../lib/invite-emptiness";
 import { CIRE_WEB_URL } from "../../lib/osn";
 import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
+import { createCompact, useViewBar, ViewBar } from "../ViewBar";
 import { designLayout } from "./design-layout";
 import DesignPicker from "./DesignPicker";
 import EnvelopePicker from "./EnvelopePicker";
 import FaqEditor from "./FaqEditor";
 import {
   ChoiceField,
-  FADED_LABEL,
   HiddenSectionIcon,
   isHiddenState,
   SECTION_STATE_LABELS,
   SectionCard,
-  sectionTabTone,
   SliderField,
   TextAreaField,
   TextField,
@@ -131,12 +145,18 @@ interface InviteBuilderProps {
   canEdit: boolean;
   /** The wedding's entitlement keys — locks premium designs in the selector. */
   entitlements: string[];
-  /** The section to open on, when a link elsewhere in the dashboard asked for
-   *  one. Read once, as the builder mounts; the first section otherwise. */
-  initialSection?: InviteSectionId;
-  /** The line pointing at the other places that shape the invite message,
-   *  shown in the Message section. */
+  /** Which of the Invite module's views to show. */
+  view: InviteView;
+  /** Move to another view — the phone menu's choice. */
+  onView?: (view: InviteView) => void;
+  /** Alone, outside a module shell: draw the phone's pill and menu. */
+  compact?: boolean;
+  /** The line pointing at the other place that shapes the invite message,
+   *  shown under the Codes view's message. */
   inviteMessageLinks?: JSX.Element;
+  /** Counts the owner's re-mints on Codes, so the message's copy reads the new
+   *  codes. */
+  codesRevision?: number;
 }
 
 /**
@@ -148,39 +168,19 @@ interface InviteBuilderProps {
  */
 const WIDE_BUILDER_REM = 56;
 
-/**
- * The threshold at which the section tabs stop being a collapsible menu and
- * become the static row, mirroring the `@3xl/builder` container query on the
- * tablist. Like {@link WIDE_BUILDER_REM} it has to exist in JS as well — not to
- * decide what to mount (the swap is pure CSS) but to CLOSE the menu when the
- * container grows past it, since a menu left open across the crossover would
- * otherwise stay "open" forever on a surface that can no longer show it.
- */
-const SECTION_MENU_REM = 48;
+/** Below this panel width, in rem, the view bar holds the phone's one pill
+ *  and menu in place of both strips. */
+const PHONE_REM = 30;
 
-/**
- * How many columns the open section menu lays out in. **Lockstep with the
- * literal `grid-cols-2` utility on the tablist** — the column count is a CSS
- * fact the key handler cannot read back, and `ArrowDown`/`ArrowUp` step by it
- * so the arrows follow the visible geometry rather than the DOM order.
- *
- * The class stays a LITERAL at its usage site rather than being built from this
- * constant: Tailwind extracts class names by scanning source text, so a
- * `grid-cols-${…}` template would emit no CSS at all. Exported so a static
- * drift guard in the tests can assert the two agree — the same treatment the
- * `auto-grid` / `page-frame` utilities got, and the only mechanically checkable
- * half of a CSS↔JS constant pair.
- */
-export const SECTION_MENU_COLUMNS = 2;
+/** From this panel width, in rem, Content's sections share the views' row;
+ *  below it they take a row of their own. Measured in Chromium: four labelled
+ *  views (348px), the divider, six sections (471px) and the Preview button
+ *  (78px), with the bar's 8px gaps, need 922px. */
+const SAME_ROW_REM = 58;
 
 /** Which preview layer is mounted. `unknown` means "not measured yet, or not
  *  measurable" and mounts both — see {@link watchBuilderWidth}. */
 type PreviewLayer = "unknown" | "narrow" | "wide";
-
-/** DOM id of the section tablist — the `aria-controls` target of the narrow
- *  container's menu trigger. A constant, not `createUniqueId()`, because the
- *  builder is a singleton surface and the id reads in the DOM inspector. */
-const SECTION_MENU_ID = "invite-section-tablist";
 
 /** The document's root font size, since a `rem` threshold in a container query
  *  resolves against the root, not the container. `global.css` pins this to 16px,
@@ -191,22 +191,26 @@ function rootFontPx(): number {
   return Number.isFinite(size) && size > 0 ? size : 16;
 }
 
-/** The builder's sections, in guest scroll order (+ the two non-page cards).
- *  Ids double as the fieldset ids. The nav row above the form is a real tab
- *  switcher: one section is shown at a time. */
-const NAV_SECTIONS = [
-  { id: "invite-design", label: "Design" },
-  { id: "invite-look", label: "Look" },
+/** Content's sections, in guest scroll order. Ids double as the fieldset ids.
+ *  One shows at a time. */
+const CONTENT_SECTIONS = [
   { id: "invite-hero", label: "Hero" },
-  { id: "invite-story", label: "Our Story" },
+  { id: "invite-story", label: "Our story" },
   { id: "invite-welcome", label: "Welcome" },
   { id: "invite-events", label: "Events" },
   { id: "invite-faq", label: "FAQ" },
   { id: "invite-closing", label: "Closing" },
-  { id: "invite-message", label: "Message" },
 ] as const;
 
-export type InviteSectionId = (typeof NAV_SECTIONS)[number]["id"];
+type ContentSectionId = (typeof CONTENT_SECTIONS)[number]["id"];
+
+/** The views' names, as the module's strip and the phone's pill say them. */
+const VIEW_LABEL = {
+  template: "Template",
+  style: "Style",
+  content: "Content",
+  codes: "Codes",
+} satisfies Readonly<Record<InviteView, string>>;
 
 export default function InviteBuilder(props: InviteBuilderProps) {
   const { authFetch } = useAuth();
@@ -231,13 +235,31 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const [envelopesOffered, setEnvelopesOffered] = createSignal(false);
   const [envelopeEntitled, setEnvelopeEntitled] = createSignal(false);
 
-  const [data, { mutate, refetch }] = createResource<InviteCustomisation>(async () => {
-    const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
-    if (res.status === 401) {
-      redirectToLogin();
-      throw new Error("unauthorised");
-    }
-    if (!res.ok) throw new Error(`Could not load invite (${res.status}).`);
+  // A read that fails resolves rather than throws: a failed resource throws
+  // wherever it is read, and the builder reads it in many places. The first
+  // read's failure is drawn in place of the builder; a later one keeps what is
+  // on screen and says so beside the save button.
+  const [loadFailed, setLoadFailed] = createSignal(false);
+  const [data, { mutate, refetch }] = createResource<InviteCustomisation | undefined>(
+    async (_source, info) => {
+      const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
+      if (res.status === 401) {
+        redirectToLogin();
+        throw new Error("unauthorised");
+      }
+      if (!res.ok) {
+        if (info.value) {
+          setError("Could not reload the invite. Try again.");
+          return info.value;
+        }
+        setLoadFailed(true);
+        return undefined;
+      }
+      setLoadFailed(false);
+      return read(res);
+    },
+  );
+  async function read(res: Response): Promise<InviteCustomisation> {
     const body = (await res.json()) as InviteCustomisation;
     if (!faqsLoaded) {
       faqsLoaded = true;
@@ -246,7 +268,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setEnvelopesOffered("envelopeId" in body);
     setEnvelopeEntitled(body.envelopeEntitled === true);
     return body;
-  });
+  }
 
   // The whole editable state as one draft store (see model.ts), seeded once
   // when the resource first resolves. Image URLs/crops are NOT drafted — they
@@ -303,7 +325,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // A dirty draft is guarded twice: the dashboard's SPA navigation asks before
   // switching away (unsaved-guard), and the browser asks on tab close/reload.
   onMount(() => {
-    const unregister = registerUnsavedGuard(() => isDirty() || faqPending());
+    // The builder stays mounted on every Invite view of its wedding, so a move
+    // between them keeps the draft and needs no prompt.
+    const unregister = registerUnsavedGuard(
+      () => isDirty() || faqPending(),
+      (next) =>
+        next.view === "weddings" && next.weddingId === props.weddingId && next.module === "invite",
+    );
     onCleanup(unregister);
   });
   // The beforeunload listener exists ONLY while dirty — a persistently
@@ -380,187 +408,37 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       // `unknown` rather than deciding the builder is narrow.
       if (width === 0) return;
       setPreviewLayer(width >= WIDE_BUILDER_REM * rootFontPx() ? "wide" : "narrow");
-      // Collapse the section menu once the container can show the static row.
-      // Nothing else writes this signal except the trigger, so without this a
-      // menu opened narrow stays `true` for the rest of the session after a
-      // rotate/resize — and `selectSection` would then "close" it on every wide
-      // tab click, focusing a `display: none` trigger and dropping focus to the
-      // body. Measured off the same `contentRect` the container query evaluates,
-      // so the JS collapse point cannot drift from the CSS one.
-      if (width >= SECTION_MENU_REM * rootFontPx()) setSectionMenuOpen(false);
     });
     observer.observe(el);
     onCleanup(() => observer.disconnect());
   };
 
-  // Which section the tabbed nav is showing — one at a time, rather than the
-  // old vertical stack of every card. Defaults to the first section, guest
-  // scroll order.
-  const [activeSection, setActiveSection] = createSignal<(typeof NAV_SECTIONS)[number]["id"]>(
-    props.initialSection ?? NAV_SECTIONS[0].id,
-  );
-  // Whether the Message section has been shown since the builder mounted. Its
+  // Which of Content's sections is showing — one at a time, guest scroll
+  // order, the first by default. Kept across a trip to another view.
+  const [activeSection, setActiveSection] = createSignal<ContentSectionId>(CONTENT_SECTIONS[0].id);
+  // Whether Codes has been shown since the builder mounted. The message's
   // copy action reads the household list, so it mounts on the first visit
   // rather than with the builder, then stays: the household an organiser
-  // picked survives a trip to another section.
-  const messageOpened = createMemo<boolean>(
-    (opened) => opened || activeSection() === "invite-message",
-    false,
-  );
+  // picked survives a trip to another view.
+  const messageOpened = createMemo<boolean>((opened) => opened || props.view === "codes", false);
 
-  /**
-   * Whether the narrow-container section menu is open (see {@link SECTION_MENU_ID}).
-   *
-   * Below `@3xl/builder` the tabs cannot sit on one line, and the row used
-   * to be a horizontally scrolling strip: Closing and Message lived off the right
-   * edge with nothing to say so, on the surface where an organiser is least
-   * likely to go looking. The tabs are now collapsed behind a trigger naming the
-   * current section, and open as a two-column grid that shows every tab at once —
-   * the same move `ModuleSidebar` made for the module strip. From
-   * `@3xl/builder` up the trigger is `display: none` and the same tablist is the
-   * static row it has always been, so this signal is inert there.
-   *
-   * ONE tablist serves both surfaces rather than a per-surface copy: the panels'
-   * `aria-labelledby` points at `${id}-tab`, and duplicating the tabs would give
-   * every panel two candidate labels and assistive tech two tabs widgets.
-   */
-  const [sectionMenuOpen, setSectionMenuOpen] = createSignal(false);
-  let sectionMenuTrigger: HTMLButtonElement | undefined;
-  let sectionNav: HTMLElement | undefined;
+  /** The section on screen: Content's chosen one, none on another view. */
+  const shownSection = () => (props.view === "content" ? activeSection() : undefined);
 
-  const activeIndex = () => {
-    const i = NAV_SECTIONS.findIndex((s) => s.id === activeSection());
-    return i === -1 ? 0 : i;
-  };
-  const activeLabel = () => NAV_SECTIONS[activeIndex()]!.label;
-
-  /** Close the menu, optionally handing focus back to the trigger — which is
-   *  required whenever the close was caused by something INSIDE the menu, since
-   *  collapsing it takes the focused tab to `display: none` and focus with it. */
-  const closeSectionMenu = (restoreFocus = false) => {
-    setSectionMenuOpen(false);
-    if (restoreFocus) sectionMenuTrigger?.focus();
-  };
-
-  /** Pick a section. Closing the menu is what makes the choice feel like a
-   *  choice on touch; at `@3xl/builder` and up the menu is never open, so a tab
-   *  click there keeps its focus exactly as before. */
-  const selectSection = (id: (typeof NAV_SECTIONS)[number]["id"]) => {
-    setActiveSection(id);
-    if (sectionMenuOpen()) closeSectionMenu(true);
-  };
-
-  // Dismiss the open menu on an outside press. Listener exists ONLY while open
-  // (and only on the surface that can open it), so the common case adds no
-  // document-level work. Capture phase, so a press that also triggers something
-  // else still closes the menu first.
-  createEffect(() => {
-    if (!sectionMenuOpen()) return;
-    const onPointerDown = (e: Event) => {
-      const target = e.target;
-      if (target instanceof Node && sectionNav?.contains(target)) return;
-      setSectionMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    onCleanup(() => document.removeEventListener("pointerdown", onPointerDown, true));
-  });
+  // The way between the builder's places, read off the module panel's width
+  // the view bar measures (`ViewBar.createCompact`). Alone, `compact` decides.
+  const phone = createCompact(
+    () => PHONE_REM,
+    () => props.compact ?? false,
+  ).compact;
+  const stacked = createCompact(
+    () => SAME_ROW_REM,
+    () => true,
+  ).compact;
 
   // The composed preview, opened as a modal — the only way to reach it below
   // `@4xl/builder`, where there's no room for the sticky side pane.
   const [previewModalOpen, setPreviewModalOpen] = createSignal(false);
-
-  // Roving tabindex over the section tabs — the same pattern `DesignPicker`
-  // uses for its radiogroup. Solid has no built-in roving-tabindex primitive,
-  // so keyboard navigation moves DOM focus imperatively via these refs.
-  const sectionTabRefs = new Map<string, HTMLButtonElement>();
-
-  /** The section `delta` steps from `fromId`, wrapping around. */
-  function stepSection(fromId: string, delta: number): string | undefined {
-    const ids = NAV_SECTIONS.map((s): string => s.id);
-    const from = ids.indexOf(fromId);
-    const fromIndex = from === -1 ? 0 : from;
-    return ids[(fromIndex + delta + ids.length) % ids.length];
-  }
-
-  /**
-   * The section one row down (`dir` 1) or up (-1) in the open menu's grid,
-   * wrapping within its COLUMN: down from the last row goes to the top of the
-   * same column, up from the first row to the lowest cell of that column. A
-   * plain modulo step would cross columns whenever the tab count is odd, since
-   * the last row is then a single cell.
-   */
-  function stepSectionRow(fromId: string, dir: 1 | -1): string | undefined {
-    const ids = NAV_SECTIONS.map((s): string => s.id);
-    const from = Math.max(0, ids.indexOf(fromId));
-    const next = from + dir * SECTION_MENU_COLUMNS;
-    if (next >= 0 && next < ids.length) return ids[next];
-    const column = from % SECTION_MENU_COLUMNS;
-    if (dir === 1) return ids[column];
-    const lowest =
-      column + Math.floor((ids.length - 1 - column) / SECTION_MENU_COLUMNS) * SECTION_MENU_COLUMNS;
-    return ids[lowest];
-  }
-
-  /** Move focus to a tab and activate its section — the APG "automatic
-   *  activation" model, same as the design radiogroup's arrow-key behaviour. */
-  function focusSection(id: (typeof NAV_SECTIONS)[number]["id"]) {
-    setActiveSection(id);
-    sectionTabRefs.get(id)?.focus();
-  }
-
-  /**
-   * Arrow-key/Home/End roving-tabindex handler for the section tablist.
-   *
-   * `ArrowDown`/`ArrowUp` are handled ONLY while the menu is open, where the
-   * tablist is a {@link SECTION_MENU_COLUMNS}-column grid and a keyboard user
-   * reaches for the vertical arrows. On the wide static row the tablist is a
-   * single horizontal line, so APG reserves Down/Up for the browser — handling
-   * them there would swallow page scroll from a focused tab, which is a
-   * regression against the row this replaced.
-   *
-   * Open, the vertical pair steps by the COLUMN COUNT, not by one: in a
-   * row-major two-column grid the next item is to the right, and the one below
-   * is two along. Aliasing Down to Right would make the arrows disagree with
-   * what the organiser can see.
-   *
-   * Escape collapses the menu (a no-op on the static wide row).
-   */
-  function onSectionTabKeyDown(e: KeyboardEvent, currentId: string) {
-    if (e.key === "Escape") {
-      if (!sectionMenuOpen()) return;
-      e.preventDefault();
-      closeSectionMenu(true);
-      return;
-    }
-    let nextId: string | undefined;
-    switch (e.key) {
-      case "ArrowRight":
-        nextId = stepSection(currentId, 1);
-        break;
-      case "ArrowLeft":
-        nextId = stepSection(currentId, -1);
-        break;
-      case "ArrowDown":
-        if (!sectionMenuOpen()) return;
-        nextId = stepSectionRow(currentId, 1);
-        break;
-      case "ArrowUp":
-        if (!sectionMenuOpen()) return;
-        nextId = stepSectionRow(currentId, -1);
-        break;
-      case "Home":
-        nextId = NAV_SECTIONS[0]!.id;
-        break;
-      case "End":
-        nextId = NAV_SECTIONS[NAV_SECTIONS.length - 1]!.id;
-        break;
-      default:
-        return;
-    }
-    if (!nextId) return;
-    e.preventDefault();
-    focusSection(nextId as (typeof NAV_SECTIONS)[number]["id"]);
-  }
 
   /** The surface a section's tone paints, for its preview card. */
   const toneSurface = (section: ThemeSection): string => {
@@ -621,19 +499,33 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   };
 
-  /** The ACTIVE section's state, for the collapsed menu trigger's faded label
-   *  and its accessible name. Memoised because the trigger reads it twice and
-   *  `navState` funnels into the draft-reading state functions — one
-   *  subscription per keystroke instead of two. Declared here, not beside
-   *  `activeIndex`/`activeLabel`: `createMemo` runs its computation eagerly, so
-   *  it has to sit below `navState`. */
-  const activeState = createMemo(() => navState(activeSection()));
+  /** Whether a section is hidden from guests, and the words for it after its
+   *  name: "(hidden — empty)". Wording follows the badge. */
+  const hiddenNote = (id: string): string | undefined => {
+    const state = navState(id);
+    return isHiddenState(state) ? `(${SECTION_STATE_LABELS[state!].toLowerCase()})` : undefined;
+  };
 
-  /** The active section's state as a clause for the trigger's accessible name —
-   *  empty for the sections that have no such state. Wording follows the badge. */
-  const stateSuffix = () => {
-    const state = activeState();
-    return state ? `, ${SECTION_STATE_LABELS[state].toLowerCase()}` : "";
+  /** Content's sections as the second strip draws them: a hidden one leads
+   *  with its eye-off icon and says so in its name. */
+  const sectionItems = createMemo(() =>
+    CONTENT_SECTIONS.map((section) => {
+      const note = hiddenNote(section.id);
+      return {
+        value: section.id,
+        label: section.label,
+        icon: note ? HiddenSectionIcon : undefined,
+        name: note ? `${section.label} ${note}` : undefined,
+      };
+    }),
+  );
+
+  /** Where the organiser is, as the phone's pill names it: a view, or under
+   *  Content the section. */
+  const place = () => {
+    if (props.view !== "content") return { label: VIEW_LABEL[props.view], note: undefined };
+    const section = CONTENT_SECTIONS.find((s) => s.id === activeSection())!;
+    return { label: section.label, note: hiddenNote(section.id) };
   };
 
   /**
@@ -955,21 +847,152 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     imageCrop: d().footer?.imageCrop ?? null,
   });
 
+  /** Choose one of Content's sections, from wherever the organiser is. */
+  const showSection = (id: ContentSectionId) => {
+    setActiveSection(id);
+    if (props.view !== "content") props.onView?.("content");
+  };
+
+  /** Content's sections as a glass strip. Manual activation, as every strip:
+   *  the arrows move focus and Enter or Space chooses. */
+  const sectionStrip = () => (
+    <SegmentedTabs
+      items={sectionItems()}
+      value={activeSection()}
+      onChange={setActiveSection}
+      label="Invite sections"
+      semantics="tabs"
+      tabId={(id) => `${id}-tab`}
+      panelId={(id) => id}
+      scroll
+      class="max-w-full min-w-0"
+    />
+  );
+
+  /** The phone's pill and chevron as one button, its own look, which the
+   *  menu's trigger renders as (`as`). Round, so the focus ring is too. */
+  function PlaceButton(buttonProps: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
+    return (
+      <button
+        type="button"
+        {...buttonProps}
+        class="group mr-auto flex h-7 min-w-0 items-center gap-1.5 rounded-full"
+      />
+    );
+  }
+
+  /**
+   * The way between places on a phone: one glass pill naming where the
+   * organiser is, and a round glass chevron, as one button that opens a menu
+   * of every view, with Content's sections under their eyebrow; a choice
+   * moves there and closes the menu, as a way between places does. While it is
+   * mounted the module's own strip is hidden (`ViewBar.replaceTabs`); it
+   * mounts only once the invite has loaded, so until then, or if it never
+   * does, the module's strip is still there to leave by.
+   */
+  function PhonePlace() {
+    const release = useViewBar()?.replaceTabs();
+    onCleanup(() => release?.());
+    return (
+      <DropdownMenu placement="bottom-start" gutter={6}>
+        <DropdownMenuTrigger
+          as={PlaceButton}
+          aria-label={`Invite: ${place().label}${place().note ? ` ${place().note}` : ""}. Choose a view or section`}
+        >
+          {/* The chosen choice's glass and its readable gold at medium
+              weight, as on a strip; a contrast theme drops the glass, so the
+              pill draws its own edge there. */}
+          <span
+            class={`${SEGMENTED_GLASS_FILL} font-body text-gold-ink text-ui-xs flex h-7 min-w-0 items-center gap-1.5 rounded-full px-3 leading-none font-medium forced-colors:border`}
+          >
+            <Show when={place().note}>
+              <HiddenSectionIcon />
+            </Show>
+            <span class="truncate">{place().label}</span>
+          </span>
+          <span
+            class={`${SEGMENTED_GLASS_FILL} text-text-muted group-hover:text-gold-ink transition-ui-colors flex size-7 shrink-0 items-center justify-center rounded-full duration-(--dur-fast) ease-(--ease-out) forced-colors:border`}
+          >
+            <ChevronDown aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
+          </span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          variant="accent"
+          class="max-h-[min(28rem,70vh)] min-w-56 overflow-y-auto"
+        >
+          {/* The two tiers the strips draw, each one choice: the four views,
+              then Content's sections. On Content both carry a check. */}
+          <DropdownMenuRadioGroup
+            value={props.view}
+            onChange={(view) => props.onView?.(view as InviteView)}
+          >
+            <DropdownMenuLabel class="sr-only">Views</DropdownMenuLabel>
+            <For each={INVITE_VIEWS}>
+              {(view) => (
+                <DropdownMenuRadioItem value={view} closeOnSelect>
+                  {VIEW_LABEL[view]}
+                </DropdownMenuRadioItem>
+              )}
+            </For>
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup
+            value={props.view === "content" ? activeSection() : ""}
+            onChange={(id) => showSection(id as ContentSectionId)}
+          >
+            <DropdownMenuLabel tone="eyebrow">Sections</DropdownMenuLabel>
+            <For each={CONTENT_SECTIONS}>
+              {(section) => (
+                <DropdownMenuRadioItem value={section.id} closeOnSelect>
+                  <span class="flex items-center gap-2">
+                    <Show when={hiddenNote(section.id)}>
+                      <HiddenSectionIcon />
+                    </Show>
+                    {section.label}
+                    <Show when={hiddenNote(section.id)}>
+                      {(note) => <span class="sr-only">{note()}</span>}
+                    </Show>
+                  </span>
+                </DropdownMenuRadioItem>
+              )}
+            </For>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
   return (
     // The ref measures the same box `@container/builder` does — see
     // `watchBuilderWidth`.
     <section ref={watchBuilderWidth} class={BUILDER_CLASS}>
-      <header class="flex flex-col gap-1">
-        <Eyebrow>Invite Builder</Eyebrow>
-        <h2 class="font-display text-text text-ui-lg font-light">Customise your invite</h2>
-        <p class="font-body text-text-muted text-ui-sm">
-          Use the tabs below to move between sections of the guest invite, in the order guests see
-          them — images, copy and colours together. Events and guests still come from your
-          spreadsheet import.
-        </p>
-      </header>
+      {/* Codes holds the message alone; the owner's codes sit above it. */}
+      <Show when={props.view !== "codes"}>
+        <header class="flex flex-col gap-1">
+          <Eyebrow>Invite builder</Eyebrow>
+          <h2 class="font-display text-text text-ui-lg font-light">Customise your invite</h2>
+          <p class="font-body text-text-muted text-ui-sm">
+            Choose a template and its style, then write each part of the page in the order guests
+            see it — images, copy and colours together. Events and guests still come from your
+            spreadsheet import.
+          </p>
+        </header>
+      </Show>
 
-      <Show when={data()} fallback={<Loading label="Loading invite…" />}>
+      {/* A first read that failed says so, rather than loading for ever. */}
+      <Show when={loadFailed()}>
+        <Notice tone="danger" alert>
+          Could not load the invite. Is the API running?
+        </Notice>
+      </Show>
+      <Show
+        when={data()}
+        fallback={
+          <Show when={!loadFailed()}>
+            <Loading label="Loading invite…" />
+          </Show>
+        }
+      >
         {(d) => {
           // Memoized once per render pass and shared by the sticky side pane
           // and the mobile modal — without this, the rare frame where
@@ -985,155 +1008,65 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 
           return (
             <form onSubmit={(e) => void saveInvite(e)} class="flex flex-col gap-6">
-              {/* ── Section tabs — sticky, one section shown at a time, a hidden
-                section's label faded with an eye-off icon (`sectionTabTone`) — plus,
-                below `@4xl/builder` (where there's no room for the sticky side
-                preview), a button that opens the composed preview in a modal
-                instead. ── */}
-              {/* Under the top bar and the module's view bar, below the bar's
-                  layer, so the bar is never covered. */}
-              <div class="border-border bg-bg/90 sticky top-[calc(var(--chrome-h)+var(--bar-h,0px))] z-10 -mx-6 flex items-center gap-2 border-b px-6 py-2 backdrop-blur">
-                {/* No `relative` here on purpose: the open menu positions
-                  against the STICKY BAR (already a positioned element, so it is
-                  the containing block), which is wider than this nav column by
-                  the Preview button — a menu boxed into the column truncates
-                  "Our Story" on a 390px phone. */}
-                <nav
-                  ref={sectionNav}
-                  aria-label="Invite sections"
-                  class="min-w-0 flex-1"
-                  // Tabbing forward out of the open menu used to leave it up,
-                  // and the menu is an opaque overlay across the top of the
-                  // active section — so focus landed in a form field the
-                  // organiser could not see, with no keyboard way to uncover it
-                  // (WCAG 2.2 SC 2.4.11 Focus Not Obscured; Escape is bound to
-                  // the tabs and the trigger, not to the field they'd reach).
-                  // Closing on focus leaving the nav is what every popover
-                  // primitive does, and it costs nothing on the wide row where
-                  // the menu is never open.
-                  onFocusOut={(e) => {
-                    if (!sectionMenuOpen()) return;
-                    const next = e.relatedTarget;
-                    if (next instanceof Node && sectionNav?.contains(next)) return;
-                    setSectionMenuOpen(false);
-                  }}
-                >
-                  {/* Narrow containers only: the current section as a menu
-                    trigger. It names where the organiser IS (label, position,
-                    and the label faded, with an eye-off icon, while it is hidden) so the menu
-                    only has to be opened to move, never to orient — the thing
-                    the scrolling strip could not do for the sections parked off
-                    its right edge. */}
+              {/* ── The way between the builder's places, lent to the module's
+                  view bar (`ViewBar`), which is already stuck: under Content its
+                  sections as a second glass strip — on the views' own row when
+                  the panel has room, on a row of their own when not — and, below
+                  the composed pane's width, the Preview button. On a phone, one
+                  glass pill naming where the organiser is opens a menu of every
+                  view and section, in place of both strips. ── */}
+              <Show
+                when={phone()}
+                fallback={
+                  <>
+                    {/* On a row of their own, drawn only under Content: the
+                        bar's height animation brings the row in and out. */}
+                    <Show when={stacked() && props.view === "content"}>
+                      <ViewBar slot="row2">{sectionStrip()}</ViewBar>
+                    </Show>
+                    {/* On the views' row, kept mounted and `hidden` off
+                        Content, so the strip fades and slides out as well as
+                        in (`section-track`, `global.css`). */}
+                    <Show when={!stacked()}>
+                      <ViewBar slot="end">
+                        <div
+                          data-section-track
+                          hidden={props.view !== "content"}
+                          class="section-track mr-auto flex max-w-full min-w-0 items-center gap-2"
+                        >
+                          <span
+                            data-bar-divider
+                            aria-hidden="true"
+                            class="bg-border h-5 w-px shrink-0"
+                          />
+                          {sectionStrip()}
+                        </div>
+                      </ViewBar>
+                    </Show>
+                  </>
+                }
+              >
+                <ViewBar slot="end">
+                  <PhonePlace />
+                </ViewBar>
+              </Show>
+              {/* Hidden once the sticky side pane below can show instead — the
+                  same `@4xl/builder` threshold `showPreviewPane` measures, read
+                  in JS because the bar sits outside the builder's container. */}
+              {/* Codes edits nothing on the guest page, so it offers no preview. */}
+              <Show when={previewLayer() !== "wide" && props.view !== "codes"}>
+                <ViewBar slot="end">
                   <Button
-                    variant="tile"
+                    variant="outline"
+                    size="sm"
                     type="button"
-                    ref={(el) => (sectionMenuTrigger = el)}
-                    aria-expanded={sectionMenuOpen()}
-                    aria-controls={SECTION_MENU_ID}
-                    // The icon is `aria-hidden`, a fade says nothing to a
-                    // screen reader, and an `aria-label` overrides subtree
-                    // content — so an `sr-only` span inside the button (what
-                    // the tabs themselves use) would be dropped. The state has
-                    // to be folded into the label, or the collapsed trigger
-                    // tells a sighted organiser three things and a
-                    // screen-reader one only two. Wording matches `SegmentBadge`.
-                    aria-label={`Invite section: ${activeLabel()}, ${activeIndex() + 1} of ${NAV_SECTIONS.length}${stateSuffix()}. Choose a section`}
-                    onClick={() => setSectionMenuOpen(!sectionMenuOpen())}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Escape" || !sectionMenuOpen()) return;
-                      e.preventDefault();
-                      closeSectionMenu();
-                    }}
-                    class="flex min-h-11 w-full items-center justify-between @3xl/builder:hidden"
+                    onClick={() => setPreviewModalOpen(true)}
+                    class="h-7 shrink-0"
                   >
-                    <span
-                      class="flex min-w-0 items-center gap-2"
-                      classList={{ [FADED_LABEL]: isHiddenState(activeState()) }}
-                    >
-                      <Show when={isHiddenState(activeState())}>
-                        <HiddenSectionIcon />
-                      </Show>
-                      <span class="min-w-0 truncate">{activeLabel()}</span>
-                    </span>
-                    <span
-                      aria-hidden
-                      class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2 font-normal tabular-nums"
-                    >
-                      {activeIndex() + 1}/{NAV_SECTIONS.length}
-                      <span
-                        class="text-gold text-ui-sm tracking-ui-normal inline-block transition-transform duration-(--dur-fast) ease-(--ease-out)"
-                        classList={{ "rotate-180": sectionMenuOpen() }}
-                      >
-                        ▾
-                      </span>
-                    </span>
+                    Preview
                   </Button>
-
-                  {/* ONE tablist, two presentations. Narrow + open: a two-column
-                    grid dropped under the trigger — every section on screen
-                    at once, no horizontal scroll, and absolutely positioned so
-                    opening it never shoves the form down. Narrow + closed:
-                    `display: none` (the panels' `aria-labelledby` still resolves
-                    against it — the accname spec follows hidden references).
-                    `section-menu` fades it between the two, in CSS alone.
-                    From `@3xl/builder`, where the row has room to wrap: the
-                    static row, always laid out, menu state irrelevant. */}
-                  <div
-                    id={SECTION_MENU_ID}
-                    role="tablist"
-                    data-open={sectionMenuOpen() || undefined}
-                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-md border p-2 shadow-(--elev-2) @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
-                  >
-                    <For each={[...NAV_SECTIONS]}>
-                      {(item) => {
-                        const state = () => navState(item.id);
-                        const active = () => activeSection() === item.id;
-                        return (
-                          <button
-                            type="button"
-                            role="tab"
-                            id={`${item.id}-tab`}
-                            aria-controls={item.id}
-                            aria-selected={active()}
-                            tabIndex={active() ? 0 : -1}
-                            ref={(el) => sectionTabRefs.set(item.id, el)}
-                            onClick={() => selectSection(item.id)}
-                            onKeyDown={(e) => onSectionTabKeyDown(e, item.id)}
-                            // `min-h-11` is a 44px touch target in the menu; the
-                            // wide row keeps the compact pill it has always been.
-                            class={`font-body text-ui-xs tracking-ui-wider transition-ui-colors flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase duration-(--dur-fast) ease-(--ease-out) @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
-                              active(),
-                              isHiddenState(state()),
-                            )}`}
-                          >
-                            <Show when={isHiddenState(state())}>
-                              <HiddenSectionIcon />
-                            </Show>
-                            <span class="min-w-0 truncate">{item.label}</span>
-                            <Show when={isHiddenState(state())}>
-                              <span class="sr-only">
-                                ({SECTION_STATE_LABELS[state()!].toLowerCase()})
-                              </span>
-                            </Show>
-                          </button>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </nav>
-                {/* Hidden once the sticky side pane below can show instead — the
-                  same `@4xl/builder` threshold `showPreviewPane`/`showInlinePreviews`
-                  measure in JS. */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  onClick={() => setPreviewModalOpen(true)}
-                  class="flex min-h-11 shrink-0 items-center @3xl/builder:min-h-0 @4xl/builder:hidden"
-                >
-                  Preview
-                </Button>
-              </div>
+                </ViewBar>
+              </Show>
 
               {/* Form and preview side by side from `@4xl/builder` up — a
                 threshold the panel could never actually reach while the page was
@@ -1147,7 +1080,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   <SectionCard
                     id="invite-design"
                     legend="Design"
-                    hidden={activeSection() !== "invite-design"}
+                    hidden={props.view !== "template"}
                   >
                     <DesignPicker
                       entitlements={props.entitlements}
@@ -1171,7 +1104,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   <SectionCard
                     id="invite-look"
                     legend="Look"
-                    hidden={activeSection() !== "invite-look"}
+                    hidden={props.view !== "style"}
                     onReset={resetLook}
                     description="Two fonts and five colours set the whole invite. Each section below picks how light or dark it sits — not its own colours."
                   >
@@ -1250,6 +1183,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Hero ───────────────────────────────────────────── */}
                   <SectionCard
                     id="invite-hero"
+                    tabPanel={!phone()}
                     legend="Hero"
                     visibility={{
                       state: heroSectionState(),
@@ -1260,7 +1194,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         "Switched off. Guests won't see the hero section; everything in it is kept for when you switch it back on. Your couple title still names the invite in the browser tab and the page footer, and the photo still heads your gift list.",
                     }}
                     onReset={resetHero}
-                    hidden={activeSection() !== "invite-hero"}
+                    hidden={props.view !== "content" || activeSection() !== "invite-hero"}
                   >
                     {/* Preview FIRST — the display sliders below act on it, and
                       on small screens a preview below the sliders scrolls out
@@ -1269,7 +1203,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       the active tab — a hidden tab's inline preview
                       would otherwise still re-render on every token edit for
                       no one to see. */}
-                    <Show when={showInlinePreviews() && activeSection() === "invite-hero"}>
+                    <Show when={showInlinePreviews() && shownSection() === "invite-hero"}>
                       <HeroPreview
                         imageUrl={d().hero.imageUrl}
                         crop={d().hero.imageCrop}
@@ -1364,6 +1298,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Our Story ──────────────────────────────────────── */}
                   <SectionCard
                     id="invite-story"
+                    tabPanel={!phone()}
                     legend="Our Story"
                     visibility={{
                       state: storySectionState(),
@@ -1372,7 +1307,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       emptyHint: "a heading, the story or a photo",
                     }}
                     onReset={resetStory}
-                    hidden={activeSection() !== "invite-story"}
+                    hidden={props.view !== "content" || activeSection() !== "invite-story"}
                   >
                     <ImageField
                       label="Story photo"
@@ -1411,7 +1346,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       tokens={previewTokens()}
                       onChange={(v) => setDraft("tones", "story", v)}
                     />
-                    <Show when={showInlinePreviews() && activeSection() === "invite-story"}>
+                    <Show when={showInlinePreviews() && shownSection() === "invite-story"}>
                       <SectionPreview
                         label="Our Story"
                         tokens={previewTokens()}
@@ -1427,9 +1362,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Code Entry & Welcome ───────────────────────────── */}
                   <SectionCard
                     id="invite-welcome"
+                    tabPanel={!phone()}
                     legend="Code Entry & Welcome"
                     onReset={resetWelcome}
-                    hidden={activeSection() !== "invite-welcome"}
+                    hidden={props.view !== "content" || activeSection() !== "invite-welcome"}
                     description="The invite-code entry form, and the greeting a guest sees under their name after entering their code. Leave the greeting blank to use the default. Like the rest of the invite copy, the greeting is part of the public invite page — don't put anything private in it."
                   >
                     <TextField
@@ -1444,7 +1380,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       tokens={previewTokens()}
                       onChange={(v) => setDraft("tones", "welcome", v)}
                     />
-                    <Show when={showInlinePreviews() && activeSection() === "invite-welcome"}>
+                    <Show when={showInlinePreviews() && shownSection() === "invite-welcome"}>
                       <SectionPreview
                         label="Code Entry & Welcome"
                         tokens={previewTokens()}
@@ -1461,9 +1397,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Events section ─────────────────────────────────── */}
                   <SectionCard
                     id="invite-events"
+                    tabPanel={!phone()}
                     legend="Events Section"
                     onReset={resetEvents}
-                    hidden={activeSection() !== "invite-events"}
+                    hidden={props.view !== "content" || activeSection() !== "invite-events"}
                     description="The header above the guest's event list. The colours also style the event cards, their buttons and the event pop-ups. The events themselves come from your spreadsheet import."
                   >
                     <TextField
@@ -1485,7 +1422,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       tokens={previewTokens()}
                       onChange={(v) => setDraft("tones", "details", v)}
                     />
-                    <Show when={showInlinePreviews() && activeSection() === "invite-events"}>
+                    <Show when={showInlinePreviews() && shownSection() === "invite-events"}>
                       <SectionPreview
                         label="Events Section"
                         tokens={previewTokens()}
@@ -1502,6 +1439,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── FAQ ────────────────────────────────────────────── */}
                   <SectionCard
                     id="invite-faq"
+                    tabPanel={!phone()}
                     legend="FAQ"
                     visibility={{
                       state: faqSectionState(),
@@ -1511,7 +1449,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       offNote:
                         "Switched off. Guests won't see your questions; they are all kept for when you switch it back on.",
                     }}
-                    hidden={activeSection() !== "invite-faq"}
+                    hidden={props.view !== "content" || activeSection() !== "invite-faq"}
                     description="Answer what guests ask anyway — parking, the dress code, children, timing. The questions sit under your events once a guest enters their code, each answer opening from its question. Every household sees every question, unlike the events, which each household sees only when invited — so don't mention an event only some guests are invited to. Questions save as soon as you add, change, reorder or delete them; the switch saves with the rest of the invite."
                   >
                     <FaqEditor
@@ -1522,7 +1460,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     />
                     {/* No colour picker of its own — the FAQ sits on the events
                       section's surface, as part of the same block. */}
-                    <Show when={showInlinePreviews() && activeSection() === "invite-faq"}>
+                    <Show when={showInlinePreviews() && shownSection() === "invite-faq"}>
                       <SectionPreview
                         label="FAQ"
                         tokens={previewTokens()}
@@ -1538,6 +1476,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* ── Closing section ────────────────────────────────── */}
                   <SectionCard
                     id="invite-closing"
+                    tabPanel={!phone()}
                     legend="Closing Section"
                     visibility={{
                       state: footerSectionState(),
@@ -1545,7 +1484,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       onChange: (v) => setDraft("visibility", "footer", v),
                       emptyHint: "a closing image or a closing note",
                     }}
-                    hidden={activeSection() !== "invite-closing"}
+                    hidden={props.view !== "content" || activeSection() !== "invite-closing"}
                     description={
                       'The last section of the invite — your own sign-off, below the events and above the page footer. A closing image that spans the page edge to edge, like the hero at the top, and a closing line like "Looking forward to celebrating with you" or "No boxed gifts please". Add either, both, or neither: leave them empty and the whole section is skipped, so the invite ends on your events exactly as it does now. Guests see this only after they enter their code. The image is decorative — anything that needs to be read (including by a screen reader) should go in the note.'
                     }
@@ -1571,7 +1510,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     {/* No colour picker of its own — the closing section reuses the
                       Code Entry & Welcome surface, so the couple's two direct
                       addresses to their guests match. */}
-                    <Show when={showInlinePreviews() && activeSection() === "invite-closing"}>
+                    <Show when={showInlinePreviews() && shownSection() === "invite-closing"}>
                       <SectionPreview
                         label="Closing Section"
                         tokens={previewTokens()}
@@ -1596,7 +1535,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   <SectionCard
                     id="invite-message"
                     legend="Invite message"
-                    hidden={activeSection() !== "invite-message"}
+                    hidden={props.view !== "codes"}
                     description="Not part of the invite page — this is the first line of the message each household is sent. Leave it blank to use the default."
                   >
                     <TextAreaField
@@ -1616,6 +1555,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         canEdit={props.canEdit}
                         savedLine={d().inviteMessage ?? null}
                         draftLine={draft.inviteMessage}
+                        codesRevision={props.codesRevision}
                       />
                     </Show>
                     {props.inviteMessageLinks}
@@ -1626,12 +1566,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 {/* The miniature earns more room as the builder widens — at 20rem
                   the hero's type is guesswork; by 24rem the tone rhythm down the
                   page is legible, which is the whole point of the pane. */}
-                <Show when={showPreviewPane()}>
+                <Show when={showPreviewPane() && props.view !== "codes"}>
                   <aside class="hidden w-80 shrink-0 @4xl/builder:block @6xl/builder:w-96">
-                    {/* Under the stuck chrome and the section tabs, and no
-                        taller than the screen left below them, so its foot is
-                        never out of reach. */}
-                    <div class="sticky top-[calc(var(--chrome-h)+var(--bar-h,0px)+3rem)] max-h-[calc(100svh-var(--chrome-h)-var(--bar-h,0px)-3rem)] overflow-y-auto">
+                    {/* Under the stuck chrome (the top bar and the module's
+                        view bar), and no taller than the screen left below
+                        them, so its foot is never out of reach. */}
+                    <div class="sticky top-[calc(var(--chrome-h)+var(--bar-h,0px)+1.5rem)] max-h-[calc(100svh-var(--chrome-h)-var(--bar-h,0px)-1.5rem)] overflow-y-auto">
                       <PreviewPane
                         tokens={previewTokens()}
                         toneSurface={toneSurface}
@@ -1648,8 +1588,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 </Show>
               </div>
 
-              {/* ── Mobile preview modal — the "Preview" button next to the
-                section tabs, the only way to reach the composed preview below
+              {/* ── Mobile preview modal — the "Preview" button in the module's
+                view bar, the only way to reach the composed preview below
                 `@4xl/builder`. ── */}
               <PreviewModal
                 open={previewModalOpen()}
@@ -1712,10 +1652,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 }
 
 /** A control that takes focus in the section cards stops below the stuck stack:
- *  the top bar, the view bar and the sticky section tabs (3rem), plus half a
- *  rem (DESIGN.md §The stuck stack). */
+ *  the top bar and the view bar, whose measured height holds Content's
+ *  sections, plus half a rem (DESIGN.md §The stuck stack). */
 const CLEAR_OF_STUCK_STACK =
-  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+3.5rem)]";
+  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+0.5rem)]";
 
 /** A control that takes focus in the section cards stops clear of the sticky
  *  save bar at the foot of the page: the bar's measured height (`--save-bar-h`,

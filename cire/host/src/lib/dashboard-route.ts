@@ -52,10 +52,20 @@ export function isModule(value: string): value is Module {
 }
 
 /**
+ * The invite builder's four views: the design, its type and colours, the
+ * guest page's sections, and the codes with the message that carries them.
+ * One builder stays mounted across all four.
+ */
+export const INVITE_VIEWS = ["template", "style", "content", "codes"] as const;
+
+/** One of the Invite module's views. */
+export type InviteView = (typeof INVITE_VIEWS)[number];
+
+/**
  * The valid sub-views per module. The FIRST entry is the module's default sub
  * (left implicit in the canonical URL). A module with a single implicit view
- * uses the sentinel `"index"`. Sub-routes that are role-gated (invite/codes is
- * owner-only; the `edit` subs are editor-only) still parse here — the parser
+ * uses the sentinel `"index"`. Sub-routes that are role-gated (the invite
+ * views and the `edit` subs are editor-only) still parse here — the parser
  * can't see the caller's role; the shell resolves the visible sub when it
  * renders. (There is no `guests/import` sub: the CSV import lives INSIDE each
  * module's `edit` sub, not on a route of its own.)
@@ -78,7 +88,7 @@ export const MODULE_SUBS = {
   // hides from read-only viewers (the parser can't see the role).
   guests: ["list", "edit", "rsvps"],
   seating: ["index"],
-  invite: ["design", "codes"],
+  invite: INVITE_VIEWS,
   settings: ["wedding", "hosts"],
 } satisfies Record<Module, readonly string[]>;
 
@@ -139,7 +149,7 @@ const LEGACY_TAB_ALIAS: LegacyTabAliases = {
   events: { module: "events", sub: "list" },
   guests: { module: "guests", sub: "list" },
   rsvps: { module: "guests", sub: "rsvps" },
-  invite: { module: "invite", sub: "design" },
+  invite: { module: "invite", sub: "template" },
   codes: { module: "invite", sub: "codes" },
   hosts: { module: "settings", sub: "hosts" },
   settings: { module: "settings", sub: "wedding" },

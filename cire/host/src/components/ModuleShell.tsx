@@ -1,3 +1,4 @@
+import SegmentedTabs from "@cire/ui/segmented-tabs";
 import BriefcaseBusiness from "lucide-solid/icons/briefcase-business";
 import Compass from "lucide-solid/icons/compass";
 import Gift from "lucide-solid/icons/gift";
@@ -10,7 +11,9 @@ import MailCheck from "lucide-solid/icons/mail-check";
 import PackageCheck from "lucide-solid/icons/package-check";
 import Palette from "lucide-solid/icons/palette";
 import PencilLine from "lucide-solid/icons/pencil-line";
+import Rows3 from "lucide-solid/icons/rows-3";
 import Settings2 from "lucide-solid/icons/settings-2";
+import Type from "lucide-solid/icons/type";
 import UsersRound from "lucide-solid/icons/users-round";
 import {
   type Component,
@@ -18,7 +21,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  For,
   lazy,
   on,
   onCleanup,
@@ -32,16 +34,16 @@ import { peekCachedBudget } from "../lib/budget-store";
 import {
   DEFAULT_MODULE,
   defaultSub,
+  type InviteView,
   isSubOf,
   type Module,
   serializeRoute,
 } from "../lib/dashboard-route";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
 import { scrollDelta } from "../lib/scroll-to-results";
-import { createSlidingPill } from "../lib/sliding-pill";
 import type { PaidTier, Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
-import { TipLayer, TipTrigger } from "./ActionTip";
+import { TipLayer } from "./ActionTip";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import EditWorkspace from "./EditWorkspace";
@@ -51,7 +53,6 @@ import HostsPanel from "./HostsPanel";
 // Type only, and as a whole `import type` statement: under
 // `verbatimModuleSyntax` an inline `type` specifier leaves a bare import of the
 // module behind, which would pull the lazy builder into this eager chunk.
-import type { InviteSectionId } from "./invite/InviteBuilder";
 import InviteMessageLinks, { type InviteMessagePlace } from "./InviteMessageLinks";
 import ModuleSidebar from "./ModuleSidebar";
 import Overview from "./Overview";
@@ -167,7 +168,10 @@ interface PanelLoaders {
 const PANEL_LOADERS: PanelLoaders = {
   "events:edit": loadEventsEditor,
   "guests:edit": loadGuestsEditor,
-  "invite:design": loadInviteBuilder,
+  "invite:template": loadInviteBuilder,
+  "invite:style": loadInviteBuilder,
+  "invite:content": loadInviteBuilder,
+  "invite:codes": loadInviteBuilder,
   "registry:list": loadRegistry,
   "registry:gifts": loadRegistry,
   "registry:settings": loadRegistrySettings,
@@ -279,9 +283,14 @@ const MODULE_SUB_TABS: ModuleSubTabs = {
     { id: "edit", label: "Edit", icon: PencilLine, edit: true },
     { id: "rsvps", label: "RSVPs", icon: MailCheck },
   ],
+  // One invite builder behind all four, so a move between them keeps the
+  // draft. Codes is an editor's too: the invite message is written there.
+  // Its one owner-only part, re-minting the codes, shows for an owner alone.
   invite: [
-    { id: "design", label: "Design", icon: Palette, edit: true },
-    { id: "codes", label: "Codes", icon: KeyRound, manage: true },
+    { id: "template", label: "Template", icon: Palette, edit: true },
+    { id: "style", label: "Style", icon: Type, edit: true },
+    { id: "content", label: "Content", icon: Rows3, edit: true },
+    { id: "codes", label: "Codes", icon: KeyRound, edit: true },
   ],
   settings: [
     { id: "wedding", label: "Profile", icon: IdCard },
@@ -293,16 +302,13 @@ const MODULE_SUB_TABS: ModuleSubTabs = {
  *  labelled tabs and a view's controls share one row down to about here. */
 const ICON_TABS_BELOW_PX = 36 * 16;
 
-/** Where each of the invite message's places lives. `section` is the invite
- *  builder section to open on arrival — builder state that is not in the URL. */
+/** Where each of the invite message's places lives. */
 interface InviteMessageRoute {
   module: Module;
   sub: string;
-  section?: InviteSectionId;
 }
 
 const INVITE_MESSAGE_ROUTES = {
-  message: { module: "invite", sub: "design", section: "invite-message" },
   codes: { module: "invite", sub: "codes" },
   households: { module: "guests", sub: "list" },
 } satisfies Readonly<Record<InviteMessagePlace, InviteMessageRoute>>;
@@ -357,8 +363,8 @@ export default function ModuleShell(props: ModuleShellProps) {
     const sub = props.sub;
     const visible = subTabs();
     if (visible.length === 0) return defaultSub(module());
-    // A sub the caller isn't allowed to see (viewer on invite/design, co-host on
-    // invite/codes) → first visible tab.
+    // A sub the caller isn't allowed to see (a viewer on an invite view or an
+    // `edit` sub) → first visible tab.
     const allowed = visible.some((s) => s.id === sub);
     if (allowed) return sub;
     if (isSubOf(module(), sub) && !allowed) return visible[0]!.id;
@@ -367,17 +373,6 @@ export default function ModuleShell(props: ModuleShellProps) {
   };
 
   const active = () => resolveSub();
-
-  // The builder section an invite-message link asked for, handed to the
-  // builder as it mounts. Cleared as soon as the view is anything other than
-  // Invite → Design, so a later visit by the rail or a tab opens on the first
-  // section as usual. Tracks the view only: setting it never clears it.
-  const [builderSection, setBuilderSection] = createSignal<InviteSectionId>();
-  createEffect(
-    on([module, active], ([m, sub]) => {
-      if (m !== "invite" || sub !== "design") setBuilderSection(undefined);
-    }),
-  );
 
   let heading: HTMLHeadingElement | undefined;
   /** The shell's root: `--bar-h` is written here, so every view inherits it. */
@@ -420,7 +415,6 @@ export default function ModuleShell(props: ModuleShellProps) {
    */
   function openInviteMessagePlace(place: InviteMessagePlace) {
     const to: InviteMessageRoute = INVITE_MESSAGE_ROUTES[place];
-    setBuilderSection(to.section);
     if (to.module !== module()) props.onModule(to.module, to.sub);
     else if (to.sub !== active()) props.onSub(to.sub);
     if (module() === to.module && active() === to.sub && heading) {
@@ -442,8 +436,8 @@ export default function ModuleShell(props: ModuleShellProps) {
     />
   );
 
-  /** A place's address: its module and sub-view, without the builder section,
-   *  which is not part of the URL. Built only for a link that is drawn. */
+  /** A place's address: its module and sub-view. Built only for a link that
+   *  is drawn. */
   function inviteMessageHref(place: InviteMessagePlace): string {
     const to: InviteMessageRoute = INVITE_MESSAGE_ROUTES[place];
     return serializeRoute({
@@ -499,10 +493,28 @@ export default function ModuleShell(props: ModuleShellProps) {
     };
   }
 
+  // The owner's re-mints on Codes, counted, so the message beside the panel
+  // reads the new codes: the builder stays mounted across a re-mint.
+  const [codesRevision, setCodesRevision] = createSignal(0);
+
+  // A view that draws its own way between views in the tabs' place (the
+  // invite builder on a phone) hides them while it is mounted.
+  const [replacements, setReplacements] = createSignal(0);
+  function replaceTabs(): () => void {
+    setReplacements((n) => n + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      setReplacements((n) => n - 1);
+    };
+  }
+
   const viewBar: ViewBarContextValue = {
     mount: (slot: ViewBarSlot) => (slot === "end" ? endMount() : row2Mount()),
     panelWidth,
     hold,
+    replaceTabs,
   };
 
   // On a change of view, the page moves once, at once, so the new panel's top
@@ -546,41 +558,6 @@ export default function ModuleShell(props: ModuleShellProps) {
   function ShellBar() {
     const size = createAutoSize();
     let bar: HTMLElement | undefined;
-
-    // Roving tabindex: only the selected tab is in the tab order, and the arrow
-    // keys move focus between the rest. Refs are indexed by position in the
-    // current module's visible tabs — a module switch rewrites every entry the
-    // handler can reach, so a stale ref past the new length is never read.
-    const tabRefs: HTMLButtonElement[] = [];
-
-    // The strip's selected background, as one box that travels rather than one
-    // per tab that switches on and off.
-    const pill = createSlidingPill(active);
-
-    function focusTab(index: number) {
-      const count = subTabs().length;
-      if (count === 0) return;
-      tabRefs[((index % count) + count) % count]?.focus();
-    }
-
-    function onTabKeyDown(event: KeyboardEvent, index: number) {
-      // Focus only — Enter and Space fall through to the button's native click,
-      // which is what actually selects. Moving through the strip must not mount
-      // (and fetch for) a view the host is only passing over.
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        focusTab(index + 1);
-      } else if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        focusTab(index - 1);
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        focusTab(0);
-      } else if (event.key === "End") {
-        event.preventDefault();
-        focusTab(subTabs().length - 1);
-      }
-    }
 
     // `--bar-h` is the height the bar settles at: its content's, which changes
     // once when a view adds or drops a row, plus the hairline under it. Not the
@@ -636,59 +613,30 @@ export default function ModuleShell(props: ModuleShellProps) {
             <div class="flex items-center gap-2 py-2">
               {/* Manual activation (arrows move focus, Enter/Space selects):
                   every panel behind these mounts a fetching view, so
-                  selection-follows-focus would fire a request per keypress. */}
-              <div
-                ref={pill.track}
-                class="border-border bg-surface/30 relative inline-flex shrink-0 gap-1 rounded-sm border p-1"
-                role="tablist"
-                aria-label="Views"
-              >
-                {/* The selection, as a box that moves. It sits behind the tabs
-                    (they are `relative`, it is not stacked over them), so it
-                    reads as the selected tab's own background. */}
-                <span
-                  aria-hidden="true"
-                  class="bg-gold/12 pointer-events-none absolute top-0 left-0 rounded-sm"
-                  style={pill.style()}
+                  selection-follows-focus would fire a request per keypress.
+                  Below the icon threshold each tab is its icon alone, its
+                  label its name and its tooltip (`data-tip`, read by
+                  `TipLayer`). */}
+              {/* Hidden, not removed, while a view draws its own in their
+                  place: the panel below is named by the chosen tab. */}
+              <div class={replacements() > 0 ? "hidden" : "contents"}>
+                <SegmentedTabs
+                  items={subTabs().map((subTab) => ({
+                    value: subTab.id,
+                    label: subTab.label,
+                    icon: subTab.icon,
+                  }))}
+                  value={active()}
+                  onChange={(sub) => props.onSub(sub)}
+                  label="Views"
+                  semantics="tabs"
+                  iconOnly={iconTabs()}
+                  tipAttribute="data-tip"
+                  tabId={(sub) => tabId(module(), sub)}
+                  panelId={() => panelId(module())}
+                  onIntent={(sub) => warmPanel(module(), sub)}
+                  class="shrink-0"
                 />
-                <For each={subTabs()}>
-                  {(subTab, index) => (
-                    <TipTrigger
-                      label={subTab.label}
-                      tipDisabled={!iconTabs()}
-                      ref={(el: HTMLButtonElement) => {
-                        // Two things want this element: the roving tabindex,
-                        // which reaches tabs by position, and the pill, which
-                        // reaches them by id. One ref, both told.
-                        tabRefs[index()] = el;
-                        pill.item(subTab.id)(el);
-                      }}
-                      role="tab"
-                      id={tabId(module(), subTab.id)}
-                      aria-controls={panelId(module())}
-                      aria-selected={active() === subTab.id}
-                      tabindex={active() === subTab.id ? 0 : -1}
-                      onKeyDown={(event: KeyboardEvent) => onTabKeyDown(event, index())}
-                      onPointerEnter={() => warmPanel(module(), subTab.id)}
-                      onFocus={() => warmPanel(module(), subTab.id)}
-                      onClick={() => props.onSub(subTab.id)}
-                      class={`font-body text-ui-xs tracking-ui-wider transition-ui-colors relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase duration-(--dur-fast) ease-(--ease-out) ${
-                        iconTabs() ? "px-3.5" : "px-3"
-                      } ${
-                        active() === subTab.id
-                          ? "text-gold"
-                          : "text-text-muted hover:text-text hover:bg-surface/60"
-                      }`}
-                    >
-                      <subTab.icon
-                        aria-hidden="true"
-                        strokeWidth={1.75}
-                        class="size-3.5 shrink-0"
-                      />
-                      <span class={iconTabs() ? "sr-only" : undefined}>{subTab.label}</span>
-                    </TipTrigger>
-                  )}
-                </For>
               </div>
               {/* A view's controls on the tabs' own row. `[&>div]:contents`:
                   each view's controls arrive in a portal's wrapper div, which
@@ -966,21 +914,31 @@ export default function ModuleShell(props: ModuleShellProps) {
                   </Suspense>
                 </Show>
 
-                {/* ── Invite: Design + Codes ───────────────────────────────────── */}
+                {/* ── Invite: Template, Style, Content, Codes ─────────────────── */}
                 <Show when={module() === "invite"}>
-                  <Show when={active() === "design"}>
-                    {/* The builder is one big write surface; a viewer sees the invite
-                itself via the header's "Preview invite" (member-gated) instead. */}
-                    <Show
-                      when={props.canEdit}
-                      fallback={
-                        <p class="border-border bg-surface/30 text-text-muted text-ui-base rounded-sm border p-6">
-                          You have view-only access to this wedding. Use “Preview invite” above to
-                          see the invitation as guests will — ask an owner for editor access to
-                          customise it.
-                        </p>
-                      }
-                    >
+                  {/* The builder is one big write surface; a viewer sees the invite
+                      itself via the header's "Preview invite" (member-gated)
+                      instead, and has no invite view at all. */}
+                  <Show
+                    when={props.canEdit}
+                    fallback={
+                      <p class="border-border bg-surface/30 text-text-muted text-ui-base rounded-sm border p-6">
+                        You have view-only access to this wedding. Use “Preview invite” above to see
+                        the invitation as guests will — ask an owner for editor access to customise
+                        it.
+                      </p>
+                    }
+                  >
+                    <div class="flex flex-col gap-6">
+                      {/* Re-minting every code is the owner's alone. */}
+                      <Show when={active() === "codes" && props.canManage}>
+                        <RemintPanel
+                          weddingId={props.weddingId}
+                          onReminted={() => setCodesRevision((n) => n + 1)}
+                        />
+                      </Show>
+                      {/* One builder for the four views, so moving between them
+                          keeps the draft; it shows the view's own cards. */}
                       <Suspense fallback={<PanelLoading />}>
                         <InviteBuilder
                           weddingId={props.weddingId}
@@ -988,17 +946,13 @@ export default function ModuleShell(props: ModuleShellProps) {
                           weddingName={props.weddingName}
                           canEdit={props.canEdit}
                           entitlements={props.entitlements}
-                          initialSection={builderSection()}
-                          inviteMessageLinks={inviteMessageLinks("message")}
+                          view={active() as InviteView}
+                          onView={(view) => props.onSub(view)}
+                          inviteMessageLinks={inviteMessageLinks("codes")}
+                          codesRevision={codesRevision()}
                         />
                       </Suspense>
-                    </Show>
-                  </Show>
-                  <Show when={active() === "codes" && props.canManage}>
-                    <RemintPanel
-                      weddingId={props.weddingId}
-                      inviteMessageLinks={inviteMessageLinks("codes")}
-                    />
+                    </div>
                   </Show>
                 </Show>
 

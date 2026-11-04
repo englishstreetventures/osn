@@ -42,8 +42,11 @@ The one gap is by design: this portal renders no `Modal`, so it sets no
 test task's inputs, so a change to any of them re-runs this suite rather than
 replaying a cached pass. What each corner paints is host §4.
 
-`src/lib/` carries three verbatim ports: `theme.ts` / `theme-boot.ts`,
-`auto-size.ts`, `sliding-pill.ts`. They are generic and have their own tests.
+`src/lib/` carries two verbatim ports: `theme.ts` / `theme-boot.ts` and
+`auto-size.ts`. They are generic and have their own tests. The sliding pill is
+`@cire/ui`'s, shared with the host portal. This portal declares the spring
+(`--ease-spring` and its `@supports` block, host §4), because its glass strip
+slides on it.
 Every form field here takes `@shared/ui`'s `size="form"` and is 34px, as host
 §4 ("One form-field height") sets; `tests/styles/form-field.test.ts` holds
 it. This portal has no button in a row with a field, so it carries no
@@ -91,16 +94,12 @@ here is to paste one from the host portal.
 The host portal has seven modules, sub-tabs and a rail, which is what makes a
 ⌘K palette worth its weight. This portal has two views. A palette over two
 destinations is chrome for chrome's sake, and it was deliberately **not**
-ported. `ViewTabs` uses the same `createSlidingPill` the host portal's tab
-strips use.
+ported. `ViewTabs` is `@cire/ui`'s `SegmentedTabs`, the glass strip every
+segmented control in both portals is (host §7): one 28px track, a frosted
+highlight that slides on `--ease-spring`, sentence-case labels, the chosen one
+in readable gold at medium weight.
 
-The strip is a pill track — track, sliding highlight and tabs all `rounded-pill`
-— with small-caps labels, as a tab strip's are. The host portal's segmented
-view tabs are 6px, because they sit in a view bar beside pill-shaped chips, and
-the 6px box is what tells a segmented control from a chip there. This
-strip has no chips beside it, so the pill reads as one control.
-
-Nor is the strip an ARIA `tablist`. The tab pattern promises a panel that is a
+Nor is the strip an ARIA `tablist` (`semantics="current"`). The tab pattern promises a panel that is a
 sibling of the strip plus roving arrow-key focus, and neither is true — these
 swap the whole page and push history. Two buttons, with `aria-current` naming
 the one you are on.
@@ -110,8 +109,11 @@ the one you are on.
 The host portal's profile menu opens an in-portal security view. Passkeys and
 recovery codes are bound to the `musubi.social` RP ID, so every ceremony has to
 run on musubi's own origin anyway — a local screen whose every button then
-redirected would be a hop that exists only to be got past. The row is an
-anchor to `PUBLIC_OSN_ACCOUNT_URL`, `target="_blank"` and `rel="noopener"`.
+redirected would be a hop that exists only to be got past. The row is the
+shared menu's link row (`DropdownMenuItem as="a"`) to `PUBLIC_OSN_ACCOUNT_URL`
+with `target="_blank"`, which adds `noopener noreferrer` itself. The menu is
+the shared `DropdownMenu` on its accent look, as every portal menu is (host
+§7).
 
 ---
 
@@ -139,8 +141,8 @@ a headline figure or a table.
 | `Checkbox` | `shared/ui/src/ui/checkbox.tsx` | A native checkbox and its word as one clickable row, for the service-category grid. It takes its word as `label` and `box="native"`, so its box is the browser's own, as every cire box is (host §4, Checkboxes and radios). |
 
 **Corners here** follow host §4. The small steps this portal writes itself: the
-profile menu at 10px (a menu); at 6px its rows' highlight and the wordmark's
-hover wash (a nav highlight). The quote form nested in the enquiry thread's
+wordmark's hover wash at 6px (a nav highlight); the profile menu's panel and
+rows take the shared menu's 10px and 6px. The quote form nested in the enquiry thread's
 card is 6px too, drawn from the card's box (`cardBoxClass({ fill: "none",
 nested: true })`) with its own 16px padding. The login card and the thread's
 message bubbles take the 16px card corner. The round marks — the avatar, the

@@ -115,6 +115,8 @@ const eventTab = (name: string) =>
     name: new RegExp(`^${name},`),
   });
 const strip = () => screen.getByRole("tablist", { name: "Events" });
+/** What scrolls: the glass strip sits in a scroller with room for the ring. */
+const scroller = () => strip().parentElement!;
 const eventPanel = () =>
   document.getElementById(strip().querySelector("[role=tab]")!.getAttribute("aria-controls")!)!;
 const viewBar = () => document.querySelector<HTMLElement>("[data-view-bar]")!;
@@ -286,13 +288,13 @@ describe("the RSVP page's event tabs", () => {
     await userEvent.keyboard("{ArrowRight}{Enter}");
     expect(reception!.getAttribute("aria-selected")).toBe("true");
     expect(chosen).toEqual(["evt_reception"]);
-    // What a sighted host sees of the choice: the chosen chip fills in the
-    // brand green, in its own ink, while the others stay on the surface.
-    expect(getComputedStyle(reception!).backgroundColor).toBe(probe("bg-brand", "backgroundColor"));
-    expect(getComputedStyle(reception!).color).toBe(probe("text-on-brand", "color"));
-    expect(getComputedStyle(ceremony!).backgroundColor).toBe(
-      probe("bg-surface", "backgroundColor"),
-    );
+    // What a sighted host sees of the choice: the chosen tab's word in the
+    // readable gold at medium weight, on the glass that slides to it, while
+    // the others keep the secondary ink at normal weight.
+    expect(getComputedStyle(reception!).color).toBe(probe("text-gold-ink", "color"));
+    expect(getComputedStyle(reception!).fontWeight).toBe("500");
+    expect(getComputedStyle(ceremony!).color).toBe(probe("text-text-muted", "color"));
+    expect(getComputedStyle(ceremony!).fontWeight).toBe("400");
     await vi.waitFor(() =>
       expect(document.querySelectorAll("tbody > tr")).toHaveLength(rowsOf(THREE, 1)),
     );
@@ -316,7 +318,7 @@ describe("the RSVP page's event tabs", () => {
     await ready(rowsOf(TWELVE, 10));
 
     // The strip overflows and scrolls; its box stays inside the page measure.
-    const track = strip();
+    const track = scroller();
     expect(track.scrollWidth).toBeGreaterThan(track.clientWidth);
     const main = document.querySelector("main")!.getBoundingClientRect();
     expect(track.getBoundingClientRect().right).toBeLessThanOrEqual(main.right);
@@ -352,7 +354,7 @@ describe("the RSVP page's event tabs", () => {
     await page.viewport(600, 844);
     renderPage(TWELVE, { rsvpEvent: "evt_5" });
     await ready(rowsOf(TWELVE, 5));
-    const track = strip();
+    const track = scroller();
     const inner = () => {
       const r = track.getBoundingClientRect();
       return {
@@ -496,10 +498,10 @@ describe("the RSVP table's stuck head row", () => {
     const list = screen.getByRole("list", { name: "Replies for Ceremony" });
     expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
-    // The sort is a select in the bar; the reply filter its row of chips.
+    // The sort is a select in the bar; the reply filter its strip of radios.
     expect(within(viewBar()).getByRole("combobox", { name: "Sort guests" })).toBeTruthy();
-    const replies = within(viewBar()).getByRole("group", { name: "Filter Ceremony by reply" });
-    expect(within(replies).getAllByRole("button")).toHaveLength(5);
+    const replies = within(viewBar()).getByRole("radiogroup", { name: "Filter Ceremony by reply" });
+    expect(within(replies).getAllByRole("radio")).toHaveLength(5);
   });
 
   for (const theme of ["light", "dark"] as const) {
@@ -630,7 +632,7 @@ describe("the RSVP page on a phone", () => {
   });
 });
 
-describe("the chips' focus ring", () => {
+describe("the event tabs' and reply chips' focus ring", () => {
   /** Whether `el`'s ring — its outline, offset and width — lies inside `box`. */
   function ringInside(el: Element, box: Element): boolean {
     const style = getComputedStyle(el);
@@ -644,7 +646,7 @@ describe("the chips' focus ring", () => {
     );
   }
 
-  it("shows whole on an event chip and a reply chip reached from the keyboard", async () => {
+  it("shows whole on an event tab and a reply chip reached from the keyboard", async () => {
     await page.viewport(1280, 800);
     renderPage(THREE);
     await ready(rowsOf(THREE));
@@ -655,15 +657,18 @@ describe("the chips' focus ring", () => {
     expect(getComputedStyle(reception!).outlineStyle).toBe("solid");
     expect(parseFloat(getComputedStyle(reception!).outlineWidth)).toBeGreaterThanOrEqual(2);
     // Not cut by the strip, which scrolls sideways and so clips on both axes.
-    expect(ringInside(reception!, strip())).toBe(true);
+    expect(ringInside(reception!, scroller())).toBe(true);
 
-    const replies = within(viewBar()).getByRole("group", { name: /^Filter .* by reply$/ });
+    // The reply filter is one tab stop, its checked radio; its strip scrolls
+    // sideways too, so the ring must fit inside the box that clips.
+    const replies = within(viewBar()).getByRole("radiogroup", { name: /^Filter .* by reply$/ });
     within(viewBar()).getByRole("searchbox").focus();
     await userEvent.keyboard("{Tab}");
     const chip = document.activeElement!;
     expect(replies.contains(chip)).toBe(true);
+    expect(chip.getAttribute("aria-checked")).toBe("true");
     expect(getComputedStyle(chip).outlineStyle).toBe("solid");
-    expect(ringInside(chip, replies)).toBe(true);
+    expect(ringInside(chip, replies.parentElement!)).toBe(true);
   });
 });
 

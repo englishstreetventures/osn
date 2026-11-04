@@ -70,6 +70,7 @@ import { CIRE_GUEST, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { consentLink, demoPair, guestSheet, replyKey } from "../support/cire-buttons";
 import { builderFeedback, landingFeedback } from "../support/cire-feedback";
 import { builderForms, claimForms, demoForms, hostForms, sheetForms } from "../support/cire-forms";
+import { navSurfaces } from "../support/cire-nav";
 import {
   addGuestFaq,
   builderSurfaces,
@@ -390,7 +391,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       .getByRole("radiogroup", { name: "Invite design" })
       .getByRole("radio", { name: new RegExp(`^${name}`) });
   await flow.step("open the invite designs", async () => {
-    await page.goto(`${HOST}/invite/design`);
+    await page.goto(`${HOST}/invite/template`);
     await expect(design("Classic")).toBeVisible({ timeout: 60_000 });
   });
   flow.check(
@@ -401,6 +402,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await builderSurfaces(flow, page, design);
   await builderForms(flow, page);
   await builderFeedback(flow, page);
+  await navSurfaces(flow, page, HOST);
 
   // ── The marketing site ───────────────────────────────────────────────────
   // No claim and no sign-in: the page is public, and its demo sends nothing.

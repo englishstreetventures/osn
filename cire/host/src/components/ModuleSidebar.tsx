@@ -1,5 +1,6 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import { createSlidingPill } from "@cire/ui/sliding-pill";
 import { Dialog } from "@kobalte/core/dialog";
 import { Popover } from "@kobalte/core/popover";
 import { Tooltip } from "@kobalte/core/tooltip";
@@ -27,7 +28,6 @@ import { type LockedExport as LockedExportSpec, lockedExportFor } from "../lib/l
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
 import { createPointerDwell } from "../lib/pointer-dwell";
 import { readRailCollapsed, writeRailCollapsed } from "../lib/rail-preference";
-import { createSlidingPill } from "../lib/sliding-pill";
 import { type Tier, TIER_LABEL } from "../lib/tiers";
 import LockedExport from "./LockedExport";
 import ModuleIcon from "./ModuleIcon";

@@ -3,7 +3,7 @@ import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Fieldset } from "@shared/ui/ui/field";
-import { createSignal, For, type JSX, onMount, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { invalidateGuests } from "../lib/guests-store";
@@ -16,9 +16,8 @@ const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-5`;
 
 interface RemintPanelProps {
   weddingId: string;
-  /** The line pointing at the other places that shape the invite message, shown
-   *  under the panel's introduction. */
-  inviteMessageLinks?: JSX.Element;
+  /** Every code changed: the message beside the panel reads them again. */
+  onReminted?: () => void;
 }
 
 interface GuestRow {
@@ -111,6 +110,7 @@ export default function RemintPanel(props: RemintPanelProps) {
       setConfirming(false);
       // The new codes start un-shared.
       setSharedCount(0);
+      props.onReminted?.();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
@@ -127,7 +127,6 @@ export default function RemintPanel(props: RemintPanelProps) {
         title="Change the code style"
         description="Each household has a private code they enter to open your invite and RSVP. If you'd rather they were shorter and friendlier — or longer and harder to guess — switch the style here. Re-minting replaces every code, so any code you've already shared will stop working."
       />
-      {props.inviteMessageLinks}
 
       <Fieldset legend="New code style">
         <div class="flex flex-col gap-2 @lg/panel:flex-row">

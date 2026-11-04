@@ -2,7 +2,8 @@
 import { derivePalette, PALETTE_PRESETS, typographyVar } from "@cire/theme";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { createSignal } from "solid-js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * InviteBuilder lets the organiser rewrite copy, swap images, and set a
@@ -79,10 +80,8 @@ vi.mock("../../src/components/ImageCropModal", () => ({
   ),
 }));
 
-import InviteBuilder, {
-  isDesignLocked,
-  SECTION_MENU_COLUMNS,
-} from "../../src/components/InviteBuilder";
+import InviteBuilder, { isDesignLocked } from "../../src/components/InviteBuilder";
+import type { InviteView } from "../../src/lib/dashboard-route";
 // Real (unmocked) — the guard-lifecycle test asserts the builder's dirty state
 // reaches the process-global registry the dashboard consults.
 import { confirmNavigation } from "../../src/lib/unsaved-guard";
@@ -94,13 +93,23 @@ import {
   toastSuccess,
 } from "../test-support/mocks";
 
-/** The props every render here shares: an owner's builder for one wedding. */
+/** The Invite view the builder shows, as the module shell's route would set
+ *  it. Every test starts on Template, the module's first view. */
+const [view, setView] = createSignal<InviteView>("template");
+beforeEach(() => setView("template"));
+
+/** The props every render here shares: an owner's builder for one wedding, on
+ *  the view above. */
 const WEDDING = {
   weddingId: "wed_1",
   weddingSlug: "anita-ben",
   weddingName: "Anita & Ben",
   canEdit: true,
   entitlements: [],
+  get view() {
+    return view();
+  },
+  onView: (next: InviteView) => setView(next),
 };
 
 function json(body: unknown, status = 200) {
@@ -138,14 +147,23 @@ function lastSentBody(suffix: string) {
   return call ? JSON.parse(call[1].body as string) : null;
 }
 
-/** Switches the builder's tabbed nav to the named section. The builder shows
- *  one section at a time now — every OTHER section's controls are hidden
- *  (native `hidden` attribute), which takes them out of the accessibility
- *  tree, so a test reaching for a control by role must select its tab first.
- *  (`getByLabelText`/`getByText` don't filter on `hidden`, so tests using
- *  those queries are unaffected and need no tab switch.) */
+/** The section strip under Content. */
+const sectionStrip = () => screen.getByRole("tablist", { name: "Invite sections" });
+
+/** Moves the builder to the named card: Design is the Template view, Look the
+ *  Style view, the invite message the Codes view, and anything else a section
+ *  under Content, chosen on its strip. The builder shows one card at a time —
+ *  every OTHER card's controls are hidden (native `hidden` attribute), which
+ *  takes them out of the accessibility tree, so a test reaching for a control
+ *  by role must move there first. (`getByLabelText`/`getByText` don't filter
+ *  on `hidden`, so tests using those queries are unaffected.) */
 async function openSection(label: string | RegExp) {
-  const tab = await waitFor(() => screen.getByRole("tab", { name: label }));
+  const text = typeof label === "string" ? label : label.source.replace(/^\^/, "");
+  if (text.startsWith("Design")) return setView("template");
+  if (text.startsWith("Look")) return setView("style");
+  if (text.startsWith("Message")) return setView("codes");
+  setView("content");
+  const tab = await waitFor(() => within(sectionStrip()).getByRole("tab", { name: label }));
   fireEvent.click(tab);
 }
 
@@ -621,7 +639,7 @@ describe("InviteBuilder theme", () => {
 
     // Each guest-page section has its own labelled preview card — but only
     // one is mounted at a time now, one tab per section.
-    await openSection(/^Our Story/);
+    await openSection(/^Our story/);
     screen.getByLabelText("Our Story preview");
 
     await openSection("Welcome");
@@ -1260,7 +1278,7 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
     expect(screen.getAllByRole("button", { name: "Crop" }).length).toBe(1);
     expect(screen.getAllByRole("button", { name: "Phone crop" }).length).toBe(1);
 
-    await openSection("Our Story");
+    await openSection("Our story");
     await waitFor(() => screen.getByRole("button", { name: "Crop" }));
     expect(screen.queryByRole("button", { name: "Phone crop" })).toBeNull();
   });
@@ -1469,6 +1487,42 @@ describe("InviteBuilder UX guards", () => {
     expect(document.getElementById("invite-hero")!.contains(alert)).toBe(true);
   });
 
+  it("says the invite could not load, in place of the builder, when the first read fails", async () => {
+    let answer: (response: Response) => void = () => {};
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
+    render(() => <InviteBuilder {...WEDDING} />);
+    // Loading, and saying nothing has failed, until the read answers.
+    expect(screen.getByText("Loading invite…")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    answer(json({ error: "boom" }, 500));
+    const alert = await waitFor(() => screen.getByRole("alert"));
+    expect(alert.textContent).toContain("Could not load the invite. Is the API running?");
+    expect(screen.queryByText("Save invite")).toBeNull();
+    expect(screen.queryByText("Loading invite…")).toBeNull();
+  });
+
+  it("keeps the builder when the reload after an upload fails, and says so in the save bar", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json({ ok: true })); // upload
+    authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500)); // reload
+    const { container } = render(() => <InviteBuilder {...WEDDING} />);
+    await waitFor(() => screen.getByText("Save invite"));
+    // A read that answered draws no failure.
+    expect(screen.queryByText("Could not load the invite. Is the API running?")).toBeNull();
+
+    const input = container.querySelector('#invite-hero input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      value: [new File(["x"], "hero.jpg", { type: "image/jpeg" })],
+    });
+    fireEvent.change(input);
+
+    await waitFor(() =>
+      expect(screen.getByText("Could not reload the invite. Try again.")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Save invite")).toBeInTheDocument();
+    expect(document.getElementById("invite-hero")).not.toBeNull();
+  });
+
   it("wires the dirty state into the navigation guard across its lifecycle", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
@@ -1503,6 +1557,36 @@ describe("InviteBuilder UX guards", () => {
     expect(confirmSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a dirty draft through a move to another Invite view, and asks for anywhere else", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    const confirmSpy = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirmSpy);
+    setView("content");
+    render(() => <InviteBuilder {...WEDDING} />);
+    await waitFor(() => screen.getByText("Save invite"));
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "A & B" } });
+    await waitFor(() => screen.getByText("Unsaved changes"));
+
+    const to = (module: "invite" | "guests", sub: string, weddingId = WEDDING.weddingId) =>
+      ({ view: "weddings", weddingId, module, sub }) as const;
+    // Away from the dashboard's weddings, it asks.
+    expect(
+      confirmNavigation({
+        next: { view: "security", weddingId: null, module: "invite", sub: "template" },
+      }),
+    ).toBe(false);
+    confirmSpy.mockClear();
+    // The same builder shows every Invite view of this wedding: no prompt.
+    for (const sub of ["template", "style", "codes"]) {
+      expect(confirmNavigation({ next: to("invite", sub) })).toBe(true);
+    }
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // Another module, or the same view of another wedding, unmounts it.
+    expect(confirmNavigation({ next: to("guests", "list") })).toBe(false);
+    expect(confirmNavigation({ next: to("invite", "style", "wed_2") })).toBe(false);
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("surfaces a remove failure inside its own section, not the save bar", async () => {
     authFetchMock.mockResolvedValueOnce(json(WITH_HERO_IMAGE)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ error: "Remove failed upstream" }, 500)); // DELETE
@@ -1518,71 +1602,97 @@ describe("InviteBuilder UX guards", () => {
     expect(toastSuccess).not.toHaveBeenCalledWith("Image removed");
   });
 
-  it("shows one section at a time via the native `hidden` attribute", async () => {
+  it("shows each view's own cards, one section at a time under Content, via `hidden`", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     render(() => <InviteBuilder {...WEDDING} />);
     await waitFor(() => screen.getByText("Save invite"));
+    const shown = () =>
+      [...document.querySelectorAll("fieldset[id^='invite-']")]
+        .filter((card) => !(card as HTMLFieldSetElement).hidden)
+        .map((card) => card.id);
 
-    // Design is the default active tab; every other section starts hidden.
-    expect(document.getElementById("invite-design")!.hidden).toBe(false);
-    expect(document.getElementById("invite-hero")!.hidden).toBe(true);
+    // Template: the design alone, and no section strip.
+    expect(shown()).toEqual(["invite-design"]);
+    expect(screen.getByText("Customise your invite")).toBeTruthy();
+    expect(screen.queryByRole("tablist", { name: "Invite sections" })).toBeNull();
+    setView("style");
+    expect(shown()).toEqual(["invite-look"]);
+    setView("codes");
+    expect(shown()).toEqual(["invite-message"]);
+    // Codes holds the message alone, under the owner's codes: no builder head,
+    // and no guest-page preview, since nothing there edits the page.
+    expect(screen.queryByText("Customise your invite")).toBeNull();
+    expect(screen.queryByLabelText("Invite preview")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
 
-    // Switching tabs flips which fieldset carries `hidden` — the switch is a
-    // real attribute toggle, not a CSS class the DOM can't see. Regex name
-    // match: with `EMPTY_CUSTOMISATION` the Hero tab's accessible name is
-    // "Hero (hidden — empty)" (the sr-only Shown/Hidden suffix), not "Hero".
-    await openSection(/^Hero/);
-    expect(document.getElementById("invite-design")!.hidden).toBe(true);
+    // Content: its first section, then whichever its strip chooses — a real
+    // attribute toggle, not a CSS class the DOM can't see. Regex name match:
+    // with `EMPTY_CUSTOMISATION` the Hero tab's name is "Hero (hidden — empty)".
+    setView("content");
+    expect(shown()).toEqual(["invite-hero"]);
+    fireEvent.click(within(sectionStrip()).getByRole("tab", { name: /^Welcome/ }));
+    expect(shown()).toEqual(["invite-welcome"]);
+
+    // A trip to another view keeps the section chosen.
+    setView("template");
+    setView("content");
+    expect(shown()).toEqual(["invite-welcome"]);
+  });
+
+  it("wires the section tabs to their panels, and leaves the other views' cards to their legend", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    setView("content");
+    render(() => <InviteBuilder {...WEDDING} />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    const tabs = within(sectionStrip()).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Hero",
+      "Our story",
+      "Welcome",
+      "Events",
+      "FAQ",
+      "Closing",
+    ]);
+    for (const tab of tabs) {
+      const panel = document.getElementById(tab.getAttribute("aria-controls")!)!;
+      expect(panel.getAttribute("role")).toBe("tabpanel");
+      expect(panel.getAttribute("aria-labelledby")).toBe(tab.id);
+    }
+    for (const id of ["invite-design", "invite-look", "invite-message"]) {
+      const card = document.getElementById(id)!;
+      expect(card.hasAttribute("role")).toBe(false);
+      expect(card.hasAttribute("aria-labelledby")).toBe(false);
+    }
+  });
+
+  it("moves focus with the arrows, Home and End, and chooses only on a press", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    setView("content");
+    render(() => <InviteBuilder {...WEDDING} />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    const tab = (name: RegExp) => within(sectionStrip()).getByRole("tab", { name });
+    // Only the chosen tab is in the Tab order (roving tabindex).
+    expect(tab(/^Hero/).tabIndex).toBe(0);
+    expect(tab(/^Our story/).tabIndex).toBe(-1);
+
+    // Manual activation, as every strip: passing over a section shows nothing.
+    fireEvent.keyDown(tab(/^Hero/), { key: "ArrowRight" });
+    expect(document.activeElement).toBe(tab(/^Our story/));
+    expect(tab(/^Our story/).getAttribute("aria-selected")).toBe("false");
     expect(document.getElementById("invite-hero")!.hidden).toBe(false);
-  });
 
-  it("wires the section tabs to their panels via aria-controls/aria-labelledby", async () => {
-    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder {...WEDDING} />);
-    await waitFor(() => screen.getByText("Save invite"));
+    fireEvent.keyDown(tab(/^Our story/), { key: "End" });
+    expect(document.activeElement).toBe(tab(/^Closing/));
+    fireEvent.keyDown(tab(/^Closing/), { key: "ArrowRight" });
+    expect(document.activeElement).toBe(tab(/^Hero/));
+    fireEvent.keyDown(tab(/^Hero/), { key: "Home" });
+    expect(document.activeElement).toBe(tab(/^Hero/));
 
-    const designTab = screen.getByRole("tab", { name: "Design" });
-    const designPanel = document.getElementById("invite-design")!;
-    expect(designPanel.getAttribute("role")).toBe("tabpanel");
-    expect(designTab.getAttribute("aria-controls")).toBe(designPanel.id);
-    expect(designPanel.getAttribute("aria-labelledby")).toBe(designTab.id);
-  });
-
-  it("moves focus AND activation with ArrowRight/ArrowLeft/Home/End (roving tabindex)", async () => {
-    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder {...WEDDING} />);
-    await waitFor(() => screen.getByText("Save invite"));
-
-    const designTab = screen.getByRole("tab", { name: "Design" });
-    const lookTab = screen.getByRole("tab", { name: "Look" });
-    // Only the active tab is in the normal Tab order (roving tabindex).
-    expect(designTab.tabIndex).toBe(0);
-    expect(lookTab.tabIndex).toBe(-1);
-
-    fireEvent.keyDown(designTab, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(lookTab);
-    expect(lookTab.getAttribute("aria-selected")).toBe("true");
-    expect(lookTab.tabIndex).toBe(0);
-    expect(designTab.tabIndex).toBe(-1);
-    expect(document.getElementById("invite-look")!.hidden).toBe(false);
-
-    fireEvent.keyDown(lookTab, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(designTab);
-    expect(designTab.getAttribute("aria-selected")).toBe("true");
-
-    const messageTab = screen.getByRole("tab", { name: "Message" });
-    fireEvent.keyDown(designTab, { key: "End" });
-    expect(document.activeElement).toBe(messageTab);
-    expect(messageTab.getAttribute("aria-selected")).toBe("true");
-
-    fireEvent.keyDown(messageTab, { key: "Home" });
-    expect(document.activeElement).toBe(designTab);
-    expect(designTab.getAttribute("aria-selected")).toBe("true");
-
-    // ArrowRight from the last tab wraps around to the first.
-    fireEvent.keyDown(messageTab, { key: "End" }); // back to Message
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Message" }), { key: "ArrowRight" });
-    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Design" }));
+    fireEvent.click(tab(/^Events/));
+    expect(tab(/^Events/).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("invite-events")!.hidden).toBe(false);
   });
 
   it("opens the composed preview in a modal from the mobile Preview button", async () => {
@@ -1612,391 +1722,147 @@ describe("InviteBuilder UX guards", () => {
 });
 
 /**
- * The narrow-container section menu (2026-07-30). Below `@3xl/builder` the
- * tabs can't share a line, so a horizontally scrolling strip would park
- * Closing and Message off the right edge. They collapse behind a trigger
- * naming the current section and open as a grid that shows every tab at once.
- *
- * ONE tablist serves both surfaces (a per-surface copy would give every panel
- * two `aria-labelledby` candidates), so what these tests assert is the
- * COLLAPSE: `aria-expanded` on the trigger, the `hidden` class on the tablist,
- * and the dismiss paths. happy-dom applies no CSS, so the container-query swap
- * itself isn't observable here — the class list is the closest honest proxy.
+ * The builder on a phone (below a 30rem panel; `compact` alone, with no
+ * shell): one glass pill naming the place — a view, or under Content the
+ * section, a hidden one marked and named so — in place of both strips, and a
+ * menu of the two tiers the strips draw, each one choice: the four views, then
+ * Content's six sections. A row moves to the place chosen and closes. Where the pill sits in the bar, and that the
+ * module's strip hides only once it has mounted, are the browser tier's
+ * (`GuestsStack.browser.test.tsx`, the tiers block).
  */
-describe("InviteBuilder section menu (narrow containers)", () => {
+describe("InviteBuilder on a phone", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
     vi.unstubAllGlobals();
   });
 
-  const renderBuilder = async () => {
+  const renderPhone = async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    render(() => <InviteBuilder {...WEDDING} />);
+    render(() => <InviteBuilder {...WEDDING} compact />);
     await waitFor(() => screen.getByText("Save invite"));
   };
 
-  const trigger = () => screen.getByRole("button", { name: /Choose a section/ });
-  const tablist = () => screen.getByRole("tablist");
-
-  it("names the current section and its position on the trigger, live", async () => {
-    await renderBuilder();
-
-    // Where the organiser IS, without opening anything — the one thing the
-    // scrolling strip couldn't tell them about an off-screen section.
-    expect(trigger().getAttribute("aria-label")).toBe(
-      "Invite section: Design, 1 of 9. Choose a section",
-    );
-    expect(trigger().textContent).toContain("Design");
-    expect(trigger().textContent).toContain("1/9");
-
-    // The Shown/Hidden state rides the accessible NAME, not only the fade and
-    // the `aria-hidden` icon, which say nothing to a screen reader; an `aria-label`
-    // overrides subtree content, so an `sr-only` span in the button would be
-    // dropped. Without this clause the collapsed trigger conveys three things
-    // visually and two to a screen reader — and "you can read it instead of
-    // opening it" stops being true.
-    await openSection(/^Closing/);
-    expect(trigger().getAttribute("aria-label")).toBe(
-      "Invite section: Closing, 8 of 9, hidden — empty. Choose a section",
-    );
-    expect(trigger().textContent).toContain("8/9");
-
-    await openSection(/^Hero/);
-    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
-    await waitFor(() =>
-      expect(trigger().getAttribute("aria-label")).toBe(
-        "Invite section: Hero, 3 of 9, shown. Choose a section",
-      ),
-    );
-  });
+  const trigger = () => screen.getByRole("button", { name: /Choose a view or section/ });
+  // Kobalte hands the page back to assistive tech a moment after a menu
+  // closes, so the trigger is found again by waiting.
+  const openMenu = async () => fireEvent.pointerDown(await waitFor(() => trigger()), { button: 0 });
 
   /** What `root` draws that holds no words — which is what a status dot is,
-   *  whatever its class — leaving out the eye-off icon and its parts. Every
-   *  other mark on a trigger or a tab is a word, so this is empty. */
+   *  whatever its class — leaving out the eye-off icon, the chevron and their
+   *  parts. Every other mark on the pill is a word, so this is empty. */
   const wordlessMarks = (root: Element) =>
     [...root.querySelectorAll("*")].filter(
-      (el) => !el.textContent?.trim() && !el.closest("[data-hidden-icon]"),
+      (el) =>
+        !el.textContent?.trim() &&
+        !el.closest("[data-hidden-icon], svg") &&
+        !el.querySelector("svg"),
     );
 
-  it("fades the trigger's label and marks it with an eye-off icon while the section is hidden, live", async () => {
-    await renderBuilder();
-    // The label and its icon sit in one span, which carries the fade.
-    const label = () => within(trigger()).getByText(/^(Design|Hero)$/).parentElement!;
-    const faded = () => label().classList.contains("text-text-faint");
-    const icon = () => trigger().querySelector("[data-hidden-icon]");
+  it("draws one pill naming the place in place of both strips, live", async () => {
+    await renderPhone();
+    expect(screen.queryByRole("tablist", { name: "Invite sections" })).toBeNull();
+    expect(trigger().getAttribute("aria-label")).toBe("Invite: Template. Choose a view or section");
+    expect(trigger().textContent).toBe("Template");
+    expect(trigger().querySelector("[data-hidden-icon]")).toBeNull();
 
-    // No dot anywhere on the trigger: every mark on it is a word.
+    // Under Content the pill names the section, and a hidden one says so:
+    // the eye-off icon to the eye, the badge's words in the name.
+    setView("content");
+    expect(trigger().getAttribute("aria-label")).toBe(
+      "Invite: Hero (hidden — empty). Choose a view or section",
+    );
+    const icon = trigger().querySelector("[data-hidden-icon]");
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
     expect(wordlessMarks(trigger())).toEqual([]);
 
-    // Design has no Shown/Hidden state at all — no fade, no icon.
-    expect(faded()).toBe(false);
-    expect(icon()).toBeNull();
-
-    // Hero starts empty on `EMPTY_CUSTOMISATION`, so the guest invite hides it.
-    await openSection(/^Hero/);
-    expect(faded()).toBe(true);
-    expect(icon()).not.toBeNull();
-    // Decoration only: the trigger's `aria-label` carries the state.
-    expect(icon()!.getAttribute("aria-hidden")).toBe("true");
-    // The icon is the one wordless mark, and it is the eye-off, never a dot.
-    expect(wordlessMarks(trigger())).toEqual([]);
-
-    // Both lift the instant an edit gives the section content — it's the whole
-    // reason the trigger can be read instead of opened.
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
-    await waitFor(() => expect(faded()).toBe(false));
-    expect(icon()).toBeNull();
+    await waitFor(() =>
+      expect(trigger().getAttribute("aria-label")).toBe("Invite: Hero. Choose a view or section"),
+    );
+    expect(trigger().querySelector("[data-hidden-icon]")).toBeNull();
   });
 
-  it("fades a hidden section's tab and marks it with an eye-off icon, apart from 'not selected'", async () => {
-    await renderBuilder();
-    const tab = (name: string | RegExp) => screen.getByRole("tab", { name });
-    const icon = (name: string | RegExp) => tab(name).querySelector("[data-hidden-icon]");
-    const has = (el: HTMLElement, cls: string) => el.classList.contains(cls);
+  const checked = (name: string | RegExp) =>
+    screen.getByRole("menuitemradio", { name }).getAttribute("aria-checked");
 
-    // No dot in any tab: every mark in the strip is a word or the eye-off.
-    expect(wordlessMarks(tablist())).toEqual([]);
+  it("lists the four views as one choice and Content's sections as another, and moves to the one chosen", async () => {
+    await renderPhone();
+    await openMenu();
+    const menu = await waitFor(() => screen.getByRole("menu"));
+    const words = (group: HTMLElement) =>
+      within(group)
+        .getAllByRole("menuitemradio")
+        .map((row) => row.textContent?.trim());
+    // Two groups, as the two strips: the views, every one an alternative to
+    // the others, then the sections under their eyebrow.
+    expect(within(menu).getAllByRole("group")).toHaveLength(2);
+    expect(words(within(menu).getByRole("group", { name: "Views" }))).toEqual([
+      "Template",
+      "Style",
+      "Content",
+      "Codes",
+    ]);
+    expect(words(within(menu).getByRole("group", { name: "Sections" }))).toEqual([
+      "Hero(hidden — empty)",
+      "Our story(hidden — empty)",
+      "Welcome",
+      "Events",
+      "FAQ(hidden — empty)",
+      "Closing(hidden — empty)",
+    ]);
+    expect(checked("Template")).toBe("true");
+    // Off Content, no section is the chosen place.
+    expect(checked(/^Hero/)).toBe("false");
 
-    // Not selected, and hidden: faded, NOT the plain unselected ink, and marked
-    // with the icon — the cue that is not colour — so "hidden" never reads as
-    // "not selected".
-    for (const name of [/^Hero/, /^Our Story/, /^Closing/]) {
-      expect(has(tab(name), "text-text-faint")).toBe(true);
-      expect(has(tab(name), "text-text-muted")).toBe(false);
-      expect(icon(name)).not.toBeNull();
-      expect(icon(name)!.getAttribute("aria-hidden")).toBe("true");
-    }
-    // Not selected, and no state to hide: the plain unselected ink, no icon.
-    expect(has(tab("Welcome"), "text-text-muted")).toBe(true);
-    expect(has(tab("Welcome"), "text-text-faint")).toBe(false);
-    expect(icon("Welcome")).toBeNull();
+    // A section moves to Content, onto that section. (Kobalte chooses a row
+    // on pointerup.)
+    fireEvent.pointerUp(screen.getByRole("menuitemradio", { name: "Welcome" }), { button: 0 });
+    await waitFor(() => expect(view()).toBe("content"));
+    expect(document.getElementById("invite-welcome")!.hidden).toBe(false);
+    // A way between places closes once it has moved.
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
-    // Selected, no state: the gold wash and the readable gold ink.
-    expect(has(tab("Design"), "bg-gold/12")).toBe(true);
-    expect(has(tab("Design"), "text-gold-ink")).toBe(true);
-    expect(has(tab("Design"), "text-gold-ink/80")).toBe(false);
-    expect(icon("Design")).toBeNull();
-
-    // Selected, and hidden: the wash and the gold hue stay (that is what says
-    // "selected"), the ink fades, and the icon stays.
-    await openSection(/^Hero/);
-    expect(has(tab(/^Hero/), "bg-gold/12")).toBe(true);
-    expect(has(tab(/^Hero/), "text-gold-ink/80")).toBe(true);
-    expect(has(tab(/^Hero/), "text-gold-ink")).toBe(false);
-    expect(icon(/^Hero/)).not.toBeNull();
-
-    // Giving Hero content lifts the fade and the icon, and its name loses the
-    // hidden clause: a tab with no clause is one whose section is on the invite.
-    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
-    await waitFor(() => expect(has(tab("Hero"), "text-gold-ink")).toBe(true));
-    expect(has(tab("Hero"), "text-gold-ink/80")).toBe(false);
-    expect(icon("Hero")).toBeNull();
-  });
-
-  it("collapses the tablist behind the trigger and toggles it", async () => {
-    await renderBuilder();
-
-    expect(trigger().getAttribute("aria-expanded")).toBe("false");
-    expect(trigger().getAttribute("aria-controls")).toBe(tablist().id);
-    expect(tablist().hasAttribute("data-open")).toBe(false);
-
-    fireEvent.click(trigger());
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-    expect(tablist().hasAttribute("data-open")).toBe(true);
-
-    // Every tab reachable in one screen — the point of replacing the strip.
-    expect(within(tablist()).getAllByRole("tab")).toHaveLength(9);
-
-    fireEvent.click(trigger());
-    expect(trigger().getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("closes on a selection and hands focus back to the trigger", async () => {
-    await renderBuilder();
-    fireEvent.click(trigger());
-
-    fireEvent.click(within(tablist()).getByRole("tab", { name: "Message" }));
-
-    expect(document.getElementById("invite-message")!.hidden).toBe(false);
-    expect(trigger().getAttribute("aria-expanded")).toBe("false");
-    // Collapsing takes the clicked tab to `display: none` and focus with it —
-    // the trigger is where focus has to land.
-    expect(document.activeElement).toBe(trigger());
-  });
-
-  it("leaves focus alone when a tab is clicked with the menu closed (wide row)", async () => {
-    await renderBuilder();
-
-    const lookTab = screen.getByRole("tab", { name: "Look" });
-    lookTab.focus();
-    fireEvent.click(lookTab);
-
+    // On Content both tiers carry a choice: the view and its section.
+    await openMenu();
+    await waitFor(() => expect(checked("Content")).toBe("true"));
+    expect(checked("Welcome")).toBe("true");
+    expect(checked("Template")).toBe("false");
+    fireEvent.pointerUp(screen.getByRole("menuitemradio", { name: "Style" }), { button: 0 });
+    await waitFor(() => expect(view()).toBe("style"));
     expect(document.getElementById("invite-look")!.hidden).toBe(false);
-    expect(document.activeElement).toBe(lookTab);
+
+    // Content, from another view, comes back to the section left on.
+    await openMenu();
+    fireEvent.pointerUp(
+      await waitFor(() => screen.getByRole("menuitemradio", { name: "Content" })),
+      { button: 0 },
+    );
+    await waitFor(() => expect(view()).toBe("content"));
+    expect(document.getElementById("invite-welcome")!.hidden).toBe(false);
   });
 
-  it("closes on Escape from a tab, and on a press outside the nav", async () => {
-    await renderBuilder();
-
-    fireEvent.click(trigger());
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Design" }), { key: "Escape" });
-    expect(trigger().getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(trigger());
-
-    fireEvent.click(trigger());
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-    fireEvent.pointerDown(document.body);
-    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
-
-    // A press INSIDE the nav (the tablist's own padding) leaves it open.
-    fireEvent.click(trigger());
-    fireEvent.pointerDown(tablist());
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-
-    // Escape works from the TRIGGER too, not just from a tab — its own handler,
-    // reached whenever the menu was opened by keyboard and focus never moved.
-    fireEvent.keyDown(trigger(), { key: "Escape" });
-    expect(trigger().getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("collapses the menu when the container grows past the static-row threshold", async () => {
-    // A resizable stub: happy-dom runs no layout, so the only way to exercise a
-    // container CROSSING the threshold is to drive the callback by hand.
-    // The builder watches its width and its save bar's height, so there is
-    // more than one observer to drive.
-    const reporters: ((width: number) => void)[] = [];
-    const report = (width: number) => reporters.forEach((r) => r(width));
-    class ResizableObserver {
-      constructor(private readonly callback: ResizeObserverCallback) {}
-      observe() {
-        reporters.push((width) =>
-          this.callback(
-            [{ contentRect: { width } } as unknown as ResizeObserverEntry],
-            this as unknown as ResizeObserver,
-          ),
-        );
-        report(600); // narrow: the menu surface
-      }
-      unobserve() {}
-      disconnect() {}
+  it("leaves Content's cards to their legend, with no section strip to name them", async () => {
+    await renderPhone();
+    setView("content");
+    for (const id of [
+      "invite-hero",
+      "invite-story",
+      "invite-welcome",
+      "invite-events",
+      "invite-faq",
+      "invite-closing",
+    ]) {
+      const card = document.getElementById(id)!;
+      expect([id, card.getAttribute("role"), card.getAttribute("aria-labelledby")]).toEqual([
+        id,
+        null,
+        null,
+      ]);
     }
-    vi.stubGlobal("ResizeObserver", ResizableObserver);
-    await renderBuilder();
-
-    fireEvent.click(trigger());
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-
-    // Rotate / resize / collapse the dashboard rail — the tabs become the static
-    // row, which the open menu must not outlive. Left `true`, `selectSection`
-    // would "close" it on every wide tab click, focusing a `display: none`
-    // trigger and dropping focus to the body.
-    report(900);
-    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
-
-    // The tab click that the stale state would have broken: focus stays put.
-    const lookTab = screen.getByRole("tab", { name: "Look" });
-    lookTab.focus();
-    fireEvent.click(lookTab);
-    expect(document.activeElement).toBe(lookTab);
-    expect(document.body).not.toBe(document.activeElement);
-
-    // 48rem at the 16px root `global.css` pins — the same content box
-    // `@3xl/builder` measures, so the JS collapse can't drift from the CSS swap.
-    report(767);
-    fireEvent.click(trigger());
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-    report(768);
-    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
-  });
-
-  it("keeps ONE tablist whose tabs stay in the DOM while collapsed", async () => {
-    await renderBuilder();
-
-    // The narrow surface re-lays-out the same tablist rather than rendering a
-    // second copy: a duplicate would give every panel two `aria-labelledby`
-    // candidates and assistive tech two tabs widgets for one set of panels.
-    expect(screen.getAllByRole("tablist")).toHaveLength(1);
-    expect(screen.getAllByRole("tab")).toHaveLength(9);
-
-    // Collapsed, the tabs are `display: none` — but they must remain IN the
-    // document, because each panel's accessible name is computed from its tab
-    // (accname follows `aria-labelledby` into hidden subtrees; it cannot follow
-    // it into an unmounted node).
-    expect(trigger().getAttribute("aria-expanded")).toBe("false");
-    for (const panel of ["invite-design", "invite-hero", "invite-message"]) {
-      const labelledBy = document.getElementById(panel)!.getAttribute("aria-labelledby")!;
-      expect(document.getElementById(labelledBy)).toBeInTheDocument();
-    }
-  });
-
-  it("steps DOWN the open grid by a row, not along it", async () => {
-    await renderBuilder();
-    fireEvent.click(trigger());
-
-    // Row-major two-column grid: Design|Look / Hero|Our Story / … — so from
-    // Design, "down" is Hero (+2), and aliasing it to Look (+1, the item to the
-    // RIGHT) would make the arrows disagree with what the organiser can see.
-    const designTab = screen.getByRole("tab", { name: "Design" });
-    fireEvent.keyDown(designTab, { key: "ArrowDown" });
-    const heroTab = screen.getByRole("tab", { name: /^Hero/ });
-    expect(document.activeElement).toBe(heroTab);
-    expect(document.getElementById("invite-hero")!.hidden).toBe(false);
-
-    fireEvent.keyDown(heroTab, { key: "ArrowUp" });
-    expect(document.activeElement).toBe(designTab);
-
-    // The horizontal pair still steps one, along the row.
-    fireEvent.keyDown(designTab, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Look" }));
-
-    // Stepping keeps the menu open — only Escape, a selection, an outside press
-    // or focus leaving the nav dismisses it.
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("wraps DOWN and UP within a column when the last row has one cell", async () => {
-    await renderBuilder();
-    fireEvent.click(trigger());
-
-    // Nine tabs in two columns: the right column ends on Closing (row 4), the
-    // left on Message (row 5, alone). A modulo step of two would cross columns
-    // at the wrap; each column wraps into itself instead.
-    const tab = (name: string | RegExp) => screen.getByRole("tab", { name });
-    fireEvent.keyDown(tab(/^Closing/), { key: "ArrowDown" });
-    expect(document.activeElement).toBe(tab("Look"));
-
-    fireEvent.keyDown(tab("Look"), { key: "ArrowUp" });
-    expect(document.activeElement).toBe(tab(/^Closing/));
-
-    fireEvent.keyDown(tab("Message"), { key: "ArrowDown" });
-    expect(document.activeElement).toBe(tab("Design"));
-
-    fireEvent.keyDown(tab("Design"), { key: "ArrowUp" });
-    expect(document.activeElement).toBe(tab("Message"));
-  });
-
-  it("leaves ArrowDown/ArrowUp to the browser on the wide static row", async () => {
-    await renderBuilder();
-
-    // Closed ⇒ the wide surface, where the tablist is one horizontal line. APG
-    // reserves Down/Up for the page there, and the row this replaced let a
-    // keyboard user scroll from a focused tab — swallowing that is a regression.
-    const designTab = screen.getByRole("tab", { name: "Design" });
-    designTab.focus();
-    const down = new KeyboardEvent("keydown", {
-      key: "ArrowDown",
-      cancelable: true,
-      bubbles: true,
-    });
-    designTab.dispatchEvent(down);
-
-    expect(down.defaultPrevented).toBe(false);
-    expect(document.activeElement).toBe(designTab);
-    expect(document.getElementById("invite-design")!.hidden).toBe(false);
-  });
-
-  it("closes when focus leaves the nav, so it can't obscure the field focus lands in", async () => {
-    await renderBuilder();
-    fireEvent.click(trigger());
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-
-    // Tabbing forward out of the menu used to leave it up — an opaque overlay
-    // across the top of the active section, with focus in a form field behind
-    // it and no keyboard way to uncover it (WCAG 2.2 SC 2.4.11).
-    const outside = screen.getByRole("button", { name: "Preview" });
-    fireEvent.focusOut(tablist(), { relatedTarget: outside });
-    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
-
-    // Focus moving WITHIN the nav (tab → tab, or the close's own restore to the
-    // trigger) must not dismiss it.
-    fireEvent.click(trigger());
-    fireEvent.focusOut(tablist(), { relatedTarget: trigger() });
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("keeps the arrow step in lockstep with the grid's column count", async () => {
-    await renderBuilder();
-
-    // `ArrowDown` steps by SECTION_MENU_COLUMNS, but the column count is a CSS
-    // fact the handler can't read back — and Tailwind only emits utilities it
-    // finds as literal source text, so the class can't be built from the
-    // constant either. This is the checkable half of that pair.
-    expect(tablist().className).toContain(`grid-cols-${SECTION_MENU_COLUMNS}`);
   });
 });
 
-/**
- * Which preview layer is MOUNTED. Mounting both at every width with a
- * container query hiding one would leave the idle layer taking every token
- * write on every keystroke and colour drag. The builder measures its own
- * container and mounts only the matching layer.
- *
- * happy-dom runs no layout, so a real `ResizeObserver` would never report a
- * width — these tests supply one that reports the width under test, which is the
- * only way to exercise the decision at all. The no-observer case is the fallback
- * every other test in this file relies on.
- */
 describe("InviteBuilder preview layer", () => {
   afterEach(() => {
     cleanup();
@@ -2061,7 +1927,7 @@ describe("InviteBuilder preview layer", () => {
       within(document.getElementById("invite-hero")!).queryAllByText("Live preview"),
     ).toHaveLength(1);
 
-    await openSection(/^Our Story/);
+    await openSection(/^Our story/);
     expect(inlinePreviewCount()).toBe(1);
     expect(
       within(document.getElementById("invite-hero")!).queryAllByText("Live preview"),
@@ -2134,12 +2000,20 @@ describe("InviteBuilder preview layer", () => {
   });
 
   it("mounts both layers when the width cannot be measured", async () => {
-    // No ResizeObserver (and a 0-width report means `display: none`, not narrow)
-    // — unmounting a layer we can't measure could leave the organiser with no
+    // No width reported (and a 0-width report means `display: none`, not
+    // narrow) — unmounting a layer we can't measure could leave the organiser with no
     // preview at all, so the CSS classes stay in charge and both are mounted.
     // The inline layer is additionally gated to the active tab, so
     // switch to one that carries a preview to exercise the overlap.
-    vi.stubGlobal("ResizeObserver", undefined);
+    // An observer that never reports: the builder never learns its width.
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     await renderBuilder();
     await openSection(/^Hero/);
 
@@ -2281,7 +2155,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
 
   it("switches Our Story back on when that section is reset", async () => {
     await renderWith({ ...FILLED, visibility: { hero: true, story: false, footer: true } });
-    await openSection(/^Our Story/);
+    await openSection(/^Our story/);
     fireEvent.click(within(panel("invite-story")).getByRole("button", { name: "Reset section" }));
     await waitFor(() => expect(switchIn("invite-story").checked).toBe(true));
     expect(badgeIn("invite-story").dataset.state).toBe("empty");
@@ -2357,48 +2231,38 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     await waitFor(() => expect(save.disabled).toBe(true));
   });
 
-  it("names the switched-off state on the tab and on the collapsed trigger", async () => {
+  it("names the switched-off state on its tab, and marks it with the eye-off icon", async () => {
+    setView("content");
     await renderWith({ ...FILLED, visibility: { hero: true, story: true, footer: false } });
-    // The tab's accessible name carries the state through its sr-only clause.
-    screen.getByRole("tab", { name: "Closing (hidden — switched off)" });
-    screen.getByRole("tab", { name: "Hero" });
+    // The tab's accessible name carries the state, in the badge's words.
+    const closingTab = within(sectionStrip()).getByRole("tab", {
+      name: "Closing (hidden — switched off)",
+    });
+    const heroTab = within(sectionStrip()).getByRole("tab", { name: "Hero" });
+    expect(closingTab.querySelector("[data-hidden-icon]")).not.toBeNull();
+    expect(heroTab.querySelector("[data-hidden-icon]")).toBeNull();
 
-    await openSection(/^Closing/);
-    const trigger = screen.getByRole("button", { name: /Choose a section/ });
-    expect(trigger.getAttribute("aria-label")).toBe(
-      "Invite section: Closing, 8 of 9, hidden — switched off. Choose a section",
-    );
-    // Switched off marks the label the same way switched on but empty does, on
-    // the trigger and on the selected tab alike.
-    const triggerLabel = within(trigger).getByText("Closing").parentElement!;
-    expect(triggerLabel.classList.contains("text-text-faint")).toBe(true);
-    expect(triggerLabel.querySelector("[data-hidden-icon]")).not.toBeNull();
-    const closingTab = screen.getByRole("tab", { name: /^Closing/ });
+    // Chosen, it keeps the mark: hidden never reads as merely chosen.
+    fireEvent.click(closingTab);
     expect(closingTab.getAttribute("aria-selected")).toBe("true");
-    expect(closingTab.classList.contains("text-gold-ink/80")).toBe(true);
     expect(closingTab.querySelector("[data-hidden-icon]")).not.toBeNull();
   });
 
-  it("fades and marks a switched-off tab that has content, and lifts both when switched back on", async () => {
+  it("marks a switched-off tab that has content, and lifts the mark when switched back on", async () => {
+    setView("content");
     await renderWith({ ...FILLED, visibility: { hero: true, story: false, footer: true } });
-    const hidden = (tab: HTMLElement) =>
-      tab.classList.contains("text-text-faint") && tab.querySelector("[data-hidden-icon]") !== null;
-    const storyTab = () => screen.getByRole("tab", { name: /^Our Story/ });
+    const storyTab = () => within(sectionStrip()).getByRole("tab", { name: /^Our story/ });
 
-    // Switched off with content in it: faded and marked, the same as switched
-    // on but empty — both mean "guests will not see this section", and the
-    // name says which reason.
-    expect(hidden(storyTab())).toBe(true);
-    expect(storyTab().getAttribute("aria-selected")).toBe("false");
-    // Switched on with content: neither.
-    const heroTab = screen.getByRole("tab", { name: "Hero" });
-    expect(heroTab.classList.contains("text-text-faint")).toBe(false);
-    expect(heroTab.querySelector("[data-hidden-icon]")).toBeNull();
+    // Switched off with content in it: marked, the same as switched on but
+    // empty — both mean "guests will not see this section", and the name says
+    // which reason. Its label keeps the idle ink: the icon is the cue.
+    expect(storyTab().getAttribute("aria-label")).toBe("Our story (hidden — switched off)");
+    expect(storyTab().querySelector("[data-hidden-icon]")).not.toBeNull();
 
+    fireEvent.click(storyTab());
     fireEvent.click(switchIn("invite-story"));
-    await waitFor(() => expect(storyTab().classList.contains("text-text-faint")).toBe(false));
-    expect(storyTab().querySelector("[data-hidden-icon]")).toBeNull();
-    screen.getByRole("tab", { name: "Our Story" });
+    await waitFor(() => expect(storyTab().querySelector("[data-hidden-icon]")).toBeNull());
+    expect(storyTab().getAttribute("aria-label")).toBe("Our story");
   });
 });
 
@@ -2419,6 +2283,8 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
 
   async function renderWith(customisation: unknown) {
     authFetchMock.mockResolvedValueOnce(json(customisation));
+    // The FAQ is one of Content's sections.
+    setView("content");
     render(() => <InviteBuilder {...WEDDING} />);
     await waitFor(() => expect(badge()).toBeTruthy());
   }
@@ -2432,7 +2298,9 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
 
   it("sits between Events and Closing, and shows 'Shown' once it has an entry", async () => {
     await renderWith({ ...EMPTY_CUSTOMISATION, faqs: FAQS });
-    const tabs = screen.getAllByRole("tab").map((t) => t.textContent);
+    const tabs = within(sectionStrip())
+      .getAllByRole("tab")
+      .map((t) => t.textContent);
     expect(tabs.indexOf("FAQ")).toBe(tabs.indexOf("Events") + 1);
     expect(tabs.findIndex((t) => t?.startsWith("Closing"))).toBe(tabs.indexOf("FAQ") + 1);
 
@@ -2451,7 +2319,7 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
   it("says a switched-off FAQ keeps its questions", async () => {
     await renderWith({ ...EMPTY_CUSTOMISATION, faqs: FAQS, visibility: { faq: false } });
     expect(badge().dataset.state).toBe("off");
-    screen.getByRole("tab", { name: "FAQ (hidden — switched off)" });
+    within(sectionStrip()).getByRole("tab", { name: "FAQ (hidden — switched off)" });
     expect(panel().querySelector("[data-visibility-reason]")?.textContent).toMatch(
       /they are all kept/,
     );
@@ -2555,6 +2423,6 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     fireEvent.click(within(panel()).getByText("Add question"));
 
     await waitFor(() => expect(badge().dataset.state).toBe("shown"));
-    screen.getByRole("tab", { name: "FAQ" });
+    within(sectionStrip()).getByRole("tab", { name: "FAQ" });
   });
 });

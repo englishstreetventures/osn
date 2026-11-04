@@ -275,7 +275,6 @@
         "@astrojs/solid-js": "7.1.0",
         "@cire/theme": "workspace:*",
         "@cire/ui": "workspace:*",
-        "@kobalte/core": "^0.13.14",
         "@shared/design-tokens": "workspace:*",
         "@shared/rp-auth": "workspace:*",
         "@shared/toast": "workspace:*",

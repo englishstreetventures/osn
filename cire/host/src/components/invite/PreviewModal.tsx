@@ -38,7 +38,9 @@ export default function PreviewModal(
       open={props.open}
       onClose={props.onClose}
       label="Invite preview modal"
-      class="flex max-w-sm flex-col gap-4"
+      // `open:flex`, not `flex`: a plain display would beat the browser's own
+      // `display: none` on a shut dialog, and the empty box would show.
+      class="max-w-sm flex-col gap-4 open:flex"
     >
       <div class="flex items-center justify-between gap-2">
         <Eyebrow>Live preview</Eyebrow>

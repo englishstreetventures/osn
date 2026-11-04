@@ -226,8 +226,8 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 337953 B | 349653 B *(re-baselined, englishstreetventures/osn#1803 — see below)* |
-| cire/vendor | static | 81803 B | 86142 B *(re-baselined, englishstreetventures/osn#1821 — see below)* |
+| cire/host | static | 358408 B | 370108 B *(re-baselined, englishstreetventures/osn#1845 — see below)* |
+| cire/vendor | static | 88664 B | 93003 B *(re-baselined, englishstreetventures/osn#1845 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
@@ -386,6 +386,30 @@ it. No dependency was added.
 cire/vendor build` on `feat/cire-soft-shapes` at `f480df718`, rebased onto
 `origin/main` `7d2ad85d1`, reading the total the guard prints; a second clean
 build printed the same.*
+
+### `cire/host` and `cire/vendor` re-baselined for the shared menus and glass strips
+
+Every portal menu became the shared `DropdownMenu` on its accent look, and every
+segmented control `@cire/ui`'s glass `SegmentedTabs`, in place of five
+hand-built menus and five hand-built strips (englishstreetventures/osn#1844,
+englishstreetventures/osn#1845). The owner chose to move both rows rather than
+cut elsewhere (2026-11-04). No dependency is added: the shared menu's chunk
+holds Kobalte's menu, already shipped for the household menu, and the
+wrapper's rows and accent classes.
+
+| App | Row held | Measured | Threshold |
+|---|---:|---:|---:|
+| cire/host | 349653 B (# measured 337953) | **358408 B**, 83 files | **370108 B** (+11700) |
+| cire/vendor | 86142 B (# measured 81803) | **88664 B**, 10 files | **93003 B** (+4339) |
+
+Vendor keeps its ~4.3 KB headroom, host the ~11.7 KB default. The host figure
+includes `main`'s own host code since the branch's first measurement (353457
+B): the rebase onto `origin/main` `7d2ad85d1` brought it under this build, and
+the row it holds, `main`'s, was not re-measured with it.
+
+*Measured 2026-11-05 — `rm -rf cire/<app>/dist && CLAUDECODE= bun run --cwd
+cire/<app> build`, each app alone, reading the total the guard prints, on
+`feat/cire-nav` at `acdfa44e5`, rebased onto `origin/main` `7d2ad85d1`.*
 
 ### `cire/invites` re-baselined after the zod override
 

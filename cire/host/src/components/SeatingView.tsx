@@ -1,7 +1,6 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Disclosure from "@cire/ui/disclosure";
-import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -15,6 +14,13 @@ import {
   SortableProvider,
 } from "@shared/sortable";
 import { Chip, type ChipTone } from "@shared/ui/ui/chip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@shared/ui/ui/dropdown-menu";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -25,6 +31,7 @@ import {
   createSignal,
   createUniqueId,
   For,
+  type JSX,
   on,
   onCleanup,
   onMount,
@@ -758,17 +765,17 @@ function Place(props: {
  *  action, with padding kept so the word is a 24px target. */
 const menuTriggerClass = `${buttonClass({ variant: "subtle", size: "sm" })} shrink-0 px-2 py-1`;
 
+/** The seat menu's trigger, with the plain button's look it replaces: the
+ *  menu's trigger renders as it (`as`), as it would a `Button`. */
+function SeatButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" {...props} class={menuTriggerClass} />;
+}
+
 /** The keys a menu button opens on, as Kobalte's trigger takes them. */
 const MENU_OPEN_KEYS = new Set(["Enter", " ", "ArrowDown", "ArrowUp"]);
 
 /** Hands the event that opened a guest's menu to the menu's own trigger. */
 type MenuOpener = (trigger: HTMLElement) => void;
-
-const menuItemClass =
-  "font-body text-text-muted text-ui-sm flex w-full cursor-pointer items-center justify-between gap-4 " +
-  "rounded-sm px-3 py-2 outline-none transition-ui-colors duration-(--dur-fast) ease-(--ease-out) " +
-  "data-[highlighted]:bg-gold/10 data-[highlighted]:text-text " +
-  "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50";
 
 function GuestRow(props: {
   guest: SeatingGuest;
@@ -887,51 +894,44 @@ function GuestMenu(props: {
         onMount(() => open()(trigger));
         return (
           <DropdownMenu placement="bottom-end" gutter={4}>
-            <DropdownMenu.Trigger
+            <DropdownMenuTrigger
+              as={SeatButton}
               ref={trigger}
               aria-label={label()}
-              class={menuTriggerClass}
               onClick={(e: MouseEvent & { currentTarget: HTMLButtonElement }) => {
                 // A click no press came before opens the menu, as a tap's does.
                 if (e.detail === 0) e.currentTarget.dataset.pointerType = "touch";
               }}
             >
               {action()}
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-md border p-1.5 shadow-(--elev-2) outline-none">
-                <DropdownMenu.RadioGroup
-                  value={props.guest.tableId ?? NOT_SEATED}
-                  onChange={(value) =>
-                    void props.onSeat(props.guest, value === NOT_SEATED ? null : value)
-                  }
-                >
-                  <DropdownMenu.RadioItem value={NOT_SEATED} class={menuItemClass}>
-                    Not seated
-                  </DropdownMenu.RadioItem>
-                  <For each={choices()}>
-                    {(table) => {
-                      const seated = () => props.seatedCount(table.id);
-                      const full = () =>
-                        seated() >= table.capacity && props.guest.tableId !== table.id;
-                      return (
-                        <DropdownMenu.RadioItem
-                          value={table.id}
-                          disabled={full()}
-                          class={menuItemClass}
-                        >
-                          <span>{table.name}</span>
-                          <span class="sr-only">, </span>
-                          <span class="text-text-faint" data-numeric>
-                            {`${seated()} of ${table.capacity}`}
-                          </span>
-                        </DropdownMenu.RadioItem>
-                      );
-                    }}
-                  </For>
-                </DropdownMenu.RadioGroup>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent variant="accent" class="max-h-80 min-w-56 overflow-y-auto">
+              <DropdownMenuRadioGroup
+                value={props.guest.tableId ?? NOT_SEATED}
+                onChange={(value) =>
+                  void props.onSeat(props.guest, value === NOT_SEATED ? null : value)
+                }
+              >
+                <DropdownMenuRadioItem value={NOT_SEATED}>Not seated</DropdownMenuRadioItem>
+                <For each={choices()}>
+                  {(table) => {
+                    const seated = () => props.seatedCount(table.id);
+                    const full = () =>
+                      seated() >= table.capacity && props.guest.tableId !== table.id;
+                    return (
+                      <DropdownMenuRadioItem value={table.id} disabled={full()}>
+                        <span class="min-w-0 flex-1 truncate">{table.name}</span>
+                        <span class="sr-only">, </span>
+                        {/* The secondary ink: `--text-faint` reads under 4.5:1. */}
+                        <span class="text-text-muted" data-numeric>
+                          {`${seated()} of ${table.capacity}`}
+                        </span>
+                      </DropdownMenuRadioItem>
+                    );
+                  }}
+                </For>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
           </DropdownMenu>
         );
       }}

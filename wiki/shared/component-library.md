@@ -368,6 +368,16 @@ The rows:
 
 The trailing check and the switch take the readable accent ink and the accent.
 
+**Where cire draws it.** Every portal menu is the accent look: host's account
+menu, wedding switcher, a guest's seat menu (radio rows, each table's count in
+the secondary ink), the narrow household list's one menu (§One popup for a
+list) and the invite builder's phone menu; the vendor portal's account menu,
+its account row a link row. A trigger with a look of its own — an avatar, a
+wedding's name, a seat's "Seat", the builder's place pill — is a plain button
+the trigger renders as (`as`), as it would a `Button`: `shadcn/no-restyle`
+lets a `DropdownMenuTrigger` take layout classes only. The guest site's
+`LinkMenu` draws no Kobalte menu and takes `MENU_TOUCH` (below).
+
 **Inside a `Modal`** the panel portals into the open dialog and carries
 `data-kb-top-layer` (`portal-mount.ts`, shared with `PopoverContent`), so a
 click on a row lands. With no modal open it portals to `<body>` with no such
@@ -1095,6 +1105,19 @@ stays. `scroll` keeps the strip
 on one row and scrolls it sideways inside its box, the chosen choice and one
 the arrows reach kept in view without moving the page. `class` sets the
 strip's place in its row only.
+
+`SEGMENTED_GLASS_FILL` is the glass's look without its place, for a lone glass
+pill that is no strip's choice: the invite builder's place on a phone. A
+contrast theme drops its fill, so such a pill draws its own edge there.
+
+Where the portals draw it: a module's views (`ModuleShell`, `tabs`, icon-only
+below 36rem with `data-tip`), the Edit modes (`EditWorkspace`, `radio`), the
+RSVP page's events (`RsvpView`, `tabs` with `scroll`, a count and "New" after
+each word) and its reply filter (`radio` with `scroll`, each reply's dot before
+its word and its count after it, the replies icon-only on a phone beside an
+"All" that keeps its word), the invite builder's sections under Content (`tabs`, `scroll`) and
+the vendor portal's two views (`current`). Host `DESIGN.md` §7 has the look and
+§A tab strip inside a view, §The invite builder's two tiers the layouts.
 
 `createSlidingPill` (`cire/ui/src/lib/sliding-pill.ts`) is the highlight under
 it, and the module rail's marker: `ease: "out"` (the default) or `"spring"`.

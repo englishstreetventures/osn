@@ -283,13 +283,14 @@ describe("one shape and one pace across cire", () => {
     const ladders = mapSurfaces((css) => ladder(declarations(css)));
     // A parse that found nothing would make every copy agree with it.
     expect(Object.values(ladders.host).map((lines) => lines.length)).toEqual([4, 3, 2, 2, 2]);
-    // Nothing outside host animates with the spring, so a copy added to another
-    // app without a use is caught here.
+    // The two portals slide their glass strips on the spring; nothing on the
+    // guest or marketing site animates with it, so a copy added to either
+    // without a use is caught here.
     const noSpring = { ...ladders.host, spring: [] };
     expect(ladders).toEqual({
       host: ladders.host,
       // The one app that renders no `Modal`, so it sets no `Modal` timing.
-      vendor: { ...noSpring, modal: [] },
+      vendor: { ...ladders.host, modal: [] },
       invites: noSpring,
       landing: noSpring,
     });
@@ -503,7 +504,7 @@ function cornerPx(scope: Map<string, string>, name: string): number | string {
  * An app's motion tokens, as `name: value` lines with the whitespace removed:
  * the touch ladder at `:root`, the desk ladder under `(pointer: fine)` and the
  * `Modal` durations set there, the two easings every app uses in `@theme`, and
- * the spring, which only the app that reads it declares. A `Modal` duration set at `:root` lands in
+ * the spring, which only the apps that read it declare. A `Modal` duration set at `:root` lands in
  * `touch`, where host has none.
  */
 function ladder(decls: Declaration[]) {
@@ -522,8 +523,8 @@ function ladder(decls: Declaration[]) {
     desk: lines((d) => nested(d, "@media (pointer: fine)"), /^--dur-/),
     modal: lines((d) => nested(d, "@media (pointer: fine)"), /^--ui-modal-/),
     easing: lines((d) => isTopLevel(d, "@theme"), /^--ease-(out|in-out)$/),
-    // Host reads the spring, so it alone declares it: the `@theme` fallback and
-    // the `linear()` block that replaces it.
+    // The portals read the spring, so they alone declare it: the `@theme`
+    // fallback and the `linear()` block that replaces it.
     spring: [
       ...lines((d) => isTopLevel(d, "@theme"), /^--ease-spring$/),
       ...lines(

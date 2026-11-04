@@ -19,13 +19,22 @@ import "../../src/styles/global.css";
  *   still hears whose plus-one they are;
  * - a provenance badge is an icon, named, with nothing written beside it;
  * - the module's sections and the RSVP page's events read as two groups —
- *   a segmented control, then a divider, then pills — and the chosen event
- *   and an applied reply filter are filled in the brand green;
- * - the reply chips sit in one row that scrolls sideways, and a second press
- *   on the chosen chip clears it.
+ *   two glass strips with a divider between them — and the chosen event wears
+ *   the strips' glass in the readable gold;
+ * - the reply filter is one more glass strip of radios (owner, 2026-11-04):
+ *   one row that scrolls sideways, the chosen reply on the glass in the
+ *   readable gold, a second press keeping it and All clearing it; on a phone
+ *   the replies show as their marks, "All" keeping its word.
  */
 
-const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
+const { authFetch, changes } = vi.hoisted(() => ({
+  authFetch: vi.fn(),
+  // The rows a guest changed since the organiser last looked; none unless a
+  // test says so.
+  changes: {
+    value: null as null | { markSeq: number; rows: { guestId: string; eventId: string | null }[] },
+  },
+}));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
 vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
@@ -37,7 +46,7 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 }));
 vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/rsvp-changes")>()),
-  fetchRsvpChangeRows: async () => null,
+  fetchRsvpChangeRows: async () => changes.value,
   markRsvpChangesSeen: async () => {},
 }));
 vi.mock("../../src/lib/osn", () => ({
@@ -53,6 +62,7 @@ import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { EVENTS_300, GUESTS_300, HOUSEHOLDS_300, RSVPS_300 } from "../test-support/guests-300";
 import { renderOrganiserPage, routeFetch } from "../test-support/organiser-page";
+import { backdrop, over } from "../test-support/painted";
 
 const ROUTES = {
   rsvps: RSVPS_300,
@@ -72,6 +82,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   authFetch.mockReset();
+  changes.value = null;
   __resetGuestsCache();
   __resetEventsCache();
   __resetHouseholdsCache();
@@ -105,38 +116,6 @@ async function households(compact: boolean) {
     { timeout: 10_000 },
   );
   await document.fonts.ready;
-}
-
-/** The colour an element is painted on: its ancestors' grounds, composited. */
-function backdrop(el: Element): string {
-  const layers: string[] = [];
-  for (let node: Element | null = el; node; node = node.parentElement) {
-    const bg = getComputedStyle(node).backgroundColor;
-    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") layers.push(bg);
-  }
-  layers.push(getComputedStyle(document.documentElement).backgroundColor);
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 1;
-  const ctx = canvas.getContext("2d")!;
-  for (const layer of layers.toReversed()) {
-    ctx.fillStyle = layer;
-    ctx.fillRect(0, 0, 1, 1);
-  }
-  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-/** `colour` composited over `ground`, as an opaque rgb string. */
-function over(colour: string, ground: string): string {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 1;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = ground;
-  ctx.fillRect(0, 0, 1, 1);
-  ctx.fillStyle = colour;
-  ctx.fillRect(0, 0, 1, 1);
-  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-  return `rgb(${r}, ${g}, ${b})`;
 }
 
 const inkRatio = (el: Element) => {
@@ -316,71 +295,135 @@ describe("the RSVP page's bar", () => {
     [1280, 800],
     [390, 844],
   ] as const) {
-    it(`sets the sections apart from the events at ${width}`, async () => {
-      await page.viewport(width, height);
+    for (const theme of THEMES) {
+      it(`sets the sections apart from the events at ${width}, ${theme}`, async () => {
+        document.documentElement.dataset.theme = theme;
+        await page.viewport(width, height);
+        // A guest on every event changed a reply, so each tab, the chosen one
+        // included, says "New".
+        changes.value = { markSeq: 1, rows: [{ guestId: "g1", eventId: null }] };
+        routeFetch(authFetch, ROUTES);
+        renderOrganiserPage({ module: "guests", sub: "rsvps" });
+        await vi.waitFor(() => expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(20), {
+          timeout: 10_000,
+        });
+        const sections = within(bar()).getByRole("tablist", { name: "Views" });
+        const events = within(bar()).getByRole("tablist", { name: "Events" });
+        // Two groups, a divider between them, each its own glass strip.
+        const divider = bar().querySelector("[data-bar-divider]")!;
+        expect(divider).not.toBeNull();
+        expect(divider.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+          sections.getBoundingClientRect().right - 0.5,
+        );
+        expect(divider.getBoundingClientRect().right).toBeLessThanOrEqual(
+          events.getBoundingClientRect().left + 0.5,
+        );
+        for (const strip of [sections, events]) {
+          expect(strip.getBoundingClientRect().height).toBeCloseTo(28, 0);
+          expect(getComputedStyle(strip).borderTopWidth).toBe("1px");
+        }
+        // The chosen event's word reads on the glass under it; an unchosen
+        // one's count is muted on the track beside its name.
+        const [chosen, other] = within(events).getAllByRole("tab");
+        expect(getComputedStyle(chosen!).color).toBe(probe("text-gold-ink", "color"));
+        const glass = getComputedStyle(events.querySelector("[data-segmented-glass]")!);
+        const onGlass = over(glass.backgroundColor, backdrop(chosen!));
+        const onGlassRatio = (el: Element) =>
+          contrastRatio(over(getComputedStyle(el).color, onGlass), onGlass)!;
+        // The chosen tab's word, its count and its "New", each on the glass.
+        const chosenNew = await vi.waitFor(() => {
+          const mark = [...chosen!.querySelectorAll("span")].find((s) => s.textContent === "New");
+          expect(mark).toBeDefined();
+          return mark!;
+        });
+        const marks = {
+          word: chosen!,
+          count: chosen!.querySelector("[data-count]")!,
+          new: chosenNew,
+        };
+        for (const [name, el] of Object.entries(marks)) {
+          expect([name, theme, onGlassRatio(el) >= WCAG_TEXT_MIN]).toEqual([name, theme, true]);
+        }
+        const count = other!.querySelector("[data-count]")!;
+        expect(getComputedStyle(count).color).toBe(probe("text-text-muted", "color"));
+        expect([theme, inkRatio(count) >= WCAG_TEXT_MIN]).toEqual([theme, true]);
+      });
+    }
+  }
+
+  for (const theme of THEMES) {
+    it(`keeps the reply filter in one glass strip that scrolls, and only All clears it, ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      await page.viewport(390, 844);
       routeFetch(authFetch, ROUTES);
       renderOrganiserPage({ module: "guests", sub: "rsvps" });
       await vi.waitFor(() => expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(20), {
         timeout: 10_000,
       });
-      const sections = within(bar()).getByRole("tablist", { name: "Views" });
-      const events = within(bar()).getByRole("tablist", { name: "Events" });
-      // Two groups, a divider between them, in different shapes: the
-      // sections a segmented track, the events free pills.
-      const divider = bar().querySelector("[data-bar-divider]")!;
-      expect(divider).not.toBeNull();
-      expect(divider.getBoundingClientRect().left).toBeGreaterThanOrEqual(
-        sections.getBoundingClientRect().right - 0.5,
+      const strip = within(bar()).getByRole("radiogroup", { name: /by reply$/ });
+      const radios = within(strip).getAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual([
+        expect.stringMatching(/^All, \d+ guests?$/),
+        expect.stringMatching(/^Attending, \d+ guests?$/),
+        expect.stringMatching(/^Declined, \d+ guests?$/),
+        expect.stringMatching(/^Maybe, \d+ guests?$/),
+        expect.stringMatching(/^No reply, \d+ guests?$/),
+      ]);
+      // One 28px track with a hairline, on one row, inside a box that scrolls.
+      expect(strip.getBoundingClientRect().height).toBeCloseTo(28, 0);
+      expect(getComputedStyle(strip).borderTopWidth).toBe("1px");
+      const tops = new Set(radios.map((r) => Math.round(r.getBoundingClientRect().top)));
+      expect(tops.size).toBe(1);
+      expect(getComputedStyle(strip.parentElement!).overflowX).toBe("auto");
+      // On a phone a reply is its mark and its count; All keeps its word.
+      const [all, , declined] = radios as [HTMLElement, HTMLElement, HTMLElement];
+      const word = (r: HTMLElement) => r.querySelector<HTMLElement>("[data-label]")!;
+      expect(word(all).className).not.toContain("sr-only");
+      for (const reply of radios.slice(1)) {
+        expect(word(reply).className).toContain("sr-only");
+        expect(reply.querySelector("[data-status-dot]")).not.toBeNull();
+      }
+      // At rest a reply's count reads on the track.
+      const count = (r: HTMLElement) => r.querySelector<HTMLElement>("[data-count]")!;
+      expect([theme, inkRatio(count(declined)) >= WCAG_TEXT_MIN]).toEqual([theme, true]);
+
+      await userEvent.click(declined);
+      expect(declined.getAttribute("aria-checked")).toBe("true");
+      // Chosen, it sits on the strip's glass, its count in the readable gold
+      // at medium weight.
+      const glass = strip.querySelector<HTMLElement>("[data-segmented-glass]")!;
+      await vi.waitFor(() =>
+        expect(
+          Math.abs(glass.getBoundingClientRect().left - declined.getBoundingClientRect().left),
+        ).toBeLessThan(1),
       );
-      expect(divider.getBoundingClientRect().right).toBeLessThanOrEqual(
-        events.getBoundingClientRect().left + 0.5,
-      );
-      expect(getComputedStyle(events).borderTopWidth).toBe("0px");
-      const [chosen, other] = within(events).getAllByRole("tab");
-      const pill = chosen!.getBoundingClientRect();
-      expect(parseFloat(getComputedStyle(chosen!).borderRadius)).toBeGreaterThanOrEqual(
-        pill.height / 2 - 0.5,
-      );
-      const sectionTab = within(sections).getAllByRole("tab")[0]!;
-      expect(parseFloat(getComputedStyle(sectionTab).borderRadius)).toBeLessThan(
-        sectionTab.getBoundingClientRect().height / 2 - 1,
-      );
-      // The chosen event is filled in the brand green and reads on it; an
-      // unchosen one's count is muted beside its name.
-      expect(getComputedStyle(chosen!).backgroundColor).toBe(probe("bg-brand", "backgroundColor"));
-      expect(inkRatio(chosen!)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
-      const count = other!.querySelector("[data-count]")!;
-      expect(getComputedStyle(count).color).toBe(probe("text-text-muted", "color"));
-      expect(inkRatio(count)).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+      expect(getComputedStyle(declined).color).toBe(probe("text-gold-ink", "color"));
+      expect(getComputedStyle(declined).fontWeight).toBe("500");
+      const onGlass = over(getComputedStyle(glass).backgroundColor, backdrop(declined));
+      const ratio = contrastRatio(over(getComputedStyle(count(declined)).color, onGlass), onGlass)!;
+      expect([theme, ratio >= WCAG_TEXT_MIN]).toEqual([theme, true]);
+      const before = document.querySelectorAll(ROWS).length;
+      expect(before).toBeLessThan(400);
+      // A second press keeps the reply; All clears it.
+      await userEvent.click(declined);
+      expect(declined.getAttribute("aria-checked")).toBe("true");
+      expect(document.querySelectorAll(ROWS).length).toBe(before);
+      await userEvent.click(all);
+      expect(all.getAttribute("aria-checked")).toBe("true");
+      expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(before);
     });
   }
 
-  it("keeps the reply chips in one row that scrolls, and clears the chosen one on a second press", async () => {
-    await page.viewport(390, 844);
+  it("shows every reply's word beside its mark at 1280", async () => {
+    await page.viewport(1280, 800);
     routeFetch(authFetch, ROUTES);
     renderOrganiserPage({ module: "guests", sub: "rsvps" });
     await vi.waitFor(() => expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(20), {
       timeout: 10_000,
     });
-    const group = within(bar()).getByRole("group", { name: /by reply$/ });
-    const chips = within(group).getAllByRole("button");
-    expect(chips.map((c) => c.getAttribute("aria-label") ?? c.textContent)).toHaveLength(5);
-    const tops = new Set(chips.map((c) => Math.round(c.getBoundingClientRect().top)));
-    expect(tops.size).toBe(1);
-    expect(getComputedStyle(group).flexWrap).toBe("nowrap");
-    expect(getComputedStyle(group).overflowX).toBe("auto");
-
-    const declined = chips.find((c) =>
-      /declined/i.test(c.getAttribute("aria-label") ?? c.textContent ?? ""),
-    )!;
-    await userEvent.click(declined);
-    expect(declined.getAttribute("aria-pressed")).toBe("true");
-    expect(getComputedStyle(declined).backgroundColor).toBe(probe("bg-brand", "backgroundColor"));
-    const before = document.querySelectorAll(ROWS).length;
-    expect(before).toBeLessThan(400);
-    await userEvent.click(declined);
-    expect(declined.getAttribute("aria-pressed")).toBe("false");
-    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
-    expect(document.querySelectorAll(ROWS).length).toBeGreaterThan(before);
+    const strip = within(bar()).getByRole("radiogroup", { name: /by reply$/ });
+    for (const radio of within(strip).getAllByRole("radio")) {
+      expect(radio.querySelector("[data-label]")!.className).not.toContain("sr-only");
+    }
   });
 });

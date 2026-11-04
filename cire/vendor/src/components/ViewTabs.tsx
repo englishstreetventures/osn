@@ -1,32 +1,19 @@
-import { For } from "solid-js";
-
-import { createSlidingPill } from "../lib/sliding-pill";
+import SegmentedTabs from "@cire/ui/segmented-tabs";
 
 /**
- * The portal's two views, as one control.
+ * The portal's two views, as one control: `@cire/ui`'s glass strip, the
+ * owner's one look for every segmented control in the portals.
  *
- * Bare `<button>`s rather than `@cire/ui`'s `Button`, deliberately. These are
- * not actions — they are a `aria-current="page"` set with a single travelling
- * highlight, which is a tab bar. Wearing a button's own border and fill would
- * say "press me" twice on a control whose whole job is to say "you are here".
- * The labels are small caps by design, as a tab strip's are.
+ * A strip with a single travelling highlight says the two are a choice between
+ * each other, and keeps "which view am I in" apart from "leave", which is in
+ * the profile menu: two views in a row beside a sign-out button would be the
+ * same kind of thing in the same place, told apart only by a colour.
  *
- * A bordered strip with a single travelling highlight says the two are a choice
- * between each other, and keeps "which view am I in" apart from "leave", which
- * is in the profile menu: two views in a row beside a sign-out button would be
- * the same kind of thing in the same place, told apart only by a colour.
- *
- * The highlight is one box that moves, not one per tab. Done per-tab it blinks
- * between positions and the label beside it jumps by the border's width; done as
- * a single absolutely positioned box it slides, and the labels never move at
- * all. `createSlidingPill` owns that; the two rules it cannot enforce are met
- * here — the track is `relative`, and the pill is `absolute` with no `inset`.
- *
- * The pill sits *under* the labels in source order, and the track is a
- * containing block, so the labels paint above it. An absolutely positioned
- * element paints above non-positioned siblings in the same stacking context,
- * which is how this ends up covering its own text if the track forgets
- * `relative`.
+ * `current`, not `tabs`: these swap the whole page and push history, and the
+ * ARIA tab pattern promises a panel that is a sibling of the strip plus
+ * arrow-key roving focus over it. What this actually is, is two
+ * links-shaped-as-buttons — so it is announced as what it is, with
+ * `aria-current` naming the one you are on.
  */
 
 export type VendorView = "listings" | "enquiries";
@@ -40,38 +27,14 @@ export default function ViewTabs(props: {
   value: VendorView;
   onChange: (next: VendorView) => void;
 }) {
-  const pill = createSlidingPill(() => props.value);
-
   return (
-    // `tablist` is deliberately *not* used: these tabs swap the whole page and
-    // push history, and the ARIA tab pattern promises a panel that is a sibling
-    // of the strip plus arrow-key roving focus over it. What this actually is,
-    // is two links-shaped-as-buttons — so it is announced as what it is, with
-    // `aria-current` naming the one you are on.
-    <div
-      ref={pill.track}
-      class="border-border bg-surface/40 rounded-pill relative flex shrink-0 items-center gap-0.5 border p-0.5"
-    >
-      <span
-        aria-hidden="true"
-        class="bg-brand rounded-pill pointer-events-none absolute top-0 left-0"
-        style={pill.style()}
-      />
-      <For each={TABS}>
-        {(tab) => (
-          <button
-            ref={pill.item(tab.value)}
-            type="button"
-            aria-current={props.value === tab.value ? "page" : undefined}
-            onClick={() => props.onChange(tab.value)}
-            class={`font-body rounded-pill text-ui-xs tracking-ui-wider transition-ui-colors relative px-3 py-1.5 uppercase duration-(--dur-fast) ease-(--ease-out) @2xl/frame:px-4 ${
-              props.value === tab.value ? "text-on-brand" : "text-text-muted hover:text-text"
-            }`}
-          >
-            {tab.label}
-          </button>
-        )}
-      </For>
-    </div>
+    <SegmentedTabs
+      items={TABS}
+      value={props.value}
+      onChange={props.onChange}
+      label="Views"
+      semantics="current"
+      class="shrink-0"
+    />
   );
 }

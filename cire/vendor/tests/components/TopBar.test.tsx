@@ -74,14 +74,6 @@ describe("ViewTabs", () => {
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
-
-  it("keeps the moving highlight out of the accessibility tree", () => {
-    const { container } = render(() => <ViewTabs value="enquiries" onChange={() => {}} />);
-    const pill = container.querySelector("[aria-hidden='true']");
-    expect(pill).not.toBeNull();
-    // It must not eat the clicks meant for the labels underneath it.
-    expect(pill).toHaveClass("pointer-events-none");
-  });
 });
 
 describe("TopBar", () => {
