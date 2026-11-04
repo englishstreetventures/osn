@@ -1,5 +1,15 @@
 # @tools/lab
 
+## 0.3.29
+
+### Patch Changes
+
+- 91cdded: The `cire/ui/Card` lab stories show each padding step, each fill and each tone in cire's light and dark mapping, captioned with what the browser painted.
+- 18ab625: A `cire/ui/Card` lab story shows the plain, accent, eyebrow and interactive cards in cire's light and dark mapping.
+- 80da778: `cire/ui/Disclosure` lab stories show each tone closed and open, a card disclosure holding rows, and a closed disclosure nested in an open one, in cire's light and dark mapping, each captioned with the turn the browser painted on its marker.
+- 3b4d071: `cire/ui/Eyebrow` lab stories show both tones and every element the label renders as, in cire's light and dark mapping, captioned with the painted letter-spacing and colour.
+- 951b8a1: The lab defines the cire apps' `transition-ui-colors` utility, so a cire app component's story fades its hover colours as the app does.
+
 ## 0.3.28
 
 ### Patch Changes
