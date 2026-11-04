@@ -103,6 +103,11 @@ The prompt, adapted to the plan's path:
 >   response, a record, a file another process writes), ask who else can write
 >   that data, what the plan does when it is false, and what it costs when the item
 >   it wants is missing (a walk to a cap, a rate limit)
+> - for every state the plan writes (a status, phase or stage column, a flag, a
+>   nullable timestamp or actor used as one), list every writer in the
+>   repository (`git grep -w` on both its TypeScript and SQL names) and the prior
+>   state each expects, and say which of them the plan's write can overwrite or
+>   be overwritten by
 > - every cost the plan concedes (an extra round trip, statement, request or
 >   re-render that the plan states and accepts): can the design avoid it, and what
 >   does keeping it cost?

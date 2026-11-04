@@ -1,16 +1,17 @@
 ---
 title: Review Finding IDs
-description: Tagging system for security, performance, and test review findings
+description: Tagging system for security, performance, state, docs and test review findings
 tags: [convention, review]
 related:
   - "[[contributing]]"
   - "[[stacked-prs]]"
-last-reviewed: 2026-10-23
+  - "[[state-transitions]]"
+last-reviewed: 2026-11-04
 ---
 
 # Review Finding IDs
 
-All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs, so you can refer to them precisely in discussion and in tracker issue titles. Where an ID may and may not appear is in [[#Where a finding ID may appear]].
+All review skills (`/review-security`, `/review-performance`, `/review-state`, `/review-tests`, `/review-docs`) tag findings with short IDs, so you can refer to them precisely in discussion and in tracker issue titles. Where an ID may and may not appear is in [[#Where a finding ID may appear]].
 
 ## Prefix Table
 
@@ -32,6 +33,14 @@ All review skills (`/review-security`, `/review-performance`, `/review-tests`) t
 | `C-H` | review-security (compliance section) | High compliance — fix on this branch or a follow-up PR opened before it merges |
 | `C-M` | review-security (compliance section) | Medium compliance — fix on this branch or a follow-up PR |
 | `C-L` | review-security (compliance section) | Low compliance — fix on this branch or a follow-up PR |
+| `G-C` | review-state | Critical — ordinary use reaches a state the domain forbids and loses or falsifies a record people or money depend on |
+| `G-H` | review-state | High — a forbidden state is reachable under ordinary concurrency or a retry, or a concurrent request fails with a 500 |
+| `G-M` | review-state | Medium — a wrong value rather than a wrong state: a first-time value overwritten, a decision taken from a stale read |
+| `G-L` | review-state | Low — hardening: a value set the database does not enforce, a correct guard no test can see fail |
+| `D-C` | review-docs | Critical — the doc misleads a reader into a broken action |
+| `D-H` | review-docs | High — stale architecture described as current |
+| `D-M` | review-docs | Medium — structure and communication |
+| `D-L` | review-docs | Low — frontmatter, a stale date, wording drift |
 
 ## Numbering
 
@@ -150,7 +159,7 @@ cost is on screen.
 
 ## Filing a finding
 
-Findings live in **`englishstreetventures/osn-tracker`**, a private repo. `englishstreetventures/osn` is public, and a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks.
+Security, performance and compliance findings live in **`englishstreetventures/osn-tracker`**, a private repo. `englishstreetventures/osn` is public, and such a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks. State findings (`G-`) are the exception, and go to the public repository: [[#State findings are public]].
 
 ### The body has to stand alone
 
@@ -192,6 +201,14 @@ Rules:
 
 `T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and the branch writes the missing tests before it opens. A `T-S` suggestion the branch declines is a line in the report, not an issue.
 
+### State findings are public
+
+A `G-` finding is a correctness defect in a state transition -- a status written without the state it expects, a paired column left behind, a first-time value overwritten -- and names no route an attacker can use, so it goes to the public **`englishstreetventures/osn`**. The rules for it in [[state-transitions]] are public too.
+
+- It is fixed on the branch like any finding. One the branch fixes is not filed: the public pull request and its commit are its record.
+- One left open, as one of the three in [[#In scope is fixed; three things may stay open]], or fixed on the follow-up pull request so that it closes an issue, is filed with its ID leading the title, the four fields as its body, `--type Bug`, `product:`, `severity:` from its tier letter, and `area:schema` when the fix is a migration.
+- **A state defect that is also a security, performance or compliance defect gets no `G-` ID.** The state review hands it on with no ID, `/prep-pr` Step 6 gives it the next free ID of the lens it belongs to, and it is filed in the tracker like any other. That keeps every `G-` ID safe to print in public. It is a security defect when the state is an authorisation (a revoked session, token, invite or consent honoured again) or a refusal tells someone a state they may not see; a compliance defect when an erasure, retention or consent state can be undone or skipped.
+
 ## When the fix needs a decision from the owner
 
 Some issues cannot be closed by anyone but the repo owner: the fix is a choice between two defensible designs, or it costs money, or it changes a public contract. An agent working the backlog must not guess at those, and must not stop on them either -- one open question is not a reason for the other hundred issues to sit still.
@@ -228,14 +245,15 @@ Every session posts as the owner's account, and anyone can comment on the public
 
 The ID of a real `S-`, `P-` or `C-` finding names a defect, so it appears only where the tracker's readers are (the IDs on this page are made-up examples): the tracker issue's title, the local `/prep-pr` report, and discussion with the owner. It never appears in the public repository -- not in a pull request's title, body, comments or commits, not in a code comment, not on a wiki page.
 
-| Where | `S-`, `P-`, `C-` | `T-` |
-|---|---|---|
-| Tracker issue title and body | Yes | Not filed |
-| Local `/prep-pr` report, talk with the owner | Yes | Yes |
-| Public pull request, its comments and commits | No -- the bare reference to the tracker issue only | Yes |
-| Code comments, wiki pages | No | No |
+| Where | `S-`, `P-`, `C-` | `G-` | `T-` |
+|---|---|---|---|
+| Tracker issue title and body | Yes | Never filed there | Not filed |
+| Public issue title and body | No | Yes | Not filed |
+| Local `/prep-pr` report, talk with the owner | Yes | Yes | Yes |
+| Public pull request, its comments and commits | No -- the bare reference to the tracker issue only | Yes | Yes |
+| Code comments, wiki pages | No | No | No |
 
-`T-` IDs name coverage gaps, not defects, and nothing files them, so a public pull request may use them: "T-U3 -- this export has no test coverage".
+`T-` IDs name coverage gaps, not defects, and nothing files them, so a public pull request may use them: "T-U3 -- this export has no test coverage". `G-` IDs name correctness defects with nothing to disclose, so they may appear in public too. A code comment carries neither, since it states what the code guarantees ([[code-comments]]).
 
 Because the ID leads the tracker title, the ID is how you find the issue again:
 

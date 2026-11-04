@@ -8,15 +8,25 @@
  * It reads the committed diff against that base, the uncommitted changes and
  * the untracked files, and prints one word:
  *
- *   full           some change is outside the list below; every review agent
- *                  runs
+ *   full-state     full, and the diff writes state; the state review runs too
+ *   full           some change is outside the list below; the test, security
+ *                  and performance reviews run
  *   trivial-tests  docs and tests only, and a test changed; only the test
  *                  review runs
  *   trivial        docs only; no review agent runs
  *
- * `prep-pr` (`.claude/skills/prep-pr/SKILL.md` Step 4) reads the word. A
- * review agent costs about the same whatever the diff, so a one-line wiki fix
- * paid for a security and a performance review that had nothing to read.
+ * `prep-pr` (`.claude/skills/prep-pr/SKILL.md` Steps 4 and 6) reads the word.
+ * A review agent costs about the same whatever the diff, so a one-line wiki
+ * fix paid for a security and a performance review that had nothing to read.
+ *
+ * The diff writes state when a changed application source file or migration
+ * (`src/` or `migrations/`, never test code) has a changed line naming a state
+ * — a status, state, phase or stage; a lifecycle timestamp, actor or reason
+ * such as `completedAt`, `revokedBy` or `cancellationReason`; a flag key; an
+ * enum, literal union, CHECK or trigger — and the file writes the database: a
+ * migration always, otherwise a Drizzle write chain, a table declaration or
+ * upper-case SQL. Removed lines count, so a deleted guard does. Comment lines
+ * do not. `.claude/skills/review-state/SKILL.md` is the review it starts.
  *
  * The test is an allowlist, like `scripts/changeset-required.sh`: a change is
  * trivial only when it is a plain Markdown doc or test code, and anything else
@@ -31,16 +41,17 @@
  *
  * Git is read with `-z` and `--no-renames`: a name arrives whole however odd
  * it is, and a file moved out of `src/` still shows its old path. A diff with
- * no changes at all prints `full`, since it means the wrong range was read.
- * Without a base, or when git fails, it prints nothing and exits 1.
+ * no changes at all prints `full-state`, since it means the wrong range was
+ * read and every review should look. Without a base, or when git fails, it
+ * prints nothing and exits 1, which `prep-pr` also reads as `full-state`.
  * Tests in `scripts/tests/review-scope.test.ts`.
  */
 
-import { lstatSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type PathClass = "doc" | "test" | "other";
-export type ReviewScope = "full" | "trivial" | "trivial-tests";
+export type ReviewScope = "full" | "full-state" | "trivial" | "trivial-tests";
 
 /** One changed path, with the file modes git reported for it — old then new,
  * `000000` where the file is absent — or none for an untracked file, whose
@@ -128,11 +139,109 @@ export function parseRawZ(output: string): ChangedPath[] {
   return changes;
 }
 
-export function reviewScope(changes: readonly ChangedPath[]): ReviewScope {
-  if (changes.length === 0) return "full";
+/** Extensions a state can be written from: code and SQL. */
+const STATE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".sql"]);
+
+/** Whether a change is read for state at all: application source or a
+ * migration, as a regular file. Test code is a fixture, and tooling outside
+ * `src/` writes no application state. */
+export function stateCandidate(change: ChangedPath): boolean {
+  if (change.symlink === true) return false;
+  if (change.modes.some((mode) => mode === SYMLINK || mode === SUBMODULE)) return false;
+
+  const segments = change.path.split("/");
+  const name = segments.at(-1) ?? "";
+  const extension = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+
+  if (!STATE_EXTENSIONS.has(extension)) return false;
+  if (segments.includes("tests") || /\.(test|spec)\./.test(name)) return false;
+
+  return segments.includes("src") || segments.includes("migrations");
+}
+
+/** The added and removed lines of a `git diff -U0` for one file, without
+ * their `+` or `-`. Everything before the first hunk is the header, so a
+ * removed `-- comment` or an added `++i` is content, not a header line. */
+export function changedLines(patch: string): string[] {
+  const lines: string[] = [];
+  let inHunk = false;
+
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (line.startsWith("diff --git ")) {
+      inHunk = false;
+      continue;
+    }
+    if (inHunk && (line.startsWith("+") || line.startsWith("-"))) lines.push(line.slice(1));
+  }
+
+  return lines;
+}
+
+/** A word that names a state, or a value that travels with one. */
+const STATE_TOKEN = new RegExp(
+  [
+    // status, state, phase or stage, alone or as a suffix: `rsvpStatus`, `payment_state`
+    String.raw`\b(?:status|state|phase|stage|lifecycle)\b`,
+    String.raw`[a-z](?:Status|State|Phase|Stage)\b`,
+    String.raw`_(?:status|state|phase|stage)\b`,
+    // when, by whom and why a state was reached; a creation or edit stamp
+    // (`createdAt`, `imagesUpdatedAt`, `last_updated_by`) is not a state, and
+    // `orderBy` is no actor
+    String.raw`\b[a-z]\w*?(?<!reated|pdated)(?:At|_at)\b`,
+    String.raw`\b[a-z]\w*ed(?<!reated|pdated)(?:By|_by)\b`,
+    String.raw`\b[a-z]\w*(?:Reason|_reason)\b`,
+    // a flag as a key or an annotation; a local `const isOwner =` is not one
+    String.raw`\b(?:is|has|was)[A-Z]\w*\??\s*:`,
+    String.raw`\bmode:\s*["']boolean["']`,
+    // the value set: an enum, a literal union, a CHECK, a trigger
+    String.raw`\benum:\s*\[`,
+    String.raw`\bSchema\.Literals?\(`,
+    String.raw`"[\w-]+"\s*\|\s*"[\w-]+"`,
+    String.raw`\bcheck\(\s*["'\x60]`,
+    String.raw`\bCHECK\s*\(`,
+    String.raw`\bCREATE\s+TRIGGER\b`,
+  ].join("|"),
+);
+
+/** A file that writes the database: a Drizzle write chain, a table
+ * declaration, or upper-case SQL. `\s` spans the newlines of a chain. */
+const DATABASE_WRITE = new RegExp(
+  [
+    String.raw`\.update\(\s*[\w.]+\s*\)\s*\.set\(`,
+    String.raw`\.insert\(\s*[\w.]+\s*\)\s*\.values\(`,
+    String.raw`\.delete\(\s*[\w.]+\s*\)\s*\.(?:where|returning)\(`,
+    String.raw`\.onConflictDo(?:Update|Nothing)\(`,
+    String.raw`\bsqliteTable\(`,
+    String.raw`\bUPDATE\s+\S+\s+SET\b`,
+    String.raw`\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|DELETE\s+FROM|CREATE\s+(?:TABLE|TRIGGER)|ALTER\s+TABLE)\b`,
+  ].join("|"),
+);
+
+/** A line that is only a comment: `//`, `/*`, a block comment's `*`, or SQL's `--`. */
+const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*|--)/;
+
+/** Whether one candidate file's change writes state: a changed line names a
+ * state, and the file writes the database. `contents` is the file as it now
+ * stands, or its removed lines when it was deleted; a migration needs none. */
+export function writesState(path: string, lines: readonly string[], contents: string): boolean {
+  const named = lines.some((line) => !COMMENT_LINE.test(line) && STATE_TOKEN.test(line));
+  if (!named) return false;
+
+  return path.endsWith(".sql") || DATABASE_WRITE.test(contents);
+}
+
+/** The verdict. `state`, whether the diff writes state, lifts `full` to
+ * `full-state`; nothing lifts a trivial verdict, since a state is only ever
+ * written from source. */
+export function reviewScope(changes: readonly ChangedPath[], state = false): ReviewScope {
+  if (changes.length === 0) return "full-state";
 
   const classes = new Set(changes.map(changeClass));
-  if (classes.has("other")) return "full";
+  if (classes.has("other")) return state ? "full-state" : "full";
 
   return classes.has("test") ? "trivial-tests" : "trivial";
 }
@@ -173,5 +282,37 @@ if (import.meta.main) {
     }));
 
   const changes = [...parseRawZ(committed), ...parseRawZ(uncommitted), ...untracked];
-  process.stdout.write(`${reviewScope(changes)}\n`);
+  const scope = reviewScope(changes);
+
+  // Only a full diff can write state, and one path that does settles it.
+  // `--literal-pathspecs` keeps a name holding `*` or `:` from being read as
+  // a pattern.
+  const untrackedPaths = new Set(untracked.map((change) => change.path));
+  const diffOf = (range: string, path: string) =>
+    changedLines(
+      git(root, [
+        "--literal-pathspecs",
+        "diff",
+        "-U0",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-renames",
+        range,
+        "--",
+        path,
+      ]),
+    );
+  const state =
+    scope === "full" &&
+    [...new Set(changes.filter(stateCandidate).map((change) => change.path))].some((path) => {
+      const full = join(root, path);
+      const lines = untrackedPaths.has(path)
+        ? readFileSync(full, "utf8").split("\n")
+        : [...diffOf(`${base}...HEAD`, path), ...diffOf("HEAD", path)];
+      const contents = existsSync(full) ? readFileSync(full, "utf8") : lines.join("\n");
+
+      return writesState(path, lines, contents);
+    });
+
+  process.stdout.write(`${state ? "full-state" : scope}\n`);
 }

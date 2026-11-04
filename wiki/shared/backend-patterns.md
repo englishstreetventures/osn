@@ -17,12 +17,13 @@ related:
   - "[[testing-patterns]]"
   - "[[shared/observability/overview]]"
   - "[[database-environments]]"
+  - "[[state-transitions]]"
 packages:
   - "@pulse/api"
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-04
 ---
 
 # Backend Code Patterns
@@ -161,6 +162,10 @@ When a service outgrows a single file, split it into a directory of domain modul
 Two rules: module factories return only the methods other code calls (internals stay closed over); the composition root lists the public surface explicitly rather than spreading modules, so the service's API is pinned in one place.
 
 The same shape applies at the route layer — `osn/api/src/routes/auth/` splits a large route factory into one Elysia group per domain (`registration.ts`, `step-up.ts`, `sessions.ts`, …), each a `createXxxRoutes(ctx)` factory over a shared `AuthRouteContext` (`context.ts`: service instance, app runner, rate-limit / Turnstile gates, IP + cookie plumbing). `index.ts` builds the context once and mounts the groups with `.use(...)`, keeping the original `createAuthRoutes` signature and re-exports intact.
+
+### Writes of state
+
+A write of a status, a flag or a lifecycle timestamp carries the state it expects in its WHERE and checks what it matched, moves the columns that belong with that state in the same statement, and keeps a first-time value with `COALESCE`. Another writer of the same column can always commit between this one's read and its write. The rules and the Drizzle idioms are in [[state-transitions]], and `prep-pr` runs the `review-state` lens on any diff that writes state.
 
 ## Route Factory Pattern
 

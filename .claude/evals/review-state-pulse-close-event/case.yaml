@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: review-state-pulse-close-event
+context:
+  scaffold_script: setup.sh

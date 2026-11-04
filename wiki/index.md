@@ -25,6 +25,7 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[monorepo-structure]] — workspace layout, domain prefixes, directory tree
 - [[backend-patterns]] — Elysia route factories, Effect pipelines, service layer
 - [[schema-layers]] — Elysia TypeBox (HTTP) vs Effect Schema (domain)
+- [[state-transitions]] — writes of a status, flag or lifecycle timestamp: the prior state in the WHERE, paired columns in one statement, first-time values, batches, unique-index races, triggers for a value set, and the tests that prove each guard
 - [[effect-v4-api]] — the v3 forms that no longer compile, and the v4 form to write instead
 - [[s2s-patterns]] — graphBridge, cross-package calls, ARC token flow
 - [[frontend-patterns]] — SolidJS, shared UI tokens, lazy loading
