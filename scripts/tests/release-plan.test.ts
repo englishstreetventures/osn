@@ -56,6 +56,7 @@ import {
   fullRun,
   prod,
   REPO,
+  stackJob,
   TOKEN,
 } from "./fake-github";
 
@@ -752,6 +753,33 @@ describe("a record counts only when the run it links bears it out", () => {
     expect(await found(github, "dev")).toEqual({ cire_host: "a1" });
   });
 
+  test("a dev stack job's record counts only when its deploy step succeeded", async () => {
+    // A dev stack job that finds its commit older than one the stack already
+    // passed at succeeds without deploying; its record claims a deploy that
+    // never ran.
+    for (const deployStep of ["skipped", "failure", null]) {
+      const github = fakeGitHub([
+        {
+          environment: "dev",
+          sha: "b2",
+          run: 2,
+          job: stackJob("cire", "dev"),
+          states: ["success"],
+          deployStep,
+        },
+        {
+          environment: "dev",
+          sha: "a1",
+          run: 1,
+          job: stackJob("cire", "dev"),
+          states: ["success"],
+        },
+      ]);
+      const { accepted } = await findDeployed(reader(github), "dev", [stackRecordKey("cire")]);
+      expect(Object.fromEntries(accepted)).toEqual({ stack_cire: "a1" });
+    }
+  });
+
   test("deploysTier needs the workflow, main and this repository together", () => {
     const origin = {
       path: WORKFLOW_FILE.production,
@@ -1012,8 +1040,63 @@ describe("restReader", () => {
       apiUrl: API,
     }).jobs(7);
     expect(names.size).toBe(130);
-    expect(names.get(130)).toEqual({ name: "job 130", headSha: "a1", conclusion: "success" });
+    expect(names.get(130)).toEqual({
+      name: "job 130",
+      headSha: "a1",
+      conclusion: "success",
+      steps: [],
+    });
     expect(seen.every((search) => search.includes("filter=all"))).toBe(true);
+  });
+
+  test("reads each job's steps: a step still running has no conclusion, and a queued job's list may be absent or null", async () => {
+    const jobs = [
+      {
+        id: 1,
+        name: "running",
+        head_sha: "a1",
+        conclusion: null,
+        steps: [
+          { name: "Deploy the cire stack", conclusion: "success" },
+          { name: "Smoke check cire/api, rolling back on failure", conclusion: null },
+        ],
+      },
+      { id: 2, name: "queued", head_sha: "a1", conclusion: null, steps: null },
+      { id: 3, name: "older payload", head_sha: "a1", conclusion: "success" },
+    ];
+    const fetcher = (async () =>
+      new Response(JSON.stringify({ total_count: 3, jobs }))) as unknown as typeof fetch;
+    const read = await restReader({
+      fetch: fetcher,
+      token: "t",
+      repository: REPO,
+      apiUrl: API,
+    }).jobs(7);
+    expect(read.get(1)?.steps).toEqual([
+      { name: "Deploy the cire stack", conclusion: "success" },
+      { name: "Smoke check cire/api, rolling back on failure", conclusion: null },
+    ]);
+    expect(read.get(2)?.steps).toEqual([]);
+    expect(read.get(3)?.steps).toEqual([]);
+  });
+
+  test("a job's steps of the wrong shape are an error", async () => {
+    for (const steps of ["Deploy the cire stack", [{ conclusion: "success" }], [null]]) {
+      const fetcher = (async () =>
+        new Response(
+          JSON.stringify({
+            total_count: 1,
+            jobs: [{ id: 1, name: "job", head_sha: "a1", conclusion: "success", steps }],
+          }),
+        )) as unknown as typeof fetch;
+      const reading = restReader({
+        fetch: fetcher,
+        token: "t",
+        repository: REPO,
+        apiUrl: API,
+      }).jobs(7);
+      await expect(reading).rejects.toThrow(TypeError);
+    }
   });
 });
 

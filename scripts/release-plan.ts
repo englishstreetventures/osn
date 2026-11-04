@@ -28,6 +28,9 @@
  * and point its status at any job. So a record counts only when the job it
  * links succeeded at the record's own commit, in a run of a workflow that
  * deploys that tier (`DEPLOYING_WORKFLOWS`), on `main`, from this repository.
+ * A dev stack job's record counts only when its deploy step succeeded too: a
+ * stack job that finds its commit older than one its stack already passed on
+ * dev succeeds without deploying (scripts/dev-deploy-order.ts).
  *
  * Dev gates production. A changed surface ships only when a recent successful
  * dev deployment of it was built from the same content (its own paths and the
@@ -134,6 +137,13 @@ export interface DeploymentStatus {
   readonly log_url: string;
 }
 
+/** One step of a job, as the jobs API reports it. */
+export interface JobStep {
+  readonly name: string;
+  /** `success`, `skipped`, …; null while the step has not finished. */
+  readonly conclusion: string | null;
+}
+
 /** One job of a workflow run: what the planner checks a record against. */
 export interface RunJob {
   readonly name: string;
@@ -141,6 +151,8 @@ export interface RunJob {
   readonly headSha: string;
   /** `success`, `failure`, …; null while the job has not finished. */
   readonly conclusion: string | null;
+  /** In order; empty while the job is queued. */
+  readonly steps: readonly JobStep[];
 }
 
 /** Where a workflow run came from. */
@@ -222,6 +234,19 @@ function parseStatus(item: unknown): DeploymentStatus {
   return { state: status.state, log_url: typeof status.log_url === "string" ? status.log_url : "" };
 }
 
+/** A job's steps; GitHub lists none, or `null`, for a job still queued. */
+function parseSteps(value: unknown): readonly JobStep[] {
+  if (value === undefined || value === null) return [];
+  return listOf(value, "job steps").map((item) => {
+    const step = item as { name?: unknown; conclusion?: unknown } | null;
+    if (typeof step?.name !== "string") throw new TypeError("GitHub API: a job step has no `name`");
+    return {
+      name: step.name,
+      conclusion: typeof step.conclusion === "string" ? step.conclusion : null,
+    };
+  });
+}
+
 function parseJobs(payload: unknown): readonly (RunJob & { readonly id: number })[] {
   const body = payload as { jobs?: unknown } | null;
   return listOf(body?.jobs, "jobs").map((item) => {
@@ -230,6 +255,7 @@ function parseJobs(payload: unknown): readonly (RunJob & { readonly id: number }
       name?: unknown;
       head_sha?: unknown;
       conclusion?: unknown;
+      steps?: unknown;
     } | null;
     if (
       typeof job?.id !== "number" ||
@@ -243,6 +269,7 @@ function parseJobs(payload: unknown): readonly (RunJob & { readonly id: number }
       name: job.name,
       headSha: job.head_sha,
       conclusion: typeof job.conclusion === "string" ? job.conclusion : null,
+      steps: parseSteps(job.steps),
     };
   });
 }
@@ -336,6 +363,13 @@ export function restReader(options: {
   };
 }
 
+/**
+ * The step of a dev stack job in deploy.yml that runs Alchemy's deploy, by the
+ * name the jobs API reports. scripts/tests/deploy-workflows.test.ts holds the
+ * workflow to it.
+ */
+export const devDeployStep = (key: StackKey): string => `Deploy the ${key} stack`;
+
 const JOB_LINK = /\/actions\/runs\/(\d+)\/job\/(\d+)/;
 
 /** A production stack's own record: the newest successful run of its stack job. */
@@ -368,7 +402,8 @@ function recordJob(s: Surface, environment: Environment): Job | undefined {
  * Each job whose records in `environment` the planner reads, by name: every
  * surface's own, and each stack's job — in `production` its production job,
  * whose success means the stack deployed and every site it serves passed
- * its check, and in `dev` its dev job, which passes the same way.
+ * its check, and in `dev` its dev job, which passes the same way once its
+ * deploy step ran (`ranItsDeploy`).
  */
 function recordJobs(environment: Environment): ReadonlyMap<string, RecordKey> {
   const byName = new Map<string, RecordKey>();
@@ -386,13 +421,29 @@ function recordJobs(environment: Environment): ReadonlyMap<string, RecordKey> {
 }
 
 /**
+ * Whether a job did what its record claims. A dev stack job can succeed
+ * without deploying — scripts/dev-deploy-order.ts refuses a commit older than
+ * one its stack already passed on dev — so its record counts only when its
+ * deploy step succeeded. Every other job's success is its claim.
+ */
+function ranItsDeploy(job: RunJob, key: RecordKey, environment: Environment): boolean {
+  if (environment !== "dev" || !isStackRecordKey(key)) return true;
+  const step = devDeployStep(stackOfRecord(key));
+  return job.steps.some((s) => s.name === step && s.conclusion === "success");
+}
+
+/**
  * Walk `environment`'s Deployment records newest first, reading only those
  * with a `success` status that a wanted key's job made (`recordJobs`), in a
  * run that deploys `environment` (`deploysTier`), at the commit the job ran
- * on. Stops once `accept` has taken a record for every wanted key, or after
- * `maxRecords` records. Statuses are read `batch` records at a time, and the
- * jobs and origins of the runs in a batch together, each run once. Without
+ * on (`ranItsDeploy` too). Stops once `enough` says the records taken are
+ * enough — by default, once `accept` has taken one for every wanted key — or
+ * after `maxRecords` records. Statuses are read `batch` records at a time, and
+ * the jobs and origins of the runs in a batch together, each run once. Without
  * `accept`, the first such record per key is taken.
+ *
+ * With `only`, a record whose commit it refuses is passed over before its
+ * statuses are read: the caller wants no record at that commit.
  *
  * With `accept`, a record is skipped before its statuses are read once every
  * key still open has a newest record and `accept` refuses the record's
@@ -406,17 +457,20 @@ export async function findDeployed(
   wanted: readonly RecordKey[],
   options: {
     readonly accept?: (key: RecordKey, sha: string) => boolean;
+    readonly only?: (sha: string) => boolean;
+    readonly enough?: (accepted: ReadonlyMap<RecordKey, string>) => boolean;
     readonly maxRecords?: number;
     readonly batch?: number;
   } = {},
 ): Promise<DeployedCommits> {
   const maxRecords = options.maxRecords ?? MAX_RECORDS;
   const batch = options.batch ?? 10;
-  const { accept } = options;
+  const { accept, only } = options;
   const newest = new Map<RecordKey, string>();
   const accepted = new Map<RecordKey, string>();
   const want = new Set(wanted);
   if (want.size === 0) return { newest, accepted };
+  const enough = options.enough ?? (() => accepted.size === want.size);
 
   const surfaceByJob = recordJobs(environment);
   const jobsByRun = new Map<number, ReadonlyMap<number, RunJob>>();
@@ -434,12 +488,13 @@ export async function findDeployed(
   };
 
   const worthReading = (record: DeploymentRecord): boolean => {
+    if (only !== undefined && !only(record.sha)) return false;
     if (accept === undefined) return true;
     const open = [...want].filter((key) => !accepted.has(key));
     return open.some((key) => !newest.has(key) || accept(key, record.sha));
   };
 
-  /** Read one batch; true once every wanted surface has an accepted record. */
+  /** Read one batch; true once the accepted records are `enough`. */
   const readBatch = async (records: readonly DeploymentRecord[]): Promise<boolean> => {
     const read = records.filter(worthReading);
     const statuses = await Promise.all(read.map((record) => reader.statuses(record.id)));
@@ -461,6 +516,7 @@ export async function findDeployed(
       const key = job === undefined ? undefined : surfaceByJob.get(job.name);
       if (key === undefined || !want.has(key) || accepted.has(key)) return [];
       if (job?.conclusion !== "success" || job.headSha !== link.sha) return [];
+      if (!ranItsDeploy(job, key, environment)) return [];
       return [{ ...link, key }];
     });
     await fill(
@@ -474,7 +530,7 @@ export async function findDeployed(
       if (!newest.has(key)) newest.set(key, sha);
       if (accept !== undefined && !accept(key, sha)) continue;
       accepted.set(key, sha);
-      if (accepted.size === want.size) return true;
+      if (enough(accepted)) return true;
     }
     return false;
   };

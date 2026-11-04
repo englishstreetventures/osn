@@ -13,6 +13,7 @@ import {
   type SurfaceKey,
   WORKFLOW_FILE,
 } from "../deploy-surfaces";
+import { devDeployStep } from "../release-plan";
 
 export const REPO = "englishstreetventures/osn";
 export const API = "https://api.github.com";
@@ -33,6 +34,11 @@ export interface FixtureRecord {
   readonly conclusion?: string | null;
   /** The commit the job ran on. Default the record's own `sha`. */
   readonly jobSha?: string;
+  /**
+   * For a dev stack job, the conclusion of its deploy step: `skipped` for a
+   * job that refused an older commit. Default the job's own conclusion.
+   */
+  readonly deployStep?: string | null;
 }
 
 /** Overrides for one run's origin. */
@@ -113,17 +119,33 @@ export function fakeGitHub(
       const latest = Math.max(1, ...inRun.map((r) => r.attempt ?? 1));
       const list = inRun
         .filter((r) => url.searchParams.get("filter") === "all" || (r.attempt ?? 1) === latest)
-        .map((r) => ({
-          id: r.jobId,
-          name: r.job,
-          head_sha: r.jobSha ?? r.sha,
-          conclusion:
+        .map((r) => {
+          const conclusion =
             r.conclusion === undefined
               ? r.states.includes("success")
                 ? "success"
                 : "failure"
-              : r.conclusion,
-        }));
+              : r.conclusion;
+          // A dev stack job's steps include its deploy step, by the name the
+          // planner reads; GitHub reports a step still running with no
+          // conclusion, as it does the job.
+          const devStack = STACKS.find((s) => s.job.name === r.job);
+          return {
+            id: r.jobId,
+            name: r.job,
+            head_sha: r.jobSha ?? r.sha,
+            conclusion,
+            steps:
+              devStack === undefined
+                ? []
+                : [
+                    {
+                      name: devDeployStep(devStack.key),
+                      conclusion: r.deployStep === undefined ? conclusion : r.deployStep,
+                    },
+                  ],
+          };
+        });
       return json({
         total_count: list.length,
         jobs: list.slice((page - 1) * perPage, page * perPage),
