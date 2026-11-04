@@ -12,6 +12,7 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { decideCapability } from "../middleware/wedding-role";
+import type { WeddingRole } from "../middleware/wedding-role";
 import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import {
@@ -41,7 +42,7 @@ import { createTransformBreakers, linkThumbnailService } from "../services/link-
 import type { TransformBreakers } from "../services/link-thumbnail";
 import { reapR2Objects } from "../services/r2-cleanup";
 import { registryService, settingsForReader } from "../services/registry";
-import type { RegistrySettingsDto } from "../services/registry";
+import type { RegistrySettingsDto, SettingsReader } from "../services/registry";
 import { registryImageService } from "../services/registry-image";
 import type { RegistryImageError } from "../services/registry-image";
 
@@ -73,16 +74,18 @@ const conflict = (set: { status?: number | string }, error: string) =>
     return { error };
   });
 
-/** A 409 with the settings row as it now stands: for `settings_changed`, what
- *  the other organiser saved; for a money refusal, why guests cannot give. */
+/** A 409 with the settings row as it now stands, as `reader` may see it: for
+ *  `settings_changed`, what the other organiser saved; for a money refusal, why
+ *  guests cannot give. */
 const conflictWithSettings = (
   set: { status?: number | string },
   error: string,
   settings: RegistrySettingsDto,
+  reader: SettingsReader,
 ) =>
   Effect.sync(() => {
     set.status = 409;
-    return { error, settings };
+    return { error, settings: settingsForReader(settings, reader) };
   });
 
 const badRequestCode = (set: { status?: number | string }, error: string) =>
@@ -101,6 +104,12 @@ function internalSync(set: { status?: number | string }) {
   set.status = 500;
   return { error: "Internal error" };
 }
+
+/** What a caller's seat lets them read in a settings body: see `settingsForReader`. */
+const readerOf = (role: WeddingRole): SettingsReader => ({
+  canEdit: decideCapability(role, "editor").allowed,
+  canManage: decideCapability(role, "manage").allowed,
+});
 
 /**
  * Log a defect before it becomes an anonymous 500. Annotated with the
@@ -207,13 +216,14 @@ export const createRegistryReadRoutes = (
           if (!weddingId || !weddingRole) return internalSync(set);
           set.headers["cache-control"] = "no-store";
           // A member who cannot edit gets no reason that speaks of the payout
-          // currency: see `settingsForReader`.
-          const canEdit = decideCapability(weddingRole, "editor").allowed;
+          // currency, and only an owner is told who connected the account:
+          // see `settingsForReader`.
+          const reader = readerOf(weddingRole);
           return runCire(
             registryService.get(weddingId, deps).pipe(
               Effect.map((snapshot) => ({
                 ...snapshot,
-                settings: settingsForReader(snapshot.settings, canEdit),
+                settings: settingsForReader(snapshot.settings, reader),
                 takesPayments: deps.takesPayments,
               })),
               Effect.provideService(DbService, db),
@@ -287,8 +297,9 @@ export const createRegistryWriteRoutes = (
         .use(weddingTier(db, "gold"))
         .put(
           "/registry/settings",
-          async ({ weddingId, request, set }) => {
-            if (!weddingId) return internalSync(set);
+          async ({ weddingId, weddingRole, request, set }) => {
+            if (!weddingId || !weddingRole) return internalSync(set);
+            const reader = readerOf(weddingRole);
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
@@ -297,21 +308,21 @@ export const createRegistryWriteRoutes = (
                 // not here: reading them through the whole snapshot — items,
                 // gift log, currency — would load all of it to check one row.
                 const settings = yield* registryService.updateSettings(weddingId, body, deps);
-                return { settings };
+                return { settings: settingsForReader(settings, reader) };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("StripeNotReady", (e) =>
-                  conflictWithSettings(set, "stripe_not_ready", e.current),
+                  conflictWithSettings(set, "stripe_not_ready", e.current, reader),
                 ),
                 Effect.catchTag("CurrencyMismatch", (e) =>
-                  conflictWithSettings(set, "currency_mismatch", e.current),
+                  conflictWithSettings(set, "currency_mismatch", e.current, reader),
                 ),
                 Effect.catchTag("SettlementCurrencyUnknown", (e) =>
-                  conflictWithSettings(set, "stripe_currency_unknown", e.current),
+                  conflictWithSettings(set, "stripe_currency_unknown", e.current, reader),
                 ),
                 Effect.catchTag("SettingsChanged", (e) =>
-                  conflictWithSettings(set, "settings_changed", e.current),
+                  conflictWithSettings(set, "settings_changed", e.current, reader),
                 ),
                 Effect.tapDefect(logDefect(weddingId)),
                 Effect.catchDefect(() => internal(set)),

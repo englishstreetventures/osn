@@ -1,0 +1,13 @@
+-- Which owner connected a wedding's Stripe account.
+--
+-- `registry_settings` gains `stripe_connected_by_osn_profile_id`, the OSN
+-- profile of the owner who ran onboarding: only they may open the account's
+-- onboarding links again, and every other owner sees its status. Nullable with
+-- no default and no back-fill: a row that already holds an account keeps NULL,
+-- which no caller matches, so no owner may open its links until an operator
+-- records who connected it.
+--
+-- Additive: ALTER TABLE ADD, never a rebuild. The statement is drizzle-kit's,
+-- as `db:generate` wrote it; it matches cire/db/src/schema.ts and
+-- cire/api/src/db/setup.ts (`ddl-lockstep.test.ts`).
+ALTER TABLE `registry_settings` ADD `stripe_connected_by_osn_profile_id` text;

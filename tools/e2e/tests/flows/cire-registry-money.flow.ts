@@ -13,6 +13,14 @@
  * settings from the database first, so what the portal says is the
  * deployment's doing, not a seed whose couple never switched money gifts on.
  *
+ * The wedding's other owner, Kit, connected its Stripe account, so the dev
+ * profile is an owner who did not. Back on the settings tab, the panel shows
+ * the account's status and offers no onboarding link: "Continue on Stripe" is
+ * marked disabled and a note says only the person who connected the account
+ * can. The onboarding route itself answers 403 `stripe_connector_only` to the
+ * browser's own session, before it asks Stripe anything, and the row keeps its
+ * account and its connector. The flow's screenshot is this panel.
+ *
  * Then the owner signs out everywhere else on OSN, and their cire sessions end
  * too. The flow asks osn-api the way `@osn/auth-ui`'s sessions view does: an
  * access token from `POST /token` on the session cookie, then
@@ -30,8 +38,9 @@
 import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
 import { expect, queryOne, signInToCireHost, test } from "../support/fixtures";
 
-const { weddingId, fundTitle } = CIRE_ORGANISER.money;
+const { weddingId, fundTitle, accountId, connector } = CIRE_ORGANISER.money;
 const REGISTRY_URL = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/registry`;
+const ONBOARDING_URL = `${REGISTRY_URL}/stripe/session`;
 const SESSION_URL = `${ORIGINS.cireApi}/api/auth/session`;
 const UNAVAILABLE = /money gifts aren’t available on this site yet/i;
 
@@ -113,7 +122,67 @@ test("cire-registry-money", async ({ page, flow }) => {
   });
   flow.check("the gift list says guests cannot see the fund", true, UNAVAILABLE.test(list));
 
+  // Last on `page`, so the flow's screenshot is this panel.
+  const panel = await flow.step(
+    "open the settings again, as an owner who did not connect Stripe",
+    async () => {
+      await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/settings`);
+      const status = page.getByTestId("stripe-status");
+      await expect(status).toBeVisible();
+      const button = page.getByRole("button", { name: "Continue on Stripe" });
+      await expect(button).toBeVisible();
+      const note = page.getByTestId("stripe-connector-only");
+      await expect(note).toBeVisible();
+      // Below the fold: bring the money panel into the screenshot.
+      await note.scrollIntoViewIfNeeded();
+      return {
+        status: (await status.textContent()) ?? "",
+        ariaDisabled: (await button.getAttribute("aria-disabled")) ?? "absent",
+        describedBy: (await button.getAttribute("aria-describedby")) ?? "absent",
+        note: (await note.textContent()) ?? "",
+      };
+    },
+  );
+  flow.check(
+    "the panel shows the account's status",
+    true,
+    /connected and can take payments/i.test(panel.status),
+  );
+  flow.check("Continue on Stripe is marked disabled", "true", panel.ariaDisabled);
+  flow.check(
+    "Continue on Stripe is described by the note",
+    "stripe-connector-only",
+    panel.describedBy,
+  );
+  flow.check(
+    "the note says only the person who connected it can",
+    true,
+    /only the person who connected this Stripe account/i.test(panel.note),
+  );
+
   const request = page.context().request;
+  const onboarding = await flow.step(
+    "cire-api: onboarding refused to an owner who did not connect",
+    async () => {
+      const response = await request.post(ONBOARDING_URL, {
+        headers: { origin: ORIGINS.cireHost },
+      });
+      flow.recordRequest("POST", ONBOARDING_URL, response.status());
+      const body = (await response.json()) as { error?: string };
+      return { status: response.status(), error: body.error ?? "absent" };
+    },
+  );
+  flow.check("cire-api onboarding as the other owner", 403, onboarding.status);
+  flow.check("cire-api names whose account it is", "stripe_connector_only", onboarding.error);
+  const after = queryOne<{ account: string | null; connector: string | null }>(
+    DB_FILES.cire,
+    `SELECT stripe_account_id AS account, stripe_connected_by_osn_profile_id AS connector
+       FROM registry_settings WHERE wedding_id = ?`,
+    weddingId,
+  );
+  flow.check("the account is unchanged", accountId, after?.account ?? "absent");
+  flow.check("the connector is unchanged", connector.profileId, after?.connector ?? "absent");
+
   const accessToken = await flow.step(
     "organiser: an access token from the OSN session",
     async () => {
@@ -167,7 +236,7 @@ test("cire-registry-money", async ({ page, flow }) => {
   );
   flow.check("cire-api gift list read with the old cookie", 401, organiserRead);
 
-  // A second page, so the flow's screenshot stays the gift list above.
+  // A second page, so the flow's screenshot stays the settings panel above.
   const portal = await flow.step("organiser: the portal asks them to sign in again", async () => {
     const again = await flow.newPage(page.context());
     await again.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/list`);
