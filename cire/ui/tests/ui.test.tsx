@@ -5,7 +5,12 @@ import { cleanup, render, screen } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import Button, { type ButtonVariant, buttonClass } from "../src/button";
+import Button, {
+  type ButtonVariant,
+  buttonClass,
+  type ProseLinkTone,
+  proseLinkClass,
+} from "../src/button";
 import Card, {
   CardCta,
   type CardFill,
@@ -307,6 +312,88 @@ describe("Button — motion", () => {
       return durations.length !== 1 || durations[0] !== "base:duration-(--dur-fast,100ms)";
     });
     expect(wrong).toEqual([]);
+  });
+});
+
+/**
+ * The link inside a sentence. Its browser tier (`prose-link.browser.test.tsx`)
+ * proves the painted result; these read the classes where the class is the
+ * contract, which is also what lets mutation testing see them, since Stryker
+ * runs this project alone.
+ */
+describe("proseLinkClass", () => {
+  const TONES = ["accent", "muted"] as const satisfies readonly ProseLinkTone[];
+  const classes = (tone?: ProseLinkTone) => proseLinkClass(tone ? { tone } : {}).split(/\s+/);
+
+  it("stays inline and lets its sentence wrap it", () => {
+    // Every `buttonClass` starts `inline-flex … whitespace-nowrap`, which holds
+    // a long link to one line. A link in running text must break with it.
+    const wrong = TONES.filter((tone) =>
+      classes(tone).some((c) => /inline-flex|whitespace-nowrap|^base:flex$/.test(c)),
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it("is underlined at rest at a 2px offset, in every tone", () => {
+    for (const tone of TONES) {
+      expect(classes(tone)).toEqual(
+        expect.arrayContaining(["base:underline", "base:underline-offset-2"]),
+      );
+      expect(classes(tone).some((c) => c.includes("hover:underline"))).toBe(false);
+    }
+  });
+
+  it("brings no type size and no weight of its own", () => {
+    const wrong = TONES.filter((tone) =>
+      classes(tone).some((c) => /text-ui-(xs|sm|base|md|lg|xl)|font-/.test(c)),
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it("takes one corner, the control role, which only its focus ring shows", () => {
+    for (const tone of TONES) {
+      expect(corners(proseLinkClass({ tone }))).toEqual(["base:rounded-ui-control"]);
+    }
+  });
+
+  it("fades only its colours, on the app's motion token, never the ring", () => {
+    for (const tone of TONES) {
+      const cls = classes(tone);
+      expect(cls).toEqual(
+        expect.arrayContaining([
+          "base:transition-[color,text-decoration-color]",
+          "base:duration-(--dur-fast,100ms)",
+          "base:ease-out",
+        ]),
+      );
+      expect(cls.filter((c) => c.includes("transition"))).toHaveLength(1);
+    }
+  });
+
+  it("draws its own focus ring from the contract's focus token", () => {
+    // `@cire/landing` declares no blanket `:focus-visible` rule.
+    for (const tone of TONES) {
+      expect(classes(tone)).toEqual(
+        expect.arrayContaining([
+          "base:focus-visible:outline-2",
+          "base:focus-visible:outline-offset-2",
+          "base:focus-visible:outline-ui-focus",
+        ]),
+      );
+    }
+  });
+
+  it("paints accent in readable gold, and muted in the secondary ink that brightens on hover", () => {
+    expect(classes("accent")).toContain("base:text-ui-accent-ink");
+    expect(classes("accent").some((c) => c.includes("hover:text-"))).toBe(false);
+    expect(classes("muted")).toEqual(
+      expect.arrayContaining(["base:text-ui-ink-secondary", "base:hover:text-ui-ink"]),
+    );
+    expect(classes("muted")).not.toContain("base:text-ui-accent-ink");
+  });
+
+  it("is the accent tone when no tone is named", () => {
+    expect(proseLinkClass()).toBe(proseLinkClass({ tone: "accent" }));
   });
 });
 

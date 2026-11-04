@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-10-30
 ---
 
 # Component Lab
@@ -85,6 +85,7 @@ So far, in `tools/lab/src/stories/cire-ui/`:
 | `cire/ui/Card` | `card.story.tsx` | The plain, accent, eyebrow and interactive cards; each padding step, each fill and each tone, captioned with the padding, fill or border colour the browser painted |
 | `cire/ui/Disclosure` | `disclosure.story.tsx` | Each tone closed beside open, a card disclosure holding rows, and a closed `nested` disclosure inside an open one, each captioned with the turn the browser painted on its marker |
 | `cire/ui/Eyebrow` | `eyebrow.story.tsx` | Both tones in a card and over a heading, captioned with the painted letter-spacing and colour; the label as each element `as` renders |
+| `cire/ui/Prose link` | `prose-link.story.tsx` | `proseLinkClass` in each tone inside a sentence, captioned with the painted colour and underline; each tone wrapping in a 10rem paragraph; the accent tone inside a warn and an accent `Notice`; the focus ring by Tab |
 
 `shared/toast` and `shared/sortable` are benches rather than catalogues: they
 exist for the behaviour no test tier can reach. Their unit suites assert the

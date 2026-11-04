@@ -515,8 +515,8 @@ jobs:
             filters: --filter=@cire/host
             expect: 1
           - leg: rest
-            filters: --filter=@musubi/social --filter=@pulse/web --filter=@shared/ui --filter=@cire/vendor
-            expect: 4
+            filters: --filter=@musubi/social --filter=@pulse/web --filter=@shared/ui --filter=@cire/vendor --filter=@cire/ui
+            expect: 5
     env:
       LEG: ${{ matrix.leg }}
       FILTERS: ${{ matrix.filters }}

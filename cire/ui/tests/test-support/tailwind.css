@@ -1,0 +1,78 @@
+/*
+ * The stylesheet the browser tier renders against.
+ *
+ * `@cire/ui` ships no CSS of its own: each cire app maps the `--ui-*` contract
+ * onto its palette in its own stylesheet. A test has no app, and without a
+ * real Tailwind build every `base:text-ui-accent-ink` resolves to nothing and
+ * every colour assertion compares two empty strings. So this file stands in
+ * for an app.
+ *
+ * Unlike `@shared/ui`'s stand-in, which is garish on purpose, this one maps
+ * cire's own two ramps: the literals are those
+ * `tools/lab/src/stories/cire-ui/cire-mapping.ts` resolves from
+ * `cire/host/src/styles/global.css`. A contrast assertion here is then a claim
+ * about cire's colours, which is what the house's 4.5:1 floor is about.
+ * `:root` is the dark ramp, and `[data-ramp="light"]` re-declares the light
+ * one on a wrapper, so one test can render both.
+ */
+@import "tailwindcss";
+@import "@shared/design-tokens/tokens.css";
+
+@source "../../src";
+
+:root {
+  --ui-ground: oklch(16.8% 0.026 148);
+  --ui-ground-deep: oklch(13.2% 0.021 148);
+  --ui-surface: oklch(20.6% 0.028 149);
+  --ui-surface-raised: oklch(24.4% 0.032 149);
+  --ui-surface-sunk: oklch(14.4% 0.022 148);
+  --ui-hairline: oklch(85% 0.06 145 / 0.11);
+  --ui-hairline-strong: oklch(85% 0.06 145 / 0.44);
+  --ui-ink: oklch(94.6% 0.011 90);
+  --ui-ink-secondary: oklch(94.6% 0.011 90 / 0.58);
+  --ui-ink-tertiary: oklch(94.6% 0.011 90 / 0.4);
+  --ui-accent: oklch(75% 0.085 82);
+  --ui-accent-strong: oklch(82% 0.085 82);
+  --ui-accent-soft: oklch(75% 0.085 82 / 0.3);
+  --ui-accent-ink: oklch(84% 0.072 84);
+  --ui-on-accent: oklch(16.8% 0.026 148);
+  --ui-success: oklch(76% 0.142 147);
+  --ui-warn: oklch(80% 0.125 78);
+  --ui-danger: oklch(68% 0.14 21);
+  --ui-on-danger: oklch(16.8% 0.026 148);
+  --ui-focus: oklch(75% 0.085 82);
+
+  --ui-radius-control: 999px;
+  --ui-radius-pill: 999px;
+  --ui-radius-field: 14px;
+  --ui-text-sm: 0.82rem;
+  --ui-text-base: 0.9rem;
+  --ui-text-lg: 1.3rem;
+
+  /* The portals' desk values (cire/host/src/styles/global.css). */
+  --dur-fast: 90ms;
+  --dur-base: 150ms;
+}
+
+[data-ramp="light"] {
+  --ui-ground: oklch(88.6% 0.011 92);
+  --ui-ground-deep: oklch(84.5% 0.014 92);
+  --ui-surface: oklch(92.4% 0.009 92);
+  --ui-surface-raised: oklch(95.2% 0.007 92);
+  --ui-surface-sunk: oklch(85.8% 0.013 92);
+  --ui-hairline: oklch(44% 0.022 340 / 0.18);
+  --ui-hairline-strong: oklch(44% 0.022 340 / 0.74);
+  --ui-ink: oklch(27% 0.018 340);
+  --ui-ink-secondary: oklch(44% 0.022 340);
+  --ui-ink-tertiary: oklch(44% 0.022 340 / 0.74);
+  --ui-accent: oklch(64% 0.095 78);
+  --ui-accent-strong: oklch(70% 0.095 78);
+  --ui-accent-soft: oklch(64% 0.095 78 / 0.34);
+  --ui-accent-ink: oklch(46% 0.082 74);
+  --ui-on-accent: oklch(24% 0.018 340);
+  --ui-success: oklch(43% 0.115 148);
+  --ui-warn: oklch(45% 0.105 62);
+  --ui-danger: oklch(46% 0.15 25);
+  --ui-on-danger: oklch(88.6% 0.011 92);
+  --ui-focus: oklch(38% 0.072 141);
+}

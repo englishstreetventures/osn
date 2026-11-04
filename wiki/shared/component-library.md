@@ -945,7 +945,7 @@ the look:
 | Commit         | `primary`, `cta`                      | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
 | Secondary      | `outline`, `quiet`, `dashed`          | A gold wash, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_                                                                                                      |
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
-| Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
+| Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one. A link set inside a sentence is not a `Button` at all: it takes `proseLinkClass`, below |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
 | Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: an input's padding and weight, the text field's corner, transparent like the inputs around it |
 | Chrome         | `chip`                                | A control in a sheet's own chrome rather than its content — the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button. A pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere |
@@ -990,6 +990,25 @@ Because no default corner is a plain utility, a caller's plain `rounded-*` in
 that is the bar for adding one: a variant is a design concept somebody can name,
 not a colour somebody wanted. `custom`, `alt` and `variant2` are not names.
 
+**A link inside a sentence is not a `Button`.** Every `buttonClass` output
+starts `inline-flex … whitespace-nowrap`, which holds a long link to one line.
+`proseLinkClass({ tone })`, from the same file, gives an `<a>` set in running
+text its classes instead: inline, so it wraps with its sentence; underlined at
+rest at a 2px offset, so colour is not the only thing marking it (WCAG 1.4.1);
+no type size and no weight, so it takes the sentence's. Two tones: `accent`
+(the default), readable gold, unchanged on hover; `muted`, the secondary ink,
+brightening to the body ink on hover as `touchLink` does. A link inside a
+tinted `Notice` takes `accent` too, not the notice's ink (owner,
+englishstreetventures/osn#1838). It draws `Button`'s focus ring itself, since
+`@cire/landing` has no blanket `:focus-visible` rule, and its transition names
+its colours only. It is for an `<a href>` that goes somewhere: a `<button>`
+lays out as an inline block even at `display: inline`, so its words never wrap
+with the sentence. A way to another screen written into a sentence is still a
+link with a real address, whose click handler may take over the plain click to
+do the navigating and leaves a modifier or middle click to the browser; an
+action that goes nowhere stays a `<button>`, outside the sentence. A link that stands alone is not this either: it is a pill,
+`buttonClass({ variant: "outline" })`.
+
 ## Adding a new component
 
 A primitive, in `@shared/ui`:
@@ -1025,7 +1044,11 @@ own, under the feature that uses it: [[stacked-prs#Frontend: one component per p
 `tests/**/*.test.tsx` is the `unit` project on happy-dom, and
 `tests/**/*.browser.test.tsx` is the `browser` project on real Chromium. Every
 file lands in exactly one. `bun run --cwd shared/ui test:run` runs the first,
-`test:browser` the second; `@osn/auth-ui` and `@cire/ui` have a unit tier only.
+`test:browser` the second. `@cire/ui` splits the same way, and its browser
+project loads `cire/ui/tests/test-support/tailwind.css`, which maps cire's own
+two ramps (the literals the lab's `cire-mapping.ts` resolves) rather than a
+synthetic palette, so a contrast assertion there is a claim about cire's
+colours. `@osn/auth-ui` has a unit tier only.
 
 The split exists because the unit project parses no stylesheet and computes no
 layout: it can assert a class list and a DOM shape, but not that a class emitted
