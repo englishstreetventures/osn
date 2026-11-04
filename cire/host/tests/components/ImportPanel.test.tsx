@@ -468,8 +468,138 @@ describe("ImportPanel — surfacing import failures", () => {
     fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
     await waitFor(() => expect(document.body.textContent).toMatch(/limit of 100 guests/i));
     expect(document.body.textContent).not.toMatch(/payment_required/);
-    // The preview stays: the same one applies after an upgrade.
+    // The preview stays: the cap refused it before any write, so the same one
+    // applies after an upgrade, and nothing the caches hold has changed.
     expect(screen.getByRole("button", { name: /apply import/i })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/may already be saved/);
+    expect(invalidateEventsMock).not.toHaveBeenCalled();
+    expect(invalidateGuestsMock).not.toHaveBeenCalled();
+    expect(invalidateHouseholdsMock).not.toHaveBeenCalled();
+  });
+
+  describe("an apply refused after its preview", () => {
+    const jsonResponse = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    const preview = {
+      changeId: "chg_1",
+      scope: "guests",
+      warnings: [],
+      plan: {
+        eventCreates: [],
+        eventUpdates: [],
+        eventRemoves: [],
+        familyCreates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+      },
+    };
+
+    /** Preview a guests sheet, then press Apply and have it refused with `refusal`. */
+    async function applyRefused(refusal: Response) {
+      authFetchMock
+        .mockResolvedValueOnce(jsonResponse(preview))
+        .mockResolvedValueOnce(refusal)
+        .mockResolvedValueOnce(jsonResponse({ ...preview, changeId: "chg_2" }));
+      render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+      choose(csvFile("guests.csv"));
+      fireEvent.click(previewButton());
+      await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
+    }
+
+    it("drops a preview the guest cap refused while writing, and the cached rows with it", async () => {
+      // The cap refused one of the change's write batches after the check
+      // before the write passed: the batches before it are saved and the head
+      // has moved, so this preview can never apply.
+      await applyRefused(
+        jsonResponse(
+          {
+            error: "payment_required",
+            entitlement: "capacity",
+            tier: "gold",
+            limit: 100,
+            current: 100,
+            reason: "head_moved",
+          },
+          402,
+        ),
+      );
+
+      await waitFor(() =>
+        expect(document.body.textContent).toContain(
+          "This import would take you past your plan's limit of 100 guests. Remove some guests from the sheet, or upgrade to Gold. Some of it may already be saved, so press Preview to compare your sheet with the guest list as it is now.",
+        ),
+      );
+      expect(document.body.textContent).not.toMatch(/payment_required/);
+      expect(screen.queryByRole("button", { name: /apply import/i })).toBeNull();
+      expect(screen.queryByText(/diff preview/i)).toBeNull();
+      // What the change saved is not in the cached rows yet.
+      expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
+      expect(invalidateGuestsMock).toHaveBeenCalledWith("wed_a");
+      expect(invalidateHouseholdsMock).toHaveBeenCalledWith("wed_a");
+
+      // The sheet is still chosen, so Preview uploads it again.
+      fireEvent.click(previewButton());
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /apply import/i })).toBeTruthy(),
+      );
+      const previews = authFetchMock.mock.calls.filter((c) =>
+        String(c[0]).endsWith("/changes/preview"),
+      );
+      expect(previews).toHaveLength(2);
+    });
+
+    it("drops a preview whose head moved before it applied, and the cached rows with it", async () => {
+      await applyRefused(
+        jsonResponse({ error: "State changed — re-preview", reason: "head_moved" }, 409),
+      );
+
+      await waitFor(() =>
+        expect(document.body.textContent).toMatch(/Someone else changed this wedding/),
+      );
+      expect(screen.queryByRole("button", { name: /apply import/i })).toBeNull();
+      expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
+      expect(invalidateGuestsMock).toHaveBeenCalledWith("wed_a");
+      expect(invalidateHouseholdsMock).toHaveBeenCalledWith("wed_a");
+    });
+
+    it("drops a preview a 409 with no reason refused, since it cannot apply either", async () => {
+      // The addresses the change sets differ from the preview's: the same
+      // preview would be refused the same way.
+      await applyRefused(jsonResponse({ error: "State changed — re-preview" }, 409));
+
+      await waitFor(() =>
+        expect(document.body.textContent).toMatch(/Someone else changed this wedding/),
+      );
+      expect(screen.queryByRole("button", { name: /apply import/i })).toBeNull();
+    });
+
+    it("keeps the preview while another change is still being written", async () => {
+      await applyRefused(
+        jsonResponse(
+          {
+            error: "Another change is being saved — try again in a moment",
+            reason: "change_in_progress",
+          },
+          409,
+        ),
+      );
+
+      await waitFor(() =>
+        expect(document.body.textContent).toMatch(/Another change is being saved/),
+      );
+      // The same preview applies once that change finishes.
+      expect(screen.getByRole("button", { name: /apply import/i })).toBeTruthy();
+      expect(invalidateGuestsMock).not.toHaveBeenCalled();
+    });
   });
 
   it("drops an expired preview and has Preview upload the same sheet again", async () => {

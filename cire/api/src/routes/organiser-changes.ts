@@ -912,9 +912,9 @@ export const createOrganiserChangeRoutes = (
                     if (e.capacity) {
                       // Refused while writing: the change may have written
                       // part of its data and the head has moved, so this
-                      // preview is spent. The portal acts on the reason once
-                      // englishstreetventures/osn#1592 lands; until then a retry
-                      // answers 409 head_moved.
+                      // preview is spent, and a retry answers 409 head_moved.
+                      // The reason is what tells the portal to drop the
+                      // preview and read the rows again.
                       yield* Effect.logWarning(
                         "change refused: no room under the guest cap while writing",
                       );

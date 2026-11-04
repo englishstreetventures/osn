@@ -59,6 +59,7 @@ import {
   invalidateHouseholds,
   type OrganiserHouseholdRow,
 } from "../lib/households-store";
+import { capacityMessage, type ImportErrorBody } from "../lib/import-errors";
 import { haptic } from "../lib/touch-feedback";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import { IconButton } from "./ActionTip";
@@ -409,7 +410,7 @@ export default function GuestsEditor(props: {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+        const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
         // 409 = a co-host applied in between; the previewed diff is stale, so
         // the modal is dismissed — re-confirming it could only 409 again, and
         // the error itself renders in the sticky bar the modal was covering.
@@ -432,6 +433,22 @@ export default function GuestsEditor(props: {
               ? body.error
               : "The guest list changed elsewhere. Re-open Save to preview afresh.",
           );
+        }
+        // 402 = the save would take the wedding past its tier's guest cap.
+        // Refused while writing, its first batches are saved and the head has
+        // moved: the preview is spent and the draft stale, as with a 409
+        // head_moved, and the shared guest and household caches lack what was
+        // saved. A guests save writes no event row, so the events cache holds.
+        // Refused before writing, nothing was saved and the modal stays, since
+        // the same preview applies after an upgrade.
+        if (res.status === 402) {
+          if (isHeadMoved(body)) {
+            setPreview(null);
+            setStale(true);
+            invalidateGuests(props.weddingId);
+            invalidateHouseholds(props.weddingId);
+          }
+          throw new Error(capacityMessage(body, "editor"));
         }
         throw new Error(body.error ?? `Apply failed (${res.status})`);
       }

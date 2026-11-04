@@ -18,7 +18,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -257,18 +257,24 @@ imports and editor saves):
 { "error": "payment_required", "entitlement": "capacity", "tier": "gold", "limit": 100, "current": 140 }
 ```
 
-`tier` is `requiredTier` — the portal names it in the import error ("upgrade
-to Gold") and says plainly when it is `null`. `entitlement: "capacity"` stays
+`tier` is `requiredTier` — the portal names it in the capacity message of a
+sheet import and of a guests-editor save ("upgrade to Gold", `capacityMessage`
+in `cire/host/src/lib/import-errors.ts`) and says plainly when it is `null`. `entitlement: "capacity"` stays
 for a portal build that reads it, until englishstreetventures/osn#1315. Naming a
 plus-one past the cap answers `409 guest_capacity` instead.
 
 A 402 from the check before the write leaves the change head where it was, so
-the same preview applies after an upgrade. When the guest inserts refused it
-instead, the apply's body adds `"reason": "head_moved"`: the change may have
-written part of its data and its preview is spent, as with a 409 `head_moved`.
-The portal handles that reason once englishstreetventures/osn#1592 lands; until
-then a retry answers the 409. A revert's 402 never carries a reason, because a
-revert has no preview and reads the head afresh on every request.
+the same preview applies after an upgrade, and the portal keeps it open. When
+the guest inserts refused it instead, the apply's body adds
+`"reason": "head_moved"`: the change may have written part of its data and its
+preview is spent, as with a 409 `head_moved`, so a retry answers that 409. On
+that reason the portal drops the preview and adds that some of the change may
+already be saved. The spreadsheet import drops its cached events, guests and
+households, and keeps the sheet chosen so Preview uploads it again; the guests
+editor drops its cached guests and households, marks its draft stale and offers
+**Reload and keep my edits** ([[cire-guest-event-editor]] §8). A revert's 402
+never carries a reason, because a revert has no preview and reads the head
+afresh on every request.
 
 ---
 

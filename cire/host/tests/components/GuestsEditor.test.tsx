@@ -27,10 +27,15 @@ vi.mock("../../src/lib/api", async () => {
 import GuestsEditor from "../../src/components/GuestsEditor";
 import { __resetEventsCache, ensureEventsLoaded } from "../../src/lib/events-store";
 import type { DesiredStateWire } from "../../src/lib/guest-event-draft";
-import { __resetGuestsCache, ensureGuestsLoaded } from "../../src/lib/guests-store";
+import {
+  __resetGuestsCache,
+  ensureGuestsLoaded,
+  hasCachedGuests,
+} from "../../src/lib/guests-store";
 import {
   __resetHouseholdsCache,
   ensureHouseholdsLoaded,
+  hasCachedHouseholds,
   invalidateHouseholds,
 } from "../../src/lib/households-store";
 import { confirmNavigation } from "../../src/lib/unsaved-guard";
@@ -1105,6 +1110,112 @@ describe("GuestsEditor", () => {
       await waitFor(() => expect(screen.getByText(/“Sharma” was removed elsewhere/)).toBeTruthy());
       expect(screen.queryByDisplayValue("Adaeze")).toBeNull();
       expect(screen.getByDisplayValue("Raj")).toBeTruthy();
+    });
+  });
+
+  /**
+   * The apply answers 402 when the change would take the wedding past its
+   * tier's guest cap. Refused by the check before the write, nothing was saved
+   * and the same preview applies after an upgrade. Refused while writing
+   * (`reason: "head_moved"`), the batches before the refused one are saved and
+   * the head has moved, so the preview is spent and the draft is stale.
+   */
+  describe("the guest cap refusing the apply", () => {
+    const CAP_402 = {
+      error: "payment_required",
+      entitlement: "capacity",
+      tier: "gold",
+      limit: 100,
+      current: 100,
+    };
+    const NEWFAMILY_HOUSEHOLD = {
+      familyId: "fam_new",
+      publicId: "NEWFAMILY-0001",
+      familyName: "Newfamily",
+      guestCount: 0,
+      codeSharedAt: null,
+      firstOpenedAt: null,
+      deactivatedAt: null,
+    };
+
+    it("closes a preview refused while writing and offers the reload, which flags what was saved", async () => {
+      let head = "rev_1";
+      let households = HOUSEHOLDS;
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/head")) return Promise.resolve(json({ revision: head }));
+        if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+        if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+        if (u.endsWith("/households")) return Promise.resolve(json(households));
+        if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
+        if (u.endsWith("/changes/apply")) {
+          // The household's own row landed in a batch before the refused one.
+          head = "rev_2";
+          households = [...HOUSEHOLDS, NEWFAMILY_HOUSEHOLD];
+          return Promise.resolve(json({ ...CAP_402, reason: "head_moved" }, 402));
+        }
+        return Promise.resolve(fallback(url));
+      });
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.click(screen.getAllByRole("button", { name: /Add household/i })[0]!);
+      const names = screen.getAllByLabelText("Household name") as HTMLInputElement[];
+      fireEvent.input(names[names.length - 1]!, { target: { value: "Newfamily" } });
+
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+      await waitFor(() =>
+        expect(document.body.textContent).toContain(
+          "These changes would take you past your plan's limit of 100 guests. Remove some guests, or upgrade to Gold. Some of them may already be saved, so reload before you save again.",
+        ),
+      );
+      expect(document.body.textContent).not.toMatch(/payment_required/);
+      // Confirming the spent preview again could only be refused.
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
+      // What the change saved is not in the shared caches the other views read.
+      expect(hasCachedGuests("wed_a")).toBe(false);
+      expect(hasCachedHouseholds("wed_a")).toBe(false);
+
+      fireEvent.click(screen.getByRole("button", { name: /Reload and keep my edits/i }));
+      // The reload brings the saved household in beside the draft's own, and
+      // says so before the next save could keep both.
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            "A household called “Newfamily” was also added elsewhere — check for a duplicate.",
+          ),
+        ).toBeTruthy(),
+      );
+    });
+
+    it("keeps a preview refused before writing open, and names the cap inside it", async () => {
+      primeLoad();
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
+        if (u.endsWith("/changes/apply")) return Promise.resolve(json(CAP_402, 402));
+        return Promise.resolve(fallback(url));
+      });
+
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+      // Nothing was saved: the same preview applies after an upgrade.
+      await waitFor(() =>
+        expect(screen.getByRole("dialog").textContent).toContain(
+          "These changes would take you past your plan's limit of 100 guests. Remove some guests, or upgrade to Gold.",
+        ),
+      );
+      expect(document.body.textContent).not.toMatch(/payment_required/);
+      expect(document.body.textContent).not.toMatch(/may already be saved/);
+      expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
     });
   });
 
