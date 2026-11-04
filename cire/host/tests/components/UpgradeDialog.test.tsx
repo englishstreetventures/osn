@@ -128,8 +128,8 @@ describe("pricing", () => {
   });
 
   it("offers no purchase for a tier the deployment does not sell", async () => {
-    // A catalogue that came back WITHOUT this tier: no Stripe Price configured,
-    // or no Stripe at all. A button here would 404 on press.
+    // A catalogue that came back WITHOUT this tier: no Stripe Price configured
+    // for it. A button here would 404 on press.
     authFetch.mockResolvedValueOnce(catalogue([]));
     render(() => <UpgradeDialog {...PROPS} />);
 

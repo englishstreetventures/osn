@@ -172,7 +172,9 @@ export interface Env {
   // secret from STRIPE_WEBHOOK_SECRET: two Stripe endpoints, two secrets. That
   // one is Connect-scoped and hears about gifts on a couple's account; this one
   // hears about the platform's own charges. Absent ⇒ that route does not exist,
-  // and a purchase could be paid but never granted.
+  // and nor do the upgrade routes: only this webhook grants a paid tier, so no
+  // tier is sold without it, and the key with a Price id alone logs a warning
+  // when the app is built.
   STRIPE_PLATFORM_WEBHOOK_SECRET?: string;
   // Stripe Price ids for the plan tiers (KEY-OPTIONAL, per Price). A tier with
   // no Price id here is not for sale in this deployment: it never appears in

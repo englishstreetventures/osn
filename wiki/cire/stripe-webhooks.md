@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-11-04
 ---
 
 # Stripe webhooks (cire-api)
@@ -25,7 +25,7 @@ delivery is being refused resolves to which of the two you are holding.
 | Charge type | direct, on the couple's account | platform charge |
 | Signing secret | `STRIPE_WEBHOOK_SECRET` | `STRIPE_PLATFORM_WEBHOOK_SECRET` |
 | `event.account` | always present | must be **absent** |
-| Unset or blank secret ⇒ | route not mounted, and guests are offered no money gift | route not mounted |
+| Unset or blank secret ⇒ | route not mounted, and guests are offered no money gift | route not mounted, and no tier is sold: the upgrade routes are not mounted either |
 | System page | [[cire-registry]] | [[cire-upgrades]] |
 
 A Stripe endpoint is scoped to one or the other, each carries its own signing
@@ -116,6 +116,13 @@ fixes an account's country at creation, so that is a per-deployment decision,
 not one a couple can change later.
 
 ## Recreate — the platform endpoint (upgrades)
+
+Needed for every self-serve upgrade. Without its secret cire-api sells no tier
+at all — the upgrade routes are not mounted, and the portal's dialog says
+upgrades are not available — and, where `STRIPE_SECRET_KEY` and a
+`STRIPE_UPGRADE_PRICE_*` are set, logs `upgrades disabled: STRIPE_SECRET_KEY is
+set without STRIPE_PLATFORM_WEBHOOK_SECRET` when it builds the app. With the
+secret set but the endpoint missing at Stripe, a paid purchase stays `pending`.
 
 1. Workbench → Webhooks → **Create new destination**.
 2. URL:
@@ -291,12 +298,12 @@ bunx wrangler d1 execute cire-db-dev --remote --command \
 | Endpoint 404s, nothing is delivered | its signing secret is unset, so the route is not mounted |
 | Guests see no money option though the couple's settings take money | `STRIPE_WEBHOOK_SECRET` is unset or blank beside a `STRIPE_SECRET_KEY`; the Worker logs `money gifts disabled: …` when it builds the app. Set the secret, then deploy |
 | Every delivery 400s in the dashboard | wrong secret — most often the other endpoint's |
-| Gifts settle, upgrades never do | only the Connect endpoint exists |
+| Gifts settle, upgrades never do | the platform endpoint is missing at Stripe or scoped to connected accounts, while its secret is set (with the secret unset, no tier is sold at all) |
 | Upgrades settle, gifts never do | the Connect endpoint is missing at Stripe or scoped to the platform, while its secret is set (with the secret unset, guests are offered no money gift at all) |
 | Upgrade endpoint 200s but grants nothing | the delivery carried `event.account` — a Connect event reached the platform route, which refuses it by design. Or the body's `outcome` says why: `mismatch` (the amount paid is not the Price, or the wedding was lowered below the tier the Price assumed), `refunded` (an operator took the purchase back), `unknown` (no such purchase, another session, or a session-less row it may not adopt) |
 | Every upgrade settles as `mismatch` | Stripe charges more or less than the Price — tax or discounts switched on for Checkout. Settle compares `amount_total` with the Price's own amount |
-| Dialog says upgrades are not available | no `STRIPE_UPGRADE_PRICE_*` for that move in this tier — for a Gold wedding buying Crimson, `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD`. Absent configuration never means free |
-| Checkout 404s | the same, from the session route |
+| Dialog says upgrades are not available | `STRIPE_PLATFORM_WEBHOOK_SECRET` is unset or blank, so no upgrade route is mounted; the Worker logs `upgrades disabled: …` when it builds the app, if a Price is set. Set the secret, then deploy. Or no `STRIPE_UPGRADE_PRICE_*` for that move in this tier — for a Gold wedding buying Crimson, `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD`. Absent configuration never means free |
+| Checkout 404s | the same, from the session route: `{ "error": "Not found" }` when the route is not mounted, `not_purchasable` when the move has no Price |
 | Secret changed and nothing changed | warm isolates. Redeploy |
 
 ---

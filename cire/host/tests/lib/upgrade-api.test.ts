@@ -59,8 +59,8 @@ describe("fetchCatalogue", () => {
   });
 
   it("reads a 404 as an empty catalogue, not an error", async () => {
-    // No Stripe configured ⇒ the routes are not mounted. The honest portal
-    // answer is "no purchase path", not "something broke".
+    // No Stripe key, or no platform webhook ⇒ the routes are not mounted. The
+    // honest portal answer is "no purchase path", not "something broke".
     const authFetch = vi.fn().mockResolvedValue(json({}, 404));
     expect(await fetchCatalogue(authFetch, "wed_1")).toEqual({ tier: null, upgrades: [] });
   });

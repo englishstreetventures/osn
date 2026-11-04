@@ -537,6 +537,71 @@ describe("money gifts need both Stripe values on the Worker", () => {
   });
 });
 
+describe("upgrades need the platform webhook secret on the Worker", () => {
+  // Distinctive values, so a log line that carried either would be found.
+  const KEY = "stripe-key-under-test-4b8e";
+  const PLATFORM_SECRET = "platform-webhook-secret-under-test-2d6a";
+  const WARNING =
+    "upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET";
+
+  /**
+   * Two catalogue reads, with no session, to a Worker built for `extra` on a
+   * binding it has not seen (the app is cached per D1 binding, and the warning
+   * is logged when it is built). A mounted route answers 401 for the missing
+   * session, before any Stripe call; an unmounted one answers 404.
+   */
+  async function catalogueThroughWorker(
+    extra: Record<string, unknown>,
+  ): Promise<{ statuses: number[]; bodies: unknown[]; logs: string }> {
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = {
+      ...BASE_ENV,
+      STRIPE_SECRET_KEY: KEY,
+      STRIPE_UPGRADE_PRICE_GOLD: "price_gold_under_test",
+      ...extra,
+      DB: freshBinding,
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+    const read = () =>
+      new Request("https://api.example.com/api/organiser/weddings/wed_none/upgrade/catalogue", {
+        headers: { origin: BASE_ENV.WEB_ORIGIN, "cf-connecting-ip": "203.0.113.65" },
+      }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0];
+    const statuses: number[] = [];
+    const bodies: unknown[] = [];
+    const logs = await captureLogs(async () => {
+      for (let i = 0; i < 2; i++) {
+        const res = await handler.fetch!(read(), env, ctx);
+        statuses.push(res.status);
+        bodies.push(await jsonBody(res));
+      }
+    });
+    return { statuses, bodies, logs };
+  }
+
+  it("sells no tier with a key and a Price but no platform secret, and says why once, never with the key", async () => {
+    const { statuses, bodies, logs } = await catalogueThroughWorker({});
+    expect(statuses).toEqual([404, 404]);
+    expect(bodies).toEqual([{ error: "Not found" }, { error: "Not found" }]);
+    expect(logs.split(WARNING).length - 1).toBe(1);
+    // What the operator does about it: a warm isolate keeps the app it built.
+    expect(logs).toContain("the platform webhook secret is set and the Worker redeployed");
+    expect(logs).not.toContain(KEY);
+  });
+
+  it("mounts the routes, and says nothing, with the platform secret set", async () => {
+    const { statuses, logs } = await catalogueThroughWorker({
+      STRIPE_PLATFORM_WEBHOOK_SECRET: PLATFORM_SECRET,
+    });
+    expect(statuses).toEqual([401, 401]);
+    expect(logs).not.toContain(WARNING);
+    expect(logs).not.toContain(KEY);
+    expect(logs).not.toContain(PLATFORM_SECRET);
+  });
+});
+
 describe("D1 session routing at the entry points", () => {
   /**
    * A D1 binding that records what it was asked for, delegating to the real

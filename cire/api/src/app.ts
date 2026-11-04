@@ -721,8 +721,14 @@ export interface AppOptions {
    * Signing secret for the PLATFORM webhook — upgrade purchases, where cire is
    * the merchant. A DIFFERENT secret from `stripeWebhookSecret`, because they
    * are different Stripe endpoints: that one is Connect-scoped and hears about
-   * gifts on a couple's account. Absent ⇒ the platform route is not mounted,
-   * for the same reason as the other: nothing could be verified.
+   * gifts on a couple's account. Absent or blank ⇒ the platform route is not
+   * mounted, for the same reason as the other: nothing could be verified.
+   *
+   * Upgrades need BOTH this and `stripe`: the client opens the checkout and
+   * only this webhook grants the tier. With the client alone an owner would
+   * pay and the purchase would stay `pending` for good, so the upgrade routes
+   * exist only with both, and building the app logs a warning when the client
+   * and a Price id come without the secret.
    */
   stripePlatformWebhookSecret?: string | null;
   /** Country for a newly created connected account (`AU` unless overridden). */
@@ -1445,33 +1451,51 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
   const withStripeWebhook: AnyElysia = connectWebhookSecret
     ? rootApp.use(createStripeWebhookRoutes(db, { webhookSecret: connectWebhookSecret }))
     : rootApp;
-  // Self-serve upgrades, and the platform webhook that grants them. Both use one
-  // upgrade service, which exists only with a Stripe client, so without one
-  // neither is mounted. Key-optional like the Connect routes — no Stripe client,
-  // no purchase surface.
-  if (!stripe) return withStripeWebhook;
+  // Self-serve upgrades, and the platform webhook that grants them: both or
+  // neither. The routes open a platform checkout, and only the webhook moves a
+  // purchase off `pending`, so where it cannot mount (no signing secret) no
+  // tier is sold — an owner would pay and never get it. Both use one upgrade
+  // service, which needs the Stripe client. No client, no purchase surface.
+  if (
+    stripe &&
+    !platformWebhookSecret &&
+    // A blank Price id sells nothing, as the catalogue reads it: a deployment
+    // with no Price sells no tier anyway, and the secret would change nothing.
+    Object.values(upgradePrices).some((priceId) => Boolean(priceId?.trim()))
+  ) {
+    // Once per app build: per isolate on the Worker, once at boot locally.
+    // Names the variables, never their values.
+    runCireSync(
+      Effect.logWarning(
+        "upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET",
+        {
+          detail:
+            "no plan tier is offered until the platform webhook secret is set and the Worker redeployed",
+        },
+      ),
+    );
+  }
+  if (!stripe || !platformWebhookSecret) return withStripeWebhook;
   // ONE catalogue, shared by the routes and the service. Two would mean two
   // price caches in the same isolate, so every cached read would be paid for
   // twice against the platform's Stripe quota.
   const upgradeCatalogue = createUpgradeCatalogue({ stripe, prices: upgradePrices });
   const upgrades = createUpgradeService({ stripe, catalogue: upgradeCatalogue });
-  const withUpgradeRoutes: AnyElysia = withStripeWebhook.use(
-    createUpgradeRoutes(db, osnAuthOptions, {
-      catalogue: upgradeCatalogue,
-      upgrades,
-      limiter: upgradeLimiter,
-      organiserOrigin,
-    }),
-  );
-  // The platform endpoint, on its own secret. Without it a purchase can be
-  // started and paid but never granted — nothing else in the system moves a
-  // purchase off `pending`.
-  return platformWebhookSecret
-    ? withUpgradeRoutes.use(
-        createStripePlatformWebhookRoutes(db, {
-          webhookSecret: platformWebhookSecret,
-          upgrades,
-        }),
-      )
-    : withUpgradeRoutes;
+  return withStripeWebhook
+    .use(
+      createUpgradeRoutes(db, osnAuthOptions, {
+        catalogue: upgradeCatalogue,
+        upgrades,
+        limiter: upgradeLimiter,
+        organiserOrigin,
+      }),
+    )
+    .use(
+      // The platform endpoint, on its own secret: a different Stripe endpoint
+      // from the Connect one above.
+      createStripePlatformWebhookRoutes(db, {
+        webhookSecret: platformWebhookSecret,
+        upgrades,
+      }),
+    );
 }

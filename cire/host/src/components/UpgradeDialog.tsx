@@ -23,11 +23,12 @@ import { catalogueAccessor, setCatalogue } from "../lib/upgrade-store";
  * page and sends the organiser to it; only a signature-verified webhook raises
  * the wedding's tier. The portal finds out when it comes back and polls.
  *
- * An empty catalogue is not an error. A deployment with no Stripe configured
- * has no upgrade routes at all, and the honest thing to show there is "not
- * available" rather than a button that 404s. The same goes for a tier the
- * catalogue does not offer this wedding — Crimson to a wedding on Gold, where
- * the deployment has no upgrade-from-Gold price.
+ * An empty catalogue is not an error. A deployment that sells no tier — no
+ * Stripe key, or no platform webhook to grant one — has no upgrade routes at
+ * all, and the honest thing to show there is "not available" rather than a
+ * button that 404s. The same goes for a tier the catalogue does not offer this
+ * wedding — Crimson to a wedding on Gold, where the deployment has no
+ * upgrade-from-Gold price.
  *
  * A `Modal` — the platform `<dialog>` — so focus moves in when it opens, Tab
  * stays inside, Escape and a backdrop click close it, and the page behind is
@@ -193,7 +194,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
           <Match when={catalogue() !== null}>
             {/* Catalogue loaded and this tier is not in it: no Stripe Price
                 configured in this deployment for the move from the
-                wedding's tier, or no Stripe at all. */}
+                wedding's tier, or no upgrade routes at all. */}
             <p class="text-text-muted text-ui-sm">Upgrades are not available on this site yet.</p>
           </Match>
         </Switch>

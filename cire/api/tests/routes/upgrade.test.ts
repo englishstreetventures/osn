@@ -10,6 +10,7 @@ import { createDb, seedDb } from "../../src/db/setup";
 import { StripeError, type StripeClient } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
 import { appRequest, beforeStatement, failLikeD1, jsonBody, setTier } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -22,8 +23,9 @@ import type { OsnTestAuth } from "../test-helpers/osn-token";
  *   - a value this surface does not sell is a 404, never a checkout;
  *   - the catalogue offers only tiers above the wedding's own, priced for the
  *     move from where it is;
- *   - with no Stripe configured the routes do not exist at all, so a keyless
- *     deployment has no purchase surface rather than a broken one;
+ *   - with no Stripe configured, or no platform webhook secret, the routes do
+ *     not exist at all, so a deployment that could not grant a tier has no
+ *     purchase surface rather than one that takes money and grants nothing;
  *   - nothing here grants anything. A 200 means a payment page exists.
  */
 
@@ -69,14 +71,18 @@ function stripeStub(opts: { failCreate?: boolean } = {}) {
 
 const PRICES = { gold: "price_g", crimson: "price_c", crimsonFromGold: "price_cg" };
 
+const PLATFORM_SECRET = "whsec_upgrade_test_platform";
+
 function buildApp({
   stripe,
   prices = PRICES,
   tier = "ivory",
+  platformSecret = PLATFORM_SECRET,
 }: {
   stripe?: StripeClient | null;
-  prices?: Record<string, string>;
+  prices?: Record<string, string | undefined>;
   tier?: Tier;
+  platformSecret?: string | null;
 } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
@@ -96,6 +102,7 @@ function buildApp({
     osnTestKey: auth.key,
     organiserOrigin: "https://host.test",
     stripe: stripe === undefined ? stripeStub().client : stripe,
+    stripePlatformWebhookSecret: platformSecret,
     upgradePrices: prices,
     // A fresh limiter per app: the module-level default is shared
     // process-wide, so the eleventh call in this file would otherwise 429
@@ -408,6 +415,51 @@ describe("when Stripe is not configured", () => {
     const { app } = buildApp({ stripe: null });
     expect((await get(app, `${base}/catalogue`, OWNER)).status).toBe(404);
     expect((await startSession(app, OWNER, { tier: "gold" })).status).toBe(404);
+  });
+});
+
+describe("when nothing could grant a purchase", () => {
+  /**
+   * Only the platform webhook moves a purchase off `pending`, and it exists
+   * only with its signing secret. With a key and Prices but no secret, an
+   * owner could pay and never get the tier, so the routes must not exist: the
+   * framework's own 404, not the session route's `not_purchasable`.
+   */
+  it("has no upgrade routes without a platform webhook secret, or with a blank one", async () => {
+    for (const platformSecret of [null, "   "]) {
+      const stripe = stripeStub();
+      const { app } = buildApp({ stripe: stripe.client, platformSecret });
+      const catalogue = await get(app, `${base}/catalogue`, OWNER);
+      expect(catalogue.status, String(platformSecret)).toBe(404);
+      expect(await jsonBody(catalogue)).toEqual({ error: "Not found" });
+      const session = await startSession(app, OWNER, { tier: "gold" });
+      expect(session.status, String(platformSecret)).toBe(404);
+      expect(await jsonBody(session)).toEqual({ error: "Not found" });
+      expect(stripe.created).toEqual([]);
+    }
+  });
+
+  const WARNING =
+    "upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET";
+  const warningsBuilding = async (opts: Parameters<typeof buildApp>[0]) =>
+    (await captureLogs(() => buildApp(opts))).split(WARNING).length - 1;
+
+  it("says why once when it is built with a Price to sell and no secret", async () => {
+    // One Price is enough: that deployment means to sell a tier.
+    expect(await warningsBuilding({ platformSecret: null, prices: { gold: "price_g" } })).toBe(1);
+    expect(await warningsBuilding({ platformSecret: "   " })).toBe(1);
+    // As the Worker hands them over: an unset var is `undefined`, not absent.
+    const fromEnv = { gold: undefined, crimson: "price_c", crimsonFromGold: undefined };
+    expect(await warningsBuilding({ platformSecret: null, prices: fromEnv })).toBe(1);
+  });
+
+  it("says nothing where there is no tier to sell, or nothing missing", async () => {
+    // No key: no payment surface to explain. No Price, or only a blank one: a
+    // deployment that sells no tier anyway, so the secret would change nothing.
+    expect(await warningsBuilding({ stripe: null, platformSecret: null })).toBe(0);
+    expect(await warningsBuilding({ platformSecret: null, prices: {} })).toBe(0);
+    expect(await warningsBuilding({ platformSecret: null, prices: { gold: "  " } })).toBe(0);
+    expect(await warningsBuilding({})).toBe(0);
   });
 });
 
