@@ -331,25 +331,36 @@ describe("observabilityPlugin", () => {
 
     describe("inside a span already active in the calling context", () => {
       const LOCAL_TRACE_ID = "1".repeat(32);
-      const active = trace.setSpanContext(ROOT_CONTEXT, {
-        traceId: LOCAL_TRACE_ID,
-        spanId: "2".repeat(16),
-        traceFlags: TraceFlags.SAMPLED,
-      });
+      const activeContext = (isRemote: boolean) =>
+        trace.setSpanContext(ROOT_CONTEXT, {
+          traceId: LOCAL_TRACE_ID,
+          spanId: "2".repeat(16),
+          traceFlags: TraceFlags.SAMPLED,
+          isRemote,
+        });
 
       it.each([
-        ["a valid traceparent", traceparent("01"), [inboundLink(TraceFlags.SAMPLED)]],
-        ["a malformed traceparent", "not-a-traceparent", []],
-      ])("starts a new root and links only the header, for %s", async (_, value, links) => {
-        const res = await context.with(active, () =>
-          send(makeApp(), "http://localhost/ping", { headers: { traceparent: value } }),
-        );
-        expect(res.status).toBe(200);
-        const span = onlyServerSpan();
-        expectOwnRoot(span);
-        expect(span.spanContext().traceId).not.toBe(LOCAL_TRACE_ID);
-        expect(span.links.map((l) => l.context)).toEqual(links);
-      });
+        [
+          "a valid traceparent under a local span",
+          traceparent("01"),
+          false,
+          [inboundLink(TraceFlags.SAMPLED)],
+        ],
+        ["a malformed traceparent under a local span", "not-a-traceparent", false, []],
+        ["a malformed traceparent under a remote span", "not-a-traceparent", true, []],
+      ])(
+        "starts a new root and links only the header, for %s",
+        async (_, value, isRemote, links) => {
+          const res = await context.with(activeContext(isRemote), () =>
+            send(makeApp(), "http://localhost/ping", { headers: { traceparent: value } }),
+          );
+          expect(res.status).toBe(200);
+          const span = onlyServerSpan();
+          expectOwnRoot(span);
+          expect(span.spanContext().traceId).not.toBe(LOCAL_TRACE_ID);
+          expect(span.links.map((l) => l.context)).toEqual(links);
+        },
+      );
     });
   });
 

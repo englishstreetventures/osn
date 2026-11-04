@@ -1,4 +1,11 @@
-import { type Link, SpanKind, SpanStatusCode, TraceFlags, trace } from "@opentelemetry/api";
+import {
+  type Link,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  TraceFlags,
+  trace,
+} from "@opentelemetry/api";
 import { Elysia } from "elysia";
 
 import type { HttpMethod } from "../metrics/attrs";
@@ -67,10 +74,11 @@ const sanitizeInboundRequestId = (raw: string | null): string | null => {
 const inboundTraceLinks = (headers: Headers): Link[] | undefined => {
   const traceparent = headers.get("traceparent");
   if (traceparent === null) return undefined;
-  const inbound = trace.getSpanContext(extractTraceContext({ traceparent }));
-  // Only a context the propagator parsed is remote: a malformed header falls
-  // through to whatever span is active in the calling context.
-  if (inbound?.isRemote !== true || !trace.isSpanContextValid(inbound)) return undefined;
+  // Extracted onto the root context, so the only span context the result can
+  // hold is one the propagator parsed from this header; the W3C propagator
+  // parses only a well-formed `traceparent` with non-zero ids.
+  const inbound = trace.getSpanContext(extractTraceContext({ traceparent }, ROOT_CONTEXT));
+  if (inbound === undefined) return undefined;
   return [
     {
       context: {
