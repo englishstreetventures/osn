@@ -5,10 +5,9 @@ import { GLASS_CHOICE, GLASS_FILL } from "../src/lib/glass";
 import tabsSource from "../src/segmented-tabs.tsx?raw";
 
 /*
- * `Button`'s `glass` is the strip's glass on a pill of its own (the
- * 2026-11-04 consistency audit, item 4). Tailwind reads source as text, so its
- * chosen look cannot be `GLASS_FILL` with a state put in front at run time: it
- * is written out again behind the chosen state. These hold the two copies to
+ * `Button`'s `glass` is the strip's glass on a pill of its own. Tailwind reads
+ * source as text, so its chosen look cannot be `GLASS_FILL` with a state put in
+ * front at run time: it is written out again behind the chosen state. These hold the two copies to
  * one look, so the glass on a preset never drifts from the glass in a strip.
  */
 

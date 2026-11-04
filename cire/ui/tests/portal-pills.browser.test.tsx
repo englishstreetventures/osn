@@ -1,7 +1,6 @@
 /**
- * `Button` in the portals' one pill language (the 2026-11-04 consistency
- * audit, items 1, 3, 4, 7 and 10), measured in Chromium against cire's two
- * ramps.
+ * `Button` in the portals' one pill language (host DESIGN.md §4), measured in
+ * Chromium against cire's two ramps.
  *
  * The portals set two app tokens the guest site and the marketing site leave
  * unset: `--pill-sm-height`, the small pill's height, and `--pill-ground`, the

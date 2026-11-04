@@ -434,9 +434,9 @@ head, the registry's add form, inline editor and shop link, and the co-host
 handle 34px at 14px, short of a pill; and Add item, Add payment, the total's
 Save and Cancel, Find pictures and Add host 34px.
 
-**One pill language** (owner, the 2026-11-04 consistency audit, items 1, 3, 4
-and 10). Every pill in the two portals is drawn from one set of looks, so a bar
-of strips, filters and actions reads as one row:
+**One pill language**, the owner's choice. Every pill in the two portals is
+drawn from one set of looks, so a bar of strips, filters and actions reads as
+one row:
 
 - **Heights.** 28px for a bar's pills — a strip, a filter, `Button`'s `sm`
   (`--pill-sm-height`) and an icon button (`icon`); 34px beside a form field
@@ -457,7 +457,7 @@ of strips, filters and actions reads as one row:
   a hairline. Under the pointer the ground lifts to the surface at 60% and
   the ink turns the body ink, with a gold edge; while what it opens is open it
   stands on the raised surface in the body ink and its hairline, whatever the
-  pointer does (owner, the 2026-11-05 last look). A row's icon action,
+  pointer does (the owner's choice). A row's icon action,
   repeated once per row, is `quiet` at `icon`: the same circle, its hover a
   gold edge and readable gold, held while what it opens is open.
 
