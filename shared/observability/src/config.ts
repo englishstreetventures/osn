@@ -72,7 +72,7 @@ const parseLogLevel = (value: string | undefined, env: DeploymentEnvironment): L
 };
 
 /**
- * S-M1: strict OTLP header parser.
+ * Strict OTLP header parser.
  *
  * These headers are passed straight to the OTLP HTTP exporter and
  * typically include the Grafana Cloud / Axiom / etc. Authorization
@@ -134,7 +134,7 @@ export const loadConfig = (overrides: ConfigOverrides = {}): ObservabilityConfig
     overrides.env ??
     parseDeploymentEnvironment(process.env.OSN_ENV ?? process.env.NODE_ENV ?? undefined);
 
-  // S-L3: if anything claims we're in production, require an explicit
+  // If anything claims we're in production, require an explicit
   // `OSN_ENV=production` — `NODE_ENV` alone is not sufficient because
   // Bun leaves it empty by default and a missing env would silently
   // classify as `local` (pretty logs + debug level + 100% trace sampling

@@ -16,7 +16,7 @@ import { Elysia } from "elysia";
  * Convention borrowed from Kubernetes; works on Fly.io / Render / Railway
  * / bare Docker without modification.
  *
- * IMPORTANT (S-H1): these routes are **unauthenticated** and publicly
+ * IMPORTANT: these routes are **unauthenticated** and publicly
  * reachable. Response bodies are deliberately opaque — never include
  * driver text, file paths, connection strings, or any other internal
  * detail. Probe failures are logged via `Effect.logError` for
@@ -57,7 +57,7 @@ export const healthRoutes = (options: HealthRoutesOptions) =>
         return { status: "ready", service: options.serviceName };
       } catch (err) {
         set.status = 503;
-        // S-H1: log the underlying error for operators but do NOT
+        // Log the underlying error for operators but do NOT
         // return it to the caller. The body shape is identical to
         // the `ok === false` branch so external callers cannot
         // distinguish "probe threw" from "probe returned false".
