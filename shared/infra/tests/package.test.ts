@@ -150,7 +150,7 @@ describe("pinned Alchemy", () => {
 
   test("the lockfile resolves no @distilled.cloud/aws and neither of the provider's optional Alchemy peers", () => {
     // `@distilled.cloud/aws` builds a record of optional values, a schema
-    // Effect 4.0.7 refuses, and the provider reaches it lazily, from an R2
+    // Effect refuses, and the provider reaches it lazily, from an R2
     // bucket, so a deploy would fail long after start-up checks passed.
     // `@alchemy.run/frontend-frameworks` depends on it. `@alchemy.run/domain`
     // is used by no stack, and the dependency review in
