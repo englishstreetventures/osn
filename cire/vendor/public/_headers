@@ -5,22 +5,28 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://api.cireweddings.com; connect-src 'self' https://api.cireweddings.com; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
+  Cache-Control: no-store
 
 /claim*
   Referrer-Policy: no-referrer
 
-# The dashboard holds the signed-in account's data. `no-store` keeps it out of
-# the HTTP cache and, in most browsers, out of the back/forward cache, so Back
-# after sign-out cannot show it again; `lib/bfcache.ts` reloads it where a
-# browser restores it anyway.
-/
-  Cache-Control: no-store
+# `Cache-Control: no-store` above is on every path because every page holds
+# the signed-in account's data: `/`, `/login/`, `/claim/`, and the dashboard
+# the portal serves at any path no file answers. A rule matches the path
+# asked, not the file served. `no-store` keeps the page out of the HTTP cache
+# and, in most browsers, out of the back/forward cache, so Back after sign-out
+# cannot show it again; `lib/bfcache.ts` reloads it where a browser restores
+# it anyway.
 
 # Long-cache the immutable, content-hashed Astro bundles, the self-hosted font
-# files included. Every path under /_astro/ carries a content hash in the
-# filename, so a year-long cache is unconditionally safe: a changed file is a
-# new URL, never the same one with different bytes.
+# files included. Every file under /_astro/ carries a content hash in its name,
+# so a changed file is a new URL, never the same one with different bytes. A
+# second rule's value is joined to the first's, and `no-store` would win, so
+# `! Cache-Control` drops the `/*` value first. The rule matches a path the
+# build does not hold too, and the browser keeps that answer, the dashboard
+# page, for the year as well.
 /_astro/*
+  ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
 
 # One ENFORCED policy: the browser blocks whatever it does not allow and
