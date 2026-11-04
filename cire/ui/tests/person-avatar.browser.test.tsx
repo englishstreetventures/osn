@@ -146,20 +146,27 @@ describe("PersonAvatar", () => {
 describe("avatarTriggerClass", () => {
   for (const ramp of RAMPS) {
     it(`turns the avatar's edge under the pointer and draws the house ring, ${ramp}`, async () => {
+      // The ground the portals set (`--pill-ground`), which the trigger reads.
+      const portal = {
+        "--pill-ground": "color-mix(in oklab, var(--ui-surface) 30%, transparent)",
+      } as JSX.CSSProperties;
       render(() => (
-        <Ramp ramp={ramp}>
-          <button type="button" aria-label="Account menu" class={avatarTriggerClass}>
-            <PersonAvatar fallback="initial" name="Ada" class="size-full" />
-          </button>
-        </Ramp>
+        <div style={portal}>
+          <Ramp ramp={ramp}>
+            <button type="button" aria-label="Account menu" class={avatarTriggerClass}>
+              <PersonAvatar fallback="initial" name="Ada" class="size-full" />
+            </button>
+          </Ramp>
+        </div>
       ));
       const button = screen.getByRole("button", { name: "Account menu" });
       const avatar = button.firstElementChild!;
       expect(button.getBoundingClientRect().width).toBe(36);
-      // The trigger lays the portals' 40% surface; the avatar adds no fill.
+      // The trigger lays the portals' pill ground, the surface at 30%; the
+      // avatar adds no fill.
       const surface = token(button, "--ui-surface");
       expect(composite(["#000", getComputedStyle(button).backgroundColor])).toEqual(
-        composite(["#000", `color-mix(in oklab, ${surface} 40%, transparent)`]),
+        composite(["#000", `color-mix(in oklab, ${surface} 30%, transparent)`]),
       );
       expect(composite(["#000", getComputedStyle(avatar).backgroundColor])).toEqual([0, 0, 0]);
       for (const letter of screen.getAllByText("A")) {
