@@ -16,7 +16,11 @@ import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createCapturingTestLayer, createTestLayer } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -1673,6 +1677,54 @@ describe("internal graph routes (ARC-protected)", () => {
         }),
       );
       expect(rows[0]?.revokedAt).not.toBeNull();
+    });
+
+    const revokedAtOf = async (keyId: string) => {
+      const rows = await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db.select().from(serviceAccountKeys).where(eq(serviceAccountKeys.keyId, keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+      return rows[0]?.revokedAt;
+    };
+
+    it.each([
+      ["no Authorization header", {}],
+      ["a secret with one character too many", { Authorization: `Bearer ${SECRET}x` }],
+    ] as const)("refuses %s with 401 and leaves the key live", async (_, headers) => {
+      const { keyId } = await setupArcService("revoke-refused-svc", "graph:read");
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers,
+        }),
+      );
+      expect(res.status).toBe(401);
+      expect(await revokedAtOf(keyId)).toBeNull();
+    });
+
+    it("answers 500 without the database's text when the revoke write fails", async () => {
+      const withSqlite = createTestLayerWithSqlite();
+      layer = withSqlite.layer;
+      app = createInternalGraphRoutes(layer, undefined, SECRET);
+      const { keyId } = await setupArcService("revoke-fails-svc", "graph:read");
+      withSqlite.sqlite.run(
+        "CREATE TRIGGER refuse_key_revoke BEFORE UPDATE ON service_account_keys BEGIN SELECT RAISE(ABORT, 'refused by test'); END;",
+      );
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(500);
+      expect(await res.text()).not.toContain("refused by test");
+      expect(await revokedAtOf(keyId)).toBeNull();
     });
 
     it("a second revoke keeps the time the key was first revoked", async () => {
