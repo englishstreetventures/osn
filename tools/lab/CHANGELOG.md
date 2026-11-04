@@ -1,5 +1,15 @@
 # @tools/lab
 
+## 0.3.28
+
+### Patch Changes
+
+- 1b05223: A `cire/ui/Button` story group: every variant at every size inside cire's light and dark mapping, the `disabled`, `aria-disabled` and chosen states, and the corner claims measured from the painted button — the 32px icon circle, the 14px field corner, a caller's corner winning. cire's `--ui-*` mapping moves into `stories/cire-ui/cire-mapping.ts`, which the theming story now reads too.
+- 94a7824: The design-system stories show the new `field` radius role: the radius gallery lists it, the role section labels the input `rounded-ui-field`, and the theming story maps cire's soft-shapes radii (pill buttons, 14px fields, 16px cards). The lab depends on `@cire/ui`, so its stories can render cire's components.
+- Updated dependencies [94a7824]
+  - @shared/design-tokens@0.3.9
+  - @shared/ui@0.7.5
+
 ## 0.3.27
 
 ### Patch Changes
