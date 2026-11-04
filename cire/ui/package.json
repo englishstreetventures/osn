@@ -22,6 +22,7 @@
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./legal-layout.astro": "./src/legal-layout.astro",
     "./lib/auto-size": "./src/lib/auto-size.ts",
+    "./lib/glass": "./src/lib/glass.ts",
     "./lib/haptics": "./src/lib/haptics.ts",
     "./lib/theme": "./src/lib/theme.ts",
     "./lib/theme-boot": "./src/lib/theme-boot.ts",

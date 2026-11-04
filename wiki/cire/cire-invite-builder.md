@@ -1437,7 +1437,7 @@ bar is already stuck under the top bar.
 
 **On a phone, one pill.** Below a 30rem panel (`PHONE_REM`) both strips give
 way to one button in the bar: a glass pill naming the place (a view, or under
-Content the section) in the chosen choice's glass (`SEGMENTED_GLASS_FILL`) and
+Content the section) in the chosen choice's glass (`GLASS_FILL`) and
 readable gold, beside a round glass chevron. It opens the shared accent menu
 (`DropdownMenu`) with the strips' two tiers as two radio groups: the four
 views (named "Views" for a screen reader), then Content's six sections under

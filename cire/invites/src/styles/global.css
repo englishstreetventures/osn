@@ -8,9 +8,10 @@
 @source "../../../ui/src";
 /* This site draws no file picker, so `FileInput`'s button rules stay out. */
 @source not "../../../ui/src/file-input.tsx";
-/* Nor a segmented strip: its glass rules stay out. A page that draws
-   `SegmentedTabs` needs this line gone. */
+/* Nor the portals' glass: a segmented strip and the glass it shares. A page
+   that draws `SegmentedTabs` or `GLASS_FILL` needs these two lines gone. */
 @source not "../../../ui/src/segmented-tabs.tsx";
+@source not "../../../ui/src/lib/glass.ts";
 /* Nor the portals' wordmark. A page that draws `Wordmark` needs this line
    gone. */
 @source not "../../../ui/src/wordmark.tsx";
