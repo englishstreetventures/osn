@@ -423,7 +423,8 @@ describe("when nothing could grant a purchase", () => {
    * Only the platform webhook moves a purchase off `pending`, and it exists
    * only with its signing secret. With a key and Prices but no secret, an
    * owner could pay and never get the tier, so the routes must not exist: the
-   * framework's own 404, not the session route's `not_purchasable`.
+   * framework's own 404, not the session route's `not_purchasable` or the
+   * poll's `not_found`.
    */
   it("has no upgrade routes without a platform webhook secret, or with a blank one", async () => {
     for (const platformSecret of [null, "   "]) {
@@ -435,6 +436,9 @@ describe("when nothing could grant a purchase", () => {
       const session = await startSession(app, OWNER, { tier: "gold" });
       expect(session.status, String(platformSecret)).toBe(404);
       expect(await jsonBody(session)).toEqual({ error: "Not found" });
+      const poll = await get(app, `${base}/purchases/upg_any`, OWNER);
+      expect(poll.status, String(platformSecret)).toBe(404);
+      expect(await jsonBody(poll)).toEqual({ error: "Not found" });
       expect(stripe.created).toEqual([]);
     }
   });
