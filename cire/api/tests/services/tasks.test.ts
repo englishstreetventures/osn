@@ -60,6 +60,70 @@ describe("tasksService", () => {
     expect(list.value[0]!.completedAt).toBeNull();
   });
 
+  it("keeps completed_at when a done task is marked done again", async () => {
+    const db = db0();
+    const created = await run(
+      db,
+      tasksService.create({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "T",
+        timeframeBucket: "6m",
+        notes: null,
+        dueAt: null,
+      }),
+    );
+    if (!Exit.isSuccess(created)) throw new Error("create failed");
+    const id = created.value.id;
+    const FIRST_DONE = new Date(1_000_000);
+    db.update(tasks).set({ status: "done", completedAt: FIRST_DONE }).where(eq(tasks.id, id)).run();
+
+    const again = await run(
+      db,
+      tasksService.update({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        taskId: id,
+        patch: { status: "done" },
+      }),
+    );
+    if (!Exit.isSuccess(again)) throw new Error("done again failed");
+    expect(again.value.completedAt).toBe(FIRST_DONE.getTime());
+  });
+
+  it("stamps now when a task is marked done from a state with no completion time to keep", async () => {
+    const db = db0();
+    const created = await run(
+      db,
+      tasksService.create({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "T",
+        timeframeBucket: "6m",
+        notes: null,
+        dueAt: null,
+      }),
+    );
+    if (!Exit.isSuccess(created)) throw new Error("create failed");
+    const id = created.value.id;
+    const STALE = new Date(1_000_000);
+    // An open task carrying a stale time, and a done task carrying none: neither
+    // has a completion to keep, so marking it done stamps now.
+    for (const seeded of [
+      { status: "open", completedAt: STALE },
+      { status: "done", completedAt: null },
+    ] as const) {
+      db.update(tasks).set(seeded).where(eq(tasks.id, id)).run();
+      const done = await run(
+        db,
+        tasksService.update({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          taskId: id,
+          patch: { status: "done" },
+        }),
+      );
+      if (!Exit.isSuccess(done)) throw new Error("done failed");
+      expect(Math.abs(done.value.completedAt! - Date.now())).toBeLessThan(5_000);
+    }
+  });
+
   it("stamps completed_at on done and clears it on reopen", async () => {
     const db = db0();
     const created = await run(
@@ -86,6 +150,7 @@ describe("tasksService", () => {
     if (!Exit.isSuccess(done)) throw new Error("done failed");
     expect(done.value.status).toBe("done");
     expect(typeof done.value.completedAt).toBe("number");
+    expect(Math.abs(done.value.completedAt! - Date.now())).toBeLessThan(5_000);
 
     const reopened = await run(
       db,

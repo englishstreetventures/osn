@@ -27,6 +27,7 @@ import {
   PaymentNotInItem,
   perHeadMinor,
 } from "../../src/services/budget";
+import { recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER = "wed_other";
@@ -151,6 +152,38 @@ describe("budgetService", () => {
     ]);
   });
 
+  it("keeps paid_at when a paid payment is marked paid again", async () => {
+    const db = db0();
+    const created = await run(db, budgetService.createItem(newItem()));
+    if (!Exit.isSuccess(created)) throw new Error("create failed");
+    const itemId = created.value.id;
+    const pay = await run(
+      db,
+      budgetService.addPayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        label: "Deposit",
+        amountMinor: 250000,
+        dueAt: "2026-03-01",
+      }),
+    );
+    if (!Exit.isSuccess(pay)) throw new Error("add payment failed");
+    const FIRST_PAID = new Date(1_000_000);
+    db.update(payments).set({ paidAt: FIRST_PAID }).where(eq(payments.id, pay.value.id)).run();
+
+    const again = await run(
+      db,
+      budgetService.updatePayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        paymentId: pay.value.id,
+        patch: { paid: true },
+      }),
+    );
+    if (!Exit.isSuccess(again)) throw new Error("mark paid again failed");
+    expect(again.value.paidAt).toBe(FIRST_PAID.getTime());
+  });
+
   it("adds a payment, marks it paid then unpaid, and blocks a cross-tenant add", async () => {
     const db = db0();
     const created = await run(db, budgetService.createItem(newItem()));
@@ -181,6 +214,20 @@ describe("budgetService", () => {
     );
     if (!Exit.isSuccess(paid)) throw new Error("mark paid failed");
     expect(typeof paid.value.paidAt).toBe("number");
+    expect(Math.abs(paid.value.paidAt! - Date.now())).toBeLessThan(5_000);
+
+    // A patch that does not name `paid` leaves the paid time alone.
+    const relabelled = await run(
+      db,
+      budgetService.updatePayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        paymentId: pay.value.id,
+        patch: { label: "Deposit (paid)" },
+      }),
+    );
+    if (!Exit.isSuccess(relabelled)) throw new Error("relabel failed");
+    expect(relabelled.value.paidAt).toBe(paid.value.paidAt);
 
     const unpaid = await run(
       db,
@@ -801,5 +848,144 @@ describe("budgetService — per-head lines", () => {
       headcount: null,
     });
     expect(snap.value.rollup.totals.estimateMinor).toBe(1_000);
+  });
+});
+
+describe("budgetService — statement counts and tenancy", () => {
+  async function seedPayment() {
+    const db = db0();
+    const item = await run(db, budgetService.createItem(newItem()));
+    if (!Exit.isSuccess(item)) throw new Error("create item failed");
+    const other = await run(db, budgetService.createItem(newItem({ name: "Other line" })));
+    if (!Exit.isSuccess(other)) throw new Error("create item failed");
+    const pay = await run(
+      db,
+      budgetService.addPayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: item.value.id,
+        label: "Deposit",
+        amountMinor: 100,
+        dueAt: null,
+      }),
+    );
+    if (!Exit.isSuccess(pay)) throw new Error("add payment failed");
+    return { db, itemId: item.value.id, otherItemId: other.value.id, paymentId: pay.value.id };
+  }
+
+  const failure = (exit: Exit.Exit<unknown, unknown>) =>
+    Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined;
+
+  it("adds a payment in one statement", async () => {
+    const { db, itemId } = await seedPayment();
+    const statements = recordStatements(db);
+    const res = await run(
+      db,
+      budgetService.addPayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        label: "Second",
+        amountMinor: 5,
+        dueAt: "2026-05-01",
+      }),
+    );
+    expect(Exit.isSuccess(res)).toBe(true);
+    expect(statements).toHaveLength(1);
+    if (Exit.isSuccess(res)) {
+      const stored = db.select().from(payments).where(eq(payments.id, res.value.id)).all();
+      expect(stored).toHaveLength(1);
+      expect(stored[0]!.budgetItemId).toBe(itemId);
+      expect(stored[0]!.label).toBe("Second");
+    }
+  });
+
+  it("updates a payment in one statement, with a patch or without", async () => {
+    const { db, itemId, paymentId } = await seedPayment();
+    const statements = recordStatements(db);
+    const base = { weddingId: BOOTSTRAP_WEDDING_ID, itemId, paymentId };
+    const paid = await run(db, budgetService.updatePayment({ ...base, patch: { paid: true } }));
+    expect(Exit.isSuccess(paid)).toBe(true);
+    expect(statements).toHaveLength(1);
+    const read = await run(db, budgetService.updatePayment({ ...base, patch: {} }));
+    expect(Exit.isSuccess(read)).toBe(true);
+    expect(statements).toHaveLength(2);
+  });
+
+  it("removes a payment in one statement", async () => {
+    const { db, itemId, paymentId } = await seedPayment();
+    const statements = recordStatements(db);
+    const res = await run(
+      db,
+      budgetService.removePayment({ weddingId: BOOTSTRAP_WEDDING_ID, itemId, paymentId }),
+    );
+    expect(Exit.isSuccess(res)).toBe(true);
+    expect(statements).toHaveLength(1);
+    expect(db.select().from(payments).where(eq(payments.id, paymentId)).all()).toHaveLength(0);
+  });
+
+  it("refuses another wedding's item on every payment write, and writes nothing", async () => {
+    const { db, itemId, paymentId } = await seedPayment();
+    const before = db.select().from(payments).all();
+    const base = { weddingId: OTHER, itemId, paymentId };
+    const results = [
+      await run(
+        db,
+        budgetService.addPayment({
+          weddingId: OTHER,
+          itemId,
+          label: "X",
+          amountMinor: 1,
+          dueAt: null,
+        }),
+      ),
+      await run(db, budgetService.updatePayment({ ...base, patch: { paid: true } })),
+      await run(db, budgetService.updatePayment({ ...base, patch: {} })),
+      await run(db, budgetService.removePayment(base)),
+    ];
+    for (const r of results) expect(failure(r)).toBeInstanceOf(BudgetItemNotInWedding);
+    expect(db.select().from(payments).all()).toEqual(before);
+  });
+
+  it("answers PaymentNotInItem for a payment under another item of the same wedding", async () => {
+    const { db, otherItemId, paymentId } = await seedPayment();
+    const base = { weddingId: BOOTSTRAP_WEDDING_ID, itemId: otherItemId, paymentId };
+    expect(
+      failure(await run(db, budgetService.updatePayment({ ...base, patch: { paid: true } }))),
+    ).toBeInstanceOf(PaymentNotInItem);
+    expect(
+      failure(await run(db, budgetService.updatePayment({ ...base, patch: {} }))),
+    ).toBeInstanceOf(PaymentNotInItem);
+    expect(failure(await run(db, budgetService.removePayment(base)))).toBeInstanceOf(
+      PaymentNotInItem,
+    );
+    expect(db.select().from(payments).where(eq(payments.id, paymentId)).all()).toHaveLength(1);
+  });
+
+  it("answers BudgetItemNotInWedding for an item that does not exist", async () => {
+    const { db, paymentId } = await seedPayment();
+    const base = { weddingId: BOOTSTRAP_WEDDING_ID, itemId: "bit_nope", paymentId };
+    expect(
+      failure(await run(db, budgetService.updatePayment({ ...base, patch: { paid: true } }))),
+    ).toBeInstanceOf(BudgetItemNotInWedding);
+    expect(failure(await run(db, budgetService.removePayment(base)))).toBeInstanceOf(
+      BudgetItemNotInWedding,
+    );
+  });
+
+  it("reads one row for the top sort_order however large the category", async () => {
+    const db = db0();
+    for (const n of [1, 2, 3]) await run(db, budgetService.createItem(newItem({ name: `L${n}` })));
+    const statements = recordStatements(db);
+    const res = await run(db, budgetService.createItem(newItem({ name: "L4" })));
+    expect(Exit.isSuccess(res) && res.value.sortOrder).toBe(3);
+    const reads = statements.filter((s) => /^select\b/i.test(s.sql));
+    expect(reads).toHaveLength(1);
+    expect(reads[0]!.rowCounts).toEqual([1]);
+  });
+
+  it("starts an empty category at sort_order 0", async () => {
+    const db = db0();
+    await run(db, budgetService.createItem(newItem({ category: "venue" })));
+    const res = await run(db, budgetService.createItem(newItem({ category: "catering" })));
+    expect(Exit.isSuccess(res) && res.value.sortOrder).toBe(0);
   });
 });

@@ -70,8 +70,8 @@ type TableShape = {
 };
 type SchemaSnapshot = {
   tables: Record<string, TableShape>;
-  /** Triggers + views. None exist today — pinned so a future migration that
-   * adds one can't silently skip the mirror (indexes are diffed per-table). */
+  /** Triggers + views, so a migration that adds one cannot skip the mirror
+   * (indexes are diffed per-table). */
   nonTableObjects: Array<{ type: string; name: string; sql: string }>;
 };
 
@@ -414,7 +414,7 @@ describe("T-S1 lockstep: setup.ts test DDL ↔ migrated D1 shape", () => {
     expect(Object.keys(mirror.tables).toSorted()).toEqual(Object.keys(migrated.tables).toSorted());
   });
 
-  it("declares the same triggers and views (today: none)", () => {
+  it("declares the same triggers and views", () => {
     expect(mirror.nonTableObjects).toEqual(migrated.nonTableObjects);
   });
 

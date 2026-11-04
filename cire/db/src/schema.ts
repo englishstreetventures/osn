@@ -824,6 +824,16 @@ export const directoryVendorCategories = sqliteTable(
   (t) => [primaryKey({ columns: [t.directoryVendorId, t.category] })],
 );
 
+/** Vendor CRM pipeline stages, in display order. */
+export const VENDOR_STATUSES = [
+  "researching",
+  "contacted",
+  "quoted",
+  "booked",
+  "declined",
+] as const;
+export type VendorStatus = (typeof VENDOR_STATUSES)[number];
+
 // vendors: the wedding-scoped CRM row (organiser-private).
 export const vendors = sqliteTable(
   "vendors",
@@ -835,7 +845,11 @@ export const vendors = sqliteTable(
     directoryVendorId: text("directory_vendor_id"),
     name: text("name").notNull(),
     category: text("category").notNull(),
-    status: text("status").notNull().default("researching"),
+    // A pipeline stage. The triggers `vendors_status_stage` and
+    // `…_stage_update` refuse any other value, since SQLite cannot add a CHECK
+    // to the table without a copy-and-swap that would cascade into
+    // `vendor_enquiries`.
+    status: text("status", { enum: VENDOR_STATUSES }).notNull().default("researching"),
     contactName: text("contact_name"),
     email: text("email"),
     phone: text("phone"),

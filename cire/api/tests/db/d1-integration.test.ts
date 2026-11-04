@@ -602,6 +602,25 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "D1 refuses a vendor status outside the pipeline",
+    async () => {
+      // The trigger fires before the foreign-key check, so no wedding is needed.
+      let refused = "accepted";
+      try {
+        await d1
+          .prepare(
+            "INSERT INTO vendors (id, wedding_id, name, category, status, sort_order, created_at, updated_at) VALUES ('ven_bad', 'wed_none', 'X', 'florals', 'maybe', 0, 1, 1)",
+          )
+          .run();
+      } catch (error) {
+        refused = String(error);
+      }
+      expect(refused).toContain("vendor status is not a pipeline stage");
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "claim.lookup fails for an unknown code",
     async () => {
       await expect(run(claimService.lookup("NOPE-0000"))).rejects.toThrow();
