@@ -452,6 +452,14 @@
 
   --ui-focus: var(--focus);
 
+  /* The portals' pill, which `@cire/ui`'s `Button` reads (DESIGN.md §4, One
+   * pill language): every non-primary pill sits on the glass track's ground,
+   * the surface at 30%, and a small pill stands at the tracks' and filters'
+   * 28px. The guest site and the marketing site set neither, so their pills
+   * stay clear and their small buttons keep their padding's height. */
+  --pill-ground: color-mix(in oklab, var(--surface) 30%, transparent);
+  --pill-sm-height: 1.75rem;
+
   /* The corner each role paints, the same in every cire app: buttons are
    * pills; text fields, selects and the `tile`, `field` and `swatch` buttons
    * 14px; cards and centred modals 16px. `field` and `lg` are written here

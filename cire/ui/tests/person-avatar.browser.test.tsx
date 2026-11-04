@@ -34,11 +34,17 @@ afterEach(async () => {
   cleanup();
 });
 
-function Ramp(props: { ramp: Ramp; children: JSX.Element; class?: string }) {
+function Ramp(props: {
+  ramp: Ramp;
+  children: JSX.Element;
+  class?: string;
+  style?: JSX.CSSProperties;
+}) {
   return (
     <div
       data-ramp={props.ramp === "light" ? "light" : undefined}
       class={`bg-ui-ground flex items-center gap-4 p-4 ${props.class ?? ""}`}
+      style={props.style}
     >
       {props.children}
     </div>
@@ -146,18 +152,17 @@ describe("PersonAvatar", () => {
 describe("avatarTriggerClass", () => {
   for (const ramp of RAMPS) {
     it(`turns the avatar's edge under the pointer and draws the house ring, ${ramp}`, async () => {
-      // The ground the portals set (`--pill-ground`), which the trigger reads.
+      // The ground the portals set (`--pill-ground`), which the trigger reads,
+      // declared where the ramp is so it takes that ramp's surface.
       const portal = {
         "--pill-ground": "color-mix(in oklab, var(--ui-surface) 30%, transparent)",
       } as JSX.CSSProperties;
       render(() => (
-        <div style={portal}>
-          <Ramp ramp={ramp}>
-            <button type="button" aria-label="Account menu" class={avatarTriggerClass}>
-              <PersonAvatar fallback="initial" name="Ada" class="size-full" />
-            </button>
-          </Ramp>
-        </div>
+        <Ramp ramp={ramp} style={portal}>
+          <button type="button" aria-label="Account menu" class={avatarTriggerClass}>
+            <PersonAvatar fallback="initial" name="Ada" class="size-full" />
+          </button>
+        </Ramp>
       ));
       const button = screen.getByRole("button", { name: "Account menu" });
       const avatar = button.firstElementChild!;

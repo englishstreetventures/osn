@@ -1,18 +1,21 @@
 import type { SafeProps } from "@shared/ui/ui/props";
 import { splitProps } from "solid-js";
 
+import { GLASS_CHOICE } from "./lib/glass";
+
 /**
  * cire's button.
  *
- * Seventeen variants, each named for the job a control does, so a call site
- * names the job rather than writing out its classes. Twelve draw a box:
- * `primary`, `cta`, `outline`, `quiet`, `quietDanger`, `choice`, `tile`,
- * `dashed`, `field`, `danger`, `chip` and `round`. Five draw none: `link`,
- * `subtle`, `touchLink`, `bare` and `bareDanger` (see {@link BORDERLESS}).
+ * Eighteen variants, each named for the job a control does, so a call site
+ * names the job rather than writing out its classes. Thirteen draw a box:
+ * `primary`, `cta`, `outline`, `quiet`, `quietDanger`, `choice`, `glass`,
+ * `tile`, `dashed`, `field`, `danger`, `chip` and `round`. Five draw none:
+ * `link`, `subtle`, `touchLink`, `bare` and `bareDanger` (see
+ * {@link BORDERLESS}).
  *
  * ## Why this is not `@shared/ui`'s Button
  *
- * The vocabulary is the house's, not a general one: seventeen variants named for
+ * The vocabulary is the house's, not a general one: eighteen variants named for
  * the jobs cire's screens do — a guest site's outlined call to action, a tile,
  * a field-shaped trigger, a sheet's chrome — and a *gold* primary rather than a
  * neutral one. `@shared/ui`'s Button is the shadcn set, six variants, and an
@@ -28,6 +31,18 @@ import { splitProps } from "solid-js";
  * Nothing here transforms the label. The corner comes from a contract role
  * rather than a size step, so each app sets how round its buttons are once, in
  * its stylesheet: see {@link cornerFor}.
+ *
+ * ## The portals' two tokens
+ *
+ * Two app tokens the host and vendor portals set and the guest site and the
+ * marketing site leave unset, so one `Button` draws both products:
+ *
+ * - `--pill-ground`, the ground a non-primary pill sits on: in the portals the
+ *   surface at 30%, the glass track's own, so a pill beside a strip sits on
+ *   the same ground; unset, transparent, as an invite's outlined pills are.
+ * - `--pill-sm-height`, the `sm` pill's height: 28px in the portals, the
+ *   height of the tracks and filters beside it; unset, the padding's own
+ *   height (31px), which the guest site's small buttons keep.
  *
  * ## No haptic here
  *
@@ -54,6 +69,7 @@ export type ButtonVariant =
   | "quiet"
   | "quietDanger"
   | "choice"
+  | "glass"
   | "tile"
   | "dashed"
   | "field"
@@ -65,7 +81,7 @@ export type ButtonVariant =
   | "touchLink"
   | "bare"
   | "bareDanger";
-export type ButtonSize = "sm" | "md" | "lg" | "swatch" | "icon";
+export type ButtonSize = "sm" | "md" | "lg" | "form" | "swatch" | "icon";
 
 const BASE =
   "base:font-ui-body base:inline-flex base:items-center base:justify-center base:gap-2 " +
@@ -93,21 +109,27 @@ const BASE =
  * `--dur-fast`, so it follows the app's motion ladder; the fallback is for an
  * app that declares no ladder.
  *
- * `choice` runs on its own clock instead ({@link CHOICE_MOTION}).
+ * `choice` and `glass` run on two clocks instead ({@link CHOICE_MOTION}).
  */
 const MOTION =
   "base:transition-[color,background-color,border-color,text-decoration-color] " +
   "base:duration-(--dur-fast,100ms) base:ease-out";
 
 /**
- * `choice`'s colours and ring move on `--dur-base`, a step slower than a
- * hover's, so the gold can be seen coming up between rest, halfway and
- * chosen. `box-shadow` is listed because the ring is a shadow; the outline
- * still is not, so the focus ring lands at once.
+ * `choice`'s and `glass`'s two clocks, the house's one motion rule: a hover
+ * comes and goes on `--dur-fast` with the arriving curve, and a choice being
+ * made — the state `aria-pressed` or `aria-checked` marks — arrives on
+ * `--dur-base` with `ease-in-out`, the glass's step, so the gold can be seen
+ * coming up. A browser takes a transition from the state it moves to, so the
+ * answer giving the mark up runs on the rest clock. `box-shadow` is listed
+ * because the ring and the glass's edges are shadows; the outline still is
+ * not, so the focus ring lands at once.
  */
 const CHOICE_MOTION =
   "base:transition-[color,background-color,border-color,box-shadow] " +
-  "base:duration-(--dur-base,150ms) base:ease-out";
+  "base:duration-(--dur-fast,100ms) base:ease-out " +
+  "base:aria-pressed:duration-(--dur-base,150ms) base:aria-pressed:ease-in-out " +
+  "base:aria-checked:duration-(--dur-base,150ms) base:aria-checked:ease-in-out";
 
 /**
  * How an `aria-disabled` control looks: faded to 40%, for every variant but
@@ -139,7 +161,7 @@ const VARIANT = {
    * needs its commit to be findable — so there `primary` is filled from the
    * start and `outline` never fills. Both products need both.
    */
-  cta: "base:border-ui-accent base:text-ui-accent-ink base:bg-transparent base:hover:bg-ui-accent base:hover:text-ui-on-accent base:disabled:hover:bg-transparent base:disabled:hover:text-ui-accent-ink",
+  cta: "base:border-ui-accent base:text-ui-accent-ink base:bg-[color:var(--pill-ground,transparent)] base:hover:bg-ui-accent base:hover:text-ui-on-accent base:disabled:hover:bg-[color:var(--pill-ground,transparent)] base:disabled:hover:text-ui-accent-ink",
   /**
    * The portals' secondary action, and a link that stands alone drawn as a
    * pill: a gold word inside a 40% gold edge.
@@ -150,9 +172,19 @@ const VARIANT = {
    * keeps its rest contrast wherever the button sits, and the edge is the
    * hover's one sign.
    */
-  outline: "base:border-ui-accent/40 base:text-ui-accent-ink base:hover:border-ui-accent",
+  outline:
+    "base:border-ui-accent/40 base:bg-[color:var(--pill-ground,transparent)] base:text-ui-accent-ink base:hover:border-ui-accent",
+  /**
+   * The quiet action, and in the portals the bar's one icon button: a glyph in
+   * a 28px circle on the track's ground and hairline (`size="icon"`).
+   *
+   * While what it opens is open — a popover, a menu, the reply key — it holds
+   * its hover look (Kobalte and the call sites set `aria-expanded`), so the
+   * button reads as the thing that is open.
+   */
   quiet:
-    "base:border-ui-hairline base:text-ui-ink-secondary base:hover:border-ui-accent base:hover:text-ui-accent-ink",
+    "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary base:hover:border-ui-accent base:hover:text-ui-accent-ink " +
+    "base:aria-expanded:border-ui-accent base:aria-expanded:text-ui-accent-ink",
   /**
    * Destroys something, and says so only when you reach for it — the
    * "Deactivate" beside a household in the guest table, where the rows above
@@ -165,7 +197,7 @@ const VARIANT = {
    * commits the destruction — the confirm, not the control that offers it.
    */
   quietDanger:
-    "base:border-ui-hairline base:text-ui-ink-secondary base:hover:border-ui-danger base:hover:text-ui-danger",
+    "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary base:hover:border-ui-danger base:hover:text-ui-danger",
   /**
    * One option among several, with the chosen one marked — the guest sheet's
    * Attending and Not attending, the desktop/phone preview toggle, the palette
@@ -196,7 +228,7 @@ const VARIANT = {
    * hand-rolled gold rings at these call sites were approximating.
    */
   choice:
-    "base:border-ui-hairline base:text-ui-ink-secondary " +
+    "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary " +
     "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:border-[color:color-mix(in_oklab,var(--ui-hairline),var(--ui-accent))] " +
     "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:text-[color:color-mix(in_oklab,var(--ui-ink-secondary),var(--ui-accent-ink))] " +
     "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:ring-1 " +
@@ -205,6 +237,22 @@ const VARIANT = {
     "base:aria-pressed:ring-2 base:aria-pressed:ring-ui-accent/60 " +
     "base:aria-checked:border-ui-accent base:aria-checked:text-ui-accent-ink " +
     "base:aria-checked:ring-2 base:aria-checked:ring-ui-accent/60",
+  /**
+   * One of several in the portals: the scheme presets, the preview's Desktop
+   * and Phone, a crop's shape. At rest the glass track's look — a hairline on
+   * the portals' ground, the secondary ink; under the pointer an unchosen one
+   * goes halfway as a strip's choice does; chosen (`aria-pressed` or
+   * `aria-checked`) it wears the strip's glass in readable gold, so a pill that
+   * picks one of several reads as a choice in a strip does. A contrast theme
+   * drops the glass, and the chosen pill keeps a 1px outline.
+   *
+   * The guest site keeps `choice`: an invite draws no glass. A swatch whose
+   * own fill is what is chosen (a section's tone, a registry picture) keeps
+   * `choice` too, since the glass would hide it. Its classes live in
+   * `lib/glass.ts`, which the guest site and the marketing site leave out of
+   * their CSS.
+   */
+  glass: GLASS_CHOICE,
   /**
    * The whole block is the control — a wedding in the portal's list, a step in
    * the getting-started guide, the collapsed section menu in the invite
@@ -234,7 +282,7 @@ const VARIANT = {
    * that something appears.
    */
   dashed:
-    "base:border-ui-hairline base:border-dashed base:text-ui-ink-secondary " +
+    "base:border-ui-hairline base:border-dashed base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary " +
     "base:hover:border-ui-accent base:hover:text-ui-accent-ink",
   /**
    * A control shaped like the field it stands in for — the dietary picker's
@@ -257,7 +305,7 @@ const VARIANT = {
     "base:border-ui-hairline base:bg-transparent base:text-ui-ink " +
     "base:hover:border-ui-accent-soft",
   danger:
-    "base:border-ui-danger/40 base:text-ui-danger base:hover:border-ui-danger base:hover:bg-ui-danger/10",
+    "base:border-ui-danger/40 base:bg-[color:var(--pill-ground,transparent)] base:text-ui-danger base:hover:border-ui-danger base:hover:bg-ui-danger/10",
   /**
    * A control in a sheet's own chrome rather than in its content — the guest
    * site's "Give RSVP →" and "← See details" beside the event sheet's close
@@ -362,21 +410,28 @@ const BORDERLESS = new Set<ButtonVariant>(["link", "subtle", "touchLink", "bare"
 // to a button where a text transform does not, so a button set inside a
 // tracked eyebrow would otherwise spread its sentence-case label to match.
 const SIZE = {
-  sm: "base:px-4 base:py-1.5 base:text-ui-xs base:font-medium base:tracking-ui-normal",
+  // The portals' pill height where they set one, so a small action stands
+  // level with the 28px tracks and filters beside it; the padding's own
+  // height (31px) where nobody does.
+  sm: "base:h-[var(--pill-sm-height,auto)] base:px-4 base:py-1.5 base:text-ui-xs base:font-medium base:tracking-ui-normal",
   md: "base:px-5 base:py-2 base:text-ui-sm base:font-medium base:tracking-ui-normal",
   // For a control that is the only thing to do on the screen it is on — a
   // claim-code submit, an RSVP commit. Also the minimum comfortable touch
   // target on a phone, which is where most invites are opened.
   lg: "base:px-7 base:py-3.5 base:text-ui-base base:font-medium base:tracking-ui-normal",
+  // Beside a form field: the portals' 34px field height (`@shared/ui`'s
+  // `CONTROL_HEIGHT.form`), so a row of fields and its button line up, with
+  // md's sides and type.
+  form: "base:h-8.5 base:px-5 base:text-ui-sm base:font-medium base:tracking-ui-normal",
   // The control's content is the thing itself — a colour swatch, a product
   // thumbnail, a design preview. One hairline of padding, so the border reads
   // as a frame around the picture rather than a box around a label, and the
   // picture's own dimensions are what size the control. No type treatment,
   // because there is no type.
   swatch: "base:p-1",
-  // Square, for a single glyph, so the pill corner makes it a circle. No
-  // weight or tracking: a glyph is not a label.
-  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base",
+  // Square, for a single glyph, so the pill corner makes it a circle: 28px,
+  // the bar's height. No weight or tracking: a glyph is not a label.
+  icon: "base:h-7 base:w-7 base:shrink-0 base:p-0 base:text-ui-base",
 } satisfies Readonly<Record<ButtonSize, string>>;
 
 /** {@link SIZE} for the borderless variants: type only, plus what a glyph needs to stay hittable. */
@@ -384,6 +439,7 @@ const BORDERLESS_SIZE = {
   sm: "base:text-ui-xs",
   md: "base:text-ui-sm",
   lg: "base:text-ui-base",
+  form: "base:text-ui-sm",
   // Nothing at all: an unframed picture is flush with its own hit area.
   swatch: "base:p-0",
   // `min-h-6 min-w-6` is the WCAG 2.2 SC 2.5.8 floor (24 CSS px), and it is
@@ -412,8 +468,9 @@ const TILE_SIZE = {
   sm: "base:gap-3 base:p-3 base:text-ui-xs base:font-medium base:tracking-ui-normal",
   md: "base:gap-3 base:p-4 base:text-ui-sm base:font-medium base:tracking-ui-normal",
   lg: "base:gap-3 base:p-6 base:text-ui-base base:font-medium base:tracking-ui-normal",
+  form: "base:h-8.5 base:gap-3 base:px-4 base:text-ui-sm base:font-medium base:tracking-ui-normal",
   swatch: "base:p-1",
-  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base",
+  icon: "base:h-7 base:w-7 base:shrink-0 base:p-0 base:text-ui-base",
 } satisfies Readonly<Record<ButtonSize, string>>;
 
 /**
@@ -428,25 +485,29 @@ const FIELD_SIZE = {
   sm: "base:px-3 base:py-2 base:text-ui-sm",
   md: "base:px-3 base:py-2.5 base:text-ui-base",
   lg: "base:px-4 base:py-3 base:text-ui-md",
+  // md's sides and type at the 34px field height: the dietary picker's
+  // trigger in a column of form fields.
+  form: "base:h-8.5 base:px-3 base:text-ui-base",
   swatch: "base:p-1",
-  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base",
+  icon: "base:h-7 base:w-7 base:shrink-0 base:p-0 base:text-ui-base",
 } satisfies Readonly<Record<ButtonSize, string>>;
 
 /**
  * {@link SIZE} for `round`: a square box the pill corner makes a circle.
  *
- * Three sides, from where the two round buttons sit. 28px for the reply key,
- * the height of the small search box and filter chips beside it; 32px, the
- * `icon` size every boxed glyph already takes; 44px for the sheet's close ×,
- * the guest site's touch floor. `swatch` has no picture to frame here and
- * takes `md`. The glyph sits on the base step, and the close × on the large
- * one, so it reads at the size of the sheet's heading rather than a label's.
+ * Its own steps: 28px (`sm`), 32px (`md`, and `icon` and `swatch`, which have
+ * nothing else to mean here) and 44px (`lg`) for the guest event sheet's
+ * close ×, the guest site's touch floor, and `form` at the 34px field height.
+ * The portals' icon button is `quiet` at `icon`, not this. The glyph sits on
+ * the base step, and the close × on the large one, so it reads at the size of
+ * the sheet's heading rather than a label's.
  */
 const ROUND_SIZE = {
   sm: "base:size-7 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
   // `h-8 w-8` rather than `size-8`: the `icon` size already emits those two.
   md: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
   lg: "base:size-11 base:shrink-0 base:p-0 base:text-ui-lg base:leading-none",
+  form: "base:size-8.5 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
   swatch: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
   icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
 } satisfies Readonly<Record<ButtonSize, string>>;
@@ -493,7 +554,7 @@ export interface ButtonLook {
  * A variant's own classes and a size's own, without the base every `Button`
  * shares — for a part that draws a button's look on something that is not a
  * button, such as a file input's button: `file-input.tsx`'s `FILE_BUTTON` is
- * held to `quiet` at `md` through this.
+ * held to `quiet` at `form` through this.
  */
 export function buttonLook(options: { variant: ButtonVariant; size: ButtonSize }): ButtonLook {
   return { variant: VARIANT[options.variant], size: SIZE[options.size] };
@@ -507,7 +568,12 @@ export function buttonLook(options: { variant: ButtonVariant; size: ButtonSize }
 export function buttonClass(options: { variant?: ButtonVariant; size?: ButtonSize } = {}): string {
   const variant = options.variant ?? "quiet";
   const size = options.size ?? "md";
-  const motion = variant === "choice" ? CHOICE_MOTION : `${MOTION} ${LOCKED}`;
+  const motion =
+    variant === "choice"
+      ? CHOICE_MOTION
+      : variant === "glass"
+        ? `${CHOICE_MOTION} ${LOCKED}`
+        : `${MOTION} ${LOCKED}`;
   return `${BASE} ${motion} ${cornerFor(variant, size)} ${VARIANT[variant]} ${sizingFor(variant, size)}`;
 }
 

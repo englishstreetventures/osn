@@ -9,7 +9,7 @@
  * stop fading, chosen and unchosen look alike, the hover stops sitting halfway
  * between the two, the chosen and a hovered answer differ by gold strength
  * alone, a chosen radio loses its ring under the pointer, a word falls under
- * 4.5:1, or the colours move on the wrong clock.
+ * 4.5:1, or a hover or a choice moves on the wrong clock.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -311,21 +311,29 @@ describe('Button variant="choice"', () => {
     }
   });
 
-  it("moves its colours and ring on the app's base duration, never the focus ring", () => {
-    // A value apart from the fallback, so the token is what is read.
+  it("moves its hover on the fast step and its choosing on the base step, never the focus ring", () => {
+    // Values apart from the fallbacks, so the tokens are what is read.
     render(() => (
-      <div style={{ "--dur-base": "170ms" }}>
+      <div style={{ "--dur-fast": "70ms", "--dur-base": "170ms" }}>
         <Ramp>
-          <Button variant="choice">Phone</Button>
+          <Button variant="choice" aria-pressed="false">
+            Desktop
+          </Button>
+          <Button variant="choice" aria-pressed="true">
+            Phone
+          </Button>
         </Ramp>
       </div>
     ));
-    const style = getComputedStyle(screen.getByRole("button"));
-    expect(style.transitionProperty.split(", ")).toEqual(
+    const idle = getComputedStyle(screen.getByRole("button", { name: "Desktop" }));
+    expect(idle.transitionProperty.split(", ")).toEqual(
       expect.arrayContaining(["color", "background-color", "border-color", "box-shadow"]),
     );
-    expect(style.transitionProperty).not.toMatch(/outline|all/);
-    expect(style.transitionDuration).toBe("0.17s");
+    expect(idle.transitionProperty).not.toMatch(/outline|all/);
+    expect(idle.transitionDuration).toBe("0.07s");
+    expect(getComputedStyle(screen.getByRole("button", { name: "Phone" })).transitionDuration).toBe(
+      "0.17s",
+    );
   });
 
   it("lets a caller's plain hover class win over its own", async () => {

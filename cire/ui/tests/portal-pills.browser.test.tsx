@@ -244,14 +244,15 @@ describe("glass, one of several", () => {
       <Ground ramp={props.ramp}>
         <span data-probe-dark={props.ramp === "dark" ? "" : undefined} />
         <span data-probe-light={props.ramp === "light" ? "" : undefined} />
-        <span role="group" aria-label="Preview device" class="flex gap-1.5">
+        <fieldset class="m-0 flex gap-1.5 border-0 p-0">
+          <legend class="sr-only">Preview device</legend>
           <Button variant="glass" size="sm" aria-pressed={props.chosen === "Desktop"}>
             Desktop
           </Button>
           <Button variant="glass" size="sm" aria-pressed={props.chosen === "Phone"}>
             Phone
           </Button>
-        </span>
+        </fieldset>
       </Ground>
     );
   }
@@ -274,6 +275,8 @@ describe("glass, one of several", () => {
 
     it(`rests on the track's look and goes halfway under the pointer, ${ramp}`, async () => {
       render(() => <Pair ramp={ramp} chosen="Desktop" />);
+      // The pointer starts on the chosen pill, so the idle one is at rest.
+      await userEvent.hover(screen.getByRole("button", { name: "Desktop" }));
       await settle();
       const idle = screen.getByRole("button", { name: "Phone" });
       const rest = getComputedStyle(idle);
@@ -309,9 +312,11 @@ describe("glass, one of several", () => {
     render(() => (
       <Ground>
         <span role="radiogroup" aria-label="Shape">
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a radio pill is a `Button` with the radio role, as a portal's is. */}
           <Button variant="glass" role="radio" aria-checked="true">
             Square
           </Button>
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- as above. */}
           <Button variant="glass" role="radio" aria-checked="false">
             Wide
           </Button>
@@ -382,6 +387,7 @@ describe("the clock each change runs on", () => {
           <Button variant={variant} aria-pressed="true">
             Chosen
           </Button>
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a radio pill is a `Button` with the radio role, as a portal's is. */}
           <Button variant={variant} role="radio" aria-checked="true">
             Checked
           </Button>

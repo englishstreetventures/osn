@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-04
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -140,6 +140,14 @@ cire's sized steps are 2px `hair`, 6px `sm`, 10px `md`, 16px `lg` and 999px
 same values: `cire/vendor/tests/styles/tokens.test.ts` reads each one and fails
 if a role or a step differs. What each step paints in cire is
 `cire/host/DESIGN.md` §4.
+
+`@cire/ui` also reads a few of cire's own app tokens, outside the contract,
+with a fallback at each use: the glass's `--glass-edge`, `--inner-lip` and
+`--elev-1`, the motion ladder's `--dur-*` and `--ease-*`, and the portals' two
+pill tokens, `--pill-ground` and `--pill-sm-height`, which only the host and
+vendor portals set, so one `Button` draws grounded 28px pills there and clear
+31px ones on the guest site ([[component-library]], §cire's `Button`).
+They are not contract tokens because nothing outside cire reads them.
 
 Two names are worth reading twice. **`ground-deep` is not "darker"** — it is
 what the page recedes _to_, behind a sticky bar or under a scrim, and on a dark

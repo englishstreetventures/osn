@@ -17,7 +17,9 @@ afterEach(cleanup);
 
 /** `base:hover:x` → `base:enabled:hover:file:x`; `base:x` → `base:file:x`. */
 function onFileButton(utility: string): string {
-  const parts = utility.split(":");
+  // Split on the variants' colons only, never one inside an arbitrary value
+  // (`bg-[color:var(…)]`).
+  const parts = utility.split(/:(?![^[]*\])/);
   const last = parts.pop()!;
   const states = parts.slice(1);
   const lead = states.includes("hover") ? ["base", "enabled", ...states] : ["base", ...states];

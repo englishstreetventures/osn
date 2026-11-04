@@ -27,6 +27,7 @@ const VARIANTS = [
   "quiet",
   "quietDanger",
   "choice",
+  "glass",
   "tile",
   "dashed",
   "field",
@@ -40,7 +41,7 @@ const VARIANTS = [
   "bareDanger",
 ] as const satisfies readonly ButtonVariant[];
 
-const SIZES = ["sm", "md", "lg", "icon", "swatch"] as const satisfies readonly ButtonSize[];
+const SIZES = ["sm", "md", "lg", "form", "icon", "swatch"] as const satisfies readonly ButtonSize[];
 
 /** The groups `wiki/shared/component-library.md` §cire's `Button` names, in its order. */
 const GROUPS: readonly { name: string; variants: readonly ButtonVariant[] }[] = [
@@ -51,7 +52,7 @@ const GROUPS: readonly { name: string; variants: readonly ButtonVariant[] }[] = 
   { name: "Glyph", variants: ["bare"] },
   { name: "Field", variants: ["field"] },
   { name: "Chrome", variants: ["chip", "round"] },
-  { name: "State and fill", variants: ["choice", "tile"] },
+  { name: "State and fill", variants: ["choice", "glass", "tile"] },
 ];
 
 /** A label each variant carries somewhere in cire, written as the call site writes it. */
@@ -62,6 +63,7 @@ const LABEL = {
   quiet: "Export guests",
   quietDanger: "Deactivate",
   choice: "Phone",
+  glass: "Desktop",
   tile: "Open dashboard",
   dashed: "Create a wedding",
   field: "Vegetarian, no nuts",
@@ -159,7 +161,7 @@ export const Variants: Story<ThemeArgs> = {
       title="cire/ui Button"
       intro={
         <>
-          Seventeen variants, five sizes, inside cire's <Mono>--ui-*</Mono> mapping. Actions are
+          Eighteen variants, six sizes, inside cire's <Mono>--ui-*</Mono> mapping. Actions are
           pills; a <Mono>tile</Mono>, a <Mono>field</Mono> and the <Mono>swatch</Mono> size take the
           14px field corner. Labels are written in sentence case and shown as written. Point at an{" "}
           <Mono>outline</Mono>: its edge turns full gold and nothing fills. cire's fonts are not
@@ -188,6 +190,89 @@ export const Variants: Story<ThemeArgs> = {
               </div>
             )}
           </For>
+        )}
+      </Panels>
+    </Gallery>
+  ),
+};
+
+/**
+ * The portals' one pill language: the two tokens the host and vendor portals
+ * set (`--pill-ground`, `--pill-sm-height`) and the guest site does not, side
+ * by side. The lab's cire mapping carries the contract only, so this story
+ * sets them on its own panel as the portals' stylesheets do.
+ */
+export const PortalPills: Story<ThemeArgs> = {
+  args: { cireTheme: "both" },
+  controls: themeControl,
+  render: (args) => (
+    <Gallery
+      title="cire/ui Button — the portals' pills"
+      intro={
+        <>
+          With the portals' tokens every pill but <Mono>primary</Mono> sits on the glass track's
+          ground and a small pill is 28px, level with the strip; without them (the guest site) the
+          pills stay clear and a small one keeps its 31px. <Mono>glass</Mono> wears the strip's
+          glass when chosen; point at an unchosen one to see it go halfway. An open{" "}
+          <Mono>quiet</Mono> button holds its hover look.
+        </>
+      }
+    >
+      <Panels theme={args.cireTheme}>
+        {() => (
+          <>
+            <For each={[true, false]}>
+              {(portal) => (
+                <Section title={portal ? "Portal tokens set" : "No tokens (the guest site)"}>
+                  <div
+                    class="flex flex-wrap items-center gap-2"
+                    style={
+                      portal
+                        ? ({
+                            "--pill-ground":
+                              "color-mix(in oklab, var(--ui-surface) 30%, transparent)",
+                            "--pill-sm-height": "1.75rem",
+                          } as JSX.CSSProperties)
+                        : undefined
+                    }
+                  >
+                    <Specimen variant="primary" size="sm" label="Save" />
+                    <Specimen variant="outline" size="sm" label="Download events" />
+                    <Specimen variant="quiet" size="sm" label="Record" />
+                    <Specimen variant="danger" size="sm" label="Delete" />
+                    <Specimen variant="quiet" size="icon" label="Allow everyone" />
+                    <Specimen
+                      variant="glass"
+                      size="sm"
+                      label="Desktop"
+                      extra={{ "aria-pressed": "true" }}
+                    />
+                    <Specimen
+                      variant="glass"
+                      size="sm"
+                      label="Phone"
+                      extra={{ "aria-pressed": "false" }}
+                    />
+                    <Button
+                      variant="quiet"
+                      size="icon"
+                      aria-label="What the reply icons mean, open"
+                      aria-expanded="true"
+                    >
+                      <span aria-hidden="true">i</span>
+                    </Button>
+                  </div>
+                </Section>
+              )}
+            </For>
+            <Section title="Beside a form field (form, 34px)">
+              <div class="flex flex-wrap items-center gap-2">
+                <Specimen variant="primary" size="form" label="Add item" />
+                <Specimen variant="quiet" size="form" label="Cancel" />
+                <Specimen variant="field" size="form" label="Vegetarian" />
+              </div>
+            </Section>
+          </>
         )}
       </Panels>
     </Gallery>
@@ -350,9 +435,8 @@ function RoundSpecimen(props: {
 }
 
 /**
- * `round`: a glyph on an opaque disc. The reply key beside the RSVP search box
- * is 28px (`sm`); a boxed glyph is 32px (`md`, `icon`); the event sheet's
- * close × is 44px (`lg`). Disabled at every size; hover and focus by hand at
+ * `round`: a glyph on an opaque disc, 28px (`sm`), 32px (`md`) or 44px
+ * (`lg`, the guest event sheet's close ×). Disabled at every size; hover and focus by hand at
  * every size, since a static story holds neither (`round.browser.test.tsx`
  * reads both).
  */
@@ -470,7 +554,7 @@ export const Corners: Story<ThemeArgs> = {
       intro={
         <>
           Each caption is the computed width, height and top-left corner of the button above it. The
-          pill is the <Mono>control</Mono> role at 999px, so a 32px-square <Mono>icon</Mono> button
+          pill is the <Mono>control</Mono> role at 999px, so a 28px-square <Mono>icon</Mono> button
           is a circle. The last specimen passes a plain <Mono>rounded-none</Mono>: every default
           corner is a <Mono>base:</Mono> one, so the caller's wins.
         </>
@@ -483,7 +567,7 @@ export const Corners: Story<ThemeArgs> = {
             <Measured
               variant="outline"
               size="icon"
-              note="A boxed glyph: 32px square, so a circle."
+              note="A boxed glyph: 28px square, so a circle."
             />
             <Measured variant="quiet" size="icon" note="The same circle on a hairline border." />
             <Measured variant="tile" size="md" note="A block: the field role, 14px." />
@@ -510,7 +594,7 @@ export const Corners: Story<ThemeArgs> = {
       <Section title="What to look at">
         <Rule>
           Every action is a pill and every label sits at normal tracking in a medium weight. The{" "}
-          <Mono>icon</Mono> captions read 32px × 32px and a circle. Nothing here is uppercase.
+          <Mono>icon</Mono> captions read 28px × 28px and a circle. Nothing here is uppercase.
         </Rule>
       </Section>
     </Gallery>

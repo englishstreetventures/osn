@@ -10,7 +10,8 @@
  * outline there.
  *
  * Its own module, not `segmented-tabs.tsx`'s, so a part other than the strip
- * can wear it without importing the strip. The guest site and the marketing
+ * can wear it without importing the strip: `Button`'s `glass`
+ * ({@link GLASS_CHOICE}). The guest site and the marketing
  * site draw no glass: each leaves this file out of its Tailwind scan beside
  * `segmented-tabs.tsx`, so none of these rules reaches their CSS.
  *
@@ -21,3 +22,29 @@ export const GLASS_FILL =
   "base:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_22.8%,var(--ui-surface-raised))_61.3%,transparent)] " +
   "base:shadow-[var(--inner-lip,inset_0_1px_0_rgb(255_255_255/0.06)),inset_0_0_0_1px_var(--glass-edge,rgb(255_255_255/0.1)),0_0_0_0.5px_var(--ui-hairline),var(--elev-1,var(--ui-elev-1))] " +
   "base:backdrop-blur-md base:backdrop-saturate-[1.6]";
+
+/**
+ * `Button`'s `glass`: one of several in the portals, wearing the strip's look.
+ *
+ * At rest, the track's: a hairline on the portals' ground (`--pill-ground`)
+ * in the secondary ink. Under the pointer an unchosen one goes halfway, with
+ * the strip's own colour and ink (`segmented-tabs.tsx`'s `ITEM`). Chosen —
+ * `aria-pressed` on a toggle, `aria-checked` on a radio — it wears
+ * {@link GLASS_FILL} in the readable accent ink, its hairline cleared for the
+ * glass's own edge; a contrast theme drops the glass, so the chosen pill
+ * keeps a 1px outline there. `tests/glass.test.ts` holds the chosen and the
+ * halfway looks to the strip's, declaration for declaration.
+ */
+export const GLASS_CHOICE =
+  "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary " +
+  "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_21.5%,var(--ui-surface-raised))_32.6%,transparent)] " +
+  "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:[color:color-mix(in_srgb,var(--ui-ink-secondary),var(--ui-accent-ink))] " +
+  "base:[&:is([aria-pressed=true],[aria-checked=true])]:border-transparent " +
+  "base:[&:is([aria-pressed=true],[aria-checked=true])]:text-ui-accent-ink " +
+  "base:[&:is([aria-pressed=true],[aria-checked=true])]:[background-color:color-mix(in_srgb,color-mix(in_srgb,var(--ui-accent)_22.8%,var(--ui-surface-raised))_61.3%,transparent)] " +
+  "base:[&:is([aria-pressed=true],[aria-checked=true])]:shadow-[var(--inner-lip,inset_0_1px_0_rgb(255_255_255/0.06)),inset_0_0_0_1px_var(--glass-edge,rgb(255_255_255/0.1)),0_0_0_0.5px_var(--ui-hairline),var(--elev-1,var(--ui-elev-1))] " +
+  "base:[&:is([aria-pressed=true],[aria-checked=true])]:backdrop-blur-md " +
+  "base:[&:is([aria-pressed=true],[aria-checked=true])]:backdrop-saturate-[1.6] " +
+  "base:forced-colors:[&:is([aria-pressed=true],[aria-checked=true])]:outline-1 " +
+  "base:forced-colors:[&:is([aria-pressed=true],[aria-checked=true])]:outline-solid " +
+  "base:forced-colors:[&:is([aria-pressed=true],[aria-checked=true])]:outline-offset-0";

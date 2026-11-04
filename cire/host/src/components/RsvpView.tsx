@@ -1066,7 +1066,7 @@ export default function RsvpView(props: RsvpViewProps) {
                 <Skeleton standsFor="row" class="h-10.5" />
               </Show>
               <For each={[1, 2, 3]}>
-                {() => <Skeleton standsFor="row" class={compact() ? "h-16.5" : "h-14"} />}
+                {() => <Skeleton standsFor="row" class={compact() ? "h-16.5" : "h-13.25"} />}
               </For>
             </div>
           </div>
