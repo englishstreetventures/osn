@@ -37,6 +37,14 @@ import SectionIntro from "./SectionIntro";
  * a co-host who wonders why money gifts are off deserves an answer rather than
  * a missing section.
  *
+ * ONE OWNER'S ACCOUNT. Whoever connects the account puts their own identity and
+ * bank on it, so once it is connected the API hands its onboarding link to that
+ * owner alone (`stripeConnectedByOsnProfileId`) and answers any other 403
+ * `stripe_connector_only`. This panel mirrors that: another owner sees the
+ * account's status, the same disabled button with the reason, and can still
+ * "Check again", which only reads the status. A connected account with nobody on
+ * record is no owner's to continue.
+ *
  * INTENT AND CAPABILITY ARE DIFFERENT THINGS. "Let guests give money" is the
  * couple's intent (`cash_gifts_enabled`); whether Stripe can take a charge
  * today is `stripe_charges_enabled`, which only Stripe decides. The API refuses
@@ -65,7 +73,8 @@ interface RegistrySettingsViewProps {
   weddingId: string;
   /** Owner or editor. A read-only viewer never reaches this sub-tab. */
   canEdit?: boolean;
-  /** Owner only — the one control that names where money lands. */
+  /** Owner only — the one control that names where money lands. Once an
+   *  account is connected, only the owner who connected it may continue it. */
   canManage?: boolean;
 }
 
@@ -136,6 +145,11 @@ function fundsDontCountWords(reason: MoneyGiftsBlock | null | undefined, currenc
   }
 }
 
+/** Why an owner who did not connect the account cannot continue it. Names no
+ *  one: the settings carry the connector's profile id, not their name. */
+const CONNECTOR_ONLY =
+  "Only the person who connected this Stripe account can continue its setup or change it.";
+
 /** What a press of "Check again" found: the toast, and whether it is good news. */
 interface StripeCheckWords {
   ready: boolean;
@@ -176,7 +190,7 @@ function stripeCheckWords(
 }
 
 export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
-  const { authFetch } = useAuth();
+  const { authFetch, activeProfileId } = useAuth();
   const snapshot = registryAccessor(props.weddingId);
 
   const [loading, setLoading] = createSignal(true);
@@ -238,6 +252,20 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     if (!s?.stripeConnected) return "none";
     return s.stripeChargesEnabled ? "ready" : "incomplete";
   });
+
+  /**
+   * Whether this organiser may open Stripe's onboarding — the API's rule: an
+   * owner, and once an account is connected, the owner who connected it. A
+   * session still loading, or an account with nobody on record, matches no one.
+   */
+  const canOpenStripe = () => {
+    if (!props.canManage) return false;
+    if (stripeState() === "none") return true;
+    const me = activeProfileId();
+    return me !== null && settings()?.stripeConnectedByOsnProfileId === me;
+  };
+  /** The reason the onboarding button is not this organiser's, by its id. */
+  const stripeReasonId = () => (props.canManage ? "stripe-connector-only" : "stripe-owner-only");
 
   /**
    * Fill the form from a settings row and make that row the new base, in one
@@ -464,7 +492,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
   /** Start (or resume) Stripe onboarding, then hand the couple to Stripe. */
   async function connectStripe(): Promise<void> {
-    if (connecting() || !props.canManage) return;
+    if (connecting() || !canOpenStripe()) return;
     setConnecting(true);
     try {
       const res = await authFetch(stripeUrl("session"), { method: "POST" });
@@ -479,10 +507,18 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
       }
       if (!res.ok) {
         haptic("reject");
-        toast.error(
+        // Two 403s: the role gate's, and the account being another owner's —
+        // which this page, loaded before someone else connected it, did not know.
+        const refusal =
           res.status === 403
-            ? "Only the wedding’s owner can connect the account gifts are paid into."
-            : "Couldn’t reach Stripe just now. Try again in a moment.",
+            ? ((await res.json().catch(() => null)) as { error?: unknown } | null)
+            : null;
+        toast.error(
+          refusal?.error === "stripe_connector_only"
+            ? CONNECTOR_ONLY
+            : res.status === 403
+              ? "Only the wedding’s owner can connect the account gifts are paid into."
+              : "Couldn’t reach Stripe just now. Try again in a moment.",
         );
         return;
       }
@@ -751,18 +787,19 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             </p>
 
             <div class="flex flex-wrap items-center gap-3">
-              {/* Not `disabled` for an editor: the whole point of showing this
-                  panel to a co-host is that they read WHY it is not theirs, and
-                  a disabled button takes its description out of reach. It stays
-                  focusable and `connectStripe` refuses on `canManage`, as does
-                  the owner-only route behind it. `connecting()` is a passing
-                  state with nothing to explain, so that one stays `disabled`. */}
+              {/* Not `disabled` for an editor, or for an owner who did not
+                  connect the account: the whole point of showing this panel to
+                  them is that they read WHY it is not theirs, and a disabled
+                  button takes its description out of reach. It stays focusable
+                  and `connectStripe` refuses on `canOpenStripe`, as does the
+                  route behind it. `connecting()` is a passing state with
+                  nothing to explain, so that one stays `disabled`. */}
               <Button
                 type="button"
                 variant="outline"
                 disabled={connecting()}
-                aria-disabled={props.canManage ? undefined : "true"}
-                aria-describedby={props.canManage ? undefined : "stripe-owner-only"}
+                aria-disabled={canOpenStripe() ? undefined : "true"}
+                aria-describedby={canOpenStripe() ? undefined : stripeReasonId()}
                 onClick={() => void connectStripe()}
               >
                 {connecting()
@@ -792,6 +829,11 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             <Show when={!props.canManage}>
               <p id="stripe-owner-only" class={hintClass} data-testid="stripe-owner-only">
                 Only the wedding’s owner can connect the account gifts are paid into.
+              </p>
+            </Show>
+            <Show when={props.canManage && !canOpenStripe()}>
+              <p id="stripe-connector-only" class={hintClass} data-testid="stripe-connector-only">
+                {CONNECTOR_ONLY}
               </p>
             </Show>
 

@@ -11,7 +11,7 @@ related:
   - "[[access-control]]"
   - "[[cire]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 
 # Subprocessor Register
@@ -101,7 +101,10 @@ the merge.
 5. **Update the published notices before Checkout is live**: the guest
    site `/privacy` names Stripe as the recipient of gift payments and
    what it collects (done 2026-10-15); the organiser-facing copy must
-   still say Stripe collects the couple's KYC directly.
+   still say Stripe collects the couple's KYC directly, and that cire
+   records which owner connected the account
+   (`registry_settings.stripe_connected_by_osn_profile_id`, shown to the
+   wedding's owners and editors) — see [[data-map]].
 6. **Create the webhook endpoint** in the Dashboard →
    `https://api.cireweddings.com/api/stripe/webhook`, subscribed to the
    nine events [[stripe-webhooks]] lists; capture the signing secret.

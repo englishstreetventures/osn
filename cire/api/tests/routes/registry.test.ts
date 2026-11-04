@@ -934,6 +934,8 @@ describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => 
       stripeDefaultCurrency?: string | null;
       headline?: string;
       weddingCurrency?: string;
+      /** Who connected the account; absent is nobody recorded. */
+      connector?: string;
     }) =>
     (db: ReturnType<typeof createDb>) => {
       const now = new Date();
@@ -943,6 +945,7 @@ describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => 
           headline: row.headline ?? null,
           cashGiftsEnabled: row.cashGiftsEnabled ?? false,
           stripeAccountId: "acct_live",
+          stripeConnectedByOsnProfileId: row.connector ?? null,
           stripeChargesEnabled: row.stripeChargesEnabled ?? true,
           stripeDefaultCurrency:
             row.stripeDefaultCurrency === undefined ? "AUD" : row.stripeDefaultCurrency,
@@ -1120,6 +1123,21 @@ describe("why guests cannot give money (`settings.moneyGiftsBlockedBy`)", () => 
       expect(text).not.toContain("USD");
     });
   }
+
+  // The portal shows the onboarding button only to the owner who connected the
+  // account, so an owner and an editor are told who that is. A viewer never
+  // reaches the settings tab and is not told whose bank the gifts reach.
+  it("names who connected the account to an owner and an editor, and not to a viewer", async () => {
+    const app = buildApp({ tier: "gold", ...paying, seed: settingsRow({ connector: OWNER }) });
+    expect((await read(app, OWNER)).stripeConnectedByOsnProfileId).toBe(OWNER);
+    expect((await read(app, EDITOR)).stripeConnectedByOsnProfileId).toBe(OWNER);
+    const res = await req(app, "GET", base, VIEWER);
+    const text = await res.text();
+    expect(
+      (JSON.parse(text) as RegistrySnapshot).settings.stripeConnectedByOsnProfileId,
+    ).toBeNull();
+    expect(text).not.toContain(OWNER);
+  });
 
   it("answers a refused money save with the row as it stands and why guests cannot give", async () => {
     const app = buildApp({

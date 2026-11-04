@@ -6,10 +6,13 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { registryService } from "../../src/services/registry";
 import { StripeError, type StripeAccount, type StripeClient } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -21,6 +24,9 @@ import { insertWedding } from "../test-helpers/wedding";
  * What is load-bearing here:
  *   - it is OWNER-only. Adding a gift is ordinary help; naming the account the
  *     money lands in is not, and an editor must not be able to;
+ *   - once an account is connected, only the owner who connected it may open
+ *     its onboarding links: the account carries their identity and their bank.
+ *     Every other owner may still read its status;
  *   - it never mints a second connected account for a wedding that has one —
  *     the failure that needs a human at Stripe to unpick;
  *   - it never turns cash gifts ON. Connecting an account and offering guests a
@@ -32,6 +38,8 @@ import { insertWedding } from "../test-helpers/wedding";
 const OWNER = "usr_dev_bootstrap_owner";
 const EDITOR = "usr_editor";
 const STRANGER = "usr_stranger";
+/** The wedding's other owner, seated in every app this file builds. */
+const SECOND = "usr_second_owner";
 
 let auth: OsnTestAuth;
 beforeAll(async () => {
@@ -53,6 +61,8 @@ function stripeStub(
     failCreate?: boolean;
     failLink?: boolean;
     failRetrieve?: boolean;
+    /** Runs while `createAccount` is in flight: another request's write. */
+    duringCreate?: () => void;
   } = {},
 ) {
   const calls: string[] = [];
@@ -60,6 +70,7 @@ function stripeStub(
   const client: StripeClient = {
     createAccount(input) {
       calls.push(`createAccount:${input.weddingId}:${input.country}`);
+      overrides.duringCreate?.();
       return overrides.failCreate
         ? Effect.fail(new StripeError({ reason: "rejected", status: 400, code: "country_invalid" }))
         : Effect.succeed(overrides.account ?? ACCOUNT);
@@ -117,14 +128,24 @@ function buildApp({
   seedDb(db);
   const now = new Date();
   db.insert(weddingHosts)
-    .values({
-      id: "whost_editor",
-      weddingId: BOOTSTRAP_WEDDING_ID,
-      osnProfileId: EDITOR,
-      addedByOsnProfileId: OWNER,
-      role: "editor",
-      createdAt: now,
-    })
+    .values([
+      {
+        id: "whost_editor",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: EDITOR,
+        addedByOsnProfileId: OWNER,
+        role: "editor",
+        createdAt: now,
+      },
+      {
+        id: "whost_second",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: SECOND,
+        addedByOsnProfileId: OWNER,
+        role: "owner",
+        createdAt: now,
+      },
+    ])
     .run();
   setTier(db, BOOTSTRAP_WEDDING_ID, tier);
   const app = createApp(db, {
@@ -200,6 +221,175 @@ describe("who may connect an account", () => {
     const { app } = buildApp({ stripe: null });
     expect((await req(app, `${base}/session`, OWNER)).status).toBe(404);
     expect((await req(app, `${base}/refresh`, OWNER)).status).toBe(404);
+  });
+});
+
+describe("only the owner who connected the account may open its links", () => {
+  type Built = ReturnType<typeof buildApp>;
+
+  /** The bootstrap wedding's settings row, as stored. */
+  const row = (db: Built["db"]) =>
+    db
+      .select()
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+
+  /** A row holding an account, connected by `connector` (null: nobody recorded). */
+  function connectedBy(db: Built["db"], connector: string | null, accountId = "acct_first") {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        stripeAccountId: accountId,
+        stripeConnectedByOsnProfileId: connector,
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  it("refuses another owner 403, asking Stripe nothing and changing nothing", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    connectedBy(db, OWNER);
+
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await req(app, `${base}/session`, SECOND);
+    });
+
+    expect(res?.status).toBe(403);
+    expect(await jsonBody(res!)).toEqual({ error: "stripe_connector_only" });
+    // No link minted, no account created: the account is in someone else's name.
+    expect(stripe.calls).toEqual([]);
+    expect(row(db)?.stripeAccountId).toBe("acct_first");
+    expect(row(db)?.stripeConnectedByOsnProfileId).toBe(OWNER);
+    // The refusal is logged by wedding, never by person.
+    expect(logs).toContain("stripe onboarding refused");
+    expect(logs).not.toContain(SECOND);
+    expect(logs).not.toContain(OWNER);
+  });
+
+  it("refuses every owner an account nobody is recorded as connecting", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    connectedBy(db, null);
+
+    for (const owner of [OWNER, SECOND]) {
+      const res = await req(app, `${base}/session`, owner);
+      expect(res.status, owner).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "stripe_connector_only" });
+    }
+    expect(stripe.calls).toEqual([]);
+    expect(row(db)?.stripeConnectedByOsnProfileId).toBeNull();
+  });
+
+  it("records whoever connects first, and keeps handing them links", async () => {
+    for (const connector of [OWNER, SECOND]) {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+
+      for (let trip = 0; trip < 3; trip++) {
+        const res = await req(app, `${base}/session`, connector);
+        expect(res.status, `${connector} trip ${trip}`).toBe(200);
+        const body = (await jsonBody(res)) as { url: string };
+        expect(body.url).toBe("https://connect.stripe.test/setup/x");
+      }
+
+      expect(row(db)?.stripeConnectedByOsnProfileId).toBe(connector);
+      expect(stripe.calls).toEqual([
+        `createAccount:${BOOTSTRAP_WEDDING_ID}:AU`,
+        "createAccountLink:acct_new",
+        "createAccountLink:acct_new",
+        "createAccountLink:acct_new",
+      ]);
+    }
+  });
+
+  it("refuses an owner whose connect lost to another owner's, with no link", async () => {
+    // The second owner read a row with no account; while their create was in
+    // flight the first owner's request attached the same account (Stripe's
+    // idempotency key is per wedding). The attach keeps the first owner's.
+    const box: { db?: Built["db"] } = {};
+    const stripe = stripeStub({ duringCreate: () => connectedBy(box.db!, OWNER, "acct_new") });
+    const built = buildApp({ stripe: stripe.client });
+    box.db = built.db;
+
+    const res = await req(built.app, `${base}/session`, SECOND);
+
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "stripe_connector_only" });
+    expect(stripe.calls.filter((c) => c.startsWith("createAccountLink:"))).toEqual([]);
+    expect(row(built.db)?.stripeAccountId).toBe("acct_new");
+    expect(row(built.db)?.stripeConnectedByOsnProfileId).toBe(OWNER);
+  });
+
+  it("logs the account a losing connect minted, so it is not lost without a trace", async () => {
+    // Past Stripe's idempotency window the losing create mints a second
+    // account. Nothing stores it, so the log line is the only record of it.
+    const box: { db?: Built["db"] } = {};
+    const stripe = stripeStub({
+      account: { ...ACCOUNT, id: "acct_orphan" },
+      duringCreate: () => connectedBy(box.db!, OWNER, "acct_first"),
+    });
+    const built = buildApp({ stripe: stripe.client });
+    box.db = built.db;
+
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await req(built.app, `${base}/session`, SECOND);
+    });
+
+    expect(res?.status).toBe(403);
+    expect(row(built.db)?.stripeAccountId).toBe("acct_first");
+    expect(logs).toContain("acct_orphan");
+  });
+
+  it("forgets who connected an account when Stripe takes it away", async () => {
+    const stripe = stripeStub();
+    const { app, db } = buildApp({ stripe: stripe.client });
+    connectedBy(db, OWNER);
+
+    await Effect.runPromise(
+      registryService
+        .detachStripeAccount({ accountId: "acct_first" })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    expect(row(db)?.stripeAccountId).toBeNull();
+    expect(row(db)?.stripeConnectedByOsnProfileId).toBeNull();
+
+    // So the next account is whoever connects it.
+    expect((await req(app, `${base}/session`, SECOND)).status).toBe(200);
+    expect(row(db)?.stripeConnectedByOsnProfileId).toBe(SECOND);
+  });
+
+  it("still lets another owner read the account's status", async () => {
+    const stripe = stripeStub({
+      account: {
+        id: "acct_first",
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        detailsSubmitted: true,
+        defaultCurrency: "AUD",
+      },
+    });
+    const { app, db } = buildApp({ stripe: stripe.client });
+    connectedBy(db, OWNER);
+
+    const res = await req(app, `${base}/refresh`, SECOND);
+
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({
+      connected: true,
+      chargesEnabled: true,
+      payoutsEnabled: true,
+      moneyGiftsBlockedBy: "payments_unavailable",
+    });
+    expect(stripe.calls).toEqual(["retrieveAccount:acct_first"]);
   });
 });
 

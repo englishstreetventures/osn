@@ -20,6 +20,9 @@ import {
  *     including that money gifts need a published list too;
  *   - the one owner-only control is visible to an editor, disabled, with the
  *     reason. A co-host who wonders why money gifts are off gets an answer;
+ *   - once an account is connected, only the owner who connected it is offered
+ *     its onboarding link; every other owner sees its status, and can still
+ *     ask Stripe for it;
  *   - "let guests give money" cannot be turned on until Stripe can actually
  *     take a charge, and the 409 that means the account changed under the page
  *     says the true thing rather than "check the fields";
@@ -29,7 +32,10 @@ import {
  */
 
 const authFetch = vi.fn();
-vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
+/** The signed-in profile; `null` while the session is still loading. */
+const ME = "usr_me";
+const activeProfileId = vi.fn<() => string | null>(() => ME);
+vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch, activeProfileId }) }));
 
 const { haptic } = vi.hoisted(() => ({ haptic: vi.fn() }));
 vi.mock("../../src/lib/haptics", () => ({ haptic }));
@@ -82,6 +88,7 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot =>
       shippingVisibleFrom: null,
       stripeConnected: false,
       stripeChargesEnabled: false,
+      stripeConnectedByOsnProfileId: null,
       // What the server says for no Stripe account. A test that renders a
       // money state sets the reason the server would send for it.
       moneyGiftsBlockedBy: "stripe_not_ready",
@@ -131,6 +138,8 @@ afterEach(() => {
 beforeEach(() => {
   __resetRegistryCache();
   authFetch.mockReset();
+  activeProfileId.mockReset();
+  activeProfileId.mockImplementation(() => ME);
   toastError.mockReset();
   toastSuccess.mockReset();
   haptic.mockReset();
@@ -903,6 +912,95 @@ describe("who may connect the account", () => {
     // Focusable, but still inert — pressing it asks Stripe for nothing.
     fireEvent.click(button);
     expect(authFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("who may continue on Stripe once an account is connected", () => {
+  /** A ready account, connected by `connector`. */
+  const connectedBy = (connector: string | null) =>
+    snapshot({
+      items: [item()],
+      settings: {
+        stripeConnected: true,
+        stripeChargesEnabled: true,
+        stripeConnectedByOsnProfileId: connector,
+        moneyGiftsBlockedBy: "cash_gifts_off",
+      } as never,
+    });
+
+  it("hands the owner who connected it back to Stripe, as before", async () => {
+    setCachedRegistry("wed_1", connectedBy(ME));
+    authFetch.mockResolvedValue(json({ url: "https://connect.stripe.com/setup/s/again" }));
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+
+    renderPanel({ canManage: true });
+    const button = await screen.findByRole("button", { name: /Continue on Stripe/i });
+    expect(button.getAttribute("aria-disabled")).toBeNull();
+    expect(screen.queryByTestId("stripe-connector-only")).toBeNull();
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://connect.stripe.com/setup/s/again"),
+    );
+    const [url, init] = authFetch.mock.calls.at(-1) ?? [];
+    expect(String(url)).toContain("/registry/stripe/session");
+    expect((init as RequestInit | undefined)?.method).toBe("POST");
+  });
+
+  it.each([
+    ["another owner connected it", "usr_partner", ME],
+    ["nobody is recorded as connecting it", null, ME],
+    ["nobody is recorded and the session is still loading", null, null],
+  ] as const)("shows the status and no link when %s", async (_label, connector, me) => {
+    activeProfileId.mockImplementation(() => me);
+    setCachedRegistry("wed_1", connectedBy(connector));
+    authFetch.mockResolvedValue(
+      json({
+        connected: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        moneyGiftsBlockedBy: "cash_gifts_off",
+      }),
+    );
+
+    renderPanel({ canManage: true });
+    // The account's status, as its connector sees it.
+    expect((await screen.findByTestId("stripe-status")).textContent).toMatch(
+      /connected and can take payments/i,
+    );
+    const button = screen.getByRole("button", { name: /Continue on Stripe/i });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.getAttribute("aria-describedby")).toBe("stripe-connector-only");
+    const note = screen.getByTestId("stripe-connector-only");
+    expect(note.id).toBe("stripe-connector-only");
+    expect(note.textContent).toMatch(/only the person who connected this Stripe account/i);
+    // The editor's reason is not this owner's.
+    expect(screen.queryByTestId("stripe-owner-only")).toBeNull();
+    fireEvent.click(button);
+    expect(authFetch).not.toHaveBeenCalled();
+
+    // Checking on the account stays theirs.
+    fireEvent.click(screen.getByRole("button", { name: /Check again/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(String(authFetch.mock.calls[0]?.[0])).toContain("/registry/stripe/refresh");
+  });
+
+  it("says whose account it is when the API refuses a page that is out of date", async () => {
+    // This page still thinks the caller connected it; the row says otherwise.
+    setCachedRegistry("wed_1", connectedBy(ME));
+    authFetch.mockResolvedValue(json({ error: "stripe_connector_only" }, 403));
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+
+    renderPanel({ canManage: true });
+    fireEvent.click(await screen.findByRole("button", { name: /Continue on Stripe/i }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(toastError.mock.calls.at(-1)?.[0]).toMatch(
+      /only the person who connected this Stripe account/i,
+    );
+    expect(assign).not.toHaveBeenCalled();
   });
 });
 

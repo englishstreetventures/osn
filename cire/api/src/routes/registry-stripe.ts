@@ -2,7 +2,7 @@
  * CONNECTING A COUPLE'S BANK ACCOUNT — Stripe Connect onboarding, from the
  * organiser portal.
  *
- *   POST /api/organiser/weddings/:weddingId/registry/stripe/session  (weddingOwner)
+ *   POST /api/organiser/weddings/:weddingId/registry/stripe/session  (weddingOwner, then the account's connector)
  *   POST /api/organiser/weddings/:weddingId/registry/stripe/refresh  (weddingOwner)
  *
  * **Owner-only, not editor.** Every other registry write is `weddingEditor`,
@@ -11,6 +11,16 @@
  * couple's gifts at anything. The role split already exists for exactly this
  * kind of line (codes, deletion, co-host removal), and this belongs on the same
  * side of it.
+ *
+ * **Once connected, the connector's alone.** Whoever runs onboarding puts their
+ * own identity and bank account on the Express account, so a wedding's other
+ * owners must not be handed a link into it. Any owner may connect a wedding
+ * that has no account, and is recorded as its connector
+ * (`stripe_connected_by_osn_profile_id`, in the write that fills the id). After
+ * that the session route answers every other owner 403 `stripe_connector_only`
+ * before it asks Stripe anything — and so does a row with an account and no
+ * recorded connector, since nobody can say whose it is. The refresh stays open
+ * to every owner: it reads the account's status, which they all see.
  *
  * **Create-or-resume, never create-again.** Onboarding is a form people abandon
  * and come back to, and every return trip runs through this route. It reads the
@@ -84,6 +94,32 @@ function internalSync(set: { status?: number | string }) {
 }
 
 /**
+ * Why an owner was refused an onboarding link: the account was already another
+ * owner's (or nobody's on record), or another owner connected it while this
+ * request was creating one.
+ */
+type ConnectorRefusal = "not_connector" | "connected_meanwhile";
+
+/**
+ * 403 `stripe_connector_only`, logged by wedding and reason — never by person,
+ * so the line names nobody's profile.
+ */
+const notConnector = (
+  set: { status?: number | string },
+  weddingId: string,
+  refusal: ConnectorRefusal,
+) =>
+  Effect.logInfo("stripe onboarding refused").pipe(
+    Effect.annotateLogs({ weddingId, refusal }),
+    Effect.andThen(
+      Effect.sync(() => {
+        set.status = 403;
+        return { error: "stripe_connector_only" };
+      }),
+    ),
+  );
+
+/**
  * Annotated with `weddingId` and nothing else. A defect here can carry a Stripe
  * account id or an onboarding URL, and neither belongs in a log line.
  */
@@ -137,17 +173,22 @@ export const createRegistryStripeRoutes = (
         // Gate order: owner (403) → tier (402) → limiter (429), so a
         // stranger never spends the couple's budget.
         .use(rateLimitMiddlewareByUser(deps.limiter))
-        .post("/registry/stripe/session", ({ weddingId, set }) => {
-          if (!weddingId) return internalSync(set);
+        .post("/registry/stripe/session", ({ weddingId, osnProfileId, set }) => {
+          if (!weddingId || !osnProfileId) return internalSync(set);
           return runCire(
             Effect.gen(function* () {
               const settings = yield* registryService.settingsOnly(weddingId);
               // An account already on the row is REUSED. It is the couple's
               // bank account by another name, and a second one would silently
-              // repoint every future gift; only the hosted link is fresh.
+              // repoint every future gift; only the hosted link is fresh —
+              // and only for the owner who connected it. A NULL connector
+              // matches nobody.
               let accountId = settings.stripeAccountId;
               let chargesEnabled = settings.stripeChargesEnabled;
               let payoutsEnabled = settings.stripePayoutsEnabled;
+              if (accountId && settings.stripeConnectedByOsnProfileId !== osnProfileId) {
+                return yield* notConnector(set, weddingId, "not_connector");
+              }
               if (!accountId) {
                 const created = yield* deps.stripe.createAccount({
                   country: deps.defaultCountry ?? "AU",
@@ -160,7 +201,7 @@ export const createRegistryStripeRoutes = (
                 // would otherwise be lost turns an unrecoverable orphan into a
                 // manual fix. It is an account identifier, not a credential.
                 const saved = yield* registryService
-                  .attachStripeAccount(weddingId, created)
+                  .attachStripeAccount(weddingId, created, osnProfileId)
                   .pipe(
                     Effect.tapDefect(() =>
                       Effect.logError("stripe account created but not stored").pipe(
@@ -168,6 +209,20 @@ export const createRegistryStripeRoutes = (
                       ),
                     ),
                   );
+                // Another request attached an account first. When it is not
+                // the one this request created — Stripe's idempotency key
+                // lasts 24h — that one exists at Stripe with nothing storing
+                // it, so its id is logged for the same manual fix as above.
+                if (saved.stripeAccountId !== null && saved.stripeAccountId !== created.id) {
+                  yield* Effect.logError("stripe account created but not stored").pipe(
+                    Effect.annotateLogs({ weddingId, stripeAccountId: created.id }),
+                  );
+                }
+                // And when another owner attached it, it is theirs: this
+                // owner gets no link into it.
+                if (saved.stripeConnectedByOsnProfileId !== osnProfileId) {
+                  return yield* notConnector(set, weddingId, "connected_meanwhile");
+                }
                 accountId = saved.stripeAccountId ?? created.id;
                 chargesEnabled = saved.stripeChargesEnabled;
                 payoutsEnabled = saved.stripePayoutsEnabled;
