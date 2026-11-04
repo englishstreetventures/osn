@@ -50,7 +50,7 @@ export interface PromiseBilling<PlanId extends string, FeatureId extends string>
   reconcile(input: { readonly limit: number }): Promise<ReconcileReport>;
   sweepAccess(input: { readonly limit: number }): Promise<SweepReport>;
   reapplyAll(input: { readonly customerRefs: readonly string[] }): Promise<ReapplyReport>;
-  pruneWebhookEvents(input: { readonly before: Date }): Promise<number>;
+  pruneWebhookEvents(input: { readonly before: Date; readonly limit: number }): Promise<number>;
   forgetCustomer(input: {
     readonly customerRef: string;
   }): Promise<{ readonly providerCustomerId: string | null } | null>;

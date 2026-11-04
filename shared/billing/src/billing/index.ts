@@ -108,7 +108,9 @@ export function createBilling<const Plans extends readonly AnyPlan[]>(
     sweepAccess: (input) => sweepAccess(ctx, input.limit),
     reapplyAll: (input) => reapplyAll(ctx, input.customerRefs),
     pruneWebhookEvents: (input) =>
-      ctx.storage.pruneEvents(input.before).pipe(Effect.withSpan("billing.prune_webhook_events")),
+      ctx.storage
+        .pruneEvents(input.before, input.limit)
+        .pipe(Effect.withSpan("billing.prune_webhook_events")),
 
     forgetCustomer: (input) => forgetCustomer(ctx, input.customerRef),
   };

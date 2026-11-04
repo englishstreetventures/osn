@@ -274,8 +274,14 @@ export interface Billing<PlanId extends string, FeatureId extends string> {
   sweepAccess(input: { readonly limit: number }): Effect.Effect<SweepReport, BillingStorageError>;
   /** One-shot: apply the current decision to each ref, creating rows as needed. */
   reapplyAll(input: { readonly customerRefs: readonly string[] }): Effect.Effect<ReapplyReport>;
-  /** Deletes webhook event claims received before `before`. */
-  pruneWebhookEvents(input: { readonly before: Date }): Effect.Effect<number, BillingStorageError>;
+  /**
+   * Deletes up to `limit` webhook event claims received before `before`, oldest
+   * first, and answers how many. A run that answers `limit` left more behind.
+   */
+  pruneWebhookEvents(input: {
+    readonly before: Date;
+    readonly limit: number;
+  }): Effect.Effect<number, BillingStorageError>;
   /**
    * Erasure. Under the customer's access lease, hands `onAccess` a final
    * decision denying every feature, then deletes the customer's grants,

@@ -169,8 +169,8 @@ export interface BillingStorage {
    * while it is still the one `token` names.
    */
   releaseEvent(eventId: string, token: Date): Effect.Effect<void, E>;
-  /** Deletes every event received before `before`, finished or not. */
-  pruneEvents(before: Date): Effect.Effect<number, E>;
+  /** Deletes up to `limit` events received before `before`, oldest first, finished or not. */
+  pruneEvents(before: Date, limit: number): Effect.Effect<number, E>;
 
   /**
    * Takes the customer's access lease when free or expired, raising the access

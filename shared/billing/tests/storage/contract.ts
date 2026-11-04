@@ -558,7 +558,10 @@ export function storageContract(
           leaseUntil: at(DAY + 1),
         }),
       );
-      expect(await run(storage.pruneEvents(at(HOUR)))).toBe(2);
+      // At most `limit` a run, oldest first.
+      expect(await run(storage.pruneEvents(at(HOUR), 1))).toBe(1);
+      expect(await run(storage.pruneEvents(at(HOUR), 10))).toBe(1);
+      expect(await run(storage.pruneEvents(at(HOUR), 10))).toBe(0);
       expect(
         await run(
           storage.claimEvent({

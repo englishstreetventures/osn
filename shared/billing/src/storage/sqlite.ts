@@ -10,7 +10,7 @@
  */
 
 import { commitBatch, rowsChanged, type Db } from "@shared/db-utils";
-import { and, asc, eq, gte, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { BillingStorageError } from "../errors";
@@ -422,10 +422,23 @@ export function createSqliteBillingStorage(config: SqliteBillingStorageConfig): 
           .run(),
       ).pipe(Effect.asVoid),
 
-    pruneEvents: (before) =>
-      q("prune_events", () => db.delete(ev).where(lt(ev.receivedAt, before)).run()).pipe(
-        Effect.map(rowsChanged),
-      ),
+    pruneEvents: (before, limit) =>
+      q("prune_events", () =>
+        db
+          .delete(ev)
+          .where(
+            inArray(
+              ev.eventId,
+              db
+                .select({ eventId: ev.eventId })
+                .from(ev)
+                .where(lt(ev.receivedAt, before))
+                .orderBy(asc(ev.receivedAt))
+                .limit(limit),
+            ),
+          )
+          .run(),
+      ).pipe(Effect.map(rowsChanged)),
 
     acquireAccess: (input) =>
       q("acquire_access", () =>
