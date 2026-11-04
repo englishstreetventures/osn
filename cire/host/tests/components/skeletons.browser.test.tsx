@@ -1,4 +1,6 @@
-import { cleanup } from "@solidjs/testing-library";
+import Loading from "@cire/ui/loading";
+import Skeleton from "@cire/ui/skeleton";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { commands, page } from "vitest/browser";
 
@@ -14,8 +16,9 @@ import "../../src/styles/global.css";
  * held back by a gate; the placeholders are measured, the gate opens, and the
  * content is measured. What is checked:
  *
- * - the first placeholder stands where the first item lands, so nothing under
- *   it moves: a count or legend line over a list is held as empty room;
+ * - the first placeholder stands where the first item lands, at 1280px and at
+ *   390px, so nothing under it moves: a count or legend line over a list is
+ *   held as empty room, and so are a section intro's actions;
  * - at 1280px, each placeholder is the height of the item it stands for (the
  *   first, in a list whose items differ), and
  *   a list of them is spaced as the list it stands for, to 2px; at 390px too
@@ -24,8 +27,10 @@ import "../../src/styles/global.css";
  * - the view bar is the same height while the RSVP replies load as after, at
  *   1280px and at 390px, and its divider stands where the loaded one does;
  * - `aria-busy` marks the region that holds the placeholders while it loads,
- *   never a form or the view's heading, and is gone once the content lands;
- *   left empty by a failed read, the region takes no room and adds no gap.
+ *   never a form, a heading, a live region or a control, and is gone once the
+ *   content lands; left empty by a failed read, the region takes no room and
+ *   adds no gap;
+ * - under reduced motion the loaders' pulse stops after one 0.01ms run.
  *
  * Artifacts: `cire/host/.vitest/skeletons/results.json`, one pass or fail per
  * named check, with no pixel values so a rerun writes the same file;
@@ -222,10 +227,12 @@ interface View {
    */
   heads?: number;
   /**
-   * Whether the first placeholder must stand where its content lands. Off
-   * only where something above the list, not a placeholder, grows on load.
+   * Whether each placeholder must take its item's height and its list's gap.
+   * Off on a phone for a view that keeps its 1280px placeholders there
+   * (cire/host/DESIGN.md §4, Skeletons): only the first placeholder's place is
+   * checked.
    */
-  holdsPlace?: boolean;
+  sized?: boolean;
 }
 
 const VIEWS: Record<string, View> = {
@@ -291,9 +298,6 @@ const VIEWS: Record<string, View> = {
   },
   "households, phone": {
     width: 390,
-    // The intro's export actions arrive with the list and, on a phone, take a
-    // row of their own under the title. Off until englishstreetventures/osn#1943 lands.
-    holdsPlace: false,
     module: "guests",
     sub: "list",
     held: "guests",
@@ -317,6 +321,13 @@ const VIEWS: Record<string, View> = {
   },
 };
 
+// The views that keep their 1280px placeholders on a phone: there only the
+// first placeholder's place is checked, which is where a section intro's
+// actions, arriving with the list, would push it down.
+for (const name of ["overview", "event cards", "events editor", "guests editor"]) {
+  VIEWS[`${name}, phone`] = { ...VIEWS[name]!, width: 390, sized: false };
+}
+
 describe("loading placeholders", () => {
   for (const [name, view] of Object.entries(VIEWS)) {
     it(`${name}: each placeholder is the size of what it stands for`, async () => {
@@ -337,7 +348,8 @@ describe("loading placeholders", () => {
       const gaps = view.gaps.map(([a, b]) => gapBetween(held[a]!, held[b]!));
 
       // While loading, one region says so, and it holds every placeholder and
-      // neither the view's heading nor a form a host can still use.
+      // nothing a reader must still reach: no heading, no form, no live
+      // region and no control a host can use.
       const busy = [...scope().querySelectorAll('[aria-busy="true"]')];
       expectPass(`${name}: one busy region while loading`, busy.length === 1);
       expectPass(
@@ -345,8 +357,12 @@ describe("loading placeholders", () => {
         held.every((el) => busy[0]?.contains(el)),
       );
       expectPass(
-        `${name}: the busy region holds no form or heading`,
-        busy[0]?.querySelector("form, h2") === null,
+        `${name}: the busy region holds no heading, form or live region`,
+        busy[0]?.querySelector("h1, h2, h3, form, [role=alert], [role=status]") === null,
+      );
+      expectPass(
+        `${name}: the busy region holds no control`,
+        busy[0]?.querySelector("button, input, select, textarea, a[href], [tabindex]") === null,
       );
 
       open();
@@ -365,18 +381,20 @@ describe("loading placeholders", () => {
       const lands = rect(content[0]!).top;
       measured[`${name} top content`] = Math.round(lands * 10) / 10;
       measured[`${name} top placeholder`] = Math.round(top * 10) / 10;
-      if (view.holdsPlace !== false) {
-        expectPass(
-          `${name}: the first placeholder stands where its content lands`,
-          Math.abs(top - lands) <= 2,
-          `${top} against ${lands}`,
-        );
-      }
+      expectPass(
+        `${name}: the first placeholder stands where its content lands`,
+        Math.abs(top - lands) <= 2,
+        `${top} against ${lands}`,
+      );
+      // Each item's own height is recorded at every width, sized or not.
+      content.forEach((item, i) => {
+        measured[`${name} ${i} content`] = Math.round(rect(item).height * 10) / 10;
+        measured[`${name} ${i} placeholder`] = heights[i]!;
+      });
+      if (view.sized === false) return;
       const heads = view.heads ?? 0;
       content.forEach((_, i) => {
         const want = rect(content[Math.min(i, heads)]!).height;
-        measured[`${name} ${i} content`] = Math.round(want * 10) / 10;
-        measured[`${name} ${i} placeholder`] = heights[i]!;
         expectPass(
           `${name}: placeholder ${i} is the height of the item it stands for`,
           Math.abs(heights[i]! - want) <= 2,
@@ -454,6 +472,60 @@ describe("loading placeholders", () => {
     expectPass(
       "failed read: the empty region is not laid out",
       getComputedStyle(region).display === "none",
+    );
+  });
+});
+
+describe("the loaders' pulse", () => {
+  afterEach(() => commands.emulateMedia({ reducedMotion: "no-preference" }));
+
+  /** A computed duration in milliseconds; Chromium writes 0.01ms as `1e-05s`. */
+  const ms = (duration: string) =>
+    duration.endsWith("ms") ? Number.parseFloat(duration) : Number.parseFloat(duration) * 1000;
+
+  /**
+   * The pulse as the portal's own stylesheet times it, for a `Skeleton` block
+   * and a `Loading` line: its name, its duration in milliseconds and its runs.
+   */
+  function pulses(): string {
+    render(() => (
+      <div>
+        <Skeleton class="h-7 w-40" />
+        <Loading label="Loading guests" />
+      </div>
+    ));
+    const block = document.querySelector('[aria-hidden="true"][class*="animate-[pulse"]')!;
+    const timings = [block, screen.getByRole("status")].map((el) => {
+      const style = getComputedStyle(el);
+      return [style.animationName, ms(style.animationDuration), style.animationIterationCount];
+    });
+    cleanup();
+    return JSON.stringify(timings);
+  }
+
+  it("runs without end for 2s at the desk, and stops after one 0.01ms run under reduced motion", async () => {
+    await commands.emulateMedia({ reducedMotion: "no-preference" });
+    const desk = pulses();
+    expectPass(
+      "pulse: a block and a line run for 2s without end",
+      desk ===
+        JSON.stringify([
+          ["pulse", 2000, "infinite"],
+          ["pulse", 2000, "infinite"],
+        ]),
+      desk,
+    );
+
+    await commands.emulateMedia({ reducedMotion: "reduce" });
+    const reduced = pulses();
+    expectPass(
+      "pulse: under reduced motion a block and a line stop after one 0.01ms run",
+      reduced ===
+        JSON.stringify([
+          ["pulse", 0.01, "1"],
+          ["pulse", 0.01, "1"],
+        ]),
+      reduced,
     );
   });
 });

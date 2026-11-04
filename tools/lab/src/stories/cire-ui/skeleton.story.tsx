@@ -128,8 +128,8 @@ export const Card = standInStory(
 /** A table's rows: the 6px corner of `Table`'s frame. */
 export const Row = standInStory(
   "row",
-  "h-13",
-  "the guest list's and the RSVP table's rows",
+  "h-14",
+  "an RSVP table row (h-14); a household is h-28",
   <>
     The <Mono>sm</Mono> corner, 6px, which <Mono>Table</Mono>'s frame takes, at the full surface.
   </>,
@@ -155,9 +155,10 @@ export const Pill = standInStory(
 );
 
 /**
- * The four shapes where the host portal draws them: the view bar's first row
- * (its divider, then the event tabs' pill), its second row (the filter), then
- * the table's rows; and a grid of cards below.
+ * The four shapes where the host portal draws them, at the host's classes: the
+ * RSVP view bar's first row (its divider, then the event tabs' pill), its
+ * second row (the filter), the legend's room, then the table's head row and
+ * rows a hairline apart; and the overview's band over its grid of cards.
  */
 export const InPlace: Story<ThemeArgs> = {
   args: { cireTheme: "both" },
@@ -167,9 +168,10 @@ export const InPlace: Story<ThemeArgs> = {
       title="cire/ui Skeleton — in place"
       intro={
         <>
-          The RSVP page while its replies load, then the overview's cards. The view bar keeps its
-          divider beside the pill, so nothing moves sideways when the tabs arrive. The blocks are
-          placed here as the host places them; their heights come from the host.
+          The RSVP page while its replies load, then the overview's band and cards. The view bar
+          keeps its divider beside the pill, so nothing moves sideways when the tabs arrive. The
+          legend's line is held as empty room over the table. The blocks are placed and sized here
+          as the host places and sizes them at 1280px.
         </>
       }
     >
@@ -184,13 +186,21 @@ export const InPlace: Story<ThemeArgs> = {
                 </div>
                 <Skeleton standsFor="field" class="h-7 w-full" />
               </div>
-              <div class="flex flex-col gap-3">
-                <For each={[1, 2, 3]}>{() => <Skeleton standsFor="row" class="h-30" />}</For>
+              <div class="flex flex-col gap-4">
+                <div aria-hidden="true" class="h-5" />
+                <div class="flex flex-col gap-px">
+                  <Skeleton standsFor="row" class="h-10.5" />
+                  <For each={[1, 2, 3]}>{() => <Skeleton standsFor="row" class="h-14" />}</For>
+                </div>
               </div>
             </Section>
-            <Section title="Cards">
-              <div class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3">
-                <For each={[1, 2, 3]}>{() => <Skeleton class="h-32.5" />}</For>
+            <Section title="Overview">
+              <div class="flex flex-col gap-4">
+                <Skeleton class="h-47" />
+                {/* The host's `auto-grid` at a 15rem minimum, written out. */}
+                <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4">
+                  <For each={[1, 2, 3]}>{() => <Skeleton class="h-86" />}</For>
+                </div>
               </div>
             </Section>
           </>
@@ -209,9 +219,10 @@ export const InPlace: Story<ThemeArgs> = {
 /** Tailwind writes only the classes it finds in source, so each height is a literal here. */
 const HEIGHTS = {
   "28px (h-7)": "h-7",
-  "52px (h-13)": "h-13",
+  "56px (h-14)": "h-14",
   "80px (h-20)": "h-20",
-  "120px (h-30)": "h-30",
+  "112px (h-28)": "h-28",
+  "232px (h-58)": "h-58",
 } as const;
 
 type Height = keyof typeof HEIGHTS;

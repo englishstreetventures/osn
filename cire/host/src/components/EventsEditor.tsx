@@ -416,8 +416,9 @@ export default function EventsEditor(props: { weddingId: string }) {
         eyebrow="Schedule"
         title="Edit your events"
         description="Add the events your guests can be invited to, drag them by the grip to re-order, set the details, and save. Every change is previewed before it's applied — you'll see exactly what will change, including anything that affects RSVPs or images."
+        holdActions={!store.loaded()}
         actions={
-          <Show when={store.loaded()}>
+          <Show when={store.loaded() || !loadError()}>
             <Button variant="outline" size="sm" onClick={handleAdd}>
               Add event
             </Button>

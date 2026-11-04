@@ -16,6 +16,13 @@ export default function SectionIntro(props: {
   description?: string;
   /** Right-aligned controls (a button, a count) that belong with this header. */
   actions?: JSX.Element;
+  /**
+   * While the view's first read is out: the actions keep their room but are
+   * not drawn, and no pointer, key or screen reader reaches them
+   * (`visibility: hidden`). A phone wraps them onto a row of their own, so
+   * arriving with the list they would push it down (DESIGN.md §4, Skeletons).
+   */
+  holdActions?: boolean;
 }) {
   return (
     <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
@@ -29,7 +36,9 @@ export default function SectionIntro(props: {
         </Show>
       </div>
       <Show when={props.actions}>
-        <div class="flex shrink-0 items-center gap-3">{props.actions}</div>
+        <div class="flex shrink-0 items-center gap-3" classList={{ invisible: props.holdActions }}>
+          {props.actions}
+        </div>
       </Show>
     </div>
   );

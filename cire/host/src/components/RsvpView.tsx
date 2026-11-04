@@ -999,8 +999,9 @@ export default function RsvpView(props: RsvpViewProps) {
         // Owner only, as the API's `weddingOwner()` gate is: an icon beside the
         // title, named and with its name as the shell's tooltip, as the
         // Households tab draws its own two downloads.
+        holdActions={loading()}
         actions={
-          <Show when={props.canManage && !loading() && !error() && hasGuests()}>
+          <Show when={props.canManage && !error() && (loading() || hasGuests())}>
             <IconButton
               variant="outline"
               size="icon"

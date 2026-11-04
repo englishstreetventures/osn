@@ -1119,8 +1119,9 @@ export default function GuestTable(props: GuestTableProps) {
         <SectionIntro
           eyebrow="Guest list"
           title="Households, invites & RSVPs"
+          holdActions={loading()}
           actions={
-            <Show when={props.canManage && !loading() && !error() && hasGuests()}>
+            <Show when={props.canManage && !error() && (loading() || hasGuests())}>
               <IconButton
                 variant="outline"
                 size="icon"

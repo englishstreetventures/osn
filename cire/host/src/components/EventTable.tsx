@@ -197,8 +197,9 @@ export default function EventTable(props: EventTableProps) {
         eyebrow="Events"
         title="The day, hour by hour"
         description="Every event your guests can be invited to — the details come from Edit, by hand or from a spreadsheet. Add one photo per event here to bring each card to life."
+        holdActions={loading()}
         actions={
-          <Show when={props.canManage && !loading() && !error() && hasEvents()}>
+          <Show when={props.canManage && !error() && (loading() || hasEvents())}>
             <Button
               variant="outline"
               size="sm"
