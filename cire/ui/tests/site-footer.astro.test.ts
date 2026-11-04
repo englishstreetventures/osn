@@ -107,7 +107,8 @@ describe("SiteFooter", () => {
   it("prints the version untranslated, the small print, and neither when not given", async () => {
     const el = await footer({ links: LEGAL, version: "45a21eb", smallPrint: "© 2026 Cire." });
     const version = el.querySelector(".version");
-    expect(version?.textContent?.replace(/\s+/g, " ").trim()).toBe("Version 45a21eb");
+    // Exact, with no whitespace around it: a report quotes the line as copied.
+    expect(version?.textContent).toBe("Version 45a21eb");
     expect(version?.getAttribute("translate")).toBe("no");
     expect(el.querySelector(".small-print")?.textContent).toBe("© 2026 Cire.");
     const bare = await footer({ links: LEGAL });

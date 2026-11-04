@@ -91,11 +91,7 @@ const hasConsent = Astro.slots.has('consent')
   {
     /* `translate="no"`, so a browser's page translation leaves the reference
        as a bug report quotes it. */
-    version && (
-      <p class="version" translate="no">
-        Version {version}
-      </p>
-    )
+    version && <p class="version" translate="no">Version {version}</p>
   }
 </footer>
 
