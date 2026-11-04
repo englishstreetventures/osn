@@ -417,7 +417,6 @@ function RoundSpecimen(props: {
   size: ButtonSize;
   name: string;
   glyph: string;
-  open?: boolean;
   disabled?: boolean;
 }) {
   let el: HTMLButtonElement | undefined;
@@ -427,7 +426,6 @@ function RoundSpecimen(props: {
         variant="round"
         size={props.size}
         aria-label={props.name}
-        aria-expanded={props.open === undefined ? undefined : props.open ? "true" : "false"}
         disabled={props.disabled}
         ref={(node) => {
           el = node;
@@ -463,10 +461,9 @@ export const Round: Story<ThemeArgs> = {
       intro={
         <>
           The surface fill with no edge, a muted glyph that brightens to the body ink under the
-          pointer, and the pill step at every size. While the popover it opens is showing (
-          <Mono>aria-expanded</Mono>) the disc lifts to the raised surface. Point at each size to
-          see its hover, and tab to it to see its focus ring: a static story holds neither. The lab
-          draws the platform font, so judge the × in the app.
+          pointer, and the pill step at every size. Point at each size to see its hover, and tab to
+          it to see its focus ring: a static story holds neither. The lab draws the platform font,
+          so judge the × in the app.
         </>
       }
     >
@@ -475,20 +472,14 @@ export const Round: Story<ThemeArgs> = {
           <>
             <Section title="Sizes">
               <div class="flex flex-wrap items-end gap-6">
-                <RoundSpecimen size="sm" name="What the reply icons mean" glyph="i" />
+                <RoundSpecimen size="sm" name="Information" glyph="i" />
                 <RoundSpecimen size="md" name="More" glyph="…" />
                 <RoundSpecimen size="lg" name="Close" glyph="×" />
               </div>
             </Section>
-            <Section title="States">
-              <div class="flex flex-wrap items-end gap-6">
-                <RoundSpecimen size="sm" name="Closed key" glyph="i" open={false} />
-                <RoundSpecimen size="sm" name="Open key" glyph="i" open />
-              </div>
-            </Section>
             <Section title="Disabled">
               <div class="flex flex-wrap items-end gap-6">
-                <RoundSpecimen size="sm" name="Key, disabled" glyph="i" disabled />
+                <RoundSpecimen size="sm" name="Information, disabled" glyph="i" disabled />
                 <RoundSpecimen size="md" name="More, disabled" glyph="…" disabled />
                 <RoundSpecimen size="lg" name="Close, disabled" glyph="×" disabled />
               </div>

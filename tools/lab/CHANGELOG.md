@@ -26,7 +26,7 @@
 
 - 10289c8: The `cire/ui/Button` States story shows the answer pair unchosen, chosen and chosen while locked, and says the chosen one wears a 2px ring; the Variants story says how an `outline` answers the pointer.
 - 9536104: A `cire/ui/Prose link` story: `proseLinkClass` in each tone inside a sentence, wrapping in a narrow paragraph, inside a warn and an accent `Notice`, and its focus ring.
-- b88d319: The `cire/ui/Button` stories gain `round`: in the variant grid under Chrome, a Round story at its three sides, closed and open, disabled at each side, and its pill corner at swatch size.
+- b88d319: The `cire/ui/Button` stories gain `round`: in the variant grid under Chrome, a Round story at its three sides, disabled at each side, and its pill corner at swatch size.
 - d158559: `shared/ui/forms` gains `CheckboxBoxes` and `RadioBoxes`: every state of each part — checked, unchecked, disabled, named only by `aria-label`, a two-line label holding a link, a description and a note, a row and a column of radios — drawn under the lab's mapping and native under cire's, light and dark.
 - Updated dependencies [d158559]
   - @shared/ui@0.9.0
