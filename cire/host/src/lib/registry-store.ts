@@ -39,6 +39,10 @@ export interface RegistrySettings {
   /** Whether the wedding has a Stripe account. The account id itself never
    *  reaches the portal. */
   stripeConnected: boolean;
+  /** The OSN profile of the owner who connected the account, the only one the
+   *  API hands its onboarding link. `null` with no account, with nobody on
+   *  record (then no owner may), and for anyone who is not an owner. */
+  stripeConnectedByOsnProfileId: string | null;
   stripeChargesEnabled: boolean;
   /** `null` exactly when the guest list offers money and cash funds — the
    *  server's answer, by the guest list's own rule. Anything else, a value this

@@ -995,6 +995,14 @@ export const registrySettings = sqliteTable("registry_settings", {
   // the merchant of record (direct charges) — cire never holds gift funds, which
   // is what keeps the platform out of money transmission.
   stripeAccountId: text("stripe_account_id"),
+  // The OSN profile of the owner who connected that account: whoever runs
+  // onboarding puts their own identity and bank account on it, so only they may
+  // open its onboarding links again; every other owner sees its status. Written
+  // in the statement that fills a NULL `stripe_account_id`, kept while the id is
+  // kept, and cleared with it. NULL beside an account means nobody is recorded,
+  // and then no owner may open links. No cross-DB FK, like
+  // `wedding_hosts.osn_profile_id`.
+  stripeConnectedByOsnProfileId: text("stripe_connected_by_osn_profile_id"),
   // Cached from the `account.updated` webhook so the portal can show onboarding
   // state without a live Stripe call on every page load.
   stripeChargesEnabled: integer("stripe_charges_enabled", { mode: "boolean" })

@@ -246,11 +246,15 @@ export const CIRE_ORGANISER = {
   /**
    * Money gifts on and a Stripe account that can charge, one cash fund and
    * nothing to reserve, unpublished — on a stack whose cire-api cannot take a
-   * money gift (a Stripe key and no webhook secret).
+   * money gift (a Stripe key and no webhook secret). Its other owner, Kit,
+   * connected the account, so the dev profile may read its status and not
+   * open its onboarding links.
    */
   money: {
     weddingId: "wed_e2e_money",
     fundTitle: "Honeymoon fund",
+    accountId: "acct_e2e_money",
+    connector: { hostId: "whost_e2e_kit", profileId: "usr_e2e_kit" },
   },
   /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
    *  Cy Charlie at Table 2, all three having said yes. And an after party,

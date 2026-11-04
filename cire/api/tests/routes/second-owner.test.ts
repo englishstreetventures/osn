@@ -19,10 +19,15 @@ import type { OsnTestAuth } from "../test-helpers/osn-token";
  * Every owner-only route, called by a wedding's SECOND owner.
  *
  * Owners are equals: an owner invited to the wedding holds everything its
- * creator does — claim codes, settings, the budget cap, billing, the payout
- * account, and who helps, the creator's own seat included. Each route is
+ * creator does — claim codes, settings, the budget cap, billing, connecting the
+ * payout account, and who helps, the creator's own seat included. Each route is
  * asserted twice, so the pair proves the gate rather than the route: the second
  * owner gets through, and an editor on the same wedding is refused 403.
+ *
+ * The one thing an owner holds alone is a payout account they connected: once
+ * it exists, only its connector may open its onboarding links
+ * (`registry-stripe.test.ts`). The wedding here has none, so the second owner
+ * connects it.
  */
 
 const CREATOR = DEV_OWNER_PROFILE_ID;
@@ -208,7 +213,7 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
     ok: 200,
   },
   {
-    name: "start the registry's payout onboarding",
+    name: "connect the registry's payout account, which the wedding does not have yet",
     method: "POST",
     path: () => "/registry/stripe/session",
     ok: 200,
