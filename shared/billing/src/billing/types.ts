@@ -42,7 +42,9 @@ export interface Tuning {
   readonly eventLeaseMs: number;
   /** How long a checkout waits for another request's session; covers a Stripe call. */
   readonly checkoutWaitMs: number;
+  /** The first wait between polls for that session; each wait doubles, up to `checkoutPollMaxMs`. */
   readonly checkoutPollMs: number;
+  readonly checkoutPollMaxMs: number;
   /** A pending checkout with no session after this long is abandoned. */
   readonly pendingStaleMs: number;
   /** Wait before replaying a customer create Stripe answered 409 (key in use). */
@@ -65,6 +67,7 @@ export const DEFAULT_TUNING: Tuning = {
   eventLeaseMs: 60_000,
   checkoutWaitMs: 11_000,
   checkoutPollMs: 250,
+  checkoutPollMaxMs: 2_000,
   pendingStaleMs: 60_000,
   customerRetryMs: 250,
   catalogueTtlMs: 5 * 60_000,

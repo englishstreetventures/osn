@@ -144,9 +144,13 @@ export function createCheckout(ctx: BillingContext, catalogue: ReturnType<typeof
       yield* allowedReturn(ctx, "cancelUrl", input.cancelUrl);
       const currency = input.currency.toUpperCase();
       const started = ctx.now();
-      const customer0 = yield* storage.ensureCustomer(input.customerRef, started);
-
-      const subscriptions = yield* storage.listSubscriptions(input.customerRef);
+      const [customer0, subscriptions] = yield* Effect.all(
+        [
+          storage.ensureCustomer(input.customerRef, started),
+          storage.listSubscriptions(input.customerRef),
+        ],
+        { concurrency: 2 },
+      );
       const live = subscriptions.some(
         (s) => ctx.planById.get(s.planId)?.group === plan.group && !isTerminalStatus(s.status),
       );
@@ -219,6 +223,7 @@ export function createCheckout(ctx: BillingContext, catalogue: ReturnType<typeof
         });
 
       const deadline = performance.now() + tuning.checkoutWaitMs;
+      let pollMs = tuning.checkoutPollMs;
       let customer = customer0;
       for (;;) {
         const pending = customer.pendingCheckout;
@@ -263,7 +268,8 @@ export function createCheckout(ctx: BillingContext, catalogue: ReturnType<typeof
         }
         // Another request is creating this checkout: wait for its session.
         if (performance.now() >= deadline) return yield* Effect.fail(new CheckoutInFlight());
-        yield* Effect.sleep(Duration.millis(tuning.checkoutPollMs));
+        yield* Effect.sleep(Duration.millis(pollMs));
+        pollMs = Math.min(pollMs * 2, tuning.checkoutPollMaxMs);
         customer = (yield* storage.findCustomer(input.customerRef)) ?? customer;
       }
     }).pipe(

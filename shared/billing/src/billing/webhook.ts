@@ -87,7 +87,8 @@ export const syncSubscription = (
       if ((existing?.status ?? null) !== sub.status)
         metricTransition(existing?.status ?? null, sub.status);
     }
-    if (sub.trialEnd !== null) yield* ctx.storage.markTrialUsed(customer.id, now);
+    if (sub.trialEnd !== null && customer.trialUsedAt === null)
+      yield* ctx.storage.markTrialUsed(customer.id, now);
     if (paidPeriod !== null) {
       yield* ctx.storage.recordPaidPeriod({
         providerSubscriptionId: sub.id,
