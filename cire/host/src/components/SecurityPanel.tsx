@@ -25,7 +25,9 @@ export default function SecurityPanel() {
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-1">
         <Eyebrow>Security</Eyebrow>
-        <h2 class="font-display text-ui-lg">Your devices &amp; passkeys</h2>
+        <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">
+          Your devices &amp; passkeys
+        </h2>
         <p class="font-body text-text-muted text-ui-base">
           Passkeys and recovery codes belong to your musubi account, not to Cire. Manage them there
           and the change applies everywhere you sign in with it.
@@ -36,7 +38,7 @@ export default function SecurityPanel() {
         href={settingsUrl}
         target="_blank"
         rel="noreferrer"
-        class={`${buttonClass({ variant: "cta" })} self-start`}
+        class={`${buttonClass({ variant: "outline" })} self-start`}
       >
         Manage on musubi
       </a>

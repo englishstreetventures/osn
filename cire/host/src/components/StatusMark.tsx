@@ -40,7 +40,13 @@ const WORD = {
   none: "text-text-muted",
 } satisfies Readonly<Record<MarkTone, string>>;
 
-/** A "?" for Maybe: lucide's question mark without its circle. */
+/**
+ * A "?" for Maybe: lucide's question mark without its circle, 1.4 units lower
+ * in its box. Its ink is heavy at the top (the hook) and light at the foot
+ * (the point), so centred by its box it reads high in its circle: 0.4 to 0.7px
+ * at the marks' sizes, painted. Lowered, its weight sits on the circle's
+ * centre (`tests/components/StatusMark.browser.test.tsx`).
+ */
 export const QuestionGlyph: Glyph = (props) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -53,8 +59,8 @@ export const QuestionGlyph: Glyph = (props) => (
     aria-hidden={props["aria-hidden"]}
     class={props.class}
   >
-    <path d="M8.5 9a3.5 3.5 0 1 1 5.3 3c-1.1.6-1.8 1.4-1.8 2.6" />
-    <path d="M12 18.5h.01" />
+    <path d="M8.5 10.4a3.5 3.5 0 1 1 5.3 3c-1.1.6-1.8 1.4-1.8 2.6" />
+    <path d="M12 19.9h.01" />
   </svg>
 );
 

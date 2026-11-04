@@ -59,7 +59,7 @@ export default function WeddingSwitcher(props: {
         </span>
         <span
           aria-hidden="true"
-          class="text-text-faint group-hover:text-gold text-ui-xs shrink-0 transition-colors duration-(--dur-fast) ease-(--ease-out)"
+          class="text-text-faint group-hover:text-gold text-ui-xs transition-ui-colors shrink-0 duration-(--dur-fast) ease-(--ease-out)"
         >
           ▾
         </span>

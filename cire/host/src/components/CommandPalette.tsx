@@ -239,7 +239,7 @@ export default function CommandPalette(props: {
       <Dialog.Portal>
         <Dialog.Overlay class="sheet-scrim bg-bg/70 backdrop-blur-scrim fixed inset-0 z-40" />
         <div class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
-          <Dialog.Content class="sheet-panel border-border bg-surface rounded-ui-lg flex w-full max-w-lg flex-col overflow-hidden border shadow-(--elev-2) outline-none">
+          <Dialog.Content class="sheet-panel border-border bg-surface-raised rounded-ui-lg flex w-full max-w-lg flex-col overflow-hidden border shadow-(--elev-2) outline-none">
             <Dialog.Title class="sr-only">Command palette</Dialog.Title>
 
             <div class="border-border flex items-center gap-3 border-b px-4">
@@ -296,7 +296,7 @@ export default function CommandPalette(props: {
                       aria-selected={active() === index()}
                       onPointerMove={() => setActive(index())}
                       onClick={() => run(index())}
-                      class={`font-body flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                      class={`font-body transition-ui-colors flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out) ${
                         active() === index() ? "bg-gold/10 text-gold-ink" : "text-text-muted"
                       }`}
                     >

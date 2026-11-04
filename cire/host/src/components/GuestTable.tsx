@@ -13,7 +13,6 @@ import {
 } from "@shared/ui/ui/dropdown-menu";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
-import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Switch } from "@shared/ui/ui/switch";
@@ -76,6 +75,7 @@ import {
 import { plusOneShort } from "../lib/rsvp-filter";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
 import { IconButton, TipNote } from "./ActionTip";
+import { FilterSearch } from "./FilterField";
 import SectionIntro from "./SectionIntro";
 import { StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
@@ -1123,7 +1123,7 @@ export default function GuestTable(props: GuestTableProps) {
           actions={
             <Show when={props.canManage && !error() && (loading() || hasGuests())}>
               <IconButton
-                variant="outline"
+                variant="bar"
                 size="icon"
                 label={exporting() === "guests" ? "Exporting guests…" : "Download guests (CSV)"}
                 onClick={() => void exportCsv("guests")}
@@ -1132,7 +1132,7 @@ export default function GuestTable(props: GuestTableProps) {
                 <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
               </IconButton>
               <IconButton
-                variant="outline"
+                variant="bar"
                 size="icon"
                 label={exporting() === "rsvps" ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
                 onClick={() => void exportCsv("rsvps")}
@@ -1195,10 +1195,9 @@ export default function GuestTable(props: GuestTableProps) {
               class={compact() ? "min-w-0 flex-1" : "w-64 shrink-0"}
             >
               {(field) => (
-                <Input
+                <FilterSearch
                   {...field}
                   type="search"
-                  size="sm"
                   value={searchInput()}
                   onInput={(e) => handleSearchInput(e.currentTarget.value)}
                   placeholder={compact() ? "Search guests…" : "Search by name, household or code…"}

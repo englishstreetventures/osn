@@ -15,6 +15,7 @@ import { DESIGNS } from "@cire/invite-designs";
 import { cardClass } from "@cire/ui/card";
 import { createSignal, For, Show } from "solid-js";
 
+import { BLOCK_CHOSEN } from "../../lib/chosen-block";
 import { LinkPill } from "../LinkPill";
 import { isDesignLocked } from "./model";
 
@@ -106,7 +107,11 @@ export default function DesignPicker(props: {
             const isLocked = () => isDesignLocked(design.tier, props.entitlements);
             const checked = () => props.currentId === design.id;
             return (
-              <div class={DESIGN_CARD_CLASS} classList={{ "border-gold": checked() }}>
+              <div
+                class={`${DESIGN_CARD_CLASS} transition-[color,background-color,border-color,box-shadow] ${
+                  checked() ? BLOCK_CHOSEN : ""
+                }`}
+              >
                 {/* Raw: one radio of a roving-focus group, unframed inside the
                     card that holds it beside its preview link. */}
                 <button

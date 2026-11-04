@@ -218,13 +218,13 @@ export default function GettingStarted(props: {
           {/* Dismiss (X) — top-right, so an organiser who doesn't want the guide
             can hide it; the choice persists per wedding in localStorage. */}
           <Button
-            variant="bare"
+            variant="bar"
             size="icon"
             type="button"
             onClick={dismiss}
             aria-label="Dismiss getting started"
             title="Dismiss getting started"
-            class="absolute top-3 right-3 flex h-7 w-7 items-center justify-center"
+            class="absolute top-3 right-3"
           >
             <span aria-hidden>✕</span>
           </Button>
@@ -304,7 +304,7 @@ function StepMarker(props: { n: number; complete: boolean }) {
   return (
     <span
       aria-hidden
-      class="font-body text-ui-sm mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors duration-(--dur-fast) ease-(--ease-out)"
+      class="font-body text-ui-sm transition-ui-colors mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border duration-(--dur-fast) ease-(--ease-out)"
       classList={{
         "border-gold bg-gold text-on-gold": props.complete,
         "border-gold/40 text-gold-ink group-hover:border-gold/70": !props.complete,

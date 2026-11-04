@@ -337,7 +337,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
         </Show>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content class="droplet-popover border-border bg-surface-raised lip z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none">
+        <Popover.Content class="droplet-popover border-border bg-surface-raised z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none">
           <form
             class="droplet-popover-body flex flex-col gap-4 p-4"
             onSubmit={save}

@@ -28,8 +28,8 @@
  * bar — a search box, the RSVP sort select — is 28px with the 14px field
  * corner, half its height, so its ends are round; a form field — the guest
  * editor's — is 34px with the same corner, short of a pill, and a boxed button
- * beside one, Delete household and Add guest, is 34px too. The bar's action,
- * Add household, is the filters' 28px. The guest site is not a portal: its
+ * beside one, Delete household and Add guest, is 34px too (`Button`'s `form`).
+ * The bar's action, Add household, is the filters' 28px (`Button`'s `sm`). The guest site is not a portal: its
  * fields are the ink fill at the touch size, whose heights the forms checks
  * read; here only their 14px corner is.
  *

@@ -185,7 +185,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
         <span
           data-assign-plus
           aria-hidden="true"
-          class="border-border-strong bg-bg text-text-muted group-hover:border-gold group-hover:text-text group-data-[expanded]:border-gold group-data-[expanded]:text-gold-ink ring-bg relative flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted ring-2 transition-colors duration-(--dur-fast) ease-(--ease-out)"
+          class="border-border-strong bg-bg text-text-muted group-hover:border-gold group-hover:text-text group-data-[expanded]:border-gold group-data-[expanded]:text-gold-ink ring-bg transition-ui-colors relative flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted ring-2 duration-(--dur-fast) ease-(--ease-out)"
         >
           <svg
             viewBox="0 0 16 16"
@@ -205,7 +205,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
             panel opens at the page's top left and is put beside its trigger
             a frame later, and a scrolling focus would jump the page there. */}
         <Popover.Content
-          class="droplet-popover border-border bg-surface-raised lip z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
+          class="droplet-popover border-border bg-surface-raised z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
           onKeyDown={(e: KeyboardEvent) => {
             // Tab would carry the focus out of a popover portalled to the end
             // of the page, past everything; it closes it instead, and the
@@ -430,14 +430,14 @@ function PeopleList(props: TaskHoldersProps) {
                 // The house ring stays on the search or the list and never
                 // reaches a person: a bar in the ring's colour marks the
                 // highlighted one instead, with gold ink on the name.
-                class="font-body relative flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) before:absolute before:inset-y-2 before:start-0 before:w-0.75 before:rounded-full"
+                class="font-body transition-ui-colors relative flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out) before:absolute before:inset-y-2 before:start-0 before:w-0.75 before:rounded-full"
                 classList={{ "bg-gold/10 before:bg-focus": lit() }}
               >
                 <span
                   data-toggle
                   data-on={on() || undefined}
                   aria-hidden="true"
-                  class="flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-(--dur-fast) ease-(--ease-out)"
+                  class="transition-ui-colors flex size-5 shrink-0 items-center justify-center rounded-full border-2 duration-(--dur-fast) ease-(--ease-out)"
                   classList={{
                     "border-border-strong": !on(),
                     "border-brand bg-brand text-on-brand": on(),

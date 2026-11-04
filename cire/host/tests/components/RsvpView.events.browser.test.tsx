@@ -725,6 +725,168 @@ describe("the reply key", () => {
   });
 });
 
+/** A colour as one comparable paint, whatever form the engine reports it in. */
+function paint(color: string): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 1, 1);
+  return ctx.getImageData(0, 0, 1, 1).data.slice(0, 3).join(",");
+}
+
+const rootToken = (name: string) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+describe("the RSVP bar's one pill language", () => {
+  it("draws every pill in the bar, the download among them, at 28px", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const bar = within(viewBar());
+    const heights = {
+      search: bar.getByRole("searchbox").getBoundingClientRect().height,
+      events: strip().getBoundingClientRect().height,
+      replies: bar.getByRole("radiogroup").getBoundingClientRect().height,
+      key: bar.getByRole("button", { name: "What the reply icons mean" }).getBoundingClientRect()
+        .height,
+      download: bar.getByRole("button", { name: "Download RSVPs (CSV)" }).getBoundingClientRect()
+        .height,
+    };
+    expect(heights).toEqual({ search: 28, events: 28, replies: 28, key: 28, download: 28 });
+  });
+
+  it("rests the search box on the track's look, led by a magnifier, its edge strong under the pointer and on focus", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const search = within(viewBar()).getByRole("searchbox");
+    const rest = getComputedStyle(search);
+    expect(paint(rest.borderTopColor)).toBe(paint(rootToken("--border")));
+    expect(paint(rest.backgroundColor)).toBe(paint(getComputedStyle(strip()).backgroundColor));
+    // The 3:1 mark that says "a field": a magnifier in the secondary ink.
+    const glyph = search.parentElement!.querySelector("svg[data-filter-glyph]")!;
+    expect(glyph).toBeTruthy();
+    expect(glyph.getBoundingClientRect().left).toBeLessThan(
+      search.getBoundingClientRect().left + 16,
+    );
+    expect(paint(getComputedStyle(glyph).color)).toBe(paint(rootToken("--text-muted")));
+    await userEvent.hover(search);
+    expect(paint(getComputedStyle(search).borderTopColor)).toBe(
+      paint(rootToken("--border-strong")),
+    );
+    await userEvent.unhover(search);
+    search.focus();
+    expect(paint(getComputedStyle(search).borderTopColor)).toBe(
+      paint(rootToken("--border-strong")),
+    );
+  });
+
+  it("rests the phone's sort select on the track's look, its edge strong under the pointer and on focus", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const sort = within(viewBar()).getByRole("combobox", { name: "Sort guests" });
+    const search = within(viewBar()).getByRole("searchbox");
+    expect(sort.getBoundingClientRect().height).toBe(28);
+    // Its call site's own cap (`max-w-28`) reaches it through the part.
+    expect(sort.getBoundingClientRect().width).toBeLessThanOrEqual(112);
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border")));
+    expect(paint(getComputedStyle(sort).backgroundColor)).toBe(
+      paint(getComputedStyle(search).backgroundColor),
+    );
+    await userEvent.hover(sort);
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border-strong")));
+    await userEvent.unhover(sort);
+    sort.focus();
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border-strong")));
+  });
+
+  it("draws the reply key and the download as the bar's icon buttons: lifted under the pointer, raised while open", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const bar = within(viewBar());
+    const key = bar.getByRole("button", { name: "What the reply icons mean" });
+    const download = bar.getByRole("button", { name: "Download RSVPs (CSV)" });
+    const search = bar.getByRole("searchbox");
+    /** `button`'s fill, edge and ink, each as one comparable paint. */
+    const look = (button: Element) => {
+      const style = getComputedStyle(button);
+      return [style.backgroundColor, style.borderTopColor, style.color].map(paint);
+    };
+    // The surface at 60%, as the portal paints it, read off a probe.
+    const ground = document.createElement("div");
+    ground.style.backgroundColor = "color-mix(in oklab, var(--surface) 60%, transparent)";
+    document.body.append(ground);
+    const lifted = getComputedStyle(ground).backgroundColor;
+    ground.remove();
+    // At rest, both: the search box's ground and the hairline.
+    for (const button of [key, download]) {
+      expect(button.getBoundingClientRect().width).toBe(28);
+      expect(paint(getComputedStyle(button).borderTopColor)).toBe(paint(rootToken("--border")));
+      expect(paint(getComputedStyle(button).backgroundColor)).toBe(
+        paint(getComputedStyle(search).backgroundColor),
+      );
+    }
+    // Under the pointer: the ground at 60%, the body ink, a gold edge.
+    for (const button of [download, key]) {
+      await userEvent.hover(button);
+      expect(look(button)).toEqual([lifted, rootToken("--gold"), rootToken("--text")].map(paint));
+    }
+    // Open, the pointer still on it: the raised surface, the body ink and the
+    // hairline, which the pointer does not move.
+    await userEvent.click(key);
+    const dialog = await screen.findByRole("dialog", { name: "What the reply icons mean" });
+    expect(look(key)).toEqual(
+      [rootToken("--surface-raised"), rootToken("--border"), rootToken("--text")].map(paint),
+    );
+    expect(dialog.textContent).toContain("Host-entered — Recorded by a host");
+    const panel = getComputedStyle(dialog);
+    expect(paint(panel.backgroundColor)).toBe(paint(rootToken("--surface-raised")));
+    expect(panel.borderTopLeftRadius).toBe("10px");
+    // The inner lip and the floating shadow, as every panel draws them.
+    expect(panel.boxShadow).toMatch(/inset/);
+    expect(panel.boxShadow).toMatch(/12px 32px -8px/);
+    await userEvent.keyboard("{Escape}");
+  });
+});
+
+describe("the RSVPs page's own lines", () => {
+  it("draws no decorative intro, and names the view to a screen reader by a hidden heading", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    expect(screen.queryByText("Replies at a glance")).toBeNull();
+    const heading = screen.getByRole("heading", { level: 2, name: "RSVPs" });
+    const box = heading.getBoundingClientRect();
+    expect(box.width <= 1 && box.height <= 1).toBe(true);
+    // Every word "RSVPs" a host can see is a control in the bar: the sub-tab.
+    const seen = [...document.querySelectorAll("body *")].filter((el) => {
+      const own = [...el.childNodes].some(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim() === "RSVPs",
+      );
+      const rect = el.getBoundingClientRect();
+      return own && el.checkVisibility() && rect.width > 1 && rect.height > 1;
+    });
+    expect(seen.every((el) => viewBar().contains(el))).toBe(true);
+  });
+
+  it("keeps the download in the bar's search row on a phone", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const download = within(viewBar()).getByRole("button", { name: "Download RSVPs (CSV)" });
+    const search = within(viewBar()).getByRole("searchbox");
+    expect(download.getBoundingClientRect().height).toBe(28);
+    expect(
+      Math.abs(download.getBoundingClientRect().top - search.getBoundingClientRect().top),
+    ).toBeLessThanOrEqual(0.5);
+  });
+});
+
 /** A picture of the window, not the whole page: an element screenshot of a
  *  box fixed over the viewport. */
 async function screenshotWindow(path: string) {

@@ -731,7 +731,7 @@ The refusals in isolation (no cookie, a household of another wedding, the host p
 
 **Where each half of that copy renders.** The masthead's eyebrow and heading come from the invite payload, which is public, so they are server-rendered; the module's own `headline` / `message` arrive with the gated list, so the **intro paragraph** is the island's and carries the whole chain (invite body, then module message). One paragraph, one place, and neither surface waits on the other.
 
-**The way back stays put.** The rail is `position: sticky` with its own `Z_LAYER.STICKY_RAIL` (20): every card below it paints a background and sits later in the document, so without a layer the rail is painted over by the list the moment it starts to matter.
+**The way back stays put, and is said once.** While the list is open the rail carries it; once the couple have closed the list, the closed page's own pill under its message is the way back and the rail stands down, its box kept unseen so nothing under it moves when the island's answer lands (`global.css`, `:root:has([data-gift-closed]) [data-gift-rail]`; `tests/components/gift-rail.browser.test.tsx`; owner, the 2026-11-04 consistency audit). The rail is `position: sticky` with its own `Z_LAYER.STICKY_RAIL` (20): every card below it paints a background and sits later in the document, so without a layer the rail is painted over by the list the moment it starts to matter.
 
 **Status is a live region at the page root**, never an overlay: this section sits among animated ones and any ancestor `transform` traps `position: fixed`. The claim form is inline in the card for the same reason.
 

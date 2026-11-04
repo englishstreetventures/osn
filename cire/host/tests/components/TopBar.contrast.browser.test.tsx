@@ -1,7 +1,7 @@
 import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
-import { cleanup, render } from "@solidjs/testing-library";
+import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { commands, page } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -168,4 +168,89 @@ describe("the host top bar's words, over what scrolls beneath it", () => {
       }
     }
   }
+});
+
+/*
+ * The top bar's actions in the one pill language (DESIGN.md §4): ⌘K a 36px
+ * pill with a 16px magnifier, as a search box reads, and Preview invite the
+ * portals' secondary `outline`, which takes no fill under the pointer.
+ */
+describe("the top bar's actions", () => {
+  it("draws ⌘K as a 36px pill led by a 16px magnifier, and Preview invite as an outline", async () => {
+    await page.viewport(1280, 800);
+    mount(RUTH);
+    const palette = screen.getByRole("button", { name: "Search and jump to" });
+    const box = palette.getBoundingClientRect();
+    expect(box.height).toBe(36);
+    // `quiet`: the hairline on the portals' pill ground, as it was a tile's.
+    const probe = document.createElement("div");
+    probe.style.cssText = "border:1px solid var(--border);background:var(--pill-ground)";
+    document.body.append(probe);
+    expect(getComputedStyle(palette).borderTopColor).toBe(getComputedStyle(probe).borderTopColor);
+    expect(getComputedStyle(palette).backgroundColor).toBe(getComputedStyle(probe).backgroundColor);
+    probe.remove();
+    expect(Number.parseFloat(getComputedStyle(palette).borderTopLeftRadius)).toBeGreaterThanOrEqual(
+      18,
+    );
+    const glyph = palette.querySelector("svg")!.getBoundingClientRect();
+    expect([glyph.width, glyph.height]).toEqual([16, 16]);
+    // Even room either side of what it holds.
+    const words = palette.lastElementChild!.getBoundingClientRect();
+    expect(Math.abs(glyph.left - box.left - (box.right - words.right))).toBeLessThanOrEqual(1);
+
+    const preview = screen.getByRole("button", { name: "Preview invite" });
+    const rest = getComputedStyle(preview).backgroundColor;
+    await userEvent.hover(preview);
+    await vi.waitFor(() => expect(preview.getAnimations()).toEqual([]));
+    expect(getComputedStyle(preview).backgroundColor).toBe(rest);
+  });
+
+  for (const scheme of ["light", "dark"] as const) {
+    it(`lifts ⌘K's ground under the pointer, in the body ink with a gold edge, its words at 4.5:1, ${scheme}`, async () => {
+      await page.viewport(1280, 800);
+      await commands.emulateMedia({ colorScheme: scheme });
+      const { container } = mount(RUTH);
+      const bar = container.querySelector("header")!;
+      const palette = screen.getByRole("button", { name: "Search and jump to" });
+      await userEvent.hover(palette);
+      await vi.waitFor(() => expect(palette.getAnimations()).toEqual([]));
+      // The bar's hover, as the portal paints it, read off a probe.
+      const probe = document.createElement("div");
+      probe.style.cssText =
+        "border:1px solid var(--gold);background-color:color-mix(in oklab, var(--surface) 60%, transparent);color:var(--text)";
+      document.body.append(probe);
+      const want = getComputedStyle(probe);
+      const style = getComputedStyle(palette);
+      expect([style.borderTopColor, style.backgroundColor, style.color]).toEqual([
+        want.borderTopColor,
+        want.backgroundColor,
+        want.color,
+      ]);
+      probe.remove();
+      for (const [content, colour] of Object.entries(CONTENT)) {
+        const words = readings(bar, colour).filter((r) => r.line.startsWith("⌘K"));
+        expect(words.map((r) => [content, r.ratio >= WCAG_TEXT_MIN, r.line])).toEqual([
+          [content, true, words[0]?.line],
+        ]);
+      }
+    });
+  }
+
+  it("draws ⌘K on a narrow bar as a 36px circle round its magnifier, still named", async () => {
+    await page.viewport(390, 844);
+    mount(RUTH);
+    const palette = screen.getByRole("button", { name: "Search and jump to" });
+    const box = palette.getBoundingClientRect();
+    expect([box.width, box.height]).toEqual([36, 36]);
+    expect(Number.parseFloat(getComputedStyle(palette).borderTopLeftRadius)).toBeGreaterThanOrEqual(
+      18,
+    );
+    const glyph = palette.querySelector("svg")!.getBoundingClientRect();
+    expect(Math.abs(glyph.left + glyph.width / 2 - (box.left + box.width / 2))).toBeLessThanOrEqual(
+      1,
+    );
+    expect(Math.abs(glyph.top + glyph.height / 2 - (box.top + box.height / 2))).toBeLessThanOrEqual(
+      1,
+    );
+  });
 });

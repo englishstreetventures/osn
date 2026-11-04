@@ -563,6 +563,46 @@ describe("one popup for the page, not one per control", () => {
 });
 
 // ── Searches and view changes ────────────────────────────────────────────────
+describe("the Guests views' bar icon buttons", () => {
+  /** `button`'s fill, edge and ink, each as one comparable paint. */
+  const look = (button: Element) => {
+    const style = getComputedStyle(button);
+    return [style.backgroundColor, style.borderTopColor, style.color].map((c) => over(c, "#000"));
+  };
+  /** The bar's hover, as the portal paints it, read off a probe. */
+  function lifted() {
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "background-color:color-mix(in oklab, var(--surface) 60%, transparent);border:1px solid var(--gold);color:var(--text)";
+    document.body.append(probe);
+    const want = look(probe);
+    probe.remove();
+    return want;
+  }
+
+  const CASES = [
+    { width: 1280, sub: "list", names: ["Download guests (CSV)", "Download RSVPs (CSV)"] },
+    { width: 390, sub: "edit", names: ["Add household"] },
+  ] as const;
+  for (const { width, sub, names } of CASES) {
+    it(`at ${width}: lifts ${names.join(" and ")}'s ground under the pointer, in the body ink with a gold edge`, async () => {
+      await page.viewport(width, 844);
+      render({ module: "guests", sub });
+      await loaded(sub);
+      for (const name of names) {
+        const button = screen.getByRole("button", { name });
+        await userEvent.hover(button);
+        expectPass(
+          `bar ${width}: ${name} lifts under the pointer`,
+          JSON.stringify(look(button)) === JSON.stringify(lifted()),
+          JSON.stringify(look(button)),
+        );
+        await userEvent.unhover(button);
+      }
+    });
+  }
+});
+
 describe("moving within the stack", () => {
   const searchbox = () => within(viewBar()).getByRole("searchbox");
 

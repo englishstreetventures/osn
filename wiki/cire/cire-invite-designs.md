@@ -781,7 +781,7 @@ differs. On the guest site each corner paints:
 
 | Corner | Paints |
 |---|---|
-| pill, `rounded-ui-control` | Respond, the RSVP sheet's Attending / Not attending pair and Save, every `@cire/ui` `Button` action, the gift amount choices, and the focus ring of a hand-written text link, to match the ring `Button`'s borderless variants draw |
+| pill, `rounded-ui-control` | Respond, the RSVP sheet's Attending / Not attending pair, Cancel and Save, every `@cire/ui` `Button` action, the gift amount choices, and the focus ring of a hand-written text link, to match the ring `Button`'s borderless variants draw |
 | 14px, `rounded-ui-field` | every input and textarea (the code field, email, a plus-one's name, "Anything else", the gift fields); a framed picture and its crop box (the event photo, both packs' story photo, the map embed and drawn map card, the gift teaser and fund thumbnails); a gift fund row; the answer on file past the deadline, a value box standing where the answer pair would be |
 | 16px, `rounded-ui-lg` | the event card, gala's code-entry card, both packs' hero title panel, the gift money panel and the gift item card, whose `overflow-hidden` clips its picture to the corner |
 | 1.75rem, `rounded-t-ui-sheet` | the top corners of a bottom sheet (`Modal presentation="sheet"`) |
@@ -803,7 +803,19 @@ differs. On the guest site each corner paints:
   under 4.5:1 on garden; `@shared/ui`'s `tests/control.browser.test.tsx`
   holds it at 4.5:1 on four palettes. A field is 46px with 16px type
   on a phone, so iOS does not zoom, and 44px from 640px; heights are rem, so on
-  the 17px desk root it is 46.75px, never under the 44px floor. The code field
+  the 17px desk root it is 46.75px, never under the 44px floor. Every control
+  a guest presses in the RSVP sheet stands at that one height too: the answer
+  pair, its Cancel and its Save (`min-h-11`, 2.75rem; the owner's choice).
+  Respond stays the event card's one filled gold control;
+  its label is `--color-on-gold`, which `derivePalette` holds at 4.5:1 on the
+  gold, the light schemes included — 4.60:1 on chapel's darker gold in a dark
+  ink, 4.96:1 and 4.63:1 on fog's and garden's in a light one — as
+  `tests/components/EventCard.contrast.browser.test.tsx` measures painted on
+  every scheme.
+
+  *Measured 2026-11-04 — `@cire/theme`'s `contrastRatio(--color-on-gold, --color-gold)` over `derivePalette(null, preset)` for each built-in preset*
+
+  The code field
   keeps its look through the `claim` face: centred capitals at 1rem on every
   width, 54px tall; the gift amount stays centred through the `amount` face. A
   field's small-caps label puts its case and tracking on its words, not on the

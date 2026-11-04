@@ -747,7 +747,7 @@ export default function ModuleSidebar(props: {
                 </Dialog.Title>
                 <Dialog.CloseButton
                   aria-label="Close modules"
-                  class={buttonClass({ variant: "quiet", size: "icon" })}
+                  class={buttonClass({ variant: "bare", size: "icon" })}
                 >
                   <span aria-hidden="true">✕</span>
                 </Dialog.CloseButton>

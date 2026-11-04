@@ -70,3 +70,28 @@ describe("the profile menu's version line", () => {
     });
   }
 });
+
+/*
+ * Every floating panel is one depth (DESIGN.md §4, Depth): the raised
+ * surface, lit along its top by the inner lip, on the floating shadow, at the
+ * 10px corner. The shared menu's accent look reads `--elev-2`, which carries
+ * the lip, so the profile menu shows it.
+ */
+describe("the profile menu's depth", () => {
+  it("floats raised, lit by the inner lip, on the floating shadow, at 10px", async () => {
+    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+    fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
+    const panel = await waitFor(() => screen.getByRole("menu"));
+    const style = getComputedStyle(panel);
+    const raised = document.createElement("div");
+    raised.style.backgroundColor = "var(--surface-raised)";
+    document.body.append(raised);
+    expect(style.backgroundColor).toBe(getComputedStyle(raised).backgroundColor);
+    raised.remove();
+    expect(style.borderTopLeftRadius).toBe("10px");
+    const shadows = style.boxShadow.split(/,(?![^(]*\))/).map((s) => s.trim());
+    expect(shadows.some((s) => s.includes("inset") && s.includes("0px 1px 0px"))).toBe(true);
+    expect(shadows.some((s) => s.includes("12px 32px -8px"))).toBe(true);
+    await userEvent.keyboard("{Escape}");
+  });
+});

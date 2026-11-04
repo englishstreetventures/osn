@@ -300,7 +300,6 @@ const VIEWS: Record<string, View> = {
       [1, 2],
     ],
     heads: 1,
-    actions: 1,
   },
   "households, phone": {
     width: 390,
@@ -313,7 +312,6 @@ const VIEWS: Record<string, View> = {
   },
   "rsvp list, phone": {
     width: 390,
-    actions: 1,
     module: "guests",
     sub: "rsvps",
     held: "rsvps",

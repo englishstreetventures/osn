@@ -33,7 +33,7 @@ import {
   revalidateBudget,
   setCachedBudget,
 } from "../lib/budget-store";
-import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { sameButOrder } from "../lib/sortable-rows";
@@ -551,10 +551,10 @@ export default function BudgetView(props: BudgetViewProps) {
                   />
                 )}
               </Field>
-              <Button class={FORM_ACTION_CLASS} variant="primary" onClick={saveCap}>
+              <Button variant="primary" size="form" onClick={saveCap}>
                 Save
               </Button>
-              <Button class={FORM_ACTION_CLASS} variant="quiet" onClick={() => setCapDraft(null)}>
+              <Button variant="quiet" size="form" onClick={() => setCapDraft(null)}>
                 Cancel
               </Button>
             </div>
@@ -616,7 +616,7 @@ export default function BudgetView(props: BudgetViewProps) {
               />
             )}
           </Field>
-          <Button class={FORM_ACTION_CLASS} type="submit" variant="primary">
+          <Button type="submit" variant="primary" size="form">
             Add item
           </Button>
         </form>
@@ -958,7 +958,7 @@ function PaymentPanel(props: {
               />
             )}
           </Field>
-          <Button class={FORM_ACTION_CLASS} type="submit" variant="outline" size="sm">
+          <Button type="submit" variant="outline" size="form">
             Add payment
           </Button>
         </form>
