@@ -484,8 +484,10 @@ filter's — moves its colours on `--dur-base` with `--ease-in-out`, the glass's
 own step; a hover comes and goes on `--dur-fast` with `--ease-out`, halfway
 hovers included. A browser takes a transition from the state an element moves
 to, so the choice giving the mark up runs on the rest state's clock, the fast
-one: no marker is kept on the old choice for it. The glass still slides on the
-spring.
+one: no marker is kept on the old choice for it. So the owner's "a chosen or
+unchosen change runs on base" holds only for the choice arriving; whether the
+one leaving should hold the base clock too is the owner's call (#1959). The
+glass still slides on the spring.
 
 **One ladder in all four cire apps.** The vendor portal, the guest site and the
 marketing site carry this ladder, its `pointer: fine` block and the two easings
