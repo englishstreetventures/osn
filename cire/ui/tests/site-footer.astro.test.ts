@@ -33,7 +33,7 @@ const LEGAL = [
   { href: "/refunds", label: "Refunds" },
 ];
 const SECTIONS = [
-  { href: "/#how-it-works", label: "How it works" },
+  { href: "/#journey", label: "How it works" },
   { href: "/#faq", label: "Questions" },
 ];
 
