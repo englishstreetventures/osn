@@ -376,7 +376,7 @@ describe("redact", () => {
     expect(out.guestId).toBe("gst_1");
   });
 
-  it("redacts the billing provider's secrets and the Stripe customer fields an invoice or customer carries", () => {
+  it("redacts the billing provider's secrets and the Stripe customer fields an invoice, a Checkout session or a customer carries", () => {
     const input = {
       config: {
         secretKey: "sk_live_x",
@@ -393,11 +393,17 @@ describe("redact", () => {
         customer_shipping: { name: "Example" },
         customer_tax_ids: [{ type: "au_abn", value: "12345678901" }],
       },
+      session: {
+        id: "cs_1",
+        mode: "subscription",
+        customer_details: { name: "Jo Example", phone: "+61400000000", email: "jo@example.test" },
+      },
       customer: { id: "cus_1", address: { country: "AU" }, tax_ids: { data: [] } },
     };
     const out = redact(input) as {
       config: Record<string, unknown>;
       invoice: Record<string, unknown>;
+      session: Record<string, unknown>;
       customer: Record<string, unknown>;
     };
     expect([out.config.secretKey, out.config.webhookSecret, out.config.apiBase]).toEqual([
@@ -416,6 +422,11 @@ describe("redact", () => {
       expect(out.invoice[key], `${key} was not redacted`).toBe(REDACTION_PLACEHOLDER);
     }
     expect([out.invoice.id, out.invoice.status]).toEqual(["in_1", "paid"]);
+    expect([out.session.id, out.session.mode, out.session.customer_details]).toEqual([
+      "cs_1",
+      "subscription",
+      REDACTION_PLACEHOLDER,
+    ]);
     expect([out.customer.id, out.customer.address, out.customer.tax_ids]).toEqual([
       "cus_1",
       REDACTION_PLACEHOLDER,
@@ -552,6 +563,7 @@ describe("redact", () => {
       "osn_account_id",
       "secretkey",
       "webhooksecret",
+      "customer_details",
       "customer_address",
       "customer_email",
       "customer_name",

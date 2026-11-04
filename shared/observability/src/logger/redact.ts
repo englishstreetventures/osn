@@ -307,10 +307,16 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // Stripe objects that reach the Worker carry the paying customer's
     // details, read by nothing (shared/billing/src/stripe/schemas.ts names
     // each): an invoice in an `invoice.paid` body or a reconcile fetch carries
-    // the `customer_*` fields; a customer object carries `address` and, when
-    // expanded, `tax_ids` (its name and email are covered above). Matching is
+    // the `customer_*` fields; a Checkout session in a
+    // `checkout.session.completed` body carries the buyer's whole
+    // `customer_details` block; a customer object carries `address`, `email`
+    // (covered above) and, when expanded, `tax_ids`. A customer object's bare
+    // `name`, `phone` and `shipping` are not on the list: `name` is too broad
+    // a key to deny, and the one customer object the package receives is the
+    // reply to its own create call, which sets none of them. Matching is
     // exact-key, so `address` also scrubs any other object's `address` key in
     // a log line, such as a venue's — the safe direction.
+    "customer_details",
     "customer_address",
     "customer_email",
     "customer_name",
