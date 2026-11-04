@@ -29,11 +29,11 @@ import {
   rsvps,
   weddings,
 } from "@cire/db";
-import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, isNull, ne, sql } from "drizzle-orm";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
-import { DbService, commitGroupedBatches, dbQuery } from "../db";
+import { type Db, DbService, bound, commitGroupedBatches, dbQuery } from "../db";
 import { displayRank } from "../lib/display-rank";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { SERVICE_CATEGORY_KEYS } from "../lib/service-categories";
@@ -441,8 +441,18 @@ export function computeRollup(
   return { byCategory: [...byKey.values()], totals, spentSoFarMinor };
 }
 
-/** Load the item, scoped to the wedding, or fail 404-class. Shared by the
- *  payment writes (which must prove the parent item belongs to the wedding). */
+/** True when the item exists under the wedding. Folded into a payment write's
+ *  own statement, so the tenancy check costs no round trip of its own. */
+const itemInWedding = (db: Db, weddingId: string, itemId: string) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(budgetItems)
+      .where(and(eq(budgetItems.id, itemId), eq(budgetItems.weddingId, weddingId))),
+  );
+
+/** Load the item, scoped to the wedding, or fail 404-class. A payment write
+ *  that wrote nothing calls it to tell a missing item from a missing payment. */
 function requireItem(
   weddingId: string,
   itemId: string,
@@ -609,7 +619,7 @@ export const budgetService = {
       // Append to the end of the category: next sort_order = current max + 1.
       // A per-head line also needs the wedding's events, for the picked-event
       // check and its headcount, so the two reads go out together.
-      const [existing, weddingEvents] = yield* Effect.all(
+      const [top, weddingEvents] = yield* Effect.all(
         [
           dbQuery(() =>
             db
@@ -621,6 +631,8 @@ export const budgetService = {
                   eq(budgetItems.category, input.category),
                 ),
               )
+              .orderBy(desc(budgetItems.sortOrder))
+              .limit(1)
               .all(),
           ),
           perHead === null ? Effect.succeed(null) : loadEvents(input.weddingId),
@@ -630,10 +642,7 @@ export const budgetService = {
       if (weddingEvents !== null && eventIds !== null) {
         yield* requirePickedEvents(weddingEvents, eventIds);
       }
-      const maxSort = (existing as { sortOrder: number }[]).reduce(
-        (m, r) => Math.max(m, r.sortOrder),
-        -1,
-      );
+      const maxSort = top[0]?.sortOrder ?? -1;
       const id = `bit_${crypto.randomUUID()}`;
       const now = new Date();
       const row: ItemRow = {
@@ -806,7 +815,6 @@ export const budgetService = {
   }): Effect.Effect<PaymentDto, BudgetItemNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* requireItem(input.weddingId, input.itemId);
       const id = `pay_${crypto.randomUUID()}`;
       const now = new Date();
       const row: PaymentRow = {
@@ -818,7 +826,30 @@ export const budgetService = {
         paidAt: null,
         createdAt: now,
       };
-      yield* dbQuery(() => db.insert(payments).values(row).run());
+      // INSERT … SELECT … WHERE EXISTS: the row is written only when the item
+      // is under this wedding, and zero rows back means it is not.
+      const written = yield* dbQuery(() =>
+        db
+          .insert(payments)
+          .select(
+            // Every `payments` column, in the table's order.
+            db
+              .select({
+                id: bound(row.id, payments.id),
+                budgetItemId: bound(row.budgetItemId, payments.budgetItemId),
+                label: bound(row.label, payments.label),
+                amountMinor: bound(row.amountMinor, payments.amountMinor),
+                dueAt: bound(row.dueAt, payments.dueAt),
+                paidAt: bound(row.paidAt, payments.paidAt),
+                createdAt: bound(row.createdAt, payments.createdAt),
+              })
+              .from(sql`(select 1)`)
+              .where(itemInWedding(db, input.weddingId, input.itemId)),
+          )
+          .returning({ id: payments.id })
+          .all(),
+      );
+      if (written.length === 0) return yield* Effect.fail(new BudgetItemNotInWedding());
       return toPaymentDto(row);
     }).pipe(Effect.withSpan("cire.budget.addPayment"));
   },
@@ -832,10 +863,9 @@ export const budgetService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { weddingId, itemId, paymentId, patch } = input;
-      // The item read stays: it is the tenancy gate (payments carry no
-      // wedding_id of their own). The payment SELECT + UPDATE + re-SELECT
-      // collapse to one UPDATE .. RETURNING round trip.
-      yield* requireItem(weddingId, itemId);
+      // Payments carry no wedding_id of their own, so the write itself proves
+      // the item is under the wedding (EXISTS). One UPDATE .. RETURNING round
+      // trip; only a write that found nothing reads the item, to choose the 404.
 
       const set: SQLiteUpdateSetSource<typeof payments> = {};
       if (patch.label !== undefined) set.label = patch.label;
@@ -850,21 +880,20 @@ export const budgetService = {
       }
 
       // An empty patch degrades to a plain read (drizzle rejects an empty SET).
+      const ours = and(
+        eq(payments.id, paymentId),
+        eq(payments.budgetItemId, itemId),
+        itemInWedding(db, weddingId, itemId),
+      );
       const [updated] = yield* dbQuery(() =>
         Object.keys(set).length === 0
-          ? db
-              .select()
-              .from(payments)
-              .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
-              .all()
-          : db
-              .update(payments)
-              .set(set)
-              .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
-              .returning()
-              .all(),
+          ? db.select().from(payments).where(ours).all()
+          : db.update(payments).set(set).where(ours).returning().all(),
       );
-      if (!updated) return yield* Effect.fail(new PaymentNotInItem());
+      if (!updated) {
+        yield* requireItem(weddingId, itemId);
+        return yield* Effect.fail(new PaymentNotInItem());
+      }
       return toPaymentDto(updated as PaymentRow);
     }).pipe(Effect.withSpan("cire.budget.updatePayment"));
   },
@@ -877,17 +906,25 @@ export const budgetService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { weddingId, itemId, paymentId } = input;
-      // Tenancy gate as in updatePayment; the delete itself is one
+      // Tenancy folded into the DELETE as in updatePayment: one
       // DELETE .. RETURNING round trip.
-      yield* requireItem(weddingId, itemId);
       const [removed] = yield* dbQuery(() =>
         db
           .delete(payments)
-          .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
+          .where(
+            and(
+              eq(payments.id, paymentId),
+              eq(payments.budgetItemId, itemId),
+              itemInWedding(db, weddingId, itemId),
+            ),
+          )
           .returning({ id: payments.id })
           .all(),
       );
-      if (!removed) return yield* Effect.fail(new PaymentNotInItem());
+      if (!removed) {
+        yield* requireItem(weddingId, itemId);
+        return yield* Effect.fail(new PaymentNotInItem());
+      }
     }).pipe(Effect.withSpan("cire.budget.removePayment"));
   },
 };
