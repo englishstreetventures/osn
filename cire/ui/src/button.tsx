@@ -188,17 +188,6 @@ const VARIANT = {
     "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary base:hover:border-ui-accent base:hover:text-ui-accent-ink " +
     "base:aria-expanded:border-ui-accent base:aria-expanded:text-ui-accent-ink",
   /**
-   * Destroys something, and says so only when you reach for it — the
-   * "Deactivate" beside a household in the guest table, where the rows above
-   * and below carry the same control.
-   *
-   * `bareDanger`'s reasoning for an action that needs a box: a column of
-   * red-outlined buttons down a table reads as an error state rather than as a
-   * column of controls, so the warning waits for the pointer. Distinct from
-   * `danger`, which is red at rest and belongs on the button that finally
-   * commits the destruction — the confirm, not the control that offers it.
-   */
-  /**
    * The portals' icon button that stands alone in a page's chrome — the RSVP
    * page's reply key and download, the guest list's downloads, Add household
    * on a narrow panel, the getting-started guide's Dismiss — and the top
@@ -218,6 +207,17 @@ const VARIANT = {
     "not-aria-expanded:hover:base:border-ui-accent not-aria-expanded:hover:base:bg-ui-surface/60 " +
     "not-aria-expanded:hover:base:text-ui-ink " +
     "base:aria-expanded:bg-ui-surface-raised base:aria-expanded:text-ui-ink",
+  /**
+   * Destroys something, and says so only when you reach for it — the
+   * "Deactivate" beside a household in the guest table, where the rows above
+   * and below carry the same control.
+   *
+   * `bareDanger`'s reasoning for an action that needs a box: a column of
+   * red-outlined buttons down a table reads as an error state rather than as a
+   * column of controls, so the warning waits for the pointer. Distinct from
+   * `danger`, which is red at rest and belongs on the button that finally
+   * commits the destruction — the confirm, not the control that offers it.
+   */
   quietDanger:
     "base:border-ui-hairline base:bg-[color:var(--pill-ground,transparent)] base:text-ui-ink-secondary base:hover:border-ui-danger base:hover:text-ui-danger",
   /**
