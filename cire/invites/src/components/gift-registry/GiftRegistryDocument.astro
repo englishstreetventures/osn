@@ -17,6 +17,8 @@
 // host-scoped to the API origin, which the browser therefore never sends to this
 // Worker. There is no household for the server to be, so the list is the
 // island's to fetch — see `GiftRegistryPage`.
+import { eyebrowClass } from '@cire/ui/eyebrow'
+
 import '../../styles/global.css'
 import { apiPreconnectHref } from '../../lib/api-origin'
 import { giftPageTitle } from '../../lib/gift-registry'
@@ -152,7 +154,7 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
         />
       )}
       <div class="relative flex min-h-[34vh] flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-6 py-14 text-center md:py-16">
-        <p class="font-body text-gold-ink mb-3 text-ui-xs tracking-ui-widest uppercase">
+        <p class:list={[eyebrowClass(), 'mb-3']}>
           {eyebrow}
         </p>
         {/* leading-ui-none + pb, never leading-none: a descender in the couple's

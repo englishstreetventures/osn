@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -7,7 +8,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
@@ -264,10 +265,7 @@ export default function VendorsView(props: VendorsViewProps) {
 
       {/* Add vendor (editor). */}
       <Show when={props.canEdit}>
-        <form
-          onSubmit={addVendor}
-          class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
-        >
+        <form onSubmit={addVendor} class={FIELD_BAR_CLASS}>
           <Field label="Vendor name" class="min-w-48 flex-1">
             {(field) => (
               <Input
@@ -355,9 +353,9 @@ export default function VendorsView(props: VendorsViewProps) {
         <For each={grouped()}>
           {(group) => (
             <section class="flex flex-col gap-2">
-              <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+              <Eyebrow as="h3" tone="muted">
                 {group.status.label}
-              </h3>
+              </Eyebrow>
               <ul class="flex flex-col gap-1">
                 <For each={group.vendors}>
                   {(v) => (

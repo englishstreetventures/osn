@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
-import Card, { CardEyebrow } from "@cire/ui/card";
+import Card from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
 import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
@@ -98,7 +99,7 @@ function ClaimContent() {
       {/* Valid preview — show invite banner */}
       <Show when={preview.state === "ready" && preview() !== null && !invalidLink()}>
         <Card tone="accent">
-          <CardEyebrow>You've been invited to claim</CardEyebrow>
+          <Eyebrow>You've been invited to claim</Eyebrow>
           <p class="font-display text-text text-ui-xl leading-ui-tight font-light">
             {preview()?.name}
           </p>
@@ -123,9 +124,7 @@ function ClaimContent() {
           }
         >
           <div class="flex flex-col gap-4">
-            <h2 class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-              Choose the organisation that owns this listing
-            </h2>
+            <Eyebrow as="h2">Choose the organisation that owns this listing</Eyebrow>
             <Show when={ownedBy()}>
               {(org) => (
                 <Notice tone="warn" alert>

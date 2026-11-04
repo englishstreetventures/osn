@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -20,7 +21,7 @@ import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
@@ -451,10 +452,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       </Show>
 
       <Show when={props.canEdit}>
-        <form
-          onSubmit={addTask}
-          class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
-        >
+        <form onSubmit={addTask} class={FIELD_BAR_CLASS}>
           <Field label="Task" class="min-w-48 flex-1">
             {(field) => (
               <Input
@@ -530,9 +528,9 @@ export default function ChecklistView(props: ChecklistViewProps) {
             });
             return (
               <section class="flex flex-col gap-2">
-                <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                <Eyebrow as="h3" tone="muted">
                   {bucket.label}
-                </h3>
+                </Eyebrow>
                 <Show
                   when={bucketTasks().length > 0}
                   fallback={<p class="text-text-muted text-ui-sm italic">Nothing here yet.</p>}

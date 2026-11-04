@@ -19,6 +19,7 @@
  * the couple's.
  */
 import { buttonClass } from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { createMemo, For, Show } from "solid-js";
 
 import {
@@ -85,9 +86,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
       }}
     >
       <div class="md:max-w-ui-xl max-w-column-lg mx-auto text-center">
-        <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-          {eyebrow()}
-        </p>
+        <Eyebrow class="mb-3">{eyebrow()}</Eyebrow>
         <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
           {heading()}
         </h2>

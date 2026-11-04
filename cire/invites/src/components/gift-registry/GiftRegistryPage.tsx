@@ -1,4 +1,5 @@
 import { buttonClass } from "@cire/ui/button";
+import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import { Toaster } from "@shared/toast";
 import {
   createMemo,
@@ -40,6 +41,12 @@ import {
 import { Z_CLASS } from "../../lib/z-index";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { GiftRegistryItemCard } from "./GiftRegistryItemCard";
+
+/**
+ * A shelf's label, drawn once per shelf: the eyebrow's classes on a plain
+ * heading, without `Eyebrow`'s run-time choice of tag.
+ */
+const SHELF_LABEL_CLASS = eyebrowClass();
 
 /**
  * The money panel is a whole second surface — its own amount field, its own
@@ -492,9 +499,9 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   data-gift-shipping
                   class="border-border max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
                 >
-                  <p class="font-body text-text-muted text-ui-xs tracking-ui-widest mb-1 uppercase">
+                  <Eyebrow tone="muted" class="mb-1">
                     Send gifts to
-                  </p>
+                  </Eyebrow>
                   <p class="font-body text-text text-ui-base leading-ui-normal break-words whitespace-pre-line">
                     {address()}
                   </p>
@@ -588,10 +595,10 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                             where their grouping starts. Absent when they grouped
                             nothing, since one unlabelled shelf is just a list. */}
                         <Show when={showShelfLabels()}>
-                          <h2 class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-6 flex items-center gap-4 uppercase">
-                            <span>{group().category ?? "More gifts"}</span>
+                          <div class="mb-6 flex items-center gap-4">
+                            <h2 class={SHELF_LABEL_CLASS}>{group().category ?? "More gifts"}</h2>
                             <span class="border-border h-px flex-1 border-t" aria-hidden="true" />
-                          </h2>
+                          </div>
                         </Show>
                         {/* `items-start`, so a card is its own height. Stretching the row
                             instead would hand a gift with no picture the height of

@@ -1,4 +1,5 @@
 import { buttonClass } from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 
 import { OSN_ACCOUNT_URL } from "../lib/osn";
 
@@ -23,7 +24,7 @@ export default function SecurityPanel() {
   return (
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Security</p>
+        <Eyebrow>Security</Eyebrow>
         <h2 class="font-display text-ui-lg">Your devices &amp; passkeys</h2>
         <p class="font-body text-text-muted text-ui-base">
           Passkeys and recovery codes belong to your musubi account, not to Cire. Manage them there

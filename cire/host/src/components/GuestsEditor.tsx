@@ -833,6 +833,7 @@ function FamilyCard(props: {
 
   return (
     <div
+      // Drawn by hand, not `cardClass`: the stuck head sits flush with the top edge, and no padding step leaves the top at 0.
       data-edit-card
       class="border-border bg-surface/30 rounded-ui-lg flex flex-col overflow-clip border px-4 pb-4"
       style={{ "--edit-table-w": width() }}

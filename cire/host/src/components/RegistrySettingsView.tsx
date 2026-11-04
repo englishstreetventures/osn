@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Field } from "@shared/ui/ui/field";
@@ -21,6 +23,9 @@ import {
   type RegistrySnapshot,
 } from "../lib/registry-store";
 import SectionIntro from "./SectionIntro";
+
+const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-6`;
+
 /**
  * THE REGISTRY'S SETTINGS — the four decisions the guest surface has been
  * reading all along with nowhere for a couple to make them: whether the list is
@@ -613,7 +618,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const hintClass = "font-body text-text-muted text-ui-sm leading-ui-normal";
 
   return (
-    <div class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-6 border p-6">
+    <div class={PANEL_CLASS}>
       <SectionIntro
         eyebrow="Registry"
         title="Gift list settings"
@@ -647,9 +652,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             disabled={!props.canEdit}
             aria-describedby={canPublish() ? undefined : "registry-publish-blocked"}
           >
-            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
+            <Eyebrow as="legend" class="mb-1">
               Visibility
-            </legend>
+            </Eyebrow>
 
             <Show when={!canPublish()}>
               <Notice id="registry-publish-blocked" tone="warn">
@@ -686,9 +691,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
           {/* ── The couple's own words ─────────────────────────────────── */}
           <fieldset class="flex flex-col gap-4 border-0 p-0" disabled={!props.canEdit}>
-            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
+            <Eyebrow as="legend" class="mb-1">
               What it says
-            </legend>
+            </Eyebrow>
             <Field
               label="Heading"
               hint="Leave it empty to use “Gift Registry”. The invite’s own heading, if you set one there, wins over this."
@@ -722,9 +727,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
           {/* ── Where parcels go ───────────────────────────────────────── */}
           <fieldset class="flex flex-col gap-4 border-0 p-0" disabled={!props.canEdit}>
-            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
+            <Eyebrow as="legend" class="mb-1">
               Where to send things
-            </legend>
+            </Eyebrow>
             <Field
               label="Address"
               hint="Shown only to a household that has reserved something — never to anyone browsing."
@@ -757,9 +762,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
           {/* ── Money ──────────────────────────────────────────────────── */}
           <fieldset class="flex flex-col gap-3 border-0 p-0">
-            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
+            <Eyebrow as="legend" class="mb-1">
               Money gifts
-            </legend>
+            </Eyebrow>
 
             {/* The site, not the couple or Stripe: the API cannot record a gift
                 here, so guests are offered none whatever is set below. A

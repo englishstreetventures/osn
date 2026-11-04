@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Fieldset } from "@shared/ui/ui/field";
@@ -10,6 +11,9 @@ import { haptic } from "../lib/haptics";
 import { invalidateHouseholds } from "../lib/households-store";
 import type { CodeStyle } from "./CreateWeddingForm";
 import SectionIntro from "./SectionIntro";
+
+const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-5`;
+
 interface RemintPanelProps {
   weddingId: string;
   /** The line pointing at the other places that shape the invite message, shown
@@ -117,7 +121,7 @@ export default function RemintPanel(props: RemintPanelProps) {
   }
 
   return (
-    <div class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-5 border p-6">
+    <div class={PANEL_CLASS}>
       <SectionIntro
         eyebrow="Guest codes"
         title="Change the code style"

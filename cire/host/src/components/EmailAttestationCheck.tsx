@@ -1,4 +1,5 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
+import Eyebrow from "@cire/ui/eyebrow";
 
 import { CIRE_MARKETING_URL } from "../lib/osn";
 
@@ -22,9 +23,7 @@ export default function EmailAttestationCheck(props: {
 }) {
   return (
     <div class="border-gold/30 bg-gold/6 flex flex-col gap-1.5 rounded-sm border p-3">
-      <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-        {props.count === 1 ? "1 email address" : `${props.count} email addresses`}
-      </p>
+      <Eyebrow>{props.count === 1 ? "1 email address" : `${props.count} email addresses`}</Eyebrow>
       <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
         <input
           type="checkbox"

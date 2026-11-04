@@ -1,3 +1,4 @@
+import Eyebrow from "@cire/ui/eyebrow";
 import { Toaster } from "@shared/toast";
 import {
   batch,
@@ -383,9 +384,7 @@ export default function InvitePage(props: InvitePageProps) {
             }}
           >
             <div class="max-w-column-lg md:max-w-column-xl mx-auto text-center">
-              <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-                {detailsEyebrow()}
-              </p>
+              <Eyebrow class="mb-3">{detailsEyebrow()}</Eyebrow>
               <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {detailsHeading()}
               </h2>

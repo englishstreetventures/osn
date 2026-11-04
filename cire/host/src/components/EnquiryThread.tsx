@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { toast } from "@shared/toast";
 import { Field } from "@shared/ui/ui/field";
 import { Notice } from "@shared/ui/ui/notice";
@@ -81,7 +82,9 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
       {/* Quote card */}
       <Show when={props.enquiry.quotedMinor != null}>
         <div class="border-border bg-surface/10 flex flex-wrap items-center gap-3 rounded-sm border px-3 py-2">
-          <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">Quote</span>
+          <Eyebrow as="span" tone="muted">
+            Quote
+          </Eyebrow>
           <span class="text-text text-ui-base flex-1 font-medium">
             {fmtMinor(props.enquiry.quotedMinor!, props.currency)}
           </span>

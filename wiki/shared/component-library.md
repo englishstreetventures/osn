@@ -334,7 +334,7 @@ named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
 exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its eight
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
 `disclosure`, `eyebrow`, `loading`, `reveal` — are **default** exports, while `username-input` is named,
-`card` carries named `cardClass` / `cardBoxClass` / `CardEyebrow` / `CardCta` / `CardCtaButton` beside its
+`card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
 default, and `eyebrow` a named `eyebrowClass`. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
 ```typescript

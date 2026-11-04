@@ -1,11 +1,11 @@
 import Card, {
   CardCta,
-  CardEyebrow,
   type CardFill,
   type CardPadding,
   type CardTone,
   cardClass,
 } from "@cire/ui/card";
+import CireEyebrow from "@cire/ui/eyebrow";
 import { For, type JSX, Show } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
@@ -88,18 +88,18 @@ export const Cards: Story<ThemeArgs> = {
         </Section>
         <Section title="With an eyebrow">
           <Card>
-            <CardEyebrow>Next step</CardEyebrow>
+            <CireEyebrow>Next step</CireEyebrow>
             <p class="text-ui-sm text-ui-ink">Send your invitations</p>
             <p class="text-ui-xs text-ui-ink-secondary">Guests get a link by email.</p>
           </Card>
           <Card tone="accent">
-            <CardEyebrow>Needs you</CardEyebrow>
+            <CireEyebrow>Needs you</CireEyebrow>
             <p class="text-ui-sm text-ui-ink">Three enquiries are waiting</p>
           </Card>
         </Section>
         <Section title="Interactive">
           <button type="button" class={cardClass({ interactive: true })}>
-            <CardEyebrow>Guests</CardEyebrow>
+            <CireEyebrow>Guests</CireEyebrow>
             <p class="text-ui-sm text-ui-ink">Manage your guest list</p>
             <CardCta>Open guests</CardCta>
           </button>
@@ -246,7 +246,7 @@ export const Tones: Story<ThemeArgs> = {
         <For each={Object.keys(TONE_USE) as CardTone[]}>
           {(tone) => (
             <Measured name={`tone="${tone}"`} property="border-top-color" tone={tone}>
-              <Show when={tone === "danger"} fallback={<CardEyebrow>{tone}</CardEyebrow>}>
+              <Show when={tone === "danger"} fallback={<CireEyebrow>{tone}</CireEyebrow>}>
                 <p class="text-ui-sm text-ui-danger">Delete this wedding</p>
               </Show>
               <p class="text-ui-xs text-ui-ink-secondary">{TONE_USE[tone]}</p>

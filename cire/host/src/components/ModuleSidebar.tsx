@@ -1,4 +1,5 @@
 import Button, { buttonClass } from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Dialog } from "@kobalte/core/dialog";
 import { Popover } from "@kobalte/core/popover";
 import { Tooltip } from "@kobalte/core/tooltip";
@@ -308,11 +309,7 @@ function LockedRow(props: {
       <RailTip
         enabled={props.tip ?? false}
         label={props.mod.label}
-        detail={
-          <span class="font-body text-gold-ink text-ui-xs tracking-ui-wider uppercase">
-            Included with {TIER_LABEL[lock().tier]}
-          </span>
-        }
+        detail={<Eyebrow as="span">Included with {TIER_LABEL[lock().tier]}</Eyebrow>}
       >
         <Tooltip.Trigger
           as={LockedTrigger}
@@ -364,9 +361,7 @@ function LockedRow(props: {
         >
           {/* `gold-ink`, not `gold`: this is small text that has to be read,
               and gold has no contrast contract (`styles/global.css`). */}
-          <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest uppercase">
-            Included with {TIER_LABEL[lock().tier]}
-          </p>
+          <Eyebrow>Included with {TIER_LABEL[lock().tier]}</Eyebrow>
           {/* Title and description name the card's `role="dialog"`; `as="p"`
               keeps a heading out of the end of `<body>`. */}
           <Popover.Title

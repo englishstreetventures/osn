@@ -4,6 +4,8 @@
  * surface. Loaded lazily by `InvitePage` (see its `FaqSection` import), so it
  * costs nothing on an invite with no FAQ and nothing before a household claims.
  */
+import Eyebrow from "@cire/ui/eyebrow";
+
 import { FAQ_EYEBROW, FAQ_HEADING, FAQ_HEADING_ID, FaqList } from "../../components/InviteFaq";
 import type { FaqEntry } from "../../components/types";
 
@@ -20,9 +22,7 @@ export function FaqSection(props: {
     >
       <div class="max-w-column-4xl mx-auto">
         <div class="max-w-column-2xl text-left">
-          <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-            {FAQ_EYEBROW}
-          </p>
+          <Eyebrow class="mb-3">{FAQ_EYEBROW}</Eyebrow>
           <h2
             id={FAQ_HEADING_ID}
             class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(1.75rem,4vw,2.5rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]"
@@ -30,7 +30,7 @@ export function FaqSection(props: {
             {FAQ_HEADING}
           </h2>
           <hr class="border-border mb-2 h-0 w-full border-t" aria-hidden="true" />
-          <FaqList entries={props.entries} class="border-border border-b" />
+          <FaqList entries={props.entries} />
         </div>
       </div>
     </section>
