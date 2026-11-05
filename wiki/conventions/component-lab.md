@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Component Lab
@@ -92,6 +92,7 @@ So far, in `tools/lab/src/stories/cire-ui/`:
 | `cire/ui/Prose link` | `prose-link.story.tsx` | `proseLinkClass` in each tone inside a sentence, captioned with the painted colour and underline; each tone wrapping in a 10rem paragraph; the accent tone inside a warn and an accent `Notice`; the focus ring by Tab |
 | `cire/ui/SignInPanel` | `sign-in-panel.story.tsx` | The sign-in page's body in its card on both ramps, with a stub sign-in that never leaves the page: `Idle`, `Connecting` (press it to see "Connecting to musubi…" hold), `Declined`, `Failed`, `Unavailable` and `UnknownMarker` |
 | `cire/ui/Skeleton` | `skeleton.story.tsx` | `Card`, `Row`, `Field` and `Pill`, each in cire's dark and light mapping with the apps' `--motion-scale` and `--ease-in-out` on the panel, captioned with the painted corner and fill; `InPlace`, the RSVP page's view bar (divider, then the pill), its filter row and its rows, and a grid of cards; `Playground` (`standsFor`, a height from a fixed list of `h-*` classes, the pulse at 1× or 4× slower) |
+| `cire/ui/SkeletonOutline` | `skeleton-outline.story.tsx` | Each beside the same markup loaded, in cire's dark and light mapping with the apps' motion tokens: `Bars` (a legend line, a sentence that wraps), `TableInPlace` (a framed table's rows: blocks for a pill and a status disc, a sortable head drawn as words and a glyph), `PhoneInPlace` (a stacked row with a switch's track as one block); `Playground` (theme, width, the pulse at 1× or 4× slower, loaded or loading) |
 | `cire/ui/Wordmark` | `wordmark.story.tsx` | `AtRest` in a mock top bar, captioned with the star's painted ink and the corner; `States`, live: point at it for the wash and Tab to it for the ring, captioned with the ring's gap to the divider; `Placeholder`, the boot bar's still copy laid over the real mark in red, captioned with both left edges |
 
 `shared/toast` and `shared/sortable` are benches rather than catalogues: they

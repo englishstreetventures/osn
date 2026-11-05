@@ -38,6 +38,7 @@
     "./sign-in-press": "./src/sign-in-press.ts",
     "./site-footer.astro": "./src/site-footer.astro",
     "./skeleton": "./src/skeleton.tsx",
+    "./skeleton-outline": "./src/skeleton-outline.tsx",
     "./sliding-pill": "./src/lib/sliding-pill.ts",
     "./username-input": "./src/username-input.tsx",
     "./wordmark": "./src/wordmark.tsx"

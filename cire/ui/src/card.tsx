@@ -203,10 +203,18 @@ export function CardCta(props: { children: JSX.Element }) {
  * The `self-start` belongs on the button, not the span: a flex child stretches
  * to the column's width by default, so without it the hit area runs the full
  * width of the card and a click anywhere along that line fires it.
+ *
+ * It is words, not a boxed control, so a loading placeholder drawn from the
+ * card (`SkeletonOutline`) draws its line as a bar, not a block.
  */
 export function CardCtaButton(props: { onClick: () => void; children: JSX.Element }) {
   return (
-    <button type="button" class="base:cursor-pointer base:self-start" onClick={props.onClick}>
+    <button
+      type="button"
+      data-skeleton="text"
+      class="base:cursor-pointer base:self-start"
+      onClick={props.onClick}
+    >
       <CardCta>{props.children}</CardCta>
     </button>
   );

@@ -329,7 +329,10 @@
      popovers, menus, tooltips and toasts, `pill` for buttons. Fields (14px)
      and cards (16px) have no step here: they take their corner from the
      contract roles below, through `rounded-ui-field` and `rounded-ui-lg`.
-     Tailwind's other default steps still generate (`rounded-xs` 2px,
+     A hollow row's bars and glyphs take 4px, written as `rounded-[4px]` in
+     `@cire/ui`'s `SkeletonOutline` alone: a step for a bar of letters, with
+     no role and no token (DESIGN.md §4, the corner table). Tailwind's other
+     default steps still generate (`rounded-xs` 2px,
      `rounded-lg` 8px, `rounded-xl` 12px, `rounded-2xl` 16px and up). They
      belong to no role: a corner written with one belongs on a role utility. */
   --radius-hair: 2px;
