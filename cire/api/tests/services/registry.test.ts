@@ -28,6 +28,7 @@ import {
   toEpochSeconds,
 } from "../../src/services/registry";
 import { recordStatements } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER = "wed_other";
@@ -2727,20 +2728,26 @@ describe("settling a gift whose session was never attached", () => {
     const holder = seedContribution(db, { status: "succeeded", sessionId: "cs_1" });
     const orphan = seedContribution(db, { status: "pending", sessionId: null });
 
-    const outcome = await ok(
-      db,
-      registryService.settleContribution({
-        contributionId: orphan,
-        checkoutSessionId: "cs_1",
-        stripeAccountId: ACCOUNT,
-        paymentIntentId: "pi_1",
-        paid: true,
-        paidAmountMinor: 10_000,
-        paidCurrency: "AUD",
-      }),
-    );
+    let outcome: unknown;
+    const logs = await captureLogs(async () => {
+      outcome = await ok(
+        db,
+        registryService.settleContribution({
+          contributionId: orphan,
+          checkoutSessionId: "cs_1",
+          stripeAccountId: ACCOUNT,
+          paymentIntentId: "pi_1",
+          paid: true,
+          paidAmountMinor: 10_000,
+          paidCurrency: "AUD",
+        }),
+      );
+    });
 
     expect(outcome).toBe("rejected");
+    // An error, named for the clash: another gift holds the session.
+    expect(logs).toContain("ERROR");
+    expect(logs).toContain("settle lost the race to adopt a checkout session");
     expect(contribution(db, orphan).status).toBe("pending");
     expect(contribution(db, orphan).stripeCheckoutSessionId).toBeNull();
     expect(contribution(db, holder).status).toBe("succeeded");

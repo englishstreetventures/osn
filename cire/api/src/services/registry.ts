@@ -1425,6 +1425,41 @@ function sessionAdoptionGuard(contributionId: string, checkoutSessionId: string)
   ) as SQL;
 }
 
+/**
+ * Log why a write adopting a checkout session wrote nothing, from the row as it
+ * stands now. Another delivery moving the row off `pending` first is two
+ * deliveries for one gift, a warning. Anything else is another row holding the
+ * session id, one gift being settled or closed by another's event: an error.
+ */
+function logAdoptionMiss(
+  writer: "settle" | "expiry",
+  contributionId: string,
+  input: { checkoutSessionId: string; stripeAccountId: string },
+): Effect.Effect<void, never, DbService> {
+  return Effect.gen(function* () {
+    const now = yield* contributionOnAccount(
+      eq(registryContributions.id, contributionId),
+      input.stripeAccountId,
+    );
+    const fields = { contributionId, checkoutSessionId: input.checkoutSessionId };
+    if (now && now.status !== "pending") {
+      yield* Effect.logWarning(
+        writer === "settle"
+          ? "settle found the gift already off pending while adopting its checkout session"
+          : "expiry found the gift already off pending while adopting its checkout session",
+        fields,
+      );
+      return;
+    }
+    yield* Effect.logError(
+      writer === "settle"
+        ? "settle lost the race to adopt a checkout session"
+        : "expiry lost the race to adopt a checkout session",
+      fields,
+    );
+  });
+}
+
 /** The single row a lookup on a unique column names, or nothing. */
 function contributionOnAccount(
   where: SQL,
@@ -2859,13 +2894,10 @@ export const registryService = {
         // the write, which is a duplicate like any other.
         if (!adopting) return "duplicate";
         // While adopting it may also be that another row claimed this session
-        // id, so this row is not the one that was paid. Nothing is written,
-        // and Stripe is still answered — a retry would only lose the same
-        // race again.
-        yield* Effect.logError("settle lost the race to adopt a checkout session", {
-          contributionId: pending.id,
-          checkoutSessionId: input.checkoutSessionId,
-        });
+        // id, so this row is not the one that was paid. Nothing is written
+        // either way, and Stripe is still answered — a retry would only lose
+        // the same race again. The row is read again so the log names which.
+        yield* logAdoptionMiss("settle", pending.id, input);
         return "rejected";
       }
       return input.paid ? "settled" : "duplicate";
@@ -2939,10 +2971,7 @@ export const registryService = {
         if (!adopting) return "ignored";
         // Adopting, the same race as settle: the session may belong to another
         // row, so closing this one against it would be closing the wrong gift.
-        yield* Effect.logError("expiry lost the race to adopt a checkout session", {
-          contributionId: row.id,
-          checkoutSessionId: input.checkoutSessionId,
-        });
+        yield* logAdoptionMiss("expiry", row.id, input);
         return "rejected";
       }
       return "failed";

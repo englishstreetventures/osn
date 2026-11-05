@@ -1415,6 +1415,36 @@ describe("deliveries that race each other", () => {
     expect((await gifts(db))[0]?.status).toBe("succeeded");
   });
 
+  // A row that never got its session attached: the write adopts the session,
+  // and another delivery moves the row off `pending` first. Nothing is
+  // written, the delivery is still refused, and the log names that cause,
+  // not a session another gift holds.
+  it.each([
+    ["a settle", () => checkoutCompleted(), "settle"],
+    ["an expiry", () => sessionEvent("checkout.session.expired"), "expiry"],
+  ] as const)(
+    "leaves a gift settled when %s adopting its session races its settlement",
+    async (_, payload, writer) => {
+      const { app, db, familyId } = buildApp();
+      seedPending(db, familyId, { sessionId: null });
+      beforeStatement(db, UPDATE, () => setRow(db, { status: "succeeded" }));
+
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await deliver(app, payload());
+      });
+
+      expect(await jsonBody(res!)).toEqual({ received: true, outcome: "rejected" });
+      const [gift] = await gifts(db);
+      expect(gift?.status).toBe("succeeded");
+      expect(gift?.stripeCheckoutSessionId).toBeNull();
+      expect(logs).toContain(
+        `${writer} found the gift already off pending while adopting its checkout session`,
+      );
+      expect(logs).not.toContain("lost the race to adopt a checkout session");
+    },
+  );
+
   it("never records a smaller refund over a larger one that landed first", async () => {
     const { app, db, familyId } = buildApp();
     await seedSettled(app, db, familyId);
