@@ -60,8 +60,9 @@
  * no changes at all prints `full-state`, since it means the wrong range was
  * read: every review looks but the design review, which runs only when a
  * changed file `designCandidate` accepts. Without a base, or when git fails,
- * it prints nothing and exits 1, which `prep-pr` also reads as `full-state`.
- * Tests in `scripts/tests/review-scope.test.ts`.
+ * it prints nothing and exits 1, which `prep-pr` also reads as `full-state`,
+ * adding the design review when its own read of the changed files finds one
+ * that draws a screen. Tests in `scripts/tests/review-scope.test.ts`.
  */
 
 import { existsSync, lstatSync, readFileSync } from "node:fs";

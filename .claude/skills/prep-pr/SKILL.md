@@ -277,7 +277,7 @@ uncommitted and are never grouped into a commit.
 bun run scripts/review-scope.ts "${DIFF_BASE:?run Step 0 first}"
 ```
 
-It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, no output, or any word but the six below means `full-state`: every review but the design review, which runs only when a changed file draws a screen. The script prints `full-state` for an empty diff too, since that means it read the wrong range:
+It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, no output, or any word but the six below means `full-state`: every review but the design review, which runs only when a changed file draws a screen. The script prints `full-state` for an empty diff too, since that means it read the wrong range. When it printed none of the six, list the changed files yourself (`git diff --name-only "$DIFF_BASE"...HEAD` and `git status --porcelain`) and hold each against the `-design` rule below the table; one that matches makes the verdict `full-state-design`:
 
 | Verdict | Step 4 | Step 6 |
 |---|---|---|
