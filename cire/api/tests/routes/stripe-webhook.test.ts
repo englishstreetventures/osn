@@ -1286,6 +1286,32 @@ describe("a Standard account's own business on the gift endpoint", () => {
     expect((await gifts(db))[0]?.status).toBe("pending");
   });
 
+  it("closes no gift that stored no session when a session of the account's ends", async () => {
+    const { app, db, familyId } = buildApp();
+    standard(db);
+    seedPending(db, familyId, { sessionId: null });
+    const ended = JSON.parse(checkoutCompleted({ session: { id: "cs_couple_made" } })) as Record<
+      string,
+      unknown
+    >;
+    for (const type of ["checkout.session.expired", "checkout.session.async_payment_failed"]) {
+      const res = await deliver(app, JSON.stringify({ ...ended, type }));
+      expect(await jsonBody(res)).toEqual({ received: true, outcome: "rejected" });
+    }
+    const [gift] = await gifts(db);
+    expect(gift?.status).toBe("pending");
+    expect(gift?.stripeCheckoutSessionId ?? null).toBeNull();
+  });
+
+  it("still closes a Standard gift whose session it stored", async () => {
+    const { app, db, familyId } = buildApp();
+    standard(db);
+    seedPending(db, familyId);
+    const ended = JSON.parse(checkoutCompleted()) as Record<string, unknown>;
+    const res = await deliver(app, JSON.stringify({ ...ended, type: "checkout.session.expired" }));
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "failed" });
+  });
+
   it("still settles a Standard gift whose session it stored (20)", async () => {
     const { app, db, familyId } = buildApp();
     standard(db);

@@ -107,9 +107,10 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    is acknowledged before any read. A refund or dispute that matches no gift
    is counted (`cire.registry.stripe.unmatched`, `account: standard`) and
    logged at info, since it is that account's own business and liability. A
-   session there settles only the gift that stored its id: the holder has API
-   keys and can write `client_reference_id`. Each event is still one Worker
-   request.
+   session there settles or closes only the gift that stored its id: the
+   holder has API keys and can write `client_reference_id`. Each event is
+   still one Worker request, and its payload can carry that shop's customers'
+   names and emails, which cire drops unread ([[data-map]]).
 
 5. Copy that endpoint's signing secret, then, on dev, put it in the `dev`
    Environment and dispatch **Deploy**; the cire stack uploads it:

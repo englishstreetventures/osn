@@ -3262,6 +3262,19 @@ export const registryService = {
       // and an `expired` naming it is exactly how such a row gets closed.
       if (row.sessionId !== null && row.sessionId !== input.checkoutSessionId) return "rejected";
       if (!row.ownedAccountId) return "rejected";
+      // The settle path's rule, for the same reason: a Standard account's
+      // holder can create and expire a session naming any gift id, so on one an
+      // ending closes only the gift that stored its id. A row that never stored
+      // one there stays pending rather than be closed by someone else's session.
+      if (
+        row.sessionId === null &&
+        accountTypeOf({
+          stripeAccountId: row.ownedAccountId,
+          stripeAccountType: row.ownedAccountType,
+        }) === "standard"
+      ) {
+        return "rejected";
+      }
       // Already settled, already failed, already refunded: nothing to move, and
       // a redelivery of an event we acted on weeks ago is the ordinary case.
       if (row.status !== "pending") return "ignored";
