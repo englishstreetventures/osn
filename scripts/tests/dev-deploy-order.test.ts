@@ -59,6 +59,31 @@ test("an answer no retry can change (a 401, a 404) is returned at once", async (
   }
 });
 
+test("a rate limit's Retry-After sets the wait before the next try, up to a minute; a 403 that carries one is a rate limit too", async () => {
+  const cases: [number, string | undefined, number][] = [
+    [429, "30", 30_000],
+    [403, "5", 5_000],
+    [429, "600", 60_000],
+    [502, undefined, 1],
+  ];
+  for (const [status, retryAfter, wait] of cases) {
+    const waits: number[] = [];
+    let calls = 0;
+    const fetcher = (async () => {
+      calls += 1;
+      if (calls > 1) return new Response("ok", { status: 200 });
+      const headers = retryAfter === undefined ? undefined : { "retry-after": retryAfter };
+      return new Response("limited", { status, headers });
+    }) as unknown as typeof fetch;
+    const sleep = async (ms: number) => {
+      waits.push(ms);
+    };
+    const response = await retryingFetch(fetcher, { ...FAST, sleep })("https://api.github.com/x");
+    expect(response.status).toBe(200);
+    expect(waits).toEqual([wait]);
+  }
+});
+
 test("every try carries a time limit", async () => {
   const { fetcher, calls } = scripted([502, 200]);
   await retryingFetch(fetcher, FAST)("https://api.github.com/x");

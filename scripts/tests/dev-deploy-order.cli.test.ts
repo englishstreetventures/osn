@@ -84,13 +84,16 @@ interface History {
   readonly head: string;
   readonly newer: string;
   readonly orphan: string;
+  /** After `head`, on no branch: reachable only from a tag. */
+  readonly offMain: string;
   readonly output: string;
   readonly summary: string;
 }
 
 /**
  * base ← older ← head ← newer on main, `origin/main` at `newer` unless
- * `mainAt` says otherwise, and an orphan commit no branch reaches.
+ * `mainAt` says otherwise, an orphan commit no branch reaches, and a commit
+ * after `head` that only a tag reaches.
  */
 async function withHistory(
   body: (history: History) => Promise<void>,
@@ -109,6 +112,11 @@ async function withHistory(
     const orphan = await commit(repo, { "cire/api/src/index.ts": "orphan" });
     await git(repo, "checkout", "main");
     await git(repo, "branch", "-D", "elsewhere");
+    await git(repo, "checkout", "-b", "side", head);
+    const offMain = await commit(repo, { "cire/api/src/index.ts": "tagged" });
+    await git(repo, "tag", "tagged");
+    await git(repo, "checkout", "main");
+    await git(repo, "branch", "-D", "side");
     const mainAt = options.mainAt ?? "newer";
     if (mainAt !== "none") {
       await git(repo, "update-ref", "refs/remotes/origin/main", mainAt === "head" ? head : newer);
@@ -120,6 +128,7 @@ async function withHistory(
       head,
       newer,
       orphan,
+      offMain,
       output: join(dir, "output"),
       summary: join(dir, "summary"),
     });
@@ -182,8 +191,10 @@ const stackRecord = (
 const surfaceRecords = (sha: string, runId: number, keys = cireSurfaces): FixtureRecord[] =>
   keys.map((key) => ({ environment: "dev", sha, run: runId, job: dev(key), states: ["success"] }));
 
-const statusReads = () => github.calls.filter((call) => call.includes("/statuses")).length;
-const listReads = () => github.calls.filter((call) => /\/deployments\?/.test(call));
+/** GraphQL queries: each reads one page of records with their statuses. */
+const pageReads = () => github.calls.filter((call) => call === "/graphql").length;
+/** REST requests: jobs and run origins. */
+const restReads = () => github.calls.filter((call) => call.startsWith("/repos/"));
 
 describe("refuses only a commit older than one the stack already passed on dev", () => {
   test("F1: the stack job passed at a commit this one is a strict ancestor of: no deploy, a summary naming both, exit 0", async () => {
@@ -327,6 +338,17 @@ describe("refuses only a commit older than one the stack already passed on dev",
     }
   });
 
+  test("F18: a newer record at a commit off main, as a run from a tag named main leaves, is no evidence: deploys", async () => {
+    await withHistory(async (h) => {
+      // The fake reports every run on `main`, as GitHub reports a run from a
+      // tag of that name; only the commit shows it was never on main.
+      github = fakeGitHub([stackRecord(h.offMain, 9), ...surfaceRecords(h.offMain, 9)]);
+
+      expect((await check(h)).exitCode).toBe(0);
+      expect(await readFile(h.output, "utf8")).toBe("deploy=true\n");
+    });
+  });
+
   test("F15: a newer run whose other jobs are still running (steps with no conclusion yet) still counts: no deploy", async () => {
     await withHistory(async (h) => {
       github = fakeGitHub([
@@ -361,7 +383,7 @@ describe("what the check costs", () => {
     );
   });
 
-  test("F11: with newer commits on main but no newer record, it lists one page and reads no status", async () => {
+  test("F11: with newer commits on main but no newer record, it reads one page of records with their statuses, and nothing else", async () => {
     await withHistory(async (h) => {
       github = fakeGitHub([
         stackRecord(h.head, 2),
@@ -372,8 +394,8 @@ describe("what the check costs", () => {
 
       expect((await check(h)).exitCode).toBe(0);
       expect(await readFile(h.output, "utf8")).toBe("deploy=true\n");
-      expect(listReads()).toHaveLength(1);
-      expect(statusReads()).toBe(0);
+      expect(pageReads()).toBe(1);
+      expect(restReads()).toEqual([]);
     });
   });
 
@@ -390,10 +412,13 @@ describe("what the check costs", () => {
 
       expect((await check(h)).exitCode).toBe(0);
       expect(await readFile(h.output, "utf8")).toBe("deploy=true\n");
-      expect(listReads()).toEqual([
-        `/repos/${REPO}/deployments?environment=dev&per_page=100&page=1`,
-      ]);
-      expect(statusReads()).toBeLessThanOrEqual(100);
+      // One query for the page and its statuses; then a jobs read per run
+      // a success links, which here is one run per record.
+      expect(pageReads()).toBe(1);
+      expect(restReads().every((call) => /^\/repos\/[^?]+\/actions\/runs\/\d+/.test(call))).toBe(
+        true,
+      );
+      expect(restReads().length).toBeLessThanOrEqual(100);
     });
   });
 
@@ -410,8 +435,10 @@ describe("what the check costs", () => {
 
       expect((await check(h)).exitCode).toBe(0);
       expect(await readFile(h.output, "utf8")).toBe("deploy=false\n");
-      // The first batch of ten holds the evidence.
-      expect(statusReads()).toBeLessThanOrEqual(10);
+      // The first batch of ten holds the evidence: ten runs' jobs, and the
+      // origin of the one run that is this stack's.
+      expect(pageReads()).toBe(1);
+      expect(restReads().length).toBeLessThanOrEqual(11);
     });
   });
 });
@@ -472,13 +499,13 @@ describe("it fails, deploying nothing, when it cannot tell", () => {
   test("F12a: the step's own reader tries a 502 again and decides on the answer after it", async () => {
     await withHistory(async (h) => {
       github = fakeGitHub([stackRecord(h.newer, 2)], {
-        failing: { match: /\/deployments\?/, status: 502, times: 1 },
+        failing: { match: /^\/graphql$/, status: 502, times: 1 },
       });
 
       const step = await runDevDeployOrder(inProcess(h));
 
       expect(step.outputs).toBe("deploy=false\n");
-      expect(listReads()).toHaveLength(2);
+      expect(pageReads()).toBe(2);
     });
   });
 
@@ -489,7 +516,7 @@ describe("it fails, deploying nothing, when it cannot tell", () => {
       });
 
       await expect(runDevDeployOrder(inProcess(h))).rejects.toThrow("GitHub API answered 502");
-      expect(listReads()).toHaveLength(3);
+      expect(pageReads()).toBe(3);
     });
   });
 

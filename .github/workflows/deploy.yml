@@ -34,10 +34,11 @@ name: Deploy
 #      commit newer than this one (scripts/dev-deploy-order.ts), so a run that
 #      reached the stack's group late never puts older code back; the
 #      snapshot, the deploy, every check after them and every record job then
-#      skip;
+#      skip, and only the musubi job's `cire_seed` step still runs;
 #   4. records each Worker's newest deployment (scripts/worker-deployments.ts
 #      snapshot); in the musubi job, derives osn-api's cire seed values from
-#      three cire-api secrets (the `cire_seed` step); deploys the stack, then
+#      three cire-api secrets (the `cire_seed` step, which runs whether or not
+#      the job deploys); deploys the stack, then
 #      names the deployment the deploy made for each Worker, or `unchanged`
 #      when it uploaded none (compare);
 #   5. runs scripts/smoke-check.ts for every surface of the stack. A failing

@@ -14,7 +14,9 @@
  * commit this one is a strict ancestor of, which it reads from the `dev`
  * Environment's Deployment records as scripts/release-plan.ts reads them (a
  * record counts only when the job it links succeeded at the record's commit,
- * in a deploy.yml run on main in this repository). Either is enough:
+ * in a deploy.yml run on main in this repository), and only at a commit on
+ * `origin/main`, since GitHub reports a run from a tag as on a branch of the
+ * tag's name. Either is enough:
  *   - the stack job's own record: it deployed the whole stack, and every
  *     check passed;
  *   - a record from every one of the stack's record jobs: each surface
@@ -28,10 +30,10 @@
  * When no commit on `origin/main` is newer than this one, it deploys without
  * asking GitHub: a newer commit's stack job cannot succeed while this job
  * holds the group, so any newer record names a commit pushed before this
- * job's checkout. Otherwise it reads the newest page of records (MAX_RECORDS),
- * reading a record's statuses only when its commit is newer than this one,
- * and stops once the evidence is complete. Evidence older than that page is
- * not seen.
+ * job's checkout. Otherwise it reads the newest page of records (MAX_RECORDS)
+ * and their statuses in one GraphQL query, reads the jobs of a run only for a
+ * record whose commit is newer than this one, and stops once the evidence is
+ * complete. Evidence older than that page is not seen.
  *
  * Usage, from the repository root of a full-history checkout:
  *   dev-deploy-order.ts --stack <musubi|cire|zap|pulse>
@@ -43,7 +45,8 @@
  * and prints a notice.
  *
  * Each request gets REQUEST_TIMEOUT_MS and, after a network error, a timeout,
- * a 429 or a 5xx, two more tries (RETRY_DELAYS_MS apart). Then any failure —
+ * a 429, a 5xx or a rate-limited 403, two more tries (RETRY_DELAYS_MS apart,
+ * or what a Retry-After asks, up to MAX_RETRY_AFTER_MS). Then any failure —
  * GitHub's, a shallow checkout, a commit the checkout lacks — exits 1 and
  * writes no output, so the deploy does not run: an unread record cannot show
  * that the commit is not older.
@@ -54,7 +57,10 @@ import { appendFileSync } from "node:fs";
 import { isAncestor, STACKS, type StackKey, SURFACES } from "./deploy-surfaces";
 import {
   type DeploymentReader,
+  type DeploymentRecord,
+  type DeploymentStatus,
   findDeployed,
+  PAGE_SIZE,
   type RecordKey,
   restReader,
   stackRecordKey,
@@ -65,39 +71,180 @@ export const MAX_RECORDS = 100;
 export const REQUEST_TIMEOUT_MS = 10_000;
 export const RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000];
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** The longest a rate limit's Retry-After makes a try wait: well inside the step's five minutes. */
+export const MAX_RETRY_AFTER_MS = 60_000;
 
-/** Whether an answer could differ if asked again. */
-const transient = (status: number) => status === 429 || status >= 500;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Whether an answer could differ if asked again: a 429, a 5xx, or a 403 that
+ * says when to try again, which is how GitHub answers a secondary rate limit.
+ */
+const transient = (response: Response) =>
+  response.status === 429 ||
+  response.status >= 500 ||
+  (response.status === 403 && response.headers.has("retry-after"));
+
+/** The wait an answer's Retry-After asks for, capped, or undefined when it asks none. */
+function retryAfterMs(response: Response): number | undefined {
+  const seconds = Number(response.headers.get("retry-after"));
+  return Number.isFinite(seconds) && seconds > 0
+    ? Math.min(seconds * 1_000, MAX_RETRY_AFTER_MS)
+    : undefined;
+}
 
 /**
  * `inner`, with a time limit on each try, and up to `delays.length` more tries
- * after a network error, a timeout, a 429 or a 5xx. The last answer is
- * returned for the caller to judge; the last error is thrown.
+ * after a network error, a timeout, a 429, a 5xx or a rate-limited 403. A try
+ * waits what the answer's Retry-After asks (up to MAX_RETRY_AFTER_MS), else
+ * the next delay. The last answer is returned for the caller to judge; the
+ * last error is thrown.
  */
 export function retryingFetch(
   inner: typeof fetch,
-  options: { readonly timeoutMs?: number; readonly delays?: readonly number[] } = {},
+  options: {
+    readonly timeoutMs?: number;
+    readonly delays?: readonly number[];
+    readonly sleep?: (ms: number) => Promise<void>;
+  } = {},
 ): typeof fetch {
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const delays = options.delays ?? RETRY_DELAYS_MS;
+  const pause = options.sleep ?? sleep;
   const attempt = async (
     input: Parameters<typeof fetch>[0],
     init: RequestInit | undefined,
     left: readonly number[],
   ): Promise<Response> => {
     const [delay, ...rest] = left;
-    try {
-      const response = await inner(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
-      if (delay === undefined || !transient(response.status)) return response;
-    } catch (error) {
-      if (delay === undefined) throw error;
-    }
-    await sleep(delay);
+    const answer = await inner(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }).catch(
+      (error: unknown) => {
+        if (delay === undefined) throw error;
+        return undefined;
+      },
+    );
+    if (answer !== undefined && (delay === undefined || !transient(answer))) return answer;
+    // Here a try is left: an answer with none was returned, an error with none thrown.
+    await pause((answer === undefined ? undefined : retryAfterMs(answer)) ?? delay ?? 0);
     return attempt(input, init, rest);
   };
   return ((input: Parameters<typeof fetch>[0], init?: RequestInit) =>
     attempt(input, init, delays)) as typeof fetch;
+}
+
+const DEPLOYMENTS_QUERY = `query($owner: String!, $name: String!, $environment: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    deployments(environments: [$environment], first: $first, after: $after, orderBy: {field: CREATED_AT, direction: DESC}) {
+      pageInfo { endCursor }
+      nodes { databaseId commitOid statuses(first: 10) { nodes { state logUrl } } }
+    }
+  }
+}`;
+
+interface DeploymentsPage {
+  readonly records: readonly (DeploymentRecord & {
+    readonly statuses: readonly DeploymentStatus[];
+  })[];
+  readonly endCursor: string | null;
+}
+
+function parseDeploymentsPage(payload: unknown): DeploymentsPage {
+  const body = payload as {
+    data?: {
+      repository?: {
+        deployments?: { pageInfo?: { endCursor?: unknown }; nodes?: unknown };
+      } | null;
+    };
+    errors?: unknown;
+  } | null;
+  if (Array.isArray(body?.errors) && body.errors.length > 0) {
+    throw new Error(
+      `GitHub API: the deployments query failed: ${JSON.stringify(body.errors).slice(0, 200)}`,
+    );
+  }
+  const connection = body?.data?.repository?.deployments;
+  if (!Array.isArray(connection?.nodes)) {
+    throw new TypeError("GitHub API: the deployments query returned no list of deployments");
+  }
+  const records = connection.nodes.map((item: unknown) => {
+    const node = item as {
+      databaseId?: unknown;
+      commitOid?: unknown;
+      statuses?: { nodes?: unknown } | null;
+    } | null;
+    if (typeof node?.databaseId !== "number" || typeof node.commitOid !== "string") {
+      throw new TypeError("GitHub API: a deployment has no numeric `databaseId` or `commitOid`");
+    }
+    const statuses = Array.isArray(node.statuses?.nodes) ? node.statuses.nodes : [];
+    return {
+      id: node.databaseId,
+      sha: node.commitOid,
+      statuses: statuses.map((entry: unknown) => {
+        const status = entry as { state?: unknown; logUrl?: unknown } | null;
+        if (typeof status?.state !== "string") {
+          throw new TypeError("GitHub API: a deployment status has no `state`");
+        }
+        return {
+          // GraphQL's states are REST's in upper case.
+          state: status.state.toLowerCase(),
+          log_url: typeof status.logUrl === "string" ? status.logUrl : "",
+        };
+      }),
+    };
+  });
+  const cursor = connection.pageInfo?.endCursor;
+  return { records, endCursor: typeof cursor === "string" ? cursor : null };
+}
+
+/**
+ * `rest`, but each page of Deployment records is one GraphQL query that brings
+ * every record's statuses with it, where REST spends a request per record: a
+ * walk past other stacks' records costs one request a page, not one a record.
+ * Jobs and run origins still come from `rest`.
+ */
+export function graphqlPages(options: {
+  readonly fetch: typeof fetch;
+  readonly token: string;
+  readonly repository: string;
+  readonly graphqlUrl: string;
+  readonly rest: DeploymentReader;
+}): DeploymentReader {
+  const [owner, name] = options.repository.split("/");
+  const statuses = new Map<number, readonly DeploymentStatus[]>();
+  const cursors = new Map<number, string | null>([[1, null]]);
+  return {
+    async deployments(environment, page) {
+      const after = cursors.get(page);
+      if (after === undefined)
+        throw new Error(`deployments page ${page} asked before the one before it`);
+      const response = await options.fetch(options.graphqlUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/vnd.github+json",
+          authorization: `Bearer ${options.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          query: DEPLOYMENTS_QUERY,
+          variables: { owner, name, environment, first: PAGE_SIZE, after },
+        }),
+      });
+      if (!response.ok) {
+        const text = (await response.text()).slice(0, 200);
+        throw new Error(
+          `GitHub API answered ${response.status} for the deployments query: ${text}`,
+        );
+      }
+      const read = parseDeploymentsPage(await response.json());
+      cursors.set(page + 1, read.endCursor);
+      for (const record of read.records) statuses.set(record.id, record.statuses);
+      return read.records.map(({ id, sha }) => ({ id, sha }));
+    },
+    statuses: async (deploymentId) =>
+      statuses.get(deploymentId) ?? options.rest.statuses(deploymentId),
+    jobs: (runId) => options.rest.jobs(runId),
+    origin: (runId) => options.rest.origin(runId),
+  };
 }
 
 export interface OrderDecision {
@@ -124,7 +271,7 @@ export async function decideDevDeploy(input: {
   const own = stackRecordKey(input.stack);
   const surfaces = surfacesOf(input.stack);
   const complete = (accepted: ReadonlyMap<RecordKey, string>) =>
-    accepted.has(own) || surfaces.every((key) => accepted.has(key));
+    accepted.has(own) || (surfaces.length > 0 && surfaces.every((key) => accepted.has(key)));
   const { accepted } = await findDeployed(input.reader, "dev", [own, ...surfaces], {
     only: input.isNewer,
     enough: complete,
@@ -177,7 +324,11 @@ export async function runDevDeployOrder(options: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly fetch: typeof fetch;
   readonly cwd: string;
-  readonly retry?: { readonly timeoutMs?: number; readonly delays?: readonly number[] };
+  readonly retry?: {
+    readonly timeoutMs?: number;
+    readonly delays?: readonly number[];
+    readonly sleep?: (ms: number) => Promise<void>;
+  };
 }): Promise<OrderStep> {
   const { env, cwd } = options;
   const stack = parseStack(options.argv);
@@ -201,21 +352,32 @@ export async function runDevDeployOrder(options: {
   const main = git(cwd, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}");
   if (!main.ok) throw new Error("the checkout has no origin/main; check out with fetch-depth: 0");
 
+  // Newer than this commit, and on main: dev deploys only from main, and
+  // GitHub reports a run from a tag as on a branch of the tag's name, so a
+  // record at a commit main never held is no evidence.
   const newer = new Map<string, boolean>();
   const isNewer = (commit: string): boolean => {
-    if (!newer.has(commit)) newer.set(commit, commit !== head && isAncestor(head, commit, cwd));
+    if (!newer.has(commit)) {
+      newer.set(
+        commit,
+        commit !== head && isAncestor(head, commit, cwd) && isAncestor(commit, main.out, cwd),
+      );
+    }
     return newer.get(commit) === true;
   };
 
   const short = (sha: string) => sha.slice(0, 7);
+  const apiUrl = env.GITHUB_API_URL || "https://api.github.com";
+  const fetcher = retryingFetch(options.fetch, options.retry);
   const decision: OrderDecision = !isNewer(main.out)
     ? { deploy: true, newer: [], reason: "nothing on main is newer" }
     : await decideDevDeploy({
-        reader: restReader({
-          fetch: retryingFetch(options.fetch, options.retry),
+        reader: graphqlPages({
+          fetch: fetcher,
           token,
           repository,
-          apiUrl: env.GITHUB_API_URL || "https://api.github.com",
+          graphqlUrl: `${apiUrl}/graphql`,
+          rest: restReader({ fetch: fetcher, token, repository, apiUrl }),
         }),
         stack,
         isNewer,

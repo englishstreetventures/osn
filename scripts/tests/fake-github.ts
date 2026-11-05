@@ -1,7 +1,8 @@
-// A fake api.github.com for the release planner's tests: Deployment records,
-// their statuses, and the runs and jobs the statuses link, served the way the
-// REST API serves them. release-plan.test.ts calls it as an injected `fetch`;
-// release-plan.cli.test.ts serves it over HTTP to the real script.
+// A fake api.github.com for the release planner's and the dev order check's
+// tests: Deployment records, their statuses, and the runs and jobs the
+// statuses link, served the way the REST API serves them, and the records with
+// their statuses the way the GraphQL deployments query does. Tests call it as
+// an injected `fetch`, or serve it over HTTP to the real script.
 
 import {
   PRODUCTION_STACKS,
@@ -94,6 +95,52 @@ export function fakeGitHub(
     const headers = new Headers(init?.headers ?? request?.headers);
     if (headers.get("authorization") !== `Bearer ${TOKEN}`)
       return json({ message: "Bad credentials" }, 401);
+
+    // The GraphQL deployments query: a page of records with their statuses,
+    // newest first, states in GraphQL's upper case, paged by an opaque cursor.
+    if (url.pathname === "/graphql") {
+      const text = request === undefined ? String(init?.body ?? "") : await request.text();
+      const variables = (
+        JSON.parse(text) as {
+          variables?: {
+            owner?: string;
+            name?: string;
+            environment?: string;
+            first?: number;
+            after?: string | null;
+          };
+        }
+      ).variables;
+      if (`${variables?.owner}/${variables?.name}` !== REPO) {
+        return json({ data: { repository: null }, errors: [{ message: "Could not resolve" }] });
+      }
+      const list = withIds.filter((r) => r.environment === variables?.environment);
+      const start = variables?.after == null ? 0 : Number(variables.after);
+      const first = variables?.first ?? 100;
+      const nodes = list.slice(start, start + first).map((r) => ({
+        databaseId: r.id,
+        commitOid: r.sha,
+        statuses: {
+          nodes: r.states.map((state) => ({
+            state: state.toUpperCase(),
+            logUrl: `https://github.com/${REPO}/actions/runs/${r.run}/job/${r.jobId}`,
+          })),
+        },
+      }));
+      return json({
+        data: {
+          repository: {
+            deployments: {
+              pageInfo: {
+                hasNextPage: start + first < list.length,
+                endCursor: String(start + first),
+              },
+              nodes,
+            },
+          },
+        },
+      });
+    }
 
     const prefix = `/repos/${REPO}`;
     if (!url.pathname.startsWith(prefix)) return json({ message: "Not Found" }, 404);
