@@ -22,6 +22,8 @@ import "../../src/styles/global.css";
  *
  * - a hollow view's outline stands where its content lands, and its first bar
  *   where the content's first line of text does, to 2px, at 1280px and 390px;
+ *   its frames, hairlines and grounds — a card, a table's frame and head, a
+ *   household's bar, a ruled row — keep the loaded colours;
  * - a block view's first placeholder stands where the first item lands, at
  *   1280px and 390px, so nothing under it moves: a section intro's actions are
  *   held as empty room; at 1280px each placeholder is the height of the item
@@ -336,6 +338,23 @@ interface Hollow {
   arrived: (scope: Element) => boolean;
   /** A count line the wide layout lends the view bar: drawn hollow there too. */
   barCount?: boolean;
+  /**
+   * The parts the outline leaves as they are (DESIGN.md §4, Hollow rows): the
+   * first match of each, inside the outline and then inside what replaced it,
+   * must have the same edges and ground.
+   */
+  grounds: readonly string[];
+}
+
+/** The colours a frame, a hairline or a ground is drawn in. */
+const EDGES = ["border-top-color", "border-bottom-color", "background-color"] as const;
+
+/** `EDGES` of the first `selector` in `root`, or null when there is none. */
+function edgesOf(root: Element, selector: string): string[] | null {
+  const el = root.querySelector(selector);
+  if (!el) return null;
+  const style = getComputedStyle(el);
+  return EDGES.map((property) => style.getPropertyValue(property));
 }
 
 const HOLLOW: Record<string, Hollow> = {
@@ -345,6 +364,8 @@ const HOLLOW: Record<string, Hollow> = {
     sub: "",
     held: "rsvps",
     arrived: (scope) => scope.querySelector(".auto-grid") !== null,
+    // A card's frame and ground; an agenda row's rule.
+    grounds: [".auto-grid > *", "ul.grid > li"],
   },
   households: {
     width: 1280,
@@ -354,6 +375,13 @@ const HOLLOW: Record<string, Hollow> = {
     actions: 2,
     arrived: (scope) => scope.querySelector("[role=group][aria-labelledby]") !== null,
     barCount: true,
+    // The list's frame, the head strip, a household's bar and its rule.
+    grounds: [
+      "div:has(> [data-head-strip])",
+      "[data-head-strip]",
+      "[data-household-bar]",
+      "[role=group]",
+    ],
   },
   "rsvp table": {
     width: 1280,
@@ -361,15 +389,23 @@ const HOLLOW: Record<string, Hollow> = {
     sub: "rsvps",
     held: "rsvps",
     arrived: (scope) => scope.querySelector("tbody > tr") !== null,
+    // The table's frame, a head cell's ground and rule, a row's cell.
+    grounds: ["div:has(> table)", "thead th", "tbody td"],
   },
 };
-for (const name of ["overview", "households"] as const) {
-  HOLLOW[`${name}, phone`] = { ...HOLLOW[name]!, width: 390, barCount: false };
-}
+HOLLOW["overview, phone"] = { ...HOLLOW.overview!, width: 390 };
+HOLLOW["households, phone"] = {
+  ...HOLLOW.households!,
+  width: 390,
+  barCount: false,
+  // No head strip on a phone.
+  grounds: ["div:has(> [role=group])", "[data-household-bar]", "[role=group]"],
+};
 HOLLOW["rsvp list, phone"] = {
   ...HOLLOW["rsvp table"]!,
   width: 390,
   arrived: (scope) => scope.querySelector('ul[aria-label^="Replies"] > li') !== null,
+  grounds: ['ul[aria-label^="Replies"]', 'ul[aria-label^="Replies"] > li'],
 };
 
 // ── Block views ──────────────────────────────────────────────────────────────
@@ -465,6 +501,7 @@ describe("loading placeholders", () => {
       // The columns the outline draws, where the view has a head strip: the
       // loaded list's, Plus-one included, so no column arrives with the rows.
       const heads = [...outline.querySelectorAll("[data-head-strip] th")].length;
+      const groundsLoading = view.grounds.map((selector) => edgesOf(outline, selector));
       const barCount = view.barCount ? barOutline() : null;
       const barCountLine = barCount ? firstLine(barCount) : null;
       expectPass(
@@ -505,6 +542,15 @@ describe("loading placeholders", () => {
         );
       }
 
+      view.grounds.forEach((selector, i) => {
+        const before = groundsLoading[i];
+        const after = region ? edgesOf(region, selector) : null;
+        expectPass(
+          `${name}: the outline keeps ${selector}'s edges and ground`,
+          before !== null && after !== null && before.join() === after.join(),
+          `${before?.join(" / ")} against ${after?.join(" / ")}`,
+        );
+      });
       expectPass(
         `${name}: the outline draws the loaded list's columns`,
         heads === [...scope().querySelectorAll("[data-head-strip] th")].length,

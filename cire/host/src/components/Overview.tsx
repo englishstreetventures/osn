@@ -724,7 +724,7 @@ export default function Overview(props: {
               it. The written summary the band will lead
               with slots in at the top of this stack, above `whatsNext`.
               The band earns the full width by laying its rows out in columns —
-              see the list inside `WhatsNext`. */}
+              see the list inside `whatsNext`. */}
           <div class="flex flex-col gap-4">
             {whatsNext(agenda)}
             {/* The cards themselves need no breakpoints: as many ≥15rem columns

@@ -842,6 +842,14 @@ export default function GuestTable(props: GuestTableProps) {
     }`;
 
   /**
+   * The count line's paragraph, loaded or drawn hollow: in the view bar on a
+   * wide panel, where it ends in an ellipsis, else over the list.
+   */
+  const countParagraph = (text: () => string, inBar: boolean) => (
+    <p class={`font-body text-text-muted text-ui-sm${inBar ? " truncate" : ""}`}>{text()}</p>
+  );
+
+  /**
    * The household's state, as a mark (`StatusMark`): Deactivated on the red
    * circle, else Opened on the gold, else Sent on the tint. Its explanation —
    * and, for Opened, the day — is a `TipNote`: hidden text for a screen
@@ -1231,9 +1239,10 @@ export default function GuestTable(props: GuestTableProps) {
             <Show when={!compact()}>
               <div class="min-w-0">
                 <SkeletonOutline>
-                  <p class="font-body text-text-muted text-ui-sm truncate">
-                    {countLine(SAMPLE_COUNT.guests, SAMPLE_COUNT.households)}
-                  </p>
+                  {countParagraph(
+                    () => countLine(SAMPLE_COUNT.guests, SAMPLE_COUNT.households),
+                    true,
+                  )}
                 </SkeletonOutline>
               </div>
             </Show>
@@ -1267,9 +1276,7 @@ export default function GuestTable(props: GuestTableProps) {
           {/* The count and the search, lent to the view bar's first row. On a
             narrow panel the count stays here, under the bar. */}
           <ViewBar slot="end">
-            <Show when={!compact()}>
-              <p class="font-body text-text-muted text-ui-sm truncate">{countLine()}</p>
-            </Show>
+            <Show when={!compact()}>{countParagraph(() => countLine(), true)}</Show>
             <Field
               label="Search guests"
               labelHidden
@@ -1286,9 +1293,7 @@ export default function GuestTable(props: GuestTableProps) {
               )}
             </Field>
           </ViewBar>
-          <Show when={compact()}>
-            <p class="font-body text-text-muted text-ui-sm">{countLine()}</p>
-          </Show>
+          <Show when={compact()}>{countParagraph(() => countLine(), false)}</Show>
 
           <div ref={results}>
             <Show when={visibleFamilies().length === 0}>
@@ -1724,9 +1729,7 @@ export default function GuestTable(props: GuestTableProps) {
     return (
       <div class="flex flex-col gap-8">
         <Show when={stacked}>
-          <p class="font-body text-text-muted text-ui-sm">
-            {countLine(SAMPLE_COUNT.guests, SAMPLE_COUNT.households)}
-          </p>
+          {countParagraph(() => countLine(SAMPLE_COUNT.guests, SAMPLE_COUNT.households), false)}
         </Show>
         <div>{householdList(() => SAMPLE_HOUSEHOLDS)}</div>
       </div>
