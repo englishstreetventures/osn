@@ -25,18 +25,21 @@ export function isAuthExpired(err: unknown): boolean {
  * was so the sign-in can send them back to it (a thread, an organisation)
  * rather than to the dashboard. Only the same-origin path+query+hash is carried
  * (as `returnTo`), never an absolute URL, and the sign-in panel checks it again
- * before following it. `/login` itself is never remembered: it would loop.
+ * before following it. The login page itself is never remembered: it would
+ * loop. That is `/login/`, where it is served, or `/login`, which the dev
+ * server answers too. It is linked as `/login/`: the asset server redirects
+ * `/login` there.
  */
 export function redirectToLogin(): void {
   if (signingOut) {
-    window.location.href = "/login";
+    window.location.href = "/login/";
     return;
   }
   const here = window.location.pathname + window.location.search + window.location.hash;
   const target =
-    window.location.pathname === "/login"
-      ? "/login"
-      : `/login?returnTo=${encodeURIComponent(here)}`;
+    window.location.pathname.replace(/\/*$/, "/") === "/login/"
+      ? "/login/"
+      : `/login/?returnTo=${encodeURIComponent(here)}`;
   window.location.href = target;
 }
 
@@ -55,7 +58,7 @@ export async function signOutToLogin(logout: () => Promise<void>): Promise<void>
   try {
     await logout();
   } finally {
-    window.location.href = "/login";
+    window.location.href = "/login/";
   }
 }
 

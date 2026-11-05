@@ -23,14 +23,15 @@ describe("redirectToLogin", () => {
     window.location.href = `${ORIGIN}/#/orgs/org_1/threads/th_2`;
     redirectToLogin();
     expect(window.location.href).toBe(
-      `${ORIGIN}/login?returnTo=` + encodeURIComponent("/#/orgs/org_1/threads/th_2"),
+      `${ORIGIN}/login/?returnTo=` + encodeURIComponent("/#/orgs/org_1/threads/th_2"),
     );
   });
 
-  it("does not remember /login itself", () => {
-    window.location.href = `${ORIGIN}/login?returnTo=%2Fwhatever`;
+  // The page is served at `/login/`; the dev server answers `/login` too.
+  it.each(["/login", "/login/"])("does not remember %s itself", (path) => {
+    window.location.href = `${ORIGIN}${path}?returnTo=%2Fwhatever`;
     redirectToLogin();
-    expect(window.location.href).toBe(`${ORIGIN}/login`);
+    expect(window.location.href).toBe(`${ORIGIN}/login/`);
   });
 
   it("carries only a same-origin path, never an absolute URL", () => {
@@ -52,7 +53,7 @@ describe("signOutToLogin", () => {
     // The next person to sign in on this device must not land on this page.
     window.location.href = `${ORIGIN}/#/orgs/org_1/threads/th_2`;
     await signOutToLogin(() => Promise.resolve());
-    expect(window.location.href).toBe(`${ORIGIN}/login`);
+    expect(window.location.href).toBe(`${ORIGIN}/login/`);
   });
 
   it("keeps the expired-session redirect the sign-out sets off from carrying the page", async () => {
@@ -61,10 +62,10 @@ describe("signOutToLogin", () => {
     window.location.href = `${ORIGIN}/#/orgs/org_1/threads/th_2`;
     await signOutToLogin(async () => {
       redirectToLogin();
-      expect(window.location.href).toBe(`${ORIGIN}/login`);
+      expect(window.location.href).toBe(`${ORIGIN}/login/`);
       window.location.href = `${ORIGIN}/#/orgs/org_1/threads/th_2`;
     });
-    expect(window.location.href).toBe(`${ORIGIN}/login`);
+    expect(window.location.href).toBe(`${ORIGIN}/login/`);
   });
 
   it("still leaves for the login page when the sign-out request fails", async () => {
@@ -72,6 +73,6 @@ describe("signOutToLogin", () => {
     await expect(signOutToLogin(() => Promise.reject(new Error("offline")))).rejects.toThrow(
       "offline",
     );
-    expect(window.location.href).toBe(`${ORIGIN}/login`);
+    expect(window.location.href).toBe(`${ORIGIN}/login/`);
   });
 });

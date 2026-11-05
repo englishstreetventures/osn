@@ -103,6 +103,9 @@ describe("ClaimApp", () => {
     renderClaim("abc123");
     await waitFor(() => expect(screen.getByText(/Preview Co/)).toBeInTheDocument());
     expect(window.location.search).not.toContain("abc123");
+    // The address left behind is the page as it is served, so a reload asks
+    // for it directly rather than through the asset server's redirect.
+    expect(window.location.pathname).toBe("/claim/");
   });
 
   it("null preview → shows generic 'no longer valid' message, hides listing preview", async () => {
@@ -195,9 +198,9 @@ describe("ClaimApp", () => {
     expect(screen.queryByTestId("mock-org-picker")).not.toBeInTheDocument();
 
     button.click();
-    // Sign-in is a full-page redirect; the return-to brings them back to /claim,
+    // Sign-in is a full-page redirect; the return-to brings them back to /claim/,
     // where the parked token is picked up again.
-    expect(signInMock).toHaveBeenCalledWith(`${window.location.origin}/claim`);
+    expect(signInMock).toHaveBeenCalledWith(`${window.location.origin}/claim/`);
   });
 
   it("presses 'Continue with musubi' as the sign-in page does: once, then connecting", async () => {
