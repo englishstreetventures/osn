@@ -1288,14 +1288,19 @@ look is the owner's (englishstreetventures/osn#1955):
 | A run of words or digits | A bar the height of its letters, one per wrapped line, 4px corner at both ends of each (`box-decoration-break: clone`) |
 | Text with no letter or digit (a dot, a dash) | Nothing |
 | A `button`, `input`, `select`, `textarea`, a switch's track, a meter (`progressbar`, `meter`), anything marked `data-skeleton="block"` | One block, its border, shadow and gradient cleared, what it holds hidden |
+| A picture (`img`, `video`, `canvas`) | One block in its own corner, its pixels moved out of its box (`object-position`) |
 | A `button` marked `data-skeleton="text"` (a sortable column head; `CardCtaButton` carries it) | Its words and glyph, as above, no block |
 | A glyph (`svg`) | A small block, 4px corner |
 | Frames, hairlines, grounds | As they are, still |
 
 Bars, blocks and glyphs are the ink at 10% and pulse on `PULSE`'s timing (2s ×
-`--motion-scale` on `--ease-in-out`), written out as literal classes; frames do
-not pulse. The outline is `aria-hidden` and `inert`; the region around it
-carries `aria-busy`.
+`--motion-scale` on `--ease-in-out`), written out as literal classes, which
+`skeleton-outline.browser.test.tsx` holds to what `Skeleton` computes; frames
+do not pulse. The outline is `aria-hidden` and `inert`; the region that holds
+it and what replaces it carries `aria-busy`, and an outline lent to a bar
+outside that region (the households' count line in the view bar) needs none.
+It builds its runs with `document` as it renders, so it renders in the browser
+only: in a `client:only` island, never in a server render.
 
 How it draws a bar: as its children arrive it moves each run of words, once,
 into an inline `<span data-skeleton-run>`, and CSS does the rest — wrapping,
@@ -1316,7 +1321,7 @@ outside an outline.
 
 The children are a still picture, rendered once from constant samples: a run
 that appears later inside them, under a `Show` that flips after the outline
-mounts, is not drawn. A layout that changes renders a new outline, by a `Show`
+mounts, is not drawn, and a reactive text moved into a run may stop updating. A layout that changes renders a new outline, by a `Show`
 around it or a top-level child that changes, which the outline marks again.
 Samples are typed against the real row's type and live beside the component
 that renders them; they are never shown, since everything in the outline is

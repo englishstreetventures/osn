@@ -6,9 +6,9 @@
  * placeholder the owner chose (englishstreetventures/osn#1955, Q6 C and Q7 C):
  * a run of text that is not one bar per line, at the ink's 10% and a 4px
  * corner; a boxed control that is not one block; a glyph drawn as itself; a
- * frame, hairline or ground the outline repaints; a placeholder that is not the
- * loaded markup's size; something inside a host can reach; or a pulse off the
- * loaders' timing. The classes are arbitrary Tailwind values, and a typo in one
+ * picture that paints its pixels; a frame, hairline or ground the outline
+ * repaints; a placeholder that is not the loaded markup's size; something
+ * inside a host can reach; or a pulse off `Skeleton`'s. The classes are arbitrary Tailwind values, and a typo in one
  * emits no CSS while every class-name assertion still passes.
  */
 
@@ -16,8 +16,10 @@ import { Meter } from "@shared/ui/ui/meter";
 import { cleanup, render } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
+import { page } from "vitest/browser";
 
 import { CardCtaButton } from "../src/card";
+import Skeleton from "../src/skeleton";
 import SkeletonOutline from "../src/skeleton-outline";
 import { composite } from "./test-support/paint";
 
@@ -28,7 +30,11 @@ type Ramp = (typeof RAMPS)[number];
 
 afterEach(cleanup);
 
-/** A row as a host view draws one: a framed table, a status disc, a pill, a sort head, a legend. */
+/** A picture of one red square, loaded from no host. */
+const RED_SQUARE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='8' height='8' fill='%23f00'/%3E%3C/svg%3E";
+
+/** A row as a host view draws one: a framed table, a status disc, a pill, a sort head, a legend, a picture. */
 function Row() {
   return (
     <div class="flex flex-col gap-4" data-part="row">
@@ -105,6 +111,12 @@ function Row() {
       <div data-part="meter" class="w-40">
         <Meter value={64} max={120} label="Replies" />
       </div>
+      <img
+        data-part="picture"
+        alt=""
+        src={RED_SQUARE}
+        class="rounded-ui-field size-10 object-cover"
+      />
       <div data-part="cta">
         <CardCtaButton onClick={() => {}}>See replies per event</CardCtaButton>
       </div>
@@ -212,7 +224,7 @@ describe("SkeletonOutline", () => {
 
     it(`fills each boxed control, disc and glyph as one block at the ink's 10%, ${ramp}`, () => {
       const { ground, part } = drawn(ramp);
-      for (const name of ["pill", "switch", "track", "input", "disc", "glyph"]) {
+      for (const name of ["pill", "switch", "track", "input", "disc", "glyph", "picture"]) {
         expect([name, fillsWithInk(ground, part(name))]).toEqual([name, true]);
       }
       {
@@ -292,7 +304,7 @@ describe("SkeletonOutline", () => {
     it(`takes the loaded markup's size, every part of it, at ${width}px`, () => {
       const { part } = drawn("dark", width);
       const before = loaded("dark", width);
-      for (const name of ["row", "frame", "head", "cell", "wrapped", "pill", "disc"]) {
+      for (const name of ["row", "frame", "head", "cell", "wrapped", "pill", "disc", "picture"]) {
         const a = part(name).getBoundingClientRect();
         const b = before(name).getBoundingClientRect();
         expect([
@@ -315,16 +327,51 @@ describe("SkeletonOutline", () => {
     expect(hit === null || !part("pill").contains(hit)).toBe(true);
   });
 
-  it("pulses its bars, blocks and glyphs on the loaders' timing, and holds the frame still", () => {
+  it("paints none of a picture's pixels, only the block's fill", async () => {
+    const { part } = drawn();
+    const before = loaded();
+    /** How many of the element's pixels are the picture's red. */
+    const reds = async (el: HTMLImageElement) => {
+      await el.decode();
+      const shot: unknown = await page.screenshot({ element: el, save: false, base64: true });
+      const image = new Image();
+      image.src = `data:image/png;base64,${typeof shot === "string" ? shot : (shot as { base64: string }).base64}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(image, 0, 0);
+      const data = ctx.getImageData(0, 0, image.width, image.height).data;
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i]! - Math.max(data[i + 1]!, data[i + 2]!) > 100) count += 1;
+      }
+      return count;
+    };
+    const loadedReds = await reds(before("picture") as HTMLImageElement);
+    expect([await reds(part("picture") as HTMLImageElement), loadedReds > 0]).toEqual([0, true]);
+  });
+
+  it("pulses its bars, blocks and glyphs as `Skeleton` does, and holds the frame still", () => {
     const { part, outline } = drawn();
-    for (const el of [runIn(part("cell")), part("pill"), part("glyph")]) {
+    // `Skeleton` runs `lib/pulse.ts`'s class, whose values the outline writes
+    // out again: compared here as the browser computes them, so an edit to
+    // one that the other does not follow fails.
+    const { container } = render(() => <Skeleton class="h-4 w-10" />);
+    const pulse = (el: Element) => {
       const s = style(el);
-      expect([
+      return [
         s.animationName,
         s.animationDuration,
         s.animationIterationCount,
         s.animationTimingFunction,
-      ]).toEqual(["pulse", "2s", "infinite", "cubic-bezier(0.65, 0, 0.35, 1)"]);
+      ];
+    };
+    const skeleton = pulse(container.firstElementChild!);
+    expect(skeleton[0]).toBe("pulse");
+    for (const el of [runIn(part("cell")), part("pill"), part("glyph"), part("picture")]) {
+      expect(pulse(el)).toEqual(skeleton);
     }
     for (const el of [outline, part("frame"), part("head")]) {
       expect(style(el).animationName).toBe("none");

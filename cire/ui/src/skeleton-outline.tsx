@@ -55,10 +55,12 @@ function markRuns(child: ResolvedJSXElement): ResolvedJSXElement {
  * `@cire/ui/src`; the package ships no CSS). `!` where a part's own utility
  * would otherwise win: a button's fill, border and shadow, a glyph's fill.
  *
- * A block is a button, an input, a select, a text box, the track after a
- * switch's hidden input, a meter (`progressbar`, `meter`), or anything marked
- * `data-skeleton="block"`, unless it is marked `data-skeleton="text"`. The pulse is `lib/pulse.ts`'s, written
- * out because a class built at run time emits no CSS.
+ * A block is a button, an input, a select, a text box, a picture (`img`,
+ * `video`, `canvas`), the track after a switch's hidden input, a meter
+ * (`progressbar`, `meter`), or anything marked `data-skeleton="block"`, unless
+ * it is marked `data-skeleton="text"`. The pulse is `lib/pulse.ts`'s, written
+ * out because a class built at run time emits no CSS; the browser test holds
+ * it to `Skeleton`'s.
  */
 const OUTLINE = [
   // No glyph is painted (the property is inherited) and nothing is selected.
@@ -68,15 +70,17 @@ const OUTLINE = [
   // A run: a bar per line, rounded at both ends of each.
   "**:data-skeleton-run:bg-ui-ink/10 **:data-skeleton-run:rounded-[4px] **:data-skeleton-run:box-decoration-clone",
   // A block: one fill, no edge or shadow, nothing of what it holds.
-  "**:[&:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:bg-ui-ink/10!",
-  "**:[&:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:bg-none!",
-  "**:[&:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:border-transparent!",
-  "**:[&:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:shadow-none!",
-  "[&_:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])_*]:invisible!",
+  "**:[&:is(button,input,select,textarea,img,video,canvas,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:bg-ui-ink/10!",
+  "**:[&:is(button,input,select,textarea,img,video,canvas,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:bg-none!",
+  "**:[&:is(button,input,select,textarea,img,video,canvas,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:border-transparent!",
+  "**:[&:is(button,input,select,textarea,img,video,canvas,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:shadow-none!",
+  "[&_:is(button,input,select,textarea,img,video,canvas,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])_*]:invisible!",
+  // A picture paints over its own fill, so its pixels move out of its box.
+  "**:[&:is(img,video,canvas)]:object-[-99999px_-99999px]!",
   // A glyph: a small block, its strokes hidden.
   "[&_svg]:bg-ui-ink/10! [&_svg]:rounded-[4px]! [&_svg_*]:invisible!",
   // The pulse, on the bars, blocks and glyphs alone: frames and grounds hold still.
-  "**:[&:is([data-skeleton-run],svg,button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:animate-[pulse_calc(2s*var(--motion-scale,1))_var(--ease-in-out,var(--ui-ease-in-out))_infinite]",
+  "**:[&:is([data-skeleton-run],svg,button,input,select,textarea,img,video,canvas,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:animate-[pulse_calc(2s*var(--motion-scale,1))_var(--ease-in-out,var(--ui-ease-in-out))_infinite]",
 ].join(" ");
 
 export interface SkeletonOutlineProps {
@@ -97,11 +101,12 @@ export interface SkeletonOutlineProps {
  *   wrapped line, with a 4px corner at both ends of every line
  *   (`box-decoration-break: clone`). Text with no letter or digit — a dot or a
  *   dash between words — draws nothing, and paints no glyph;
- * - a boxed control one block: a button, an input, a select, a text box, a
- *   switch's track, a meter, and anything marked `data-skeleton="block"` (a
- *   status disc, a chip). What a block holds is hidden. A button drawn as
- *   words, such as a sortable column head or a card's call to action, is
- *   marked `data-skeleton="text"`;
+ * - a boxed control or a picture one block: a button, an input, a select, a
+ *   text box, a switch's track, a meter, an `img`, `video` or `canvas`, and
+ *   anything marked `data-skeleton="block"` (a status disc, a chip). What a
+ *   block holds, and a picture's pixels, are hidden. A button drawn as words,
+ *   such as a sortable column head or a card's call to action, is marked
+ *   `data-skeleton="text"`;
  * - a glyph (`svg`) a small block with the same 4px corner;
  * - frames, hairlines and grounds as they are, and still: only the bars, the
  *   blocks and the glyphs pulse.
@@ -121,13 +126,19 @@ export interface SkeletonOutlineProps {
  *
  * The children are a still picture: they are rendered once, from constant
  * samples. A run that appears later inside them, under a `Show` that flips
- * after the outline mounts, is not drawn; a layout that changes renders a new
- * outline (a `Show` around it, or a top-level child that changes, which is
- * marked again).
+ * after the outline mounts, is not drawn, and a reactive text moved into a run
+ * may stop updating; a layout that changes renders a new outline (a `Show`
+ * around it, or a top-level child that changes, which is marked again).
  *
- * `aria-hidden` and `inert`, so nothing inside is read, focused or pressed;
- * the region around it carries `aria-busy`. It takes no class: the children
- * bring their own layout, as the loaded content's wrapper has it.
+ * `aria-hidden` and `inert`, so nothing inside is read, focused or pressed.
+ * The region that holds it and the content that replaces it carries
+ * `aria-busy`; an outline lent to a bar outside that region, as the households'
+ * count line is, needs none, since nothing in it is read. It takes no class:
+ * the children bring their own layout, as the loaded content's wrapper has it.
+ *
+ * It builds the runs with `document` as it renders, so it renders in a browser
+ * only: in a `client:only` island, as the host's are, never in a server
+ * render, a hydrating island's included.
  */
 export default function SkeletonOutline(props: SkeletonOutlineProps) {
   const resolved = children(() => props.children);
