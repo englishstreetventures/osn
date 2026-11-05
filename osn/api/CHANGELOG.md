@@ -1,5 +1,15 @@
 # @osn/osn
 
+## 3.31.12
+
+### Patch Changes
+
+- Updated dependencies [6dbdb99]
+  - @osn/db@0.25.3
+  - @shared/observability@0.20.1
+  - @shared/crypto@0.14.22
+  - @shared/email@0.16.16
+
 ## 3.31.11
 
 ### Patch Changes

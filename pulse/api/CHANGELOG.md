@@ -1,5 +1,17 @@
 # @osn/api
 
+## 0.28.11
+
+### Patch Changes
+
+- 6dbdb99: Drop dependencies no file imports (`motion`, `jose`, `@solidjs/meta`, `@solidjs/testing-library`, `@shared/design-tokens`, `@effect/vitest`, `@opentelemetry/exporter-logs-otlp-http`, and the direct `@vitest/browser` that `@vitest/browser-playwright` already brings in), and stop exporting shared symbols used only inside their own file. No behaviour changes.
+- Updated dependencies [6dbdb99]
+  - @pulse/db@0.20.16
+  - @shared/observability@0.20.1
+  - @zap/db@0.6.16
+  - @shared/crypto@0.14.22
+  - @shared/osn-auth-client@0.4.60
+
 ## 0.28.10
 
 ### Patch Changes

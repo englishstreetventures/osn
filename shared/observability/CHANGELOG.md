@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.20.1
+
+### Patch Changes
+
+- 6dbdb99: Drop dependencies no file imports (`motion`, `jose`, `@solidjs/meta`, `@solidjs/testing-library`, `@shared/design-tokens`, `@effect/vitest`, `@opentelemetry/exporter-logs-otlp-http`, and the direct `@vitest/browser` that `@vitest/browser-playwright` already brings in), and stop exporting shared symbols used only inside their own file. No behaviour changes.
+
 ## 0.20.0
 
 ### Minor Changes
