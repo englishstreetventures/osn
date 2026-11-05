@@ -16,7 +16,9 @@
  * the pulse stops at full opacity without this module knowing.
  *
  * Internal: not an export of the package. The class is written out in full so
- * Tailwind's source scan finds it; a class built at run time emits no CSS.
+ * Tailwind's source scan finds it; a class built at run time emits no CSS. For
+ * the same reason `SkeletonOutline` writes these values out again, on the
+ * selectors for its bars, blocks and glyphs.
  */
 export const PULSE =
   "base:animate-[pulse_calc(2s*var(--motion-scale,1))_var(--ease-in-out,var(--ui-ease-in-out))_infinite]";
