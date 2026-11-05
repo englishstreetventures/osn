@@ -156,7 +156,7 @@ describe("SignInPanel", () => {
 
   it("carries a ?name= target through sign-in only when it is a path on this origin", () => {
     // The marketing site links the organiser portal as `/?name=…`; signed out,
-    // the portal bounces through `/login?returnTo=` and must land back on that
+    // the portal bounces through `/login/?returnTo=` and must land back on that
     // path. A crafted `returnTo` carrying the same parameter gets the dashboard.
     at(`?returnTo=${encodeURIComponent("/?name=Amara%20%26%20Sam")}`);
     fireEvent.click(renderPanel());
