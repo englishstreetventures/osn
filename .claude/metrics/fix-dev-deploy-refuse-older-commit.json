@@ -1,0 +1,179 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 2002,
+    "branch": "fix/dev-deploy-refuse-older-commit",
+    "base_sha": "906456901747a5fb146da9ef2fb056445c68d7d9",
+    "head_sha": "8d2c627766deca76d075a0049fcfc0dc4cb45b7a",
+    "generated_at": "2026-11-05T02:24:46.381Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1952,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 8,
+    "first_ts": "2026-11-04T12:59:00.572Z",
+    "last_ts": "2026-11-05T02:24:29.116Z",
+    "span_seconds": 48329,
+    "active_seconds": 9263,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 80.40624720000001,
+    "tokens": {
+      "input": 1266,
+      "output": 629206,
+      "thinking": 333886,
+      "cache_write_5m": 3781436,
+      "cache_write_1h": 7003,
+      "cache_read": 122134648
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1266,
+          "output": 629206,
+          "thinking": 333886,
+          "cache_write_5m": 3781436,
+          "cache_write_1h": 7003,
+          "cache_read": 122134648
+        },
+        "usd_equivalent": 80.40624720000001,
+        "messages": 612
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 52,
+          "output": 12284,
+          "thinking": 6506,
+          "cache_write_5m": 138186,
+          "cache_write_1h": 7003,
+          "cache_read": 3106536
+        },
+        "usd_equivalent": 2.2354564,
+        "messages": 26
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1214,
+          "output": 616922,
+          "thinking": 327380,
+          "cache_write_5m": 3643250,
+          "cache_write_1h": 0,
+          "cache_read": 119028112
+        },
+        "usd_equivalent": 78.17079079999998,
+        "messages": 586
+      }
+    },
+    "effort": {
+      "medium": 26,
+      "high": 207,
+      "xhigh": 379
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 6,
+      "docs": 4,
+      "config": 2,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 969,
+        "deleted": 22
+      },
+      "docs": {
+        "added": 61,
+        "deleted": 20
+      },
+      "config": {
+        "added": 163,
+        "deleted": 7
+      },
+      "source": {
+        "added": 514,
+        "deleted": 7
+      }
+    },
+    "packages": [
+      "shared/infra"
+    ],
+    "touches_migration": false,
+    "commits": 9
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 483,
+      "Edit": 109,
+      "Read": 69,
+      "Write": 41,
+      "Grep": 12,
+      "Skill": 11,
+      "SubagentHandback": 8,
+      "StructuredOutput": 7,
+      "Agent": 6,
+      "ToolSearch": 5,
+      "WebFetch": 5,
+      "TaskStop": 1,
+      "AskUserQuestion": 1,
+      "SendMessage": 1,
+      "Monitor": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 14,
+      "max_edits_one_file": 20
+    },
+    "skills": {
+      "new-feat": 2,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "write-issue": 1,
+      "write-pr": 1
+    },
+    "subagents": {
+      "attacker": 3,
+      "reviewer": 3
+    },
+    "requests": {
+      "main": 26,
+      "subagent": 586,
+      "with_tools": 603,
+      "with_one_tool": 496,
+      "context_median": 141589,
+      "context_p90": 484673
+    }
+  },
+  "review": null
+}
