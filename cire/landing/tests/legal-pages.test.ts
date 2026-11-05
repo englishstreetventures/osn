@@ -82,7 +82,7 @@ describe("legal pages", () => {
     const text = hosts.replace(/\s+/g, " ");
     expect(text).toMatch(/you confirm that the guest agreed to get emails about the wedding/);
     expect(text).toMatch(
-      /you also agree to pass our <a href="\/privacy\/guests">guest privacy notice<\/a> on to them/,
+      /you also agree to pass our <a href="\/privacy\/guests\/">guest privacy notice<\/a> on to them/,
     );
     expect(text).toMatch(
       /once they remove or replace it, we do not email it about the wedding again, even if it is added back/,
@@ -165,9 +165,10 @@ describe("legal pages", () => {
 
   it("footer links every legal page", () => {
     // The footer hands its links to `@cire/ui`'s footer as data, in either
-    // quote: the formatter does not reach `.astro` files.
+    // quote: the formatter does not reach `.astro` files. Each by the address
+    // it is served at, with its slash: the asset server redirects `/terms`.
     for (const name of footerPages) {
-      expect(footer).toMatch(new RegExp(`href: ['"]/${name}['"]`));
+      expect(footer).toMatch(new RegExp(`href: ['"]/${name}/['"]`));
     }
   });
 });
