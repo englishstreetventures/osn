@@ -335,6 +335,46 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.getByTestId("count").textContent).toBe("1");
   });
 
+  // cire-api's OAuth callback sends the browser back with one word saying how
+  // the connect ended. The dashboard says it once and strips it, keeping the
+  // route, because every later hash write carries the search along.
+  it("says how a Stripe connect ended, once, and strips the word", async () => {
+    for (const [outcome, said] of [
+      ["connected", toastSuccess],
+      ["expired", toastError],
+    ] as const) {
+      toastSuccess.mockReset();
+      toastError.mockReset();
+      history.replaceState(
+        null,
+        "",
+        `/?keep=1&stripe_connect=${outcome}#/w/wed_a/registry/settings`,
+      );
+      authFetchMock.mockResolvedValue(
+        listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+      );
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(said).toHaveBeenCalledTimes(1));
+      expect(String(said.mock.calls[0]?.[0])).toMatch(
+        outcome === "connected" ? /is connected/ : /run out or was already used/,
+      );
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#/w/wed_a/registry/settings");
+      cleanup();
+    }
+    history.replaceState(null, "", "/");
+  });
+
+  it("says nothing about Stripe on an ordinary load", async () => {
+    history.replaceState(null, "", "/?keep=1");
+    authFetchMock.mockResolvedValue(listResponse([]));
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+    history.replaceState(null, "", "/");
+  });
+
   it("shows an error banner when the list fetch fails", async () => {
     authFetchMock.mockResolvedValue(new Response(null, { status: 500 }));
     render(() => <OrganiserApp />);
