@@ -184,7 +184,6 @@ describe("DV1: the musubi deploy step holds none of cire's seed secrets; the cir
     expect(seed?.env).toEqual(
       Object.fromEntries(CIRE_SEED_SECRETS.map((name) => [name, `\${{ secrets.${name} }}`])),
     );
-    expect(seed?.if).toBeUndefined();
     expect(seed?.["continue-on-error"]).toBeUndefined();
   });
 
@@ -211,6 +210,36 @@ describe("DV1: the musubi deploy step holds none of cire's seed secrets; the cir
       .map((step) => step.id);
     expect(readers).toEqual(["cire_seed"]);
   });
+});
+
+describe("a stack job its order check refuses holds no secret after the check", () => {
+  // scripts/dev-deploy-order.ts writes deploy=false when the stack already
+  // passed on dev at a newer commit. Nothing then deploys, so no step between
+  // the check and the deploy has a use for a secret.
+  const ON_ORDER = "${{ steps.order.outputs.deploy == 'true' }}";
+  const HOLDERS: Readonly<Record<StackKey, readonly string[]>> = {
+    musubi: ["snapshot", "cire_seed", "deploy"],
+    cire: ["snapshot", "deploy"],
+    zap: ["snapshot", "deploy"],
+    pulse: ["snapshot", "deploy"],
+  };
+
+  test.each(STACK_KEYS.map((key) => [key] as const))(
+    "%s: every step from the order check to the deploy that reads a secret runs only when the check allows the deploy",
+    (key) => {
+      const steps = stackJob(key).steps ?? [];
+      const order = steps.findIndex((step) => step.id === "order");
+      const deploy = steps.findIndex((step) => step.id === "deploy");
+      expect(order).toBeGreaterThan(-1);
+      expect(deploy).toBeGreaterThan(order);
+      const holders = steps
+        .slice(order + 1, deploy + 1)
+        .filter((step) => secretsRead(step).length > 0);
+      expect(holders.map((step) => step.id)).toEqual(HOLDERS[key]);
+      for (const step of holders)
+        expect({ id: step.id, if: step.if }).toEqual({ id: step.id, if: ON_ORDER });
+    },
+  );
 });
 
 describe("W12: each stack job checks its token before any step uses it", () => {

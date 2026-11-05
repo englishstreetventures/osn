@@ -55,7 +55,7 @@ import {
   WORKFLOW_FILE,
 } from "../deploy-surfaces";
 import { SITE_DIRECTORIES } from "../production-sites-artifact";
-import { MAX_RECORDS } from "../release-plan";
+import { devDeployStep, MAX_RECORDS } from "../release-plan";
 import {
   devTarget,
   type Probe,
@@ -88,6 +88,7 @@ interface Job {
   readonly concurrency?: {
     readonly group: string;
     readonly "cancel-in-progress"?: boolean | string;
+    readonly queue?: "single" | "max";
   };
   readonly permissions?: Record<string, string>;
   readonly outputs?: Record<string, string>;
@@ -144,6 +145,8 @@ const DEV_CREDENTIALS = {
   CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}",
 } as const;
 const ON_SNAPSHOT = "${{ !cancelled() && steps.snapshot.outcome == 'success' }}";
+/** A step that runs only when the order check let this commit deploy (and every step before it passed). */
+const ON_ORDER = "${{ steps.order.outputs.deploy == 'true' }}";
 
 /** The dev-hosts output naming each surface's dev origin. */
 const DEV_HOST_OUTPUT: Readonly<Record<SurfaceKey, string>> = {
@@ -315,10 +318,14 @@ describe("deploy.yml deploys dev only", () => {
     expect(jobsIn(dev, "production")).toEqual([]);
   });
 
-  test("it can only read the repository, and every Alchemy run in it sends no telemetry", () => {
+  test("it can only read: the repository, and in the stack jobs alone the deployments and Actions runs the order check reads; every Alchemy run in it sends no telemetry", () => {
     expect(dev.permissions).toEqual({ contents: "read" });
-    // A job-level block would replace the workflow's for that job.
-    expect(Object.values(dev.jobs).filter((job) => job.permissions !== undefined)).toEqual([]);
+    // A job-level block replaces the workflow's for that job.
+    const own = Object.entries(dev.jobs).filter(([, job]) => job.permissions !== undefined);
+    expect(own.map(([id]) => id)).toEqual(STACKS.map((s) => s.job.id));
+    for (const [, job] of own) {
+      expect(job.permissions).toEqual({ contents: "read", deployments: "read", actions: "read" });
+    }
     expect(dev.env?.DO_NOT_TRACK).toBe("1");
   });
 
@@ -414,8 +421,14 @@ describe("W1: one Alchemy job per stack", () => {
       // No stack job waits for another: each deploys its whole stack.
       expect(needsOf(job).toSorted()).toEqual(["build", "changes"]);
       // One run at a time per stack, and a run is never cancelled part-way, so
-      // no rollback races the next run's deploy.
-      expect(job.concurrency).toEqual({ group: `deploy-dev-${key}`, "cancel-in-progress": false });
+      // no rollback races the next run's deploy. `queue: max` keeps up to 100
+      // waiting runs: with GitHub's default, a run joining the group cancels
+      // the one already waiting, whose commit may be the newest.
+      expect(job.concurrency).toEqual({
+        group: `deploy-dev-${key}`,
+        "cancel-in-progress": false,
+        queue: "max",
+      });
       // `bun run scripts/…` resolves from the repository root.
       expect(job.defaults).toBeUndefined();
     },
@@ -572,12 +585,14 @@ describe("each stack job builds, deploys and checks its whole stack", () => {
         `bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" ${surfaces}`,
       );
       expect(snapshot?.env).toEqual(DEV_CREDENTIALS);
-      expect(snapshot?.if).toBeUndefined();
+      expect(snapshot?.if).toBe(ON_ORDER);
 
       const deploy = stepById(job, "deploy");
-      expect(deploy?.name).toBe(`Deploy the ${key} stack`);
+      // The release planner counts a dev stack job's record only when the
+      // step of this name succeeded.
+      expect(deploy?.name).toBe(devDeployStep(key));
       expect(deploy?.["working-directory"]).toBe(`${key}/infra`);
-      expect(deploy?.if).toBeUndefined();
+      expect(deploy?.if).toBe(ON_ORDER);
       expect(deploy?.["continue-on-error"]).toBeUndefined();
       expect(deploy?.env?.FORCE).toBe(
         "${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}",
@@ -688,6 +703,66 @@ describe("each stack job builds, deploys and checks its whole stack", () => {
       expect(healing).toBeGreaterThan(stepIndex(job, "snapshot"));
       expect(healing).toBeLessThan(stepIndex(job, "deploy"));
       expect(steps[healing]?.run).toContain("exit 1");
+    },
+  );
+});
+
+// Two pushes close together each start a run, and either run's stack job can
+// reach the stack's group first. scripts/dev-deploy-order.ts refuses a commit
+// older than one the stack already passed on dev; these hold each stack job to
+// running it where it counts and to deploying nothing when it refuses.
+describe("each stack job refuses a commit older than one its stack already passed on dev", () => {
+  const ORDER_REFUSED =
+    "${{ (inputs.force == true || inputs.expect_no_change == true) && steps.order.outputs.deploy == 'false' }}";
+
+  test.each(STACKS.map((s) => [s.key] as const))(
+    "%s: checks out full history, which the check reads ancestry from, and leaves no job token on disk",
+    (key) => {
+      const checkouts = checkoutsOf(stackJobOf(key));
+      expect(checkouts).toHaveLength(1);
+      expect(checkouts[0]?.with).toEqual({ "fetch-depth": 0, "persist-credentials": false });
+    },
+  );
+
+  test.each(STACKS.map((s) => [s.key] as const))(
+    "%s: runs the check for its own stack after the token check and before the snapshot, holding the job token alone, under a time limit",
+    (key) => {
+      const job = stackJobOf(key);
+      const order = stepById(job, "order");
+      expect(order?.run).toBe(`bun run scripts/dev-deploy-order.ts --stack ${key}`);
+      expect(order?.env).toEqual({ GITHUB_TOKEN: "${{ github.token }}" });
+      expect(order?.if).toBeUndefined();
+      expect(order?.["continue-on-error"]).toBeUndefined();
+      expect(order?.["timeout-minutes"]).toBe(5);
+      expect(stepIndex(job, "order")).toBeGreaterThan(stepIndex(job, "token"));
+      expect(stepIndex(job, "order")).toBeLessThan(stepIndex(job, "snapshot"));
+    },
+  );
+
+  test.each(STACKS.map((s) => [s.key] as const))(
+    "%s: on a refusal no step that holds the Cloudflare token runs before the deploy, nor the deploy",
+    (key) => {
+      const job = stackJobOf(key);
+      const steps = stepsOf(job);
+      const between = steps.slice(stepIndex(job, "order") + 1, stepIndex(job, "deploy") + 1);
+      const holding = between.filter((step) => step.env?.CLOUDFLARE_API_TOKEN !== undefined);
+      expect(holding.map((step) => step.id)).toEqual(["snapshot", "deploy"]);
+      for (const step of holding) expect(step.if).toBe(ON_ORDER);
+    },
+  );
+
+  test.each(STACKS.map((s) => [s.key] as const))(
+    "%s: a refused force or expect_no_change dispatch fails the job before the snapshot, since it re-uploads nothing and proves nothing",
+    (key) => {
+      const job = stackJobOf(key);
+      const steps = stepsOf(job);
+      const refuse = steps.findIndex((step) => step.if === ORDER_REFUSED);
+      expect(refuse).toBeGreaterThan(stepIndex(job, "order"));
+      expect(refuse).toBeLessThan(stepIndex(job, "snapshot"));
+      const ran = runStep(steps[refuse]!, {});
+      expect(ran.exitCode).not.toBe(0);
+      expect(ran.output).toContain("::error::");
+      expect(ran.bunCalls).toEqual([]);
     },
   );
 });

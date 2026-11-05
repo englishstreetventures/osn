@@ -155,7 +155,9 @@ unset, each with its reason.
 2. **`build`** — install, `bun run build`, `bun run test`, `bun run test:d1`.
    Everything below `needs:` it, so nothing ships from a broken tree.
 3. **`stack-<stack>-dev`** — `environment: dev`, no reviewers, runs unattended.
-   It builds the stack's sites against the dev hosts, deploys the whole stack
+   It builds the stack's sites against the dev hosts, stops short of the
+   deploy when the stack already passed on dev at a newer commit
+   ([[#Concurrency]]), deploys the whole stack
    with Alchemy, then runs the smoke check for every surface in it. A surface
    that answers wrongly is rolled back, if this run uploaded it, and the job
    fails once every surface has been checked. The cire job then compares every
@@ -176,10 +178,42 @@ Production is not in this workflow. `production-release.yml` ships it in release
 ### Concurrency
 
 Each stack job takes a group of its own, `deploy-dev-<stack>`, with
-`cancel-in-progress: false`: two runs never deploy one stack at once, the
-other stacks stay parallel, and no rollback can race the next run's deploy.
-A queued run is replaced by a newer one; because each run deploys its whole
-stack, the newer run carries every change before it. Production jobs live in
+`cancel-in-progress: false` and `queue: max`: two runs never deploy one stack
+at once, the other stacks stay parallel, and no rollback can race the next
+run's deploy. Up to 100 jobs wait for the group, first in first out, and
+GitHub cancels a job that arrives while 100 wait. Its default, `single`,
+keeps one waiting job and cancels it when another arrives, which could drop
+the newest commit's deploy; `single` and `max` are the only values GitHub
+takes. The cost: a burst of pushes that touch one stack deploys it once per
+push, one after another (about two minutes each for cire, 76 s for musubi).
+
+*Measured 2026-11-04 — `gh api repos/englishstreetventures/osn/actions/runs/41822531132/jobs`, cire and musubi stack jobs*
+
+The group orders jobs by when they reached it, not by commit: two pushes close
+together each start a run, and the older commit's Build & Test can finish
+later. So before its snapshot each stack job runs
+[`scripts/dev-deploy-order.ts`](../../scripts/dev-deploy-order.ts), which
+refuses the deploy when the stack already passed on dev at a commit newer
+than the job's own. The evidence is the stack job's own Deployment record at
+that commit, counted only when its deploy step ran, or a record from every
+one of the stack's record jobs there. One surface's record is not enough:
+after a failed check rolled another surface back, a deploy lets the next
+snapshot re-upload it. A refused job succeeds, names both commits in the run
+summary, and runs no record job; a refused dispatch with `force` or
+`expect_no_change` fails instead, since it would re-upload or prove nothing.
+The check reads the records as the release planner does
+([[production-deploy#5.0 Reading a release run (triage before you conclude anything is stale)]]),
+counting one only at a commit on `origin/main`, since GitHub reports a run
+from a tag as on a branch of the tag's name. It asks GitHub nothing unless
+`origin/main` holds a commit newer than the job's; then one GraphQL query
+reads the newest 100 `dev` records with their statuses, about three hours of
+pushes, so a re-run whose newer evidence is older than that deploys. A GitHub
+error that two retries do not clear fails the job, and nothing deploys until
+it is re-run.
+
+*Measured 2026-11-05 — `gh api 'repos/englishstreetventures/osn/deployments?environment=dev&per_page=100'`: the page spanned 08:52 to 11:43 UTC on 2026-11-04*
+
+Production jobs live in
 `production-release.yml` under `deploy-production-<surface>` groups, so a
 release waiting for approval never holds up a dev deploy.
 
@@ -217,7 +251,8 @@ Cloudflare answers its rollback.*
 To see which surfaces of a run failed: a run leaves one Deployment record per
 stack job and one per record job, all for the same commit; a surface whose
 check failed has no record job, so its stack job's record is the only one that
-names it. To list them:
+names it. A stack job that refused an older commit ([[#Concurrency]]) shows
+`success` with no record job beside it. To list them:
 
 ```bash
 SHA=<the run's commit>; R=repos/englishstreetventures/osn

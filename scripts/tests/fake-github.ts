@@ -1,7 +1,8 @@
-// A fake api.github.com for the release planner's tests: Deployment records,
-// their statuses, and the runs and jobs the statuses link, served the way the
-// REST API serves them. release-plan.test.ts calls it as an injected `fetch`;
-// release-plan.cli.test.ts serves it over HTTP to the real script.
+// A fake api.github.com for the release planner's and the dev order check's
+// tests: Deployment records, their statuses, and the runs and jobs the
+// statuses link, served the way the REST API serves them, and the records with
+// their statuses the way the GraphQL deployments query does. Tests call it as
+// an injected `fetch`, or serve it over HTTP to the real script.
 
 import {
   PRODUCTION_STACKS,
@@ -13,6 +14,7 @@ import {
   type SurfaceKey,
   WORKFLOW_FILE,
 } from "../deploy-surfaces";
+import { devDeployStep } from "../release-plan";
 
 export const REPO = "englishstreetventures/osn";
 export const API = "https://api.github.com";
@@ -33,6 +35,11 @@ export interface FixtureRecord {
   readonly conclusion?: string | null;
   /** The commit the job ran on. Default the record's own `sha`. */
   readonly jobSha?: string;
+  /**
+   * For a dev stack job, the conclusion of its deploy step: `skipped` for a
+   * job that refused an older commit. Default the job's own conclusion.
+   */
+  readonly deployStep?: string | null;
 }
 
 /** Overrides for one run's origin. */
@@ -55,15 +62,19 @@ export interface FakeGitHub {
  * otherwise, on `main` in this repository, unless `origins` says otherwise.
  * `goneRuns` answer 404, as a run past log retention does. The jobs list
  * honours `filter`: without `filter=all` it holds only the latest attempt.
+ * `failing` answers its first `times` requests whose path and query match
+ * with `status`, as GitHub does during an outage.
  */
 export function fakeGitHub(
   records: readonly FixtureRecord[],
   options: {
     readonly goneRuns?: readonly number[];
     readonly origins?: Readonly<Record<number, FixtureOrigin>>;
+    readonly failing?: { readonly match: RegExp; readonly status: number; readonly times: number };
   } = {},
 ): FakeGitHub {
   const calls: string[] = [];
+  let failed = 0;
   const withIds = records.map((record, index) => ({
     ...record,
     id: 1000 + index,
@@ -76,9 +87,60 @@ export function fakeGitHub(
     const request = input instanceof Request ? input : undefined;
     const url = new URL(request?.url ?? (input instanceof URL ? input.href : String(input)));
     calls.push(`${url.pathname}${url.search}`);
+    const { failing } = options;
+    if (failing !== undefined && failed < failing.times && failing.match.test(calls.at(-1) ?? "")) {
+      failed += 1;
+      return json({ message: "Server Error" }, failing.status);
+    }
     const headers = new Headers(init?.headers ?? request?.headers);
     if (headers.get("authorization") !== `Bearer ${TOKEN}`)
       return json({ message: "Bad credentials" }, 401);
+
+    // The GraphQL deployments query: a page of records with their statuses,
+    // newest first, states in GraphQL's upper case, paged by an opaque cursor.
+    if (url.pathname === "/graphql") {
+      const text = request === undefined ? String(init?.body ?? "") : await request.text();
+      const variables = (
+        JSON.parse(text) as {
+          variables?: {
+            owner?: string;
+            name?: string;
+            environment?: string;
+            first?: number;
+            after?: string | null;
+          };
+        }
+      ).variables;
+      if (`${variables?.owner}/${variables?.name}` !== REPO) {
+        return json({ data: { repository: null }, errors: [{ message: "Could not resolve" }] });
+      }
+      const list = withIds.filter((r) => r.environment === variables?.environment);
+      const start = variables?.after == null ? 0 : Number(variables.after);
+      const first = variables?.first ?? 100;
+      const nodes = list.slice(start, start + first).map((r) => ({
+        databaseId: r.id,
+        commitOid: r.sha,
+        statuses: {
+          nodes: r.states.map((state) => ({
+            state: state.toUpperCase(),
+            logUrl: `https://github.com/${REPO}/actions/runs/${r.run}/job/${r.jobId}`,
+          })),
+        },
+      }));
+      return json({
+        data: {
+          repository: {
+            deployments: {
+              pageInfo: {
+                hasNextPage: start + first < list.length,
+                endCursor: String(start + first),
+              },
+              nodes,
+            },
+          },
+        },
+      });
+    }
 
     const prefix = `/repos/${REPO}`;
     if (!url.pathname.startsWith(prefix)) return json({ message: "Not Found" }, 404);
@@ -113,17 +175,41 @@ export function fakeGitHub(
       const latest = Math.max(1, ...inRun.map((r) => r.attempt ?? 1));
       const list = inRun
         .filter((r) => url.searchParams.get("filter") === "all" || (r.attempt ?? 1) === latest)
-        .map((r) => ({
-          id: r.jobId,
-          name: r.job,
-          head_sha: r.jobSha ?? r.sha,
-          conclusion:
+        .map((r) => {
+          const conclusion =
             r.conclusion === undefined
               ? r.states.includes("success")
                 ? "success"
                 : "failure"
-              : r.conclusion,
-        }));
+              : r.conclusion;
+          // A dev stack job's steps hold its deploy step, by the name the
+          // planner reads, among steps that succeed whether it deploys or
+          // not, as a real job's do; GitHub reports a step still running with
+          // no conclusion, as it does the job.
+          const devStack = STACKS.find((s) => s.job.name === r.job);
+          const around = (name: string) => ({
+            name,
+            conclusion: conclusion === null ? null : "success",
+          });
+          return {
+            id: r.jobId,
+            name: r.job,
+            head_sha: r.jobSha ?? r.sha,
+            conclusion,
+            steps:
+              devStack === undefined
+                ? []
+                : [
+                    around("Set up job"),
+                    around("Refuse a commit older than one the stack already passed on dev"),
+                    {
+                      name: devDeployStep(devStack.key),
+                      conclusion: r.deployStep === undefined ? conclusion : r.deployStep,
+                    },
+                    around("Complete job"),
+                  ],
+          };
+        });
       return json({
         total_count: list.length,
         jobs: list.slice((page - 1) * perPage, page * perPage),
