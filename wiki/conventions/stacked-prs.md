@@ -126,7 +126,14 @@ With the `main` ruleset's merge queue on, `main` takes pull requests through it,
 
 ### A whole stack
 
-`gh stack merge <top PR> --squash` adds the stack, up to and including that pull request, to the queue. The stack must be linked with `gh stack link`, and every pull request in it ready, not a draft. The queue builds at most `max_entries_to_build` entries at once, so each round lands that many. The next entry still holds the squashed parents' original commits, so the queue removes it as a conflict. GitHub then rebases the rest onto `main` and their CI runs again; once it is green, the same command queues the next round. Read the live limits from the ruleset:
+Merge a linked stack whole when every pull request in it is ready, not a draft. A frontend stack ([[#Frontend: one component per pull request]]) merges one pull request at a time instead: each child needs the `range-diff` check in [[#Opening, approval and merge]] before it is released, and its component pull requests stay drafts until then, which `gh stack merge` refuses. A stack that was never linked, or one merged from a machine without `gh stack`, also merges one pull request at a time.
+
+```bash
+gh api repos/englishstreetventures/osn/pulls/<any PR in the stack> --jq .stack.number
+gh stack merge <stack number> --squash --yes
+```
+
+The second command adds the whole stack to the queue. Pass the stack's number, not a pull request's: the command reads a bare number as a stack number first. `--yes` skips the wizard it opens in an interactive terminal. The queue builds at most `max_entries_to_build` entries at once, so each round lands that many. The next entry still holds the squashed parents' original commits, so the queue removes it as a conflict. GitHub then rebases the rest onto `main` and their CI runs again; once it is green, the same command queues the next round. Read the live limits from the ruleset:
 
 ```bash
 gh api repos/englishstreetventures/osn/rules/branches/main \
@@ -137,7 +144,21 @@ gh api repos/englishstreetventures/osn/rules/branches/main \
 
 - **Keep a stack within `max_entries_to_build`**, or have the owner raise it for the merge. Each round past it costs every pull request still waiting another CI run.
 - **Queue only once the stack's own CI has settled.** The queue gives a group `check_response_timeout_minutes` to report, and removes one still waiting for runners the stack's CI holds.
-- **A release between rounds can consume a changeset a waiting pull request edits.** GitHub's rebase then stops on that pull request. Rebase it and the branches above it by hand, as below, taking the changeset's deletion; a wording change it carried goes to the line the release wrote in that package's `CHANGELOG.md`.
+- **A release between rounds can consume a changeset a waiting pull request edits.** GitHub's rebase then stops on that pull request, which still holds the original commits of the parent that merged. Rebase it by hand, taking the changeset's deletion; a wording change it carried goes to the line the release wrote in that package's `CHANGELOG.md`. A tip recorded locally is no use here, since GitHub rebases the stack on its own servers; use the parent's last head, which GitHub keeps after the merge as `refs/pull/<parent PR>/head`. In the branch's worktree:
+
+  ```bash
+  git fetch --no-tags origin "+refs/pull/<parent PR>/head:refs/remotes/origin/pr/<parent PR>" "+refs/heads/<branch>:refs/remotes/origin/<branch>" \
+    "+refs/heads/main:refs/remotes/origin/main"
+  git merge --ff-only refs/remotes/origin/<branch>
+  git rev-parse HEAD   # record it: the lease, and the base the branches above rebase from
+  if git merge-base --is-ancestor refs/remotes/origin/pr/<parent PR> HEAD; then
+    git rebase --onto refs/remotes/origin/main refs/remotes/origin/pr/<parent PR>
+  else
+    git rebase refs/remotes/origin/main   # GitHub had already moved it onto main
+  fi
+  ```
+
+  Then `bun install --frozen-lockfile`, and push with the lease pinned to the head you recorded, as [[#One pull request at a time]] does. Carry the branches above it up from that recorded head, as [[#Rebasing a stack]] says, then queue the next round.
 
 ### One pull request at a time
 
