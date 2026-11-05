@@ -1117,7 +1117,6 @@ export default function GuestTable(props: GuestTableProps) {
           a whole section gap below it. */}
       <div class="flex flex-col gap-3">
         <SectionIntro
-          eyebrow="Guest list"
           title="Households, invites & RSVPs"
           holdActions={loading()}
           actions={

@@ -1,7 +1,8 @@
 /**
  * The envelope radiogroup: "None", then one card per `@cire/envelope` catalog
- * entry, laid out as `DesignPicker`'s cards are, with the same roving tabindex
- * and the same instant save (one PUT per choice, outside the save bar).
+ * entry, drawn from the same card as `DesignPicker`'s (`pickerCardClass`), with
+ * the same roving tabindex and the same instant save (one PUT per choice,
+ * outside the save bar).
  *
  * Every catalog envelope is premium (`EnvelopeMeta.tier`). When the wedding may
  * not use one, its card is `aria-disabled` and says "Locked": perceivable and
@@ -15,7 +16,10 @@
 
 import { ENVELOPES, type EnvelopeId } from "@cire/envelope";
 import type { SectionState } from "@cire/theme";
+import Eyebrow from "@cire/ui/eyebrow";
 import { createSignal, For, Show } from "solid-js";
+
+import { pickerCardClass } from "./picker-card";
 
 /** One card: an envelope id, or `null` for "None". */
 interface Choice {
@@ -106,17 +110,18 @@ export default function EnvelopePicker(props: {
 
   return (
     <div class="border-border flex flex-col gap-3 border-t pt-4">
-      <h3 class="font-body text-gold-ink text-ui-xs tracking-ui-wider uppercase">Envelope</h3>
+      {/* The group's head inside the Design card: muted, as the card's own
+          "Design" legend is. */}
+      <Eyebrow as="h3" tone="muted">
+        Envelope
+      </Eyebrow>
       <div class="flex flex-wrap gap-3" role="radiogroup" aria-label="Invite envelope">
         <For each={CHOICES}>
           {(choice, index) => {
             const isLocked = () => locked(choice);
             const checked = () => props.currentId === choice.id;
             return (
-              <div
-                class="border-border flex flex-col items-start gap-2 rounded-sm border px-4 py-3"
-                classList={{ "border-gold": checked() }}
-              >
+              <div class={pickerCardClass(checked())}>
                 <button
                   type="button"
                   role="radio"

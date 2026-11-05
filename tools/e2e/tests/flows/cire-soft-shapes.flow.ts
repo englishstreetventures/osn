@@ -57,6 +57,14 @@
  * guest FAQ needs entries the stack's seed does not have, so the organiser adds
  * two through the API before the guest tab opens and removes them at the end.
  *
+ * And the eyebrow checks (`../support/cire-eyebrows.ts`): no small-caps line
+ * repeats the heading under it on the guest list, the guest editor, the
+ * settings, the import panel, the co-hosts, getting started, the gift-list
+ * settings, the invite builder, the marketing site's
+ * live demo and its sheet, while the sign-in page and the marketing hero keep
+ * theirs. The builder's envelope picker is read against its design picker:
+ * the cards' corner, padding, ring and resting timing, and the label's ink.
+ *
  * The claim goes out from `ORGANISER_ADDRESS`, so it spends the organiser's
  * window of cire-api's claim limit, not the guests' (`flows.test.ts`).
  */
@@ -68,6 +76,7 @@ import type { Locator, Page } from "@playwright/test";
 
 import { CIRE_GUEST, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { consentLink, demoPair, guestSheet, replyKey } from "../support/cire-buttons";
+import { eyebrowOver } from "../support/cire-eyebrows";
 import { builderFeedback, landingFeedback } from "../support/cire-feedback";
 import { builderForms, claimForms, demoForms, hostForms, sheetForms } from "../support/cire-forms";
 import { navSurfaces } from "../support/cire-nav";
@@ -320,6 +329,11 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     await page.getByRole("button", { name: "Open the guest list" }).click();
     await expect(guestSearch).toBeVisible();
   });
+  flow.check(
+    "guest list: no eyebrow over the panel's heading",
+    "",
+    await eyebrowOver(page.getByRole("heading", { name: "Households, invites & RSVPs" })),
+  );
   await atEachWidth(page, async (width) => {
     await checkPreview("guest list", width);
     flow.check(`guest list at ${width}: the search field`, FILTER, await fieldShape(guestSearch));
@@ -340,6 +354,11 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     await expect(householdName).toBeVisible({ timeout: 60_000 });
     await expect(addHousehold).toBeVisible();
   });
+  flow.check(
+    "guest editor: no eyebrow over the panel's heading",
+    "",
+    await eyebrowOver(page.getByRole("heading", { name: "Edit households & guests" })),
+  );
   await atEachWidth(page, async (width) => {
     flow.check(
       `guest editor at ${width}: the household name field`,
@@ -458,6 +477,13 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       .click();
     await expect(demoField.first()).toBeVisible();
   });
+  // The sheet's title is the event's name, as the guest sheet's is; "Respond,"
+  // is spoken, not drawn.
+  flow.check(
+    "landing: no eyebrow over the demo sheet's heading",
+    "",
+    await eyebrowOver(demo.getByRole("heading", { name: /^Respond, / })),
+  );
   await demoPair(flow, landing, demo);
   await demoForms(flow, landing, demo);
   flow.check(

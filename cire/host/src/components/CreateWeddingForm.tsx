@@ -1,6 +1,5 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
-import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -130,10 +129,7 @@ export default function CreateWeddingForm(props: {
 
   return (
     <form class={FORM_CLASS} onSubmit={submit}>
-      <div class="flex flex-col gap-1">
-        <Eyebrow>New wedding</Eyebrow>
-        <h2 class="font-display text-text text-ui-lg font-light">Start a new celebration</h2>
-      </div>
+      <h2 class="font-display text-text text-ui-lg font-light">Start a new celebration</h2>
 
       <Field label="Wedding name">
         {(field) => (

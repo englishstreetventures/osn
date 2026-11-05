@@ -9,8 +9,9 @@
  * claims no more than it did:
  *
  * - the money wedding's gift-list settings, signed in: the visibility radios in
- *   a row and the "Let guests give money" box with its description. Nothing is
- *   saved: the form saves only on its own Save, which this never presses;
+ *   a row and the "Let guests give money" box with its description, and no
+ *   eyebrow over the panel's heading. Nothing is saved: the form saves only on
+ *   its own Save, which this never presses;
  * - the guest editor's spreadsheet import, signed in: the file picker;
  * - the invitation's claim panel, opened with no code, so no claim is spent:
  *   the code field;
@@ -25,6 +26,7 @@ import { resolve } from "node:path";
 import type { BrowserContext, Locator, Page } from "@playwright/test";
 
 import { CIRE_ORGANISER, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import { eyebrowOver } from "./cire-eyebrows";
 import { expect, type Flow } from "./fixtures";
 
 const SHOTS = resolve(SCREENSHOT_DIR, "cire-forms");
@@ -91,6 +93,11 @@ export async function hostForms(flow: Flow, page: Page, sample: string): Promise
     await page.goto(`${ORIGINS.cireHost}/#/w/${CIRE_ORGANISER.money.weddingId}/registry/settings`);
     await expect(draft).toBeVisible({ timeout: 60_000 });
   });
+  flow.check(
+    "forms: no eyebrow over the gift-list settings' heading",
+    "",
+    await eyebrowOver(page.getByRole("heading", { name: "Gift list settings" })),
+  );
   const [chosen, other] = (await draft.isChecked()) ? [draft, published] : [published, draft];
   flow.check("forms: an unchosen radio is the native 13px, round", ROUND, await boxShape(other));
   flow.check(

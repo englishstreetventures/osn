@@ -27,6 +27,7 @@ import { resolve } from "node:path";
 import type { Locator, Page, Route } from "@playwright/test";
 
 import { ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import { eyebrowOver } from "../support/cire-eyebrows";
 import { expect, test } from "../support/fixtures";
 
 const HOME = `${ORIGINS.cireLanding}/`;
@@ -423,7 +424,13 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
     await amara.getByRole("button", { name: "Attending", exact: true }).click();
     await sam.getByRole("button", { name: "Not attending" }).click();
     await sheet.getByRole("button", { name: "Send RSVP" }).click();
-    await expect(sheet.getByRole("heading", { name: /That.s the feeling/ })).toBeVisible();
+    const confirmation = sheet.getByRole("heading", { name: /That.s the feeling/ });
+    await expect(confirmation).toBeVisible();
+    flow.check(
+      "the demo's confirmation has no eyebrow over it",
+      "",
+      await eyebrowOver(confirmation),
+    );
     flow.check(
       "the demo confirms the reply",
       true,

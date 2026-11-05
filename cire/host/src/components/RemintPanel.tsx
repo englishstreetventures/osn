@@ -124,7 +124,6 @@ export default function RemintPanel(props: RemintPanelProps) {
   return (
     <div class={PANEL_CLASS}>
       <SectionIntro
-        eyebrow="Guest codes"
         title="Change the code style"
         description="Each household has a private code they enter to open your invite and RSVP. If you'd rather they were shorter and friendlier — or longer and harder to guess — switch the style here. Re-minting replaces every code, so any code you've already shared will stop working."
       />

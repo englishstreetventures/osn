@@ -194,7 +194,6 @@ export default function EventTable(props: EventTableProps) {
   return (
     <div class="flex flex-col gap-6">
       <SectionIntro
-        eyebrow="Events"
         title="The day, hour by hour"
         description="Every event your guests can be invited to — the details come from Edit, by hand or from a spreadsheet. Add one photo per event here to bring each card to life."
         holdActions={loading()}

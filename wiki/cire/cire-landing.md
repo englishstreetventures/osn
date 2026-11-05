@@ -64,7 +64,11 @@ screen is a finished invitation, and the page sells the product by showing it
 from both sides: what a guest holds, and what the couple run it from. Display
 headings are **roman** (`.display` in `global.css`): italic stays on the
 wordmark logotype, the seal's monogram and inside running body copy only. The
-whole page uses two eyebrows (hero + "See it live"). No visible copy uses the
+whole page uses one eyebrow, the hero's: "Digital wedding invitations" is the
+first screen's only line saying what Cire makes, since the heading and the lede
+never say "wedding". "See it live" carries none, because its lede and the demo's
+frame already say the invitation is live (`cire/host/DESIGN.md` §3, "A line earns
+its place"). No visible copy uses the
 em-dash or the word "premium" (Classic and Gala are free;
 `tools/e2e/tests/flows/cire-landing-home.flow.ts` checks both over every text
 node, hidden states included).
@@ -106,11 +110,15 @@ renders on the page today; the demo's dietary choices are `@cire/ui` chips.
 | Legal pages (`LegalPage.astro`, rendering `@cire/ui`'s `legal-layout.astro`) | the draft banner 6px, a notice; an inline placeholder none: the mono face and the readable gold mark it, with no wash and no corner | "← Back to Cire" sentence case; the privacy tab row small caps (§Privacy pages) | the back link's colour on `--dur-fast` |
 | Focus rings (`SiteNav.astro`, `PrivacyNav.astro`, and `@cire/ui`'s footer and legal layout) | `var(--radius-hair)`, 2px, set 3px off; a CTA's ring sets none and follows the pill; the FAQ's question takes the base layer's ring (below) | — | — |
 
-Kept in small caps: eyebrows, the demo's eyebrows, the tab rows of the privacy pages and the journey, the journey's plan badge, the
-draft banner's "Draft" and the "Anything else" field label. The eyebrows are
-`@cire/ui`'s (`eyebrowClass` on the hero and "See it live", `Eyebrow` in the
-demo), at the one letter-spacing every cire label uses (0.16em); the page
-keeps no eyebrow rule of its own. The footer's links are link labels, so
+Kept in small caps: the hero's eyebrow, the demo's frame label ("A live Cire
+invitation") and its "Together with their families", the tab rows of the
+privacy pages and the journey, the journey's plan badge, the draft banner's
+"Draft" and the "Anything else" field label. The demo's sheet carries no
+eyebrow: its title is the event's name, as the guest sheet's is, with
+"Respond," for screen readers alone, and its confirmation is "That's the
+feeling." on its own. The eyebrows are `@cire/ui`'s (`eyebrowClass` on the
+hero, `Eyebrow` in the demo), at the one letter-spacing every cire label uses
+(0.16em); the page keeps no eyebrow rule of its own. The footer's links are link labels, so
 sentence case: "Privacy notice", "Terms", "Refunds". The page's
 own choreography keeps literal timings longer than `--dur-slow`: the scroll
 reveal (`[data-reveal]`, 0.7s), the hero's fan of phones (`fan-open`, 0.9s)

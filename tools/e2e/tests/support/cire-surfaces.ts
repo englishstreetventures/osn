@@ -10,7 +10,9 @@
  * read a property the hand-drawn copies painted differently: the readable gold
  * and the one letter-spacing on a label, the sunk fill of a disclosure, the
  * gold rule on the getting-started card, the house focus ring on the marketing
- * FAQ. Each view is shot into `screenshots/cire-surfaces/`.
+ * FAQ. Each view is shot into `screenshots/cire-surfaces/`. On the way it reads,
+ * with `cire-eyebrows.ts`, that no eyebrow repeats a heading it stands on, and
+ * that the envelope picker draws its label and cards as the design picker does.
  *
  * The vendor portal is not in this stack; its cards are drawn by
  * `cire/vendor/tests/components/surfaces.browser.test.tsx`.
@@ -22,6 +24,7 @@ import { resolve } from "node:path";
 import type { Locator, Page, Route } from "@playwright/test";
 
 import { CIRE_GUEST, CIRE_ORGANISER, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import { eyebrowOver } from "./cire-eyebrows";
 import { expect, type Flow } from "./fixtures";
 
 const SHOTS = resolve(SCREENSHOT_DIR, "cire-surfaces");
@@ -139,6 +142,13 @@ async function turn(details: Locator): Promise<string> {
   return computed(marker, "rotate");
 }
 
+/** Waits out `target`'s running transitions, so two reads are of the same moment. */
+async function settled(target: Locator): Promise<void> {
+  await target.evaluate((el) =>
+    Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined))),
+  );
+}
+
 /** The `<details>` whose summary reads `name`. */
 const disclosure = (scope: Page | Locator, name: string) => {
   // An inner `has` locator is matched inside each candidate, so it starts from the page.
@@ -179,6 +189,13 @@ export async function loginSurfaces(flow: Flow, page: Page): Promise<void> {
   );
   const label = page.getByText("Cire · Host portal", { exact: true });
   flow.check("sign-in: the label is 0.16em wide", "0.16", await trackingRatio(label));
+  // A kept eyebrow, read by the same reader as the removed ones: the page's
+  // only words naming which portal this is.
+  flow.check(
+    "sign-in: the portal's name is the eyebrow over the heading",
+    "Cire · Host portal",
+    await eyebrowOver(page.getByRole("heading", { name: "Sign in" })),
+  );
   flow.check(
     "sign-in: the heading is roman",
     "normal",
@@ -325,6 +342,7 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
     "rgba(0, 0, 0, 0)",
     await computed(danger, "background-color"),
   );
+  flow.check("settings: no eyebrow over the profile's heading", "", await eyebrowOver(profile));
   await flow.step("surfaces: shoot the settings panel and the danger zone", async () => {
     await shoot(page, "host-settings", hostTheme(page, profile));
     await shoot(page, "host-danger-zone", hostTheme(page, danger));
@@ -341,6 +359,13 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
     await expect(guide).toBeVisible();
   });
   await reading(page);
+  flow.check(
+    "import: no eyebrow over the panel's heading",
+    "",
+    await eyebrowOver(
+      page.getByRole("heading", { name: "Import your guest list from a spreadsheet" }),
+    ),
+  );
   flow.check(
     "import: the guide opens itself on a first visit",
     true,
@@ -464,6 +489,11 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
     "row 16px",
     `${await computed(me, "flex-direction")} ${await computed(me, "padding-top")}`,
   );
+  flow.check(
+    "co-hosts: no eyebrow over the panel's heading",
+    "",
+    await eyebrowOver(page.getByRole("heading", { name: "Share this wedding's dashboard" })),
+  );
   await flow.step("surfaces: shoot the co-hosts", () =>
     shoot(page, "host-cohosts", hostTheme(page, me)),
   );
@@ -487,9 +517,9 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
     await computed(started, "padding-top"),
   );
   flow.check(
-    "getting started: the label",
-    "Getting started",
-    (await started.getByText("Getting started", { exact: true }).textContent()) ?? "",
+    "getting started: no eyebrow over its heading",
+    "",
+    await eyebrowOver(started.getByRole("heading", { name: "Four steps to your invite" })),
   );
   const stepsFit = () =>
     started
@@ -581,8 +611,12 @@ export async function builderSurfaces(
   design: (name: "Classic" | "Gala") => Locator,
 ): Promise<void> {
   await reading(page);
+  // Off every card: an unchosen one goes halfway to chosen under the pointer.
+  await page.mouse.move(0, 0);
   const chosen = design("Classic").locator("xpath=..");
   const other = design("Gala").locator("xpath=..");
+  await settled(chosen);
+  await settled(other);
   flow.check(
     "builder: the chosen design's card keeps its gold rule",
     await probed(chosen, "border-gold", "border-top-color"),
@@ -592,6 +626,50 @@ export async function builderSurfaces(
     "builder: another design's card is the hairline",
     await probed(other, "base:border-ui-hairline", "border-top-color"),
     await computed(other, "border-top-color"),
+  );
+  flow.check(
+    "builder: no eyebrow over the builder's heading",
+    "",
+    await eyebrowOver(page.getByRole("heading", { name: "Customise your invite" })),
+  );
+
+  // The envelope picker sits in the Design card under the design picker, and
+  // draws its label and its cards as that picker does.
+  const envelopes = page.getByRole("radiogroup", { name: "Invite envelope" });
+  const envelopeCard = (checked: boolean) =>
+    envelopes
+      .locator(":scope > div")
+      .filter({ has: page.locator(`[role="radio"][aria-checked="${checked}"]`) })
+      .first();
+  const envelopeChosen = envelopeCard(true);
+  const envelopeOther = envelopeCard(false);
+  await settled(envelopeChosen);
+  await settled(envelopeOther);
+  const shape = async (card: Locator) =>
+    `${await computed(card, "border-top-left-radius")} ${await computed(card, "padding-top")}`;
+  flow.check(
+    "builder: an envelope card takes a design card's corner and padding",
+    await shape(other),
+    await shape(envelopeOther),
+  );
+  flow.check(
+    "builder: the chosen envelope card wears the chosen design card's ring",
+    await computed(chosen, "box-shadow"),
+    await computed(envelopeChosen, "box-shadow"),
+  );
+  flow.check(
+    "builder: an unchosen envelope card moves on the quick step at rest",
+    await probed(envelopeOther, "duration-(--dur-fast)", "transition-duration"),
+    await computed(envelopeOther, "transition-duration"),
+  );
+  const legend = page.locator("#invite-design > legend > span");
+  const envelopeLabel = page.getByRole("heading", { name: "Envelope", exact: true });
+  const ink = async (label: Locator) =>
+    `${await computed(label, "color")} ${await trackingRatio(label)}`;
+  flow.check(
+    "builder: the envelope's label takes the Design legend's ink and spacing",
+    await ink(legend),
+    await ink(envelopeLabel),
   );
   await flow.step("surfaces: shoot the design cards", () =>
     shoot(page, "host-builder-designs", hostTheme(page, chosen), { widths: [DESKTOP] }),
@@ -684,6 +762,18 @@ export async function landingSurfaces(flow: Flow, landing: Page): Promise<void> 
   await reading(landing);
   const hero = landing.getByText("Digital wedding invitations", { exact: true });
   flow.check("landing: the hero's label is 0.16em wide", "0.16", await trackingRatio(hero));
+  // The hero's eyebrow stays (its heading and lede never say "wedding"); the
+  // live demo's went, since its lede and its frame say "live" already.
+  flow.check(
+    "landing: the hero's eyebrow over its heading",
+    "Digital wedding invitations",
+    await eyebrowOver(landing.getByRole("heading", { name: "Invitations worthy of the moment" })),
+  );
+  flow.check(
+    "landing: no eyebrow over the live demo's heading",
+    "",
+    await eyebrowOver(landing.getByRole("heading", { name: "Go on, open it." })),
+  );
 
   const faq = landing.locator("#faq");
   const first = faq.locator("details").first();

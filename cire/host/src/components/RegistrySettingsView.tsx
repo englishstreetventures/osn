@@ -621,7 +621,6 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   return (
     <div class={PANEL_CLASS}>
       <SectionIntro
-        eyebrow="Registry"
         title="Gift list settings"
         description="Whether your guests can see the list, what it says at the top, where parcels should go, and whether people can give money instead. Guests only ever see this list after entering their invite code."
       />

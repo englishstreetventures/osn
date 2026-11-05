@@ -473,7 +473,7 @@ export default function GuestsEditor(props: {
 
   return (
     <div class="flex flex-col gap-8 pb-24">
-      <SectionIntro eyebrow="Guest list" title="Edit households & guests" />
+      <SectionIntro title="Edit households & guests" />
 
       {/* Add household, in the view bar beside the mode switch, so it is to
           hand however far down the list the host is. 28px, the height of the
