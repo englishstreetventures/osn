@@ -14,14 +14,14 @@ related:
   - "[[review-findings]]"
   - "[[testing-patterns]]"
   - "[[cire-development]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # State transitions
 
 A status column, a flag or a lifecycle timestamp is a state machine nobody drew. Every code path that writes it is one of its edges, and the edges are rarely in one file: an organiser's cancel in a route, an automatic transition on read, an erasure flow, a sweep, a webhook. Each writer decides from a row it read earlier, and any other writer can commit in between. This page holds the rules a write of state follows and the Drizzle idioms this repository already uses for them.
 
-The `review-state` skill (`.claude/skills/review-state/SKILL.md`) checks a branch against these rules, listing every writer of each state across the repository. `prep-pr` runs it when `scripts/review-scope.ts` prints `full-state`, and its findings take `G-` IDs, which are public ([[review-findings#State findings are public]]).
+The `review-state` skill (`.claude/skills/review-state/SKILL.md`) checks a branch against these rules, listing every writer of each state across the repository. `prep-pr` runs it when `scripts/review-scope.ts` prints a verdict carrying `-state` (`full-state` or `full-state-design`), and its findings take `G-` IDs, which are public ([[review-findings#State findings are public]]).
 
 ## What counts as state
 
