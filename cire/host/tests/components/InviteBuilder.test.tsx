@@ -147,6 +147,13 @@ function lastSentBody(suffix: string) {
   return call ? JSON.parse(call[1].body as string) : null;
 }
 
+/** An element's text as a sighted organiser sees it: without `sr-only` text. */
+function visibleText(el: HTMLElement): string {
+  const copy = el.cloneNode(true) as HTMLElement;
+  for (const hidden of copy.querySelectorAll(".sr-only")) hidden.remove();
+  return copy.textContent ?? "";
+}
+
 /** The section strip under Content. */
 const sectionStrip = () => screen.getByRole("tablist", { name: "Invite sections" });
 
@@ -869,6 +876,8 @@ describe("InviteBuilder section states", () => {
    *  Each carries its state as `data-state`. */
   const cards = (container: HTMLElement) =>
     [...container.querySelectorAll("fieldset[data-state]")] as HTMLElement[];
+  /** A card's live region: visually hidden, read out when the state changes. */
+  const statusIn = (card: HTMLElement) => within(card).getByRole("status", { hidden: true });
 
   it("marks hero, story, FAQ and footer 'Hidden — empty' for a blank invite", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
@@ -880,8 +889,11 @@ describe("InviteBuilder section states", () => {
     // The tab names the state; the card carries only the switch, no pill.
     setView("content");
     await waitFor(() => within(sectionStrip()).getByRole("tab", { name: "Hero (hidden — empty)" }));
-    expect(hero.textContent).not.toContain("Hidden — empty");
+    expect(visibleText(hero)).not.toContain("Hidden — empty");
     expect(within(hero).getByLabelText("Show on the invite")).toBeInTheDocument();
+    // Only the screen reader gets the words, in a visually hidden live region.
+    expect(statusIn(hero).textContent).toBe("Hidden — empty");
+    expect(statusIn(hero).classList.contains("sr-only")).toBe(true);
   });
 
   it("marks a section 'Shown' when its content is present", async () => {
@@ -907,11 +919,16 @@ describe("InviteBuilder section states", () => {
 
     await waitFor(() => expect(cards(container)).toHaveLength(4));
     expect(cards(container)[0].dataset.state).toBe("empty");
+    // The live region is there before the change, so the change is announced.
+    const region = statusIn(cards(container)[0]);
+    expect(region.textContent).toBe("Hidden — empty");
 
     // Typing a couple title flips the hero without any save.
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "A & B" } });
 
     await waitFor(() => expect(cards(container)[0].dataset.state).toBe("shown"));
+    expect(statusIn(cards(container)[0])).toBe(region);
+    expect(region.textContent).toBe("Shown");
     // Whitespace-only does NOT count as content — clearing back to spaces hides it.
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "   " } });
     await waitFor(() => expect(cards(container)[0].dataset.state).toBe("empty"));
@@ -1762,7 +1779,7 @@ describe("InviteBuilder on a phone", () => {
     expect(trigger().querySelector("[data-hidden-icon]")).toBeNull();
 
     // Under Content the pill names the section, and a hidden one says so:
-    // the eye-off icon to the eye, the badge's words in the name.
+    // the eye-off icon to the eye, the state's words in the name.
     setView("content");
     expect(trigger().getAttribute("aria-label")).toBe(
       "Invite: Hero (hidden — empty). Choose a view or section",
@@ -2071,7 +2088,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     await waitFor(() =>
       within(sectionStrip()).getByRole("tab", { name: "Our story (hidden — switched off)" }),
     );
-    expect(panel("invite-story").textContent).not.toContain("Hidden — switched off");
+    expect(visibleText(panel("invite-story"))).not.toContain("Hidden — switched off");
     expect(switchIn("invite-story").checked).toBe(false);
     expect(reasonIn("invite-story")?.textContent).toMatch(/everything in it is kept/);
     // Hiding the section does not stop its photo serving at its own address,
@@ -2231,7 +2248,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
   it("names the switched-off state on its tab, and marks it with the eye-off icon", async () => {
     setView("content");
     await renderWith({ ...FILLED, visibility: { hero: true, story: true, footer: false } });
-    // The tab's accessible name carries the state, in the badge's words.
+    // The tab's accessible name carries the state, in `SECTION_STATE_LABELS`' words.
     const closingTab = within(sectionStrip()).getByRole("tab", {
       name: "Closing (hidden — switched off)",
     });

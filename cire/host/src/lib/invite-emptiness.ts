@@ -4,9 +4,9 @@
  * SOURCE OF TRUTH: `cire/invites/src/components/invite-emptiness.ts`. The guest
  * site renders the hero, Our Story, the FAQ and the closing section only when
  * the section's visibility switch is on AND it has content; the builder uses the SAME
- * logic here for its per-section badge ("Shown", "Hidden — empty", "Hidden —
- * switched off"), so the organiser knows exactly what a guest will see before
- * they save.
+ * logic here for each section's state ("Shown", "Hidden — empty", "Hidden —
+ * switched off") on its tab, reason line and live region, so the organiser
+ * knows exactly what a guest will see before they save.
  *
  * The switch vocabulary and `sectionState` come from `@cire/theme`, which both
  * packages import. The content predicates below are a hand-kept copy of the

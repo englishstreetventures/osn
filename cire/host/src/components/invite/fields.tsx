@@ -327,7 +327,17 @@ export function SectionCard(props: {
           </Show>
         </div>
         <Show when={props.visibility}>
-          {(visibility) => <VisibilityReason visibility={visibility()} />}
+          {(visibility) => (
+            <>
+              {/* Screen readers hear the state change while the organiser
+                  types (WCAG 4.1.3): a live region present from first render,
+                  visually hidden, since the tab and the switch already show it. */}
+              <span role="status" data-section-status class="sr-only">
+                {SECTION_STATE_LABELS[visibility().state]}
+              </span>
+              <VisibilityReason visibility={visibility()} />
+            </>
+          )}
         </Show>
       </Show>
       <Show when={props.description}>
