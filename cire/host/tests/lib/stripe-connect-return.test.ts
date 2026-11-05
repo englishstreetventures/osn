@@ -68,6 +68,7 @@ describe("stripeConnectWords", () => {
       rejected: /didn’t accept/,
       currency_mismatch: /different currency/,
       owners_differ: /different owners/,
+      account_on_deleted_wedding: /being deleted/,
       unavailable: /Couldn’t finish connecting/,
     };
     for (const [outcome, phrase] of Object.entries(phrases)) {

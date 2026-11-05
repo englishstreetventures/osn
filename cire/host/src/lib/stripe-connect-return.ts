@@ -83,6 +83,11 @@ export function stripeConnectWords(outcome: string): StripeConnectWords {
         ok: false,
         text: "That Stripe account already takes gifts for a wedding with different owners, so it can’t be used here.",
       };
+    case "account_on_deleted_wedding":
+      return {
+        ok: false,
+        text: "That Stripe account is still on a wedding that is being deleted. It can take this one’s gifts once that wedding is gone for good, or restore that wedding.",
+      };
     case "unavailable":
       return {
         ok: false,

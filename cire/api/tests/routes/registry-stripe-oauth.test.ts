@@ -72,6 +72,8 @@ function oauthStub(
     /** Runs while the exchange is in flight: another request's write. */
     duringExchange?: () => void;
     failDeauthorize?: boolean;
+    /** Runs while Stripe is revoking: another request's write. */
+    duringDeauthorize?: () => void;
   } = {},
 ) {
   const exchanged: string[] = [];
@@ -97,6 +99,7 @@ function oauthStub(
     },
     deauthorize(accountId) {
       deauthorized.push(accountId);
+      overrides.duringDeauthorize?.();
       return overrides.failDeauthorize
         ? Effect.fail(new StripeError({ reason: "unreachable" }))
         : Effect.void;
@@ -779,10 +782,11 @@ describe("credentials, tier and input the connect refuses", () => {
     const oauth = oauthStub();
     const { app, db } = buildApp({ oauth: oauth.client });
     const state = await start(app);
-    for (const headers of [
+    const wrong: Record<string, string>[] = [
       { cookie: "cire_org_session=not-a-live-session-token" },
       { authorization: "Bearer not-a-jwt" },
-    ]) {
+    ];
+    for (const headers of wrong) {
       const res = await appRequest(
         app,
         `${CALLBACK}?${new URLSearchParams({ state, code: "ac_x" })}`,
@@ -827,7 +831,8 @@ describe("credentials, tier and input the connect refuses", () => {
   });
 
   it("answers a return with no code, or one no Stripe code is, as rejected (T-E5)", async () => {
-    for (const params of [{}, { code: "a".repeat(257) }]) {
+    const returns: Record<string, string>[] = [{}, { code: "a".repeat(257) }];
+    for (const params of returns) {
       const oauth = oauthStub();
       const { app, db } = buildApp({ oauth: oauth.client });
       const state = await start(app);
@@ -891,5 +896,96 @@ describe("an account Stripe connected that cire then cannot store (T-E4)", () =>
     expect((await callback(app, { state, code: "ac_x" })).outcome).toBe("unavailable");
     expect(settingsRow(db)?.stripeAccountId ?? null).toBeNull();
     expect(oauth.deauthorized).toEqual([STANDARD.id]);
+  });
+});
+
+describe("what the state review found (G-)", () => {
+  const run = <A>(db: TestDb, effect: Effect.Effect<A, never, DbService>) =>
+    Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
+
+  it("clears a revoked account whose row a refresh stamped after the event (G-H1)", async () => {
+    const { app, db } = buildApp();
+    const state = await start(app);
+    await callback(app, { state, code: "ac_x" });
+    const connectedAt = Math.floor((settingsRow(db)?.stripeConnectedAt?.getTime() ?? 0) / 1000);
+    // A refresh (or an `account.updated`) lands later than Stripe's revocation.
+    db.update(registrySettings)
+      .set({ stripeAccountUpdatedAt: new Date((connectedAt + 3600) * 1000) })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const cleared = await run(
+      db,
+      registryService.detachStripeAccount({ accountId: STANDARD.id, observedAt: connectedAt + 60 }),
+    );
+    expect(cleared).toBe(true);
+    expect(settingsRow(db)?.stripeAccountId ?? null).toBeNull();
+  });
+
+  it("refuses an account once the wedding's currency changed during the exchange (G-M2)", async () => {
+    const held: { db?: TestDb } = {};
+    const oauth = oauthStub({
+      duringExchange: () =>
+        held.db
+          ?.update(weddings)
+          .set({ currency: "USD" })
+          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+          .run(),
+    });
+    const built = buildApp({ oauth: oauth.client });
+    held.db = built.db;
+    const state = await start(built.app);
+    expect((await callback(built.app, { state, code: "ac_x" })).outcome).toBe("currency_mismatch");
+    expect(settingsRow(built.db)?.stripeAccountId ?? null).toBeNull();
+    expect(oauth.deauthorized).toEqual([STANDARD.id]);
+  });
+
+  it("clears a wedding that took the account while cire was handing it back (G-M1)", async () => {
+    const held: { db?: TestDb } = {};
+    const oauth = oauthStub({
+      duringDeauthorize: () => {
+        if (!held.db) return;
+        const now = new Date();
+        insertWedding(held.db, {
+          id: "wed_tab2",
+          slug: "tab-two",
+          displayName: "Tab two",
+          owners: [OWNER],
+        });
+        held.db
+          .insert(registrySettings)
+          .values({
+            weddingId: "wed_tab2",
+            stripeAccountId: STANDARD.id,
+            stripeConnectedByOsnProfileId: OWNER,
+            stripeAccountType: "standard",
+            stripeConnectedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      },
+    });
+    const built = buildApp({
+      oauth: oauth.client,
+      stripe: stripeStub({ ...STANDARD, defaultCurrency: "USD" }).client,
+    });
+    held.db = built.db;
+    const state = await start(built.app);
+    const logs = await captureLogs(() => callback(built.app, { state, code: "ac_x" }));
+    expect(oauth.deauthorized).toEqual([STANDARD.id]);
+    expect(settingsRow(built.db, "wed_tab2")?.stripeAccountId ?? null).toBeNull();
+    expect(logs).toContain("stripe account handed back while a wedding connected it");
+  });
+
+  it("names a deleted wedding that still holds the account, not other owners (G-L3)", async () => {
+    const oauth = oauthStub();
+    const { app, db } = buildApp({ oauth: oauth.client });
+    otherWeddingWith(db, STANDARD.id, "usr_someone", ["usr_someone"]);
+    db.update(weddings).set({ deletedAt: new Date() }).where(eq(weddings.id, "wed_other")).run();
+    const state = await start(app);
+    expect((await callback(app, { state, code: "ac_x" })).outcome).toBe(
+      "account_on_deleted_wedding",
+    );
+    expect(oauth.deauthorized).toEqual([]);
   });
 });

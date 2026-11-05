@@ -1610,6 +1610,11 @@ const ownsLiveWedding = (weddingId: string, osnProfileId: string): SQL =>
                 AND EXISTS (SELECT 1 FROM ${weddings} tw
                             WHERE tw.id = ${weddingId} AND tw.deleted_at IS NULL))`;
 
+/** An account settling in `currency` (or not having said) may take `weddingId`'s gifts. */
+const accountCurrencyFits = (weddingId: string, currency: string | null): SQL =>
+  sql`(${currency} IS NULL
+       OR upper(${currency}) = (SELECT upper(cw.currency) FROM ${weddings} cw WHERE cw.id = ${weddingId}))`;
+
 /**
  * An account Stripe just connected for `osnProfileId` may join `weddingId`
  * only where the reuse rules would let it: no other wedding names it, or one
@@ -2155,8 +2160,11 @@ export const registryService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const accountType = options.accountType ?? "express";
+      // An account Stripe connected must also settle in the wedding's currency
+      // as it stands at the write, not as it was read before the exchange.
       const joins = options.ownersMustFit
-        ? sql` AND ${accountMayJoin(weddingId, connectedByOsnProfileId, account.id)}`
+        ? sql` AND ${accountMayJoin(weddingId, connectedByOsnProfileId, account.id)}
+               AND ${accountCurrencyFits(weddingId, account.defaultCurrency ?? null)}`
         : sql``;
       const now = new Date();
       const stamp = toEpochSeconds(now);
@@ -2172,6 +2180,7 @@ export const registryService = {
         stripeAccountId: sql`${account.id}`,
         stripeConnectedByOsnProfileId: sql`${connectedByOsnProfileId}`,
         stripeAccountType: sql`${accountType}`,
+        stripeConnectedAt: sql`${stamp}`,
         stripeChargesEnabled: sql`${account.chargesEnabled ? 1 : 0}`,
         stripePayoutsEnabled: sql`${account.payoutsEnabled ? 1 : 0}`,
         stripeAccountUpdatedAt: sql`${stamp}`,
@@ -2201,6 +2210,7 @@ export const registryService = {
               // And so does how it came: an account another request attached
               // first keeps its own type.
               stripeAccountType: sql`case when ${registrySettings.stripeAccountId} is null then ${accountType} else ${registrySettings.stripeAccountType} end`,
+              stripeConnectedAt: sql`case when ${registrySettings.stripeAccountId} is null then ${stamp} else ${registrySettings.stripeConnectedAt} end`,
               // And the capabilities follow the id. Writing them
               // unconditionally would leave a row describing account A's id
               // beside account B's capabilities — the invariant that saves that
@@ -2336,6 +2346,7 @@ export const registryService = {
         stripeAccountId: sql`src.stripe_account_id`,
         stripeConnectedByOsnProfileId: sql`${osnProfileId}`,
         stripeAccountType: sql`src.stripe_account_type`,
+        stripeConnectedAt: sql`src.stripe_connected_at`,
         stripeChargesEnabled: sql`src.stripe_charges_enabled`,
         stripePayoutsEnabled: sql`src.stripe_payouts_enabled`,
         stripeAccountUpdatedAt: sql`src.stripe_account_updated_at`,
@@ -2365,6 +2376,7 @@ export const registryService = {
               stripeAccountId: sql`excluded.stripe_account_id`,
               stripeConnectedByOsnProfileId: sql`excluded.stripe_connected_by_osn_profile_id`,
               stripeAccountType: sql`excluded.stripe_account_type`,
+              stripeConnectedAt: sql`excluded.stripe_connected_at`,
               stripeChargesEnabled: sql`excluded.stripe_charges_enabled`,
               stripePayoutsEnabled: sql`excluded.stripe_payouts_enabled`,
               stripeAccountUpdatedAt: sql`excluded.stripe_account_updated_at`,
@@ -2596,7 +2608,16 @@ export const registryService = {
     weddingId: string,
     osnProfileId: string,
     accountId: string,
-  ): Effect.Effect<"forbidden" | "already_connected" | "owners_differ", never, DbService> {
+    accountCurrency: string | null,
+  ): Effect.Effect<
+    | "forbidden"
+    | "already_connected"
+    | "currency_mismatch"
+    | "owners_differ"
+    | "account_on_deleted_wedding",
+    never,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
@@ -2605,16 +2626,36 @@ export const registryService = {
             owns: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
             accountId: registrySettings.stripeAccountId,
             mayJoin: sql<number>`${accountMayJoin(weddingId, osnProfileId, accountId)}`,
+            currencyFits: sql<number>`${accountCurrencyFits(weddingId, accountCurrency)}`,
+            // Whether a live wedding names it: if none does, only a wedding
+            // being deleted holds it back.
+            liveElsewhere: sql<number>`EXISTS (SELECT 1 FROM ${registrySettings} other
+                                               JOIN ${weddings} ow ON ow.id = other.wedding_id
+                                               WHERE other.stripe_account_id = ${accountId}
+                                                 AND other.wedding_id <> ${weddingId}
+                                                 AND ow.deleted_at IS NULL)`,
           })
           .from(weddings)
           .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
           .where(eq(weddings.id, weddingId))
           .all(),
       );
-      const found = row as { owns: number; accountId: string | null; mayJoin: number } | undefined;
+      const found = row as
+        | {
+            owns: number;
+            accountId: string | null;
+            mayJoin: number;
+            currencyFits: number;
+            liveElsewhere: number;
+          }
+        | undefined;
       if (found?.owns !== 1) return "forbidden" as const;
       if (found.accountId !== null) return "already_connected" as const;
-      return found.mayJoin === 1 ? ("forbidden" as const) : ("owners_differ" as const);
+      if (found.currencyFits !== 1) return "currency_mismatch" as const;
+      if (found.mayJoin === 1) return "forbidden" as const;
+      return found.liveElsewhere === 1
+        ? ("owners_differ" as const)
+        : ("account_on_deleted_wedding" as const);
     }).pipe(Effect.withSpan("cire.registry.stripeOAuthRefusal"));
   },
 
@@ -2681,14 +2722,15 @@ export const registryService = {
    * same as saying they never want gifts again. With no account the guest
    * surface is closed regardless, and reconnecting restores what they chose.
    *
-   * ONE time guard, and only one. A late deauthorization still closes every row
-   * that knew the account before it: after it no `account.updated` can match a
-   * row whose id is NULL, so a stale `charges_enabled: true` cannot re-open the
-   * surface. What it leaves is a row attached or told of the account after
-   * Stripe's `created` — the couple reconnected, or cire handed an unused
-   * account back (`StripeConnectOAuth.deauthorize`) and they connected it
-   * again — which is a newer connection the old event knows nothing about. An
-   * attach stamps its own time, and a reuse copies the source's.
+   * ONE time guard, and only one, on `stripe_connected_at`. A late
+   * deauthorization still closes every row connected before it: after it no
+   * `account.updated` can match a row whose id is NULL, so a stale
+   * `charges_enabled: true` cannot re-open the surface. What it leaves is a row
+   * connected after Stripe's `created` — the couple reconnected, or cire handed
+   * an unused account back (`StripeConnectOAuth.deauthorize`) and they
+   * connected it again — a newer connection the old event knows nothing about.
+   * An attach stamps its own time and a reuse copies the source's; nothing else
+   * writes the column, so a refresh in flight cannot make a revocation miss.
    *
    * Returns whether a row matched, so the caller can 200 either way: an event
    * for an account this platform does not know is not an error.
@@ -2714,6 +2756,7 @@ export const registryService = {
             // next one is whoever connects it.
             stripeConnectedByOsnProfileId: null,
             stripeAccountType: null,
+            stripeConnectedAt: null,
             // What the cleared id leaves behind — see the column comments.
             stripeDeauthorizedAccountId: input.accountId,
             stripeDeauthorizedAt: observed,
@@ -2725,15 +2768,16 @@ export const registryService = {
           .where(
             and(
               eq(registrySettings.stripeAccountId, input.accountId),
-              // A row attached, or told of the account, after the revocation
-              // is a newer connection: the couple reconnected, or cire handed
-              // the account back and they connected it again. Without Stripe's
-              // time, every row naming the account is cleared.
+              // A row connected after the revocation is a newer connection: the
+              // couple reconnected, or cire handed the account back and they
+              // connected it again. Its own connect time decides, never the
+              // capability stamp, which a refresh or `account.updated` moves.
+              // Without Stripe's time, every row naming the account is cleared.
               input.observedAt === undefined
                 ? undefined
                 : or(
-                    isNull(registrySettings.stripeAccountUpdatedAt),
-                    lte(registrySettings.stripeAccountUpdatedAt, observed),
+                    isNull(registrySettings.stripeConnectedAt),
+                    lte(registrySettings.stripeConnectedAt, observed),
                   ),
             ),
           )

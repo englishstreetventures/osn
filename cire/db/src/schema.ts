@@ -1024,10 +1024,20 @@ export const registrySettings = sqliteTable(
     // couple's own Stripe account, connected through Stripe Connect OAuth and
     // managed in their own Dashboard, so cire mints no onboarding link for it.
     // Written in the statement that fills `stripe_account_id`, copied with it by
-    // a reuse, cleared with it. NULL beside an account reads as `express`: every
-    // account a Worker without this column attached was one cire created. Two
-    // triggers refuse any other value (an added CHECK would rebuild the table).
+    // a reuse, cleared with it (a trigger clears it whenever the id is cleared,
+    // whoever clears it). NULL beside an account reads as `express`: every
+    // account a Worker without this column attached was one cire created. An
+    // older Worker serving after this one (a rollback) can give another wedding
+    // a Standard account with no type, which then reads as Express until it is
+    // corrected by hand. Two triggers refuse any other value (an added CHECK
+    // would rebuild the table).
     stripeAccountType: text("stripe_account_type", { enum: ["express", "standard"] }),
+    // When the account the row names was connected to it, cire's clock: written
+    // by the statement that fills `stripe_account_id` and copied by a reuse from
+    // the source, never by `account.updated` or a refresh. A deauthorization
+    // clears only rows connected at or before Stripe's event, so a reconnect
+    // made after it stays. NULL (every row from before this column) is cleared.
+    stripeConnectedAt: integer("stripe_connected_at", { mode: "timestamp" }),
     // Cached from the `account.updated` webhook so the portal can show onboarding
     // state without a live Stripe call on every page load.
     stripeChargesEnabled: integer("stripe_charges_enabled", { mode: "boolean" })

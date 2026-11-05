@@ -86,7 +86,7 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    | Event | What it does |
    |---|---|
    | `account.updated` | caches `charges_enabled` / `payouts_enabled` on every wedding naming the account |
-   | `account.application.deauthorized` | the couple revoked cire, or cire handed an account back; clears the account id from every wedding that knew of it before the event (a row attached later is a newer connection and stays) |
+   | `account.application.deauthorized` | the couple revoked cire, or cire handed an account back; clears the account id from every wedding connected to it at or before the event (`stripe_connected_at`; a row connected later is a newer connection and stays) |
    | `checkout.session.completed` | **writes the gift** — the only place a contribution settles |
    | `checkout.session.async_payment_succeeded` | a delayed debit (BECS, SEPA) that landed |
    | `checkout.session.async_payment_failed` | a delayed debit that bounced |

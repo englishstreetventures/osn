@@ -299,6 +299,19 @@ export const createRegistryStripeRoutes = (
                 if (saved.stripeConnectedByOsnProfileId !== osnProfileId) {
                   return yield* notConnector(set, weddingId, "connected_meanwhile");
                 }
+                // The account that won is the couple's own, connected through
+                // OAuth meanwhile: it has no onboarding of cire's.
+                if (accountTypeOf(saved) === "standard") {
+                  return yield* Effect.logInfo("stripe onboarding refused").pipe(
+                    Effect.annotateLogs({ weddingId, refusal: "standard_account" }),
+                    Effect.andThen(
+                      Effect.sync(() => {
+                        set.status = 409;
+                        return { error: "stripe_standard_account" };
+                      }),
+                    ),
+                  );
+                }
                 accountId = saved.stripeAccountId ?? created.id;
                 chargesEnabled = saved.stripeChargesEnabled;
                 payoutsEnabled = saved.stripePayoutsEnabled;

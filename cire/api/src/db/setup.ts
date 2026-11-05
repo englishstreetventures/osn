@@ -536,6 +536,7 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   stripe_account_id TEXT,
   stripe_connected_by_osn_profile_id TEXT,
   stripe_account_type TEXT,
+  stripe_connected_at INTEGER,
   stripe_charges_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_payouts_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_account_updated_at INTEGER,
@@ -799,6 +800,11 @@ CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_type_update BEFORE
 WHEN NEW.stripe_account_type IS NOT NULL AND NEW.stripe_account_type NOT IN ('express', 'standard')
 BEGIN
   SELECT RAISE(ABORT, 'stripe account type is not express or standard');
+END;
+CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_cleared AFTER UPDATE OF stripe_account_id ON registry_settings
+WHEN NEW.stripe_account_id IS NULL AND (NEW.stripe_account_type IS NOT NULL OR NEW.stripe_connected_at IS NOT NULL)
+BEGIN
+  UPDATE registry_settings SET stripe_account_type = NULL, stripe_connected_at = NULL WHERE wedding_id = NEW.wedding_id;
 END;
 `;
 

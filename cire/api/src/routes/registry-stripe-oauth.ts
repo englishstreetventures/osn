@@ -212,15 +212,24 @@ export const createStripeOAuthCallbackRoutes = (
   const handBack = (accountId: string, weddingId: string) =>
     Effect.gen(function* () {
       if (yield* registryService.stripeAccountNamed(accountId)) return;
-      yield* deps.oauth
-        .deauthorize(accountId)
-        .pipe(
-          Effect.catchTag("StripeError", () =>
-            Effect.logError("stripe account connected but not stored").pipe(
-              Effect.annotateLogs({ weddingId, stripeAccountId: accountId }),
-            ),
+      const handedBack = yield* deps.oauth.deauthorize(accountId).pipe(
+        Effect.as(true),
+        Effect.catchTag("StripeError", () =>
+          Effect.logError("stripe account connected but not stored").pipe(
+            Effect.annotateLogs({ weddingId, stripeAccountId: accountId }),
+            Effect.as(false),
           ),
+        ),
+      );
+      if (!handedBack) return;
+      // A wedding that took the account while Stripe was revoking it holds a
+      // connection that no longer exists. cire knows, so it clears it now
+      // rather than wait for an event that may predate the connect.
+      if (yield* registryService.detachStripeAccount({ accountId })) {
+        yield* Effect.logError("stripe account handed back while a wedding connected it").pipe(
+          Effect.annotateLogs({ weddingId, stripeAccountId: accountId }),
         );
+      }
     });
 
   const connect = (
@@ -324,7 +333,12 @@ export const createStripeOAuthCallbackRoutes = (
       );
       if (!saved) {
         return yield* refuse(
-          yield* registryService.stripeOAuthRefusal(weddingId, caller, accountId),
+          yield* registryService.stripeOAuthRefusal(
+            weddingId,
+            caller,
+            accountId,
+            account.defaultCurrency,
+          ),
         );
       }
       // Another request filled the row first: it keeps what it holds.

@@ -45,4 +45,23 @@ describe("registry_settings.stripe_account_type", () => {
     expect(() => set("express")).not.toThrow();
     expect(() => set(null)).not.toThrow();
   });
+
+  it("clears the type and the connect time whenever the id is cleared, by any writer (G-L2)", () => {
+    const { client, now } = seeded();
+    client
+      .prepare(
+        "INSERT INTO registry_settings (wedding_id, stripe_account_id, stripe_account_type, stripe_connected_at, created_at, updated_at) VALUES (?, 'acct_x', 'standard', ?, ?, ?)",
+      )
+      .run(BOOTSTRAP_WEDDING_ID, now, now, now);
+    // What an older Worker's detach writes: the id alone.
+    client
+      .prepare("UPDATE registry_settings SET stripe_account_id = NULL WHERE wedding_id = ?")
+      .run(BOOTSTRAP_WEDDING_ID);
+    const row = client
+      .prepare(
+        "SELECT stripe_account_type AS type, stripe_connected_at AS connectedAt FROM registry_settings WHERE wedding_id = ?",
+      )
+      .get(BOOTSTRAP_WEDDING_ID) as { type: string | null; connectedAt: number | null };
+    expect(row).toEqual({ type: null, connectedAt: null });
+  });
 });

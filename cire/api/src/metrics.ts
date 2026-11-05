@@ -328,7 +328,8 @@ export type StripeOAuthOutcome =
   | "rejected"
   | "unavailable"
   | "currency_mismatch"
-  | "owners_differ";
+  | "owners_differ"
+  | "account_on_deleted_wedding";
 
 /** Outcome of a wedding-profile (Settings) save. Validation rejections are the
  *  schema's 400 upstream; `error` is a write failure. */

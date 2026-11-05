@@ -224,6 +224,34 @@ describe("who may connect an account", () => {
   });
 });
 
+describe("an account the couple connected through Stripe meanwhile", () => {
+  it("gets no onboarding link when it won the race (G-L1)", async () => {
+    const built: { db?: ReturnType<typeof buildApp>["db"] } = {};
+    const stub = stripeStub({
+      duringCreate: () => {
+        const now = new Date();
+        built.db
+          ?.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            stripeAccountId: "acct_their_own",
+            stripeConnectedByOsnProfileId: OWNER,
+            stripeAccountType: "standard",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      },
+    });
+    const app = buildApp({ stripe: stub.client });
+    built.db = app.db;
+    const res = await req(app.app, `${base}/session`, OWNER);
+    expect(res.status).toBe(409);
+    expect(((await jsonBody(res)) as { error: string }).error).toBe("stripe_standard_account");
+    expect(stub.calls.filter((c) => c.startsWith("createAccountLink"))).toEqual([]);
+  });
+});
+
 describe("only the owner who connected the account may open its links", () => {
   type Built = ReturnType<typeof buildApp>;
 
