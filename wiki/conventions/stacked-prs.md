@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-06
 ---
 
 # Stacked PRs
@@ -154,6 +154,28 @@ git rebase --onto <bottom> <old-base> <middle> && git push --force-with-lease or
 After a rebase onto a newer `main`, run `bun install --frozen-lockfile` in the worktree before pushing. A workspace `main` added since the last install has no links in the worktree's `node_modules`, and the pre-push type check fails on it with `File '@shared/typescript-config/base.json' not found` — a fault in the install, not in the branch.
 
 `gh stack rebase` and `gh stack sync` do the cascade in one command, but only in a checkout with local stack tracking. In the worktree layout, do it by hand as above.
+
+## Cutting a stack from one worktree
+
+A session isolated in one worktree is refused git commands aimed at any other, so it cannot cut a worktree per layer. When the layers split cleanly by path, a dead-code sweep for example, build the stack in that one worktree:
+
+1. Make every layer's edits and changesets in the working tree, and run the gates once on the whole tree. Each changeset is a file of its own, so each can go in its layer's commit.
+2. Save `git diff HEAD` and the list of untracked files to scratch outside the repository.
+3. Commit bottom to top, staging each layer by path. `package.json` and `bun.lock` go in the bottom layer together, or a lower layer's lockfile disagrees with its manifests. After the last commit, `git status --porcelain` prints nothing.
+4. Point each upper branch at its commit without checking it out: `git branch <name> <sha>`. Then `git reset --hard <bottom sha>`, and set `branch.<name>.gh-merge-base` on each upper branch.
+5. Push every branch by name, open the pull requests bottom to top, and `gh stack link` them.
+
+A fix to an upper layer after that is a plumbing commit: `git read-tree` that layer into a scratch index (`GIT_INDEX_FILE`), `git hash-object -w` the new file, `git update-index --cacheinfo`, `git write-tree`, `git commit-tree -p <layer>`, then `git update-ref`. A fix below the top also replays each later commit onto the new parent. Check each replayed commit's diff against its original.
+
+The upper layers then have no local per-layer gates, since none was ever checked out. Their bodies say so, and CI on each pull request is their proof.
+
+To rebuild such a stack on a newer `main`, when a layer conflicts with it:
+
+1. Save the four tips, then `git diff <old bottom layer commit> <old top>` to scratch. Diff from the bottom *layer's own commit*, never the bottom branch's tip: commits added on the bottom after the cut, such as its session-metrics card, are not in the upper layers, and a diff from the tip deletes them.
+2. `git rebase refs/remotes/origin/main` on the bottom branch, then `bun install --frozen-lockfile`.
+3. `git apply --3way <diff>`. Resolve each conflict by keeping `main`'s new code and re-applying only the layer's intent, and check `main` for new readers of anything the layer removes.
+4. Run the gates again, commit each upper layer with `git commit -o <its paths>`, move the branch refs with `git branch -f`, reset the bottom, and push all four with `--force-with-lease=<branch>:<old sha>`.
+5. Confirm `git merge-tree --write-tree refs/remotes/origin/main <top>` prints a tree and no `CONFLICT` line.
 
 ## CI on a stacked PR
 

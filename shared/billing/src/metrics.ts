@@ -31,7 +31,7 @@ export const BILLING_METRICS = {
 } as const;
 
 /** The Stripe event types the webhook acts on. Anything else is `other`. */
-export const HANDLED_EVENT_TYPES = [
+const HANDLED_EVENT_TYPES = [
   "checkout.session.completed",
   "checkout.session.expired",
   "customer.subscription.created",
@@ -43,15 +43,15 @@ export const HANDLED_EVENT_TYPES = [
   "invoice.paid",
   "invoice.payment_failed",
 ] as const;
-export type HandledEventType = (typeof HANDLED_EVENT_TYPES)[number];
+type HandledEventType = (typeof HANDLED_EVENT_TYPES)[number];
 const HANDLED: ReadonlySet<string> = new Set(HANDLED_EVENT_TYPES);
-export const isHandledEventType = (type: string): type is HandledEventType => HANDLED.has(type);
+const isHandledEventType = (type: string): type is HandledEventType => HANDLED.has(type);
 
-export type EventTypeAttr = HandledEventType | "other";
+type EventTypeAttr = HandledEventType | "other";
 export const bucketEventType = (type: string): EventTypeAttr =>
   isHandledEventType(type) ? type : "other";
 
-export type StatusAttr = KnownStatus | "none" | "other";
+type StatusAttr = KnownStatus | "none" | "other";
 export const bucketStatus = (status: string | null): StatusAttr =>
   status === null ? "none" : isKnownStatus(status) ? status : "other";
 
@@ -91,7 +91,7 @@ export type CheckoutOutcome =
   | "plan_unavailable"
   | "return_url_refused"
   | "error";
-export type PortalOutcome = "opened" | "no_customer" | "return_url_refused" | "error";
+type PortalOutcome = "opened" | "no_customer" | "return_url_refused" | "error";
 export type WebhookOutcome =
   | "processed"
   | "ignored"
@@ -102,8 +102,8 @@ export type WebhookOutcome =
   | "lease_held"
   | "error";
 export type AccessSource = "webhook" | "sweep" | "reconcile" | "grant" | "reapply";
-export type AccessAppliedOutcome = "applied" | "busy" | "hook_failed" | "error";
-export type ReconcileOutcome = "refreshed" | "missing" | "error";
+type AccessAppliedOutcome = "applied" | "busy" | "hook_failed" | "error";
+type ReconcileOutcome = "refreshed" | "missing" | "error";
 
 const checkoutStarted = createCounter<{ outcome: CheckoutOutcome }>({
   name: BILLING_METRICS.checkoutStarted,

@@ -34,7 +34,7 @@ type Detector = (
   pointer: { x: number; y: number },
 ) => DragTarget | null;
 
-export interface DragState {
+interface DragState {
   active: Accessor<{ draggable: DragTarget | null; droppable: DragTarget | null }>;
   /**
    * Whether a drag is live. A row that styles itself by this should read it
@@ -54,7 +54,7 @@ export interface DragState {
   isOver: (id: Id) => boolean;
 }
 
-export interface Registry {
+interface Registry {
   register: (id: Id, node: HTMLElement, group: symbol) => void;
   /** Forgets `id` only while `node` is still the one registered for it. An
    *  item that moves between containers mounts its new node before the old one

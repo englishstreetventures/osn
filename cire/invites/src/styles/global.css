@@ -425,7 +425,8 @@
     descent-override   = abs(webfont.descent / webfont.unitsPerEm) / sizeAdjust
     line-gap-override  = (webfont.lineGap / webfont.unitsPerEm) / sizeAdjust
 
-  Source metrics, `@capsizecss/metrics` `entireMetricsCollection` (devDependency):
+  Source metrics, copied from the npm package `@capsizecss/metrics`
+  (`entireMetricsCollection`); install it ad hoc to re-read them:
     cormorantGaramond: ascent 924, descent -287, lineGap 0, unitsPerEm 1000, xWidthAvg 394
     lato:              ascent 1974, descent -426, lineGap 0, unitsPerEm 2000, xWidthAvg 871
     georgia:           unitsPerEm 2048, xWidthAvg 913

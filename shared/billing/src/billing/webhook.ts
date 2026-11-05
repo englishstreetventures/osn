@@ -44,7 +44,7 @@ export function planIdFor(ctx: BillingContext, sub: ProviderSubscription): strin
  * is taken before the request goes out. Answers `ignored` for a subscription
  * that is not this package's to store.
  */
-export const syncSubscription = (
+const syncSubscription = (
   ctx: BillingContext,
   subscriptionId: string,
   paidPeriod: PaidPeriod | null,

@@ -36,7 +36,6 @@
     "@simplewebauthn/browser": "^14.0.0"
   },
   "devDependencies": {
-    "@shared/design-tokens": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "happy-dom": "^21.0.4",
