@@ -78,7 +78,7 @@ function Row() {
         <button
           type="button"
           data-part="pill"
-          class="border-ui-accent bg-ui-surface rounded-ui-control border px-3 py-1 shadow"
+          class="border-ui-accent bg-ui-surface from-ui-accent to-ui-surface rounded-ui-control border bg-linear-to-b px-3 py-1 shadow"
         >
           <svg viewBox="0 0 10 10" class="size-3" aria-hidden="true">
             <path d="M1 1h8v8H1z" />
@@ -201,11 +201,13 @@ describe("SkeletonOutline", () => {
       }
       // Tailwind writes a cleared shadow as five transparent layers.
       const shadow = style(part("pill")).boxShadow;
+      // A gradient on a control (the pill here) would paint over the block.
       expect([
         style(part("pill")).borderTopColor,
+        style(part("pill")).backgroundImage,
         shadow === "none" ||
           shadow.split(/,(?![^(]*\))/).every((layer) => layer.includes("rgba(0, 0, 0, 0)")),
-      ]).toEqual(["rgba(0, 0, 0, 0)", true]);
+      ]).toEqual(["rgba(0, 0, 0, 0)", "none", true]);
       expect(style(part("glyph")).borderTopLeftRadius).toBe("4px");
     });
   }

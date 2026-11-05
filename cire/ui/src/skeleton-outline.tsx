@@ -13,7 +13,6 @@ const WORDS = /[\p{L}\p{N}]/u;
  */
 const NOT_A_RUN = "svg, option, textarea, script, style, title";
 
-const TEXT_NODE = 3;
 const ELEMENT_NODE = 1;
 
 function needsRun(text: Text): boolean {
@@ -32,22 +31,15 @@ function wrap(text: Text): HTMLSpanElement {
 /**
  * One resolved child, with each run of words inside it in a span of its own.
  * A string or number child becomes its run here, since Solid would otherwise
- * insert it as bare text. Read by `nodeType`, not `instanceof`, and strings
- * only where there is a document, so a server render passes through untouched.
+ * insert it as bare text; nothing (`false`, `null`) passes through. Read by
+ * `nodeType`, not `instanceof`.
  */
 function markRuns(child: ResolvedJSXElement): ResolvedJSXElement {
-  if ((typeof child === "string" || typeof child === "number") && typeof document !== "undefined") {
+  if (typeof child === "string" || typeof child === "number") {
     const text = document.createTextNode(String(child));
     return needsRun(text) ? wrap(text) : text;
   }
-  const { nodeType } = (child ?? {}) as Partial<Node>;
-  if (nodeType === TEXT_NODE) {
-    const text = child as Text;
-    // Already in its run from an earlier pass: hand back the run, not the text.
-    if (text.parentElement?.hasAttribute(RUN)) return text.parentElement;
-    return needsRun(text) ? wrap(text) : text;
-  }
-  if (nodeType === ELEMENT_NODE) {
+  if ((child as Partial<Node> | null)?.nodeType === ELEMENT_NODE) {
     const walker = document.createTreeWalker(child as Element, NodeFilter.SHOW_TEXT);
     const found: Text[] = [];
     for (let text = walker.nextNode(); text; text = walker.nextNode()) {

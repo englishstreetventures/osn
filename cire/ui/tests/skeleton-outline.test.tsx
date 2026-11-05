@@ -44,8 +44,16 @@ describe("SkeletonOutline", () => {
     expect(run.parentElement!.className).toBe("block");
   });
 
-  it("puts a text child at the top level in a run too", () => {
+  it("puts a text or number child at the top level in a run too", () => {
     expect(runs(outline(() => "Households"))).toEqual(["Households"]);
+    cleanup();
+    expect(runs(outline(() => 64))).toEqual(["64"]);
+  });
+
+  it("draws nothing for a child that is nothing", () => {
+    const root = outline(() => [false, null, undefined, <p>Ceremony</p>]);
+    expect(runs(root)).toEqual(["Ceremony"]);
+    expect(root.textContent).toBe("Ceremony");
   });
 
   it("draws nothing for text with no letter or digit", () => {
