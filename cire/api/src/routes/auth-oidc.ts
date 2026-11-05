@@ -35,15 +35,13 @@ const redirect = (location: string, cookies: string[]): Response => {
 /**
  * Whether a portal page is worth resuming on, by the rule the portals'
  * sign-in panel applies again: a path (a URL's always is) that is not
- * protocol-relative, holds no backslash, and is neither the root nor `/login`. The
- * allowlist checked `return_to`'s origin only; its path is whoever started the
- * sign-in.
+ * protocol-relative, holds no backslash, and is neither the root nor `/login`
+ * with any trailing slashes. The allowlist checked `return_to`'s origin only;
+ * its path is whoever started the sign-in, so the login test is
+ * start-anchored and reads a run of slashes once, not once per slash.
  */
 const isResumable = (pathname: string, page: string): boolean =>
-  page !== "/" &&
-  !page.startsWith("//") &&
-  !page.includes("\\") &&
-  pathname.replace(/\/+$/, "") !== "/login";
+  page !== "/" && !page.startsWith("//") && !page.includes("\\") && !/^\/login\/*$/.test(pathname);
 
 /**
  * Terminal sign-in failure on a top-level browser navigation. Rather than

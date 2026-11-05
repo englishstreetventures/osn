@@ -293,6 +293,39 @@ describe("GET /api/auth/oidc/callback", () => {
     });
 
     it.each([
+      ["a path that only starts with /login", "/loginx"],
+      ["a path that only ends with /login", "/x/login"],
+    ])("carries %s on a portal as the page", async (_, path) => {
+      const config = portalConfig();
+      const { tx } = await startedTx(config, `${HOST}${path}`);
+      const res = await appRequest(
+        portalApp(config),
+        "/api/auth/oidc/callback?error=access_denied",
+        {
+          headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+        },
+      );
+      const location = new URL(res.headers.get("location")!);
+      expect(location.origin + location.pathname).toBe(`${HOST}/login/`);
+      expect(location.searchParams.get("returnTo")).toBe(path);
+    });
+
+    // A run of slashes is read once, not once per slash: the path is whoever
+    // started the sign-in, and the check runs on the Worker.
+    it("reads a long run of slashes in the page at once", async () => {
+      const path = `/x${"/".repeat(30_000)}y`;
+      const config = portalConfig();
+      const { tx } = await startedTx(config, `${HOST}${path}`);
+      const app = portalApp(config);
+      const started = performance.now();
+      const res = await appRequest(app, "/api/auth/oidc/callback?error=access_denied", {
+        headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+      });
+      expect(performance.now() - started).toBeLessThan(500);
+      expect(new URL(res.headers.get("location")!).searchParams.get("returnTo")).toBe(path);
+    });
+
+    it.each([
       ["a protocol-relative path", "//evil.example/x"],
       ["a backslash path", "/\\evil.example/x"],
       ["the sign-in page itself", "/login?returnTo=%2Fx"],
