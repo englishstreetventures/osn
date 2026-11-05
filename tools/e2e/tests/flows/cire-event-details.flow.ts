@@ -117,7 +117,7 @@ test("cire-event-details", async ({ page, context, flow }) => {
 
   await flow.step("sign in to the portal", async () => {
     // The login page sends the organiser on to `returnTo` once signed in.
-    const login = `${ORIGINS.cireHost}/login?${new URLSearchParams({
+    const login = `${ORIGINS.cireHost}/login/?${new URLSearchParams({
       returnTo: `/#/w/${CIRE_EVENT_EDIT.weddingId}/events/edit`,
     })}`;
     const probe = responseTo(page, "GET", `${ORIGINS.cireApi}/api/auth/session`);
@@ -129,7 +129,7 @@ test("cire-event-details", async ({ page, context, flow }) => {
     const portalLogin = new URL(ORIGINS.cireHost);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL(
-      (url) => url.origin === portalLogin.origin && url.pathname === "/login",
+      (url) => url.origin === portalLogin.origin && url.pathname === "/login/",
     );
     // The page asks cire-api who is signed in as it mounts; let that answer
     // before navigating away, so its request is in the record on every run.

@@ -78,35 +78,35 @@ const LEGAL_PAGES = [
     origin: ORIGINS.cireInvites,
     path: "/privacy",
     title: "Privacy Notice",
-    links: "Privacy notice /privacy | Terms /terms",
+    links: "Privacy notice /privacy/ | Terms /terms/",
   },
   {
     site: "guest",
     origin: ORIGINS.cireInvites,
     path: "/terms",
     title: "Terms of Use",
-    links: "Privacy notice /privacy | Terms /terms",
+    links: "Privacy notice /privacy/ | Terms /terms/",
   },
   {
     site: "marketing",
     origin: ORIGINS.cireLanding,
     path: "/privacy",
     title: "Privacy — Cire",
-    links: "Privacy notice /privacy | Terms /terms | Refunds /refunds",
+    links: "Privacy notice /privacy/ | Terms /terms/ | Refunds /refunds/",
   },
   {
     site: "marketing",
     origin: ORIGINS.cireLanding,
     path: "/terms",
     title: "Terms of Service — Cire",
-    links: "Privacy notice /privacy | Terms /terms | Refunds /refunds",
+    links: "Privacy notice /privacy/ | Terms /terms/ | Refunds /refunds/",
   },
   {
     site: "marketing",
     origin: ORIGINS.cireLanding,
     path: "/refunds",
     title: "Refund Policy — Cire",
-    links: "Privacy notice /privacy | Terms /terms | Refunds /refunds",
+    links: "Privacy notice /privacy/ | Terms /terms/ | Refunds /refunds/",
   },
 ] as const;
 
@@ -246,7 +246,7 @@ test("cire-privacy-pages", async ({ page, browser, flow }) => {
     );
     flow.check(
       "the row of links points at each page",
-      "/privacy /privacy/hosts /privacy/guests /privacy/vendors",
+      "/privacy/ /privacy/hosts/ /privacy/guests/ /privacy/vendors/",
       (
         await nav
           .getByRole("link")
@@ -265,7 +265,7 @@ test("cire-privacy-pages", async ({ page, browser, flow }) => {
   for (const target of PAGES.slice(1)) {
     await flow.step(`follow the ${target.label} link`, async () => {
       await nav.getByRole("link", { name: target.label, exact: true }).click();
-      await expect(page).toHaveURL(`${ORIGINS.cireLanding}${target.path}`);
+      await expect(page).toHaveURL(`${ORIGINS.cireLanding}${target.path}/`);
       await expect(page.getByRole("heading", { name: target.heading, level: 1 })).toBeVisible();
       flow.check(
         `${target.path} marks ${target.label} as the current page`,

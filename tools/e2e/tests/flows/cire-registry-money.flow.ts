@@ -240,9 +240,9 @@ test("cire-registry-money", async ({ page, flow }) => {
   const portal = await flow.step("organiser: the portal asks them to sign in again", async () => {
     const again = await flow.newPage(page.context());
     await again.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/list`);
-    await expect(again).toHaveURL(/\/login(\?|$)/);
+    await expect(again).toHaveURL(/\/login\/(\?|$)/);
     await expect(again.getByRole("button", { name: "Continue with musubi" })).toBeVisible();
     return new URL(again.url()).pathname;
   });
-  flow.check("the portal lands on its sign-in page", "/login", portal);
+  flow.check("the portal lands on its sign-in page", "/login/", portal);
 });
