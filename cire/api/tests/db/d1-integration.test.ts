@@ -100,6 +100,7 @@ import {
   registryGuestService,
   registryService,
   SettingsChanged,
+  StripeAlreadyConnected,
 } from "../../src/services/registry";
 import {
   type GiftSummary,
@@ -2136,6 +2137,80 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ),
       );
       expect(saved.shippingAddress).toBe("2 Example St");
+    },
+    MF_TIMEOUT_MS,
+  );
+  it(
+    "registry Stripe: a wedding takes the account its owner connected on another, in one statement on D1",
+    async () => {
+      // The reuse is one INSERT … SELECT … ON CONFLICT DO UPDATE … WHERE …
+      // RETURNING, whose every rule sits in the SELECT's WHERE. How D1 parses
+      // and binds that is pinned here, on each of its three paths.
+      const now = new Date();
+      const stamp = new Date(1_700_000_000_000);
+      await db.insert(weddings).values({
+        id: "wed_d1_source",
+        slug: "d1-source",
+        displayName: "Source",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db
+        .insert(weddingHosts)
+        .values({ ...ownerSeat("wed_d1_source", "usr_test", now), id: "whost_d1_source" });
+      await db.insert(registrySettings).values({
+        weddingId: "wed_d1_source",
+        stripeAccountId: "acct_d1_shared",
+        stripeConnectedByOsnProfileId: "usr_test",
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        stripeAccountUpdatedAt: stamp,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const adopt = () =>
+        registryService.adoptStripeAccount(
+          BOOTSTRAP_WEDDING_ID,
+          "wed_d1_source",
+          "usr_test",
+          PAYING_SITE,
+        );
+      const stored = async () =>
+        (
+          await db
+            .select()
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        )[0];
+
+      // The insert path: the wedding has no settings row yet. The answer is
+      // the RETURNING row, judged against the wedding's own currency.
+      const inserted = await run(adopt());
+      expect(inserted.stripeConnected).toBe(true);
+      expect(inserted.stripeConnectedByOsnProfileId).toBe("usr_test");
+      expect(inserted.stripeChargesEnabled).toBe(true);
+      expect(inserted.moneyGiftsBlockedBy).toBe("cash_gifts_off");
+      expect((await stored())?.stripeAccountUpdatedAt?.getTime()).toBe(stamp.getTime());
+
+      // The refused path: the wedding now has an account, so nothing is written.
+      const exit = await Effect.runPromiseExit(adopt().pipe(Effect.provideService(DbService, db)));
+      const error = Exit.isFailure(exit)
+        ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+        : undefined;
+      expect(error).toBeInstanceOf(StripeAlreadyConnected);
+
+      // The conflict path: a row with no account keeps what it holds.
+      await db
+        .update(registrySettings)
+        .set({ stripeAccountId: null, stripeConnectedByOsnProfileId: null, headline: "Kept" })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
+      const filled = await run(adopt());
+      expect(filled.headline).toBe("Kept");
+      const row = await stored();
+      expect(row?.stripeAccountId).toBe("acct_d1_shared");
+      expect(row?.stripeConnectedByOsnProfileId).toBe("usr_test");
+      expect(row?.stripeDefaultCurrency).toBe("AUD");
     },
     MF_TIMEOUT_MS,
   );

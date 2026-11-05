@@ -546,6 +546,7 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS registry_settings_stripe_account_idx ON registry_settings(stripe_account_id) WHERE stripe_account_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS registry_items (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
@@ -1159,6 +1160,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   second owner, Kit (`usr_e2e_kit`), connected the account, so the dev
  *   profile is an owner who sees the account's status and cannot open its
  *   onboarding links.
+ * - `wed_e2e_shared_from` and `wed_e2e_shared_to`: two weddings the dev
+ *   profile owns alone. On the first it connected a Stripe account that can
+ *   charge and settles in AUD; the second has no settings row. For giving the
+ *   second the first's account from the Money gifts panel.
  * - `wed_e2e_emails`: one household, Tanaka, of Gus with no address and Hana
  *   with an address she gave herself on the invite, for adding an address in
  *   the guest editor under the organiser's attestation.
@@ -1505,6 +1510,23 @@ export function seedE2eOrganiser(db: TestDb): void {
       updatedAt: now,
     })
     .run();
+
+  wedding("wed_e2e_shared_from", "ceremony-wedding", "Ceremony Wedding");
+  seatDevOwner(db, "wed_e2e_shared_from", "whost_e2e_shared_from_owner", now);
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId: "wed_e2e_shared_from",
+      stripeAccountId: "acct_e2e_shared",
+      stripeConnectedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  wedding("wed_e2e_shared_to", "party-wedding", "Party Wedding");
+  seatDevOwner(db, "wed_e2e_shared_to", "whost_e2e_shared_to_owner", now);
 
   wedding("wed_e2e_emails", "emails-wedding", "Emails Wedding");
   seatDevOwner(db, "wed_e2e_emails", "whost_e2e_emails_owner", now);

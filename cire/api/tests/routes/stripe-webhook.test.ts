@@ -1260,3 +1260,120 @@ describe("refund and dispute events for a gift cire has no row for", () => {
     expect(logs).toContain("stripe webhook: money event for a gift cire has no row for");
   });
 });
+
+/**
+ * Two weddings that share one connected account: an owner who connected it on
+ * one has given it to the other too. Account events name the account and never
+ * a wedding, so each reaches every row that names it. A gift event still acts
+ * only on its own gift, whose wedding must name the account it arrived on.
+ */
+describe("one account taking gifts for two weddings", () => {
+  const PARTY = "wed_party";
+  const PARTY_FAMILY = "fam_party";
+
+  /** A second wedding naming the bootstrap wedding's account, with a household. */
+  function shareAccount(db: ReturnType<typeof buildApp>["db"]) {
+    const now = new Date();
+    db.insert(weddings)
+      .values({ id: PARTY, slug: "party", displayName: "Party", createdAt: now, updatedAt: now })
+      .run();
+    db.insert(registrySettings)
+      .values({
+        weddingId: PARTY,
+        published: true,
+        cashGiftsEnabled: true,
+        stripeAccountId: ACCOUNT,
+        stripeChargesEnabled: false,
+        stripePayoutsEnabled: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(families)
+      .values({
+        id: PARTY_FAMILY,
+        weddingId: PARTY,
+        publicId: "PARTY-FAMILY-01",
+        familyName: "Okafor",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const row = (db: ReturnType<typeof buildApp>["db"], weddingId: string) =>
+    db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).get();
+
+  it("caches what Stripe says on every wedding that names the account", async () => {
+    const { app, db } = buildApp();
+    shareAccount(db);
+
+    const res = await deliver(app, accountUpdated());
+
+    expect(await jsonBody(res)).toEqual({ received: true, matched: true });
+    for (const weddingId of [BOOTSTRAP_WEDDING_ID, PARTY]) {
+      expect(row(db, weddingId)?.stripeChargesEnabled, weddingId).toBe(true);
+      expect(row(db, weddingId)?.stripePayoutsEnabled, weddingId).toBe(true);
+    }
+  });
+
+  it("clears the account from every wedding when Stripe revokes it", async () => {
+    // Revocation is the platform losing the account, so no wedding may keep
+    // offering guests a charge on it.
+    const { app, db } = buildApp();
+    shareAccount(db);
+
+    const res = await deliver(app, deauthorized());
+
+    expect(await jsonBody(res)).toEqual({ received: true, matched: true });
+    for (const weddingId of [BOOTSTRAP_WEDDING_ID, PARTY]) {
+      const cleared = row(db, weddingId);
+      expect(cleared?.stripeAccountId, weddingId).toBeNull();
+      expect(cleared?.stripeConnectedByOsnProfileId, weddingId).toBeNull();
+      expect(cleared?.stripeChargesEnabled, weddingId).toBe(false);
+      expect(cleared?.stripeDeauthorizedAccountId, weddingId).toBe(ACCOUNT);
+      // The couple's intent stays theirs, on both.
+      expect(cleared?.cashGiftsEnabled, weddingId).toBe(weddingId === PARTY);
+    }
+  });
+
+  it("settles a gift on either wedding, and refunds the other's", async () => {
+    const { app, db, familyId } = buildApp();
+    shareAccount(db);
+    // A settled gift on the bootstrap wedding, then a pending one on the party.
+    await seedSettled(app, db, familyId);
+    seedPending(db, PARTY_FAMILY, { id: "rct_party", sessionId: "cs_party", weddingId: PARTY });
+
+    const settled = await deliver(
+      app,
+      checkoutCompleted({
+        session: { id: "cs_party", payment_intent: "pi_party" },
+        metadata: { contributionId: "rct_party" },
+      }),
+    );
+    expect(await jsonBody(settled)).toEqual({ received: true, outcome: "settled" });
+
+    const refunded = await deliver(app, chargeRefunded());
+    expect(await jsonBody(refunded)).toEqual({ received: true, outcome: "refunded" });
+
+    const byId = new Map((await gifts(db)).map((g) => [g.id, g]));
+    expect(byId.get("rct_party")?.status).toBe("succeeded");
+    expect(byId.get("rct_party")?.weddingId).toBe(PARTY);
+    expect(byId.get(CONTRIBUTION_ID)?.status).toBe("refunded");
+  });
+
+  it("keeps the account on the other wedding when one wedding is deleted", async () => {
+    // The purge hard-deletes a wedding and its settings row by cascade; the
+    // wedding that shares the account keeps it, and keeps hearing about it.
+    const { app, db } = buildApp();
+    shareAccount(db);
+    db.delete(weddings).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
+    expect(row(db, BOOTSTRAP_WEDDING_ID)).toBeUndefined();
+
+    const res = await deliver(app, accountUpdated());
+
+    expect(await jsonBody(res)).toEqual({ received: true, matched: true });
+    expect(row(db, PARTY)?.stripeAccountId).toBe(ACCOUNT);
+    expect(row(db, PARTY)?.stripeChargesEnabled).toBe(true);
+  });
+});

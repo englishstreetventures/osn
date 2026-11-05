@@ -326,3 +326,14 @@ export const ClaimItemBody = Schema.Struct({
   ),
 });
 export type ClaimItemBody = Schema.Schema.Type<typeof ClaimItemBody>;
+
+/**
+ * Give this wedding the Stripe account the caller connected on another wedding
+ * of theirs. It names that WEDDING, never an account: the account comes off the
+ * named wedding's row, and only when cire's own record says the caller
+ * connected it there.
+ */
+export const ReuseStripeAccountBody = Schema.Struct({
+  fromWeddingId: Schema.NonEmptyString.check(Schema.isMaxLength(64)),
+});
+export type ReuseStripeAccountBody = Schema.Schema.Type<typeof ReuseStripeAccountBody>;

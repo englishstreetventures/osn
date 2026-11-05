@@ -984,84 +984,96 @@ export const weddingEntitlements = sqliteTable(
 
 // One row per wedding. Absent row ⇒ the registry has never been opened, which
 // reads identically to `published = 0`.
-export const registrySettings = sqliteTable("registry_settings", {
-  weddingId: text("wedding_id")
-    .primaryKey()
-    .references(() => weddings.id, { onDelete: "cascade" }),
-  // Guest visibility. The guest GET 404s unless this is 1 AND the wedding is on
-  // Gold or above — two independent gates, because a tier lapsing must not
-  // silently republish a registry the couple had turned off (and vice versa).
-  published: integer("published", { mode: "boolean" }).notNull().default(false),
-  headline: text("headline"),
-  // The couple's note above the list — "your presence is the present", "no boxed
-  // gifts please". NULL ⇒ nothing renders (same idiom as `footer_message`).
-  message: text("message"),
-  // Card contributions via Stripe. Independently off by default: a registry is
-  // fully usable as an honour-system list with no Stripe account at all.
-  cashGiftsEnabled: integer("cash_gifts_enabled", { mode: "boolean" }).notNull().default(false),
-  // Organiser-provided delivery address, shown to CLAIMED guests only.
-  shippingAddress: text("shipping_address"),
-  // Optional ISO date (YYYY-MM-DD) before which the address stays hidden — the
-  // "don't ship until we're back from honeymoon" pattern. NULL ⇒ visible as soon
-  // as it is set.
-  shippingVisibleFrom: text("shipping_visible_from"),
-  // Stripe Connect Express account for this wedding's cash gifts. The couple is
-  // the merchant of record (direct charges) — cire never holds gift funds, which
-  // is what keeps the platform out of money transmission.
-  stripeAccountId: text("stripe_account_id"),
-  // The OSN profile of the owner who connected that account: whoever runs
-  // onboarding puts their own identity and bank account on it, so only they may
-  // open its onboarding links again; every other owner sees its status. Written
-  // in the statement that fills a NULL `stripe_account_id`, kept while the id is
-  // kept, and cleared with it. NULL beside an account means nobody is recorded,
-  // and then no owner may open links. No cross-DB FK, like
-  // `wedding_hosts.osn_profile_id`.
-  stripeConnectedByOsnProfileId: text("stripe_connected_by_osn_profile_id"),
-  // Cached from the `account.updated` webhook so the portal can show onboarding
-  // state without a live Stripe call on every page load.
-  stripeChargesEnabled: integer("stripe_charges_enabled", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  stripePayoutsEnabled: integer("stripe_payouts_enabled", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  stripeAccountUpdatedAt: integer("stripe_account_updated_at", { mode: "timestamp" }),
-  // The connected account's own settlement currency, cached from the same
-  // webhook as the flags above. Under direct charges the couple is the merchant
-  // of record, so THIS — not the wedding's own currency — is what a Checkout
-  // Session has to be priced in: Stripe settles a charge in the account's
-  // currency, and a session priced in anything else either converts on Stripe's
-  // terms or is refused outright. NULL until Stripe first says, which is why the
-  // settings route treats a NULL as "not known yet" rather than as a mismatch.
-  stripeDefaultCurrency: text("stripe_default_currency"),
-  // A couple can revoke cire's access from their own Stripe dashboard, and
-  // Stripe says so once, in `account.application.deauthorized`. When that
-  // arrives `stripe_account_id` is cleared — the platform can no longer act on
-  // that account, and leaving the id would both keep the couple's contribute
-  // button armed against an account that will refuse the charge and block the
-  // reconnect (`attachStripeAccount` only ever fills a NULL id).
-  //
-  // The two columns below are what the cleared id leaves behind: WHEN it
-  // happened, and WHICH account it was. Nothing in the product reads them —
-  // they exist because this is the money path, and "which account did this
-  // wedding's gifts settle into before the couple disconnected" is a question
-  // somebody eventually asks with no other way to answer it.
-  stripeDeauthorizedAt: integer("stripe_deauthorized_at", { mode: "timestamp" }),
-  stripeDeauthorizedAccountId: text("stripe_deauthorized_account_id"),
-  // ── What survives the 1-year sweep ──────────────────────────────────────
-  // Gifts are guest data: `registry_claims` and `registry_contributions` both
-  // hang off `families`, so the retention sweep's family delete cascades them
-  // away a year after the wedding, and the couple's record of what arrived goes
-  // with it. This row is KEPT by that sweep (it carries no guest PII and the
-  // published invite depends on it), which makes it the right home for a
-  // parting summary: written just before the delete — counts, totals and each
-  // money gift's amount, currency and day, never a household, a name or a
-  // note. See `wiki/compliance/retention.md`.
-  giftSummaryJson: text("gift_summary_json"),
-  giftSummaryAt: integer("gift_summary_at", { mode: "timestamp" }),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-});
+export const registrySettings = sqliteTable(
+  "registry_settings",
+  {
+    weddingId: text("wedding_id")
+      .primaryKey()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    // Guest visibility. The guest GET 404s unless this is 1 AND the wedding is on
+    // Gold or above — two independent gates, because a tier lapsing must not
+    // silently republish a registry the couple had turned off (and vice versa).
+    published: integer("published", { mode: "boolean" }).notNull().default(false),
+    headline: text("headline"),
+    // The couple's note above the list — "your presence is the present", "no boxed
+    // gifts please". NULL ⇒ nothing renders (same idiom as `footer_message`).
+    message: text("message"),
+    // Card contributions via Stripe. Independently off by default: a registry is
+    // fully usable as an honour-system list with no Stripe account at all.
+    cashGiftsEnabled: integer("cash_gifts_enabled", { mode: "boolean" }).notNull().default(false),
+    // Organiser-provided delivery address, shown to CLAIMED guests only.
+    shippingAddress: text("shipping_address"),
+    // Optional ISO date (YYYY-MM-DD) before which the address stays hidden — the
+    // "don't ship until we're back from honeymoon" pattern. NULL ⇒ visible as soon
+    // as it is set.
+    shippingVisibleFrom: text("shipping_visible_from"),
+    // Stripe Connect Express account for this wedding's cash gifts. The couple is
+    // the merchant of record (direct charges) — cire never holds gift funds, which
+    // is what keeps the platform out of money transmission.
+    stripeAccountId: text("stripe_account_id"),
+    // The OSN profile of the owner who connected that account: whoever runs
+    // onboarding puts their own identity and bank account on it, so only they may
+    // open its onboarding links again; every other owner sees its status. Written
+    // in the statement that fills a NULL `stripe_account_id`, kept while the id is
+    // kept, and cleared with it. NULL beside an account means nobody is recorded,
+    // and then no owner may open links. No cross-DB FK, like
+    // `wedding_hosts.osn_profile_id`.
+    stripeConnectedByOsnProfileId: text("stripe_connected_by_osn_profile_id"),
+    // Cached from the `account.updated` webhook so the portal can show onboarding
+    // state without a live Stripe call on every page load.
+    stripeChargesEnabled: integer("stripe_charges_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    stripePayoutsEnabled: integer("stripe_payouts_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    stripeAccountUpdatedAt: integer("stripe_account_updated_at", { mode: "timestamp" }),
+    // The connected account's own settlement currency, cached from the same
+    // webhook as the flags above. Under direct charges the couple is the merchant
+    // of record, so THIS — not the wedding's own currency — is what a Checkout
+    // Session has to be priced in: Stripe settles a charge in the account's
+    // currency, and a session priced in anything else either converts on Stripe's
+    // terms or is refused outright. NULL until Stripe first says, which is why the
+    // settings route treats a NULL as "not known yet" rather than as a mismatch.
+    stripeDefaultCurrency: text("stripe_default_currency"),
+    // A couple can revoke cire's access from their own Stripe dashboard, and
+    // Stripe says so once, in `account.application.deauthorized`. When that
+    // arrives `stripe_account_id` is cleared — the platform can no longer act on
+    // that account, and leaving the id would both keep the couple's contribute
+    // button armed against an account that will refuse the charge and block the
+    // reconnect (`attachStripeAccount` only ever fills a NULL id).
+    //
+    // The two columns below are what the cleared id leaves behind: WHEN it
+    // happened, and WHICH account it was. Nothing in the product reads them —
+    // they exist because this is the money path, and "which account did this
+    // wedding's gifts settle into before the couple disconnected" is a question
+    // somebody eventually asks with no other way to answer it.
+    stripeDeauthorizedAt: integer("stripe_deauthorized_at", { mode: "timestamp" }),
+    stripeDeauthorizedAccountId: text("stripe_deauthorized_account_id"),
+    // ── What survives the 1-year sweep ──────────────────────────────────────
+    // Gifts are guest data: `registry_claims` and `registry_contributions` both
+    // hang off `families`, so the retention sweep's family delete cascades them
+    // away a year after the wedding, and the couple's record of what arrived goes
+    // with it. This row is KEPT by that sweep (it carries no guest PII and the
+    // published invite depends on it), which makes it the right home for a
+    // parting summary: written just before the delete — counts, totals and each
+    // money gift's amount, currency and day, never a household, a name or a
+    // note. See `wiki/compliance/retention.md`.
+    giftSummaryJson: text("gift_summary_json"),
+    giftSummaryAt: integer("gift_summary_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // Stripe's account events name an account, never a wedding, and one
+    // account can take gifts for several weddings of the same connector, so
+    // `account.updated` and a deauthorization write every row naming it.
+    // PARTIAL: most weddings have no account.
+    index("registry_settings_stripe_account_idx")
+      .on(t.stripeAccountId)
+      .where(sql`stripe_account_id IS NOT NULL`),
+  ],
+);
 
 export const registryItems = sqliteTable(
   "registry_items",
