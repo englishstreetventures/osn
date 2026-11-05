@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Stripe webhooks (cire-api)
@@ -85,8 +85,8 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
 
    | Event | What it does |
    |---|---|
-   | `account.updated` | caches `charges_enabled` / `payouts_enabled` on the wedding |
-   | `account.application.deauthorized` | the couple revoked cire; clears the account id |
+   | `account.updated` | caches `charges_enabled` / `payouts_enabled` on every wedding naming the account |
+   | `account.application.deauthorized` | the couple revoked cire; clears the account id from every wedding naming it |
    | `checkout.session.completed` | **writes the gift** — the only place a contribution settles |
    | `checkout.session.async_payment_succeeded` | a delayed debit (BECS, SEPA) that landed |
    | `checkout.session.async_payment_failed` | a delayed debit that bounced |
@@ -94,6 +94,12 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    | `charge.refunded` | marks a settled gift refunded |
    | `charge.dispute.created` | a guest's bank pulled a gift back |
    | `charge.dispute.closed` | how the dispute went, in `status` |
+
+   An account event names an account and never a wedding, and one account can
+   take gifts for several weddings of the owner who connected it
+   ([[cire-registry#One account, several weddings]]), so the first two write
+   every `registry_settings` row naming it. A gift event acts on its own gift,
+   whose wedding must name the account the event arrived on.
 
 5. Copy that endpoint's signing secret, then, on dev, put it in the `dev`
    Environment and dispatch **Deploy**; the cire stack uploads it:
