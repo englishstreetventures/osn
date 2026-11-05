@@ -12,10 +12,12 @@
  * emits no CSS while every class-name assertion still passes.
  */
 
+import { Meter } from "@shared/ui/ui/meter";
 import { cleanup, render } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { CardCtaButton } from "../src/card";
 import SkeletonOutline from "../src/skeleton-outline";
 import { composite } from "./test-support/paint";
 
@@ -99,6 +101,12 @@ function Row() {
           placeholder="Search guests"
           class="border-ui-hairline border"
         />
+      </div>
+      <div data-part="meter" class="w-40">
+        <Meter value={64} max={120} label="Replies" />
+      </div>
+      <div data-part="cta">
+        <CardCtaButton onClick={() => {}}>See replies per event</CardCtaButton>
       </div>
       <p data-part="wrapped" class="text-ui-base w-48">
         Saving without changing these keeps the dietary requirements already given.
@@ -199,6 +207,10 @@ describe("SkeletonOutline", () => {
       for (const name of ["pill", "switch", "input", "disc", "glyph"]) {
         expect([name, fillsWithInk(ground, part(name))]).toEqual([name, true]);
       }
+      {
+        const meter = part("meter").firstElementChild!;
+        expect(["meter", fillsWithInk(ground, meter)]).toEqual(["meter", true]);
+      }
       // Tailwind writes a cleared shadow as five transparent layers.
       const shadow = style(part("pill")).boxShadow;
       // A gradient on a control (the pill here) would paint over the block.
@@ -236,6 +248,14 @@ describe("SkeletonOutline", () => {
     expect([...part("glyph").children].every((path) => style(path).visibility === "hidden")).toBe(
       true,
     );
+    // A meter's fill is what it holds: hidden, so the track reads as one block.
+    expect(style(part("meter").firstElementChild!.firstElementChild!).visibility).toBe("hidden");
+    // A card's call to action is words: a bar, no block.
+    const cta = part("cta").querySelector("button")!;
+    expect([style(cta).backgroundColor, style(runIn(cta)).visibility]).toEqual([
+      "rgba(0, 0, 0, 0)",
+      "visible",
+    ]);
   });
 
   for (const ramp of RAMPS) {

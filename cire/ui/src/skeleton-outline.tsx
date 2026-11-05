@@ -56,8 +56,8 @@ function markRuns(child: ResolvedJSXElement): ResolvedJSXElement {
  * would otherwise win: a button's fill, border and shadow, a glyph's fill.
  *
  * A block is a button, an input, a select, a text box, the track after a
- * switch's hidden input, or anything marked `data-skeleton="block"`, unless it
- * is marked `data-skeleton="text"`. The pulse is `lib/pulse.ts`'s, written
+ * switch's hidden input, a meter (`progressbar`, `meter`), or anything marked
+ * `data-skeleton="block"`, unless it is marked `data-skeleton="text"`. The pulse is `lib/pulse.ts`'s, written
  * out because a class built at run time emits no CSS.
  */
 const OUTLINE = [
@@ -68,15 +68,15 @@ const OUTLINE = [
   // A run: a bar per line, rounded at both ends of each.
   "**:data-skeleton-run:bg-ui-ink/10 **:data-skeleton-run:rounded-[4px] **:data-skeleton-run:box-decoration-clone",
   // A block: one fill, no edge or shadow, nothing of what it holds.
-  "**:[&:is(button,input,select,textarea,[role=switch]+span,[data-skeleton=block]):not([data-skeleton=text])]:bg-ui-ink/10!",
-  "**:[&:is(button,input,select,textarea,[role=switch]+span,[data-skeleton=block]):not([data-skeleton=text])]:bg-none!",
-  "**:[&:is(button,input,select,textarea,[role=switch]+span,[data-skeleton=block]):not([data-skeleton=text])]:border-transparent!",
-  "**:[&:is(button,input,select,textarea,[role=switch]+span,[data-skeleton=block]):not([data-skeleton=text])]:shadow-none!",
-  "[&_:is(button,input,select,textarea,[role=switch]+span,[data-skeleton=block]):not([data-skeleton=text])_*]:invisible!",
+  "**:[&:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:bg-ui-ink/10!",
+  "**:[&:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:bg-none!",
+  "**:[&:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:border-transparent!",
+  "**:[&:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:shadow-none!",
+  "[&_:is(button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])_*]:invisible!",
   // A glyph: a small block, its strokes hidden.
   "[&_svg]:bg-ui-ink/10! [&_svg]:rounded-[4px]! [&_svg_*]:invisible!",
   // The pulse, on the bars, blocks and glyphs alone: frames and grounds hold still.
-  "**:[&:is([data-skeleton-run],svg,button,input,select,textarea,[role=switch]+span,[data-skeleton=block]):not([data-skeleton=text])]:animate-[pulse_calc(2s*var(--motion-scale,1))_var(--ease-in-out,var(--ui-ease-in-out))_infinite]",
+  "**:[&:is([data-skeleton-run],svg,button,input,select,textarea,[role=switch]+span,[role=progressbar],[role=meter],[data-skeleton=block]):not([data-skeleton=text])]:animate-[pulse_calc(2s*var(--motion-scale,1))_var(--ease-in-out,var(--ui-ease-in-out))_infinite]",
 ].join(" ");
 
 export interface SkeletonOutlineProps {
@@ -98,9 +98,10 @@ export interface SkeletonOutlineProps {
  *   (`box-decoration-break: clone`). Text with no letter or digit — a dot or a
  *   dash between words — draws nothing, and paints no glyph;
  * - a boxed control one block: a button, an input, a select, a text box, a
- *   switch's track, and anything marked `data-skeleton="block"` (a status
- *   disc, a chip). What a block holds is hidden. A button drawn as words, such
- *   as a sortable column head, is marked `data-skeleton="text"`;
+ *   switch's track, a meter, and anything marked `data-skeleton="block"` (a
+ *   status disc, a chip). What a block holds is hidden. A button drawn as
+ *   words, such as a sortable column head or a card's call to action, is
+ *   marked `data-skeleton="text"`;
  * - a glyph (`svg`) a small block with the same 4px corner;
  * - frames, hairlines and grounds as they are, and still: only the bars, the
  *   blocks and the glyphs pulse.

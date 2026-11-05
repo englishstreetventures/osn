@@ -338,10 +338,11 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   englishstreetventures/osn#1955 (Q6 C, Q7 C). Each run of words or digits is
   a bar the height of its letters, one per wrapped line, with a **4px** corner
   at both ends of every line; a dot or a dash between words draws nothing; a
-  boxed control (a button, a field, a switch's track) or a part marked
-  `data-skeleton="block"` (a status disc, a chip) is one block in its own
-  corner; a glyph is a small 4px block; a button marked `data-skeleton="text"`
-  (a sortable head) draws its word and its glyph. Bars, blocks and glyphs are
+  boxed control (a button, a field, a switch's track, a meter) or a part
+  marked `data-skeleton="block"` (a status disc, a chip) is one block in its
+  own corner; a glyph is a small 4px block; a button marked
+  `data-skeleton="text"` (a sortable head, a card's call to action, a whole
+  agenda row) draws its words and its glyph. Bars, blocks and glyphs are
   the **ink at 10%** — not the surface, which vanishes on a household bar or a
   card — and pulse on the loaders' pulse; the frame, the head strip, the
   household bars, the hairlines and every ground stay as they are, and still.

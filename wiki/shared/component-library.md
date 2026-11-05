@@ -1287,8 +1287,8 @@ look is the owner's (englishstreetventures/osn#1955):
 |---|---|
 | A run of words or digits | A bar the height of its letters, one per wrapped line, 4px corner at both ends of each (`box-decoration-break: clone`) |
 | Text with no letter or digit (a dot, a dash) | Nothing |
-| A `button`, `input`, `select`, `textarea`, a switch's track, anything marked `data-skeleton="block"` | One block, its border and shadow cleared, what it holds hidden |
-| A `button` marked `data-skeleton="text"` (a sortable column head) | Its words and glyph, as above, no block |
+| A `button`, `input`, `select`, `textarea`, a switch's track, a meter (`progressbar`, `meter`), anything marked `data-skeleton="block"` | One block, its border, shadow and gradient cleared, what it holds hidden |
+| A `button` marked `data-skeleton="text"` (a sortable column head; `CardCtaButton` carries it) | Its words and glyph, as above, no block |
 | A glyph (`svg`) | A small block, 4px corner |
 | Frames, hairlines, grounds | As they are, still |
 
