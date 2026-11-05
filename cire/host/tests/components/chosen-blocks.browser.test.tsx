@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 
@@ -18,6 +18,8 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 
 import CreateWeddingForm from "../../src/components/CreateWeddingForm";
 import { FilterSearch, FilterSelect } from "../../src/components/FilterField";
+import DesignPicker from "../../src/components/invite/DesignPicker";
+import EnvelopePicker from "../../src/components/invite/EnvelopePicker";
 import RemintPanel from "../../src/components/RemintPanel";
 import SecurityPanel from "../../src/components/SecurityPanel";
 
@@ -107,6 +109,64 @@ describe("a code-style card", () => {
     const chosen = radios.find((r) => (r as HTMLInputElement).checked)!.closest("label")!;
     const idle = radios.find((r) => !(r as HTMLInputElement).checked)!.closest("label")!;
     expect(await measure(chosen, idle)).toEqual(CHOSEN_AND_HALFWAY);
+  });
+});
+
+/*
+ * A design or an envelope card is not itself the control: it holds a radio,
+ * and a design's card a "Preview live" link beside it. So an unchosen card goes
+ * halfway only while the pointer is on its radio and a press there would
+ * choose it — never over the card's padding or its link, which choose nothing,
+ * and never on a locked choice (DESIGN.md §4, One pill language; §7, Card).
+ */
+describe("a picker card", () => {
+  /** The card's ring spread with the pointer at `target`, once it has moved. */
+  async function ringWith(card: HTMLElement, target: HTMLElement, x?: number, y?: number) {
+    await userEvent.hover(target, x === undefined ? undefined : { position: { x, y: y ?? x } });
+    await settled(card);
+    return ringSpread(card);
+  }
+
+  it("goes halfway over a design's radio, and not over its padding or its preview link", async () => {
+    render(() => (
+      <DesignPicker
+        entitlements={[]}
+        currentId="classic"
+        saving={false}
+        onSelect={() => {}}
+        previewHref={(id) => `https://invites.test/?design=${id}`}
+      />
+    ));
+    const radio = screen.getByRole("radio", { name: /Gala/ });
+    const card = radio.parentElement!;
+    expect({
+      radio: await ringWith(card, radio),
+      padding: await ringWith(card, card, 4),
+      link: await ringWith(card, within(card).getByRole("link", { name: /Preview live/ })),
+    }).toEqual({ radio: 1, padding: 0, link: 0 });
+  });
+
+  it("goes halfway over an envelope it may choose, and stays at rest over a locked one", async () => {
+    const pick = (entitled: boolean) => (
+      <EnvelopePicker
+        entitled={entitled}
+        currentId={null}
+        saving={false}
+        heroState="shown"
+        onSelect={() => {}}
+      />
+    );
+    const open = render(() => pick(true));
+    const choosable = screen.getByRole("radio", { name: /Wax seal/ });
+    const free = await ringWith(choosable.parentElement!, choosable);
+    open.unmount();
+    render(() => pick(false));
+    const locked = screen.getByRole("radio", { name: /Wax seal/ });
+    expect(locked.getAttribute("aria-disabled")).toBe("true");
+    expect({ free, locked: await ringWith(locked.parentElement!, locked) }).toEqual({
+      free: 1,
+      locked: 0,
+    });
   });
 });
 

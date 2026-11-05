@@ -508,8 +508,13 @@ one row:
 - **A block pressed to choose** — the code-style and re-mint radio cards
   (14px), a design or an envelope card (16px, both `invite/picker-card.ts`) — is marked as `choice` marks an answer, at
   its own corner: a gold edge and a 2px ring at 60%, no wash; under the
-  pointer an unchosen one goes halfway (`src/lib/chosen-block.ts`). A row —
-  the module rail, a menu — keeps its 10% gold wash.
+  pointer an unchosen one goes halfway (`src/lib/chosen-block.ts`). A
+  code-style card is a whole `<label>`, so it goes halfway anywhere over it.
+  A design or an envelope card holds its radio beside padding and, on a
+  design, a "Preview live" link, none of which chooses: it goes halfway only
+  while the pointer is on a radio a press would choose, never on a locked one
+  (§7, Card: a hover promises a click). A row — the module rail, a menu —
+  keeps its 10% gold wash.
 - **A secondary action** is `outline`: the top bar's Preview invite and the
   builder's Preview, the same job, and Security's "Manage on musubi". `cta`
   is the guest site's call to action, not a portal's.
@@ -1345,14 +1350,16 @@ The invite builder's pickers (`invite/DesignPicker.tsx`,
 `invite/EnvelopePicker.tsx`) show every option, including the ones the
 wedding's plan leaves locked, as cards in one radiogroup. Both draw their cards
 from `pickerCardClass` (`invite/picker-card.ts`), so they match: the card at
-`sm` on `none`, chosen and half-chosen as a block pressed to choose (§4). The
+`sm` on `none`, chosen and half-chosen as a block pressed to choose (§4), half
+only while the pointer is on a radio a press would choose. The
 envelope group sits inside the Design card under the designs, headed by a
 muted `Eyebrow` (`as="h3"`), the ink of the card's own "Design" legend.
 
 - **A locked card stays in reach.** It is `aria-disabled`, never `disabled`, so
   focus and the arrows land on it and a screen reader hears it; clicking or
-  arriving on it chooses nothing. It shows at half opacity and says "Locked"
-  in tiny caps. The server refuses it anyway.
+  arriving on it chooses nothing, and the pointer over it lights nothing. It
+  shows at half opacity and says "Locked" in tiny caps. The server refuses it
+  anyway.
 - **A stored choice the plan does not allow stays checked.** The organiser
   chose it, so the card keeps the gold border and says "Switched off" where a
   current card says "Current", and a note under the cards says what guests get

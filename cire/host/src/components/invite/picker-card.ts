@@ -1,6 +1,6 @@
 import { cardClass } from "@cire/ui/card";
 
-import { BLOCK_CHOSEN, BLOCK_IDLE } from "../../lib/chosen-block";
+import { BLOCK_CHOSEN, BLOCK_REST } from "../../lib/chosen-block";
 
 /**
  * One card of the invite builder's pickers — a design, an envelope: the card
@@ -11,6 +11,15 @@ import { BLOCK_CHOSEN, BLOCK_IDLE } from "../../lib/chosen-block";
  */
 const PICKER_CARD = `${cardClass({ padding: "sm", fill: "none" })} items-start gap-2 transition-[color,background-color,border-color,box-shadow]`;
 
+/**
+ * The card is not the control: it holds a radio, and a design's card a
+ * "Preview live" link beside it. So an unchosen card goes halfway only while
+ * the pointer is on a radio a press would choose — never over the card's
+ * padding or its link, and never on a locked choice or during a save, both
+ * `aria-disabled` (DESIGN.md §7, Card: a hover promises a click).
+ */
+const PICKER_IDLE = `${BLOCK_REST} has-[[role=radio]:not([aria-disabled]):hover]:border-gold/50 has-[[role=radio]:not([aria-disabled]):hover]:ring-1 has-[[role=radio]:not([aria-disabled]):hover]:ring-gold/30`;
+
 export function pickerCardClass(chosen: boolean): string {
-  return `${PICKER_CARD} ${chosen ? BLOCK_CHOSEN : BLOCK_IDLE}`;
+  return `${PICKER_CARD} ${chosen ? BLOCK_CHOSEN : PICKER_IDLE}`;
 }
