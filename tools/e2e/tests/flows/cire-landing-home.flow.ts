@@ -431,6 +431,8 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
       "",
       await eyebrowOver(confirmation),
     );
+    // The open dialog keeps a name once the form gives way to the confirmation.
+    await expect(sheet).toHaveAccessibleName(/That.s the feeling/);
     flow.check(
       "the demo confirms the reply",
       true,
