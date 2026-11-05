@@ -19,7 +19,8 @@ last-reviewed: 2026-11-05
 > no service registers a global `MeterProvider`, so every instrument is a
 > type-checked no-op on every runtime. The Bun NodeSdk layer's metric reader
 > reads Effect's own `Metric` registry, which no service uses. Cloudflare's
-> Workers Observability offers no metrics. englishstreetventures/osn#501 holds
+> Workers Observability offers no custom application metrics (its Metrics tab
+> holds only Cloudflare's own request and resource counts). englishstreetventures/osn#501 holds
 > the decision. Write metrics to the rules below anyway; the call sites are
 > correct and will export once a provider exists.
 

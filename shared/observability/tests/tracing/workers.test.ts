@@ -21,6 +21,8 @@ interface Call {
 interface FakeOptions {
   readonly isTraced?: boolean;
   readonly throwOnStart?: boolean;
+  /** A span method that throws, as workerd's do from another request's I/O context. */
+  readonly throwOn?: "setAttribute" | "setStatus" | "end";
 }
 
 const makeFake = (options: FakeOptions = {}) => {
@@ -31,13 +33,19 @@ const makeFake = (options: FakeOptions = {}) => {
       if (options.throwOnStart === true) throw new Error("no request context");
       const span = next++;
       calls.push({ span, op: "startSpan", args: [name] });
+      const refuse = (op: FakeOptions["throwOn"]) => {
+        if (options.throwOn === op)
+          throw new Error("Cannot perform I/O on behalf of a different request");
+      };
       return {
         isTraced: options.isTraced ?? true,
         setAttribute(key: string, value: string | number | boolean) {
           calls.push({ span, op: "setAttribute", args: [key, value] });
+          refuse("setAttribute");
         },
         setStatus(status: { readonly code: string }) {
           calls.push({ span, op: "setStatus", args: [status] });
+          refuse("setStatus");
         },
         // The real API has it; the mirror must never call it, since each call
         // also writes an error-level line to Workers Logs.
@@ -46,6 +54,7 @@ const makeFake = (options: FakeOptions = {}) => {
         },
         end() {
           calls.push({ span, op: "end", args: [] });
+          refuse("end");
         },
       };
     },
@@ -84,16 +93,21 @@ describe("WorkersTracingLive", () => {
 
     await run(
       Effect.void.pipe(
-        Effect.withSpan("probe.attrs", { attributes: { email: PII, kind: "probe", count: 2 } }),
+        Effect.withSpan("probe.attrs", {
+          attributes: { email: PII, accessToken: "eyJ-secret", kind: "probe", count: 2 },
+        }),
       ),
     );
 
+    // The match ignores case: `accessToken` is listed as `accesstoken`.
     const attributes = fake.calls.filter((c) => c.op === "setAttribute").map((c) => c.args);
     expect(attributes).toEqual([
       ["email", "[REDACTED]"],
+      ["accessToken", "[REDACTED]"],
       ["kind", "probe"],
       ["count", 2],
     ]);
+    expect(JSON.stringify(fake.calls)).not.toContain("eyJ-secret");
     expect(JSON.stringify(fake.calls)).not.toContain(PII);
   });
 
@@ -198,6 +212,27 @@ describe("WorkersTracingLive", () => {
 
     expect(exit).toStrictEqual(Exit.succeed(7));
   });
+
+  for (const throwOn of ["setAttribute", "setStatus", "end"] as const) {
+    it(`leaves the effect's result unchanged when the Workers span's ${throwOn} throws`, async () => {
+      const fake = makeFake({ throwOn });
+      installWorkersTracing(fake.tracing);
+
+      const succeeded = await run(
+        Effect.succeed(7).pipe(Effect.withSpan("probe.refused", { attributes: { kind: "probe" } })),
+      );
+      const failed = await run(
+        Effect.fail(new LookupFailed({ message: "x" })).pipe(Effect.withSpan("probe.refused")),
+      );
+
+      expect(succeeded).toStrictEqual(Exit.succeed(7));
+      // The effect's own typed failure, not a defect from the refused call.
+      expect(Exit.isFailure(failed) ? failed.cause.reasons.map((r) => r._tag) : []).toEqual([
+        "Fail",
+      ]);
+      expect(fake.calls.some((c) => c.op === throwOn)).toBe(true);
+    });
+  }
 
   it("ends an untraced Workers span at once and sends it nothing else", async () => {
     const fake = makeFake({ isTraced: false });

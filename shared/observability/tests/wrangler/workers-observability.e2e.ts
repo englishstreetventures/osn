@@ -252,8 +252,17 @@ describe("Workers traces and logs from the shared observability layer", () => {
       await Bun.sleep(250);
     }
 
-    // Before anything is normalised away: no column of any row names the PII.
-    expect(JSON.stringify({ spans, logs })).not.toContain(PII);
+    // Before anything is normalised away: no column of any row the dev server
+    // holds names the PII. Every column, the JSON attribute column as text.
+    const raw = {
+      spans: await query<Record<string, unknown>>(
+        origin,
+        "SELECT *, json(attributes) AS attributes_json FROM spans",
+      ),
+      logs: await query<Record<string, unknown>>(origin, "SELECT * FROM logs"),
+    };
+    expect(raw.spans.length).toBeGreaterThanOrEqual(spans.length);
+    expect(JSON.stringify(raw)).not.toContain(PII);
 
     const handlerA = handlers.a!;
     const handlerB = handlers.b!;
@@ -327,6 +336,8 @@ describe("Workers traces and logs from the shared observability layer", () => {
       expect(outer.attributes["email"]).toBe("[REDACTED]");
       expect(outer.attributes["kind"]).toBe("probe");
       const failing = own.find((s) => s.name === `e2e.${role}.failing`)!;
+      // The error status is set too, but wrangler's local collector does not
+      // record it: its `outcome` column reads `ok` for such a span.
       expect(failing.attributes["error.type"]).toBe("LookupFailed");
 
       // A structured object at its own level, annotations redacted.

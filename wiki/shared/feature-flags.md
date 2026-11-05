@@ -4,7 +4,7 @@ tags: [systems, cire, feature-flags, growthbook]
 related:
   - "[[cire-organiser]]"
   - "[[cire-workerd]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-11-05
 ---
 # Feature flags — GrowthBook
 

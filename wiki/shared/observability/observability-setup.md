@@ -55,11 +55,11 @@ Set the following environment variables in each service deployment:
 OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-<region>.grafana.net/otlp"
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64-encoded-instance:token>"
 
-# Service identification
-OTEL_SERVICE_NAME="<service-name>"  # e.g. "pulse-api", "osn-app"
-OTEL_SERVICE_NAMESPACE="osn"
-DEPLOYMENT_ENVIRONMENT="<env>"      # dev | staging | production
+# The tier, which becomes `deployment.environment` on every span
+OSN_ENV="<env>"                      # dev | staging | production; unset is local
 ```
+
+The service name comes from the entry's `initObservability({ serviceName })` call, and `service.namespace` is always `osn` (`shared/observability/src/config.ts`).
 
 ### 3. Wire Into Deploy Environment
 
@@ -81,7 +81,7 @@ The `initObservability()` call sets up:
 
 A **Workers** service sets no endpoint and builds no exporter. Its layer is the redacting logger merged with `WorkersTracingLive`, and its `fetch` and `scheduled` handlers call `installWorkersTracing(ctx.tracing)` first. See [osn/api/src/observability.ts](../../../osn/api/src/observability.ts) and [cire/api/src/observability.ts](../../../cire/api/src/observability.ts): each builds the layer lazily when a request first runs. Cloudflare collects traces and logs itself; nothing is flushed.
 
-Import the workerd-safe `/config`, `/logger`, `/metrics` and `/tracing` subpaths. The package root also re-exports `makeTracingLayer`, whose `@effect/opentelemetry/NodeSdk` graph runs only on Bun; osn-api's `app.ts` imports `healthRoutes` and `observabilityPlugin` from the root, and its Worker bundle stays free of NodeSdk only because the bundler drops the unused exports. The Workers entry also passes `includeObservabilityPlugin: false`, because the per-request Elysia plugin calls `process.hrtime.bigint()`, which workerd does not provide.
+Import the workerd-safe `/config`, `/logger`, `/metrics` and `/tracing` subpaths. The package root also re-exports `makeTracingLayer`, whose `@effect/opentelemetry/NodeSdk` graph runs only on Bun; osn-api, pulse-api and zap-api import `healthRoutes` and `observabilityPlugin` from the root, and their Worker bundles stay free of NodeSdk only because the bundler drops the unused exports. osn-api's Workers entry passes `includeObservabilityPlugin: false`: the plugin times each request with `process.hrtime.bigint()`, which workerd has only as a `nodejs_compat` polyfill osn-api would rather not lean on (`osn/api/src/app.ts`). pulse-api and zap-api mount the plugin on Workers.
 
 ### 4. Verify with Health Endpoints
 
@@ -158,9 +158,9 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Symptom:** Dev and production data mixed in dashboards.
 
-**Cause:** `DEPLOYMENT_ENVIRONMENT` is unset, or set to the wrong value.
+**Cause:** `OSN_ENV` is unset, or set to the wrong value. `loadConfig` reads it (then `NODE_ENV`) and treats anything else as `local`.
 
-**Fix:** Set `DEPLOYMENT_ENVIRONMENT` to exactly one of: `dev`, `staging`, `production`. This becomes the `deployment.environment` resource attribute on all telemetry.
+**Fix:** Set `OSN_ENV` to exactly one of: `dev`, `staging`, `production`. This becomes the `deployment.environment` resource attribute on every span.
 
 ### Debug Logs Appearing in Production
 
@@ -177,7 +177,7 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Symptom:** A call from one service to another shows as two separate traces.
 
-**Cause:** By design. No call between services carries trace context: Cloudflare propagates none, and no service writes a `traceparent` ([[shared/observability/tracing#Trace context across services]]).
+**Cause:** By design. No call between services carries trace context: Cloudflare does not propagate it automatically, and no service writes a `traceparent` ([[shared/observability/tracing#Trace context across services]]).
 
 **Fix:** None needed. Match the caller's `fetch` span (its URL path, status and time) to the callee's handler span for that path at that time.
 

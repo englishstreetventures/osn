@@ -20,7 +20,7 @@ related:
   - "[[testing-patterns]]"
 packages:
   - "@shared/billing"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # @shared/billing

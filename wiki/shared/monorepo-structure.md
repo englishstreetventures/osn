@@ -77,7 +77,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Monorepo Structure

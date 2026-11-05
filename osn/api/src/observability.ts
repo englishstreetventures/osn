@@ -30,7 +30,7 @@ import { Layer, ManagedRuntime, type Effect } from "effect";
  * This layer is what `index.ts` hands `buildAppDeps` as its
  * `observabilityLayer`, and `build-deps.ts` merges it into the shared
  * `appRuntime` every route factory runs on; every cron sweep in `index.ts`
- * provides it too.
+ * runs on it through `runOsn`.
  *
  * ## Why this is built lazily
  *

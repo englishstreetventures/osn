@@ -15,7 +15,7 @@ last-reviewed: 2026-11-05
 
 # Observability Overview
 
-The deployed Workers use **Cloudflare's own observability**: Workers traces record every invocation (handler, D1, KV, R2, Durable Objects, outbound `fetch`), the application's `Effect.withSpan` spans join that trace as custom spans, and the redacting logger writes each log line to Workers Logs as a structured object. Nothing is exported from a Worker and nothing needs flushing. Bun processes (`src/local.ts`) can export Effect spans over OTLP to **Grafana Cloud** when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Frontend observability is **Grafana Faro**. All plumbing lives in `@shared/observability` -- no other package should import `@opentelemetry/*` directly.
+The deployed Workers use **Cloudflare's own observability**: Workers traces record every invocation (handler, D1, KV, R2, Durable Objects, outbound `fetch`), osn-api's and cire-api's `Effect.withSpan` spans join that trace as custom spans (zap-api's: englishstreetventures/osn#2000), and the redacting logger writes each log line to Workers Logs as a structured object. Nothing is exported from a Worker and nothing needs flushing. Bun processes (`src/local.ts`) can export Effect spans over OTLP to **Grafana Cloud** when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Frontend observability is **Grafana Faro**. All plumbing lives in `@shared/observability` -- no other package should import `@opentelemetry/*` directly.
 
 > **Workers.** Each Worker's `[observability]` block (on dev, its Alchemy
 > stack) decides what Cloudflare keeps. Cire keeps invocation records off
@@ -72,8 +72,9 @@ Only the Bun entries read these; no Worker exports anything.
   (`<base>/v1/traces`, `<base>/v1/metrics`; trailing slash stripped so it never
   emits `//v1/...`).
 - **`OTEL_EXPORTER_OTLP_HEADERS`** carries the auth header
-  (`Authorization=Basic <base64(instance:token)>`) and is a **secret**.
-  `OTEL_SERVICE_NAME` is the optional third var. See [[observability-setup]] and
+  (`Authorization=Basic <base64(instance:token)>`) and is a **secret**. The
+  service name comes from the entry's `initObservability({ serviceName })`, the
+  tier from `OSN_ENV`. See [[observability-setup]] and
   [[tracing#Bun: OTLP export]].
 
 ## Pillar pages

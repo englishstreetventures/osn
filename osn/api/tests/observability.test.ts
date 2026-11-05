@@ -12,13 +12,13 @@
  *
  * Trace mirror: the Worker's `fetch` and `scheduled` install their
  * `ctx.tracing`, and a span run on `osnLoggerLayer` (which `appRuntime` merges
- * and every cron sweep provides) then reaches it. Drop the install from either
+ * and every cron sweep runs on, through `runOsn`) then reaches it. Drop the install from either
  * handler, or `WorkersTracingLive` from the layer, and a test below fails.
  */
 import type { ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { installWorkersTracing } from "@shared/observability/tracing";
 import { Effect } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { handler, type Env } from "../src/index";
 import { osnLoggerLayer, runOsn, runOsnSync } from "../src/observability";
@@ -130,6 +130,29 @@ describe("osn Workers trace mirror", () => {
 
     await spanOnLayer();
     expect(opened).toEqual(["probe.osn"]);
+  });
+
+  it("a cron run's sweeps open their spans on the mirror", async () => {
+    const { ctx, opened } = recordingContext();
+    const pending: Promise<unknown>[] = [];
+    const cronCtx = {
+      ...ctx,
+      waitUntil: (promise: Promise<unknown>) => pending.push(promise.catch(() => undefined)),
+    } as unknown as ExecutionContext;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    try {
+      // A stub D1 binding: the sweeps fail inside, after opening their spans.
+      await handler.scheduled({} as ScheduledController, { DB: {} } as unknown as Env, cronCtx);
+      await Promise.all(pending);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+
+    expect(opened).toEqual(
+      expect.arrayContaining(["account.deletion.hard", "auth.session.rotated_sweep"]),
+    );
   });
 
   it("a fetch with no context clears the mirror", async () => {

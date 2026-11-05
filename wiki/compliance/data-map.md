@@ -10,7 +10,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Data Map (Article 30 Records of Processing)
@@ -287,15 +287,16 @@ is no direct child-account creation surface. Guest age handling folds into
 the platform-wide age-gate rollout when it lands ([[coppa]]); cire needs
 no gate of its own until then. Light-touch by design.
 
-## Observability (`@shared/observability` → Grafana Cloud)
+## Observability (`@shared/observability` → Cloudflare; Grafana Cloud for Bun processes only)
 
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
-| Trace span attributes (route, method, status, profile_id) | Debugging + perf monitoring | Art. 6(1)(f) | 14 d (Grafana free tier) | Grafana Labs (US — needs SCC + DPA) | [[shared/observability/overview]] |
-| Log entries (Effect.log*) — redacted | Debugging + audit | Art. 6(1)(f) | 50 GB rolling (~30 d typical) | Grafana Labs | [[shared/observability/overview]] |
+| Application spans mirrored into Cloudflare Workers traces — osn-api and cire-api, on the tiers that trace (local, dev): each `Effect.withSpan` name (such as `auth.session.rotated_sweep`, `cire.session.sweepExpired`), its string, number and boolean attributes with deny-listed keys replaced by `[REDACTED]` (`kind`, `template`, `trigger`, counts), and on failure `error.type`, the error's tag. No error message, log line or object value. Production API Workers keep traces off | Debugging + perf monitoring | Art. 6(1)(f) | 7 d (Cloudflare) | Cloudflare | [[shared/observability/tracing]] |
+| Trace span attributes from a Bun process (`src/local.ts`) with `OTEL_EXPORTER_OTLP_ENDPOINT` set — no deployed tier sets it | Local debugging | Art. 6(1)(f) | 14 d (Grafana free tier) | Grafana Labs (US — needs SCC + DPA) | [[shared/observability/overview]] |
+| Log entries (Effect.log*) — redacted, written to Workers Logs as structured objects on osn-api, cire-api and zap-api | Debugging + audit | Art. 6(1)(f) | 3 d on the Workers Free plan; 7 d from 2026-12-01 | Cloudflare | [[shared/observability/logging]] |
 | Cloudflare Workers Logs — cire-api and cire-invites (application logs only; `invocation_logs = false`, so no invocation record stores a request URL) | Debugging deployed Workers | Art. 6(1)(f) | 3 d on the Workers Free plan; 7 d from 2026-12-01 | Cloudflare | [[shared/observability/logging]] |
 | Cloudflare native Workers traces — production `cire-invites` (every guest request), and on dev every API Worker and `cire-invites`; the dev static sites keep traces off. Per request: the URL and path, the user agent and its parsed browser, OS and device type, country, city and timezone derived from the visitor's IP, their network (ASN), `Accept-Language`; per outbound fetch: the URL and the response status. No body, cookie or client IP. Production redacts query strings, so a path slug is the only wedding detail kept — an existing `/<slug>` link names the couple; `/cire/invite?slug=…` links keep it in the redacted query. On dev, osn-api, cire-api and cire-invites redact query strings too, since dev sign-in, the OIDC callback, digest stop links and the guest claim each take a secret or a code in one; zap-api keeps them. Dev holds synthetic cire data ([[dev-environment]]), but testers' own dev accounts mean dev traces hold their request paths | Debugging and performance of deployed Workers | Art. 6(1)(f) | 7 d (Cloudflare) | Cloudflare | [[shared/observability/tracing]] |
-| Metric samples (low cardinality) | Dashboards | Art. 6(1)(f) | 30 d (Grafana free tier metrics retention) | Grafana Labs | [[shared/observability/overview]] |
+| Metric samples (low cardinality) — none exported from any runtime today (englishstreetventures/osn#501) | Dashboards | Art. 6(1)(f) | 30 d (Grafana free tier metrics retention) once exported | Grafana Labs, once exported | [[shared/observability/metrics]] |
 | Frontend Faro events | UX + error monitoring | Art. 6(1)(f) — must remain non-PII; otherwise consent required | 14 d | Grafana Labs | [[shared/observability/overview]] |
 
 ## Cross-cutting

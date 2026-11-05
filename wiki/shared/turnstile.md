@@ -17,7 +17,7 @@ packages:
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-05
 ---
 # Turnstile bot protection
 

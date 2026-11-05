@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-05
 ---
 
 # Contributing

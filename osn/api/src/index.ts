@@ -12,7 +12,7 @@ import { createDurableCoordination } from "./lib/coordination/durable";
 import { selectEmailLayer } from "./lib/email-layer";
 import { readOsnRateLimitBindings, USER_TIERS } from "./lib/native-rate-limiters";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
-import { osnLoggerLayer } from "./observability";
+import { osnLoggerLayer, runOsn } from "./observability";
 import * as accountErasure from "./services/account-erasure";
 import { setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
@@ -354,32 +354,30 @@ export const handler: OsnWorkerHandler = {
           internalServiceSecret: env.INTERNAL_SERVICE_SECRET,
           osnEnv: env.OSN_ENV,
         }).catch((err) =>
-          Effect.runPromise(
+          runOsn(
             Effect.logError("scheduled outbound ARC key registration failed", {
               reason: String(err),
-            }).pipe(Effect.provide(osnLoggerLayer)),
+            }),
           ),
         );
-        await Effect.runPromise(
+        await runOsn(
           accountErasure.runFanOutRetrySweep(fanoutUrls).pipe(
             Effect.catch((err) =>
               Effect.logError("scheduled fan-out retry sweep failed", { reason: String(err) }),
             ),
             Effect.provide(dbLayer),
-            Effect.provide(osnLoggerLayer),
           ),
         );
       })(),
     );
 
     ctx.waitUntil(
-      Effect.runPromise(
+      runOsn(
         accountErasure.runHardDeleteSweep().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled hard-delete sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
-          Effect.provide(osnLoggerLayer),
         ),
       ),
     );
@@ -388,13 +386,12 @@ export const handler: OsnWorkerHandler = {
     // redeemed code deletes itself; only abandoned or endpoint-spammed codes
     // outlive their 60s TTL, and left unswept they grow without bound.
     ctx.waitUntil(
-      Effect.runPromise(
+      runOsn(
         runExpiredAuthCodeSweep().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled OIDC code sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
-          Effect.provide(osnLoggerLayer),
         ),
       ),
     );
@@ -405,7 +402,7 @@ export const handler: OsnWorkerHandler = {
     // several ticks.
     const sweepChunks = rotatedSweepMaxChunks(env.OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS);
     ctx.waitUntil(
-      Effect.runPromise(
+      runOsn(
         Effect.gen(function* () {
           if (sweepChunks === "invalid") {
             yield* Effect.logWarning(
@@ -420,7 +417,6 @@ export const handler: OsnWorkerHandler = {
             Effect.logError("scheduled rotated-session sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
-          Effect.provide(osnLoggerLayer),
         ),
       ),
     );

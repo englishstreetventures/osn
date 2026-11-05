@@ -122,7 +122,9 @@ const redactedTracerLogger: Logger.Logger<unknown, void> = redactInput(Logger.tr
  *   readable on a developer's own terminal, a structured object in Workers
  *   Logs, a JSON line anywhere else a machine reads it
  * - Keeps the (redacted) tracer logger alongside it, so log lines stay attached
- *   to their span
+ *   to their span — except on a deployed Worker, where span events never leave
+ *   the process (the Workers trace mirror forwards none) and Workers Logs files
+ *   each line under the invocation's trace itself
  * - Applies the configured minimum log level
  *
  * `dev` gets the machine form, not the readable one. It reads like a developer
@@ -144,14 +146,13 @@ const redactedTracerLogger: Logger.Logger<unknown, void> = redactInput(Logger.tr
  */
 export const makeLoggerLayer = (config: ObservabilityConfig): Layer.Layer<never> =>
   Layer.mergeAll(
-    Logger.layer([
+    Logger.layer(
       config.env === "local"
-        ? prettyRedactingLogger
+        ? [prettyRedactingLogger, redactedTracerLogger]
         : onWorkerd()
-          ? workersLogsLogger
-          : jsonRedactingLogger,
-      redactedTracerLogger,
-    ]),
+          ? [workersLogsLogger]
+          : [jsonRedactingLogger, redactedTracerLogger],
+    ),
     Layer.succeed(References.MinimumLogLevel, LOG_LEVEL_MAP[config.logLevel]),
   );
 

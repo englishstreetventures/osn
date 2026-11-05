@@ -262,10 +262,11 @@ account stays on Free: a spent allowance there stops only dev sign-in. Why:
 ### 1.5 Observability
 
 Nothing to provision. The Workers use Cloudflare's own Workers traces and Workers
-Logs, set by each Worker's `[observability]` block, and export nothing; no Worker
-reads `OTEL_EXPORTER_OTLP_*`. If an `OTEL_*` secret is set on osn-api or cire-api
-from an earlier plan, nothing reads it, and `bunx wrangler secret delete <name>
---env production` removes it. No metric has an export path yet
+Logs, set by each Worker's `[observability]` block, and export nothing. If an
+`OTEL_*` secret is set on osn-api or cire-api from an earlier plan, nothing
+exports with it, but `loadConfig` still parses `OTEL_EXPORTER_OTLP_HEADERS` and
+refuses to build the logger on a malformed value; `bunx wrangler secret delete
+<name> --env production` removes it. No metric has an export path yet
 (englishstreetventures/osn#501). See [[observability-setup]] and [[tracing]].
 
 ---

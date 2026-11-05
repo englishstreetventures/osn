@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 
 import { weddingHosts, weddings } from "@cire/db";
 import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
+import { installWorkersTracing } from "@shared/observability/tracing";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { Miniflare } from "miniflare";
@@ -1036,6 +1037,56 @@ describe("D1 session routing at the entry points", () => {
   // test below that calls `runCron` carries a 30 s budget rather than bun's 5 s
   // default. A timeout here is worse than a failure: bun kills workerd, and the
   // next blocking call waits on it forever, so `bun test` never exits.
+
+  it("runs every sweep on the mirrored runtime, so each opens its span in the cron's trace", async () => {
+    const opened: string[] = [];
+    const tracing = {
+      ...ctx.tracing,
+      startSpan: (name: string) => {
+        opened.push(name);
+        return { isTraced: true, setAttribute: () => undefined, end: () => undefined };
+      },
+    };
+    const probe = probeD1();
+    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
+      NonNullable<typeof handler.scheduled>
+    >[1];
+    const pending: Promise<unknown>[] = [];
+    const cronCtx = {
+      ...ctx,
+      tracing,
+      waitUntil: (promise: Promise<unknown>) => {
+        pending.push(promise);
+      },
+    } as unknown as ExecutionContext;
+    try {
+      await handler.scheduled!(
+        { cron: "0 4 * * *", scheduledTime: Date.now(), noRetry: () => {} } as ScheduledController,
+        env,
+        cronCtx,
+      );
+      await Promise.allSettled(pending);
+    } finally {
+      installWorkersTracing(undefined);
+    }
+
+    // One per sweep; with no mail transport the digest does not run.
+    expect([...new Set(opened)].toSorted()).toEqual(
+      [
+        "cire.assets.reconcileOrphans",
+        "cire.claimReview.sweep",
+        "cire.maintenance.purgeDeletedWeddings",
+        "cire.maintenance.sweepExpiredVendorClaims",
+        "cire.maintenance.sweepStalePreviews",
+        "cire.organiserSession.sweepExpired",
+        "cire.realtime.sweepSubscribeBudget",
+        "cire.retention.sweepExpiredGuestData",
+        "cire.rsvp_changes.sweepExpired",
+        "cire.session.sweepExpired",
+        "cire.sheets.reconcileOrphans",
+      ].toSorted(),
+    );
+  }, 30_000);
 
   it("gives each scheduled sweep its own session", async () => {
     // One session per sweep — deliberately NOT one shared by all of them.

@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-11-05
 ---
 
 # Email Transport

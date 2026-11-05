@@ -22,7 +22,7 @@ Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError` inside Effect pipeli
 | Tier | Runtime | What reaches the console |
 |---|---|---|
 | `local` | any | Effect's pretty logger, coloured, multi-line |
-| `dev`, `staging`, `production` | workerd (`navigator.userAgent` is `Cloudflare-Workers`) | The entry as an object, through the console method of its level: `console.info`, `console.warn`, `console.error`, `console.debug` |
+| `dev`, `staging`, `production` | workerd (`navigator.userAgent` is `Cloudflare-Workers`) | The entry as an object, through the console method of its level: `console.debug`, `console.info`, `console.warn`, `console.error` (error and fatal), `console.trace` (trace) |
 | `dev`, `staging`, `production` | anything else (Bun with `OSN_ENV` set) | The entry as one JSON line through `console.log` |
 
 On a Worker that object is what Workers Logs indexes: it extracts and indexes the keys of a logged object, and keeps a logged string as one message that only a text match finds ([Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/), read 2026-11-05). A line's level in Workers Logs is the console method's. The entry's own fields are `message`, `level`, `timestamp`, `cause`, `annotations`, `spans` and `fiberId`, so an annotation is queried as `annotations.<key>`.
@@ -83,15 +83,17 @@ through.
 > key is `[REDACTED]` while an allow-listed one survives.
 
 Effect v4 moved annotations off the logger's `Options` and onto the fiber, so
-there is no input to intercept any more. Redaction therefore sits on the output
-side, wrapping `Logger.formatStructured` — whose output object already carries
+the logger's options carry no annotations to scrub. Redaction for the console
+loggers therefore sits on the output side, wrapping `Logger.formatStructured` — whose output object already carries
 the resolved `message` and `annotations`. Anything that rebuilds the logger must
 keep that seam, and must keep the tracer logger in the `Logger.layer([…])`
 array: that call replaces the **whole** active set, so omitting it drops
 log-to-span correlation with no error. The tracer logger is wrapped in the same
 input-side scrub as the pretty logger (`redactInput`), because it copies each
 line's message and annotations onto the span as an event, which the Bun OTLP
-path exports. A Workers span carries no events ([[tracing#Effect spans in Workers traces]]).
+path exports. A deployed Worker lists only the Workers Logs logger: a Workers
+span carries no events ([[tracing#Effect spans in Workers traces]]), and Workers
+Logs files each line under the invocation's trace itself.
 
 ### The JSON field is `level`, not `logLevel`
 

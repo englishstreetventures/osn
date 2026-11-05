@@ -50,8 +50,9 @@ read 2026-11-05). A fetch handler span records the full URL and path, the user
 agent, the visitor's country, city and timezone, their network (ASN) and
 `Accept-Language`; an outbound fetch span records the URL, its query and the
 response status. Neither records a body, a cookie or the client IP. Cloudflare
-keeps traces for seven days, and samples them at
-`observability.traces.head_sampling_rate`
+keeps traces for seven days
+([Observability pricing](https://developers.cloudflare.com/observability/pricing/)),
+and samples them at `observability.traces.head_sampling_rate`
 ([Workers traces](https://developers.cloudflare.com/workers/observability/traces/)).
 
 ## Effect spans in Workers traces
@@ -79,9 +80,11 @@ What a mirrored span carries, and what it does not:
   ([[logging#Redaction]]) carries `[REDACTED]`.
 - **Failure.** `error.type` set to the error's `_tag` (an `Error`'s `name` for a
   defect) and the span's status set to error. Never the message, which is free
-  text the deny-list cannot clean. Never `recordException` either: each call
-  also writes an error-level line to Workers Logs, so a failure passing up
-  through nested spans would write several.
+  text the deny-list cannot clean. Never `recordException` either: on
+  `wrangler dev` each call also writes an error-level log line, so a failure
+  passing up through nested spans would write several. wrangler's local
+  collector shows the error status as nothing; the `error.type` attribute is
+  what it shows.
 - **Not carried.** Span events, which hold the tracer logger's copy of each log
   line, and links. The Workers span has no API for either.
 - **Sampling.** Cloudflare's. `OSN_TRACE_SAMPLE_RATIO` governs only the Bun
@@ -98,18 +101,20 @@ Limits and edges:
   again, the isolate's spans stay in-process. Every deployed invocation carries
   one.
 - An Effect fiber that another request's work resumes (one request completing a
-  `Deferred` another request waits on) runs in that request's I/O context, and
-  workerd refuses console and tracing calls there with "Cannot perform I/O on
-  behalf of a different request". The mirror drops the span; a log line from
-  that fiber fails. A request that awaits a promise another request resolves
-  never resumes at all. This is a rule for every kind of I/O, not only
-  telemetry.
+  `Deferred` another request waits on) runs in that request's I/O context.
+  There workerd refuses a console call with "Cannot perform I/O on behalf of a
+  different request", so a log line from that fiber fails, and a span it opens
+  did not reach the trace; the mirror swallows any refusal. A request that
+  awaits a promise another request resolves either never resumes or fails the
+  same way. workerd applies the rule to every kind of I/O, not only telemetry.
+
+  *Measured 2026-11-05 — `wrangler dev` (wrangler 4.149.0, workerd 1.20261006.1), two overlapping requests, traces on and off, `console.log` and `console.info`.*
 
 **Cost.** Ingestion counts where traces are on: local, dev and the production
 guest site, never a production API Worker (above). From 2026-12-01 traces and
 logs share one ingestion allowance, 0.5 GB a day on Workers Free
-([[free-tier-limits#Monitoring]]). CPU: a mirrored span costs a few tens of
-microseconds on local workerd, with observability on or off.
+([[free-tier-limits#Monitoring]]). CPU: a mirrored span costs 16–29 µs on
+local workerd, with observability on or off.
 
 *Measured 2026-11-05 — `wrangler dev` (wrangler 4.149.0, workerd 1.20261006.1),
 one request opening 1,000 spans through `ctx.tracing.startSpan`, timed between
@@ -143,11 +148,11 @@ Span names are **hierarchical** and **snake_case**. Dots separate layers; unders
 
 ## Trace context across services
 
-**No call between services carries trace context.** Cloudflare does not propagate it: "trace IDs are not propagated to services outside of Cloudflare" ([known limitations](https://developers.cloudflare.com/workers/observability/traces/known-limitations/), read 2026-11-05), and its span API is not to be used "to build a `traceparent` header for downstream services" ([custom spans](https://developers.cloudflare.com/workers/observability/traces/custom-spans/)). The services call each other over public HTTPS, not service bindings, so each service's trace stands alone.
+**No call between services carries trace context.** Cloudflare does not propagate it: "Trace context is also not propagated automatically" ([custom spans](https://developers.cloudflare.com/workers/observability/traces/custom-spans/), read 2026-11-05), and "trace IDs are not propagated to services outside of Cloudflare" ([known limitations](https://developers.cloudflare.com/workers/observability/traces/known-limitations/)). The services call each other over public HTTPS, not service bindings. No service writes a `traceparent` from its span ids either; that is this repository's choice, since a span's `traceFlags` does not say whether the request is sampled, which Cloudflare warns about. So each service's trace stands alone.
 
 **Nor is an inbound `traceparent` adopted.** On `wrangler dev` a handler span starts a trace of its own when the caller sends a forged `traceparent`, so no caller chooses another service's trace id or sampling decision; the E2E test above checks it on every run. Cloudflare lists propagation as coming, with no date, so that test is the one to fail first when it lands.
 
-What is left for following a call from one service to the next: the caller's `fetch` span (its URL path, status and time) against the callee's handler span for that path at that time. osn-api echoes a well-formed inbound `x-request-id`, but no caller sends one and no log line or span records it.
+What is left for following a call from one service to the next: the caller's `fetch` span (its URL path, status and time) against the callee's handler span for that path at that time. osn-api's Workers entry, and the Elysia plugin on pulse-api and zap-api, echo a well-formed inbound `x-request-id`, but no caller sends one and no log line or span records it.
 
 ## Bun: OTLP export
 

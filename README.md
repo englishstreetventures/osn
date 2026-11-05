@@ -250,7 +250,7 @@ So Pulse users can join event chats without installing Zap.
 | Linting | oxlint |
 | Formatting | `bun fmt` (Bun's built-in formatter, config in `.oxfmtrc.json`) |
 | Validation | Elysia TypeBox at the HTTP boundary, Effect Schema in services |
-| Observability | OpenTelemetry → Grafana Cloud |
+| Observability | Cloudflare Workers traces and Workers Logs; OpenTelemetry OTLP from Bun processes |
 | Feature flags | GrowthBook |
 | Versioning | Changesets |
 

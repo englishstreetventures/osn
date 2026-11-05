@@ -22,8 +22,11 @@ app.listen(3001);
 
 ## Packages / exports
 
-- `@shared/observability` — the Bun-only top-level barrel: `initObservability`,
-  `makeObservabilityLayer`, `makeTracingLayer`, and the most common helpers.
+- `@shared/observability` — the top-level barrel: `initObservability`,
+  `makeObservabilityLayer`, `makeTracingLayer` (Bun only: NodeSdk), and the
+  most common helpers. A Worker may import `observabilityPlugin` and
+  `healthRoutes` from it, as pulse-api and zap-api do; the bundler drops the
+  NodeSdk exports it does not use.
 - `@shared/observability/config` — env-driven config.
 - `@shared/observability/logger` — the redacting loggers: pretty on `local`,
   a structured object to Workers Logs on a deployed Worker, a JSON line on Bun.
@@ -38,7 +41,7 @@ app.listen(3001);
 
 Outbound HTTP is a plain `fetch`; on a Worker, Cloudflare traces each call.
 
-## Rules (see CLAUDE.md for the full version)
+## Rules (the full version: `wiki/shared/observability/overview.md`)
 
 1. Never call `console.*` in backend code — use `Effect.logInfo/Warn/Error`.
 2. Never construct OTel meters/tracers directly — use the typed helpers.

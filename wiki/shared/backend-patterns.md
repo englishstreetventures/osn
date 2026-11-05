@@ -208,8 +208,8 @@ The two entries differ in what they wire: `local.ts` starts the OTel SDK through
 `initObservability()`, while `index.ts` builds the redacting logger layer with
 the Workers trace mirror (`osnLoggerLayer`), installs `ctx.tracing` at the top
 of `fetch` and `scheduled`, and sets `includeObservabilityPlugin: false` (the
-per-request plugin calls `process.hrtime.bigint()`, absent on workerd). See
-[[logging]] and [[tracing]].
+per-request plugin times requests with `process.hrtime.bigint()`, which workerd
+has only as a `nodejs_compat` polyfill). See [[logging]] and [[tracing]].
 
 ## Error Handling Pattern
 
