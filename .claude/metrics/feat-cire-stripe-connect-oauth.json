@@ -1,0 +1,196 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 2024,
+    "branch": "feat/cire-stripe-connect-oauth",
+    "base_sha": "b956fefdab88144f58a41f5853a8d57640f0164b",
+    "head_sha": "daeeac5b2a22b707cfa1ef0add21ac5f220e4349",
+    "generated_at": "2026-11-05T14:33:26.867Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1997,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 2,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 9,
+    "first_ts": "2026-11-05T11:02:15.451Z",
+    "last_ts": "2026-11-05T14:33:19.867Z",
+    "span_seconds": 12664,
+    "active_seconds": 10683,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 121.89058020000003,
+    "tokens": {
+      "input": 1454,
+      "output": 734517,
+      "thinking": 332647,
+      "cache_write_5m": 3928071,
+      "cache_write_1h": 0,
+      "cache_read": 218885173
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1454,
+          "output": 734517,
+          "thinking": 332647,
+          "cache_write_5m": 3928071,
+          "cache_write_1h": 0,
+          "cache_read": 218885173
+        },
+        "usd_equivalent": 121.89058020000003,
+        "messages": 711
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 54,
+          "output": 24157,
+          "thinking": 16951,
+          "cache_write_5m": 351602,
+          "cache_write_1h": 0,
+          "cache_read": 1029035
+        },
+        "usd_equivalent": 2.65298,
+        "messages": 27
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1400,
+          "output": 710360,
+          "thinking": 315696,
+          "cache_write_5m": 3576469,
+          "cache_write_1h": 0,
+          "cache_read": 217856138
+        },
+        "usd_equivalent": 119.23760020000002,
+        "messages": 684
+      }
+    },
+    "effort": {
+      "medium": 27,
+      "high": 286,
+      "xhigh": 398
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 19,
+      "docs": 8,
+      "config": 2,
+      "source": 25
+    },
+    "loc": {
+      "generated": {
+        "added": 18,
+        "deleted": 0
+      },
+      "test": {
+        "added": 2133,
+        "deleted": 11
+      },
+      "docs": {
+        "added": 110,
+        "deleted": 19
+      },
+      "config": {
+        "added": 18,
+        "deleted": 2
+      },
+      "source": {
+        "added": 1964,
+        "deleted": 118
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/infra",
+      "shared/infra",
+      "tools/e2e"
+    ],
+    "touches_migration": true,
+    "commits": 9
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 601,
+      "Read": 82,
+      "Skill": 13,
+      "Grep": 11,
+      "WebFetch": 10,
+      "Write": 7,
+      "Agent": 7,
+      "SubagentHandback": 7,
+      "StructuredOutput": 6,
+      "ToolSearch": 3,
+      "TaskStop": 3,
+      "Edit": 2,
+      "WebSearch": 1,
+      "Monitor": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 5
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "design-system": 1,
+      "write-wiki": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-state": 1,
+      "review-performance": 1,
+      "write-issue": 1,
+      "review-design": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "reviewer": 5
+    },
+    "requests": {
+      "main": 27,
+      "subagent": 684,
+      "with_tools": 705,
+      "with_one_tool": 657,
+      "context_median": 187519,
+      "context_p90": 716913
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 12,
+    "located": 5,
+    "acted_on": 5,
+    "paired": 5,
+    "acted_on_paired": 5,
+    "control_changed": 1,
+    "acted_on_by_test": 3,
+    "acted_on_paired_by_test": 3
+  }
+}
