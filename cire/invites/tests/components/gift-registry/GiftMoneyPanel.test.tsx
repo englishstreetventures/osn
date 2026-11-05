@@ -494,16 +494,27 @@ describe("giving towards a group gift", () => {
     // A plain fund says neither.
     const fund = container.querySelector(`[data-gift-money-fund="${HONEYMOON.id}"]`) as HTMLElement;
     expect(fund.textContent).not.toContain("Group gift");
+    expect(fund.textContent).not.toContain("Guests give towards it together");
   });
 
   it("says the group gift has closed, in its own words", async () => {
     stubFetch(json({ error: "fund_unavailable" }, 409));
-    const { container } = renderPanel({ funds: [ESPRESSO] });
+    const { container } = renderPanel({ funds: [HONEYMOON, ESPRESSO] });
     fireEvent.click(screen.getByRole("radio", { name: /Espresso machine/ }));
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
 
     expect(await screen.findByText("This group gift is no longer available.")).toBeTruthy();
     expect(screen.queryByText(FUND_CLOSED)).toBeNull();
+  });
+
+  it("says a plain fund has closed in the fund's words, beside a group gift", async () => {
+    stubFetch(json({ error: "fund_unavailable" }, 409));
+    const { container } = renderPanel({ funds: [HONEYMOON, ESPRESSO] });
+    fireEvent.click(screen.getByRole("radio", { name: new RegExp(HONEYMOON.title) }));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    expect(await screen.findByText(FUND_CLOSED)).toBeTruthy();
+    expect(screen.queryByText("This group gift is no longer available.")).toBeNull();
   });
 });
 

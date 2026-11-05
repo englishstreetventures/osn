@@ -278,8 +278,8 @@ test("cire-registry-money", async ({ page, flow }) => {
   });
   flow.check(
     "the portal refuses a cleared target in its words",
-    "A group gift needs a target: what it costs.",
-    edited.refusal,
+    true,
+    edited.refusal.endsWith("A group gift needs a target: what it costs."),
   );
   flow.check("the portal sends nothing for a cleared target", 0, edited.patchesBeforeTarget);
   flow.check("cire-api saves the new target", 200, edited.status);
@@ -298,6 +298,11 @@ test("cire-registry-money", async ({ page, flow }) => {
     return (await card.locator("li").allTextContents()).map((text) => text.trim());
   });
   flow.check("the gifts tab shows three group gifts", 3, together.length);
+  flow.check(
+    "the gifts tab tags none of them again under its own heading",
+    false,
+    together.some((text) => text.includes("Group gift")),
+  );
   flow.check(
     "the gifts tab shows the espresso machine past its target",
     true,

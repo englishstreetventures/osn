@@ -605,6 +605,8 @@ describe("RegistryView — gifts received", () => {
     ));
     expect(await screen.findByText(/250[.,]00/)).toBeInTheDocument();
     expect(screen.queryByText(/Approximate/)).not.toBeInTheDocument();
+    // A list with no group gift draws no Group gifts card beside the total.
+    expect(screen.queryByTestId("group-gifts")).toBeNull();
   });
 
   it("says how many gifts the cash total leaves out", async () => {
@@ -2029,6 +2031,11 @@ describe("RegistryView — group gifts", () => {
       target: { value: "Espresso machine" },
     });
     fireEvent.input(screen.getByLabelText("Target"), { target: { value: "1200" } });
+    fireEvent.input(screen.getByLabelText("Description (optional)"), {
+      target: { value: "For slow Sunday mornings." },
+    });
+    // A group gift's own fields only: none of a gift to reserve's.
+    expect(screen.queryByLabelText("How many")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /add group gift/i }));
 
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
@@ -2036,7 +2043,7 @@ describe("RegistryView — group gifts", () => {
       kind: "cash_fund",
       allowPartial: true,
       title: "Espresso machine",
-      description: null,
+      description: "For slow Sunday mornings.",
       targetMinor: 120_000,
       imageKey: null,
     });
@@ -2088,11 +2095,19 @@ describe("RegistryView — group gifts", () => {
     const rowText = async () =>
       (await screen.findByText("Espresso machine")).closest("li")?.textContent ?? "";
     const aud = (minor: number) => formatMinor(minor, "AUD");
-    setCachedRegistry("wed_1", snapshot({ items: [raised(100_000, 1, 0)] }));
+    setCachedRegistry("wed_1", snapshot({ items: [raised(0, 0, 0)] }));
     renderList();
 
-    expect(await rowText()).toContain(`${aud(100_000)} of ${aud(120_000)} · 1 gift`);
-    expect(await rowText()).toContain(`${aud(20_000)} to go`);
+    // Nothing in yet: no count and no other currency to speak of, so the
+    // figure runs straight into what is left.
+    expect(await rowText()).toContain(`${aud(0)} of ${aud(120_000)}${aud(120_000)} to go`);
+    expect(await rowText()).not.toMatch(/ · |another currency/);
+
+    setCachedRegistry("wed_1", snapshot({ items: [raised(100_000, 1, 0)] }));
+    await waitFor(async () => expect(await rowText()).toMatch(/ · 1 gift(?!s)/));
+    expect(await rowText()).toContain(
+      `${aud(100_000)} of ${aud(120_000)} · 1 gift${aud(20_000)} to go`,
+    );
 
     setCachedRegistry("wed_1", snapshot({ items: [raised(120_000, 1, 0)] }));
     await waitFor(async () => expect(await rowText()).toContain("Target reached"));
@@ -2104,6 +2119,62 @@ describe("RegistryView — group gifts", () => {
     setCachedRegistry("wed_1", snapshot({ items: [raised(120_000, 2, 1)] }));
     await waitFor(async () =>
       expect(await rowText()).toContain(" · 1 more in another currency, not added in"),
+    );
+
+    setCachedRegistry("wed_1", snapshot({ items: [raised(150_000, 3, 1)] }));
+    await waitFor(async () => expect(await rowText()).toContain("Past target"));
+    expect(await rowText()).not.toContain("Target reached");
+  });
+
+  it("says guests cannot see the group gifts, when they are the only money on the list", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [groupGift(), item({ id: "pan", title: "Copper pan" })],
+        settings: { ...snapshot().settings, moneyGiftsBlockedBy: "cash_gifts_off" },
+      }),
+    );
+    renderList();
+
+    expect(await screen.findByText(/^Guests see your group gifts only/)).toHaveTextContent(
+      "Guests see your group gifts only while money gifts are on. Turn them on in the Settings tab.",
+    );
+  });
+
+  it("says why the API refused a group gift, in a group gift's words", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    authFetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "invalid_item_fields" }), { status: 400 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "invalid_body" }), { status: 400 }),
+      )
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockImplementation(async () => new Response(JSON.stringify(snapshot()), { status: 200 }));
+    renderList();
+    const add = () => {
+      fireEvent.input(screen.getByLabelText("Group gift"), {
+        target: { value: "Espresso machine" },
+      });
+      fireEvent.input(screen.getByLabelText("Target"), { target: { value: "1200" } });
+      fireEvent.click(screen.getByRole("button", { name: /add group gift/i }));
+    };
+    fireEvent.click(await screen.findByRole("radio", { name: "A group gift" }));
+
+    add();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A group gift takes a name, a target, a description and a picture, and nothing else.",
+    );
+    add();
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Check the group gift’s name and target.",
+      ),
+    );
+    add();
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Couldn't add that group gift."),
     );
   });
 
