@@ -410,6 +410,24 @@ describe("GET /api/auth/oidc/callback", () => {
         expect(location.searchParams.get("auth_error")).toBe("sign_in_unavailable");
       },
     );
+
+    // The local server takes the organiser origin from `WEB_ORIGIN` as typed,
+    // slashes and all. The landing is still the portal's `/login/`.
+    it.each(["/", "//"])(
+      "an unavailable sign-in lands on /login/ when the organiser origin ends in %s",
+      async (tail) => {
+        const app = mkApp(freshDb(), {
+          oidc: null,
+          organiserOrigin: `${HOST}${tail}`,
+          vendorPortalOrigin: VENDOR,
+          allowedOrigins: [TEST_RETURN_ORIGIN, HOST, VENDOR],
+        });
+        const res = await appRequest(app, "/api/auth/oidc/start?return_to=");
+        expect(res.status).toBe(302);
+        const location = new URL(res.headers.get("location")!);
+        expect(location.origin + location.pathname).toBe(`${HOST}/login/`);
+      },
+    );
   });
 
   it("refuses a mismatched state and sets no session", async () => {
