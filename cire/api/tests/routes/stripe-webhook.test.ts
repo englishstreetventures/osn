@@ -1323,6 +1323,20 @@ describe("a Standard account's own business on the gift endpoint", () => {
     expect(logs).toContain("money event on a Standard account's own charge");
   });
 
+  it("acknowledges an ended session naming no gift of cire's before any read", async () => {
+    const { app, db } = buildApp();
+    const statements = recordStatements(db);
+    const ended = JSON.parse(
+      checkoutCompleted({
+        session: { client_reference_id: "order_1001" },
+        metadata: { contributionId: "order_1001" },
+      }),
+    ) as Record<string, unknown>;
+    const res = await deliver(app, JSON.stringify({ ...ended, type: "checkout.session.expired" }));
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
+    expect(statements).toEqual([]);
+  });
+
   it("acknowledges a session naming no gift of cire's before any read (21)", async () => {
     const { app, db } = buildApp();
     const statements = recordStatements(db);

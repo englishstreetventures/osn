@@ -2060,6 +2060,30 @@ describe("a Stripe account the couple already have", () => {
     expect(toastError.mock.calls.at(-1)?.[0]).toMatch(/already has a Stripe account/);
   });
 
+  it("sends an owner whose session lapsed to sign in, not to Stripe", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    api({ oauth: json({ error: "unauthorised" }, 401) });
+    const assign = navigation();
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: EXISTING }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("says the site cannot connect an existing account when the route is not there", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    api({ oauth: json({ error: "Not found" }, 404) });
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: EXISTING }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() =>
+      expect(toastError.mock.calls.at(-1)?.[0]).toMatch(/isn’t available on this site yet/),
+    );
+  });
+
   const theirOwn = (connector: string | null, ready = true) =>
     withOAuth({
       settings: {

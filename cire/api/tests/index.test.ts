@@ -537,6 +537,74 @@ describe("money gifts need both Stripe values on the Worker", () => {
   });
 });
 
+describe("connecting an existing Stripe account needs the client id on the Worker", () => {
+  // Distinctive values, so a log line that carried either would be found.
+  const KEY = "stripe-key-under-test-oauth-7c1d";
+  const WARNING = "stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id";
+
+  /**
+   * Stripe's redirect back, with a state no start minted, to a Worker built for
+   * `extra` on a binding it has not seen. A mounted callback answers a 302 to
+   * the portal (`expired`); an unmounted one answers 404.
+   */
+  async function returnThroughWorker(
+    extra: Record<string, unknown>,
+  ): Promise<{ statuses: number[]; logs: string }> {
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = { ...BASE_ENV, ...extra, DB: freshBinding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+    const back = () =>
+      new Request("https://api.example.com/api/organiser/stripe/oauth/callback?state=x&code=y", {
+        headers: { "cf-connecting-ip": "203.0.113.65" },
+      }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0];
+    const statuses: number[] = [];
+    const logs = await captureLogs(async () => {
+      statuses.push((await handler.fetch!(back(), env, ctx)).status);
+      statuses.push((await handler.fetch!(back(), env, ctx)).status);
+    });
+    return { statuses, logs };
+  }
+
+  const ON = {
+    STRIPE_SECRET_KEY: KEY,
+    STRIPE_CONNECT_CLIENT_ID: "ca_workerUnderTest",
+    CIRE_API_ORIGIN: "https://api.example.com",
+  };
+
+  it("mounts the callback with the key, a ca_ id and the API origin, and says nothing", async () => {
+    const { statuses, logs } = await returnThroughWorker(ON);
+    expect(statuses).toEqual([302, 302]);
+    expect(logs).not.toContain(WARNING);
+    expect(logs).not.toContain(KEY);
+  });
+
+  it("mounts nothing for a client id that is not a ca_ id, and says so once", async () => {
+    const { statuses, logs } = await returnThroughWorker({
+      ...ON,
+      STRIPE_CONNECT_CLIENT_ID: "sk_test_pasted_into_the_wrong_box",
+    });
+    expect(statuses).toEqual([404, 404]);
+    expect(logs.split(WARNING).length - 1).toBe(1);
+    expect(logs).not.toContain("sk_test_pasted_into_the_wrong_box");
+  });
+
+  it("mounts nothing, and says nothing, without the client id or the API origin", async () => {
+    for (const extra of [
+      { STRIPE_SECRET_KEY: KEY, CIRE_API_ORIGIN: ON.CIRE_API_ORIGIN },
+      { STRIPE_SECRET_KEY: KEY, STRIPE_CONNECT_CLIENT_ID: ON.STRIPE_CONNECT_CLIENT_ID },
+    ]) {
+      const { statuses, logs } = await returnThroughWorker(extra);
+      expect(statuses).toEqual([404, 404]);
+      expect(logs).not.toContain(WARNING);
+    }
+  });
+});
+
 describe("upgrades need the platform webhook secret on the Worker", () => {
   // Distinctive values, so a log line that carried either would be found.
   const KEY = "stripe-key-under-test-4b8e";

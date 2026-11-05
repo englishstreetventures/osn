@@ -598,7 +598,11 @@ describe("the callback refuses what the wedding cannot take", () => {
           })
           .onConflictDoUpdate({
             target: registrySettings.weddingId,
-            set: { stripeAccountId: "acct_won", stripeConnectedByOsnProfileId: SECOND },
+            set: {
+              stripeAccountId: "acct_won",
+              stripeConnectedByOsnProfileId: SECOND,
+              stripeAccountType: "express",
+            },
           })
           .run();
       },
@@ -610,6 +614,8 @@ describe("the callback refuses what the wedding cannot take", () => {
     const state = await start(built.app);
     expect((await callback(built.app, { state, code: "ac_x" })).outcome).toBe("already_connected");
     expect(settingsRow(db)?.stripeAccountId).toBe("acct_won");
+    // The account another owner attached first keeps its own type.
+    expect(settingsRow(db)?.stripeAccountType).toBe("express");
     expect(oauth.deauthorized).toEqual([STANDARD.id]);
   });
 
@@ -729,22 +735,6 @@ describe("what a Standard account changes", () => {
     expect(settingsRow(db)?.stripeAccountType ?? null).toBeNull();
     expect(settingsRow(db, "wed_party")?.stripeAccountType ?? null).toBeNull();
   });
-
-  it("refuses a value that is neither type, in the database itself", () => {
-    const { db } = buildApp();
-    const now = new Date();
-    expect(() =>
-      db.$client
-        .prepare(
-          "INSERT INTO registry_settings (wedding_id, stripe_account_type, created_at, updated_at) VALUES (?, 'custom', ?, ?)",
-        )
-        .run(
-          BOOTSTRAP_WEDDING_ID,
-          Math.floor(now.getTime() / 1000),
-          Math.floor(now.getTime() / 1000),
-        ),
-    ).toThrow(/stripe account type/);
-  });
 });
 
 describe("a revocation that predates a connection leaves it (25)", () => {
@@ -781,5 +771,125 @@ describe("a revocation that predates a connection leaves it (25)", () => {
     expect(await run(db, registryService.detachStripeAccount({ accountId: STANDARD.id }))).toBe(
       true,
     );
+  });
+});
+
+describe("credentials, tier and input the connect refuses", () => {
+  it("sends a dead session or a malformed token to sign in, keeping the state (T-E2)", async () => {
+    const oauth = oauthStub();
+    const { app, db } = buildApp({ oauth: oauth.client });
+    const state = await start(app);
+    for (const headers of [
+      { cookie: "cire_org_session=not-a-live-session-token" },
+      { authorization: "Bearer not-a-jwt" },
+    ]) {
+      const res = await appRequest(
+        app,
+        `${CALLBACK}?${new URLSearchParams({ state, code: "ac_x" })}`,
+        {
+          method: "GET",
+          headers: { ...headers, origin: "" },
+        },
+      );
+      expect(res.status).toBe(302);
+      expect(new URL(res.headers.get("location") ?? "").searchParams.get("stripe_connect")).toBe(
+        "signed_out",
+      );
+    }
+    expect(oauth.exchanged).toEqual([]);
+    expect(stateRows(db)).toHaveLength(1);
+  });
+
+  it("starts for a session cookie and refuses no credential (T-E2)", async () => {
+    const { app, db } = buildApp();
+    expect((await post(app, `${base}/oauth`)).status).toBe(401);
+    expect(stateRows(db)).toHaveLength(0);
+    const token = await seedOrganiserSession(db, OWNER);
+    const res = await appRequest(app, `${base}/oauth`, {
+      method: "POST",
+      headers: { cookie: `cire_org_session=${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(stateRows(db)).toHaveLength(1);
+  });
+
+  it("refuses a wedding below Gold at the start, and one lowered before the return (T-E3)", async () => {
+    const below = buildApp({ tier: "ivory" });
+    expect((await post(below.app, `${base}/oauth`, OWNER)).status).toBe(402);
+    expect(stateRows(below.db)).toHaveLength(0);
+
+    const oauth = oauthStub();
+    const { app, db } = buildApp({ oauth: oauth.client });
+    const state = await start(app);
+    setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
+    expect((await callback(app, { state, code: "ac_x" })).outcome).toBe("forbidden");
+    expect(oauth.exchanged).toEqual([]);
+  });
+
+  it("answers a return with no code, or one no Stripe code is, as rejected (T-E5)", async () => {
+    for (const params of [{}, { code: "a".repeat(257) }]) {
+      const oauth = oauthStub();
+      const { app, db } = buildApp({ oauth: oauth.client });
+      const state = await start(app);
+      expect((await callback(app, { state, ...params })).outcome).toBe("rejected");
+      expect(oauth.exchanged).toEqual([]);
+      expect(stateRows(db)).toHaveLength(0);
+    }
+  });
+
+  it("redirects a request with no address it can key the limiter on (T-S3)", async () => {
+    const { app } = buildApp();
+    const res = await app.fetch(new Request(`http://localhost${CALLBACK}?state=x&code=y`));
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.get("location") ?? "").searchParams.get("stripe_connect")).toBe(
+      "unavailable",
+    );
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+describe("an account Stripe connected that cire then cannot store (T-E4)", () => {
+  it("hands it back when the caller stops owning the wedding during the exchange", async () => {
+    for (const change of ["demoted", "deleted"] as const) {
+      const held: { db?: TestDb } = {};
+      const oauth = oauthStub({
+        duringExchange: () => {
+          if (!held.db) return;
+          if (change === "demoted") {
+            held.db
+              .update(weddingHosts)
+              .set({ role: "editor" })
+              .where(eq(weddingHosts.osnProfileId, SECOND))
+              .run();
+          } else {
+            held.db
+              .update(weddings)
+              .set({ deletedAt: new Date() })
+              .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+              .run();
+          }
+        },
+      });
+      const built = buildApp({ oauth: oauth.client });
+      held.db = built.db;
+      const state = await start(built.app, SECOND);
+      const landing = await callback(built.app, { state, code: "ac_x" }, { profileId: SECOND });
+      expect(landing.outcome).toBe("forbidden");
+      expect(settingsRow(built.db)?.stripeAccountId ?? null).toBeNull();
+      expect(oauth.deauthorized).toEqual([STANDARD.id]);
+    }
+  });
+
+  it("hands it back after a defect once the exchange succeeded", async () => {
+    const oauth = oauthStub();
+    const stripe: StripeClient = {
+      ...stripeStub().client,
+      retrieveAccount: () => Effect.die(new Error("boom after the exchange")),
+    };
+    const { app, db } = buildApp({ oauth: oauth.client, stripe });
+    const state = await start(app);
+    expect((await callback(app, { state, code: "ac_x" })).outcome).toBe("unavailable");
+    expect(settingsRow(db)?.stripeAccountId ?? null).toBeNull();
+    expect(oauth.deauthorized).toEqual([STANDARD.id]);
   });
 });

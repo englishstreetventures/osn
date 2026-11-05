@@ -57,6 +57,26 @@ describe("stripeConnectWords", () => {
     }
   });
 
+  it("says each outcome in its own words", () => {
+    const phrases: Record<string, RegExp> = {
+      connected: /is connected/,
+      denied: /didn’t connect/,
+      expired: /run out or was already used/,
+      signed_out: /signed out/,
+      forbidden: /Only the wedding’s owner/,
+      already_connected: /already has a Stripe account/,
+      rejected: /didn’t accept/,
+      currency_mismatch: /different currency/,
+      owners_differ: /different owners/,
+      unavailable: /Couldn’t finish connecting/,
+    };
+    for (const [outcome, phrase] of Object.entries(phrases)) {
+      expect(stripeConnectWords(outcome).text).toMatch(phrase);
+    }
+    const texts = Object.keys(phrases).map((outcome) => stripeConnectWords(outcome).text);
+    expect(new Set(texts).size).toBe(texts.length);
+  });
+
   it("says something for an outcome this build does not know", () => {
     expect(stripeConnectWords("something_new").text).toMatch(/Stripe account wasn’t connected/);
   });
