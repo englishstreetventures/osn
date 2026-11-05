@@ -175,9 +175,11 @@ test("one change outside the list makes the whole diff full", () => {
 });
 
 // An empty list means the wrong range was diffed, never that nothing changed,
-// so it gets every review there is, the state and design reviews included.
-test("an empty list is full-state-design", () => {
-  expect(reviewScope([])).toBe("full-state-design");
+// so it gets every review but the design review, which runs only when a
+// changed file draws a screen. No flag lifts it there.
+test("an empty list is full-state", () => {
+  expect(reviewScope([])).toBe("full-state");
+  expect(reviewScope([], true, true)).toBe("full-state");
 });
 
 test("a full diff that writes state is full-state", () => {
@@ -709,6 +711,15 @@ test("the command reads no design from test code or tooling", async () => {
     await mkdir(join(dir, "tools", "lab", "src"), { recursive: true });
     await writeFile(join(dir, "tools", "lab", "src", "Story.tsx"), "export {};\n");
     expect((await scope(dir)).stdout).toBe("full\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the command reads a branch with no change as full-state, never design", async () => {
+  const { dir } = await repo();
+  try {
+    expect(await scope(dir)).toEqual({ stdout: "full-state\n", stderr: "", exitCode: 0 });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
