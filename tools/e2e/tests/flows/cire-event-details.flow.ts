@@ -494,10 +494,15 @@ test("cire-event-details", async ({ page, context, flow }) => {
     const detail = (term: string) =>
       card.locator("dt").filter({ hasText: term }).locator("xpath=following-sibling::dd[1]");
     await expect(detail("Run of show")).toBeVisible();
-    const eyebrow = [
-      await eyebrowOver(page.getByRole("heading", { name: "The day, hour by hour" })),
-      await eyebrowOver(card.getByRole("heading", { name: CIRE_EVENT_EDIT.event, exact: true })),
-    ].join("|");
+    const eyebrow = await eyebrowOver(
+      card.getByRole("heading", { name: CIRE_EVENT_EDIT.event, exact: true }),
+    );
+    await expect(
+      page
+        .getByRole("tabpanel", { name: "List" })
+        .getByRole("heading", { name: "Events", exact: true, level: 2 }),
+      "the view keeps a heading, unseen",
+    ).toHaveCount(1);
     await detail("Run of show").scrollIntoViewIfNeeded();
     await shot(page, "events-list-1280");
     return {
@@ -507,7 +512,7 @@ test("cire-event-details", async ({ page, context, flow }) => {
       eyebrow,
     };
   });
-  flow.check("the events list: no eyebrow over its heading or the event's", "|", listed.eyebrow);
+  flow.check("the events list: no eyebrow over the event's heading", "", listed.eyebrow);
   flow.check(
     "the events list shows the run of show in the order guests read it",
     "4:00 pm  Tea is poured\n4:45 pm  Garden games\n5:15 pm  Speeches",

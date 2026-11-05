@@ -70,6 +70,15 @@ describe("EventTable per-event image", () => {
     resetOrganiserMocks();
   });
 
+  it("keeps a heading for the view that no one sees, and no filler line", async () => {
+    authFetchMock.mockResolvedValueOnce(json([EVENT]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    await waitFor(() => screen.getByText("Reception"));
+    const heading = screen.getByRole("heading", { name: "Events", level: 2 });
+    expect(heading.classList.contains("sr-only")).toBe(true);
+    expect(screen.queryByText("The day, hour by hour")).toBeNull();
+  });
+
   it("POSTs the chosen file to the per-event image endpoint and shows the preview", async () => {
     authFetchMock.mockResolvedValueOnce(json([EVENT])); // initial load
     authFetchMock.mockResolvedValueOnce(
