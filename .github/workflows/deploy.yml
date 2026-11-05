@@ -33,12 +33,11 @@ name: Deploy
 #   3. refuses, and succeeds, when the stack already passed on dev at a
 #      commit newer than this one (scripts/dev-deploy-order.ts), so a run that
 #      reached the stack's group late never puts older code back; the
-#      snapshot, the deploy, every check after them and every record job then
-#      skip, and only the musubi job's `cire_seed` step still runs;
+#      snapshot, the musubi job's `cire_seed` step, the deploy, every check
+#      after them and every record job then skip;
 #   4. records each Worker's newest deployment (scripts/worker-deployments.ts
 #      snapshot); in the musubi job, derives osn-api's cire seed values from
-#      three cire-api secrets (the `cire_seed` step, which runs whether or not
-#      the job deploys); deploys the stack, then
+#      three cire-api secrets (the `cire_seed` step); deploys the stack, then
 #      names the deployment the deploy made for each Worker, or `unchanged`
 #      when it uploaded none (compare);
 #   5. runs scripts/smoke-check.ts for every surface of the stack. A failing
@@ -348,9 +347,10 @@ jobs:
       # can reach this stack's group after the newer one's has deployed.
       # scripts/dev-deploy-order.ts writes deploy=false when the stack already
       # passed on dev at a commit newer than this one, by the dev Environment's
-      # Deployment records; the snapshot and the deploy then skip, and the job
-      # succeeds with a line in the run summary naming both commits. It holds
-      # the job token alone. At main's newest commit it reads nothing.
+      # Deployment records; the snapshot, the cire_seed step and the deploy
+      # then skip, and the job succeeds with a line in the run summary naming
+      # both commits. It holds the job token alone. At main's newest commit it
+      # reads nothing.
       - name: Refuse a commit older than one the stack already passed on dev
         id: order
         timeout-minutes: 5
@@ -384,9 +384,11 @@ jobs:
       # key id as outputs, and masks the hash in this job's log. It imports
       # node built-ins alone (DV6 in
       # musubi/infra/tests/scripts/derive-cire-seed.test.ts), so no package
-      # code runs beside the secrets.
+      # code runs beside the secrets. Like the deploy, the one step that reads
+      # its outputs, it runs only when the order check lets the commit deploy.
       - name: Derive osn-api's cire seed values
         id: cire_seed
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         run: bun --no-install musubi/infra/scripts/derive-cire-seed.ts
         env:
           CIRE_OIDC_CLIENT_SECRET: ${{ secrets.CIRE_OIDC_CLIENT_SECRET }}
