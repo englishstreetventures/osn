@@ -37,7 +37,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /** How many of the keys a reap deleted, and how many it could not. */
-export interface ReapResult {
+interface ReapResult {
   readonly reaped: number;
   readonly failed: number;
 }

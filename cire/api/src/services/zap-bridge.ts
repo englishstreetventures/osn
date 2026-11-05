@@ -55,7 +55,7 @@ export interface SentMessage {
 }
 
 /** One message in a c2b chat, with `createdAt` already normalised to epoch ms. */
-export interface ChatMessage {
+interface ChatMessage {
   id: string;
   senderProfileId: string;
   body: string;
@@ -175,7 +175,7 @@ function parseChatMessagePage(raw: unknown): ChatMessagePage {
   throw malformed(endpoint, "no `messages` array");
 }
 
-export interface ZapChatClientConfig {
+interface ZapChatClientConfig {
   /** Base URL of zap-api (trailing slash is trimmed automatically). */
   zapApiUrl: string;
   /** cire-api's ARC signing key, already imported from its JWK. */

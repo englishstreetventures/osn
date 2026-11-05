@@ -10,7 +10,7 @@ import { getWaitUntil } from "../lib/execution-ctx";
 import { runCire } from "../observability";
 
 /** The topic every open tab showing one wedding listens on. */
-export const weddingTopic = (weddingId: string): string => `cire:wedding:${weddingId}`;
+const weddingTopic = (weddingId: string): string => `cire:wedding:${weddingId}`;
 
 /**
  * What a wedding's open tabs are told. Call each after its write has

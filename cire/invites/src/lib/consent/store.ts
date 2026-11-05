@@ -334,7 +334,7 @@ const [dialogHostId, setDialogHostId] = createSignal<number | null>(null);
 let nextDialogHostId = 0;
 
 /** What {@link claimConsentDialogHost} hands back to the claiming component. */
-export interface ConsentDialogHostClaim {
+interface ConsentDialogHostClaim {
   /** True only for the component that currently owns the dialog. */
   owns: () => boolean;
   /** Release the claim on unmount, so a later island can take it. */

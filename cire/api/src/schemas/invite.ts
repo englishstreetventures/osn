@@ -5,7 +5,6 @@ import {
   HEADING_SIZE_CHOICES,
   isSafeCssColor,
   PALETTE_PRESET_KEYS,
-  PALETTE_SEED_KEYS,
   SECTION_TONES,
   VISIBILITY_SECTIONS,
 } from "@cire/theme";
@@ -287,16 +286,16 @@ export type InviteTextBody = Schema.Schema.Type<typeof InviteTextBody>;
  * range (not rejected) so a slightly-stale client can't 400 the whole theme
  * save, while a non-integer / non-number is a ParseError → 400.
  */
-export const HERO_BLUR_MIN = 0;
-export const HERO_BLUR_MAX = 40;
+const HERO_BLUR_MIN = 0;
+const HERO_BLUR_MAX = 40;
 export const HERO_BLUR_DEFAULT = 28;
-export const TITLE_BACKDROP_OPACITY_MIN = 0;
-export const TITLE_BACKDROP_OPACITY_MAX = 100;
-export const TITLE_BACKDROP_BLUR_MIN = 0;
-export const TITLE_BACKDROP_BLUR_MAX = 20;
+const TITLE_BACKDROP_OPACITY_MIN = 0;
+const TITLE_BACKDROP_OPACITY_MAX = 100;
+const TITLE_BACKDROP_BLUR_MIN = 0;
+const TITLE_BACKDROP_BLUR_MAX = 20;
 
 /** Clamp an integer into [min, max] (server-side range enforcement). */
-export function clampInt(value: number, min: number, max: number): number {
+function clampInt(value: number, min: number, max: number): number {
   const n = Math.round(value);
   if (n < min) return min;
   if (n > max) return max;
@@ -327,7 +326,6 @@ const sliderField = (min: number, max: number) =>
  * as the image slots: a few well-placed sections, not a page-builder.
  */
 export const THEME_SECTIONS = ["hero", "story", "details", "welcome"] as const;
-export type ThemeSection = (typeof THEME_SECTIONS)[number];
 
 /**
  * The font allow-list and the colour-scheme vocabulary both live in
@@ -337,15 +335,6 @@ export type ThemeSection = (typeof THEME_SECTIONS)[number];
  * footgun and a CSS/SSRF-injection surface), and a tone/preset key is likewise
  * bounded rather than free text.
  */
-export {
-  FONT_CHOICES,
-  FONT_STYLE_CHOICES,
-  FONT_WEIGHT_CHOICES,
-  HEADING_SIZE_CHOICES,
-  PALETTE_PRESET_KEYS,
-  PALETTE_SEED_KEYS,
-  SECTION_TONES,
-};
 
 const FontField = Schema.NullOr(Schema.Literals(FONT_CHOICES));
 
@@ -372,7 +361,7 @@ const PresetField = Schema.NullOr(Schema.Literals(PALETTE_PRESET_KEYS));
  * gate. The single source of truth lives in `@cire/theme` and is shared
  * with the guest site's render-time check, so the two sides cannot drift.
  */
-export const isThemeColor = isSafeCssColor;
+const isThemeColor = isSafeCssColor;
 
 // A nullable colour field: `null` clears back to the default token; a present
 // value must pass the allow-list or the whole body is rejected with a 400.

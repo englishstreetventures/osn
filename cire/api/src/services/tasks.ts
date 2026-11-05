@@ -47,11 +47,11 @@ export class HostNotInWedding extends Data.TaggedError("HostNotInWedding") {}
 
 /** The event a run time links to is not one of the task's wedding: another
  *  wedding's event, any other id, or nothing. 422-class. */
-export class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
+class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
 
 /** A clock time typed against an event is more than a day from its start, or
  *  the event's start cannot be read. 422-class. */
-export class RunTimeOutOfRange extends Data.TaggedError("RunTimeOutOfRange") {}
+class RunTimeOutOfRange extends Data.TaggedError("RunTimeOutOfRange") {}
 
 export type TaskStatus = "open" | "done";
 
@@ -82,7 +82,7 @@ export interface TaskDto extends DerivedRunTime {
   assigneeHostIds: string[];
 }
 
-export interface CreateTaskInput {
+interface CreateTaskInput {
   weddingId: string;
   title: string;
   timeframeBucket: TimeframeBucket;
@@ -90,7 +90,7 @@ export interface CreateTaskInput {
   dueAt: string | null;
 }
 
-export interface UpdateTaskPatch {
+interface UpdateTaskPatch {
   title?: string;
   timeframeBucket?: TimeframeBucket;
   notes?: string | null;
@@ -124,7 +124,7 @@ export interface TaskRow {
 }
 
 /** A wedding's events by id, as a linked task's time is counted from them. */
-export type EventTimes = ReadonlyMap<string, EventTime>;
+type EventTimes = ReadonlyMap<string, EventTime>;
 
 /** No events: for a task known to be linked to none. */
 const NO_EVENTS: EventTimes = new Map();
@@ -132,7 +132,7 @@ const NO_EVENTS: EventTimes = new Map();
 /** A task row, the seats holding it in the order they were added, and its
  *  time, derived from `eventTimes` — which must hold only the task's own
  *  wedding's events — when it is linked to one. */
-export const toDto = (r: TaskRow, assigneeHostIds: string[], eventTimes: EventTimes): TaskDto => ({
+const toDto = (r: TaskRow, assigneeHostIds: string[], eventTimes: EventTimes): TaskDto => ({
   id: r.id,
   weddingId: r.weddingId,
   title: r.title,
@@ -179,7 +179,7 @@ interface TaskWithEventTimeRow {
 
 /** Task rows, in the order they were read, and the times of the events they
  *  are linked to. */
-export interface TasksAndEventTimes {
+interface TasksAndEventTimes {
   rows: TaskRow[];
   eventTimes: EventTimes;
 }
@@ -199,7 +199,7 @@ export function tasksAndEventTimes(result: unknown): TasksAndEventTimes {
 /** The event one task of `weddingId` is linked to, if it is that wedding's.
  *  Returned unrun, to ride after the batch's write: the link it reads is the
  *  one the write left — an `UPDATE … RETURNING` row cannot join. */
-export const taskEventTime = (db: Db, weddingId: string, taskId: string) =>
+const taskEventTime = (db: Db, weddingId: string, taskId: string) =>
   db
     .select({ id: events.id, startAt: events.startAt, timezone: events.timezone })
     .from(events)

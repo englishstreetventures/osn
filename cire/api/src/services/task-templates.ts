@@ -36,9 +36,9 @@ import {
 
 /** `new`: not on the checklist. `added`: already on it. `removed`: the couple
  *  deleted it, so it comes back only if they pick it. */
-export type TemplateItemState = "new" | "added" | "removed";
+type TemplateItemState = "new" | "added" | "removed";
 
-export interface TemplatePreviewItem {
+interface TemplatePreviewItem {
   key: string;
   title: string;
   timeframeBucket: string;

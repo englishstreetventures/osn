@@ -76,29 +76,29 @@ import {
 } from "../schemas/seating";
 
 /** The event is not one of this wedding's. 404-class. */
-export class SeatingEventNotFound extends Data.TaggedError("SeatingEventNotFound") {}
+class SeatingEventNotFound extends Data.TaggedError("SeatingEventNotFound") {}
 /** No such plan at this wedding, or at this event of it. 404-class. */
 export class SeatingPlanNotFound extends Data.TaggedError("SeatingPlanNotFound") {}
 /** No such table in this plan of this wedding. 404-class. */
 export class SeatingTableNotFound extends Data.TaggedError("SeatingTableNotFound") {}
 /** The guest is not one this plan's chart holds: another wedding's, not
  *  invited to the plan's event, the host preview, or unknown. 404-class. */
-export class SeatingGuestNotFound extends Data.TaggedError("SeatingGuestNotFound") {}
+class SeatingGuestNotFound extends Data.TaggedError("SeatingGuestNotFound") {}
 /** The guest's household had its invitation withdrawn. 409-class. */
-export class SeatingHouseholdWithdrawn extends Data.TaggedError("SeatingHouseholdWithdrawn") {}
+class SeatingHouseholdWithdrawn extends Data.TaggedError("SeatingHouseholdWithdrawn") {}
 /** Every seat at the table is taken. 409-class. */
 export class SeatingTableFull extends Data.TaggedError("SeatingTableFull") {}
 /** The plan already has {@link MAX_TABLES_PER_PLAN} tables. 409-class. */
-export class SeatingTableLimit extends Data.TaggedError("SeatingTableLimit") {}
+class SeatingTableLimit extends Data.TaggedError("SeatingTableLimit") {}
 /** A capacity below the guests already seated at the table. 409-class. */
-export class SeatingCapacityBelowSeated extends Data.TaggedError("SeatingCapacityBelowSeated") {}
+class SeatingCapacityBelowSeated extends Data.TaggedError("SeatingCapacityBelowSeated") {}
 /** The event already has {@link MAX_PLANS_PER_EVENT} plans. 409-class. */
 export class SeatingPlanLimit extends Data.TaggedError("SeatingPlanLimit") {}
 /** The plan is the event's selected plan, which cannot be deleted. 409-class. */
-export class SeatingPlanSelected extends Data.TaggedError("SeatingPlanSelected") {}
+class SeatingPlanSelected extends Data.TaggedError("SeatingPlanSelected") {}
 /** The copy would take the wedding past {@link MAX_COPIED_ROWS_PER_DAY} rows
  *  copied today. 409-class. */
-export class SeatingCopyBudget extends Data.TaggedError("SeatingCopyBudget") {}
+class SeatingCopyBudget extends Data.TaggedError("SeatingCopyBudget") {}
 
 /**
  * Most guests one chart read returns. The tier cap (1,000 guests on Crimson,
@@ -107,7 +107,7 @@ export class SeatingCopyBudget extends Data.TaggedError("SeatingCopyBudget") {}
  */
 export const MAX_CHART_GUESTS = 1000;
 
-export type RsvpStatus = "attending" | "declined" | "maybe";
+type RsvpStatus = "attending" | "declined" | "maybe";
 
 export interface SeatingPlanDto {
   id: string;
@@ -123,7 +123,7 @@ export interface SeatingTableDto {
   sortOrder: number;
 }
 
-export interface SeatingGuestDto {
+interface SeatingGuestDto {
   id: string;
   firstName: string;
   lastName: string;
@@ -1255,7 +1255,7 @@ export const seatingService = {
 type PlanCount = { planId: string | null; n: number };
 
 /** What a guest-list change would take off the seating plans. */
-export interface SeatingLoss {
+interface SeatingLoss {
   /** Seats, counted in every plan: a guest seated in two plans is two. */
   seats: number;
   /** Tables, counted in every plan. */

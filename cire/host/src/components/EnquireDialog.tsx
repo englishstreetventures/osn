@@ -11,7 +11,7 @@ import { enquiryErrorMessage, EnquiryApiError, openEnquiry } from "../lib/enquir
 import { type EnquiryListItem, upsertCachedEnquiry } from "../lib/enquiries-store";
 import { haptic } from "../lib/touch-feedback";
 
-export interface EnquireDialogProps {
+interface EnquireDialogProps {
   open: boolean;
   weddingId: string;
   directoryVendorId: string;

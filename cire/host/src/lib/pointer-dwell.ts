@@ -16,7 +16,7 @@
  */
 import { onCleanup } from "solid-js";
 
-export interface PointerDwell {
+interface PointerDwell {
   /** The pointer reached the trigger. */
   enterTrigger: (event: PointerEvent) => void;
   /** The pointer reached what the dwell opened. */

@@ -27,7 +27,7 @@ import { bound, type Db, DbService, dbQuery } from "../db";
  * removed an address they gave themselves. Every other reason binds the whole
  * wedding.
  */
-export const SEAT_ONLY_REASON = "guest_removed_own";
+const SEAT_ONLY_REASON = "guest_removed_own";
 
 /**
  * True for an `email_suppressions` row that suppresses its address for
@@ -184,7 +184,7 @@ export function holdsOwnOptOut(row: {
 }
 
 /** The suppression list's answer for some addresses, seat by seat. */
-export interface Suppressions {
+interface Suppressions {
   /**
    * Whether the address hashed `hash` is suppressed for `guestId`'s seat: a
    * wedding-wide row for it, or that seat's own seat-only row.

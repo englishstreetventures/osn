@@ -40,7 +40,7 @@ import { catalogueAccessor, setCatalogue } from "../lib/upgrade-store";
  * checkout is said inside the dialog rather than in a toast, which would be
  * painted over it and announced by nothing.
  */
-export interface UpgradeDialogProps {
+interface UpgradeDialogProps {
   open: boolean;
   weddingId: string;
   /** The tier this dialog sells: the lowest one that includes the module the

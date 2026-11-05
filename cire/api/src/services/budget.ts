@@ -47,7 +47,7 @@ export class PaymentNotInItem extends Data.TaggedError("PaymentNotInItem") {}
 export class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
 
 /** Guests at a per-head line's events. */
-export interface Headcount {
+interface Headcount {
   /** Invited and not declined: attending, maybe, or no reply yet. */
   expected: number;
   /** Replied "attending". */
@@ -80,7 +80,7 @@ export interface BudgetItemDto {
 }
 
 /** One of the wedding's events, as the per-head event picker lists it. */
-export interface BudgetEventDto {
+interface BudgetEventDto {
   id: string;
   name: string;
 }
@@ -95,7 +95,7 @@ export interface PaymentDto {
   createdAt: number;
 }
 
-export interface BudgetRollup {
+interface BudgetRollup {
   byCategory: {
     category: string;
     estimateMinor: number;
@@ -108,7 +108,7 @@ export interface BudgetRollup {
 }
 
 /** The budget as the CSV export prints it. */
-export interface BudgetExportSnapshot {
+interface BudgetExportSnapshot {
   /** Lines in the portal's order: category, then `sortOrder`. */
   items: BudgetItemDto[];
   /** Payments in the order of their lines, then oldest first. */
@@ -131,12 +131,12 @@ export interface BudgetSnapshot {
 
 /** A per-head line's settings on a write. `eventIds` absent keeps the line's
  *  current events; `null` counts every event; a list counts only those. */
-export interface PerHeadInput {
+interface PerHeadInput {
   unitPriceMinor: number;
   eventIds?: readonly string[] | null;
 }
 
-export interface CreateBudgetItemInput {
+interface CreateBudgetItemInput {
   weddingId: string;
   category: ServiceCategory;
   name: string;
@@ -148,7 +148,7 @@ export interface CreateBudgetItemInput {
   perHead?: PerHeadInput | null;
 }
 
-export interface UpdateBudgetItemPatch {
+interface UpdateBudgetItemPatch {
   category?: ServiceCategory;
   name?: string;
   estimateMinor?: number | null;

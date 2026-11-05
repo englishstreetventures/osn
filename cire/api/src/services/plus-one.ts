@@ -55,25 +55,25 @@ import { capForTier, normaliseTier, roomForOneMoreGuest, tierService } from "./t
 // ── Errors ──────────────────────────────────────────────────────────────────
 
 /** The session's household no longer exists. 403-class, like the RSVP write. */
-export class PlusOneHouseholdGone extends Data.TaggedError("PlusOneHouseholdGone") {}
+class PlusOneHouseholdGone extends Data.TaggedError("PlusOneHouseholdGone") {}
 /** The session is the organiser's host preview, which never writes. 403-class. */
-export class PlusOnePreview extends Data.TaggedError("PlusOnePreview") {}
+class PlusOnePreview extends Data.TaggedError("PlusOnePreview") {}
 /** The wedding's RSVP-by date has passed. 403-class, `rsvp_closed`. */
-export class PlusOneRsvpClosed extends Data.TaggedError("PlusOneRsvpClosed") {}
+class PlusOneRsvpClosed extends Data.TaggedError("PlusOneRsvpClosed") {}
 /** The guest is not in this household (guest path) or not in this wedding's
  *  guest households (organiser path). 404-class. */
-export class PlusOneGuestNotFound extends Data.TaggedError("PlusOneGuestNotFound") {}
+class PlusOneGuestNotFound extends Data.TaggedError("PlusOneGuestNotFound") {}
 /** The household is not one of this wedding's guest households. 404-class. */
-export class PlusOneFamilyNotFound extends Data.TaggedError("PlusOneFamilyNotFound") {}
+class PlusOneFamilyNotFound extends Data.TaggedError("PlusOneFamilyNotFound") {}
 /** The guest is themselves a plus-one, who cannot bring one. 409-class. */
-export class PlusOneCannotInvite extends Data.TaggedError("PlusOneCannotInvite") {}
+class PlusOneCannotInvite extends Data.TaggedError("PlusOneCannotInvite") {}
 /** The guest has no permission to bring a plus-one. 403-class. */
-export class PlusOneNotAllowed extends Data.TaggedError("PlusOneNotAllowed") {}
+class PlusOneNotAllowed extends Data.TaggedError("PlusOneNotAllowed") {}
 /** The guest has no plus-one named. 404-class. */
-export class PlusOneNotFound extends Data.TaggedError("PlusOneNotFound") {}
+class PlusOneNotFound extends Data.TaggedError("PlusOneNotFound") {}
 /** Permission off was asked for where a plus-one is named whom the request did
  *  not confirm for removal. `named` counts the plus-ones in scope. 409-class. */
-export class PlusOneNamed extends Data.TaggedError("PlusOneNamed")<{ named: number }> {}
+class PlusOneNamed extends Data.TaggedError("PlusOneNamed")<{ named: number }> {}
 
 // ── Shapes ──────────────────────────────────────────────────────────────────
 
@@ -88,7 +88,7 @@ export interface PlusOneRecord {
   eventIds: string[];
 }
 
-export interface PlusOneName {
+interface PlusOneName {
   firstName: string;
   lastName: string;
 }

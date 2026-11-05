@@ -18,7 +18,7 @@ const sessionExpired = (err: unknown): boolean =>
   isAuthExpired(err) || (err instanceof LockedExportError && err.status === 401);
 
 /** What a locked module's download needs to know about its rows. */
-export interface ModuleRowsProbe {
+interface ModuleRowsProbe {
   /** Rows in the module's file, or `null` while unknown. */
   count: (spec: LockedExportSpec) => number | null;
   /** Offer the file: it has rows, or its rows could not be counted. */

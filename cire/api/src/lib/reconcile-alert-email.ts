@@ -19,7 +19,7 @@ import type { ReconcileAlert } from "../services/r2-reconcile";
 /** Everything the cron tells the operator about the reconcilers. */
 export type OperatorReconcileAlert = ReconcileAlert | { readonly kind: "disabled" };
 
-export interface ReconcileAlertInput {
+interface ReconcileAlertInput {
   /** The operator address from deployment config. */
   readonly to: string;
   readonly env: "dev" | "production";

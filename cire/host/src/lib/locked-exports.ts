@@ -13,7 +13,7 @@ import { apiUrl, weddingPath } from "./api";
 import type { Module } from "./dashboard-route";
 import { downloadBlob } from "./download";
 
-export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
+type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** How many rows each file would carry, as `GET …/module-rows` answers. */
 export interface ModuleRows {

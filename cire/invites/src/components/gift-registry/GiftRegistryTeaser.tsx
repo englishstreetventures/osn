@@ -34,7 +34,7 @@ import type { GiftRegistry } from "../../lib/gift-registry-read";
 import { buildSrcSet, variantSrc } from "../invite-images";
 
 /** How many gifts the peek row shows. The fourth is desktop-only — see below. */
-export const GIFT_TEASER_PREVIEW_COUNT = 4;
+const GIFT_TEASER_PREVIEW_COUNT = 4;
 
 export interface GiftRegistryTeaserProps {
   /** cire-api origin. */

@@ -40,11 +40,11 @@ export class RevertParseError extends Data.TaggedError("RevertParseError")<{
  * The change is not `applied`: a `preview` changed nothing and a `reverted`
  * change has already been undone, so neither has anything to undo.
  */
-export class ChangeNotApplied extends Data.TaggedError("ChangeNotApplied")<{
+class ChangeNotApplied extends Data.TaggedError("ChangeNotApplied")<{
   readonly status: string;
 }> {}
 
-export type RevertError =
+type RevertError =
   | ChangeConflict
   | ChangeNotApplied
   | NoPriorImport

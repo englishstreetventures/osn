@@ -24,13 +24,13 @@ import { metricFamilyCodeRegenerated } from "../metrics";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 
-export class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {}
+class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {}
 
-export class RegenerateWriteError extends Data.TaggedError("RegenerateWriteError")<{
+class RegenerateWriteError extends Data.TaggedError("RegenerateWriteError")<{
   reason: string;
 }> {}
 
-export interface RegeneratedCode {
+interface RegeneratedCode {
   familyId: string;
   publicId: string;
 }

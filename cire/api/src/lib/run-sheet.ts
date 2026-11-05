@@ -73,7 +73,7 @@ export type RunSheetItem = RunSheetEventItem | RunSheetTaskItem;
 
 /** What a run-sheet event row answers: every field named, none spread, so a
  *  column added to the read never reaches a helper unseen. */
-export function projectEvent(row: RunSheetEventRow): RunSheetEventItem {
+function projectEvent(row: RunSheetEventRow): RunSheetEventItem {
   return {
     kind: "event",
     id: row.id,
@@ -88,7 +88,7 @@ export function projectEvent(row: RunSheetEventRow): RunSheetEventItem {
 }
 
 /** What a run-sheet task row answers, every field named. */
-export function projectTask(row: RunSheetTaskRow): RunSheetTaskItem {
+function projectTask(row: RunSheetTaskRow): RunSheetTaskItem {
   return {
     kind: "task",
     id: row.id,

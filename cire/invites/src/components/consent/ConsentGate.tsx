@@ -93,7 +93,7 @@ export function ConsentGate(props: ConsentGateProps) {
  * changes their mind about the moodboard isn't sent through a settings sheet
  * to get it; "Privacy choices" opens both switches together.
  */
-export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: string }) {
+function ConsentPlaceholder(props: { category: ConsentCategory; vendor: string }) {
   const vendor = () => vendorById(props.vendor);
   const vendorName = () => vendor()?.name ?? "This content";
   const categoryTitle = () => CATEGORY_META[props.category].title;

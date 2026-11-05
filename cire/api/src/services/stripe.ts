@@ -28,10 +28,10 @@
  * nothing else.
  */
 
-import { Context, Data, Effect } from "effect";
+import { Data, Effect } from "effect";
 
 /** Stripe's live API origin. Overridable so tests never need the network. */
-export const STRIPE_API_BASE = "https://api.stripe.com";
+const STRIPE_API_BASE = "https://api.stripe.com";
 
 /** The API version this code is written against, pinned per request. */
 export const STRIPE_API_VERSION = "2025-03-31.basil";
@@ -57,7 +57,7 @@ export class StripeError extends Data.TaggedError("StripeError")<{
 }> {}
 
 /** A webhook body that did not come from Stripe, or came too long ago. */
-export class StripeSignatureError extends Data.TaggedError("StripeSignatureError")<{
+class StripeSignatureError extends Data.TaggedError("StripeSignatureError")<{
   readonly reason: "malformed" | "no-match" | "too-old" | "unconfigured";
 }> {}
 
@@ -240,11 +240,7 @@ export interface StripeClient {
   retrievePrice(priceId: string): Effect.Effect<StripePrice, StripeError>;
 }
 
-export class StripeService extends Context.Service<StripeService, StripeClient>()(
-  "StripeService",
-) {}
-
-export interface StripeConfig {
+interface StripeConfig {
   secretKey: string;
   /** Base origin. Tests point this at a stub; production leaves it alone. */
   apiBase?: string;
@@ -257,7 +253,7 @@ export interface StripeConfig {
  * Named rather than an open dictionary of `unknown`, so a caller cannot hand
  * this a value the encoder would silently stringify as `[object Object]`.
  */
-export type StripeFormValue = string | number | boolean | null | undefined | StripeFormParams;
+type StripeFormValue = string | number | boolean | null | undefined | StripeFormParams;
 export interface StripeFormParams {
   readonly [key: string]: StripeFormValue;
 }

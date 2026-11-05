@@ -158,7 +158,7 @@ export function csvField(value: string, guard = true): string {
   return safe;
 }
 
-export interface SerialiseCsvOptions {
+interface SerialiseCsvOptions {
   /**
    * Apply {@link sanitiseCsvCell} to every cell (default `true`). Every
    * download keeps it. A checkpoint before-image turns it off: it is stored for

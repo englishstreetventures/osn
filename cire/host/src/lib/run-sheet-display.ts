@@ -106,7 +106,7 @@ export function dayHeading(date: string, now = new Date()): string {
 }
 
 /** "45 min", "1 hr", "1 hr 30 min". */
-export function spanOf(minutes: number): string {
+function spanOf(minutes: number): string {
   const abs = Math.abs(minutes);
   const hours = Math.floor(abs / 60);
   const rest = abs % 60;

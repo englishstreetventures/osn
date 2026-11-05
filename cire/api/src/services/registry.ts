@@ -65,7 +65,7 @@ export class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {
  * 'host'`), which reads the gift list and never writes to it. 403-class: the
  * session is valid for this wedding, so saying so tells the caller nothing new.
  */
-export class RegistryPreviewSession extends Data.TaggedError("RegistryPreviewSession") {}
+class RegistryPreviewSession extends Data.TaggedError("RegistryPreviewSession") {}
 /** The image key names another wedding's object. 400-class. */
 export class ImageKeyNotInWedding extends Data.TaggedError("ImageKeyNotInWedding") {}
 /**
@@ -73,7 +73,7 @@ export class ImageKeyNotInWedding extends Data.TaggedError("ImageKeyNotInWedding
  * 409-class. This and the two currency refusals below carry the row as it
  * stands, so the caller can show why guests cannot give without asking again.
  */
-export class StripeNotReady extends Data.TaggedError("StripeNotReady")<{
+class StripeNotReady extends Data.TaggedError("StripeNotReady")<{
   readonly current: RegistrySettingsDto;
 }> {}
 /**
@@ -87,7 +87,7 @@ export class CurrencyMismatch extends Data.TaggedError("CurrencyMismatch")<{
  * Cash gifts asked for while Stripe has not said which currency the connected
  * account settles in. 409-class: it clears once Stripe names one.
  */
-export class SettlementCurrencyUnknown extends Data.TaggedError("SettlementCurrencyUnknown")<{
+class SettlementCurrencyUnknown extends Data.TaggedError("SettlementCurrencyUnknown")<{
   readonly current: RegistrySettingsDto;
 }> {}
 /**
@@ -99,14 +99,14 @@ export class SettingsChanged extends Data.TaggedError("SettingsChanged")<{
   readonly current: RegistrySettingsDto;
 }> {}
 /** A guest asked to give money to a couple who are not taking it. 409-class. */
-export class CashGiftsUnavailable extends Data.TaggedError("CashGiftsUnavailable") {}
+class CashGiftsUnavailable extends Data.TaggedError("CashGiftsUnavailable") {}
 /**
  * A guest asked to give to a cash fund this wedding does not have: the couple
  * deleted it, or the id names a gift to reserve, another wedding's fund or
  * nothing at all. One answer for all of them. 409-class: the page they gave
  * from is out of date.
  */
-export class FundUnavailable extends Data.TaggedError("FundUnavailable") {}
+class FundUnavailable extends Data.TaggedError("FundUnavailable") {}
 /**
  * An owner named a wedding to take a Stripe account from, and it is not one
  * whose account they may give this wedding: nobody, someone else or an
@@ -132,7 +132,7 @@ export class StripeOwnersDiffer extends Data.TaggedError("StripeOwnersDiffer")<{
  * a link, a category or more than one wanted, or a gift to reserve with a
  * target. 400-class.
  */
-export class RegistryItemFieldsInvalid extends Data.TaggedError("RegistryItemFieldsInvalid") {}
+class RegistryItemFieldsInvalid extends Data.TaggedError("RegistryItemFieldsInvalid") {}
 /** The wedding is at its item ceiling. 409-class. */
 export class RegistryItemLimitReached extends Data.TaggedError("RegistryItemLimitReached") {}
 /**
@@ -151,7 +151,7 @@ export class InvalidQuantity extends Data.TaggedError("InvalidQuantity") {}
  * four the same way, the same posture the session-gated invite image slots take
  * (404, not 401/403).
  */
-export class RegistryNotVisible extends Data.TaggedError("RegistryNotVisible") {}
+class RegistryNotVisible extends Data.TaggedError("RegistryNotVisible") {}
 
 /** One page of the gift log. A wedding's log is unbounded; a snapshot is not. */
 const GIFT_LOG_PAGE = 50;
@@ -172,7 +172,7 @@ const MIN_CLAIM_QUANTITY = 1;
 const MAX_CLAIM_QUANTITY = 99;
 
 export type RegistryItemKind = "product" | "cash_fund";
-export type RegistryClaimStatus = "reserved" | "purchased" | "released";
+type RegistryClaimStatus = "reserved" | "purchased" | "released";
 /**
  * A contribution's lifecycle, mirroring `registry_contributions.status`.
  *
@@ -207,12 +207,7 @@ export type RegistryClaimStatus = "reserved" | "purchased" | "released";
  * delivers at least once, out of order, and retries for days, so every one of
  * these events arrives twice sooner or later.
  */
-export type RegistryContributionStatus =
-  | "pending"
-  | "succeeded"
-  | "failed"
-  | "refunded"
-  | "disputed";
+type RegistryContributionStatus = "pending" | "succeeded" | "failed" | "refunded" | "disputed";
 /** Which table a gift-log row came from — the discriminator the portal reads. */
 export type GiftKind = "claim" | "contribution";
 
@@ -221,7 +216,7 @@ export type GiftKind = "claim" | "contribution";
  * included. Server-side only: the Stripe routes and the guest gates read it.
  * Never a response body — the organiser surfaces send `RegistrySettingsDto`.
  */
-export interface RegistrySettingsRecord {
+interface RegistrySettingsRecord {
   weddingId: string;
   published: boolean;
   headline: string | null;
@@ -338,7 +333,7 @@ export interface StripeStatusDto {
 }
 
 /** Whether this deployment can take a money gift at all — see `createApp`. */
-export interface MoneyDeployment {
+interface MoneyDeployment {
   /**
    * True exactly when the contribute route is mounted: a Stripe key and the
    * Connect webhook secret. Required, with no default, so no caller can say
@@ -434,7 +429,7 @@ export interface GiftLogEntryDto {
 }
 
 /** A gift's note as an organiser surface may show it. */
-export interface GiftNoteView {
+interface GiftNoteView {
   note: string | null;
   noteHidden: boolean;
 }
@@ -494,7 +489,7 @@ export interface RegistrySnapshot {
 }
 
 /** The six fields the settings view edits. */
-export interface RegistrySettingsFields {
+interface RegistrySettingsFields {
   published: boolean;
   headline: string | null;
   message: string | null;
@@ -513,7 +508,7 @@ const SETTINGS_FIELDS = [
   "shippingVisibleFrom",
 ] as const satisfies readonly (keyof RegistrySettingsFields)[];
 
-export interface UpdateRegistrySettingsPatch extends Partial<RegistrySettingsFields> {
+interface UpdateRegistrySettingsPatch extends Partial<RegistrySettingsFields> {
   /**
    * What the caller last saw for a field it is changing. A field named here is
    * written only if the row still holds that value, or already holds the new
@@ -523,7 +518,7 @@ export interface UpdateRegistrySettingsPatch extends Partial<RegistrySettingsFie
   expected?: Partial<RegistrySettingsFields>;
 }
 
-export interface CreateRegistryItemInput {
+interface CreateRegistryItemInput {
   weddingId: string;
   kind?: RegistryItemKind;
   title: string;
@@ -542,7 +537,7 @@ export interface CreateRegistryItemInput {
   allowPartial?: boolean;
 }
 
-export interface UpdateRegistryItemPatch {
+interface UpdateRegistryItemPatch {
   title?: string;
   description?: string | null;
   imageKey?: string | null;

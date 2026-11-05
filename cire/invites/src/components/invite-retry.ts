@@ -26,7 +26,7 @@ export interface InviteCustomisationResponse {
   welcome?: { message: string | null } | null;
 }
 
-export interface InviteRetryOptions<Body, T> {
+interface InviteRetryOptions<Body, T> {
   /** cire-api origin the island fetches from. */
   apiUrl: () => string;
   /**

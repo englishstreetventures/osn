@@ -48,13 +48,13 @@ export class GuestEmailSeatRefused extends Data.TaggedError("GuestEmailSeatRefus
 }> {}
 
 /** The seat holds {@link MAX_OPT_OUTS_PER_SEAT} opt-outs and the address is not one it withdrew. */
-export class GuestEmailTooManyChanges extends Data.TaggedError("GuestEmailTooManyChanges") {}
+class GuestEmailTooManyChanges extends Data.TaggedError("GuestEmailTooManyChanges") {}
 
-export class GuestEmailWriteError extends Data.TaggedError("GuestEmailWriteError")<{
+class GuestEmailWriteError extends Data.TaggedError("GuestEmailWriteError")<{
   readonly cause: unknown;
 }> {}
 
-export interface SeatRequest {
+interface SeatRequest {
   /** The session's household. */
   readonly familyId: string;
   /** The member the session chose, or null. */
@@ -74,14 +74,14 @@ export interface SeatRequest {
 }
 
 /** The chosen member's seat, resolved once per request. */
-export interface Seat {
+interface Seat {
   readonly guestId: string;
   readonly weddingId: string;
   readonly email: string | null;
 }
 
 /** A seat about to take an address: its opt-outs counted up to the cap. */
-export interface CountedSeat extends Seat {
+interface CountedSeat extends Seat {
   /**
    * How many opt-outs this seat has made, counted no further than
    * {@link MAX_OPT_OUTS_PER_SEAT}: the save asks only whether it is there.

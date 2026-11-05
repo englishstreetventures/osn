@@ -9,7 +9,7 @@
  */
 
 /** The sheet's two panels. */
-export type SwipePanel = "details" | "rsvp";
+type SwipePanel = "details" | "rsvp";
 
 /** Movement a touch makes before it is read as a swipe rather than a tap. */
 const SLOP_PX = 10;

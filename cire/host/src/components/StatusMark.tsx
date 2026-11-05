@@ -50,7 +50,7 @@ const WORD = {
  * at the marks' sizes, painted. Lowered, its weight sits on the circle's
  * centre (`tests/components/StatusMark.browser.test.tsx`).
  */
-export const QuestionGlyph: Glyph = (props) => (
+const QuestionGlyph: Glyph = (props) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 24 24"
@@ -68,7 +68,7 @@ export const QuestionGlyph: Glyph = (props) => (
 );
 
 /** The glyph each reply wears. */
-export const REPLY_GLYPH = {
+const REPLY_GLYPH = {
   yes: Check,
   no: X,
   maybe: QuestionGlyph,

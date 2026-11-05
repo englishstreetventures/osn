@@ -94,7 +94,7 @@ export const unionColumn = <T extends AnyColumn>(column: T) =>
  * A non-empty statement list — the shape `batch()` demands (D1 rejects an empty
  * batch), so callers filter out the empty case before building one.
  */
-export type BatchStatements = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
+type BatchStatements = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 
 /**
  * The `.batch()` half of a Drizzle handle, as an OPTIONAL member — only the D1
@@ -110,7 +110,7 @@ export type BatchStatements = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
  * {@link commitGroupedBatchesReturning}); Drizzle's D1 session maps a SELECT
  * result to rows for us, so the element is already the row array.
  */
-export type BatchableDb = {
+type BatchableDb = {
   batch?: (statements: BatchStatements) => Promise<unknown[]>;
 };
 

@@ -17,7 +17,7 @@
  */
 
 /** The slice of the Workers `ExecutionContext` we depend on. */
-export interface WaitUntilCtx {
+interface WaitUntilCtx {
   waitUntil(promise: Promise<unknown>): void;
 }
 

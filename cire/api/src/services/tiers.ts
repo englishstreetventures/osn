@@ -243,7 +243,7 @@ function tierAndGuestCount(
 
 /** Who moved a wedding to a tier, as `weddings.tier_source` and
  *  `weddings.tier_granted_by` record it. */
-export interface TierGrant {
+interface TierGrant {
   source: "purchase" | "comp";
   /** `stripe:<purchase id>` for a purchase, `script:<operator>` for a comp. */
   grantedBy: string;

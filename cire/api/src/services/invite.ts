@@ -32,7 +32,7 @@ import { deleteAsset, storeAsset } from "./invite-assets";
 import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
 import { holdsPremiumTemplatesSql, mayUsePremiumTemplates, normaliseTier } from "./tiers";
 
-export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
+class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
   readonly slug?: string;
 }> {}
 
@@ -44,7 +44,7 @@ export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
  * write, so the guest site can interpolate them into CSS variables safely (it
  * still re-validates defensively).
  */
-export interface InviteTheme {
+interface InviteTheme {
   headingFont: FontChoice | null;
   bodyFont: FontChoice | null;
   /**
@@ -100,7 +100,7 @@ export interface InviteTheme {
  *    behind the hero title.
  *  - `titleBackdrop.blur` (0–20) — frosted-glass blur in px behind the title.
  */
-export interface HeroDisplay {
+interface HeroDisplay {
   blur: number;
   titleBackdrop: { opacity: number; blur: number };
 }
@@ -230,7 +230,7 @@ const EMPTY: InviteCustomisation = {
  * {@link InviteCustomisation}, since none of them changes the tier or the
  * entitlement.
  */
-export type OrganiserInviteCustomisation = InviteCustomisation & { envelopeEntitled: boolean };
+type OrganiserInviteCustomisation = InviteCustomisation & { envelopeEntitled: boolean };
 
 /**
  * What the public `GET /api/invite/:slug` returns. The closing section's and
@@ -240,10 +240,7 @@ export type OrganiserInviteCustomisation = InviteCustomisation & { envelopeEntit
  * and the guest site never reads it. `envelopeId` is `null` unless the wedding
  * may use premium templates.
  */
-export type PublicInviteCustomisation = Omit<
-  InviteCustomisation,
-  "visibility" | "inviteMessage"
-> & {
+type PublicInviteCustomisation = Omit<InviteCustomisation, "visibility" | "inviteMessage"> & {
   visibility: Omit<InviteCustomisation["visibility"], "footer" | "faq">;
 };
 

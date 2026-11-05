@@ -33,7 +33,7 @@ export type RunTimeRefusal =
   | "signed_out"
   | "failed";
 
-export type RunTimeSaveResult = { ok: true; task: TaskRow } | { ok: false; reason: RunTimeRefusal };
+type RunTimeSaveResult = { ok: true; task: TaskRow } | { ok: false; reason: RunTimeRefusal };
 
 type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 

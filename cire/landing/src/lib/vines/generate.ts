@@ -24,7 +24,7 @@ export interface Root {
   side: -1 | 1;
 }
 
-export interface Strand {
+interface Strand {
   /** Smooth stroked path data. */
   d: string;
   /**
@@ -37,14 +37,14 @@ export interface Strand {
   a1: number;
 }
 
-export interface Leaf {
+interface Leaf {
   /** Filled almond path data. */
   d: string;
   /** Normalized [0,1] position within the vine's span at which the leaf reveals. */
   a: number;
 }
 
-export interface Flower {
+interface Flower {
   petals: string[];
   cx: number;
   cy: number;
@@ -359,7 +359,7 @@ const STYLES = [
 ] as const;
 
 /** Generate one vine from a root anchor, picking a random growth style. */
-export function generateVine(r: Rng, root: Root, width: number, height: number): Vine {
+function generateVine(r: Rng, root: Root, width: number, height: number): Vine {
   const out: Vine = { strands: [], leaves: [], flowers: [], top: Infinity, bottom: -Infinity };
   const s = r.pick(STYLES);
   const stepLen = r.range(s.stepLen[0], s.stepLen[1]);

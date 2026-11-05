@@ -201,7 +201,7 @@ function stripBom(content: string): string {
   return content.charCodeAt(0) === 0xfe_ff ? content.slice(1) : content;
 }
 
-export type CsvParseResult =
+type CsvParseResult =
   | { ok: true; rows: string[][] }
   // `reason` is one of the structural literals — flows straight into a
   // `MalformedSpreadsheet`, so it shares the closed-union constraint.
@@ -566,7 +566,7 @@ function sheetDetails(
 /** A stored Start/End that carries its own UTC offset (or `Z`). */
 const HAS_OFFSET_RE = /(?:Z|[+-]\d{2}:?\d{2})$/;
 
-export interface ParseEventsOptions {
+interface ParseEventsOptions {
   /**
    * The sheet is a checkpoint before-image (`stateExportService.eventsCsv(_,
    * "snapshot")`) that a revert is reading back — never an upload. Only
@@ -837,7 +837,7 @@ export function parseEventsCsv(
 
 const REQUIRED_GUEST_COLUMNS = GUEST_SHEET_FIXED_HEADERS;
 
-export interface ParseGuestsOptions {
+interface ParseGuestsOptions {
   /**
    * The sheet is a checkpoint before-image (`stateExportService.guestsCsv(_,
    * "snapshot")`) that a revert is reading back — never an upload. Only

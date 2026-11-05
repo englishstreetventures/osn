@@ -31,7 +31,7 @@ export function claimReviewAlertTarget(env: {
   return { to, env: env.tier === "production" ? "production" : "dev" };
 }
 
-export interface ClaimReviewAlertInput {
+interface ClaimReviewAlertInput {
   /** The operator address from deployment config. */
   readonly to: string;
   /** The review script's `--env` for this deployment. */

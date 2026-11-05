@@ -51,11 +51,11 @@ import { decodeGiftSummary } from "./registry";
  * {@link reapR2Objects}, and `asset-reconcile.ts` reaps whatever a failed
  * best-effort delete leaves behind.
  */
-export interface RetentionBuckets {
+interface RetentionBuckets {
   sheets?: DeletableBucket;
 }
 
-export class RetentionWriteError extends Data.TaggedError("RetentionWriteError")<{
+class RetentionWriteError extends Data.TaggedError("RetentionWriteError")<{
   op: "sweep";
   reason: string;
 }> {}
@@ -723,7 +723,7 @@ export interface GiftSummaryNotice {
  * not be able to fail the deletion. Whoever builds one handles its own
  * failures (see `cire/api/src/lib/gift-summary-email.ts`).
  */
-export type GiftSummaryNotifier = (
+type GiftSummaryNotifier = (
   notices: readonly GiftSummaryNotice[],
 ) => Effect.Effect<void, never, never>;
 

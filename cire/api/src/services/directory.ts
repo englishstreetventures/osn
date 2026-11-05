@@ -96,12 +96,12 @@ export interface ListingDto {
   updatedAt: number;
 }
 
-export interface LiveListingInWeddingDto extends ListingDto {
+interface LiveListingInWeddingDto extends ListingDto {
   /** True when the asking wedding's CRM already has a row linking this listing. */
   inWedding: boolean;
 }
 
-export interface UpsertListingBody {
+interface UpsertListingBody {
   name: string;
   description: string | null;
   email: string | null;
@@ -115,13 +115,13 @@ export interface UpsertListingBody {
   categories: string[];
 }
 
-export interface SeedFromCrmBody extends UpsertListingBody {
+interface SeedFromCrmBody extends UpsertListingBody {
   // email is the claim recipient (may differ from the listing email); non-null
   // because SeedListingBody (the HTTP boundary) requires a non-empty email.
   email: string;
 }
 
-export interface DirectoryServiceConfig {
+interface DirectoryServiceConfig {
   vendorPortalOrigin?: string;
 }
 
@@ -141,7 +141,7 @@ export interface BrowseListingDto {
   inWedding: boolean;
 }
 
-export interface BrowseFilter {
+interface BrowseFilter {
   category?: string | null;
   q?: string | null;
   location?: string | null;

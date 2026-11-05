@@ -134,7 +134,7 @@ export interface PositionBucket {
 }
 
 /** Where a budgeted walk stands between runs. */
-export interface WalkState {
+interface WalkState {
   /** Every key up to and including this one has been walked this lap; null: none yet. */
   readonly after: string | null;
   /** When the current lap began, epoch milliseconds. */

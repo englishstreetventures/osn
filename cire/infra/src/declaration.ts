@@ -36,19 +36,19 @@ export type BindingDescription =
     };
 
 /** cire-api's Worker input apart from the values only the stack holds: resources and secrets. */
-export interface CireApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
+interface CireApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
   readonly bindings: Readonly<Record<string, BindingDescription>>;
 }
 
 /** cire-invites' Worker input apart from its secrets, which the stack reads. */
-export type CireInvitesDeclaration = Omit<ApiWorkerInput, "secrets">;
+type CireInvitesDeclaration = Omit<ApiWorkerInput, "secrets">;
 
 /** cire's database, migrated by Alchemy from the flattened chain and seeded. */
-export interface CireDbDeclaration extends RetainedD1Input {
+interface CireDbDeclaration extends RetainedD1Input {
   readonly migrations: string;
 }
 
-export interface CireDeclaration {
+interface CireDeclaration {
   readonly cireApi: CireApiDeclaration;
   readonly cireDb: CireDbDeclaration;
   readonly cireAssets: RetainedBucketInput;
@@ -255,7 +255,7 @@ export const PRODUCTION_RESOURCE_KINDS: Readonly<Record<string, ResourceKind>> =
   productionSiteKinds(SITE_LOGICAL_IDS, PRODUCTION_SITE_MODES);
 
 /** The cire stack on production: its sites, by logical id, and the build each uploads. */
-export interface CireProductionSites {
+interface CireProductionSites {
   readonly sites: Readonly<Record<string, SiteWorkerInput>>;
   readonly prebuilt: readonly PrebuiltSite[];
 }

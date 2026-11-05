@@ -27,7 +27,6 @@ import {
   createHistogram,
   LATENCY_BUCKETS_SECONDS,
 } from "@shared/observability/metrics";
-import type { Result } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
 import type { ChecklistTemplateId } from "./lib/checklist-templates";
@@ -231,20 +230,20 @@ export const CIRE_METRICS = {
 
 /** Outcome of a guest claim attempt. `rate_limited` is gated upstream by the
  *  per-IP limiter (429 before the handler) and reserved for that call-site. */
-export type ClaimResult = "ok" | "invalid_credentials" | "rate_limited" | "error";
+type ClaimResult = "ok" | "invalid_credentials" | "rate_limited" | "error";
 
 /** Turnstile-gated guest surface. Bounded literal union — never a raw path. */
 export type TurnstileEndpoint = "claim" | "rsvp";
 
 /** Terminal RSVP status after an upsert — matches the cire `rsvps.status` enum. */
-export type RsvpStatus = "attending" | "declined" | "maybe";
+type RsvpStatus = "attending" | "declined" | "maybe";
 
 /** Which entity class a row-count histogram sample belongs to. */
-export type ImportEntity = "events" | "families" | "guests";
+type ImportEntity = "events" | "families" | "guests";
 
 /** Bucketed spreadsheet parse-rejection reason. Free-text `reason` strings on
  *  `MalformedSpreadsheet` collapse to `"malformed"`; unknown tags to `"other"`. */
-export type ParseRejectReason =
+type ParseRejectReason =
   | "malformed"
   | "formula_injection"
   | "missing_column"
@@ -252,7 +251,7 @@ export type ParseRejectReason =
   | "other";
 
 /** Outcome of an account-link POST. Mirrors the route's response branches. */
-export type AccountLinkResult =
+type AccountLinkResult =
   | "ok"
   | "profile_not_found"
   | "osn_unavailable"
@@ -261,30 +260,30 @@ export type AccountLinkResult =
   | "error";
 
 /** Outcome of the S2S osn-api profile→account resolve. */
-export type ResolveResult = "ok" | "not_found" | "error";
+type ResolveResult = "ok" | "not_found" | "error";
 
 /** Why the origin guard rejected a state-changing request (C5). */
-export type OriginRejectReason = "missing" | "mismatch";
+type OriginRejectReason = "missing" | "mismatch";
 
 /** Outcome of a per-family claim-code regeneration (C2). */
-export type FamilyCodeRegenResult = "ok" | "error";
+type FamilyCodeRegenResult = "ok" | "error";
 
 /** Outcome of a bulk wedding-wide claim-code re-mint (C3). */
-export type WeddingRemintResult = "ok" | "error";
+type WeddingRemintResult = "ok" | "error";
 
 /** Outcome of marking a family's invite code "shared". */
-export type FamilyCodeSharedResult = "ok" | "error";
+type FamilyCodeSharedResult = "ok" | "error";
 
 /** Outcome of toggling a family's deactivation. `action` records which way the
  *  toggle went so the metric distinguishes cut-offs from restores. */
-export type FamilyDeactivatedResult = "ok" | "error";
-export type FamilyDeactivateAction = "deactivate" | "reactivate";
+type FamilyDeactivatedResult = "ok" | "error";
+type FamilyDeactivateAction = "deactivate" | "reactivate";
 
 /** Outcome of recording a first guest open of an invite (best-effort write). */
-export type InviteOpenedResult = "ok" | "error";
+type InviteOpenedResult = "ok" | "error";
 
 /** Outcome of an organiser wedding creation. */
-export type WeddingCreatedResult = "ok" | "error";
+type WeddingCreatedResult = "ok" | "error";
 export type WeddingDeletedResult =
   | "ok"
   | "confirmation_mismatch"
@@ -301,7 +300,7 @@ export type WeddingRestoredResult =
   | "forbidden"
   | "not_found"
   | "error";
-export type WeddingPurgedResult = "ok" | "held" | "error";
+type WeddingPurgedResult = "ok" | "held" | "error";
 /** Which owner notice was attempted. */
 export type OwnerNoticeKind = "owner_change" | "delete_started";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
@@ -311,10 +310,10 @@ export type StripeUnmatchedEvent = "refund" | "dispute";
 
 /** Outcome of a wedding-profile (Settings) save. Validation rejections are the
  *  schema's 400 upstream; `error` is a write failure. */
-export type WeddingSettingsSavedResult = "ok" | "error";
+type WeddingSettingsSavedResult = "ok" | "error";
 
 /** Outcome of adding a co-host by handle. Mirrors the route's response branches. */
-export type HostAddResult =
+type HostAddResult =
   | "ok"
   | "handle_not_found"
   // The candidate and the owner adding them have a block, either way round.
@@ -336,14 +335,14 @@ export type HostAddResult =
 
 /** Outcome of removing a seat. `last_owner` — refused, it was the wedding's
  *  only owner (an owner leaving included). */
-export type HostRemoveResult = "ok" | "last_owner" | "error";
+type HostRemoveResult = "ok" | "last_owner" | "error";
 
 /**
  * Which route removed the seat — not the caller's role. `owner` is an owner
  * removing someone (`DELETE /hosts/:osnProfileId`); `self` is the self-leave
  * route (`DELETE /hosts/me`), an owner leaving included.
  */
-export type HostRemoveActor = "owner" | "self";
+type HostRemoveActor = "owner" | "self";
 
 /** Outcome of changing a seat's role. `last_owner` — refused, it would have
  *  left the wedding without an owner; `people_limit_reached` — refused,
@@ -358,16 +357,16 @@ export type HostRoleChangeResult =
 /** The role a seat change asked for, as a metric attribute: one of the
  *  wedding roles, or `none` before a request body named one. Bounded by the
  *  column's enum. */
-export type HostMetricRole = WeddingRole | "none";
+type HostMetricRole = WeddingRole | "none";
 
 /** Outcome of setting a helper's run-sheet scope. `not_a_helper` — refused,
  *  the seat holds another role, for which the scope means nothing; `error` — a
  *  malformed body or a failed write. */
-export type HostRunSheetScopeResult = "ok" | "not_found" | "not_a_helper" | "error";
+type HostRunSheetScopeResult = "ok" | "not_found" | "not_a_helper" | "error";
 
 /** The scope a write asked for, as a metric attribute: `own`, `full`, or
  *  `none` before a request body named one. Bounded by the column's enum. */
-export type HostMetricRunSheetScope = RunSheetScope | "none";
+type HostMetricRunSheetScope = RunSheetScope | "none";
 
 /**
  * The CSP directive a violation report names, reduced to a BOUNDED label so it
@@ -423,7 +422,7 @@ type SessionSweptAttrs = { result: "ok" | "error" };
 type VendorClaimsSweptAttrs = { result: "ok" | "error" };
 
 /** What happened to a vendor claim held for operator review. */
-export type VendorClaimReviewEvent =
+type VendorClaimReviewEvent =
   | "requested"
   | "handed_off"
   | "handoff_error"
@@ -450,7 +449,7 @@ type OrganiserSessionRevokedAttrs = { result: "ok" | "error" | "unauthorised" | 
  * `bad_request` — the caller's own inputs were wrong (e.g. a foreign
  *   `return_to`); nothing reached the provider.
  */
-export type OidcLoginOutcome =
+type OidcLoginOutcome =
   | "start"
   | "callback_ok"
   | "provider_error"
@@ -478,7 +477,7 @@ type GiftSummaryWrittenAttrs = { result: GiftSummaryWrittenResult };
 export type GiftSummaryUnmailedReason = "owners_unread" | "lookup_failed" | "no_address";
 type GiftSummaryUnmailedAttrs = { reason: GiftSummaryUnmailedReason };
 /** Which cire R2 bucket the swept objects came from — bounded label, never a key. */
-export type R2BucketAttr = "sheets" | "assets";
+type R2BucketAttr = "sheets" | "assets";
 type R2ObjectsSweptAttrs = { bucket: R2BucketAttr; result: "ok" | "error" };
 type R2ReconcileBatchSizeAttrs = { bucket: R2BucketAttr };
 type HostCodeEnsuredAttrs = { result: "ok" | "error" };
@@ -500,7 +499,7 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
  *  write when a rename lands between the two. `member_required` = a household
  *  of several that has said nobody is answering; `member_changed` = the page
  *  showed a member the session no longer holds. */
-export type RsvpBlockedReason =
+type RsvpBlockedReason =
   | "deadline"
   | "preview"
   | "dietary_consent"
@@ -519,21 +518,21 @@ type RsvpChangeSweptAttrs = { result: "ok" | "error" };
 export type RsvpDigestOutcome = "sent" | "failed" | "no_address" | "lookup_failed" | "deferred";
 type RsvpDigestEmailsAttrs = { outcome: RsvpDigestOutcome };
 /** What happened to a plus-one row. Bounded, one per write path. */
-export type PlusOneAction = "added" | "renamed" | "removed";
+type PlusOneAction = "added" | "renamed" | "removed";
 /** Who did it: the household through the invite, or an editor co-host
  *  revoking permission with the remove flag. */
-export type PlusOneActor = "guest" | "organiser";
+type PlusOneActor = "guest" | "organiser";
 type PlusOneChangedAttrs = { action: PlusOneAction; actor: PlusOneActor };
 /** Who changed a guest's address: the guest on the invite, or an organiser
  *  through the change pipeline (an editor save, an upload or a revert). */
-export type GuestEmailActor = "guest" | "organiser";
+type GuestEmailActor = "guest" | "organiser";
 /** `set` stores an address (new or replaced); `cleared` removes one. */
-export type GuestEmailAction = "set" | "cleared";
+type GuestEmailAction = "set" | "cleared";
 type GuestEmailChangedAttrs = { by: GuestEmailActor; action: GuestEmailAction };
 /** Why a write was refused. Bounded, one per refusal. `attestation_stale`:
  *  an apply would set addresses on the organiser's word other than the ones
  *  its preview showed. */
-export type GuestEmailBlockReason =
+type GuestEmailBlockReason =
   | "not_a_guest"
   | "member_step_off"
   | "member_required"
@@ -576,37 +575,37 @@ export type TaskRunTimeResult =
   | "error";
 type TaskRunTimeChangedAttrs = { kind: TaskRunTimeKind; result: TaskRunTimeResult };
 /** The run sheet a reader was served: their own tasks, or the whole day. */
-export type RunSheetScopeAttr = "own" | "full";
-export type RunSheetReadResult = "ok" | "error";
+type RunSheetScopeAttr = "own" | "full";
+type RunSheetReadResult = "ok" | "error";
 type RunSheetReadCompletedAttrs = { scope: RunSheetScopeAttr; result: RunSheetReadResult };
 /** Why a guest plus-one write was refused before any write — one label per
  *  gate on the guest routes. */
-export type PlusOneBlockedReason = "preview" | "deadline" | "not_allowed" | "capacity";
+type PlusOneBlockedReason = "preview" | "deadline" | "not_allowed" | "capacity";
 type PlusOneBlockedAttrs = { reason: PlusOneBlockedReason };
 /** Which organiser control set the permission, and to what. */
-export type PlusOnePermissionScope = "guest" | "household";
+type PlusOnePermissionScope = "guest" | "household";
 type PlusOnePermissionSetAttrs = { scope: PlusOnePermissionScope; allowed: "on" | "off" };
 /** The preset key itself — a closed sixteen-value union, so the cardinality
  *  ceiling is the vocabulary and cannot grow with traffic. */
 type DietaryPresetAttrs = { preset: DietaryPreset };
 /** Which organiser write touched a registry item. Bounded, one per route. */
-export type RegistryItemAction = "create" | "update" | "remove";
+type RegistryItemAction = "create" | "update" | "remove";
 /** Which kind of item it was: a gift to reserve, a cash fund, or a group gift. */
 export type RegistryItemKindAttr = "product" | "cash_fund" | "group_gift";
 type RegistryItemWriteAttrs = { action: RegistryItemAction; kind: RegistryItemKindAttr };
 /** Which seating-plan write ran: a blank plan, a copy of another, a rename,
  *  a change of the selected plan, or a delete. */
-export type SeatingPlanAction = "create" | "duplicate" | "rename" | "select" | "remove";
+type SeatingPlanAction = "create" | "duplicate" | "rename" | "select" | "remove";
 type SeatingPlanWriteAttrs = { action: SeatingPlanAction };
 /** Which seating-table write ran. One per route. */
-export type SeatingTableAction = "create" | "update" | "remove" | "reorder";
+type SeatingTableAction = "create" | "update" | "remove" | "reorder";
 type SeatingTableWriteAttrs = { action: SeatingTableAction };
 /** What a seat write did: a new seat, a move to another table, or a seat
  *  given up. A write that changed nothing counts nowhere. */
-export type SeatingSeatAction = "seat" | "move" | "unseat";
+type SeatingSeatAction = "seat" | "move" | "unseat";
 type SeatingSeatWriteAttrs = { action: SeatingSeatAction };
 /** Why the chart refused a write that was otherwise allowed. */
-export type SeatingRefusedReason =
+type SeatingRefusedReason =
   | "table_full"
   | "table_limit"
   | "capacity_below_seated"
@@ -621,11 +620,11 @@ type SeatingWriteRefusedAttrs = { reason: SeatingRefusedReason };
  *  `note_unhidden` are a host hiding a guest's note and showing it again; a
  *  rise in hides is the signal that guests are writing things couples do not
  *  want to read. */
-export type RegistryGiftAction = "thanked" | "unthanked" | "note_hidden" | "note_unhidden";
+type RegistryGiftAction = "thanked" | "unthanked" | "note_hidden" | "note_unhidden";
 type RegistryGiftAttrs = { action: RegistryGiftAction };
 /** Which tier an upgrade counter is about. `unmapped` is a purchase row whose
  *  product names no tier — only ever counted beside the `defect` outcome. */
-export type UpgradeTier = PaidTier | "unmapped";
+type UpgradeTier = PaidTier | "unmapped";
 /** How an attempt to start a checkout ended. `reused` and `processing` are the
  *  two that keep a customer from paying twice and are worth watching apart:
  *  `reused` handed back a payment page still open, `processing` refused because
@@ -635,7 +634,7 @@ export type UpgradeTier = PaidTier | "unmapped";
  *  tier the wedding is on now. `already_held` is a wedding already on that tier
  *  or above it. `error` is Stripe refusing to read the Price or to open the
  *  session. */
-export type UpgradeCheckoutResult =
+type UpgradeCheckoutResult =
   | "ok"
   | "reused"
   | "processing"
@@ -662,7 +661,7 @@ type UpgradeCheckoutStartedAttrs = {
  *  count is money a person has to refund or apply by hand. `refunded` is a
  *  redelivery for a purchase an operator has taken back, which grants
  *  nothing. */
-export type UpgradeSettleOutcome =
+type UpgradeSettleOutcome =
   | "granted"
   | "replayed"
   | "unpaid"
@@ -683,12 +682,12 @@ type TierGatePaymentRequiredAttrs = { required_tier: PaidTier };
  *  the caller is told in one answer. `already_held` is a live code on a wedding
  *  at or above its tier, and `purchase_in_flight` one refused because an
  *  upgrade checkout for the wedding can still be paid. */
-export type UnlockCodeOutcome = "redeemed" | "refused" | "already_held" | "purchase_in_flight";
+type UnlockCodeOutcome = "redeemed" | "refused" | "already_held" | "purchase_in_flight";
 type UnlockCodeRedemptionAttrs = { outcome: UnlockCodeOutcome };
 /** How a link-preview attempt ended. `blocked` is the SSRF guard refusing a
  *  destination — a sustained rise in it is someone probing, not a shop being
  *  slow, which is why it is its own value rather than folded into a failure. */
-export type RegistryLinkPreviewResult =
+type RegistryLinkPreviewResult =
   | "ok"
   | "blocked"
   | "fetch_failed"
@@ -737,10 +736,10 @@ type ImportRowsAttrs = { entity: ImportEntity };
 type ImportParseRejectedAttrs = { reason: ParseRejectReason };
 type InviteSimpleAttrs = { result: "ok" | "error" };
 /** Which organiser write touched the invite's FAQ list. Bounded, one per route. */
-export type InviteFaqAction = "create" | "update" | "remove" | "reorder";
+type InviteFaqAction = "create" | "update" | "remove" | "reorder";
 /** How it ended: written, refused at the entry cap, or aimed at an id this
  *  wedding does not hold. Bounded; never an id. */
-export type InviteFaqResult = "ok" | "limit_reached" | "not_found";
+type InviteFaqResult = "ok" | "limit_reached" | "not_found";
 type InviteFaqWriteAttrs = { action: InviteFaqAction; result: InviteFaqResult };
 
 /**
@@ -765,7 +764,7 @@ type ImageTransformAttrs = {
 type AccountLinkRequestsAttrs = { result: AccountLinkResult };
 type AccountLinkUnlinksAttrs = { result: "ok" | "error" };
 /** How a household session's member was chosen. */
-export type HouseholdMemberSource = "picked" | "auto_single";
+type HouseholdMemberSource = "picked" | "auto_single";
 type HouseholdMemberChosenAttrs = { source: HouseholdMemberSource };
 /** How this browser's musubi sign-in compares with the chosen member's link. */
 export type AccountLinkMatchResult = "match" | "mismatch" | "signed_out" | "unlinked";
@@ -1775,4 +1774,3 @@ export const measureHostResolve = measureSecondsHelper((seconds, outcome) =>
 
 /** Re-export the canonical `Result` union for any future cire metric that needs
  *  the full HTTP-shaped outcome set rather than the bespoke unions above. */
-export type { Result };

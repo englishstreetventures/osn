@@ -57,7 +57,7 @@ function messageFor<T extends object>(
   return fallback;
 }
 
-export type DeleteOutcome = { ok: true; restoreUntil: string } | { ok: false; message: string };
+type DeleteOutcome = { ok: true; restoreUntil: string } | { ok: false; message: string };
 
 /** Soft-delete a wedding, confirmed by its slug typed exactly. */
 export async function deleteWedding(
@@ -85,7 +85,7 @@ export async function deleteWedding(
   };
 }
 
-export type RestoreOutcome =
+type RestoreOutcome =
   | { ok: true }
   | {
       ok: false;

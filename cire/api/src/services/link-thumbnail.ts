@@ -66,35 +66,35 @@ import type { BlockReason, LinkPreviewOptions } from "./link-preview";
  * something the couple is buying.
  */
 
-export class LinkThumbBlocked extends Data.TaggedError("LinkThumbBlocked")<{
+class LinkThumbBlocked extends Data.TaggedError("LinkThumbBlocked")<{
   readonly reason: BlockReason;
 }> {}
 
-export class LinkThumbFetchFailed extends Data.TaggedError("LinkThumbFetchFailed")<{
+class LinkThumbFetchFailed extends Data.TaggedError("LinkThumbFetchFailed")<{
   readonly reason: "network" | "timeout" | "status" | "too_many_redirects";
 }> {}
 
 /** The bytes are not JPEG, PNG or WebP (magic-byte verdict). */
-export class LinkThumbUnsupportedType extends Data.TaggedError("LinkThumbUnsupportedType")<{
+class LinkThumbUnsupportedType extends Data.TaggedError("LinkThumbUnsupportedType")<{
   /** The DECLARED type, for the log line only. */
   readonly declared?: string;
 }> {}
 
-export class LinkThumbTooLarge extends Data.TaggedError("LinkThumbTooLarge")<{
+class LinkThumbTooLarge extends Data.TaggedError("LinkThumbTooLarge")<{
   readonly limit: number;
 }> {}
 
 /** The Images binding refused or failed — a spent quota included. */
-export class LinkThumbTransformFailed extends Data.TaggedError("LinkThumbTransformFailed") {}
+class LinkThumbTransformFailed extends Data.TaggedError("LinkThumbTransformFailed") {}
 
 /** A deployed tier with no Images binding: we will not serve unencoded bytes. */
-export class LinkThumbUnavailable extends Data.TaggedError("LinkThumbUnavailable") {}
+class LinkThumbUnavailable extends Data.TaggedError("LinkThumbUnavailable") {}
 
 /** This month's share of the Images quota is spent. */
-export class LinkThumbBudgetSpent extends Data.TaggedError("LinkThumbBudgetSpent") {}
+class LinkThumbBudgetSpent extends Data.TaggedError("LinkThumbBudgetSpent") {}
 
 /** Recent transforms failed, so this one is not attempted (see {@link createTransformBreaker}). */
-export class LinkThumbTransformPaused extends Data.TaggedError("LinkThumbTransformPaused") {}
+class LinkThumbTransformPaused extends Data.TaggedError("LinkThumbTransformPaused") {}
 
 /**
  * Transforms the picker may spend in one calendar month (UTC), across every
@@ -103,7 +103,7 @@ export class LinkThumbTransformPaused extends Data.TaggedError("LinkThumbTransfo
  */
 export const MONTHLY_THUMB_TRANSFORMS = 2_500;
 
-export type LinkThumbError =
+type LinkThumbError =
   | LinkThumbBlocked
   | LinkThumbFetchFailed
   | LinkThumbUnsupportedType
@@ -117,7 +117,7 @@ export type LinkThumbError =
  * What the breaker says about one request: transform as normal, go as the one
  * trial after a pause, or skip the fetch and the transform.
  */
-export type TransformAdmission = "go" | "trial" | "paused";
+type TransformAdmission = "go" | "trial" | "paused";
 
 export interface TransformBreaker {
   admit(): TransformAdmission;
@@ -128,7 +128,7 @@ export interface TransformBreaker {
   release(): void;
 }
 
-export interface TransformBreakerOptions {
+interface TransformBreakerOptions {
   /** Failures inside {@link TransformBreakerOptions.windowMs} that start a pause. */
   readonly threshold?: number;
   readonly windowMs?: number;

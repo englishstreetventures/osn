@@ -6,7 +6,7 @@
 // organiser submits it or not, and it is never shown anywhere else.
 
 /** The query parameter the marketing site sets. */
-export const NAME_PARAM = "name";
+const NAME_PARAM = "name";
 
 /**
  * Characters a name never needs, which a crafted link could use to hide text

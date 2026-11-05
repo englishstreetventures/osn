@@ -61,7 +61,7 @@ const REDIRECT_FOLLOW_HOSTS = new Set<string>([
 ]);
 
 /** Is `host` one we'll follow a redirect through (first-party Pinterest only)? */
-export function isFollowableRedirectHost(host: string): boolean {
+function isFollowableRedirectHost(host: string): boolean {
   return REDIRECT_FOLLOW_HOSTS.has(host.toLowerCase());
 }
 
@@ -129,7 +129,7 @@ export function canonicalizePinterestBoardUrl(location: string): string | null {
 }
 
 /** Options for {@link resolvePinUrl}; defaults match the import call-site. */
-export interface ResolvePinUrlOptions {
+interface ResolvePinUrlOptions {
   /** Max number of redirects to follow before giving up. */
   readonly maxRedirects?: number;
   /** Per-attempt timeout in ms (AbortController). */

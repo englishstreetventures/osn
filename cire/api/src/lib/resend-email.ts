@@ -14,7 +14,7 @@ import { resendApiUrlProblem, type ResendEmailConfig } from "@shared/email";
 /** Every cire email goes out from the sender verified in Resend. */
 const CIRE_EMAIL_FROM = "hello@cireweddings.com";
 
-export interface ResendEmailSetup {
+interface ResendEmailSetup {
   /** The transport config, or null when mail must not go through Resend. */
   readonly config: ResendEmailConfig | null;
   /** Why the override was refused, for the caller to log; null when it was not. */

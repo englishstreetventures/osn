@@ -49,7 +49,7 @@ export function isHeroEmpty(hero: HeroContent): boolean {
 }
 
 /** Our-Story-shaped content (heading + body + story image). */
-export interface StoryContent {
+interface StoryContent {
   heading: string | null | undefined;
   body: string | null | undefined;
   imageUrl: string | null | undefined;
@@ -76,7 +76,7 @@ export function hasFooterMessage(message: string | null | undefined): boolean {
 }
 
 /** Footer-shaped content (the couple's closing note + their motif image). */
-export interface FooterContent {
+interface FooterContent {
   message: string | null | undefined;
   imageUrl: string | null | undefined;
 }
@@ -115,7 +115,7 @@ export function footerState(
 }
 
 /** One FAQ entry, as far as emptiness is concerned. */
-export interface FaqContent {
+interface FaqContent {
   question: string | null | undefined;
   answer: string | null | undefined;
 }

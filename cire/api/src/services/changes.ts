@@ -65,7 +65,7 @@ const CSV_SLOTS = ["eventsCsv", "guestsCsv"] as const;
  * refinement below (and, being the last union member, surfaces as the shared
  * 400 rather than a confusing empty-sheet parse error).
  */
-export const CsvChangeBody = Schema.Struct({
+const CsvChangeBody = Schema.Struct({
   eventsCsv: Schema.optional(Schema.String),
   guestsCsv: Schema.optional(Schema.String),
   /** Provenance toggle (§6): widen the diff to also remove manually-added rows. */
@@ -77,7 +77,7 @@ export const CsvChangeBody = Schema.Struct({
       : "at least one of eventsCsv / guestsCsv is required",
   ),
 );
-export type CsvChangeBody = Schema.Schema.Type<typeof CsvChangeBody>;
+type CsvChangeBody = Schema.Schema.Type<typeof CsvChangeBody>;
 
 /**
  * An editor draft-save: the whole DesiredState (ids present for existing rows,
@@ -93,7 +93,7 @@ export type CsvChangeBody = Schema.Schema.Type<typeof CsvChangeBody>;
  *    moved since, because a row a co-host added after that load is absent from
  *    the draft for no reason the organiser chose, and would read as a removal.
  */
-export const DesiredStateChangeBody = Schema.Struct({
+const DesiredStateChangeBody = Schema.Struct({
   desiredState: DesiredState,
   // Which half of the wedding this save is authoritative over. Both editors
   // send it (`"guests"`, `"events"`); omitted, it defaults to `"both"`.
@@ -101,15 +101,15 @@ export const DesiredStateChangeBody = Schema.Struct({
   removeManual: Schema.Literal(true),
   baseRevision: Schema.String,
 });
-export type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChangeBody>;
+type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChangeBody>;
 
 /**
  * Either front door. `Schema.Union` tries each member in order; the two shapes
  * are disjoint (`desiredState` vs `eventsCsv`/`guestsCsv`), so a body decodes to
  * exactly one. A malformed body fails both and surfaces as the shared 400.
  */
-export const ChangeBody = Schema.Union([DesiredStateChangeBody, CsvChangeBody]);
-export type ChangeBody = Schema.Schema.Type<typeof ChangeBody>;
+const ChangeBody = Schema.Union([DesiredStateChangeBody, CsvChangeBody]);
+type ChangeBody = Schema.Schema.Type<typeof ChangeBody>;
 
 /**
  * Rejects a body that carries BOTH front doors' fields, before the union above
@@ -140,7 +140,7 @@ const ExclusiveFrontDoor = Schema.Unknown.check(
 
 // ── Normalised decode ───────────────────────────────────────────────────────
 
-export interface DecodedChange {
+interface DecodedChange {
   /** The desired state both shapes reduce to — the input `diffAgainstDb` reads. */
   readonly desiredState: DesiredState;
   /**
@@ -414,7 +414,7 @@ export class ChangeConflict extends Data.TaggedError("ChangeConflict")<{
 }> {}
 
 /** A held claim: the wedding it covers and the token that proves it is ours. */
-export interface ChangeClaim {
+interface ChangeClaim {
   readonly weddingId: string;
   readonly token: string;
   /** The head the claim was taken at; the commit moves it one on. */

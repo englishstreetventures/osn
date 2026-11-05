@@ -16,7 +16,7 @@
 import type { ConsentSource, RsvpFilterEvent, RsvpFilterGuest, RsvpStatus } from "./rsvp-filter";
 
 /** The counts the event header prints. */
-export interface RsvpTallies {
+interface RsvpTallies {
   attending: number;
   declined: number;
   maybe: number;

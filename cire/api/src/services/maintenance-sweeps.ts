@@ -52,7 +52,7 @@ import type { DeletableBucket } from "./r2-cleanup";
 import { reapR2Objects } from "./r2-cleanup";
 import { changeClaimLive } from "./wedding-lifecycle";
 
-export class MaintenanceSweepError extends Data.TaggedError("MaintenanceSweepError")<{
+class MaintenanceSweepError extends Data.TaggedError("MaintenanceSweepError")<{
   op: "vendor_claims" | "stale_previews" | "purge_deleted_weddings";
   reason: string;
 }> {}
@@ -86,7 +86,7 @@ export const PURGE_PENDING_HOLD_S = 14 * 24 * 60 * 60;
 const purgeHeld = (wedding: SQL | string, nowS: number, nowMs: number): SQL =>
   sql`(EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.weddingId} = ${wedding} AND ${weddingUpgradePurchases.status} = 'pending' AND ${weddingUpgradePurchases.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}) OR EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND (${registryContributions.status} = 'disputed' OR (${registryContributions.status} = 'pending' AND ${registryContributions.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR ${changeClaimLive(nowMs)})`;
 
-export interface PurgeRunResult {
+interface PurgeRunResult {
   purged: number;
   held: number;
   errors: number;

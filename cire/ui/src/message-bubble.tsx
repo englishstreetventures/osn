@@ -69,7 +69,7 @@ export function revealedLine(message: MessageThreadItem): string {
   return time ? `Sent ${time}` : "";
 }
 
-export interface MessageBubbleProps {
+interface MessageBubbleProps {
   message: MessageThreadItem;
   spacing: MessageSpacing;
   /** Whether the tapped time line shows. */

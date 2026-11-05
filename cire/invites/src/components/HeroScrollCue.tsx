@@ -14,7 +14,7 @@ const ALIGN = {
   end: "right-6",
 } as const;
 
-export type HeroScrollCueAlign = keyof typeof ALIGN;
+type HeroScrollCueAlign = keyof typeof ALIGN;
 
 interface HeroScrollCueProps {
   align?: HeroScrollCueAlign;

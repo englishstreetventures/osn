@@ -28,13 +28,13 @@ import { metricFamilyDeactivated } from "../metrics";
 
 /** The family isn't a `kind='guest'` family under `weddingId` (missing, in a
  *  different wedding, or the synthetic host-preview family). 404-class. */
-export class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {}
+class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {}
 
-export class DeactivateWriteError extends Data.TaggedError("DeactivateWriteError")<{
+class DeactivateWriteError extends Data.TaggedError("DeactivateWriteError")<{
   reason: string;
 }> {}
 
-export interface DeactivateResult {
+interface DeactivateResult {
   familyId: string;
   /** Epoch-ms timestamp the family was deactivated, or `null` after a reactivate. */
   deactivatedAt: number | null;

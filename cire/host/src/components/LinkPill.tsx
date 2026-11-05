@@ -8,7 +8,7 @@ export const LINK_PILL_ROW = "@container flex flex-wrap items-center gap-2";
 const PILL = buttonClass({ variant: "outline", size: "sm" });
 const MARKED_PILL = `${PILL} @max-[14rem]:w-7 @max-[14rem]:px-0`;
 
-export interface LinkPillProps {
+interface LinkPillProps {
   href: string;
   /** The destination's mark. With one, the pill turns to a circle in a narrow row. */
   mark?: Component<{ class?: string }>;

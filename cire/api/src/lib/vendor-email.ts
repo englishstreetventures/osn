@@ -13,7 +13,7 @@
 import { EmailService } from "@shared/email";
 import { Effect } from "effect";
 
-export interface ClaimInviteEmailInput {
+interface ClaimInviteEmailInput {
   /** Vendor's email address. */
   readonly to: string;
   /** The full claim URL the vendor follows to take ownership of their listing. */

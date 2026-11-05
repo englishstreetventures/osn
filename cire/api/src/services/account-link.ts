@@ -15,10 +15,10 @@ import type { OsnAccountResolver } from "./osn-bridge";
  * invite is never held up by osn-api. Chosen, not measured: well above a
  * healthy service-to-service call, well below a stalled page.
  */
-export const MEMBER_MATCH_RESOLVE_WAIT = "1 second";
+const MEMBER_MATCH_RESOLVE_WAIT = "1 second";
 
 /** The requested guest does not belong to the session's family (or is unknown). */
-export class GuestNotInFamily extends Data.TaggedError("GuestNotInFamily")<{
+class GuestNotInFamily extends Data.TaggedError("GuestNotInFamily")<{
   reason: "unknown_guest";
 }> {}
 
@@ -28,7 +28,7 @@ export class GuestNotInFamily extends Data.TaggedError("GuestNotInFamily")<{
  * bound to it: the link would record someone else's seat as the signed-in
  * account's own.
  */
-export class PlusOneSeatNotLinkable extends Data.TaggedError("PlusOneSeatNotLinkable") {}
+class PlusOneSeatNotLinkable extends Data.TaggedError("PlusOneSeatNotLinkable") {}
 
 /**
  * The link would violate a uniqueness invariant.
@@ -45,12 +45,12 @@ export class AccountLinkConflict extends Data.TaggedError("AccountLinkConflict")
   reason: "already_linked";
 }> {}
 
-export class AccountLinkWriteError extends Data.TaggedError("AccountLinkWriteError")<{
+class AccountLinkWriteError extends Data.TaggedError("AccountLinkWriteError")<{
   op: "insert" | "delete";
   reason: string;
 }> {}
 
-export interface CreatedAccountLink {
+interface CreatedAccountLink {
   guestId: string;
   linkedAt: Date;
 }
@@ -59,7 +59,7 @@ export interface CreatedAccountLink {
  * A household's account-link state when linking is offered to it — what the
  * claim and restore responses carry. Never the OSN account id.
  */
-export interface HouseholdLinkState {
+interface HouseholdLinkState {
   enabled: true;
   /** Whether the request carried a live `cire_org_session`. */
   signedIn: boolean;
@@ -73,7 +73,7 @@ export interface HouseholdLinkState {
 }
 
 /** The public profile fields of this browser's musubi sign-in. */
-export interface SignedInAccountView {
+interface SignedInAccountView {
   displayName: string | null;
   handle: string | null;
   /** An `https:` URL on musubi's own host, or null. Any other is dropped. */
@@ -83,7 +83,7 @@ export interface SignedInAccountView {
 }
 
 /** Which member to compute the link state for, and how. */
-export interface MemberOptions {
+interface MemberOptions {
   guestId: string | null;
   resolveAccountId?: OsnAccountResolver;
   /** Hosts a profile picture may load from; any other is dropped. */
@@ -91,7 +91,7 @@ export interface MemberOptions {
 }
 
 /** How this browser's sign-in compares with a member's link. */
-export interface MemberMatch {
+interface MemberMatch {
   result: AccountLinkMatchResult;
   /** The live sign-in on this request, or null. */
   session: ValidatedOrganiserSession | null;
@@ -124,7 +124,7 @@ function liveSignIn(
 }
 
 /** Reverse-lookup row for the Pulse feed integration (account → invitations). */
-export interface AccountLinkByAccount {
+interface AccountLinkByAccount {
   guestId: string;
   familyId: string;
   weddingId: string;

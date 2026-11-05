@@ -977,7 +977,7 @@ export function applyE2eRsvpDeadline(
  * published list puts on the invite never appears in the other cire flows.
  * No `image_key` on any gift: the local asset store starts empty.
  */
-export function seedE2eGiftList(db: TestDb): void {
+function seedE2eGiftList(db: TestDb): void {
   const now = new Date();
   const weddingId = "wed_e2e_gift_list";
   const eventId = "evt_e2e_gift_reception";
@@ -1199,7 +1199,7 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * flow checks is written out again as `CIRE_ORGANISER` in
  * `tools/e2e/src/config.ts`; a change here goes there too.
  */
-export function seedE2eOrganiser(db: TestDb): void {
+function seedE2eOrganiser(db: TestDb): void {
   const now = new Date();
   const wedding = (id: string, slug: string, displayName: string, weddingDate?: string) =>
     db
@@ -1700,8 +1700,7 @@ export function seedE2eOrganiser(db: TestDb): void {
  * The R2 key of `wed_e2e_envelope`'s hero image. The seed stores only the key;
  * the local server puts the bytes behind it (`applyE2eOrganiserAssets`).
  */
-export const E2E_ENVELOPE_HERO_KEY =
-  "assets/wed_e2e_envelope/hero-e0000000-0000-4000-8000-0000000000e1";
+const E2E_ENVELOPE_HERO_KEY = "assets/wed_e2e_envelope/hero-e0000000-0000-4000-8000-0000000000e1";
 
 /**
  * Three weddings for the envelope E2E flow (`cire-invite-envelope.flow.ts`),

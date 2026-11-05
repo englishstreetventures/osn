@@ -3,7 +3,7 @@
 // the three notices, each its own URL. Plain links, so it works with no
 // JavaScript and each page prints on its own; the current page carries
 // `aria-current="page"` and the gold underline.
-export type PrivacyPage = 'overview' | 'hosts' | 'guests' | 'vendors'
+type PrivacyPage = 'overview' | 'hosts' | 'guests' | 'vendors'
 
 interface Props {
   readonly current: PrivacyPage

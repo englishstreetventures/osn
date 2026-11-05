@@ -49,13 +49,13 @@ import { type ZapChatClient, ZapChatRejected } from "./zap-bridge";
 // ---------------------------------------------------------------------------
 
 /** No enquiry with this id (missing or another wedding's). 404-class. */
-export class EnquiryNotFound extends Data.TaggedError("EnquiryNotFound") {}
+class EnquiryNotFound extends Data.TaggedError("EnquiryNotFound") {}
 /** Reply/quote attempted before the vendor claimed + the chat was provisioned. 409 `awaiting_vendor`. */
 export class EnquiryAwaitingVendor extends Data.TaggedError("EnquiryAwaitingVendor") {}
 /** `deps.zap` is null — the vendor-chat feature is disabled (missing/corrupt config). 503-class. */
 export class ZapUnavailable extends Data.TaggedError("ZapUnavailable") {}
 
-export type EnquiryError = EnquiryNotFound | EnquiryAwaitingVendor | ZapUnavailable;
+type EnquiryError = EnquiryNotFound | EnquiryAwaitingVendor | ZapUnavailable;
 
 // ---------------------------------------------------------------------------
 // Row + DTO shapes
@@ -137,7 +137,7 @@ const toDto = (r: EnquiryDtoSource): EnquiryDto => ({
 // Inputs
 // ---------------------------------------------------------------------------
 
-export interface EnquiryServiceDeps {
+interface EnquiryServiceDeps {
   /** Zap c2b chat client, or null when the feature is disabled (missing config). */
   readonly zap: ZapChatClient | null;
   /**
@@ -150,7 +150,7 @@ export interface EnquiryServiceDeps {
   readonly threadBaseUrl: string;
 }
 
-export interface OpenEnquiryInput {
+interface OpenEnquiryInput {
   weddingId: string;
   weddingName: string;
   directoryVendorId: string;
@@ -161,7 +161,7 @@ export interface OpenEnquiryInput {
   claimUrl: string;
 }
 
-export interface ReplyEnquiryInput {
+interface ReplyEnquiryInput {
   enquiry: EnquiryRow;
   senderProfileId: string;
   senderName: string;
@@ -180,7 +180,7 @@ export interface QuoteEnquiryInput {
   currency: string;
 }
 
-export interface AddToBudgetInput {
+interface AddToBudgetInput {
   enquiry: EnquiryRow;
   vendorName: string;
   category: ServiceCategory;
@@ -191,7 +191,7 @@ export interface AddToBudgetInput {
 // ---------------------------------------------------------------------------
 
 /** Format a minor-unit integer as a currency string for emails / chat bodies. */
-export function formatMinor(minor: number, currency: string): string {
+function formatMinor(minor: number, currency: string): string {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
 }
 
@@ -261,7 +261,7 @@ export const weddingEnquiriesQuery = (db: Db, weddingId: string, page: EnquiryPa
  * `UNION ALL`, and D1 runs on workerd's SQLite, which caps a compound SELECT at
  * five terms (`SQLITE_LIMIT_COMPOUND_SELECT`; wiki/shared/d1-limits.md).
  */
-export const MAX_LISTING_ARMS_PER_QUERY = 5;
+const MAX_LISTING_ARMS_PER_QUERY = 5;
 
 /**
  * The most listings one vendor-inbox page reads: 20 statements of five arms,

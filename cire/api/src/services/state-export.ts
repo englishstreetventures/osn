@@ -85,7 +85,7 @@ import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
  *    Only the revert's readers (`parseEventsCsv` / `parseGuestsCsv` with
  *    `{ snapshot: true }`) read it; the upload parser refuses its rows.
  */
-export type ExportFidelity = "import" | "full" | "snapshot";
+type ExportFidelity = "import" | "full" | "snapshot";
 
 /**
  * The fidelities a download may be served at. `"snapshot"` is not one: it
@@ -94,7 +94,7 @@ export type ExportFidelity = "import" | "full" | "snapshot";
  * {@link downloadFidelity} and call the `download*` methods, which cannot be
  * handed `"snapshot"`.
  */
-export type DownloadFidelity = Exclude<ExportFidelity, "snapshot">;
+type DownloadFidelity = Exclude<ExportFidelity, "snapshot">;
 
 /** A download's `?fidelity=` query value, narrowed: `full` or `import`. */
 export function downloadFidelity(query: string | undefined): DownloadFidelity {
