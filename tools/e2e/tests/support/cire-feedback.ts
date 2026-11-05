@@ -161,9 +161,9 @@ export async function builderFeedback(flow: Flow, page: Page): Promise<void> {
   const stateWords = panel.getByText(/^(Shown|Hidden — empty|Hidden — switched off)$/);
   flow.check("feedback: the Hero card's state words appear once", 1, await stateWords.count());
   flow.check(
-    "feedback: the Hero card's state words are its live region",
-    "status",
-    (await stateWords.getAttribute("role")) ?? "",
+    "feedback: the Hero card's state words are its live region, an <output>",
+    "OUTPUT",
+    await stateWords.evaluate((el) => el.tagName),
   );
   flow.check(
     "feedback: the Hero card's live region is visually hidden",

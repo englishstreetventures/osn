@@ -413,7 +413,7 @@ Story, FAQ and Closing Section fieldsets a "Show on the invite" switch, and unde
 it a line saying why a hidden section is hidden. The section's tab and phone menu
 row name its state — "(hidden — empty)" or "(hidden — switched off)" — with the
 eye-off icon; the card itself shows no state pill, since the switch already says
-whether it is on. A visually hidden `role="status"` region in each card reads the
+whether it is on. A visually hidden `<output>` (role `status`) in each card reads the
 state's words out to a screen reader as an edit changes it (WCAG 2.1 SC 4.1.3). The state is driven by the **same** logic as the guest render:
 the content predicates are mirrored in `cire/host/src/lib/invite-emptiness.ts`
 (a hand-kept copy; keep the two in lockstep) and `sectionState` comes from
@@ -1336,7 +1336,7 @@ endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 | --- | --- |
 | `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout, the view's cards, Content's section strip and the phone's place menu |
 | `invite/model.ts` | Wire types, closed option sets, `COPY_CAPS` (client mirror of `InviteTextBody`), the `InviteDraft` shape + pure `textPayload`/`themePayload` builders |
-| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SectionCard` (`hidden` prop; `visibility` prop renders the "Show on the invite" switch, the reason line and a visually hidden `role="status"` region, and sets the fieldset's `data-state`) / `Disclosure` / `InstantBadge` |
+| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SectionCard` (`hidden` prop; `visibility` prop renders the "Show on the invite" switch, the reason line and a visually hidden `<output>` live region, and sets the fieldset's `data-state`) / `Disclosure` / `InstantBadge` |
 | `invite/previews.tsx` | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle` |
 | `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
 | `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button in the module's view bar |
