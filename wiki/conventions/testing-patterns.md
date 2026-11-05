@@ -726,7 +726,11 @@ the file replaces with `vi.mock` loads the mock and needs no warming.
 `cire/invites/tests/designs/gala/InvitePage.test.tsx` and its classic twin warm
 `EventCard` and each pack's `FaqSection` this way, and
 `cire/invites/tests/designs/InvitePage.browser.test.tsx` warms `FaqSection` for
-its Chromium tests. [[browser-tests]] covers that tier.
+its Chromium tests. [[browser-tests]] covers that tier. Without the warm-up, a
+1.5 s transform failed both packs' first FAQ test in every run; with it, every
+run passed.
+
+*Measured 2026-11-05 — in `cire/invites`, a throwaway Vitest config adding a Vite plugin that delays `FaqSection.tsx`'s transform by 1.5 s, then `bunx vitest run --config <it> --no-fsModuleCache tests/designs/gala/InvitePage.test.tsx tests/designs/classic/InvitePage.test.tsx`, 10 runs each way: without the `beforeAll` both failed at 1010–1015 ms with `expected null to be truthy`; with it both passed in 11–39 ms*
 
 ## Schema-derived test databases
 
