@@ -29,7 +29,7 @@ The Cloudflare resources, the state backend and the Worker bundler come from `@a
 
 **The dev tier deploys through it; on production only the sites do so far.** Four stacks build the dev tier in its own Cloudflare account from `.github/workflows/deploy.yml` ([[#The dev deploy]], [[dev-environment]]). On production the cire and musubi stacks deploy the sites alone, one switch per site ([[#Production sites]]); Wrangler still deploys every production API Worker and, until each site's domain moves, its Pages project, as [[production-deploy]] describes, until later steps of phase P3 adopt them. The rollout's design is [`docs/superpowers/specs/2026-10-16-alchemy-rollout-design.md`](../../docs/superpowers/specs/2026-10-16-alchemy-rollout-design.md), under epic englishstreetventures/osn#1490.
 
-Alchemy runs on Effect. Root `package.json` `overrides` hold `@effect/platform-node-shared` and `@effect/sql-d1` at `4.1.1`, so the tree keeps one copy of `effect`; `shared/infra/tests/package.test.ts` fails on a second copy of `effect`, `alchemy` or `@alchemy.run/cloudflare`, or on any other Alchemy version.
+Alchemy runs on Effect. Root `package.json` `overrides` hold `@effect/platform-node-shared` and `@effect/sql-d1` at `4.1.2`, so the tree keeps one copy of `effect`; `shared/infra/tests/package.test.ts` fails on a second copy of `effect`, `alchemy` or `@alchemy.run/cloudflare`, or on any other Alchemy version.
 
 ## Accounts
 

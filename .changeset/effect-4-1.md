@@ -18,9 +18,9 @@
 "@zap/infra": patch
 ---
 
-Every workspace runs `effect` 4.1.1, with `@effect/platform-bun`,
+Every workspace runs `effect` 4.1.2, with `@effect/platform-bun`,
 `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
-`@effect/vitest` at 4.1.1 and the root overrides for
+`@effect/vitest` at 4.1.2 and the root overrides for
 `@effect/platform-node-shared` and `@effect/sql-d1` with them. `alchemy`
 2.0.0-beta.84 is patched (`patches/alchemy@2.0.0-beta.84.patch`) so it loads
 on Effect 4.1: its OAuth helpers use Web Crypto, and its service types drop the

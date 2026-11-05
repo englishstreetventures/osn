@@ -124,7 +124,7 @@ Five more, and the first three fail quietly:
 
 ## Changed in 4.1
 
-The repository runs 4.1.1. Its own code needed no edit for it: nothing here
+The repository runs 4.1.2. Its own code needed no edit for it: nothing here
 uses an API 4.1 removed or reshaped. These are the ones a model still writes
 from 4.0 memory:
 
