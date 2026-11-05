@@ -223,7 +223,9 @@ describe("RsvpView", () => {
     authFetchMock.mockResolvedValueOnce(json(view));
     render(() => <RsvpView weddingId="wed_a" />);
 
-    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    // The tab, not the word: the outline drawn while the replies load holds a
+    // sample event's name too.
+    await waitFor(() => expect(tab("Ceremony")).toBeTruthy());
     expect(screen.getByText(/Answered by Maya/)).toBeTruthy();
     expect(screen.getByText(/Answered by Sam/)).toBeTruthy();
     expect(screen.getAllByText("linked musubi")).toHaveLength(1);

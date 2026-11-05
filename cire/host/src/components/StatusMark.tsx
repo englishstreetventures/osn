@@ -20,6 +20,9 @@ import { type Component, type JSX, Show } from "solid-js";
  * Every glyph clears 4.5:1 on its circle and every word 4.5:1 on the page, in
  * both themes (`GuestsMarks.browser.test.tsx`).
  * `stacked` puts the word under the circle, for a narrow fixed column.
+ *
+ * The circle is a disc with a box of its own, so a row drawn hollow while it
+ * loads (`SkeletonOutline`) fills it as one block (`data-skeleton="block"`).
  */
 
 export type MarkTone = "yes" | "no" | "maybe" | "none";
@@ -78,6 +81,7 @@ export function StatusDot(props: { tone: MarkTone; glyph?: Glyph }) {
   return (
     <span
       data-status-dot
+      data-skeleton="block"
       aria-hidden="true"
       class={`inline-flex size-3.5 shrink-0 items-center justify-center rounded-full ${DOT[props.tone]}`}
     >
@@ -114,6 +118,7 @@ export function StatusMark(props: {
     >
       <span
         data-status-dot
+        data-skeleton="block"
         aria-hidden="true"
         class={`inline-flex shrink-0 items-center justify-center rounded-full ${
           props.stacked ? "size-5" : "size-4"

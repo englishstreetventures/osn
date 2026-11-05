@@ -8,6 +8,7 @@ import DietaryPresetsInline from "@cire/ui/dietary-presets";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import SegmentedTabs from "@cire/ui/segmented-tabs";
 import Skeleton from "@cire/ui/skeleton";
+import SkeletonOutline from "@cire/ui/skeleton-outline";
 import { Popover } from "@kobalte/core/popover";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
@@ -110,6 +111,59 @@ interface RsvpViewEvent extends RsvpFilterEvent {
   responded: number;
   noResponse: number;
 }
+
+/**
+ * What the replies draw hollow from while they load (`SkeletonOutline`): an
+ * event's tallies and three replies, run through the same legend, table and
+ * stacked list as the loaded ones. Never shown — every word in the outline is
+ * transparent — so they only have to be shaped like real replies: a name, a
+ * household, a dietary answer on one, each reply state the list opens with.
+ * The owner's call (englishstreetventures/osn#1955): typed samples beside the
+ * view, not data.
+ */
+const SAMPLE_EVENT: RsvpViewEvent = {
+  id: "sample-event",
+  name: "Ceremony",
+  invited: 120,
+  attending: 64,
+  declined: 12,
+  maybe: 4,
+  responded: 80,
+  noResponse: 40,
+  guests: [],
+  unresponded: [],
+};
+
+const sampleReply = (
+  guestId: string,
+  [firstName, lastName]: readonly [string, string],
+  status: RsvpRowStatus,
+  dietary: string,
+): RsvpRow => ({
+  guestId,
+  firstName,
+  lastName,
+  familyName: lastName,
+  familyCode: "SAMPLE",
+  status,
+  dietary,
+  dietaryPresets: [],
+  consentSource: status === "none" ? null : "guest",
+  statusRecordedByHost: false,
+  submittedBy: null,
+  plusOneOf: null,
+  plusOneOfName: null,
+  responded: status !== "none",
+  search: "",
+  sortSurname: lastName,
+  sortHousehold: lastName,
+});
+
+const SAMPLE_REPLIES: RsvpRow[] = [
+  sampleReply("sample-1", ["Chiamaka", "Okonkwo"], "attending", "Vegetarian"),
+  sampleReply("sample-2", ["Hamish", "MacLeod"], "declined", ""),
+  sampleReply("sample-3", ["Elif", "Haddad"], "none", ""),
+];
 
 /** Each row status's word and mark (`StatusMark`). "No reply" is the quiet
  *  one, an empty ring: it is the most common state early on, and a loud mark
@@ -439,6 +493,14 @@ export default function RsvpView(props: RsvpViewProps) {
     return all.find((section) => section.event.id === id) ?? all[0];
   });
 
+  /** The samples as a section, for the outline drawn while the replies load. */
+  const sampleSection = {
+    event: SAMPLE_EVENT,
+    rows: () => SAMPLE_REPLIES,
+    visible: () => SAMPLE_REPLIES,
+    hasNew: () => false,
+  } satisfies NonNullable<ReturnType<typeof selected>>;
+
   const counts = createMemo(() => statusCounts(selected()?.rows() ?? []));
   const shownCount = () => selected()?.visible().length ?? 0;
   const filtering = () => query().trim().length > 0 || filter() !== "all";
@@ -570,6 +632,8 @@ export default function RsvpView(props: RsvpViewProps) {
   const sortButton = (key: RsvpSortKey) => (
     <button
       type="button"
+      // Words and an arrow, not a boxed control: hollow, a bar and a glyph.
+      data-skeleton="text"
       onClick={() => setSort(nextSort(sort(), key))}
       // `uppercase` again: a button does not inherit the head's transform.
       class="hover:text-text transition-ui-colors -mx-1 inline-flex items-center gap-1.5 rounded-sm px-1 uppercase duration-(--dur-fast) ease-(--ease-out)"
@@ -1067,21 +1131,16 @@ export default function RsvpView(props: RsvpViewProps) {
           adds no gap. */}
       <div class="flex flex-col gap-8 empty:hidden" aria-busy={loading() ? "true" : undefined}>
         <Show when={loading()}>
-          {/* The legend line's room, empty — two lines on a phone — then the
-              table's head row and rows at the height a loaded one draws, a
-              hairline apart as the table's are; on a phone, the stacked
-              replies (DESIGN.md §4, Skeletons). */}
-          <div class="flex flex-col gap-4">
-            <div aria-hidden="true" class={compact() ? "h-11" : "h-5"} />
-            <div class="flex flex-col gap-px">
-              <Show when={!compact()}>
-                <Skeleton standsFor="row" class="h-10.5" />
-              </Show>
-              <For each={[1, 2, 3]}>
-                {() => <Skeleton standsFor="row" class={compact() ? "h-16.5" : "h-13.25"} />}
-              </For>
-            </div>
-          </div>
+          {/* The legend and three replies drawn hollow from the samples, in
+              the layout the loaded ones take: the table, or on a phone the
+              stacked list (DESIGN.md §4, Hollow rows). One outline per
+              layout, so a layout change draws a new one. */}
+          <Show
+            when={compact()}
+            fallback={<SkeletonOutline>{hollowReplies(false)}</SkeletonOutline>}
+          >
+            <SkeletonOutline>{hollowReplies(true)}</SkeletonOutline>
+          </Show>
         </Show>
 
         <Show when={error()}>
@@ -1104,32 +1163,9 @@ export default function RsvpView(props: RsvpViewProps) {
                 aria-labelledby={tabId(selected()?.event.id ?? "")}
                 class="flex flex-col gap-4"
               >
-                {/* The API's own tallies for the event. Not the filter's counts: those
-                  count the rows listed, and a guest taken off the event after
-                  replying keeps a row but is no longer invited. Below the bar,
-                  so they scroll away under it with the rest. */}
-                <dl class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-4 gap-y-1">
-                  <div class="flex items-center gap-1.5">
-                    <dt class="text-gold-ink tracking-ui-wider uppercase">Attending</dt>
-                    <dd class="text-text font-ui-mono">{section().event.attending}</dd>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <dt class="tracking-ui-wider uppercase">Declined</dt>
-                    <dd class="text-text font-ui-mono">{section().event.declined}</dd>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <dt class="tracking-ui-wider uppercase">Maybe</dt>
-                    <dd class="text-text font-ui-mono">{section().event.maybe}</dd>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <dt class="tracking-ui-wider uppercase">No reply</dt>
-                    <dd class="text-text font-ui-mono">{section().event.noResponse}</dd>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <dt class="tracking-ui-wider uppercase">Invited</dt>
-                    <dd class="text-text font-ui-mono">{section().event.invited}</dd>
-                  </div>
-                </dl>
+                {/* The event's tallies (`tallies`), below the bar, so they
+                  scroll away under it with the rest. */}
+                {tallies(section().event)}
 
                 {/* Two readings of one fact: the printed count updates as you
                   type, the announced one waits for you to stop. Kept out of
@@ -1171,6 +1207,51 @@ export default function RsvpView(props: RsvpViewProps) {
       </div>
     </div>
   );
+
+  /**
+   * The API's own tallies for an event, a word and a count each. Not the
+   * filter's counts: those count the rows listed, and a guest taken off the
+   * event after replying keeps a row but is no longer invited.
+   */
+  function tallies(event: RsvpViewEvent) {
+    return (
+      <dl class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-4 gap-y-1">
+        <div class="flex items-center gap-1.5">
+          <dt class="text-gold-ink tracking-ui-wider uppercase">Attending</dt>
+          <dd class="text-text font-ui-mono">{event.attending}</dd>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <dt class="tracking-ui-wider uppercase">Declined</dt>
+          <dd class="text-text font-ui-mono">{event.declined}</dd>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <dt class="tracking-ui-wider uppercase">Maybe</dt>
+          <dd class="text-text font-ui-mono">{event.maybe}</dd>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <dt class="tracking-ui-wider uppercase">No reply</dt>
+          <dd class="text-text font-ui-mono">{event.noResponse}</dd>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <dt class="tracking-ui-wider uppercase">Invited</dt>
+          <dd class="text-text font-ui-mono">{event.invited}</dd>
+        </div>
+      </dl>
+    );
+  }
+
+  /**
+   * The replies as they load: the samples' legend over the samples' rows, in
+   * the loaded panel's own column and gap.
+   */
+  function hollowReplies(stacked: boolean) {
+    return (
+      <div class="flex flex-col gap-4">
+        {tallies(SAMPLE_EVENT)}
+        <div>{stacked ? renderBlocks(() => sampleSection) : renderTable(() => sampleSection)}</div>
+      </div>
+    );
+  }
 
   /**
    * The wide layout: one table that scrolls with the page, its head row stuck

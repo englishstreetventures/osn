@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import Skeleton from "@cire/ui/skeleton";
+import SkeletonOutline from "@cire/ui/skeleton-outline";
 import { tokeniseQuery, tokensPrefixName } from "@shared/db-utils/search";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
@@ -273,6 +274,76 @@ const ROWS_SCROLL_MARGIN =
 const HOUSEHOLD_BAR =
   "border-border bg-surface sticky top-[calc(var(--chrome-h)+var(--bar-h,0px)+var(--heads-h,0px))] z-5 flex h-(--hh-bar-h) items-center gap-3 border-b px-4 whitespace-nowrap";
 
+/**
+ * What the households draw hollow from while they load (`SkeletonOutline`):
+ * three households, run through the same bar, table and stacked list as the
+ * loaded ones. Never shown — every word in the outline is transparent — so
+ * they only have to be shaped like real households: two or three guests, a
+ * plus-one, an address under a name, a code shared. The owner's call
+ * (englishstreetventures/osn#1955): typed samples beside the view, not data.
+ */
+const sampleMember = (
+  key: string,
+  [firstName, lastName]: readonly [string, string],
+  more: Partial<FamilyMember> = {},
+): FamilyMember => ({
+  key,
+  guestId: key,
+  firstName,
+  lastName,
+  events: ["sample-ceremony", "sample-reception"],
+  plusOneAllowed: false,
+  plusOneOf: null,
+  email: null,
+  emailSource: null,
+  emailOptedOut: false,
+  ...more,
+});
+
+const sampleHousehold = (
+  publicId: string,
+  familyName: string,
+  members: FamilyMember[],
+  codeSharedAt: number | null = null,
+): FamilyGroup => ({
+  key: publicId,
+  familyId: publicId,
+  publicId,
+  familyName,
+  codeSharedAt,
+  firstOpenedAt: null,
+  deactivatedAt: null,
+  members,
+});
+
+const SAMPLE_HOUSEHOLDS: FamilyGroup[] = [
+  sampleHousehold(
+    "SAMPLE1",
+    "Okonkwo",
+    [
+      sampleMember("sample-1", ["Chiamaka", "Okonkwo"], {
+        plusOneAllowed: true,
+        email: "guest@example.com",
+        emailSource: "guest",
+      }),
+      sampleMember("sample-2", ["Obinna", "Okonkwo"]),
+    ],
+    1,
+  ),
+  sampleHousehold("SAMPLE2", "MacLeod", [
+    sampleMember("sample-3", ["Hamish", "MacLeod"], { plusOneAllowed: true }),
+    sampleMember("sample-4", ["Isla", "Grant"], { plusOneOf: "sample-3" }),
+  ]),
+  sampleHousehold("SAMPLE3", "Haddad", [
+    sampleMember("sample-5", ["Elif", "Haddad"]),
+    sampleMember("sample-6", ["Omar", "Haddad"]),
+    sampleMember("sample-7", ["Leyla", "Haddad"]),
+  ]),
+];
+
+/** The count line's numbers for the samples: a list the size weddings reach. */
+const SAMPLE_COUNT = { guests: 120, households: 48 } as const;
+
 export default function GuestTable(props: GuestTableProps) {
   const { authFetch } = useAuth();
   // Guest rows live in a module-scoped, weddingId-keyed cache (`guests-store`,
@@ -326,7 +397,11 @@ export default function GuestTable(props: GuestTableProps) {
 
   // Whether the API serving this list knows about plus-ones (see
   // `supportsPlusOnes`), and so whether the column shows at all.
-  const plusOnesShown = createMemo(() => supportsPlusOnes(guests()));
+  // While the list loads, the samples answer, so the outline draws the
+  // Plus-one column the cire API serves.
+  const plusOnesShown = createMemo(() =>
+    supportsPlusOnes(loading() ? SAMPLE_HOUSEHOLDS.flatMap((family) => family.members) : guests()),
+  );
   const canEdit = () => props.canEdit === true;
   // The one plus-one write — or the reload that goes with one — in flight, by
   // what it covers: `guest:<id>`, `family:<id>`. One at a time across the
@@ -761,10 +836,18 @@ export default function GuestTable(props: GuestTableProps) {
   const shownConfirm = heldWhileClosing(confirmingDialog);
   const confirmTitleId = `deactivate-title-${createUniqueId()}`;
 
-  const countLine = () =>
-    `${guests().length} ${guests().length === 1 ? "guest" : "guests"} across ${families.length} ${
-      families.length === 1 ? "household" : "households"
+  const countLine = (guestCount = guests().length, householdCount = families.length) =>
+    `${guestCount} ${guestCount === 1 ? "guest" : "guests"} across ${householdCount} ${
+      householdCount === 1 ? "household" : "households"
     }`;
+
+  /**
+   * The count line's paragraph, loaded or drawn hollow: in the view bar on a
+   * wide panel, where it ends in an ellipsis, else over the list.
+   */
+  const countParagraph = (text: () => string, inBar: boolean) => (
+    <p class={`font-body text-text-muted text-ui-sm${inBar ? " truncate" : ""}`}>{text()}</p>
+  );
 
   /**
    * The household's state, as a mark (`StatusMark`): Deactivated on the red
@@ -1150,24 +1233,32 @@ export default function GuestTable(props: GuestTableProps) {
           adds no gap. */}
       <div class="flex flex-col gap-8 empty:hidden" aria-busy={loading() ? "true" : undefined}>
         <Show when={loading()}>
+          {/* The count line drawn hollow where the wide layout puts it, then
+              the search field's block. On a phone the count is in the list. */}
           <ViewBar slot="end">
+            <Show when={!compact()}>
+              <div class="min-w-0">
+                <SkeletonOutline>
+                  {countParagraph(
+                    () => countLine(SAMPLE_COUNT.guests, SAMPLE_COUNT.households),
+                    true,
+                  )}
+                </SkeletonOutline>
+              </div>
+            </Show>
             <Skeleton standsFor="field" class="h-7 w-64 max-w-full min-w-0" />
           </ViewBar>
-          {/* On a phone, the count line's room, empty; then the list's head
-              strip, where the layout has one, and households at the height a
-              loaded one draws, a hairline apart as the rows of the frame are
-              (DESIGN.md §4, Skeletons). */}
-          <Show when={compact()}>
-            <div aria-hidden="true" class="h-5" />
+          {/* The list drawn hollow from the samples, in the layout the loaded
+              one takes: on a phone the count line over stacked guests, else
+              the head strip over each household's table (DESIGN.md §4, Hollow
+              rows). One outline per layout, so a layout change draws a new
+              one. */}
+          <Show
+            when={compact()}
+            fallback={<SkeletonOutline>{hollowHouseholds(false)}</SkeletonOutline>}
+          >
+            <SkeletonOutline>{hollowHouseholds(true)}</SkeletonOutline>
           </Show>
-          <div class="flex flex-col gap-px">
-            <Show when={!compact()}>
-              <Skeleton standsFor="row" class="h-8.75" />
-            </Show>
-            <For each={[1, 2, 3, 4]}>
-              {() => <Skeleton standsFor="row" class={compact() ? "h-54.5" : "h-28"} />}
-            </For>
-          </div>
         </Show>
 
         <Show when={error()}>
@@ -1185,9 +1276,7 @@ export default function GuestTable(props: GuestTableProps) {
           {/* The count and the search, lent to the view bar's first row. On a
             narrow panel the count stays here, under the bar. */}
           <ViewBar slot="end">
-            <Show when={!compact()}>
-              <p class="font-body text-text-muted text-ui-sm truncate">{countLine()}</p>
-            </Show>
+            <Show when={!compact()}>{countParagraph(() => countLine(), true)}</Show>
             <Field
               label="Search guests"
               labelHidden
@@ -1204,9 +1293,7 @@ export default function GuestTable(props: GuestTableProps) {
               )}
             </Field>
           </ViewBar>
-          <Show when={compact()}>
-            <p class="font-body text-text-muted text-ui-sm">{countLine()}</p>
-          </Show>
+          <Show when={compact()}>{countParagraph(() => countLine(), false)}</Show>
 
           <div ref={results}>
             <Show when={visibleFamilies().length === 0}>
@@ -1215,262 +1302,7 @@ export default function GuestTable(props: GuestTableProps) {
               </p>
             </Show>
 
-            <Show when={visibleFamilies().length > 0}>
-              <div class="border-border flex flex-col rounded-sm border">
-                {/* The column heads, once for the whole list, stuck under the
-                  view bar. A table of its own with the households' columns, so
-                  it lines up with every one of them; hidden from assistive
-                  technology, which reads each household table's own heads. */}
-                <Show when={!compact()}>
-                  <div
-                    aria-hidden="true"
-                    data-head-strip
-                    class="border-border bg-bg sticky top-[calc(var(--chrome-h)+var(--bar-h,0px))] z-10 border-b"
-                  >
-                    <table class="w-full table-fixed border-separate border-spacing-0 text-left">
-                      {colgroup()}
-                      <thead>
-                        <tr>
-                          <For each={HEADS()}>
-                            {(name) => (
-                              <th class="font-body text-gold-ink text-ui-xs tracking-ui-wider h-(--head-strip-h) px-4 py-0 align-middle font-normal whitespace-nowrap uppercase">
-                                {shownHead(name)}
-                              </th>
-                            )}
-                          </For>
-                        </tr>
-                      </thead>
-                    </table>
-                  </div>
-                </Show>
-                <For each={visibleFamilies()}>
-                  {(family) => {
-                    // Which of this household's members to show — reactive on
-                    // `search()` and the household's own members, so a keystroke
-                    // that leaves this household's own visibility unchanged (see
-                    // `visibleFamilies` above) still updates its member rows
-                    // without the outer `<For>` remounting the whole household.
-                    const visibleMembers = createMemo(() => {
-                      const query = search().trim();
-                      if (!query) return family.members;
-                      const tokens = tokeniseQuery(query);
-                      if (householdMatches(family, tokens, query.toLowerCase()))
-                        return family.members;
-                      return family.members.filter((m) =>
-                        tokensPrefixName(`${m.firstName} ${m.lastName}`, tokens),
-                      );
-                    });
-                    // Counted over every member, whatever the search shows.
-                    const permission = createMemo(() => householdPermission(family.members));
-                    const householdScope: PlusOneScope = {
-                      kind: "household",
-                      familyId: family.familyId,
-                    };
-                    const inviterName = (member: FamilyMember) => {
-                      const inviter = family.members.find((m) => m.guestId === member.plusOneOf);
-                      return inviter ? fullName(inviter) : "";
-                    };
-                    const nameId = `household-${createUniqueId()}`;
-                    const plusOneControls = () =>
-                      plusOnesShown() && canEdit() && permission().total > 0;
-                    const plusOneSwitch = (member: FamilyMember, labelHidden: boolean) => (
-                      <Switch
-                        checked={member.plusOneAllowed === true}
-                        label={labelHidden ? `${fullName(member)} may bring a plus-one` : "+1"}
-                        labelHidden={labelHidden}
-                        aria-label={
-                          labelHidden ? undefined : `${fullName(member)} may bring a plus-one`
-                        }
-                        readOnly={!canEdit()}
-                        busy={isBusy(`guest:${member.guestId}`) || isBusy(busyKey(householdScope))}
-                        onChange={(allowed) =>
-                          requestPermission({ kind: "guest", guestId: member.guestId }, allowed)
-                        }
-                      />
-                    );
-                    /** The events a guest is invited to, as a quiet line of
-                     *  names with a dot between: each name whole, the line free
-                     *  to wrap between them. Nothing boxed that needs no box. */
-                    const eventChips = (member: FamilyMember) => (
-                      <p class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-1.5 gap-y-0.5">
-                        <For each={member.events}>
-                          {(eventId, i) => (
-                            <span class="whitespace-nowrap">
-                              <Show when={i() > 0}>
-                                <span aria-hidden="true" class="text-text-faint mr-1.5">
-                                  ·
-                                </span>
-                              </Show>
-                              {eventNameById().get(eventId) ?? eventId}
-                            </span>
-                          )}
-                        </For>
-                        <Show when={member.events.length === 0}>
-                          <span>--</span>
-                        </Show>
-                      </p>
-                    );
-                    /** A guest's name on one line, cut short; under it, muted,
-                     *  whose plus-one they are ("+1 · Kai" — the words in full
-                     *  for a screen reader) and their address. */
-                    const nameAndMeta = (member: FamilyMember) => (
-                      <>
-                        <span data-name class="text-text block truncate">
-                          {member.firstName} {member.lastName}
-                        </span>
-                        <Show when={isPlusOne(member)}>
-                          <span
-                            data-meta
-                            class="font-body text-gold-ink text-ui-xs mt-0.5 block truncate"
-                          >
-                            <span aria-hidden="true">
-                              {plusOneShort({ plusOneOfName: inviterName(member) })}
-                            </span>
-                            <span class="sr-only">
-                              Plus-one of {inviterName(member) || "another guest"}
-                            </span>
-                          </span>
-                        </Show>
-                        <GuestEmailLine member={member} />
-                      </>
-                    );
-                    return (
-                      // A group named by its household, so a screen reader hears
-                      // whose rows these are; not a `fieldset`, which brings form
-                      // semantics and a `min-content` inline size the table
-                      // inside would be held to, nor a named `section`, which
-                      // would make 300 landmarks.
-                      <div
-                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                        role="group"
-                        aria-labelledby={nameId}
-                        class="border-border border-b last:border-b-0"
-                      >
-                        {/* The household's bar: one fixed-height row, stuck
-                          under the head strip while the household is on
-                          screen, and gone with it. Opaque, so the rows
-                          passing under it never show through. */}
-                        <div class={HOUSEHOLD_BAR} data-household-bar>
-                          {/* A deactivated household's name recedes; its mark
-                            stays at full strength, so its word still reads. */}
-                          <div class="flex min-w-0 flex-1 items-center gap-3">
-                            <span
-                              id={nameId}
-                              class={`font-display text-ui-md min-w-12 truncate ${
-                                isDeactivated(family) ? "text-text-muted" : "text-text"
-                              }`}
-                            >
-                              {family.familyName}
-                            </span>
-                            {householdBadge(family)}
-                          </div>
-                          {/* The count, shortened to an icon and a fraction: the
-                            narrow bar holds the name, its state and this. */}
-                          <Show when={compact() && plusOneControls()}>
-                            <span class="font-body text-text-muted text-ui-xs font-ui-mono flex shrink-0 items-center gap-1">
-                              <span aria-hidden="true">
-                                +1 {permission().allowed}/{permission().total}
-                              </span>
-                              <span class="sr-only">
-                                Plus-ones: {permission().allowed} of {permission().total}
-                              </span>
-                            </span>
-                          </Show>
-                          <Show
-                            when={compact()}
-                            fallback={wideActions(
-                              family,
-                              permission,
-                              householdScope,
-                              plusOneControls,
-                            )}
-                          >
-                            {narrowActions(family)}
-                          </Show>
-                        </div>
-
-                        <Show
-                          when={compact()}
-                          fallback={
-                            <Table
-                              scroll="page"
-                              aria-labelledby={nameId}
-                              frame="none"
-                              class={`[&>table]:table-fixed ${ROWS_SCROLL_MARGIN}`}
-                            >
-                              {colgroup()}
-                              {/* The real heads, for assistive technology: kept
-                                in the table's layout, their words hidden and
-                                the row given no height. The head strip above
-                                is what the eye reads. */}
-                              <thead>
-                                <tr>
-                                  <For each={HEADS()}>{(name) => <Th srOnly>{name}</Th>}</For>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                <For each={visibleMembers()}>
-                                  {(member, index) => (
-                                    <tr class="hover:[&>td]:bg-surface">
-                                      <Td valign="middle">{nameAndMeta(member)}</Td>
-                                      <Td valign="middle">{eventChips(member)}</Td>
-                                      <Show when={plusOnesShown()}>
-                                        <Td valign="middle">
-                                          {/* A plus-one cannot bring one, so
-                                            their row has no switch. */}
-                                          <Show when={!isPlusOne(member)}>
-                                            {plusOneSwitch(member, true)}
-                                          </Show>
-                                        </Td>
-                                      </Show>
-                                      <Td
-                                        tone="muted"
-                                        valign="middle"
-                                        code
-                                        class="whitespace-nowrap"
-                                      >
-                                        <Show when={index() === 0}>{family.publicId}</Show>
-                                      </Td>
-                                    </tr>
-                                  )}
-                                </For>
-                              </tbody>
-                            </Table>
-                          }
-                        >
-                          {/* Each guest a block on a narrow panel — name; email;
-                            events; their plus-one switch; the household's code
-                            once — so nothing scrolls sideways. */}
-                          <ul aria-labelledby={nameId} class={ROWS_SCROLL_MARGIN}>
-                            <For each={visibleMembers()}>
-                              {(member, index) => (
-                                <li class="border-border/40 flex flex-col gap-2 border-b px-4 py-3 last:border-b-0">
-                                  <div class="font-body text-ui-base min-w-0">
-                                    {nameAndMeta(member)}
-                                  </div>
-                                  {eventChips(member)}
-                                  <Show when={plusOnesShown() && !isPlusOne(member)}>
-                                    <div class="font-body text-text-muted text-ui-sm">
-                                      {plusOneSwitch(member, false)}
-                                    </div>
-                                  </Show>
-                                  <Show when={index() === 0}>
-                                    <p class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono">
-                                      <span class="sr-only">Family code </span>
-                                      {family.publicId}
-                                    </p>
-                                  </Show>
-                                </li>
-                              )}
-                            </For>
-                          </ul>
-                        </Show>
-                      </div>
-                    );
-                  }}
-                </For>
-              </div>
-            </Show>
+            <Show when={visibleFamilies().length > 0}>{householdList(visibleFamilies)}</Show>
           </div>
         </Show>
       </div>
@@ -1643,4 +1475,264 @@ export default function GuestTable(props: GuestTableProps) {
       </Modal>
     </div>
   );
+
+  /**
+   * The households in their frame: the head strip on a wide panel, then each
+   * household's bar over its guests. The loaded list and the outline drawn
+   * while it loads (`hollowHouseholds`) are the same markup.
+   */
+  function householdList(list: () => readonly FamilyGroup[]) {
+    return (
+      <div class="border-border flex flex-col rounded-sm border">
+        {/* The column heads, once for the whole list, stuck under the
+          view bar. A table of its own with the households' columns, so
+          it lines up with every one of them; hidden from assistive
+          technology, which reads each household table's own heads. */}
+        <Show when={!compact()}>
+          <div
+            aria-hidden="true"
+            data-head-strip
+            class="border-border bg-bg sticky top-[calc(var(--chrome-h)+var(--bar-h,0px))] z-10 border-b"
+          >
+            <table class="w-full table-fixed border-separate border-spacing-0 text-left">
+              {colgroup()}
+              <thead>
+                <tr>
+                  <For each={HEADS()}>
+                    {(name) => (
+                      <th class="font-body text-gold-ink text-ui-xs tracking-ui-wider h-(--head-strip-h) px-4 py-0 align-middle font-normal whitespace-nowrap uppercase">
+                        {shownHead(name)}
+                      </th>
+                    )}
+                  </For>
+                </tr>
+              </thead>
+            </table>
+          </div>
+        </Show>
+        <For each={list()}>
+          {(family) => {
+            // Which of this household's members to show — reactive on
+            // `search()` and the household's own members, so a keystroke
+            // that leaves this household's own visibility unchanged (see
+            // `visibleFamilies` above) still updates its member rows
+            // without the outer `<For>` remounting the whole household.
+            const visibleMembers = createMemo(() => {
+              const query = search().trim();
+              if (!query) return family.members;
+              const tokens = tokeniseQuery(query);
+              if (householdMatches(family, tokens, query.toLowerCase())) return family.members;
+              return family.members.filter((m) =>
+                tokensPrefixName(`${m.firstName} ${m.lastName}`, tokens),
+              );
+            });
+            // Counted over every member, whatever the search shows.
+            const permission = createMemo(() => householdPermission(family.members));
+            const householdScope: PlusOneScope = {
+              kind: "household",
+              familyId: family.familyId,
+            };
+            const inviterName = (member: FamilyMember) => {
+              const inviter = family.members.find((m) => m.guestId === member.plusOneOf);
+              return inviter ? fullName(inviter) : "";
+            };
+            const nameId = `household-${createUniqueId()}`;
+            const plusOneControls = () => plusOnesShown() && canEdit() && permission().total > 0;
+            const plusOneSwitch = (member: FamilyMember, labelHidden: boolean) => (
+              <Switch
+                checked={member.plusOneAllowed === true}
+                label={labelHidden ? `${fullName(member)} may bring a plus-one` : "+1"}
+                labelHidden={labelHidden}
+                aria-label={labelHidden ? undefined : `${fullName(member)} may bring a plus-one`}
+                readOnly={!canEdit()}
+                busy={isBusy(`guest:${member.guestId}`) || isBusy(busyKey(householdScope))}
+                onChange={(allowed) =>
+                  requestPermission({ kind: "guest", guestId: member.guestId }, allowed)
+                }
+              />
+            );
+            /** The events a guest is invited to, as a quiet line of
+             *  names with a dot between: each name whole, the line free
+             *  to wrap between them. Nothing boxed that needs no box. */
+            const eventChips = (member: FamilyMember) => (
+              <p class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-1.5 gap-y-0.5">
+                <For each={member.events}>
+                  {(eventId, i) => (
+                    <span class="whitespace-nowrap">
+                      <Show when={i() > 0}>
+                        <span aria-hidden="true" class="text-text-faint mr-1.5">
+                          ·
+                        </span>
+                      </Show>
+                      {eventNameById().get(eventId) ?? eventId}
+                    </span>
+                  )}
+                </For>
+                <Show when={member.events.length === 0}>
+                  <span>--</span>
+                </Show>
+              </p>
+            );
+            /** A guest's name on one line, cut short; under it, muted,
+             *  whose plus-one they are ("+1 · Kai" — the words in full
+             *  for a screen reader) and their address. */
+            const nameAndMeta = (member: FamilyMember) => (
+              <>
+                <span data-name class="text-text block truncate">
+                  {member.firstName} {member.lastName}
+                </span>
+                <Show when={isPlusOne(member)}>
+                  <span data-meta class="font-body text-gold-ink text-ui-xs mt-0.5 block truncate">
+                    <span aria-hidden="true">
+                      {plusOneShort({ plusOneOfName: inviterName(member) })}
+                    </span>
+                    <span class="sr-only">
+                      Plus-one of {inviterName(member) || "another guest"}
+                    </span>
+                  </span>
+                </Show>
+                <GuestEmailLine member={member} />
+              </>
+            );
+            return (
+              // A group named by its household, so a screen reader hears
+              // whose rows these are; not a `fieldset`, which brings form
+              // semantics and a `min-content` inline size the table
+              // inside would be held to, nor a named `section`, which
+              // would make 300 landmarks.
+              <div
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="group"
+                aria-labelledby={nameId}
+                class="border-border border-b last:border-b-0"
+              >
+                {/* The household's bar: one fixed-height row, stuck
+                  under the head strip while the household is on
+                  screen, and gone with it. Opaque, so the rows
+                  passing under it never show through. */}
+                <div class={HOUSEHOLD_BAR} data-household-bar>
+                  {/* A deactivated household's name recedes; its mark
+                    stays at full strength, so its word still reads. */}
+                  <div class="flex min-w-0 flex-1 items-center gap-3">
+                    <span
+                      id={nameId}
+                      class={`font-display text-ui-md min-w-12 truncate ${
+                        isDeactivated(family) ? "text-text-muted" : "text-text"
+                      }`}
+                    >
+                      {family.familyName}
+                    </span>
+                    {householdBadge(family)}
+                  </div>
+                  {/* The count, shortened to an icon and a fraction: the
+                    narrow bar holds the name, its state and this. */}
+                  <Show when={compact() && plusOneControls()}>
+                    <span class="font-body text-text-muted text-ui-xs font-ui-mono flex shrink-0 items-center gap-1">
+                      <span aria-hidden="true">
+                        +1 {permission().allowed}/{permission().total}
+                      </span>
+                      <span class="sr-only">
+                        Plus-ones: {permission().allowed} of {permission().total}
+                      </span>
+                    </span>
+                  </Show>
+                  <Show
+                    when={compact()}
+                    fallback={wideActions(family, permission, householdScope, plusOneControls)}
+                  >
+                    {narrowActions(family)}
+                  </Show>
+                </div>
+
+                <Show
+                  when={compact()}
+                  fallback={
+                    <Table
+                      scroll="page"
+                      aria-labelledby={nameId}
+                      frame="none"
+                      class={`[&>table]:table-fixed ${ROWS_SCROLL_MARGIN}`}
+                    >
+                      {colgroup()}
+                      {/* The real heads, for assistive technology: kept
+                        in the table's layout, their words hidden and
+                        the row given no height. The head strip above
+                        is what the eye reads. */}
+                      <thead>
+                        <tr>
+                          <For each={HEADS()}>{(name) => <Th srOnly>{name}</Th>}</For>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <For each={visibleMembers()}>
+                          {(member, index) => (
+                            <tr class="hover:[&>td]:bg-surface">
+                              <Td valign="middle">{nameAndMeta(member)}</Td>
+                              <Td valign="middle">{eventChips(member)}</Td>
+                              <Show when={plusOnesShown()}>
+                                <Td valign="middle">
+                                  {/* A plus-one cannot bring one, so
+                                    their row has no switch. */}
+                                  <Show when={!isPlusOne(member)}>
+                                    {plusOneSwitch(member, true)}
+                                  </Show>
+                                </Td>
+                              </Show>
+                              <Td tone="muted" valign="middle" code class="whitespace-nowrap">
+                                <Show when={index() === 0}>{family.publicId}</Show>
+                              </Td>
+                            </tr>
+                          )}
+                        </For>
+                      </tbody>
+                    </Table>
+                  }
+                >
+                  {/* Each guest a block on a narrow panel — name; email;
+                    events; their plus-one switch; the household's code
+                    once — so nothing scrolls sideways. */}
+                  <ul aria-labelledby={nameId} class={ROWS_SCROLL_MARGIN}>
+                    <For each={visibleMembers()}>
+                      {(member, index) => (
+                        <li class="border-border/40 flex flex-col gap-2 border-b px-4 py-3 last:border-b-0">
+                          <div class="font-body text-ui-base min-w-0">{nameAndMeta(member)}</div>
+                          {eventChips(member)}
+                          <Show when={plusOnesShown() && !isPlusOne(member)}>
+                            <div class="font-body text-text-muted text-ui-sm">
+                              {plusOneSwitch(member, false)}
+                            </div>
+                          </Show>
+                          <Show when={index() === 0}>
+                            <p class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono">
+                              <span class="sr-only">Family code </span>
+                              {family.publicId}
+                            </p>
+                          </Show>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </Show>
+              </div>
+            );
+          }}
+        </For>
+      </div>
+    );
+  }
+
+  /**
+   * The list as it loads: the samples' count line on a phone, then the
+   * samples' households, in the busy region's own column and gap.
+   */
+  function hollowHouseholds(stacked: boolean) {
+    return (
+      <div class="flex flex-col gap-8">
+        <Show when={stacked}>
+          {countParagraph(() => countLine(SAMPLE_COUNT.guests, SAMPLE_COUNT.households), false)}
+        </Show>
+        <div>{householdList(() => SAMPLE_HOUSEHOLDS)}</div>
+      </div>
+    );
+  }
 }
