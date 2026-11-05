@@ -21,6 +21,13 @@ export function isAuthExpired(err: unknown): boolean {
 }
 
 /**
+ * The login page's path with any trailing slashes. Start-anchored, so a run of
+ * slashes elsewhere in a crafted address is read once, not once per slash; and
+ * free of a quoted `/login`, so the bundle names the page only as it is linked.
+ */
+const LOGIN_PAGE = /^\/login\/*$/;
+
+/**
  * Bounce to the login page on an expired session, remembering where the vendor
  * was so the sign-in can send them back to it (a thread, an organisation)
  * rather than to the dashboard. Only the same-origin path+query+hash is carried
@@ -36,10 +43,9 @@ export function redirectToLogin(): void {
     return;
   }
   const here = window.location.pathname + window.location.search + window.location.hash;
-  const target =
-    window.location.pathname.replace(/\/*$/, "/") === "/login/"
-      ? "/login/"
-      : `/login/?returnTo=${encodeURIComponent(here)}`;
+  const target = LOGIN_PAGE.test(window.location.pathname)
+    ? "/login/"
+    : `/login/?returnTo=${encodeURIComponent(here)}`;
   window.location.href = target;
 }
 
