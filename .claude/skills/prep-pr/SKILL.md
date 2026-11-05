@@ -632,11 +632,26 @@ With no network or no `gh`, record that the PR was not opened, name the base it
 should target, and leave the body file in place. That is a complete run.
 
 Confirming the base took, and registering a stack when `$BASE` is not `main`,
-are in `references/workflow-steps.md`. Report the PR number, its base branch,
-whether it opened as a draft and what it waits on, whether the stack is
-registered, the issues it closes, and any close it could
-not make — a tracker line the classifier refused, or a stacked PR's closes —
-so the owner can make it by hand.
+are in `references/workflow-steps.md`.
+
+**Before reporting, read whether GitHub can merge it.** Green checks say
+nothing about conflicts, and `main` keeps moving while a pull request waits:
+
+```bash
+gh api repos/englishstreetventures/osn/pulls/<n> --jq '[.mergeable, .mergeable_state]'
+```
+
+`null` means GitHub has not worked it out yet: read it again a few seconds
+later. `false` or `dirty` is a conflict, and the run is not done until it is
+fixed (`wiki/conventions/stacked-prs.md` §Rebasing a stack). `blocked` only
+means checks or a review are pending. For a stack, read every pull request in
+it, and run `git merge-tree --write-tree refs/remotes/origin/main <top branch>`
+after a fetch: a `CONFLICT` line means `main` has moved under one of its layers.
+
+Report the PR number, its base branch, whether it can merge, whether it opened
+as a draft and what it waits on, whether the stack is registered, the issues it
+closes, and any close it could not make — a tracker line the classifier
+refused, or a stacked PR's closes — so the owner can make it by hand.
 
 ---
 
