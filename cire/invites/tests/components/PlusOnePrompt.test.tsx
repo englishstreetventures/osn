@@ -146,7 +146,7 @@ describe("PlusOnePrompt — who is asked", () => {
     const link = screen.getByRole("link", {
       name: /^privacy notice ?\(opens in a new tab\)$/,
     }) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/privacy");
+    expect(link.getAttribute("href")).toBe("/privacy/");
     expect(link.closest("p")?.textContent).toMatch(/won't see this invitation/);
   });
 });

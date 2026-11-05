@@ -124,7 +124,7 @@ describe.each([
     render(() => <ConsentBanner />);
     const prompt = await openPrompt();
 
-    for (const href of ["/privacy", "/terms"]) {
+    for (const href of ["/privacy/", "/terms/"]) {
       const link = prompt.querySelector<HTMLAnchorElement>(`a[href="${href}"]`)!;
       const rect = link.getBoundingClientRect();
       expect(rect.top).toBeGreaterThanOrEqual(0);
