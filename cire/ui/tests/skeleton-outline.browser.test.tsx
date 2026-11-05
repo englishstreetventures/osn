@@ -108,7 +108,15 @@ function Row() {
       <div data-part="cta">
         <CardCtaButton onClick={() => {}}>See replies per event</CardCtaButton>
       </div>
-      <p data-part="wrapped" class="text-ui-base w-48">
+      {/* A switch as `@shared/ui` draws one: a hidden input, then the track. */}
+      <label class="inline-flex items-center gap-2">
+        <input type="checkbox" role="switch" aria-checked="true" class="sr-only" checked />
+        <span data-part="track" class="bg-ui-accent inline-flex h-5 w-9 rounded-full p-0.5">
+          <span class="bg-ui-on-accent size-3.5 rounded-full" />
+        </span>
+        <span class="sr-only">Plus-one</span>
+      </label>
+      <p data-part="wrapped" class="text-ui-base w-48 text-shadow-sm">
         Saving without changing these keeps the dietary requirements already given.
       </p>
     </div>
@@ -204,7 +212,7 @@ describe("SkeletonOutline", () => {
 
     it(`fills each boxed control, disc and glyph as one block at the ink's 10%, ${ramp}`, () => {
       const { ground, part } = drawn(ramp);
-      for (const name of ["pill", "switch", "input", "disc", "glyph"]) {
+      for (const name of ["pill", "switch", "track", "input", "disc", "glyph"]) {
         expect([name, fillsWithInk(ground, part(name))]).toEqual([name, true]);
       }
       {
@@ -230,6 +238,7 @@ describe("SkeletonOutline", () => {
       expect(style(el).webkitTextFillColor).toBe("rgba(0, 0, 0, 0)");
     }
     expect(style(part("link")).textDecorationColor).toBe("rgba(0, 0, 0, 0)");
+    expect(style(part("wrapped")).textShadow).toBe("none");
     expect(getComputedStyle(part("input"), "::placeholder").color).toBe("rgba(0, 0, 0, 0)");
   });
 
@@ -248,6 +257,8 @@ describe("SkeletonOutline", () => {
     expect([...part("glyph").children].every((path) => style(path).visibility === "hidden")).toBe(
       true,
     );
+    // A switch's thumb is what its track holds.
+    expect(style(part("track").firstElementChild!).visibility).toBe("hidden");
     // A meter's fill is what it holds: hidden, so the track reads as one block.
     expect(style(part("meter").firstElementChild!.firstElementChild!).visibility).toBe("hidden");
     // A card's call to action is words: a bar, no block.
