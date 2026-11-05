@@ -193,9 +193,11 @@ export function appSpecs(): AppSpec[] {
         // open a payment page but never record the gift, so cire-api must offer
         // guests no money at all. The gift-list flows check that it does not.
         // Not a real key, and nothing in a flow sends it anywhere. The one
-        // flow that reaches a Stripe route (`cire-registry-money`, onboarding as
-        // an owner who did not connect the account) is refused before the
-        // route calls Stripe.
+        // flow that reaches the Stripe routes (`cire-registry-money`) uses
+        // only what calls no Stripe endpoint: onboarding as an owner who did
+        // not connect the account, refused before the route calls Stripe, and
+        // giving a wedding an account its owner connected on another, which
+        // reads cire's own rows.
         STRIPE_SECRET_KEY: "e2e-placeholder-no-stripe-account",
         // A Gold Price beside that key, and no platform webhook secret: a
         // deployment that means to sell a tier but could never grant one, so

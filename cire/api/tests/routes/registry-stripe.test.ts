@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, registrySettings, weddingHosts, weddings } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
@@ -359,6 +359,53 @@ describe("only the owner who connected the account may open its links", () => {
     expect(logs).toContain("acct_orphan");
   });
 
+  it.each([
+    ["is removed as an owner", "demoted"],
+    ["has the wedding deleted", "deleted"],
+  ] as const)(
+    "records nothing for an owner who %s while Stripe makes the account",
+    async (_label, change) => {
+      // The gate read the seat before the Stripe round trip; the write reads
+      // it again, so the account is not stored under someone who may no
+      // longer act for the wedding, and no link into it is handed out.
+      const box: { db?: Built["db"] } = {};
+      const stripe = stripeStub({
+        account: { ...ACCOUNT, id: "acct_unstored" },
+        duringCreate: () => {
+          if (change === "demoted") {
+            box
+              .db!.update(weddingHosts)
+              .set({ role: "editor" })
+              .where(eq(weddingHosts.osnProfileId, OWNER))
+              .run();
+          } else {
+            box
+              .db!.update(weddings)
+              .set({ deletedAt: new Date() })
+              .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+              .run();
+          }
+        },
+      });
+      const built = buildApp({ stripe: stripe.client });
+      box.db = built.db;
+
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await req(built.app, `${base}/session`, OWNER);
+      });
+
+      expect(res?.status).toBe(403);
+      expect(await jsonBody(res!)).toEqual({ error: "forbidden" });
+      expect(row(built.db)).toBeUndefined();
+      expect(stripe.calls).toEqual([`createAccount:${BOOTSTRAP_WEDDING_ID}:AU`]);
+      // The account exists at Stripe with nothing storing it: its id is the
+      // one record for the manual fix.
+      expect(logs).toContain("stripe account created but not stored");
+      expect(logs).toContain("acct_unstored");
+    },
+  );
+
   it("forgets who connected an account when Stripe takes it away", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
@@ -435,6 +482,25 @@ describe("create-or-resume", () => {
     // Connecting an account is not consent to show guests a contribute button.
     expect(row?.cashGiftsEnabled).toBe(false);
     expect(row?.published).toBe(false);
+  });
+
+  it("stores what Stripe said about the new account, its currency included", async () => {
+    const stripe = stripeStub({
+      account: { ...ACCOUNT, chargesEnabled: true, payoutsEnabled: true, defaultCurrency: "AUD" },
+    });
+    const { app, db } = buildApp({ stripe: stripe.client });
+
+    expect((await req(app, `${base}/session`, OWNER)).status).toBe(200);
+
+    const row = db
+      .select()
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+    expect(row?.stripeChargesEnabled).toBe(true);
+    expect(row?.stripePayoutsEnabled).toBe(true);
+    expect(row?.stripeDefaultCurrency).toBe("AUD");
+    expect(row?.stripeAccountUpdatedAt).not.toBeNull();
   });
 
   it("reuses the account on every return trip — onboarding is a form people abandon", async () => {
@@ -749,5 +815,788 @@ describe("cash gifts stay the couple's decision", () => {
     // With the row as it stands, so the portal shows it without asking again.
     expect(body.settings.cashGiftsEnabled).toBe(false);
     expect(body.settings.stripeChargesEnabled).toBe(false);
+  });
+});
+
+/**
+ * Giving a wedding the account its owner already connected on another wedding.
+ *
+ * The account carries the identity and bank of whoever ran its onboarding, so
+ * the route takes no account id at all: the caller names a wedding, and the
+ * account comes off that wedding's row, only when cire's own record says the
+ * caller connected it there and still owns that wedding. Every other source is
+ * the same 404, so the route says nothing about weddings the caller cannot see.
+ * And the account goes only where every owner already sits beside it: whoever
+ * could remove the connector here could already do it on the source wedding.
+ */
+describe("using an account connected on another wedding", () => {
+  type Built = ReturnType<typeof buildApp>;
+  const SOURCE = "wed_source";
+  const SHARED = "acct_shared";
+  /** When Stripe last described the shared account, as the source row holds it. */
+  const STAMP = new Date(1_700_000_000_000);
+
+  /** Another wedding whose account `connector` connected; both owners seated. */
+  function sourceWedding(
+    db: Built["db"],
+    over: {
+      id?: string;
+      displayName?: string;
+      owners?: readonly string[];
+      connector?: string | null;
+      accountId?: string | null;
+      currency?: string | null;
+      chargesEnabled?: boolean;
+      deletedAt?: Date | null;
+    } = {},
+  ) {
+    const id = over.id ?? SOURCE;
+    const now = new Date();
+    insertWedding(db, {
+      id,
+      slug: id.replace(/_/g, "-"),
+      displayName: over.displayName ?? "Ceremony",
+      tier: "gold",
+      deletedAt: over.deletedAt ?? null,
+      owners: over.owners ?? [OWNER, SECOND],
+    });
+    db.insert(registrySettings)
+      .values({
+        weddingId: id,
+        stripeAccountId: over.accountId === undefined ? SHARED : over.accountId,
+        stripeConnectedByOsnProfileId: over.connector === undefined ? OWNER : over.connector,
+        stripeChargesEnabled: over.chargesEnabled ?? true,
+        stripePayoutsEnabled: over.chargesEnabled ?? true,
+        stripeDefaultCurrency: over.currency === undefined ? "AUD" : over.currency,
+        stripeAccountUpdatedAt: STAMP,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const settingsOf = (db: Built["db"], weddingId: string) =>
+    db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).get();
+  const target = (db: Built["db"]) => settingsOf(db, BOOTSTRAP_WEDDING_ID);
+
+  async function reuse(
+    app: App,
+    body: unknown,
+    profileId: string | null = OWNER,
+    path = `${base}/reuse`,
+  ): Promise<Response> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, path, {
+      method: "POST",
+      headers,
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  }
+
+  async function accounts(app: App, profileId: string | null = OWNER): Promise<Response> {
+    const headers: Record<string, string> = {};
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, `${base}/accounts`, { method: "GET", headers });
+  }
+
+  /** The bootstrap wedding holding an account already, connected by `connector`. */
+  function targetConnected(db: Built["db"], connector: string, accountId = "acct_first") {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        stripeAccountId: accountId,
+        stripeConnectedByOsnProfileId: connector,
+        stripeChargesEnabled: false,
+        stripePayoutsEnabled: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  describe("what it attaches", () => {
+    it("gives the wedding the account the caller connected on another, asking Stripe nothing", async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      sourceWedding(db);
+      const before = settingsOf(db, SOURCE);
+
+      const res = await reuse(app, { fromWeddingId: SOURCE });
+
+      expect(res.status).toBe(200);
+      const body = (await jsonBody(res)) as { settings: Record<string, unknown> };
+      expect(body.settings.stripeConnected).toBe(true);
+      expect(body.settings.stripeChargesEnabled).toBe(true);
+      expect(body.settings.stripeConnectedByOsnProfileId).toBe(OWNER);
+      // What guests are offered is judged here as everywhere: this site takes
+      // no money gift (no webhook secret), so that is the reason.
+      expect(body.settings.moneyGiftsBlockedBy).toBe("payments_unavailable");
+      expect(JSON.stringify(body)).not.toContain(SHARED);
+
+      const row = target(db);
+      expect(row?.stripeAccountId).toBe(SHARED);
+      expect(row?.stripeConnectedByOsnProfileId).toBe(OWNER);
+      expect(row?.stripeChargesEnabled).toBe(true);
+      expect(row?.stripePayoutsEnabled).toBe(true);
+      expect(row?.stripeDefaultCurrency).toBe("AUD");
+      // The same observation of the account as the source holds, so a later
+      // `account.updated` is judged alike on both rows.
+      expect(row?.stripeAccountUpdatedAt?.getTime()).toBe(STAMP.getTime());
+      // Connecting is not consent to show guests a contribute button.
+      expect(row?.cashGiftsEnabled).toBe(false);
+      expect(row?.published).toBe(false);
+      expect(settingsOf(db, SOURCE)).toEqual(before);
+      expect(stripe.calls).toEqual([]);
+    });
+
+    it("keeps what the wedding's row already holds when it fills in the account", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      const now = new Date();
+      const revoked = new Date(1_650_000_000_000);
+      db.insert(registrySettings)
+        .values({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          published: true,
+          headline: "Our list",
+          message: "No boxed gifts, please",
+          cashGiftsEnabled: true,
+          shippingAddress: "1 Harbour St",
+          stripeDeauthorizedAccountId: "acct_revoked",
+          stripeDeauthorizedAt: revoked,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+
+      expect((await reuse(app, { fromWeddingId: SOURCE })).status).toBe(200);
+
+      const row = target(db);
+      expect(row?.stripeAccountId).toBe(SHARED);
+      expect(row?.stripeConnectedByOsnProfileId).toBe(OWNER);
+      expect(row?.published).toBe(true);
+      expect(row?.headline).toBe("Our list");
+      expect(row?.message).toBe("No boxed gifts, please");
+      expect(row?.cashGiftsEnabled).toBe(true);
+      expect(row?.shippingAddress).toBe("1 Harbour St");
+      // The record of where earlier gifts settled is kept.
+      expect(row?.stripeDeauthorizedAccountId).toBe("acct_revoked");
+      expect(row?.stripeDeauthorizedAt?.getTime()).toBe(revoked.getTime());
+    });
+
+    it("takes the account from the wedding named, never from an account id in the body", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+
+      const res = await reuse(app, { fromWeddingId: SOURCE, accountId: "acct_someone_else" });
+
+      expect(res.status).toBe(200);
+      expect(target(db)?.stripeAccountId).toBe(SHARED);
+    });
+
+    it("accepts an account whose payout currency Stripe has not said yet", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db, { currency: null, chargesEnabled: false });
+
+      const res = await reuse(app, { fromWeddingId: SOURCE });
+
+      expect(res.status).toBe(200);
+      expect(target(db)?.stripeAccountId).toBe(SHARED);
+      expect(target(db)?.stripeDefaultCurrency).toBeNull();
+    });
+
+    it("hands the caller the account's onboarding links here, and no other owner", async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      sourceWedding(db);
+      expect((await reuse(app, { fromWeddingId: SOURCE })).status).toBe(200);
+
+      const other = await req(app, `${base}/session`, SECOND);
+      expect(other.status).toBe(403);
+      expect(await jsonBody(other)).toEqual({ error: "stripe_connector_only" });
+
+      expect((await req(app, `${base}/session`, OWNER)).status).toBe(200);
+      expect(stripe.calls).toEqual([`createAccountLink:${SHARED}`]);
+    });
+
+    it("logs the reuse by wedding, never by person or account", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      const logs = await captureLogs(async () => {
+        await reuse(app, { fromWeddingId: SOURCE });
+      });
+      expect(logs).toContain("stripe account reused");
+      expect(logs).toContain(BOOTSTRAP_WEDDING_ID);
+      expect(logs).not.toContain(OWNER);
+      expect(logs).not.toContain(SHARED);
+    });
+  });
+
+  describe("every source the caller may not use is the same 404", () => {
+    const NOT_FOUND = { error: "stripe_account_not_found" };
+
+    async function refusedFrom(
+      setUp: (db: Built["db"]) => void | Promise<void>,
+      fromWeddingId = SOURCE,
+    ) {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      await setUp(db);
+      const before = settingsOf(db, fromWeddingId);
+      const res = await reuse(app, { fromWeddingId });
+      expect(res.status).toBe(404);
+      expect(await jsonBody(res)).toEqual(NOT_FOUND);
+      // Nothing written, nothing asked of Stripe, the source untouched.
+      expect(target(db)).toBeUndefined();
+      expect(settingsOf(db, fromWeddingId)).toEqual(before);
+      expect(stripe.calls).toEqual([]);
+    }
+
+    it("refuses an account another owner connected", async () => {
+      await refusedFrom((db) => sourceWedding(db, { connector: SECOND }));
+    });
+
+    it("refuses an account nobody is on record as connecting", async () => {
+      await refusedFrom((db) => sourceWedding(db, { connector: null }));
+    });
+
+    it("refuses a wedding the caller holds no seat on", async () => {
+      await refusedFrom((db) =>
+        sourceWedding(db, { owners: [STRANGER, SECOND], connector: STRANGER }),
+      );
+    });
+
+    it("refuses a wedding the caller connected but was removed from", async () => {
+      await refusedFrom((db) => sourceWedding(db, { owners: [SECOND] }));
+    });
+
+    it("refuses a wedding where the caller connected the account but is now an editor", async () => {
+      await refusedFrom((db) => {
+        sourceWedding(db, { owners: [SECOND] });
+        db.insert(weddingHosts)
+          .values({
+            id: "whost_demoted",
+            weddingId: SOURCE,
+            osnProfileId: OWNER,
+            addedByOsnProfileId: SECOND,
+            role: "editor",
+            createdAt: new Date(),
+          })
+          .run();
+      });
+    });
+
+    it("refuses a deleted wedding", async () => {
+      await refusedFrom((db) => sourceWedding(db, { deletedAt: new Date() }));
+    });
+
+    it("refuses an account Stripe has revoked", async () => {
+      await refusedFrom(async (db) => {
+        sourceWedding(db);
+        await Effect.runPromise(
+          registryService
+            .detachStripeAccount({ accountId: SHARED })
+            .pipe(Effect.provideService(DbService, db)),
+        );
+      });
+    });
+
+    it("refuses a wedding with no account, and one that does not exist", async () => {
+      await refusedFrom((db) => sourceWedding(db, { accountId: null, connector: null }));
+      await refusedFrom(() => undefined, "wed_nowhere");
+    });
+
+    it("logs a refusal by wedding and reason, never by person or account", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db, { connector: SECOND });
+      const logs = await captureLogs(async () => {
+        await reuse(app, { fromWeddingId: SOURCE });
+      });
+      expect(logs).toContain("stripe account reuse refused");
+      expect(logs).toContain(BOOTSTRAP_WEDDING_ID);
+      expect(logs).toContain("not_found");
+      expect(logs).not.toContain(OWNER);
+      expect(logs).not.toContain(SECOND);
+      expect(logs).not.toContain(SHARED);
+    });
+  });
+
+  describe("what it refuses to change", () => {
+    it("refuses a wedding that already has an account, and keeps it", async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      sourceWedding(db);
+      targetConnected(db, SECOND);
+
+      const res = await reuse(app, { fromWeddingId: SOURCE });
+
+      expect(res.status).toBe(409);
+      const body = (await jsonBody(res)) as {
+        error: string;
+        settings: Record<string, unknown>;
+      };
+      expect(body.error).toBe("stripe_already_connected");
+      // The row as it stands, so a stale page can show it.
+      expect(body.settings.stripeConnected).toBe(true);
+      expect(body.settings.stripeConnectedByOsnProfileId).toBe(SECOND);
+      expect(target(db)?.stripeAccountId).toBe("acct_first");
+      expect(target(db)?.stripeConnectedByOsnProfileId).toBe(SECOND);
+      expect(stripe.calls).toEqual([]);
+      const logs = await captureLogs(async () => {
+        await reuse(app, { fromWeddingId: SOURCE });
+      });
+      expect(logs).toContain("already_connected");
+    });
+
+    it("answers a wedding named as its own source as already connected", async () => {
+      const { app, db } = buildApp();
+      targetConnected(db, OWNER);
+      const res = await reuse(app, { fromWeddingId: BOOTSTRAP_WEDDING_ID });
+      expect(res.status).toBe(409);
+      expect(((await jsonBody(res)) as { error: string }).error).toBe("stripe_already_connected");
+      expect(target(db)?.stripeAccountId).toBe("acct_first");
+    });
+
+    it.each([
+      // The wedding's second owner is not an owner of the source: once the
+      // account were here, they could remove its connector and keep it.
+      [
+        "sit beside an owner who is not on its own wedding",
+        { owners: [OWNER] },
+        "stripe_owners_differ",
+        "owners_differ",
+      ],
+      [
+        "pay out in another currency",
+        { currency: "USD" },
+        "currency_mismatch",
+        "currency_mismatch",
+      ],
+    ] as const)(
+      "refuses an account that would %s, with the settings as they stand",
+      async (_label, source, error, reason) => {
+        const { app, db } = buildApp();
+        sourceWedding(db, source);
+
+        let res: Response | undefined;
+        const logs = await captureLogs(async () => {
+          res = await reuse(app, { fromWeddingId: SOURCE });
+        });
+
+        expect(res?.status).toBe(409);
+        const body = (await jsonBody(res!)) as {
+          error: string;
+          settings?: Record<string, unknown>;
+        };
+        expect(body.error).toBe(error);
+        // The page that asked is out of date, so it is handed the row as it is.
+        expect(body.settings?.weddingId).toBe(BOOTSTRAP_WEDDING_ID);
+        expect(body.settings?.stripeConnected).toBe(false);
+        expect(target(db)).toBeUndefined();
+        expect(logs).toContain("stripe account reuse refused");
+        expect(logs).toContain(reason);
+      },
+    );
+
+    it("refuses a body that names no wedding", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      for (const body of [
+        { accountId: SHARED },
+        {},
+        { fromWeddingId: "" },
+        { fromWeddingId: "w".repeat(65) },
+        { fromWeddingId: 7 },
+        "not json",
+      ]) {
+        const res = await reuse(app, body);
+        expect(res.status, JSON.stringify(body)).toBe(400);
+        expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+      }
+      // Sixty-four characters is a wedding id the route will look for.
+      const longest = await reuse(app, { fromWeddingId: "w".repeat(64) });
+      expect(longest.status).toBe(404);
+      expect(target(db)).toBeUndefined();
+    });
+
+    it("refuses a target the caller stopped owning, or that went away, after the gate", async () => {
+      // The route's gate read the seat in its own query; the write checks it
+      // again, so a demotion or a delete in between attaches nothing.
+      for (const change of ["demoted", "deleted"] as const) {
+        const { db } = buildApp();
+        sourceWedding(db);
+        if (change === "demoted") {
+          db.update(weddingHosts)
+            .set({ role: "editor" })
+            .where(eq(weddingHosts.osnProfileId, OWNER))
+            .run();
+          // The source seat must stay an owner's for this to test the target.
+          db.update(weddingHosts)
+            .set({ role: "owner" })
+            .where(eq(weddingHosts.weddingId, SOURCE))
+            .run();
+        } else {
+          db.update(weddings)
+            .set({ deletedAt: new Date() })
+            .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+            .run();
+        }
+        const outcome = await Effect.runPromise(
+          registryService
+            .adoptStripeAccount(BOOTSTRAP_WEDDING_ID, SOURCE, OWNER, { takesPayments: false })
+            .pipe(
+              Effect.map(() => "attached"),
+              Effect.catchTag("StripeAccountNotFound", () => Effect.succeed("not_found")),
+              Effect.provideService(DbService, db),
+            ),
+        );
+        expect(outcome, change).toBe("not_found");
+        expect(target(db), change).toBeUndefined();
+      }
+    });
+
+    it("tells a caller who lost this wedding nothing about it, whatever else fails", async () => {
+      // Two rules fail at once: the caller was demoted here after the gate,
+      // and the target already has an account (or the source's owners
+      // differ). Either 409 would hand them this wedding's settings.
+      for (const second of ["already_connected", "owners_differ"] as const) {
+        const { db } = buildApp();
+        sourceWedding(db, second === "owners_differ" ? { owners: [OWNER] } : {});
+        if (second === "already_connected") targetConnected(db, SECOND);
+        db.update(weddingHosts)
+          .set({ role: "editor" })
+          .where(
+            and(
+              eq(weddingHosts.weddingId, BOOTSTRAP_WEDDING_ID),
+              eq(weddingHosts.osnProfileId, OWNER),
+            ),
+          )
+          .run();
+        const outcome = await Effect.runPromise(
+          registryService
+            .adoptStripeAccount(BOOTSTRAP_WEDDING_ID, SOURCE, OWNER, { takesPayments: false })
+            .pipe(
+              Effect.map(() => "attached"),
+              Effect.catchTags({
+                StripeAccountNotFound: () => Effect.succeed("not_found"),
+                StripeAlreadyConnected: () => Effect.succeed("already_connected"),
+                StripeOwnersDiffer: () => Effect.succeed("owners_differ"),
+              }),
+              Effect.provideService(DbService, db),
+            ),
+        );
+        expect(outcome, second).toBe("not_found");
+      }
+    });
+
+    it("judges what guests are offered against the wedding's own currency", async () => {
+      // A New Zealand wedding taking an account that settles in NZD, on a site
+      // that takes money gifts: the answer says only that money is off.
+      const { app, db } = buildApp({ stripeWebhookSecret: "whsec_test" });
+      db.update(weddings)
+        .set({ currency: "NZD" })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+      sourceWedding(db, { currency: "NZD" });
+
+      const res = await reuse(app, { fromWeddingId: SOURCE });
+
+      expect(res.status).toBe(200);
+      const body = (await jsonBody(res)) as { settings: Record<string, unknown> };
+      expect(body.settings.moneyGiftsBlockedBy).toBe("cash_gifts_off");
+    });
+
+    it("answers 500, and logs the wedding, when the database fails", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      db.$client.run("DROP TABLE registry_settings");
+      let reused: Response | undefined;
+      let listed: Response | undefined;
+      const logs = await captureLogs(async () => {
+        reused = await reuse(app, { fromWeddingId: SOURCE });
+        listed = await accounts(app);
+      });
+      for (const res of [reused, listed]) {
+        expect(res?.status).toBe(500);
+        expect(await jsonBody(res!)).toEqual({ error: "Internal error" });
+      }
+      expect(logs).toContain("registry stripe handler defect");
+      expect(logs).toContain(BOOTSTRAP_WEDDING_ID);
+    });
+
+    it("keeps a reused account in step with its source when a create loses the race", async () => {
+      // The second owner pressed Connect; while their create was at Stripe,
+      // the first owner gave the wedding the shared account. The create's
+      // attach keeps it — and keeps the source's view of it, so an
+      // `account.updated` Stripe sent in between still reaches both rows.
+      const box: { db?: Built["db"] } = {};
+      // The row as the reuse leaves it: the source's account, connector and
+      // view of the account. (The stub's hook runs synchronously.)
+      const reused = () => {
+        const now = new Date();
+        box
+          .db!.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            stripeAccountId: SHARED,
+            stripeConnectedByOsnProfileId: OWNER,
+            stripeChargesEnabled: true,
+            stripePayoutsEnabled: true,
+            stripeDefaultCurrency: "AUD",
+            stripeAccountUpdatedAt: STAMP,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      };
+      const stripe = stripeStub({ duringCreate: reused });
+      const built = buildApp({ stripe: stripe.client });
+      box.db = built.db;
+      sourceWedding(built.db);
+
+      expect((await req(built.app, `${base}/session`, SECOND)).status).toBe(403);
+      expect(target(built.db)?.stripeAccountId).toBe(SHARED);
+      expect(target(built.db)?.stripeConnectedByOsnProfileId).toBe(OWNER);
+      expect(target(built.db)?.stripeAccountUpdatedAt?.getTime()).toBe(STAMP.getTime());
+
+      const matched = await Effect.runPromise(
+        registryService
+          .applyStripeAccountState({
+            id: SHARED,
+            chargesEnabled: false,
+            payoutsEnabled: false,
+            observedAt: STAMP.getTime() / 1000 + 60,
+          })
+          .pipe(Effect.provideService(DbService, built.db)),
+      );
+      expect(matched).toBe(true);
+      expect(target(built.db)?.stripeChargesEnabled).toBe(false);
+      expect(settingsOf(built.db, SOURCE)?.stripeChargesEnabled).toBe(false);
+    });
+  });
+
+  describe("who may", () => {
+    it("refuses an editor, a stranger and anyone with no token, on both routes", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      expect((await reuse(app, { fromWeddingId: SOURCE }, EDITOR)).status).toBe(403);
+      expect((await reuse(app, { fromWeddingId: SOURCE }, STRANGER)).status).toBe(403);
+      expect((await reuse(app, { fromWeddingId: SOURCE }, null)).status).toBe(401);
+      expect((await accounts(app, EDITOR)).status).toBe(403);
+      expect((await accounts(app, STRANGER)).status).toBe(403);
+      expect((await accounts(app, null)).status).toBe(401);
+      expect(target(db)).toBeUndefined();
+    });
+
+    it("refuses a viewer and a co-host on the old host role, on both routes", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      const now = new Date();
+      db.insert(weddingHosts)
+        .values([
+          {
+            id: "whost_viewer",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_viewer",
+            addedByOsnProfileId: OWNER,
+            role: "viewer",
+            createdAt: now,
+          },
+          {
+            id: "whost_legacy_host",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_legacy_host",
+            addedByOsnProfileId: OWNER,
+            role: "host",
+            createdAt: now,
+          },
+        ])
+        .run();
+      for (const who of ["usr_viewer", "usr_legacy_host"]) {
+        expect((await reuse(app, { fromWeddingId: SOURCE }, who)).status, who).toBe(403);
+        expect((await accounts(app, who)).status, who).toBe(403);
+      }
+      expect(target(db)).toBeUndefined();
+    });
+
+    it("asks for a live credential, by bearer token or session cookie", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      const token = await seedOrganiserSession(db, OWNER);
+      const call = (path: "accounts" | "reuse", headers: Record<string, string>) =>
+        appRequest(
+          app,
+          `${base}/${path}`,
+          path === "accounts"
+            ? { method: "GET", headers }
+            : {
+                method: "POST",
+                headers: { ...headers, "Content-Type": "application/json" },
+                body: JSON.stringify({ fromWeddingId: SOURCE }),
+              },
+        );
+      for (const path of ["accounts", "reuse"] as const) {
+        expect((await call(path, { Authorization: "Bearer not-a-jwt" })).status, path).toBe(401);
+        expect(
+          (await call(path, { cookie: "cire_org_session=not-a-live-session-token" })).status,
+          path,
+        ).toBe(401);
+      }
+      expect(target(db)).toBeUndefined();
+      expect((await call("accounts", { cookie: `cire_org_session=${token}` })).status).toBe(200);
+      expect((await call("reuse", { cookie: `cire_org_session=${token}` })).status).toBe(200);
+      expect(target(db)?.stripeAccountId).toBe(SHARED);
+    });
+
+    it("refuses a wedding below Gold with 402", async () => {
+      const { app, db } = buildApp({ tier: "ivory" });
+      sourceWedding(db);
+      expect((await reuse(app, { fromWeddingId: SOURCE })).status).toBe(402);
+      expect((await accounts(app)).status).toBe(402);
+    });
+
+    it("does not exist when Stripe is not configured", async () => {
+      const { app, db } = buildApp({ stripe: null });
+      sourceWedding(db);
+      expect((await reuse(app, { fromWeddingId: SOURCE })).status).toBe(404);
+      expect((await accounts(app)).status).toBe(404);
+    });
+  });
+
+  describe("the accounts an owner is offered", () => {
+    type Listed = {
+      fromWeddingId: string;
+      weddingNames: string[];
+      chargesEnabled: boolean;
+      currencyKnown: boolean;
+      blockedBy: string | null;
+    };
+
+    it("lists each account the caller connected on a wedding they own, once, and nothing else", async () => {
+      const { app, db } = buildApp();
+      // One account on two weddings: offered once, under both names.
+      sourceWedding(db, { id: "wed_ceremony", displayName: "Ceremony" });
+      sourceWedding(db, { id: "wed_beach", displayName: "Beach" });
+      // Ready to use, but this wedding's second owner is not an owner there.
+      sourceWedding(db, {
+        id: "wed_solo",
+        displayName: "Solo",
+        owners: [OWNER],
+        accountId: "acct_solo",
+      });
+      // Pays out in another currency.
+      sourceWedding(db, {
+        id: "wed_abroad",
+        displayName: "Abroad",
+        accountId: "acct_usd",
+        currency: "USD",
+      });
+      // Not yet onboarded: no currency yet.
+      sourceWedding(db, {
+        id: "wed_new",
+        displayName: "New",
+        accountId: "acct_new_one",
+        currency: null,
+        chargesEnabled: false,
+      });
+      // Never offered: another owner's, nobody's, a wedding the caller left,
+      // and a deleted one.
+      sourceWedding(db, { id: "wed_partner", connector: SECOND, accountId: "acct_partner" });
+      sourceWedding(db, { id: "wed_nobody", connector: null, accountId: "acct_nobody" });
+      sourceWedding(db, { id: "wed_left", owners: [SECOND], accountId: "acct_left" });
+      sourceWedding(db, { id: "wed_gone", deletedAt: new Date(), accountId: "acct_gone" });
+
+      const res = await accounts(app);
+
+      expect(res.status).toBe(200);
+      const raw = await res.text();
+      const body = JSON.parse(raw) as { accounts: Listed[] };
+      expect(body.accounts).toEqual([
+        {
+          fromWeddingId: "wed_abroad",
+          weddingNames: ["Abroad"],
+          chargesEnabled: true,
+          currencyKnown: true,
+          blockedBy: "currency_mismatch",
+        },
+        {
+          fromWeddingId: "wed_beach",
+          weddingNames: ["Beach", "Ceremony"],
+          chargesEnabled: true,
+          currencyKnown: true,
+          blockedBy: null,
+        },
+        {
+          fromWeddingId: "wed_new",
+          weddingNames: ["New"],
+          chargesEnabled: false,
+          currencyKnown: false,
+          blockedBy: null,
+        },
+        {
+          fromWeddingId: "wed_solo",
+          weddingNames: ["Solo"],
+          chargesEnabled: true,
+          currencyKnown: true,
+          blockedBy: "stripe_owners_differ",
+        },
+      ]);
+      // No account id and no currency reach the browser.
+      expect(raw).not.toContain("acct_");
+      expect(raw).not.toContain("AUD");
+      expect(raw).not.toContain("USD");
+    });
+
+    it("names a wedding the account can be taken from, when the first by name cannot", async () => {
+      const { app, db } = buildApp();
+      // One account on two weddings: "Aardvark" (where this wedding's second
+      // owner is not an owner) sorts first, "Zebra" (where they are) last.
+      sourceWedding(db, { id: "wed_aardvark", displayName: "Aardvark", owners: [OWNER] });
+      sourceWedding(db, { id: "wed_zebra", displayName: "Zebra" });
+
+      const body = (await jsonBody(await accounts(app))) as { accounts: Listed[] };
+
+      expect(body.accounts).toEqual([
+        {
+          fromWeddingId: "wed_zebra",
+          weddingNames: ["Aardvark", "Zebra"],
+          chargesEnabled: true,
+          currencyKnown: true,
+          blockedBy: null,
+        },
+      ]);
+    });
+
+    it("reads at most fifty weddings", async () => {
+      const { app, db } = buildApp();
+      for (let i = 0; i < 51; i++) {
+        const n = String(i).padStart(2, "0");
+        sourceWedding(db, {
+          id: `wed_many_${n}`,
+          displayName: `Many ${n}`,
+          accountId: `acct_many_${n}`,
+        });
+      }
+      const body = (await jsonBody(await accounts(app))) as { accounts: Listed[] };
+      expect(body.accounts).toHaveLength(50);
+      expect(body.accounts.at(-1)?.fromWeddingId).toBe("wed_many_49");
+    });
+
+    it("leaves out the wedding it is asked for", async () => {
+      const { app, db } = buildApp();
+      targetConnected(db, OWNER, SHARED);
+      const res = await accounts(app);
+      expect(await jsonBody(res)).toEqual({ accounts: [] });
+    });
+
+    it("asks Stripe nothing", async () => {
+      const stripe = stripeStub();
+      const { app, db } = buildApp({ stripe: stripe.client });
+      sourceWedding(db);
+      expect((await accounts(app)).status).toBe(200);
+      expect(stripe.calls).toEqual([]);
+    });
   });
 });

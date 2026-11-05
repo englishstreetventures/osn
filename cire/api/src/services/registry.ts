@@ -23,6 +23,7 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
+  weddingHosts,
   weddings,
 } from "@cire/db";
 import {
@@ -40,7 +41,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/sqlite-core";
+import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery, outerColumn, unionColumn } from "../db";
@@ -106,6 +107,26 @@ export class CashGiftsUnavailable extends Data.TaggedError("CashGiftsUnavailable
  * from is out of date.
  */
 export class FundUnavailable extends Data.TaggedError("FundUnavailable") {}
+/**
+ * An owner named a wedding to take a Stripe account from, and it is not one
+ * whose account they may give this wedding: nobody, someone else or an
+ * operator's record connected it there, the caller no longer owns it, it is
+ * deleted, or it has no account. One answer for all of them, so the route says
+ * nothing about a wedding the caller cannot see. 404-class.
+ */
+export class StripeAccountNotFound extends Data.TaggedError("StripeAccountNotFound") {}
+/** The wedding already has a Stripe account, which is never replaced. 409-class. */
+export class StripeAlreadyConnected extends Data.TaggedError("StripeAlreadyConnected")<{
+  readonly current: RegistrySettingsDto;
+}> {}
+/**
+ * The account would sit beside an owner of this wedding who is not an owner of
+ * the wedding it came from: once it were here, they could remove its connector
+ * and keep it. 409-class.
+ */
+export class StripeOwnersDiffer extends Data.TaggedError("StripeOwnersDiffer")<{
+  readonly current: RegistrySettingsDto;
+}> {}
 /**
  * An item write carrying a field of the other kind: a cash fund with a price,
  * a link, a category or more than one wanted, or a gift to reserve with a
@@ -281,6 +302,31 @@ export interface RegistrySettingsDto {
    */
   moneyGiftsBlockedBy: MoneyGiftsBlock | null;
   updatedAt: number | null;
+}
+
+/** Why an account an owner connected on another wedding cannot take this one's gifts. */
+export type ReusableAccountBlock =
+  /** It settles in another currency than this wedding charges gifts in. */
+  | "currency_mismatch"
+  /** This wedding has an owner who is not an owner of the wedding it is on. */
+  | "stripe_owners_differ";
+
+/**
+ * One Stripe account the caller connected on another wedding they own, as
+ * `GET …/registry/stripe/accounts` offers it: by the weddings it takes gifts
+ * for, never by its id, and never with the currency it settles in — only
+ * whether that is known and, through `blockedBy`, whether it matches.
+ */
+export interface ReusableStripeAccountDto {
+  /** The wedding to name when giving this one the account. */
+  fromWeddingId: string;
+  /** Every wedding of the caller's the account takes gifts for, by name. */
+  weddingNames: string[];
+  chargesEnabled: boolean;
+  /** Whether Stripe has said which currency the account settles in. */
+  currencyKnown: boolean;
+  /** Why it cannot take this wedding's gifts, or null when it can. */
+  blockedBy: ReusableAccountBlock | null;
 }
 
 /** What `POST …/registry/stripe/refresh` answers, all from the row as stored. */
@@ -1287,6 +1333,93 @@ const inQuantityRange = (n: number, min: number, max: number): boolean =>
 const clamp = (n: number, min: number, max: number): number =>
   Number.isFinite(n) ? Math.min(max, Math.max(min, Math.trunc(n))) : min;
 
+/**
+ * At most this many source weddings are answered when listing the accounts an
+ * owner may reuse. It caps the response, not the rows read: the read still
+ * walks every seat the caller holds (through `wedding_hosts_profile_idx`) and
+ * sorts the matches by name before it cuts. A person owns a handful of
+ * weddings.
+ */
+const REUSABLE_ACCOUNT_SOURCES = 50;
+
+/*
+ * The rules for giving one wedding the Stripe account on another, as SQL over
+ * `src`, an alias of `registry_settings` in the statement around them. The
+ * reuse's write and its failure-path read share them, so the two cannot
+ * disagree. Every rule is a WHERE term or an EXISTS: the reuse is an
+ * INSERT … SELECT … ON CONFLICT, and a JOIN's ON in its outer SELECT would be
+ * read as part of the upsert.
+ */
+
+/**
+ * `osnProfileId` may give `weddingId` the account on `src`: cire's own record
+ * says they connected it there, they still hold an owner seat on that wedding,
+ * it is live, and it is not `weddingId` itself. A pasted account id proves
+ * none of this, which is why the route takes none.
+ */
+const controlsSourceAccount = (weddingId: string, osnProfileId: string): SQL =>
+  sql`src.wedding_id <> ${weddingId}
+    AND src.stripe_account_id IS NOT NULL
+    AND src.stripe_connected_by_osn_profile_id = ${osnProfileId}
+    AND EXISTS (SELECT 1 FROM ${weddingHosts} seat
+                WHERE seat.wedding_id = src.wedding_id
+                  AND seat.osn_profile_id = ${osnProfileId}
+                  AND seat.role = 'owner')
+    AND EXISTS (SELECT 1 FROM ${weddings} sw WHERE sw.id = src.wedding_id AND sw.deleted_at IS NULL)`;
+
+/**
+ * Every owner of `weddingId` is an owner of `src`'s wedding, so the account
+ * goes nowhere it does not already sit beside each of them: anyone who could
+ * remove its connector from `weddingId` could already do so where it came from.
+ */
+const ownersSitBesideSource = (weddingId: string): SQL =>
+  sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} mine
+                  WHERE mine.wedding_id = ${weddingId}
+                    AND mine.role = 'owner'
+                    AND NOT EXISTS (SELECT 1 FROM ${weddingHosts} theirs
+                                    WHERE theirs.wedding_id = src.wedding_id
+                                      AND theirs.role = 'owner'
+                                      AND theirs.osn_profile_id = mine.osn_profile_id))`;
+
+/** `src`'s account settles in `weddingId`'s currency, or has not said which. */
+const sourceCurrencyFits = (weddingId: string): SQL =>
+  sql`(src.stripe_default_currency IS NULL
+       OR upper(src.stripe_default_currency) =
+          (SELECT upper(tw.currency) FROM ${weddings} tw WHERE tw.id = ${weddingId}))`;
+
+/**
+ * `osnProfileId` holds an owner seat on `weddingId` and it is live. The route's
+ * gate read the same in its own query; the write asks again, so a demotion or
+ * a delete in between attaches nothing.
+ */
+const ownsLiveWedding = (weddingId: string, osnProfileId: string): SQL =>
+  sql`EXISTS (SELECT 1 FROM ${weddingHosts} ts
+              WHERE ts.wedding_id = ${weddingId}
+                AND ts.osn_profile_id = ${osnProfileId}
+                AND ts.role = 'owner'
+                AND EXISTS (SELECT 1 FROM ${weddings} tw
+                            WHERE tw.id = ${weddingId} AND tw.deleted_at IS NULL))`;
+
+/**
+ * A `registry_settings` row's values in the table's column order, which is the
+ * order an INSERT … SELECT names the columns in.
+ */
+const inColumnOrder = (values: Record<keyof typeof registrySettings.$inferSelect, SQL>): SQL[] =>
+  (Object.keys(getTableColumns(registrySettings)) as Array<keyof typeof values>).map(
+    (key) => values[key],
+  );
+
+/** One wedding whose account the caller may be offered, as the list reads it. */
+interface ReusableSourceRow {
+  weddingId: string;
+  displayName: string;
+  accountId: string;
+  chargesEnabled: number;
+  currencyKnown: number;
+  currencyFits: number;
+  ownersFit: number;
+}
+
 export const registryService = {
   /**
    * The organiser-facing snapshot: settings, items with claim counts, and page
@@ -1741,6 +1874,11 @@ export const registryService = {
    * else attached first keeps its connector. The caller compares the returned
    * row's connector with its caller, which is what refuses the owner who lost a
    * race to connect.
+   *
+   * The write asks again that they own the wedding and that it is live
+   * ({@link ownsLiveWedding}): the route's gate read that in its own query,
+   * before a Stripe round trip an owner can be removed or the wedding deleted
+   * during. `null` means nothing was written, because they no longer may.
    */
   attachStripeAccount(
     weddingId: string,
@@ -1752,24 +1890,40 @@ export const registryService = {
       defaultCurrency?: string | null;
     },
     connectedByOsnProfileId: string,
-  ): Effect.Effect<RegistrySettingsRecord, never, DbService> {
+  ): Effect.Effect<RegistrySettingsRecord | null, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = new Date();
-      const [row] = yield* dbQuery(() =>
+      const stamp = toEpochSeconds(now);
+      // What a new row holds: the defaults, and the account Stripe just made.
+      const values = {
+        weddingId: sql`${weddingId}`,
+        published: sql`0`,
+        headline: sql`NULL`,
+        message: sql`NULL`,
+        cashGiftsEnabled: sql`0`,
+        shippingAddress: sql`NULL`,
+        shippingVisibleFrom: sql`NULL`,
+        stripeAccountId: sql`${account.id}`,
+        stripeConnectedByOsnProfileId: sql`${connectedByOsnProfileId}`,
+        stripeChargesEnabled: sql`${account.chargesEnabled ? 1 : 0}`,
+        stripePayoutsEnabled: sql`${account.payoutsEnabled ? 1 : 0}`,
+        stripeAccountUpdatedAt: sql`${stamp}`,
+        stripeDefaultCurrency: sql`${account.defaultCurrency ?? null}`,
+        stripeDeauthorizedAt: sql`NULL`,
+        stripeDeauthorizedAccountId: sql`NULL`,
+        giftSummaryJson: sql`NULL`,
+        giftSummaryAt: sql`NULL`,
+        createdAt: sql`${stamp}`,
+        updatedAt: sql`${stamp}`,
+      } satisfies Record<keyof typeof registrySettings.$inferSelect, SQL>;
+      const written = yield* dbQuery(() =>
         db
           .insert(registrySettings)
-          .values({
-            weddingId,
-            stripeAccountId: account.id,
-            stripeConnectedByOsnProfileId: connectedByOsnProfileId,
-            stripeChargesEnabled: account.chargesEnabled,
-            stripePayoutsEnabled: account.payoutsEnabled,
-            stripeDefaultCurrency: account.defaultCurrency ?? null,
-            stripeAccountUpdatedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          })
+          .select(
+            sql`SELECT ${sql.join(inColumnOrder(values), sql`, `)}
+                WHERE ${ownsLiveWedding(weddingId, connectedByOsnProfileId)}`,
+          )
           .onConflictDoUpdate({
             target: registrySettings.weddingId,
             set: {
@@ -1788,15 +1942,219 @@ export const registryService = {
               // And so does the settlement currency, for the same reason: it
               // describes the account the id names, and the two have to agree.
               stripeDefaultCurrency: sql`case when ${registrySettings.stripeAccountId} is null then ${account.defaultCurrency ?? null} else ${registrySettings.stripeDefaultCurrency} end`,
-              stripeAccountUpdatedAt: now,
+              // And so does Stripe's timestamp. An account another request
+              // attached first may be one several weddings share; stamping
+              // this row alone would put its time-order guard out of step with
+              // theirs, and a late `account.updated` would then reach the
+              // others and not this one.
+              stripeAccountUpdatedAt: sql`case when ${registrySettings.stripeAccountId} is null then ${stamp} else ${registrySettings.stripeAccountUpdatedAt} end`,
               updatedAt: now,
             },
           })
           .returning()
           .all(),
       );
-      return toSettingsRecord(row as SettingsRow);
+      const [row] = written as SettingsRow[];
+      return row ? toSettingsRecord(row) : null;
     }).pipe(Effect.withSpan("cire.registry.attachStripeAccount"));
+  },
+
+  /**
+   * The Stripe accounts `osnProfileId` connected on other weddings they own,
+   * which `weddingId` might take its gifts through instead of a new account:
+   * one entry per account, named by the weddings it serves, oldest name first.
+   * An account that cannot take this wedding's gifts is listed with the reason,
+   * so the portal can say it.
+   *
+   * Read from the caller's own owner seats outward, so it touches only weddings
+   * they own, and through `wedding_hosts_profile_idx`.
+   */
+  reusableStripeAccounts(
+    weddingId: string,
+    osnProfileId: string,
+  ): Effect.Effect<ReusableStripeAccountDto[], never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db.all<ReusableSourceRow>(sql`
+          SELECT src.wedding_id AS weddingId,
+                 w.display_name AS displayName,
+                 src.stripe_account_id AS accountId,
+                 src.stripe_charges_enabled AS chargesEnabled,
+                 src.stripe_default_currency IS NOT NULL AS currencyKnown,
+                 ${sourceCurrencyFits(weddingId)} AS currencyFits,
+                 ${ownersSitBesideSource(weddingId)} AS ownersFit
+          FROM ${weddingHosts} mine_seat
+          JOIN ${weddings} w ON w.id = mine_seat.wedding_id
+          JOIN ${registrySettings} src ON src.wedding_id = mine_seat.wedding_id
+          WHERE mine_seat.osn_profile_id = ${osnProfileId}
+            AND mine_seat.role = 'owner'
+            AND ${controlsSourceAccount(weddingId, osnProfileId)}
+          ORDER BY w.display_name, w.id
+          LIMIT ${REUSABLE_ACCOUNT_SOURCES}
+        `),
+      );
+      // Several weddings can name one account; it is offered once. The wedding
+      // named for it is one it can be taken from, where there is one.
+      const byAccount = new Map<string, ReusableSourceRow[]>();
+      for (const row of rows) {
+        const group = byAccount.get(row.accountId);
+        if (group) group.push(row);
+        else byAccount.set(row.accountId, [row]);
+      }
+      return [...byAccount.values()].map((group): ReusableStripeAccountDto => {
+        const usable = group.find((row) => row.currencyFits === 1 && row.ownersFit === 1);
+        const chosen = usable ?? (group[0] as ReusableSourceRow);
+        return {
+          fromWeddingId: chosen.weddingId,
+          weddingNames: group.map((row) => row.displayName),
+          chargesEnabled: chosen.chargesEnabled === 1,
+          currencyKnown: chosen.currencyKnown === 1,
+          blockedBy: usable
+            ? null
+            : chosen.currencyFits !== 1
+              ? "currency_mismatch"
+              : "stripe_owners_differ",
+        };
+      });
+    }).pipe(Effect.withSpan("cire.registry.reusableStripeAccounts"));
+  },
+
+  /**
+   * Give `weddingId` the Stripe account `osnProfileId` connected on
+   * `fromWeddingId`, and record them as its connector here too.
+   *
+   * ONE statement, with every rule in its WHERE: the caller connected the
+   * account there and still owns that live wedding ({@link controlsSourceAccount}),
+   * still owns this live one, every owner here owns it there too, and the
+   * account settles in this wedding's currency or has not said which. The
+   * account id comes off the source row and never from the caller. Like
+   * {@link registryService.attachStripeAccount} it only fills a NULL id: the
+   * `DO UPDATE` writes only a row with no account, and an existing row keeps
+   * everything else it holds.
+   *
+   * The capability flags, the settlement currency and Stripe's timestamp are
+   * copied from the source row, so both rows describe the same observation of
+   * the account and every later `account.updated` is judged alike on each.
+   *
+   * Only a refusal pays for a second read, which names the first rule that
+   * failed: the caller no longer owns this wedding (answered as not found);
+   * the wedding already has an account; the source is not the caller's to
+   * give (one answer for every way); its owners differ; its currency differs.
+   */
+  adoptStripeAccount(
+    weddingId: string,
+    fromWeddingId: string,
+    osnProfileId: string,
+    deployment: MoneyDeployment,
+  ): Effect.Effect<
+    RegistrySettingsDto,
+    StripeAccountNotFound | StripeAlreadyConnected | StripeOwnersDiffer | CurrencyMismatch,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = toEpochSeconds(new Date());
+      // What a new row holds: the defaults, and the account fields off `src`.
+      const values = {
+        weddingId: sql`${weddingId}`,
+        published: sql`0`,
+        headline: sql`NULL`,
+        message: sql`NULL`,
+        cashGiftsEnabled: sql`0`,
+        shippingAddress: sql`NULL`,
+        shippingVisibleFrom: sql`NULL`,
+        stripeAccountId: sql`src.stripe_account_id`,
+        stripeConnectedByOsnProfileId: sql`${osnProfileId}`,
+        stripeChargesEnabled: sql`src.stripe_charges_enabled`,
+        stripePayoutsEnabled: sql`src.stripe_payouts_enabled`,
+        stripeAccountUpdatedAt: sql`src.stripe_account_updated_at`,
+        stripeDefaultCurrency: sql`src.stripe_default_currency`,
+        stripeDeauthorizedAt: sql`NULL`,
+        stripeDeauthorizedAccountId: sql`NULL`,
+        giftSummaryJson: sql`NULL`,
+        giftSummaryAt: sql`NULL`,
+        createdAt: sql`${now}`,
+        updatedAt: sql`${now}`,
+      } satisfies Record<keyof typeof registrySettings.$inferSelect, SQL>;
+      const written = yield* dbQuery(() =>
+        db
+          .insert(registrySettings)
+          .select(
+            sql`SELECT ${sql.join(inColumnOrder(values), sql`, `)}
+                FROM ${registrySettings} src
+                WHERE src.wedding_id = ${fromWeddingId}
+                  AND ${controlsSourceAccount(weddingId, osnProfileId)}
+                  AND ${ownsLiveWedding(weddingId, osnProfileId)}
+                  AND ${ownersSitBesideSource(weddingId)}
+                  AND ${sourceCurrencyFits(weddingId)}`,
+          )
+          .onConflictDoUpdate({
+            target: registrySettings.weddingId,
+            set: {
+              stripeAccountId: sql`excluded.stripe_account_id`,
+              stripeConnectedByOsnProfileId: sql`excluded.stripe_connected_by_osn_profile_id`,
+              stripeChargesEnabled: sql`excluded.stripe_charges_enabled`,
+              stripePayoutsEnabled: sql`excluded.stripe_payouts_enabled`,
+              stripeAccountUpdatedAt: sql`excluded.stripe_account_updated_at`,
+              stripeDefaultCurrency: sql`excluded.stripe_default_currency`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+            // Only a row with no account takes one: never repoint payouts.
+            setWhere: isNull(registrySettings.stripeAccountId),
+          })
+          .returning({
+            ...getTableColumns(registrySettings),
+            weddingCurrency: sql<
+              string | null
+            >`(select ${weddings.currency} from ${weddings} where ${weddings.id} = ${registrySettings.weddingId})`,
+          })
+          .all(),
+      );
+      const [saved] = written as Array<SettingsRow & { weddingCurrency: string | null }>;
+      if (saved) {
+        const { weddingCurrency, ...row } = saved;
+        return toSettingsDto(toSettingsRecord(row), deployment, weddingCurrency ?? "AUD");
+      }
+
+      // Nothing written: say which rule failed, in a fixed order. ONE read
+      // gives the verdict and the settings a 409 carries: the wedding, its
+      // row, and the source row by its key, every rule tested against it.
+      const source = alias(registrySettings, "src");
+      const [verdict] = yield* dbQuery(() =>
+        db
+          .select({
+            settings: registrySettings,
+            currency: weddings.currency,
+            ownsTarget: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
+            controls: sql<number>`(${source.weddingId} IS NOT NULL AND ${controlsSourceAccount(weddingId, osnProfileId)})`,
+            ownersFit: sql<number>`(${source.weddingId} IS NOT NULL AND ${ownersSitBesideSource(weddingId)})`,
+            currencyFits: sql<number>`(${source.weddingId} IS NOT NULL AND ${sourceCurrencyFits(weddingId)})`,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .leftJoin(source, eq(source.weddingId, fromWeddingId))
+          .where(eq(weddings.id, weddingId))
+          .all(),
+      );
+      // A caller who no longer owns this wedding is told nothing about it.
+      if (verdict?.ownsTarget !== 1) return yield* Effect.fail(new StripeAccountNotFound());
+      const row = verdict.settings as SettingsRow | null;
+      const current = toSettingsDto(
+        row ? toSettingsRecord(row) : defaultSettings(weddingId),
+        deployment,
+        verdict.currency,
+      );
+      if (row?.stripeAccountId) {
+        return yield* Effect.fail(new StripeAlreadyConnected({ current }));
+      }
+      if (verdict.controls !== 1) return yield* Effect.fail(new StripeAccountNotFound());
+      if (verdict.ownersFit !== 1) return yield* Effect.fail(new StripeOwnersDiffer({ current }));
+      if (verdict.currencyFits !== 1) return yield* Effect.fail(new CurrencyMismatch({ current }));
+      // Every rule holds now: something changed between the write and this
+      // read. Nothing was written, so the caller is told to look again.
+      return yield* Effect.fail(new StripeAccountNotFound());
+    }).pipe(Effect.withSpan("cire.registry.adoptStripeAccount"));
   },
 
   /**

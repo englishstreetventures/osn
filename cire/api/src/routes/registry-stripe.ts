@@ -2,8 +2,10 @@
  * CONNECTING A COUPLE'S BANK ACCOUNT — Stripe Connect onboarding, from the
  * organiser portal.
  *
- *   POST /api/organiser/weddings/:weddingId/registry/stripe/session  (weddingOwner, then the account's connector)
- *   POST /api/organiser/weddings/:weddingId/registry/stripe/refresh  (weddingOwner)
+ *   POST /api/organiser/weddings/:weddingId/registry/stripe/session   (weddingOwner, then the account's connector)
+ *   POST /api/organiser/weddings/:weddingId/registry/stripe/refresh   (weddingOwner)
+ *   GET  /api/organiser/weddings/:weddingId/registry/stripe/accounts  (weddingOwner)
+ *   POST /api/organiser/weddings/:weddingId/registry/stripe/reuse     (weddingOwner, then the source account's connector)
  *
  * **Owner-only, not editor.** Every other registry write is `weddingEditor`,
  * because adding a gift is ordinary help. This is not: it names the bank account
@@ -21,6 +23,16 @@
  * before it asks Stripe anything — and so does a row with an account and no
  * recorded connector, since nobody can say whose it is. The refresh stays open
  * to every owner: it reads the account's status, which they all see.
+ *
+ * **One account, several weddings.** An owner who connected an account on one
+ * wedding may give it to another wedding of theirs (`…/accounts` lists the
+ * candidates, `…/reuse` attaches one), with no trip to Stripe. The body names
+ * the wedding the account is on, never the account, and cire's own record of
+ * who connected it is the proof: the caller must be its connector there and
+ * still own that wedding, and every owner here must own that wedding too, so
+ * the account goes nowhere it does not already sit beside each of them. Any
+ * source the caller may not use is one 404, which says nothing about weddings
+ * they cannot see. A wedding that has an account keeps it.
  *
  * **Create-or-resume, never create-again.** Onboarding is a form people abandon
  * and come back to, and every return trip runs through this route. It reads the
@@ -44,7 +56,7 @@
  */
 
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService } from "../db";
@@ -55,7 +67,9 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
-import { registryService } from "../services/registry";
+import { ReuseStripeAccountBody } from "../schemas/registry";
+import { registryService, settingsForReader } from "../services/registry";
+import type { RegistrySettingsDto } from "../services/registry";
 import type { StripeClient, StripeError } from "../services/stripe";
 
 /**
@@ -126,12 +140,46 @@ const notConnector = (
 const logDefect = (weddingId: string) => (cause: unknown) =>
   Effect.logError("registry stripe handler defect", cause).pipe(Effect.annotateLogs({ weddingId }));
 
+/** Every caller past `weddingOwner` may edit and manage: what the settings carry. */
+const OWNER_READER = { canEdit: true, canManage: true } as const;
+
+/** Why an owner was refused another wedding's account, as the log line names it. */
+type ReuseRefusal = "already_connected" | "not_found" | "owners_differ" | "currency_mismatch";
+
+/**
+ * A refused reuse: logged by wedding and reason — never by person or account —
+ * and answered with the error code, and with the settings as they stand where
+ * the page holding them is what is out of date.
+ */
+const reuseRefused = (
+  set: { status?: number | string },
+  weddingId: string,
+  refusal: ReuseRefusal,
+  answer: { status: number; error: string; current?: RegistrySettingsDto },
+) =>
+  Effect.logInfo("stripe account reuse refused").pipe(
+    Effect.annotateLogs({ weddingId, refusal }),
+    Effect.andThen(
+      Effect.sync(() => {
+        set.status = answer.status;
+        return answer.current
+          ? { error: answer.error, settings: settingsForReader(answer.current, OWNER_READER) }
+          : { error: answer.error };
+      }),
+    ),
+  );
+
+/** The handler parses its own JSON body, so a malformed one is the schema's 400. */
+const manualParse = { parse: () => ({}) };
+
 export interface RegistryStripeDeps {
   /** Absent ⇒ these routes are never mounted. See the header. */
   readonly stripe: StripeClient;
   /**
-   * Per-organiser limiter. Every request here spends an outbound Stripe call,
-   * which is the shape the link-preview route already carries one for: an owner
+   * Per-organiser limiter. The onboarding and refresh requests each spend an
+   * outbound Stripe call (the account list and the reuse spend none, and share
+   * the budget because a Connect press runs one of them before the call it
+   * leads to), which is the shape the link-preview route already carries one for: an owner
    * holding the button, or a portal bug polling `refresh`, would otherwise burn
    * the PLATFORM's Stripe quota — a cross-tenant denial of service reached from
    * one tenant's credentials.
@@ -209,6 +257,20 @@ export const createRegistryStripeRoutes = (
                       ),
                     ),
                   );
+                // The caller stopped owning the wedding, or it was deleted,
+                // while Stripe was making the account: nothing was written,
+                // so the account exists at Stripe with nothing storing it.
+                // The same log line as a failed write, and the refusal the
+                // gate would now give.
+                if (!saved) {
+                  yield* Effect.logError("stripe account created but not stored").pipe(
+                    Effect.annotateLogs({ weddingId, stripeAccountId: created.id }),
+                  );
+                  return yield* Effect.sync(() => {
+                    set.status = 403;
+                    return { error: "forbidden" };
+                  });
+                }
                 // Another request attached an account first. When it is not
                 // the one this request created — Stripe's idempotency key
                 // lasts 24h — that one exists at Stripe with nothing storing
@@ -279,5 +341,83 @@ export const createRegistryStripeRoutes = (
               Effect.catchDefect(() => internal(set)),
             ),
           );
-        }),
+        })
+        // The accounts this owner connected on other weddings of theirs, for
+        // the portal to offer when they connect. A read of cire's own rows:
+        // no Stripe call. It is fetched when the owner presses Connect, so it
+        // spends one slot of the limiter beside the call it leads to.
+        .get("/registry/stripe/accounts", ({ weddingId, osnProfileId, set }) => {
+          if (!weddingId || !osnProfileId) return internalSync(set);
+          return runCire(
+            registryService.reusableStripeAccounts(weddingId, osnProfileId).pipe(
+              Effect.map((accounts) => ({ accounts })),
+              Effect.provideService(DbService, db),
+              Effect.tapDefect(logDefect(weddingId)),
+              Effect.catchDefect(() => internal(set)),
+            ),
+          );
+        })
+        .post(
+          "/registry/stripe/reuse",
+          async ({ weddingId, osnProfileId, request, set }) => {
+            if (!weddingId || !osnProfileId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(ReuseStripeAccountBody)(raw);
+                // Nothing here asks Stripe anything: the account and what
+                // Stripe last said about it come off the source row, which the
+                // webhook keeps current for every wedding naming the account.
+                const settings = yield* registryService.adoptStripeAccount(
+                  weddingId,
+                  body.fromWeddingId,
+                  osnProfileId,
+                  deps,
+                );
+                yield* Effect.logInfo("stripe account reused").pipe(
+                  Effect.annotateLogs({ weddingId }),
+                );
+                return { settings: settingsForReader(settings, OWNER_READER) };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchTag("StripeAlreadyConnected", (e) =>
+                  reuseRefused(set, weddingId, "already_connected", {
+                    status: 409,
+                    error: "stripe_already_connected",
+                    current: e.current,
+                  }),
+                ),
+                Effect.catchTag("StripeAccountNotFound", () =>
+                  reuseRefused(set, weddingId, "not_found", {
+                    status: 404,
+                    error: "stripe_account_not_found",
+                  }),
+                ),
+                Effect.catchTag("StripeOwnersDiffer", (e) =>
+                  reuseRefused(set, weddingId, "owners_differ", {
+                    status: 409,
+                    error: "stripe_owners_differ",
+                    current: e.current,
+                  }),
+                ),
+                Effect.catchTag("CurrencyMismatch", (e) =>
+                  reuseRefused(set, weddingId, "currency_mismatch", {
+                    status: 409,
+                    error: "currency_mismatch",
+                    current: e.current,
+                  }),
+                ),
+                Effect.tapDefect(logDefect(weddingId)),
+                Effect.catchDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        ),
     );

@@ -14,7 +14,7 @@ related:
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
   - "[[toast]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Gift registry
@@ -48,8 +48,8 @@ One row per wedding, keyed by `wedding_id` (PK + FK cascade). **An absent row re
 | `headline`, `message`                                                                                | The couple's copy above the list ("no boxed gifts please"). NULL ⇒ nothing renders                                                                                                                  |
 | `cash_gifts_enabled`                                                                                 | Off by default and independently of `published`                                                                                                                                                     |
 | `shipping_address`, `shipping_visible_from`                                                          | Shown to claimed guests only; the date is the "don't ship until we're back" pattern                                                                                                                 |
-| `stripe_account_id`, `stripe_charges_enabled`, `stripe_payouts_enabled`, `stripe_account_updated_at` | Connect state, cached from the `account.updated` webhook so the portal needs no live Stripe call per page load                                                                                      |
-| `stripe_connected_by_osn_profile_id` | The owner who connected the account, and so the only one who may open its onboarding links (see [Only the connecting owner](#connecting-the-account-built)). Written in the statement that fills a NULL `stripe_account_id`, kept while the id is kept, cleared with it. NULL beside an account means nobody is on record, and then no owner may |
+| `stripe_account_id`, `stripe_charges_enabled`, `stripe_payouts_enabled`, `stripe_account_updated_at` | Connect state, cached from the `account.updated` webhook so the portal needs no live Stripe call per page load. Several rows may name one account: an owner can give another of their weddings the account they connected on one (see [One account, several weddings](#one-account-several-weddings)). Indexed (`registry_settings_stripe_account_idx`, partial on `stripe_account_id IS NOT NULL`) because both webhook writers update every row naming an account |
+| `stripe_connected_by_osn_profile_id` | The owner who connected the account, and so the only one who may open its onboarding links (see [Only the connecting owner](#connecting-the-account-built)). Written in the statement that fills a NULL `stripe_account_id`, kept while the id is kept, cleared with it. NULL beside an account means nobody is on record, and then no owner may. It is also what lets that owner give the account to another wedding of theirs |
 | `stripe_deauthorized_at`, `stripe_deauthorized_account_id` | What a revocation leaves behind. `account.application.deauthorized` NULLs `stripe_account_id` — that is what disarms the guest gate and what lets the couple reconnect, since the attach path only ever fills a NULL — so these two are the only record of which account the wedding's earlier gifts settled into. Nothing in the product reads them |
 | `gift_summary_json`, `gift_summary_at` (migration 0058)                                              | What the couple keeps after the 1-year sweep takes the detail: counts, per-currency totals and each money gift's amount, currency and day — no household, no name, no note. Written by the sweep itself, in the delete's batch |
 
@@ -120,19 +120,76 @@ Rendering goes through `formatMinorPair` in `cire/host/src/lib/money.ts`. That m
 | -------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `POST …/registry/stripe/session` | `weddingOwner` + Gold, then the account's connector | Creates the connected account (Express, `card_payments` + `transfers`) if there isn't one, recording the caller as its connector, then mints a hosted onboarding link. Any other owner gets **403** `stripe_connector_only` |
 | `POST …/registry/stripe/refresh` | `weddingOwner` + Gold        | One live `GET /v1/accounts/:id`, caches what it says, then answers the stored row: the capability flags and `moneyGiftsBlockedBy`. Open to every owner |
+| `GET …/registry/stripe/accounts` | `weddingOwner` + Gold | The accounts the caller connected on other weddings they own, one entry per account: `{ fromWeddingId, weddingNames, chargesEnabled, currencyKnown, blockedBy }`. No account id, no currency code, no Stripe call |
+| `POST …/registry/stripe/reuse` | `weddingOwner` + Gold, then the source account's connector | Body `{ fromWeddingId }`. Gives this wedding the account on that wedding, recording the caller as its connector here too. No Stripe call. **404** `stripe_account_not_found`, **409** `stripe_already_connected`, `stripe_owners_differ` or `currency_mismatch` (below) |
 | `POST /api/stripe/webhook`       | Stripe signature             | `account.updated` → caches the capability booleans; `account.application.deauthorized` → clears the account; the seven gift events below |
 
 Creating that endpoint in the Stripe dashboard — its scope, the nine events, the local forwarder and how to verify a tier — is [[stripe-webhooks]].
 
 **Owner-only, not editor.** Every other registry write is `weddingEditor`, because adding a gift is ordinary help. This names the bank account the money lands in, and sits on the same side of the role line as codes, deletion and co-host removal.
 
-**Only the connecting owner, once there is an account.** Whoever runs onboarding puts their own identity and bank account on the Express account, so every payout goes to that one person, and a wedding's other owners must not be handed a link into it. Any owner may connect a wedding that has no account; the write that fills `stripe_account_id` records them in `stripe_connected_by_osn_profile_id`. From then on the session route answers every other owner **403** `stripe_connector_only` before it asks Stripe anything. Two owners pressing Connect one after the other get the same account back from Stripe (the idempotency key is per wedding), so the route checks the connector on the row its attach *returns*, not only on the row it read first: the owner whose request lost is refused with no link. When that losing request minted an account of its own — past the key's 24 hours — the account's id is logged as `stripe account created but not stored`, the same line as a failed write. Each refusal logs `stripe onboarding refused` with the wedding and `refusal: not_connector | connected_meanwhile`, never a profile id. The refresh stays open to every owner: it reads status, which they all see.
+**Only the connecting owner, once there is an account.** Whoever runs onboarding puts their own identity and bank account on the Express account, so every payout goes to that one person, and a wedding's other owners must not be handed a link into it. Any owner may connect a wedding that has no account; the write that fills `stripe_account_id` records them in `stripe_connected_by_osn_profile_id`. From then on the session route answers every other owner **403** `stripe_connector_only` before it asks Stripe anything. Two owners pressing Connect one after the other get the same account back from Stripe (the idempotency key is per wedding), so the route checks the connector on the row its attach *returns*, not only on the row it read first: the owner whose request lost is refused with no link. When that losing request minted an account of its own — past the key's 24 hours — the account's id is logged as `stripe account created but not stored`, the same line as a failed write. Each refusal logs `stripe onboarding refused` with the wedding and `refusal: not_connector | connected_meanwhile`, never a profile id. The attach also asks again, in its own write, that the caller owns the wedding and that it is live: an owner removed, or a wedding deleted, while Stripe was making the account stores nothing and gets **403** `forbidden`, and the account's id is logged as `stripe account created but not stored`. The refresh stays open to every owner: it reads status, which they all see.
 
-- **No connector on record** (an account attached before the column existed, or by a Worker still serving the old code during a deploy): nobody matches, so no owner may open links and every owner sees status only. Gifts are unaffected — charges and payouts do not read the column. Production holds no Stripe key, so no production row is in this state. Recording a connector by hand is what hands someone links into an account carrying another person's identity and bank, so tie it to the identity Stripe verified, not to whoever asks: in the Stripe dashboard, check that the connected account's email is the OSN account email of the profile you are about to record. Only then run `UPDATE registry_settings SET stripe_connected_by_osn_profile_id = '<profile id>' WHERE wedding_id = '<wedding id>' AND stripe_account_id IS NOT NULL`. If the two do not match, leave the column NULL.
+- **No connector on record** (an account attached before the column existed, or by a Worker still serving the old code during a deploy): nobody matches, so no owner may open links and every owner sees status only. Gifts are unaffected — charges and payouts do not read the column. Production holds no Stripe key, so no production row is in this state. Recording a connector by hand is what hands someone links into an account carrying another person's identity and bank, so tie it to the identity Stripe verified, not to whoever asks: in the Stripe dashboard, check that the connected account's email is the OSN account email of the profile you are about to record. Only then record them, on every wedding naming the account that they own — one account can take gifts for several weddings, and in code every row naming it has the same connector — and on no row that already has one: `UPDATE registry_settings SET stripe_connected_by_osn_profile_id = '<profile id>' WHERE stripe_account_id = '<account id>' AND stripe_connected_by_osn_profile_id IS NULL AND wedding_id IN (SELECT wedding_id FROM wedding_hosts WHERE osn_profile_id = '<profile id>' AND role = 'owner')`. A wedding naming the account that they do not own keeps NULL. Note the weddings it wrote (`SELECT wedding_id FROM registry_settings WHERE stripe_account_id = '<account id>' AND stripe_connected_by_osn_profile_id = '<profile id>'`): undoing the record needs them. If the two emails do not match, leave the column NULL. A connector on record can give the account to their other weddings (see [One account, several weddings](#one-account-several-weddings)), so a record found wrong later is undone on every wedding it reached, not only the ones it was written on (`'<written ids>'` below: the list noted when it was recorded). Every other wedding naming the account with that connector got it by a reuse, and is taking gifts into the real holder's account under their Stripe business profile, so those weddings lose the account as a deauthorization would take it, and the weddings the record was written on keep the account and lose only the connector:
+
+  ```sql
+  -- The weddings the wrong record gave the account to.
+  SELECT wedding_id FROM registry_settings
+   WHERE stripe_account_id = '<account id>'
+     AND stripe_connected_by_osn_profile_id = '<profile id>'
+     AND wedding_id NOT IN ('<written ids>');
+  -- Take the account off them, as detachStripeAccount does.
+  UPDATE registry_settings
+     SET stripe_account_id = NULL, stripe_connected_by_osn_profile_id = NULL,
+         stripe_charges_enabled = 0, stripe_payouts_enabled = 0,
+         stripe_deauthorized_account_id = '<account id>', stripe_deauthorized_at = unixepoch(),
+         stripe_account_updated_at = unixepoch(), updated_at = unixepoch()
+   WHERE stripe_account_id = '<account id>'
+     AND stripe_connected_by_osn_profile_id = '<profile id>'
+     AND wedding_id NOT IN ('<written ids>');
+  -- And clear the record where it was written; those weddings keep the account.
+  UPDATE registry_settings SET stripe_connected_by_osn_profile_id = NULL
+   WHERE wedding_id IN ('<written ids>') AND stripe_connected_by_osn_profile_id = '<profile id>';
+  ```
+
+  Tell the owners of each wedding that lost the account that they need to connect one.
 - **The connector leaves the wedding, or is removed**: nothing on the account changes. Their profile id stays on the row; without an owner seat they fail `weddingOwner`, so no current owner may open links, and payouts still go to the account they connected. Seated as an owner again, they get the links back. Clearing the column on removal would hand the account to the next owner who presses Connect.
-- **Stripe deauthorizes the account** (`account.application.deauthorized`): `detachStripeAccount` clears the connector with the id, so whoever connects the next account is its connector.
+- **Stripe deauthorizes the account** (`account.application.deauthorized`): `detachStripeAccount` clears the connector with the id, on every wedding naming the account, so whoever connects the next account is its connector.
 
 How a wedding with two owners should receive its gifts, hand the account from one partner to the other, or replace it, is designed in englishstreetventures/osn#1950.
+
+#### One account, several weddings
+
+A couple with two weddings in cire — a ceremony in one country and a party in another — need not run Stripe's identity and bank checks twice. An owner who connected an account on one wedding may give it to another wedding of theirs, from the Money gifts panel, with no trip to Stripe.
+
+**Proof of control is cire's own record, never a pasted id.** An owner who could name any account would attach another wedding's and be handed links into someone else's identity and bank. So `POST …/stripe/reuse` takes a *wedding* id and no account id, and `registryService.adoptStripeAccount` writes the target row in one `INSERT … SELECT … ON CONFLICT DO UPDATE … RETURNING`, every rule in its `WHERE`:
+
+| Rule | Why |
+| --- | --- |
+| The caller is the source row's `stripe_connected_by_osn_profile_id` | They ran its onboarding, or an operator recorded them after checking the Stripe account's email. NULL matches no one |
+| The caller holds an `owner` seat on the source wedding, and it is live | A connector who left that wedding, or was demoted, or whose wedding is deleted, carries nothing |
+| The source names an account, and is not the target | A deauthorization clears every row naming the account, so a revoked account is never offered |
+| The caller still owns the target, and it is live | Checked again in the write, not only by the route's gate |
+| **Every owner of the target is an owner of the source** | The account goes nowhere it does not already sit beside each owner: whoever could remove its connector from the target could already do so on the source, where the account keeps paying them. A stranger who seats someone as an owner of their wedding is not an owner of hers, so her account is not offered there. The cautious default, which the owner may relax (englishstreetventures/osn#1996) |
+| The account settles in the target's currency, or has not said which | Otherwise the target could never take a money gift |
+| The target has no account | Only a NULL is filled, as `attachStripeAccount` does; nothing repoints payouts |
+
+The capability flags, the settlement currency and `stripe_account_updated_at` are copied from the source row, so both rows describe the same observation of the account and the time-order guard on `account.updated` treats them alike. `attachStripeAccount` keeps that true when a create loses a race to a reuse: its conflict branch leaves `stripe_account_updated_at` alone unless it fills the id.
+
+A refusal pays for one more read, which names the first rule that failed: **404** `stripe_account_not_found` if the caller no longer owns the target → **409** `stripe_already_connected` (the target has an account) → **404** `stripe_account_not_found` (one answer for every source the caller may not use, so the route says nothing about weddings they cannot see) → **409** `stripe_owners_differ` → **409** `currency_mismatch`. The 409s carry the settings as they stand. Each refusal logs `stripe account reuse refused` with the wedding and `refusal: already_connected | not_found | owners_differ | currency_mismatch`; a reuse logs `stripe account reused`. Never a profile id or an account id.
+
+`GET …/stripe/accounts` lists the candidates, read outward from the caller's own owner seats (`wedding_hosts_profile_idx`), at most 50 weddings, by name. An account that serves several weddings is one entry named by all of them; one that cannot take this wedding's gifts is listed with `blockedBy` so the portal can say why.
+
+**What sharing means once it is done:**
+
+- **Account events reach every wedding naming the account.** `account.updated` and `account.application.deauthorized` are keyed on the account (see [[stripe-webhooks]]); a deauthorization is the platform losing the account, so every wedding naming it is cleared.
+- **Gift events act on their own gift.** A settle, refund or dispute matches the contribution row, and its own wedding must name the account the event arrived on (`contributionOnAccount`).
+- **Each wedding is judged on its own currency.** `moneyGiftsBlockedBy` and the guest gate compare the account's settlement currency with that wedding's.
+- **Deleting one wedding leaves the others.** The purge removes that wedding's row by cascade; the account stays on the rest. The delete dialog says the account keeps taking gifts for any other wedding that uses it.
+- **There is no per-wedding disconnect**, as there is none for a newly connected account: how a couple hands over, replaces or detaches an account is englishstreetventures/osn#1950.
+- **What the target's people see.** Its owners see the connector's profile id and the account's status; its editors whether it can take charges; its guests the business profile the connector gave Stripe on the other wedding, on Stripe's own page. The Stripe account's metadata names only the wedding it was created for, and nothing reads it.
+
+**The portal asks at Connect, not on load.** Pressing "Connect an account" on a wedding with none first reads `…/stripe/accounts`. With none, it goes on to Stripe as before. With some, the panel asks which account should take this wedding's gifts — one already theirs, or a new one — with nothing chosen for them; an account that cannot is a line saying why. "Use this account" posts the reuse and stays in the portal. Bringing a Stripe account made outside cire would need Connect OAuth and Standard accounts, which is englishstreetventures/osn#1997.
 
 **Create-or-resume, never create-again.** Onboarding is a form people abandon and come back to. The route reads the settings row first and reuses any account on it; `stripe_account_id` is written through a `coalesce` so a second create can only fill a null, never repoint a couple's payouts. Stripe's idempotency key (`cire-account-<weddingId>`) is the second belt against a double-tapped button.
 

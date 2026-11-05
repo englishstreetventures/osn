@@ -131,6 +131,17 @@ function lastBody(): Record<string, unknown> {
   >;
 }
 
+/**
+ * A press of "Connect an account" on a wedding with no account asks first for
+ * the owner's accounts on other weddings. This answers that with none, and
+ * every other call with `answer`, a fresh response each time.
+ */
+function noOtherAccounts(answer: () => Response): void {
+  authFetch.mockImplementation(async (url: string) =>
+    String(url).includes("/registry/stripe/accounts") ? json({ accounts: [] }) : answer(),
+  );
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -912,7 +923,7 @@ describe("money gifts", () => {
 describe("who may connect the account", () => {
   it("lets the owner start onboarding, and hands them to Stripe", async () => {
     setCachedRegistry("wed_1", snapshot({ items: [item()] }));
-    authFetch.mockResolvedValue(json({ url: "https://connect.stripe.com/setup/s/x" }));
+    noOtherAccounts(() => json({ url: "https://connect.stripe.com/setup/s/x" }));
     const assign = vi.fn();
     Object.defineProperty(window, "location", { configurable: true, value: { assign } });
 
@@ -934,7 +945,7 @@ describe("who may connect the account", () => {
     // anything that is not Stripe's own onboarding host is refused rather than
     // navigated to.
     setCachedRegistry("wed_1", snapshot({ items: [item()] }));
-    authFetch.mockResolvedValue(json({ url: "https://connect.stripe.com.evil.test/setup" }));
+    noOtherAccounts(() => json({ url: "https://connect.stripe.com.evil.test/setup" }));
     const assign = vi.fn();
     Object.defineProperty(window, "location", { configurable: true, value: { assign } });
 
@@ -992,7 +1003,8 @@ describe("who may connect the account", () => {
 
   it("says Stripe could not be reached when the refusal is not a 403", async () => {
     setCachedRegistry("wed_1", snapshot({ items: [item()] }));
-    authFetch.mockResolvedValue(json({ error: "stripe_unavailable" }, 502));
+    // No other account to offer, so the press goes on to Stripe, which fails.
+    noOtherAccounts(() => json({ error: "stripe_unavailable" }, 502));
 
     renderPanel({ canManage: true });
     fireEvent.click(await screen.findByRole("button", { name: /Connect an account/i }));
@@ -1007,7 +1019,7 @@ describe("who may connect the account", () => {
   it("tells an owner the role gate refused them, and changes nothing it holds", async () => {
     // A 403 that is not about the account: this organiser is no longer an owner.
     setCachedRegistry("wed_1", snapshot({ items: [item()] }));
-    authFetch.mockResolvedValue(json({ error: "forbidden" }, 403));
+    noOtherAccounts(() => json({ error: "forbidden" }, 403));
 
     renderPanel({ canManage: true });
     fireEvent.click(await screen.findByRole("button", { name: /Connect an account/i }));
@@ -1120,7 +1132,7 @@ describe("who may continue on Stripe once an account is connected", () => {
   it("stops offering Connect when another owner connected the account meanwhile", async () => {
     // Loaded with no account; another owner connected one before this press.
     setCachedRegistry("wed_1", snapshot({ items: [item()] }));
-    authFetch.mockResolvedValue(json({ error: "stripe_connector_only" }, 403));
+    noOtherAccounts(() => json({ error: "stripe_connector_only" }, 403));
 
     renderPanel({ canManage: true });
     fireEvent.click(await screen.findByRole("button", { name: /Connect an account/i }));
@@ -1524,5 +1536,418 @@ describe("the one-shot live read", () => {
     renderPanel();
     await screen.findByRole("radio", { name: /^Published/ });
     expect(authFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("asking which Stripe account takes the gifts", () => {
+  type Listed = {
+    fromWeddingId: string;
+    weddingNames: string[];
+    chargesEnabled: boolean;
+    currencyKnown: boolean;
+    blockedBy: "currency_mismatch" | "stripe_owners_differ" | null;
+  };
+  const READY: Listed = {
+    fromWeddingId: "wed_ceremony",
+    weddingNames: ["Beach", "Ceremony"],
+    chargesEnabled: true,
+    currencyKnown: true,
+    blockedBy: null,
+  };
+  const SECOND_READY: Listed = {
+    fromWeddingId: "wed_second",
+    weddingNames: ["Second"],
+    chargesEnabled: true,
+    currencyKnown: true,
+    blockedBy: null,
+  };
+  const UNFINISHED: Listed = {
+    fromWeddingId: "wed_garden",
+    weddingNames: ["Garden", "Hall", "Island"],
+    chargesEnabled: false,
+    currencyKnown: false,
+    blockedBy: null,
+  };
+  const NO_CURRENCY: Listed = {
+    fromWeddingId: "wed_quiet",
+    weddingNames: ["Quiet"],
+    chargesEnabled: true,
+    currencyKnown: false,
+    blockedBy: null,
+  };
+  const OTHER_CURRENCY: Listed = {
+    fromWeddingId: "wed_abroad",
+    weddingNames: ["Abroad"],
+    chargesEnabled: true,
+    currencyKnown: true,
+    blockedBy: "currency_mismatch",
+  };
+  const OTHER_OWNERS: Listed = {
+    fromWeddingId: "wed_solo",
+    weddingNames: ["Solo"],
+    chargesEnabled: true,
+    currencyKnown: true,
+    blockedBy: "stripe_owners_differ",
+  };
+
+  /** What the API answers, by route: a response, or an error the fetch throws. */
+  function api(answers: {
+    accounts?: Response | Error;
+    reuse?: Response | Error;
+    session?: Response | Error;
+  }): void {
+    authFetch.mockImplementation(async (url: string) => {
+      const at = String(url);
+      const answer = at.includes("/registry/stripe/accounts")
+        ? (answers.accounts ?? json({ accounts: [] }))
+        : at.includes("/registry/stripe/reuse")
+          ? (answers.reuse ?? json({}, 500))
+          : at.includes("/registry/stripe/session")
+            ? (answers.session ?? json({}, 500))
+            : json({}, 500);
+      if (answer instanceof Error) throw answer;
+      return answer;
+    });
+  }
+  const urls = () => authFetch.mock.calls.map((c) => String(c[0]));
+  const sessionAsked = () => urls().some((u) => u.includes("/registry/stripe/session"));
+  const navigation = () => {
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    return assign;
+  };
+  /** The settings as an API refusal hands them back: this wedding, no account. */
+  const asTheyStand = () =>
+    snapshot({ items: [item()], settings: { updatedAt: 99 } as never }).settings;
+
+  async function pressConnect(): Promise<void> {
+    fireEvent.click(await screen.findByRole("button", { name: /Connect an account/i }));
+  }
+
+  /** Offer `accounts`, choose the one taken from `fromWeddingId`, and use it. */
+  async function useAccount(accounts: Listed[], fromWeddingId: string): Promise<void> {
+    renderPanel({ canManage: true });
+    await pressConnect();
+    const chosen = accounts.find((a) => a.fromWeddingId === fromWeddingId) as Listed;
+    fireEvent.click(
+      await screen.findByRole("radio", {
+        name: new RegExp(`^The account you use for ${chosen.weddingNames[0]}`),
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Use this account" }));
+  }
+
+  it("asks nothing about other accounts until an owner presses Connect", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({ accounts: json({ accounts: [READY] }) });
+
+    renderPanel({ canManage: true });
+    await screen.findByRole("button", { name: /Connect an account/i });
+
+    expect(urls().some((u) => u.includes("/registry/stripe/accounts"))).toBe(false);
+  });
+
+  it.each([
+    ["no other account", json({ accounts: [] })],
+    ["a body with no list", json({ url: "https://connect.stripe.com/setup/s/x" })],
+  ])("goes straight on to Stripe when there is %s", async (_label, accounts) => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({ accounts, session: json({ url: "https://connect.stripe.com/setup/s/x" }) });
+    const assign = navigation();
+
+    renderPanel({ canManage: true });
+    await pressConnect();
+
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://connect.stripe.com/setup/s/x"),
+    );
+    expect(urls().map((u) => u.replace(/^.*\/registry\//, ""))).toEqual([
+      "stripe/accounts",
+      "stripe/session",
+    ]);
+    expect(screen.queryByTestId("stripe-account-choice")).toBeNull();
+  });
+
+  // Whatever stops the list, nothing goes on to Stripe: a new account is made
+  // only when the owner chose one, or had nothing else to choose.
+  it.each([
+    [
+      "the site has no Stripe",
+      json({ error: "not_found" }, 404),
+      "Money gifts aren’t available on this site yet.",
+    ],
+    [
+      "the role gate refuses",
+      json({ error: "forbidden" }, 403),
+      "Only the wedding’s owner can connect the account gifts are paid into.",
+    ],
+    [
+      "the API fails",
+      json({ error: "Internal error" }, 502),
+      "Couldn’t start connecting an account just now. Try again in a moment.",
+    ],
+    [
+      "the request never arrives",
+      new Error("network down"),
+      "Couldn’t start connecting an account just now. Is the API running?",
+    ],
+  ] as const)("says why and asks Stripe nothing when %s", async (_label, accounts, words) => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({ accounts, session: json({ url: "https://connect.stripe.com/setup/s/x" }) });
+    const assign = navigation();
+
+    renderPanel({ canManage: true });
+    await pressConnect();
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toBe(words);
+    expect(sessionAsked()).toBe(false);
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("stripe-account-choice")).toBeNull();
+  });
+
+  it("sends an owner whose session ended to sign in, from the list", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({ accounts: json({ error: "unauthorised" }, 401) });
+
+    renderPanel({ canManage: true });
+    await pressConnect();
+
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(sessionAsked()).toBe(false);
+  });
+
+  it("asks which account, with none chosen, and says why the others cannot", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({
+      accounts: json({
+        accounts: [READY, UNFINISHED, NO_CURRENCY, OTHER_CURRENCY, OTHER_OWNERS],
+      }),
+    });
+
+    renderPanel({ canManage: true });
+    await pressConnect();
+
+    const choice = await screen.findByTestId("stripe-account-choice");
+    // The button pressed is gone, so the question takes focus, named by its
+    // own words for a screen reader.
+    await waitFor(() => expect(document.activeElement).toBe(choice));
+    expect(choice.tagName).toBe("FIELDSET");
+    expect(choice.getAttribute("aria-labelledby")).toBe("stripe-account-choice-label");
+    const radios = screen.getAllByRole("radio", { name: /account/i }) as HTMLInputElement[];
+    // Each account by the weddings it serves, with what Stripe can do with it.
+    expect(radios.map((r) => r.closest("label")?.textContent ?? "")).toEqual([
+      "The account you use for Beach and CeremonyStripe can take payments on it.",
+      "The account you use for Garden, Hall and IslandStripe still wants something before it can take payments.",
+      "The account you use for QuietStripe hasn’t said which currency it pays out in yet.",
+      "A new account for this weddingStripe asks for your identity and bank details.",
+    ]);
+    // Nothing is chosen for the owner: giving a wedding an account is theirs
+    // to decide, every time.
+    expect(radios.every((r) => !r.checked)).toBe(true);
+    // The question's own buttons stand in for Connect while it is open.
+    expect(screen.queryByRole("button", { name: /Connect an account/i })).toBeNull();
+    // An account that cannot take these gifts is a line, not a radio — and
+    // only those accounts get one.
+    const lines = [...choice.querySelectorAll("p")]
+      .map((p) => p.textContent ?? "")
+      .filter((text) => text.startsWith("The account you use for"));
+    expect(lines).toEqual([
+      "The account you use for Abroad pays out in a currency other than AUD, the one this wedding’s gifts are charged in, so it can’t take them.",
+      "The account you use for Solo can’t be used here: this wedding has an owner who isn’t an owner of Solo.",
+    ]);
+
+    // With nothing chosen the action says so, and does nothing.
+    const action = screen.getByRole("button", { name: /^Continue$/ });
+    expect(action.getAttribute("aria-disabled")).toBe("true");
+    expect(action.getAttribute("aria-describedby")).toBe("stripe-account-choose");
+    expect(document.getElementById("stripe-account-choose")?.textContent).toBe(
+      "Choose an account first.",
+    );
+    authFetch.mockClear();
+    fireEvent.click(action);
+    expect(authFetch).not.toHaveBeenCalled();
+
+    // Once something is chosen the reason goes, and the action names it.
+    fireEvent.click(radios[0] as HTMLInputElement);
+    const use = await screen.findByRole("button", { name: "Use this account" });
+    expect(use.getAttribute("aria-disabled")).toBeNull();
+    expect(document.getElementById("stripe-account-choose")).toBeNull();
+
+    // Cancel closes the question and gives focus back to Connect.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const connect = await screen.findByRole("button", { name: /Connect an account/i });
+    expect(screen.queryByTestId("stripe-account-choice")).toBeNull();
+    expect(document.activeElement).toBe(connect);
+  });
+
+  it("goes on to Stripe for a new account", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({
+      accounts: json({ accounts: [READY] }),
+      session: json({ url: "https://connect.stripe.com/setup/s/new" }),
+    });
+    const assign = navigation();
+
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: /A new account for this wedding/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://connect.stripe.com/setup/s/new"),
+    );
+    expect(urls().some((u) => u.includes("/registry/stripe/reuse"))).toBe(false);
+  });
+
+  it("gives the wedding the account chosen, by its own wedding, without leaving the portal", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    const now = snapshot({
+      items: [item()],
+      settings: {
+        stripeConnected: true,
+        stripeChargesEnabled: true,
+        stripeConnectedByOsnProfileId: ME,
+        moneyGiftsBlockedBy: "cash_gifts_off",
+      } as never,
+    });
+    api({
+      accounts: json({ accounts: [READY, SECOND_READY] }),
+      reuse: json({ settings: now.settings }),
+    });
+    const assign = navigation();
+
+    // The second of two: the request and the words name that one.
+    await useAccount([READY, SECOND_READY], SECOND_READY.fromWeddingId);
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(String(toastSuccess.mock.calls.at(-1)?.[0])).toBe(
+      "This wedding’s gifts now go to the account you use for Second.",
+    );
+    const [url, init] = authFetch.mock.calls.at(-1) ?? [];
+    expect(String(url)).toContain("/registry/stripe/reuse");
+    expect((init as RequestInit | undefined)?.method).toBe("POST");
+    expect(lastBody()).toEqual({ fromWeddingId: "wed_second" });
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("stripe-account-choice")).toBeNull();
+    expect(screen.getByTestId("stripe-status").textContent).toMatch(/straight to your account/i);
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnectedByOsnProfileId).toBe(ME);
+    // Focus lands on the panel's button, which now continues the account.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: /Continue on Stripe/i }),
+    );
+  });
+
+  it("shows the account someone else connected meanwhile", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    const theirs = snapshot({
+      items: [item()],
+      settings: {
+        stripeConnected: true,
+        stripeChargesEnabled: false,
+        stripeConnectedByOsnProfileId: "usr_partner",
+        moneyGiftsBlockedBy: "stripe_not_ready",
+      } as never,
+    });
+    api({
+      accounts: json({ accounts: [READY] }),
+      reuse: json({ error: "stripe_already_connected", settings: theirs.settings }, 409),
+    });
+
+    await useAccount([READY], READY.fromWeddingId);
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toMatch(/already has a Stripe account/);
+    expect(screen.queryByTestId("stripe-account-choice")).toBeNull();
+    expect(screen.getByTestId("stripe-status").textContent).toMatch(
+      /from the person who connected it/i,
+    );
+  });
+
+  it.each([
+    [
+      "can no longer be used here",
+      () => json({ error: "stripe_account_not_found" }, 404),
+      "That account can’t be used here any more. Choose another, or a new one.",
+    ],
+    [
+      "now sits beside an owner who is not on its own wedding",
+      () => json({ error: "stripe_owners_differ", settings: asTheyStand() }, 409),
+      "The account you use for Second can’t be used here: this wedding has an owner who isn’t an owner of Second.",
+    ],
+    [
+      "now pays out in another currency",
+      () => json({ error: "currency_mismatch", settings: asTheyStand() }, 409),
+      "The account you use for Second pays out in a currency other than AUD, the one this wedding’s gifts are charged in, so it can’t take them.",
+    ],
+  ] as const)("drops an account that %s, and keeps asking", async (_label, answer, words) => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({ accounts: json({ accounts: [READY, SECOND_READY] }), reuse: answer() });
+
+    await useAccount([READY, SECOND_READY], SECOND_READY.fromWeddingId);
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toBe(words);
+    // Only the refused account goes; the other and a new one stay, and
+    // nothing is chosen.
+    await waitFor(() =>
+      expect(screen.queryByRole("radio", { name: /The account you use for Second/ })).toBeNull(),
+    );
+    expect(screen.getByRole("radio", { name: /The account you use for Beach/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /A new account for this wedding/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Continue$/ }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+    expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(false);
+  });
+
+  it("takes the settings a refusal hands back", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({
+      accounts: json({ accounts: [READY, SECOND_READY] }),
+      reuse: json({ error: "stripe_owners_differ", settings: asTheyStand() }, 409),
+    });
+
+    await useAccount([READY, SECOND_READY], SECOND_READY.fromWeddingId);
+
+    await waitFor(() => expect(peekCachedRegistry("wed_1")?.settings.updatedAt).toBe(99));
+  });
+
+  it.each([
+    [
+      "the API fails",
+      () => json({ error: "Internal error" }, 502) as Response | Error,
+      "Couldn’t connect the account just now. Try again in a moment.",
+    ],
+    [
+      "the request never arrives",
+      () => new Error("network down") as Response | Error,
+      "Couldn’t connect the account just now. Is the API running?",
+    ],
+  ] as const)("keeps the question open when %s", async (_label, answer, words) => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({ accounts: json({ accounts: [READY, SECOND_READY] }), reuse: answer() });
+
+    await useAccount([READY, SECOND_READY], SECOND_READY.fromWeddingId);
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls.at(-1)?.[0])).toBe(words);
+    // Nothing dropped, the choice kept, and the action ready to try again.
+    expect(screen.getByRole("radio", { name: /The account you use for Second/ })).toBeTruthy();
+    const again = await screen.findByRole("button", { name: "Use this account" });
+    expect((again as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("sends an owner whose session ended to sign in, from the reuse", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    api({
+      accounts: json({ accounts: [READY] }),
+      reuse: json({ error: "unauthorised" }, 401),
+    });
+
+    await useAccount([READY], READY.fromWeddingId);
+
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(toastError).not.toHaveBeenCalled();
   });
 });

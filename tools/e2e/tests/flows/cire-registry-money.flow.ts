@@ -19,7 +19,19 @@
  * marked disabled and a note says only the person who connected the account
  * can. The onboarding route itself answers 403 `stripe_connector_only` to the
  * browser's own session, before it asks Stripe anything, and the row keeps its
- * account and its connector. The flow's screenshot is this panel.
+ * account and its connector.
+ *
+ * Then a second wedding takes the dev profile's own account. The dev profile
+ * owns Ceremony Wedding and Party Wedding alone (`CIRE_ORGANISER.shared`), and
+ * connected Ceremony Wedding's account. First cire-api refuses, 404
+ * `stripe_account_not_found`, to give Party Wedding Money Wedding's account,
+ * which Kit connected, and writes nothing. On Party Wedding's settings,
+ * pressing "Connect an account" asks which account should take its gifts —
+ * the one used for Ceremony Wedding or a new one, nothing chosen, Money
+ * Wedding's not offered — and that question is the flow's screenshot. On a
+ * second page the owner chooses Ceremony Wedding's account and uses it: the
+ * panel says gifts go to their account, without a trip to Stripe, and Party
+ * Wedding's row names that account with the dev profile as its connector.
  *
  * Then the owner signs out everywhere else on OSN, and their cire sessions end
  * too. The flow asks osn-api the way `@osn/auth-ui`'s sessions view does: an
@@ -122,7 +134,6 @@ test("cire-registry-money", async ({ page, flow }) => {
   });
   flow.check("the gift list says guests cannot see the fund", true, UNAVAILABLE.test(list));
 
-  // Last on `page`, so the flow's screenshot is this panel.
   const panel = await flow.step(
     "open the settings again, as an owner who did not connect Stripe",
     async () => {
@@ -182,6 +193,129 @@ test("cire-registry-money", async ({ page, flow }) => {
   );
   flow.check("the account is unchanged", accountId, after?.account ?? "absent");
   flow.check("the connector is unchanged", connector.profileId, after?.connector ?? "absent");
+
+  const shared = CIRE_ORGANISER.shared;
+  const partyStripe = `${ORIGINS.cireApi}/api/organiser/weddings/${shared.to.weddingId}/registry/stripe`;
+  const partySettings = `${ORIGINS.cireHost}/#/w/${shared.to.weddingId}/registry/settings`;
+  /** Party Wedding's account and its connector, or "absent" with no row. */
+  const partyAccount = () =>
+    queryOne<{ account: string | null; connector: string | null }>(
+      DB_FILES.cire,
+      `SELECT stripe_account_id AS account, stripe_connected_by_osn_profile_id AS connector
+         FROM registry_settings WHERE wedding_id = ?`,
+      shared.to.weddingId,
+    );
+
+  const refusedReuse = await flow.step(
+    "cire-api: Party Wedding refused the account Kit connected on Money Wedding",
+    async () => {
+      const url = `${partyStripe}/reuse`;
+      const response = await request.post(url, {
+        headers: { origin: ORIGINS.cireHost },
+        data: { fromWeddingId: weddingId },
+      });
+      flow.recordRequest("POST", url, response.status());
+      const body = (await response.json()) as { error?: string };
+      return { status: response.status(), error: body.error ?? "absent" };
+    },
+  );
+  flow.check("cire-api reuse of another owner's account", 404, refusedReuse.status);
+  flow.check(
+    "cire-api names no account it may give",
+    "stripe_account_not_found",
+    refusedReuse.error,
+  );
+  flow.check("Party Wedding still has no account", "absent", partyAccount()?.account ?? "absent");
+
+  // Last on `page`, so the flow's screenshot is this question.
+  const question = await flow.step(
+    "open Party Wedding's settings and press Connect: the portal asks which account",
+    async () => {
+      await page.goto(partySettings);
+      const listed = page.waitForResponse(
+        (r) => r.url() === `${partyStripe}/accounts` && r.request().method() === "GET",
+      );
+      await page.getByRole("button", { name: "Connect an account" }).click();
+      const response = await listed;
+      const raw = await response.text();
+      const choice = page.getByTestId("stripe-account-choice");
+      await expect(choice).toBeVisible();
+      const radios = choice.getByRole("radio");
+      await expect(radios).toHaveCount(2);
+      const labels = await choice.locator("label").allTextContents();
+      const checked = await radios.evaluateAll(
+        (inputs) => inputs.filter((input) => (input as HTMLInputElement).checked).length,
+      );
+      await choice.scrollIntoViewIfNeeded();
+      const accounts = (JSON.parse(raw) as { accounts: { weddingNames: string[] }[] }).accounts;
+      return {
+        status: response.status(),
+        names: accounts.map((a) => a.weddingNames.join(" and ")).join("; "),
+        carriesAccountId: raw.includes("acct_"),
+        labels,
+        checked,
+      };
+    },
+  );
+  flow.check("cire-api lists the owner's accounts", 200, question.status);
+  flow.check(
+    "the one account listed is Ceremony Wedding's, not Kit's",
+    shared.from.name,
+    question.names,
+  );
+  flow.check("the list carries no account id", false, question.carriesAccountId);
+  flow.check(
+    "the first answer is Ceremony Wedding's account",
+    true,
+    (question.labels[0] ?? "").startsWith(`The account you use for ${shared.from.name}`),
+  );
+  flow.check(
+    "the second answer is a new account",
+    true,
+    (question.labels[1] ?? "").startsWith("A new account for this wedding"),
+  );
+  flow.check("nothing is chosen for the owner", 0, question.checked);
+
+  const reused = await flow.step(
+    "on a second page, give Party Wedding Ceremony Wedding's account",
+    async () => {
+      const second = await flow.newPage(page.context());
+      await second.goto(partySettings);
+      await second.getByRole("button", { name: "Connect an account" }).click();
+      await second
+        .getByRole("radio", { name: new RegExp(`^The account you use for ${shared.from.name}`) })
+        .check();
+      const answered = second.waitForResponse(
+        (r) => r.url() === `${partyStripe}/reuse` && r.request().method() === "POST",
+      );
+      await second.getByRole("button", { name: "Use this account" }).click();
+      const response = await answered;
+      const status = second.getByTestId("stripe-status");
+      await expect(status).toContainText("Gifts go straight to your account");
+      await expect(second.getByTestId("stripe-account-choice")).toHaveCount(0);
+      return { status: response.status(), words: (await status.textContent()) ?? "" };
+    },
+  );
+  flow.check("cire-api gives Party Wedding the account", 200, reused.status);
+  flow.check(
+    "the panel says gifts go to the owner's account",
+    true,
+    /connected and can take payments\. Gifts go straight to your account/.test(reused.words),
+  );
+  const party = partyAccount();
+  flow.check("Party Wedding's row names the account", shared.accountId, party?.account ?? "absent");
+  flow.check(
+    "the dev profile is its connector there",
+    CIRE_ORGANISER.profileId,
+    party?.connector ?? "absent",
+  );
+  const ceremony = queryOne<{ account: string | null; connector: string | null }>(
+    DB_FILES.cire,
+    `SELECT stripe_account_id AS account, stripe_connected_by_osn_profile_id AS connector
+       FROM registry_settings WHERE wedding_id = ?`,
+    shared.from.weddingId,
+  );
+  flow.check("Ceremony Wedding keeps its account", shared.accountId, ceremony?.account ?? "absent");
 
   const accessToken = await flow.step(
     "organiser: an access token from the OSN session",

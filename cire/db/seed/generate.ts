@@ -577,8 +577,8 @@ function registrySettingsBlock(): string {
 -- both this flag AND a wedding on Gold or above (the comped tier above), so a
 -- wedding on a paid tier with no row still 404s the guest page.
 --
--- Cash gifts stay off. They need a Stripe Connect account per wedding, and a
--- registry is fully usable as an honour-system list without one.
+-- Cash gifts stay off. They need a connected Stripe account, and a registry is
+-- fully usable as an honour-system list without one.
 INSERT OR IGNORE INTO registry_settings (
   wedding_id, published, headline, message,
   cash_gifts_enabled, shipping_address, shipping_visible_from,
