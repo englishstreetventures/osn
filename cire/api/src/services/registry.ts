@@ -2014,9 +2014,9 @@ export const registryService = {
    * the account and every later `account.updated` is judged alike on each.
    *
    * Only a refusal pays for a second read, which names the first rule that
-   * failed: the wedding already has an account; the source is not the
-   * caller's to give (one answer for every way); its owners differ; its
-   * currency differs.
+   * failed: the caller no longer owns this wedding (answered as not found);
+   * the wedding already has an account; the source is not the caller's to
+   * give (one answer for every way); its owners differ; its currency differs.
    */
   adoptStripeAccount(
     weddingId: string,
@@ -2120,12 +2120,12 @@ export const registryService = {
         settingsWithCurrency(weddingId).pipe(
           Effect.map(({ record, currency }) => toSettingsDto(record, deployment, currency)),
         );
-      if (verdict?.targetConnected === 1) {
+      // A caller who no longer owns this wedding is told nothing about it.
+      if (verdict?.ownsTarget !== 1) return yield* Effect.fail(new StripeAccountNotFound());
+      if (verdict.targetConnected === 1) {
         return yield* Effect.fail(new StripeAlreadyConnected({ current: yield* current() }));
       }
-      if (verdict?.ownsTarget !== 1 || verdict.controls !== 1) {
-        return yield* Effect.fail(new StripeAccountNotFound());
-      }
+      if (verdict.controls !== 1) return yield* Effect.fail(new StripeAccountNotFound());
       if (verdict.ownersFit !== 1) {
         return yield* Effect.fail(new StripeOwnersDiffer({ current: yield* current() }));
       }

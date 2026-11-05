@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, registrySettings, weddingHosts, weddings } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
@@ -1078,6 +1078,10 @@ describe("using an account connected on another wedding", () => {
       expect(target(db)?.stripeAccountId).toBe("acct_first");
       expect(target(db)?.stripeConnectedByOsnProfileId).toBe(SECOND);
       expect(stripe.calls).toEqual([]);
+      const logs = await captureLogs(async () => {
+        await reuse(app, { fromWeddingId: SOURCE });
+      });
+      expect(logs).toContain("already_connected");
     });
 
     it("answers a wedding named as its own source as already connected", async () => {
@@ -1089,37 +1093,65 @@ describe("using an account connected on another wedding", () => {
       expect(target(db)?.stripeAccountId).toBe("acct_first");
     });
 
-    it("refuses an account that would sit beside an owner who is not on its own wedding", async () => {
+    it.each([
       // The wedding's second owner is not an owner of the source: once the
       // account were here, they could remove its connector and keep it.
-      const { app, db } = buildApp();
-      sourceWedding(db, { owners: [OWNER] });
+      [
+        "sit beside an owner who is not on its own wedding",
+        { owners: [OWNER] },
+        "stripe_owners_differ",
+        "owners_differ",
+      ],
+      [
+        "pay out in another currency",
+        { currency: "USD" },
+        "currency_mismatch",
+        "currency_mismatch",
+      ],
+    ] as const)(
+      "refuses an account that would %s, with the settings as they stand",
+      async (_label, source, error, reason) => {
+        const { app, db } = buildApp();
+        sourceWedding(db, source);
 
-      const res = await reuse(app, { fromWeddingId: SOURCE });
+        let res: Response | undefined;
+        const logs = await captureLogs(async () => {
+          res = await reuse(app, { fromWeddingId: SOURCE });
+        });
 
-      expect(res.status).toBe(409);
-      expect(((await jsonBody(res)) as { error: string }).error).toBe("stripe_owners_differ");
-      expect(target(db)).toBeUndefined();
-    });
-
-    it("refuses an account that pays out in another currency", async () => {
-      const { app, db } = buildApp();
-      sourceWedding(db, { currency: "USD" });
-
-      const res = await reuse(app, { fromWeddingId: SOURCE });
-
-      expect(res.status).toBe(409);
-      expect(((await jsonBody(res)) as { error: string }).error).toBe("currency_mismatch");
-      expect(target(db)).toBeUndefined();
-    });
+        expect(res?.status).toBe(409);
+        const body = (await jsonBody(res!)) as {
+          error: string;
+          settings?: Record<string, unknown>;
+        };
+        expect(body.error).toBe(error);
+        // The page that asked is out of date, so it is handed the row as it is.
+        expect(body.settings?.weddingId).toBe(BOOTSTRAP_WEDDING_ID);
+        expect(body.settings?.stripeConnected).toBe(false);
+        expect(target(db)).toBeUndefined();
+        expect(logs).toContain("stripe account reuse refused");
+        expect(logs).toContain(reason);
+      },
+    );
 
     it("refuses a body that names no wedding", async () => {
       const { app, db } = buildApp();
       sourceWedding(db);
-      for (const body of [{ accountId: SHARED }, {}, { fromWeddingId: "" }, "not json"]) {
+      for (const body of [
+        { accountId: SHARED },
+        {},
+        { fromWeddingId: "" },
+        { fromWeddingId: "w".repeat(65) },
+        { fromWeddingId: 7 },
+        "not json",
+      ]) {
         const res = await reuse(app, body);
         expect(res.status, JSON.stringify(body)).toBe(400);
+        expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
       }
+      // Sixty-four characters is a wedding id the route will look for.
+      const longest = await reuse(app, { fromWeddingId: "w".repeat(64) });
+      expect(longest.status).toBe(404);
       expect(target(db)).toBeUndefined();
     });
 
@@ -1157,6 +1189,75 @@ describe("using an account connected on another wedding", () => {
         expect(outcome, change).toBe("not_found");
         expect(target(db), change).toBeUndefined();
       }
+    });
+
+    it("tells a caller who lost this wedding nothing about it, whatever else fails", async () => {
+      // Two rules fail at once: the caller was demoted here after the gate,
+      // and the target already has an account (or the source's owners
+      // differ). Either 409 would hand them this wedding's settings.
+      for (const second of ["already_connected", "owners_differ"] as const) {
+        const { db } = buildApp();
+        sourceWedding(db, second === "owners_differ" ? { owners: [OWNER] } : {});
+        if (second === "already_connected") targetConnected(db, SECOND);
+        db.update(weddingHosts)
+          .set({ role: "editor" })
+          .where(
+            and(
+              eq(weddingHosts.weddingId, BOOTSTRAP_WEDDING_ID),
+              eq(weddingHosts.osnProfileId, OWNER),
+            ),
+          )
+          .run();
+        const outcome = await Effect.runPromise(
+          registryService
+            .adoptStripeAccount(BOOTSTRAP_WEDDING_ID, SOURCE, OWNER, { takesPayments: false })
+            .pipe(
+              Effect.map(() => "attached"),
+              Effect.catchTags({
+                StripeAccountNotFound: () => Effect.succeed("not_found"),
+                StripeAlreadyConnected: () => Effect.succeed("already_connected"),
+                StripeOwnersDiffer: () => Effect.succeed("owners_differ"),
+              }),
+              Effect.provideService(DbService, db),
+            ),
+        );
+        expect(outcome, second).toBe("not_found");
+      }
+    });
+
+    it("judges what guests are offered against the wedding's own currency", async () => {
+      // A New Zealand wedding taking an account that settles in NZD, on a site
+      // that takes money gifts: the answer says only that money is off.
+      const { app, db } = buildApp({ stripeWebhookSecret: "whsec_test" });
+      db.update(weddings)
+        .set({ currency: "NZD" })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+      sourceWedding(db, { currency: "NZD" });
+
+      const res = await reuse(app, { fromWeddingId: SOURCE });
+
+      expect(res.status).toBe(200);
+      const body = (await jsonBody(res)) as { settings: Record<string, unknown> };
+      expect(body.settings.moneyGiftsBlockedBy).toBe("cash_gifts_off");
+    });
+
+    it("answers 500, and logs the wedding, when the database fails", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      db.$client.run("DROP TABLE registry_settings");
+      let reused: Response | undefined;
+      let listed: Response | undefined;
+      const logs = await captureLogs(async () => {
+        reused = await reuse(app, { fromWeddingId: SOURCE });
+        listed = await accounts(app);
+      });
+      for (const res of [reused, listed]) {
+        expect(res?.status).toBe(500);
+        expect(await jsonBody(res!)).toEqual({ error: "Internal error" });
+      }
+      expect(logs).toContain("registry stripe handler defect");
+      expect(logs).toContain(BOOTSTRAP_WEDDING_ID);
     });
 
     it("keeps a reused account in step with its source when a create loses the race", async () => {
@@ -1221,6 +1322,66 @@ describe("using an account connected on another wedding", () => {
       expect((await accounts(app, STRANGER)).status).toBe(403);
       expect((await accounts(app, null)).status).toBe(401);
       expect(target(db)).toBeUndefined();
+    });
+
+    it("refuses a viewer and a co-host on the old host role, on both routes", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      const now = new Date();
+      db.insert(weddingHosts)
+        .values([
+          {
+            id: "whost_viewer",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_viewer",
+            addedByOsnProfileId: OWNER,
+            role: "viewer",
+            createdAt: now,
+          },
+          {
+            id: "whost_legacy_host",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_legacy_host",
+            addedByOsnProfileId: OWNER,
+            role: "host",
+            createdAt: now,
+          },
+        ])
+        .run();
+      for (const who of ["usr_viewer", "usr_legacy_host"]) {
+        expect((await reuse(app, { fromWeddingId: SOURCE }, who)).status, who).toBe(403);
+        expect((await accounts(app, who)).status, who).toBe(403);
+      }
+      expect(target(db)).toBeUndefined();
+    });
+
+    it("asks for a live credential, by bearer token or session cookie", async () => {
+      const { app, db } = buildApp();
+      sourceWedding(db);
+      const token = await seedOrganiserSession(db, OWNER);
+      const call = (path: "accounts" | "reuse", headers: Record<string, string>) =>
+        appRequest(
+          app,
+          `${base}/${path}`,
+          path === "accounts"
+            ? { method: "GET", headers }
+            : {
+                method: "POST",
+                headers: { ...headers, "Content-Type": "application/json" },
+                body: JSON.stringify({ fromWeddingId: SOURCE }),
+              },
+        );
+      for (const path of ["accounts", "reuse"] as const) {
+        expect((await call(path, { Authorization: "Bearer not-a-jwt" })).status, path).toBe(401);
+        expect(
+          (await call(path, { cookie: "cire_org_session=not-a-live-session-token" })).status,
+          path,
+        ).toBe(401);
+      }
+      expect(target(db)).toBeUndefined();
+      expect((await call("accounts", { cookie: `cire_org_session=${token}` })).status).toBe(200);
+      expect((await call("reuse", { cookie: `cire_org_session=${token}` })).status).toBe(200);
+      expect(target(db)?.stripeAccountId).toBe(SHARED);
     });
 
     it("refuses a wedding below Gold with 402", async () => {
@@ -1320,6 +1481,41 @@ describe("using an account connected on another wedding", () => {
       expect(raw).not.toContain("acct_");
       expect(raw).not.toContain("AUD");
       expect(raw).not.toContain("USD");
+    });
+
+    it("names a wedding the account can be taken from, when the first by name cannot", async () => {
+      const { app, db } = buildApp();
+      // One account on two weddings: "Aardvark" (where this wedding's second
+      // owner is not an owner) sorts first, "Zebra" (where they are) last.
+      sourceWedding(db, { id: "wed_aardvark", displayName: "Aardvark", owners: [OWNER] });
+      sourceWedding(db, { id: "wed_zebra", displayName: "Zebra" });
+
+      const body = (await jsonBody(await accounts(app))) as { accounts: Listed[] };
+
+      expect(body.accounts).toEqual([
+        {
+          fromWeddingId: "wed_zebra",
+          weddingNames: ["Aardvark", "Zebra"],
+          chargesEnabled: true,
+          currencyKnown: true,
+          blockedBy: null,
+        },
+      ]);
+    });
+
+    it("reads at most fifty weddings", async () => {
+      const { app, db } = buildApp();
+      for (let i = 0; i < 51; i++) {
+        const n = String(i).padStart(2, "0");
+        sourceWedding(db, {
+          id: `wed_many_${n}`,
+          displayName: `Many ${n}`,
+          accountId: `acct_many_${n}`,
+        });
+      }
+      const body = (await jsonBody(await accounts(app))) as { accounts: Listed[] };
+      expect(body.accounts).toHaveLength(50);
+      expect(body.accounts.at(-1)?.fromWeddingId).toBe("wed_many_49");
     });
 
     it("leaves out the wedding it is asked for", async () => {
