@@ -462,6 +462,9 @@ describe("loading placeholders", () => {
       const outline = outlineIn(region!)!;
       const box = rect(outline);
       const bar = firstLine(outline);
+      // The columns the outline draws, where the view has a head strip: the
+      // loaded list's, Plus-one included, so no column arrives with the rows.
+      const heads = [...outline.querySelectorAll("[data-head-strip] th")].length;
       const barCount = view.barCount ? barOutline() : null;
       const barCountLine = barCount ? firstLine(barCount) : null;
       expectPass(
@@ -502,6 +505,11 @@ describe("loading placeholders", () => {
         );
       }
 
+      expectPass(
+        `${name}: the outline draws the loaded list's columns`,
+        heads === [...scope().querySelectorAll("[data-head-strip] th")].length,
+        `${heads} heads`,
+      );
       // What replaced the outline: the region's first child that is laid out.
       const content = [...(region?.children ?? [])].find((el) => rect(el).height > 0);
       const landed = content ? rect(content) : null;
