@@ -8,12 +8,17 @@
  * It reads the committed diff against that base, the uncommitted changes and
  * the untracked files, and prints one word:
  *
- *   full-state     full, and the diff writes state; the state review runs too
- *   full           some change is outside the list below; the test, security
- *                  and performance reviews run
- *   trivial-tests  docs and tests only, and a test changed; only the test
- *                  review runs
- *   trivial        docs only; no review agent runs
+ *   full-state-design  full, and the diff both writes state and changes how a
+ *                      screen looks; the state and design reviews run too
+ *   full-state         full, and the diff writes state; the state review runs
+ *                      too
+ *   full-design        full, and the diff changes how a screen looks; the
+ *                      design review runs too
+ *   full               some change is outside the list below; the test,
+ *                      security and performance reviews run
+ *   trivial-tests      docs and tests only, and a test changed; only the test
+ *                      review runs
+ *   trivial            docs only; no review agent runs
  *
  * `prep-pr` (`.claude/skills/prep-pr/SKILL.md` Steps 4 and 6) reads the word.
  * A review agent costs about the same whatever the diff, so a one-line wiki
@@ -28,6 +33,17 @@
  * upper-case SQL. Removed lines count, so a deleted guard does. Comment lines
  * do not. `.claude/skills/review-state/SKILL.md` is the review it starts.
  *
+ * The diff changes how a screen looks when it changes a regular file that is
+ * not test code, outside the tooling, docs and agent trees (`tools/`,
+ * `scripts/`, `wiki/`, `docs/`, `.claude/`, `.agents/`, `.github/`,
+ * `.changeset/`), that is either markup or style (`.tsx`, `.jsx`, `.astro`,
+ * `.css`, `.html`, `.svg`, `.mdx`) or any file under the `src/` of a
+ * component, token or theme package (`shared/ui`, `cire/ui`, `osn/auth-ui`,
+ * `shared/design-tokens`, `cire/theme`), whose plain `.ts` modules build the
+ * classes, colours and type every surface importing them draws with. Added
+ * and deleted files count.
+ * `.claude/skills/review-design/SKILL.md` is the review it starts.
+ *
  * The test is an allowlist, like `scripts/changeset-required.sh`: a change is
  * trivial only when it is a plain Markdown doc or test code, and anything else
  * makes the diff full. These beat every class, whatever the file's name: a
@@ -41,9 +57,10 @@
  *
  * Git is read with `-z` and `--no-renames`: a name arrives whole however odd
  * it is, and a file moved out of `src/` still shows its old path. A diff with
- * no changes at all prints `full-state`, since it means the wrong range was
- * read and every review should look. Without a base, or when git fails, it
- * prints nothing and exits 1, which `prep-pr` also reads as `full-state`.
+ * no changes at all prints `full-state-design`, since it means the wrong
+ * range was read and every review should look. Without a base, or when git
+ * fails, it prints nothing and exits 1, which `prep-pr` also reads as
+ * `full-state-design`.
  * Tests in `scripts/tests/review-scope.test.ts`.
  */
 
@@ -51,7 +68,13 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type PathClass = "doc" | "test" | "other";
-export type ReviewScope = "full" | "full-state" | "trivial" | "trivial-tests";
+export type ReviewScope =
+  | "full"
+  | "full-state"
+  | "full-design"
+  | "full-state-design"
+  | "trivial"
+  | "trivial-tests";
 
 /** One changed path, with the file modes git reported for it — old then new,
  * `000000` where the file is absent — or none for an untracked file, whose
@@ -234,14 +257,67 @@ export function writesState(path: string, lines: readonly string[], contents: st
   return path.endsWith(".sql") || DATABASE_WRITE.test(contents);
 }
 
-/** The verdict. `state`, whether the diff writes state, lifts `full` to
- * `full-state`; nothing lifts a trivial verdict, since a state is only ever
- * written from source. */
-export function reviewScope(changes: readonly ChangedPath[], state = false): ReviewScope {
-  if (changes.length === 0) return "full-state";
+/** Extensions that draw a screen: markup and style. */
+const DESIGN_EXTENSIONS = new Set([".tsx", ".jsx", ".astro", ".css", ".html", ".svg", ".mdx"]);
+
+/** Trees that ship no screen a design document governs: tooling, docs, agent
+ * instructions and release notes. */
+const NO_SCREEN_ROOTS = new Set([
+  "tools",
+  "scripts",
+  "wiki",
+  "docs",
+  ".claude",
+  ".agents",
+  ".github",
+  ".changeset",
+]);
+
+/** The component, token and theme packages, whose every source file is
+ * look. */
+const DESIGN_PACKAGES = [
+  "shared/ui/src/",
+  "cire/ui/src/",
+  "osn/auth-ui/src/",
+  "shared/design-tokens/src/",
+  "cire/theme/src/",
+];
+
+/** Whether a change can alter how a screen looks: markup or style in a
+ * product tree, or any source in a component, token or theme package, as a
+ * regular file. Test code draws no screen anyone ships. */
+export function designCandidate(change: ChangedPath): boolean {
+  if (change.symlink === true) return false;
+  if (change.modes.some((mode) => mode === SYMLINK || mode === SUBMODULE)) return false;
+
+  const segments = change.path.split("/");
+  const name = segments.at(-1) ?? "";
+  const extension = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+
+  if (NO_SCREEN_ROOTS.has(segments[0] ?? "")) return false;
+  if (segments.slice(0, -1).includes("tests") || /\.(test|spec)\./.test(name)) return false;
+
+  if (DESIGN_EXTENSIONS.has(extension)) return true;
+  return DESIGN_PACKAGES.some((prefix) => change.path.startsWith(prefix));
+}
+
+/** The verdict. `state`, whether the diff writes state, and `design`, whether
+ * it changes how a screen looks, each add their suffix to `full`, in that
+ * order; nothing lifts a trivial verdict, since a state is only ever written
+ * from source and a screen only ever drawn from it. */
+export function reviewScope(
+  changes: readonly ChangedPath[],
+  state = false,
+  design = false,
+): ReviewScope {
+  if (changes.length === 0) return "full-state-design";
 
   const classes = new Set(changes.map(changeClass));
-  if (classes.has("other")) return state ? "full-state" : "full";
+  if (classes.has("other")) {
+    if (state && design) return "full-state-design";
+    if (state) return "full-state";
+    return design ? "full-design" : "full";
+  }
 
   return classes.has("test") ? "trivial-tests" : "trivial";
 }
@@ -313,6 +389,7 @@ if (import.meta.main) {
 
       return writesState(path, lines, contents);
     });
+  const design = scope === "full" && changes.some(designCandidate);
 
-  process.stdout.write(`${state ? "full-state" : scope}\n`);
+  process.stdout.write(`${reviewScope(changes, state, design)}\n`);
 }

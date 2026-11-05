@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Component Library (Zaidan)
@@ -62,6 +62,12 @@ surfaces.
 > `@shared/ui` knows nothing of `@osn/client`, of a session, or of an app's
 > colour names. A component that needs any of those is an auth view or product
 > chrome, not a primitive, and belongs in one of the other two packages.
+
+Every element a branch draws by hand that one of these packages already draws
+is a finding of the `review-design` skill
+(`.claude/skills/review-design/SKILL.md`), which `prep-pr` runs on any diff that
+changes how a screen looks and which names the component that replaces it. Its
+findings take the `U-` prefix in [[review-findings]].
 
 ## Why Zaidan / shadcn-style?
 

@@ -1,17 +1,18 @@
 ---
 title: Review Finding IDs
-description: Tagging system for security, performance, state, docs and test review findings
+description: Tagging system for security, performance, state, design, docs and test review findings
 tags: [convention, review]
 related:
   - "[[contributing]]"
   - "[[stacked-prs]]"
   - "[[state-transitions]]"
-last-reviewed: 2026-11-04
+  - "[[component-library]]"
+last-reviewed: 2026-11-05
 ---
 
 # Review Finding IDs
 
-All review skills (`/review-security`, `/review-performance`, `/review-state`, `/review-tests`, `/review-docs`) tag findings with short IDs, so you can refer to them precisely in discussion and in tracker issue titles. Where an ID may and may not appear is in [[#Where a finding ID may appear]].
+All review skills (`/review-security`, `/review-performance`, `/review-state`, `/review-design`, `/review-tests`, `/review-docs`) tag findings with short IDs, so you can refer to them precisely in discussion and in tracker issue titles. Where an ID may and may not appear is in [[#Where a finding ID may appear]].
 
 ## Prefix Table
 
@@ -37,6 +38,10 @@ All review skills (`/review-security`, `/review-performance`, `/review-state`, `
 | `G-H` | review-state | High — a forbidden state is reachable under ordinary concurrency or a retry, or a concurrent request fails with a 500 |
 | `G-M` | review-state | Medium — a wrong value rather than a wrong state: a first-time value overwritten, a decision taken from a stale read |
 | `G-L` | review-state | Low — hardening: a value set the database does not enforce, a correct guard no test can see fail |
+| `U-C` | review-design | Critical — a screen fails people in ordinary use: content clipped, hidden or overlapping at a supported width, or text measured below 3:1 |
+| `U-H` | review-design | High — on a line the diff adds or changes: a hand-drawn copy of a shared component, a raw value where a token exists, a pair measured under its contrast floor, a rule of the governing `DESIGN.md` broken |
+| `U-M` | review-design | Medium — the same departures on an untouched line of a changed file; a second look for a meaning only the sibling screens settle; a look contract no browser test holds |
+| `U-L` | review-design | Low — polish: a class its component already sets, a step off its siblings' that no rule names |
 | `D-C` | review-docs | Critical — the doc misleads a reader into a broken action |
 | `D-H` | review-docs | High — stale architecture described as current |
 | `D-M` | review-docs | Medium — structure and communication |
@@ -159,7 +164,7 @@ cost is on screen.
 
 ## Filing a finding
 
-Security, performance and compliance findings live in **`englishstreetventures/osn-tracker`**, a private repo. `englishstreetventures/osn` is public, and such a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks. State findings (`G-`) are the exception, and go to the public repository: [[#State findings are public]].
+Security, performance and compliance findings live in **`englishstreetventures/osn-tracker`**, a private repo. `englishstreetventures/osn` is public, and such a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks. State findings (`G-`) and design findings (`U-`) are the exceptions, and go to the public repository: [[#State findings are public]], [[#Design findings are public]].
 
 ### The body has to stand alone
 
@@ -209,6 +214,12 @@ A `G-` finding is a correctness defect in a state transition -- a status written
 - One left open, as one of the three in [[#In scope is fixed; three things may stay open]], or fixed on the follow-up pull request so that it closes an issue, is filed with its ID leading the title, the four fields as its body, `--type Bug`, `product:`, `severity:` from its tier letter, and `area:schema` when the fix is a migration.
 - **A state defect that is also a security, performance or compliance defect gets no `G-` ID.** The state review hands it on with no ID, `/prep-pr` Step 6 gives it the next free ID of the lens it belongs to, and it is filed in the tracker like any other. That keeps every `G-` ID safe to print in public. It is a security defect when the state is an authorisation (a revoked session, token, invite or consent honoured again) or a refusal tells someone a state they may not see; a compliance defect when an erasure, retention or consent state can be undone or skipped.
 
+### Design findings are public
+
+A `U-` finding is a departure from the design system — an element drawn by hand that a shared component already draws, a raw value where a token exists, a contrast pair under its document's floor — and names nothing an attacker can use, so it goes to the public **`englishstreetventures/osn`**, on the same terms as a `G-` finding: fixed on the branch like any finding, and filed only when it stays open or the follow-up pull request fixes it, as `--type Bug` with its ID leading the title, `product:`, `severity:` from its tier letter and no `area:`.
+
+**An accessibility defect gets no `U-` ID.** The design review hands on, with no ID, what the compliance programme tracks ([[eaa]]): no keyboard path, no visible focus at all, no programmatic label, a state shown by colour alone, missing alt text or captions, a hand-built ARIA widget where a Kobalte primitive exists. `/prep-pr` Step 6 gives each the next free `C-` ID and it is filed in the tracker. One element can be both: a hand-drawn radio group copies a shared component and is a hand-built ARIA widget. It then gets two entries on the same line — a `U-` finding that states the look alone and names no access gap, and the hand-off that names the gap — so nothing about the gap reaches the public issue. Contrast under the governing document's floor stays a `U-` finding: it is the design system's own contract, held by its own tests. A shortfall in a file the branch changes is fixed on that branch, like every in-scope finding; a `U-` issue is filed only for one outside the branch's scope.
+
 ## When the fix needs a decision from the owner
 
 Some issues cannot be closed by anyone but the repo owner: the fix is a choice between two defensible designs, or it costs money, or it changes a public contract. An agent working the backlog must not guess at those, and must not stop on them either -- one open question is not a reason for the other hundred issues to sit still.
@@ -245,7 +256,7 @@ Every session posts as the owner's account, and anyone can comment on the public
 
 The ID of a real `S-`, `P-` or `C-` finding names a defect, so it appears only where the tracker's readers are (the IDs on this page are made-up examples): the tracker issue's title, the local `/prep-pr` report, and discussion with the owner. It never appears in the public repository -- not in a pull request's title, body, comments or commits, not in a code comment, not on a wiki page.
 
-| Where | `S-`, `P-`, `C-` | `G-` | `T-` |
+| Where | `S-`, `P-`, `C-` | `G-`, `U-` | `T-` |
 |---|---|---|---|
 | Tracker issue title and body | Yes | Never filed there | Not filed |
 | Public issue title and body | No | Yes | Not filed |
@@ -253,7 +264,7 @@ The ID of a real `S-`, `P-` or `C-` finding names a defect, so it appears only w
 | Public pull request, its comments and commits | No -- the bare reference to the tracker issue only | Yes | Yes |
 | Code comments, wiki pages | No | No | No |
 
-`T-` IDs name coverage gaps, not defects, and nothing files them, so a public pull request may use them: "T-U3 -- this export has no test coverage". `G-` IDs name correctness defects with nothing to disclose, so they may appear in public too. A code comment carries neither, since it states what the code guarantees ([[code-comments]]).
+`T-` IDs name coverage gaps, not defects, and nothing files them, so a public pull request may use them: "T-U3 -- this export has no test coverage". `G-` and `U-` IDs name correctness and design defects with nothing to disclose, so they may appear in public too. A code comment carries neither, since it states what the code guarantees ([[code-comments]]).
 
 Because the ID leads the tracker title, the ID is how you find the issue again:
 

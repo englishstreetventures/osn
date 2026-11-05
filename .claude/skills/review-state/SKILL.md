@@ -90,7 +90,7 @@ git diff -U0 "$DIFF_BASE"...HEAD \
 
 The first `perl` prefixes each changed line with its file and drops the diff headers; the second keeps the lines that name a state. `perl` rather than `grep -E`, whose `\b` and `\w` differ between GNU and BSD.
 
-`bun run scripts/review-scope.ts "$DIFF_BASE"` prints `full-state` when the same kind of match lands in a file that writes the database; it is the trigger that sent this review, not a substitute for the grep.
+`bun run scripts/review-scope.ts "$DIFF_BASE"` prints a verdict carrying `-state` (`full-state`, or `full-state-design` when the diff also changes how a screen looks) when the same kind of match lands in a file that writes the database; it is the trigger that sent this review, not a substitute for the grep.
 
 A hit is a **state** when its value decides what a later request may do: some write refuses on it, some read branches on it, some sweep selects on it. That covers:
 

@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Session Metrics
@@ -206,9 +206,10 @@ Three writers, and only one of them is the owner.
 
 `retro` runs after the pull request is open, so the card covers the whole
 session — on any diff that is not docs and tests alone, `prep-pr`
-dispatches `review-tests`, `review-performance` and `review-security`, and
-`review-state` when the diff writes state, and a card written before those
-finish measures building the change rather than shipping it.
+dispatches `review-tests`, `review-performance` and `review-security`,
+`review-state` when the diff writes state and `review-design` when it changes
+how a screen looks, and a card written before those finish measures building
+the change rather than shipping it.
 
 > [!warning] The fallback must never overwrite the owner's card.
 > The hook has no way to know the pull request, the issue or the rating — it
