@@ -74,7 +74,7 @@ export const noTrackerRefInCommentRule = defineRule({
       trackerRef:
         "`{{match}}` names a tracker issue, which stops resolving once that issue closes — and osn is public, so a comment pointing at a private finding is itself a disclosure. State the constraint the code is holding to instead.",
       findingId:
-        "`{{match}}` is a review finding tag. It means nothing to a reader who cannot open the tracker, and nothing at all once the finding is closed. State the durable reason this code is written this way instead.",
+        "`{{match}}` is a review finding tag. It means nothing to a reader without the review that raised it, and nothing at all once the finding is closed. State the durable reason this code is written this way instead.",
       phaseCode:
         "`{{match}}` is a phase or plan code. The plan ships and the code stops referring to anything. State what this value or branch actually guarantees instead.",
       narrativePhrase:
