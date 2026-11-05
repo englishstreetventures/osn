@@ -205,6 +205,28 @@ describe("SignInPanel", () => {
     expect(returnedTo()).toBe("/");
   });
 
+  it.each(["/loginx", "/x/login"])(
+    "resumes on %s, which only looks like the sign-in page",
+    (raw) => {
+      at(`?returnTo=${encodeURIComponent(raw)}`);
+      fireEvent.click(renderPanel());
+      expect(resumedTo()).toBe(raw);
+      expect(returnedTo()).toBe(raw);
+    },
+  );
+
+  // A run of slashes is read once, not once per slash: the check must not
+  // stall the tab on a `returnTo` someone crafted.
+  it("reads a long run of slashes in returnTo at once", () => {
+    const raw = `/x${"/".repeat(30_000)}y`;
+    at(`?returnTo=${encodeURIComponent(raw)}`);
+    const button = renderPanel();
+    const started = performance.now();
+    fireEvent.click(button);
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(resumedTo()).toBe(raw);
+  });
+
   it("says it is connecting after a press, at full strength, and ignores a second", () => {
     vi.useFakeTimers();
     const button = renderPanel();
