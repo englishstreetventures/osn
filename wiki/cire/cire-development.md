@@ -764,9 +764,11 @@ elsewhere, on the condition that cire's own links use the slash form
 
 The rule covers every link cire's code writes: an `href` on a site, a
 `location.href` or `history.replaceState` in a portal, a URL cire-api puts in an
-email or a sign-in redirect. A comparison against a page's path compares the
-slash form too (`pathname.replace(/\/*$/, "/") === "/login/"`), since the dev
-server answers both forms. Text a person reads, such as
+email or a sign-in redirect. A comparison against a page's path takes the
+page with any trailing slashes, since the dev server answers both forms, as a
+start-anchored pattern: `/^\/login\/*$/.test(pathname)`. The anchor reads a
+run of slashes in the address once, however long, and the bundle holds no
+quoted slash-less path for the guard below to flag. Text a person reads, such as
 "cireweddings.com/privacy", stays as it is.
 
 [`scripts/check-directory-links.ts`](../../scripts/check-directory-links.ts)
