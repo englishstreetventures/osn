@@ -33,7 +33,7 @@
   "dependencies": {
     "@shared/db-utils": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.1.1"
+    "effect": "4.1.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",

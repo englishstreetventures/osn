@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@shared/observability": "workspace:*",
-    "effect": "4.1.1"
+    "effect": "4.1.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",

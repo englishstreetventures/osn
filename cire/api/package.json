@@ -44,7 +44,7 @@
     "@shared/realtime": "workspace:*",
     "@shared/turnstile": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.1.1",
+    "effect": "4.1.2",
     "elysia": "^1.4.30"
   },
   "devDependencies": {
