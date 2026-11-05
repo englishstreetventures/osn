@@ -214,7 +214,7 @@ export default function EventTable(props: EventTableProps) {
               loaded card draws (DESIGN.md §4, Skeletons). */}
           <div aria-hidden="true" class="h-5" />
           <div class="auto-grid [--auto-grid-min:26rem]">
-            <For each={[1, 2, 3, 4]}>{() => <Skeleton class="h-58" />}</For>
+            <For each={[1, 2, 3, 4]}>{() => <Skeleton class="h-52.5" />}</For>
           </div>
         </Show>
 
