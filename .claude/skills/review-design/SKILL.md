@@ -213,16 +213,23 @@ what it draws, the component you checked, and the verdict — `U-<id>`, `uses
 - A component two surfaces need and no package has: a finding proposing it for
   the package. One that one surface alone needs is not.
 
+A hand-drawn control is often an access gap as well — keys, focus, labels or
+ARIA the component would have given it. That part is not a `U-` finding; What
+this lens leaves to others says how to split the two.
+
 ## Step 4 — Hold every changed file against the documents
 
-Work each section below against every changed file that draws a screen. A
-section nothing in the diff reaches gets one line under `## Sections checked`
-saying so; every other gets the files and lines you looked at and the verdict.
-The grep beside each finds the lines to read; a hit is a reason to read, never
-a verdict.
+Work each section below against every file on the Step 1 list that draws a
+screen. A section nothing in the scope reaches gets one line under
+`## Sections checked` saying so; every other gets the files and lines you
+looked at and the verdict. The grep beside each finds the lines to read; a hit
+is a reason to read, never a verdict. Run it both ways: over the diff, for the
+lines the branch adds or changes, and over the whole file, for the lines it
+does not touch. Under `--full` the diff is empty, so only the second runs.
 
 ```bash
-git diff "$DIFF_BASE"...HEAD -- <file> | grep -nE '<pattern>'
+git diff "$DIFF_BASE"...HEAD -- <file> | grep -nE '<pattern>'   # the lines the branch adds or changes
+grep -nE '<pattern>' <file>                                      # every line of the file
 ```
 
 ### Tokens, never raw values
@@ -235,9 +242,13 @@ git diff "$DIFF_BASE"...HEAD -- <file> | grep -nE '<pattern>'
   refuses an arbitrary Tailwind value at lint, so look where it cannot: a
   `style` attribute, a stylesheet, an `.astro` `<style>` block, and a value
   hidden in an allowed `var()` or `calc()`.
-- Tailwind's own step where the contract has one is a finding: `text-xs` for
-  `text-ui-xs`, `tracking-wide` for a `tracking-ui-*` step, `leading-none`
-  anywhere the document keeps it off.
+- Where the governing document takes its steps from the contract, Tailwind's
+  own step is a finding. The cire apps do (`cire/host/DESIGN.md` §3, The
+  steps): there `text-xs` stands for `text-ui-xs`, `tracking-wide` for a
+  `tracking-ui-*` step, and `leading-none` is kept to the glyphs and short
+  labels that section names. A document that keeps Tailwind's steps and names
+  only its own off-scale ones (`pulse/DESIGN.md` §Named type tokens) holds its
+  surface to those instead.
 - A colour that is content, not chrome — a couple's chosen palette, a swatch
   showing the colour it chooses — is data, not a raw value.
 - A surface reading another surface's tokens is a finding. Two surfaces keeping
@@ -254,8 +265,12 @@ git diff "$DIFF_BASE"...HEAD -- <file> | grep -nE '<pattern>'
   finding even when its value is on the scale.
 - Heights follow the document's steps for the role: a toolbar filter, a form
   field, a composer, the guest site's touch floor.
-- Actions are pills, and labels show as written, in sentence case. A button
-  label in capitals, or `uppercase` on an action, is a finding.
+- An action takes the shape and the case its document gives it. In the cire
+  apps an action is a pill (`cire/host/DESIGN.md` §4) and its label is in
+  sentence case (§7, Labels), so a label in capitals or `uppercase` on an
+  action is a finding there. Musubi keeps ghost and link buttons flat
+  (`musubi/social/DESIGN.md` §Radii). Where the document is silent, the
+  surface's sibling screens settle it.
 
 ### Colour and contrast
 
@@ -266,23 +281,27 @@ git diff "$DIFF_BASE"...HEAD -- <file> | grep -nE '<pattern>'
   rest, hovered, focused, open and chosen, on every ground it sits on: the
   page, each card fill, a raised surface, a tinted row. A pair measured under
   its floor is a finding; one not measured is Step 5's to measure.
-- Gold words use the readable gold (`--gold-ink`, `text-ui-accent-ink`), never
-  the decorative gold the document keeps off text.
+- In the cire apps, gold words use the readable gold (`--gold-ink`,
+  `text-ui-accent-ink`), never the decorative gold `cire/host/DESIGN.md` §2
+  keeps off text.
 - A new pair, or a moved one, that the surface's contrast test does not hold is
   a finding naming the test to extend (`cire/host/tests/styles/` holds them in
   the host portal).
 
-### Focus and forced colours
+### Focus
 
-`outline|focus|ring|transition-(colors|all)`
+`outline|focus|ring|forced-colors|transition-(colors|all)`
 
-- `outline-none` removes the focus ring in forced-colours mode as well;
-  `outline-hidden` keeps a transparent outline the system colours can draw. A
-  new `outline-none` is a finding.
-- A focus ring never animates. `transition-colors` and `transition-all` fade
-  `outline-color` too, so the ring arrives late; a hover on anything that takes
-  focus names its properties (`transition-ui-colors` in the cire apps,
-  `cire/host/DESIGN.md` §4).
+- Where the document says a focus ring never animates — `cire/host/DESIGN.md`
+  §4, Focus, for every cire app — `transition-colors` or `transition-all` on
+  anything that takes focus is a finding: both fade `outline-color` too, so the
+  ring arrives late. The Solution names the properties instead
+  (`transition-ui-colors` in the cire apps).
+- A focus ring that is missing is not this lens's. An element that takes focus
+  under `outline-none`, with no outline of its own on focus, shows no focus in a
+  contrast theme (forced colours): `outline-none` removes the outline there too,
+  and the theme drops a `ring-*` box shadow. That is no visible focus, and goes
+  under `## For the tracker` (What this lens leaves to others).
 
 ### Motion
 
@@ -319,7 +338,9 @@ git diff "$DIFF_BASE"...HEAD -- <file> | grep -nE '<pattern>'
 
 - A meaning the document draws one way is drawn that way: the cire portals'
   glass for one of several, the gold wash for a chosen row, the chosen tab's
-  weight. A second look for a meaning that has one is a finding.
+  weight. A second look for a meaning that has one is a finding, a High on a
+  changed line when a document rule draws the meaning, a Medium when only the
+  sibling screens do (Finding format).
 - The same control in the same role looks alike across screens. Compare with
   the sibling screen that draws it, by file and line.
 
@@ -386,18 +407,44 @@ before you finish.
 **Measure; never estimate.** A screenshot shows that something looks wrong; a
 number says by how much, and only a number goes in a finding.
 
-- **Contrast.** Read both colours as the browser computes them:
-  `getComputedStyle(el).color`, and the `background-color` of the first opaque
-  ground walking up from the element. Blend a translucent colour over its
-  ground first, as the browser does, then take the ratio with
-  `contrastRatio` from `@shared/color`, which ignores alpha:
+- **Contrast.** A ratio holds only between two opaque colours, and
+  `contrastRatio` from `@shared/color` checks neither: it ignores alpha, and
+  returns `null` for any format but hex, `rgb()`, `hsl()` and `oklch()`, so a
+  computed `color(srgb …)`, `oklab()` or `color-mix()` reads as nothing. Never
+  pass it a colour you have not flattened.
+  - **In the browser**, flatten by painting. Paint the page's ground, then
+    every ancestor's `background-color` from the outermost in, then the
+    element's own, on a one-pixel canvas, and read back plain `rgb`; paint the
+    text colour over that for the other side of the pair. `composite()` and
+    `backdropOf()` in `cire/host/tests/styles/chip-contrast.browser.test.tsx`
+    do exactly this: run them through the Chrome tools' JavaScript with their
+    type annotations removed, reading the surface's own page ground where they
+    read cire's `--bg`. The canvas reads every colour format the browser does.
+  - **From token values**, with no browser, flatten by sum: each sRGB channel
+    is `alpha × colour + (1 − alpha) × ground`. This takes an `oklch()` colour
+    with or without alpha over an opaque ground, prints the flattened colour
+    and the ratio, and refuses anything else:
 
-  ```bash
-  bun -e 'import { contrastRatio } from "./shared/color/src/color.ts"; console.log(contrastRatio("<text colour>", "<ground colour>"))'
-  ```
+    ```bash
+    bun -e '
+    import { contrastRatio, oklchToRgb, parseColor, parseCssColor } from "./shared/color/src/color.ts";
+    const [colour, ground] = ["<text colour, or a translucent ground>", "<the opaque colour under it>"];
+    const alpha = (v) => /\/|rgba|hsla|^#(.{4}|.{8})$/i.test(v.trim());
+    const c = parseColor(colour), g = parseCssColor(ground);
+    if (!c || !g || alpha(ground) || (alpha(colour) && !colour.trim().startsWith("oklch(")))
+      throw new Error("unmeasured: a format this cannot read, or a ground that is not opaque");
+    const f = oklchToRgb(c), mix = (k) => Math.round((c.a * f[k] + (1 - c.a) * g[k]) * 255);
+    const over = `rgb(${mix("r")}, ${mix("g")}, ${mix("b")})`;
+    console.log(over, contrastRatio(over, ground));'
+    ```
 
-  With no browser, measure the same way from the token values in the surface's
-  stylesheet, and name the tokens and the theme block you read them from.
+    A translucent ground is flattened first: run it as the colour over the
+    ground under it, and use the `rgb()` it prints as the next run's ground.
+    Name the tokens and the theme block you read them from. A translucent ink
+    passed in unflattened reads as its opaque self, which can be several times
+    the contrast it has.
+  - A `null`, a refusal, or a ground you cannot trace down to an opaque one is
+    `unmeasured`, never a ratio.
 - **Geometry.** Read `getBoundingClientRect()` and the computed `height`,
   `border-radius` and padding at each width. Never read a size off a
   screenshot.
@@ -415,14 +462,32 @@ as though someone had, is the one fault this lens must not commit.
 
 - **Accessibility that the compliance programme tracks** —
   `wiki/compliance/eaa.md`, and the checks `review-security` runs in §EAA: no
-  keyboard path to a control, no visible focus at all, no programmatic label, a
-  state shown by colour alone, an image without alt text, media without
-  captions, a hand-built ARIA widget where a Kobalte primitive exists. Such a
-  defect belongs in the private tracker, and a `U-` ID is public text, so it
-  gets no `U-` ID. Write it under `## For the tracker`: the lens
-  (`compliance`), the tier you would give it (`C`, `H`, `M` or `L`), the file and
-  line, and the four fields. The dispatching session gives it the next free
-  `C-` ID once every reviewer has returned.
+  keyboard path to a control, no visible focus (none in a contrast theme
+  counts), no programmatic label, a state shown by colour alone, an image
+  without alt text, media without captions, a hand-built ARIA widget where a
+  Kobalte primitive exists. Such a defect belongs in the private tracker, and a
+  `U-` ID is public text, so it gets no `U-` ID. Write it under
+  `## For the tracker`, in the four fields, headed by the lens and the tier
+  `review-security`'s rubric would give it, and no ID of its own:
+
+  ```
+  **For compliance, C-M** — <short title>
+  **Issue:** …
+  **Why:** …
+  **Solution:** …
+  **Rationale:** …
+  ```
+
+  The dispatching session gives it the next free ID in that tier once every
+  reviewer has returned.
+- **One element can carry both kinds.** A hand-drawn `role="radio"` group, or
+  a hand-built menu, copies a shared component — a `U-` finding — and is a
+  hand-built ARIA widget — a hand-off. Write both, on the same file and line.
+  The `U-` finding states the look alone: the component it copies, the drift,
+  and the component that replaces it. It names no access gap — a missing key
+  path, focus, label or ARIA role — because a `U-` finding is filed in public
+  and that text would publish a compliance defect. The access gap goes in the
+  hand-off.
 - **Contrast under the document's floor stays here**, as a `U-` finding: it is
   the design system's own contract, held by its own tests.
 - **Security, performance, state and test coverage** belong to their own
@@ -451,10 +516,12 @@ Tiers:
 - **High (U-H)** — a departure the documents rule out, on a line the diff adds
   or changes: a hand-drawn copy of a component the surface can import, a raw
   value where a token exists, a pair measured under its contrast floor, a
-  restyled shared component, any other rule of the governing document broken.
+  restyled shared component, a second look for a meaning the document draws
+  one way, any other rule of the governing document broken.
 - **Medium (U-M)** — the same departures on a line the diff does not touch, in
-  a file it changes; a second look for a meaning that has one; a decorative
-  line where no document rules on it; a look contract no browser test holds; a
+  a file it changes; on any line, a second look for a meaning that only the
+  sibling screens settle, which no document rule names; a decorative line
+  where no document rules on it; a look contract no browser test holds; a
   component two surfaces need that no package has.
 - **Low (U-L)** — polish no one sees at a glance: a class that repeats what its
   component already sets, a step off its siblings' that no rule names.
@@ -478,7 +545,8 @@ Keep that. This section says what goes in each one.
 `## Design findings` holds the `U-` findings, most severe first, with a summary
 sentence at the top if you want one.
 
-`## For the tracker` holds the accessibility defects handed on, with no ID.
+`## For the tracker` holds the accessibility defects handed on, in the shape
+What this lens leaves to others gives, or `None`.
 
 `## Components` lists every hand-drawn element from Step 3, one line each: the
 file and line, what it draws, the component checked, and the verdict.
@@ -488,7 +556,8 @@ check you could not run, marked `unmeasured`, with the method that would run it.
 
 `## Coverage` opens with each surface and the document that governs it, then
 lists **every file** from Step 1, one line each, with a verdict — a finding ID,
-`clear`, or `not a screen` — and whether it was looked at rendered or why not.
+`For the tracker`, `clear`, or `not a screen` — and whether it was looked at
+rendered or why not.
 A file you did not open is not clear; say so and why.
 
 `## Sections checked` lists each Step 4 section with the files and lines you
@@ -498,9 +567,10 @@ checked.
 ### Check the file before you finish
 
 Once every file is covered, end the file with one line that is not a heading:
-`**Review complete.** <n> findings: <tally by tier>.` Neither count below
-depends on that line, so the counts pass on a partial file too. A file without
-the line is a partial review, and a resumed run finishes it.
+`**Review complete.** <n> findings: <tally by tier>; <m> for the tracker.`
+Neither count below depends on that line, so the counts pass on a partial file
+too. A file without the line is a partial review, and a resumed run finishes
+it.
 
 ```bash
 grep -c '^## \(Design findings\|For the tracker\|Components\|Measurements\|Coverage\|Sections checked\)$' DESIGN-REVIEW.md

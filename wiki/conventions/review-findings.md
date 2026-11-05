@@ -40,7 +40,7 @@ All review skills (`/review-security`, `/review-performance`, `/review-state`, `
 | `G-L` | review-state | Low — hardening: a value set the database does not enforce, a correct guard no test can see fail |
 | `U-C` | review-design | Critical — a screen fails people in ordinary use: content clipped, hidden or overlapping at a supported width, or text measured below 3:1 |
 | `U-H` | review-design | High — on a line the diff adds or changes: a hand-drawn copy of a shared component, a raw value where a token exists, a pair measured under its contrast floor, a rule of the governing `DESIGN.md` broken |
-| `U-M` | review-design | Medium — the same departures on an untouched line of a changed file; a second look for one meaning; a look contract no browser test holds |
+| `U-M` | review-design | Medium — the same departures on an untouched line of a changed file; a second look for a meaning only the sibling screens settle; a look contract no browser test holds |
 | `U-L` | review-design | Low — polish: a class its component already sets, a step off its siblings' that no rule names |
 | `D-C` | review-docs | Critical — the doc misleads a reader into a broken action |
 | `D-H` | review-docs | High — stale architecture described as current |
@@ -164,7 +164,7 @@ cost is on screen.
 
 ## Filing a finding
 
-Security, performance and compliance findings live in **`englishstreetventures/osn-tracker`**, a private repo. `englishstreetventures/osn` is public, and such a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks. State findings (`G-`) are the exception, and go to the public repository: [[#State findings are public]].
+Security, performance and compliance findings live in **`englishstreetventures/osn-tracker`**, a private repo. `englishstreetventures/osn` is public, and such a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks. State findings (`G-`) and design findings (`U-`) are the exceptions, and go to the public repository: [[#State findings are public]], [[#Design findings are public]].
 
 ### The body has to stand alone
 
@@ -218,7 +218,7 @@ A `G-` finding is a correctness defect in a state transition -- a status written
 
 A `U-` finding is a departure from the design system — an element drawn by hand that a shared component already draws, a raw value where a token exists, a contrast pair under its document's floor — and names nothing an attacker can use, so it goes to the public **`englishstreetventures/osn`**, on the same terms as a `G-` finding: fixed on the branch like any finding, and filed only when it stays open or the follow-up pull request fixes it, as `--type Bug` with its ID leading the title, `product:`, `severity:` from its tier letter and no `area:`.
 
-**An accessibility defect gets no `U-` ID.** The design review hands on, with no ID, what the compliance programme tracks ([[eaa]]): no keyboard path, no visible focus at all, no programmatic label, a state shown by colour alone, missing alt text or captions, a hand-built ARIA widget where a Kobalte primitive exists. `/prep-pr` Step 6 gives each the next free `C-` ID and it is filed in the tracker. Contrast under the governing document's floor stays a `U-` finding: it is the design system's own contract, held by its own tests.
+**An accessibility defect gets no `U-` ID.** The design review hands on, with no ID, what the compliance programme tracks ([[eaa]]): no keyboard path, no visible focus at all, no programmatic label, a state shown by colour alone, missing alt text or captions, a hand-built ARIA widget where a Kobalte primitive exists. `/prep-pr` Step 6 gives each the next free `C-` ID and it is filed in the tracker. One element can be both: a hand-drawn radio group copies a shared component and is a hand-built ARIA widget. It then gets two entries on the same line — a `U-` finding that states the look alone and names no access gap, and the hand-off that names the gap — so nothing about the gap reaches the public issue. Contrast under the governing document's floor stays a `U-` finding: it is the design system's own contract, held by its own tests.
 
 ## When the fix needs a decision from the owner
 
