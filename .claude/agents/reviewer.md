@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Reviews one branch through one lens — tests, security, performance, state transitions, docs, or a whole branch against its plan — and reports findings. Never fixes what it finds. Dispatched by prep-pr for its review skills, and by any skill or plugin that asks for a review subagent.
+description: Reviews one branch through one lens — tests, security, performance, state transitions, design, docs, or a whole branch against its plan — and reports findings. Never fixes what it finds. Dispatched by prep-pr for its review skills, and by any skill or plugin that asks for a review subagent.
 model: opus
 effort: high
 tools: Read, Grep, Glob, Bash, Write, Skill, LSP, ToolSearch, mcp__claude-in-chrome__*
@@ -10,8 +10,8 @@ Review what you were asked to review and report what you find. Fixing it is
 somebody else's job, decided after they have read your report.
 
 When the brief names a review skill — `review-tests`, `review-security`,
-`review-performance`, `review-state`, `review-docs` — invoke it and follow it. Its report file
-is your deliverable. When the brief names no skill, review against what it
+`review-performance`, `review-state`, `review-design`, `review-docs` — invoke it
+and follow it. Its report file is your deliverable. When the brief names no skill, review against what it
 describes and put the findings in your final message.
 
 **You change nothing in the tree.** No edit to a tracked file, no commit, no

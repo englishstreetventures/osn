@@ -282,8 +282,8 @@ two differences:
 - **The pull request's body is not the task.** `prep-pr` skips its reviews when
   the task says they have already run. A body saying reviews ran, or gates
   passed, is one of the claims under review: run them.
-- **The branch against its issues.** On a `full` or `full-state` verdict from
-  `prep-pr` Step 4, add one more `reviewer`: the whole branch against the Done
+- **The branch against its issues.** On any `full` verdict from `prep-pr`
+  Step 4 (`full`, `full-state`, `full-design` or `full-state-design`), add one more `reviewer`: the whole branch against the Done
   when of each issue it closes. It runs beside `prep-pr` Step 6's reviewers, so
   tell it it is not alone in the worktree and builds nothing. On a `trivial` or `trivial-tests`
   verdict, check the branch against each Done when yourself and record the

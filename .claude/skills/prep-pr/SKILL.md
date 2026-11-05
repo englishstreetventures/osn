@@ -277,16 +277,18 @@ uncommitted and are never grouped into a commit.
 bun run scripts/review-scope.ts "${DIFF_BASE:?run Step 0 first}"
 ```
 
-It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, no output, or any word but the four below means `full-state`, the most review:
+It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, no output, or any word but the six below means `full-state-design`, the most review:
 
 | Verdict | Step 4 | Step 6 |
 |---|---|---|
+| `full-state-design` | The `review-tests` agent, as below | Performance, security, state and design agents |
 | `full-state` | The `review-tests` agent, as below | Performance, security and state agents |
+| `full-design` | The `review-tests` agent, as below | Performance, security and design agents |
 | `full` | The `review-tests` agent, as below | Performance and security agents |
 | `trivial-tests` | The `review-tests` agent, as below | No agents |
 | `trivial` | No agent: run the gates inline | No agents |
 
-`full-state` is `full` for a diff that writes state: a changed line in application source or a migration names a status, phase or stage, a lifecycle timestamp, actor or reason, a flag key, an enum, a CHECK or a trigger, in a file that writes the database. The header of `scripts/review-scope.ts` holds the exact rule. A diff it reads as `full` can still be sent to the state review by hand when the owner asks or the run has reason to: a bare flag key such as `revoked: true` is one shape it does not see.
+A `-state` verdict is `full` for a diff that writes state: a changed line in application source or a migration names a status, phase or stage, a lifecycle timestamp, actor or reason, a flag key, an enum, a CHECK or a trigger, in a file that writes the database. A `-design` verdict is `full` for a diff that changes how a screen looks: markup or style (`.tsx`, `.jsx`, `.astro`, `.css`, `.html`, `.svg`, `.mdx`) outside tests, tooling, docs and agent files, or any source file in `@shared/ui`, `@cire/ui`, `@osn/auth-ui` or `@shared/design-tokens`. The header of `scripts/review-scope.ts` holds both exact rules. A diff it reads without a suffix can still be sent to that review by hand when the owner asks or the run has reason to: a bare flag key such as `revoked: true` is one shape the state rule does not see, and a class string built in a plain `.ts` file outside the component packages is one the design rule does not see.
 
 Trivial means every change is a plain Markdown file (`*.md`; `*.mdx` carries script) or test code — a `.ts`, `.tsx`, `.js`, `.mjs`, `.sh` or `.snap` file in a `tests/` directory or named `*.test.*` or `*.spec.*`. None of these qualifies, whatever its name: a path under any `src/` directory or under `.github/`; a `package.json` or lockfile; `AGENTS.md`, `CLAUDE.md`, or anything under `.claude/` or `.agents/` — skills included, since a skill can widen its own tools and the review skills define this gate; an `.env` file; a symlink, a submodule, or a file whose mode changed. So a one-line change to auth, a schema, a route, a Worker binding, a build config or an agent's instructions always gets every review.
 
@@ -349,9 +351,9 @@ Three traps in reading the number:
 
 **Unless the task says these reviews have already run** — then record what it says they found in the report, and go to Step 7. A finding reaches the PR body only in the form `write-pr` allows.
 
-**Unless Step 4 sized the diff `trivial` or `trivial-tests`** — then dispatch no agent. The Performance, Security and State rows of `## Test plan` read `inline — trivial diff`, each with one sentence of your own verdict, and you go to Step 7.
+**Unless Step 4 sized the diff `trivial` or `trivial-tests`** — then dispatch no agent. The Performance, Security, State and Design rows of `## Test plan` read `inline — trivial diff`, each with one sentence of your own verdict, and you go to Step 7.
 
-Otherwise run the **`reviewer`** agents below **in parallel** (one after the other on a large diff, see below) using the Agent tool, as Step 4 describes: Agents 1 and 2 on `full`, and Agent 3 as well on `full-state`. On `full` the State row of `## Test plan` reads `not needed — review-scope printed full`, with one sentence of your own on why nothing the diff writes is a state.
+Otherwise run the **`reviewer`** agents below **in parallel** (one after the other on a large diff, see below) using the Agent tool, as Step 4 describes: Agents 1 and 2 on every `full` verdict, Agent 3 as well when the verdict carries `-state`, and Agent 4 as well when it carries `-design`. A review the verdict does not call for gets its `## Test plan` row as `not needed — review-scope printed <verdict>`, with one sentence of your own: why nothing the diff writes is a state, or why nothing it changes draws a screen.
 Open each dispatch prompt with `TASK-BRANCH: <branch>` on its own line, for
 the same reason as Step 4's — the collector reads it back out to attribute
 the reviewer's spend to this branch's card. Tell each that it is **not** alone
@@ -362,18 +364,21 @@ to measure afterwards:
 Invoke the `review-performance` skill (`.claude/skills/review-performance/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
 **Agent 2 — Security review** (`reviewer` agent):
-Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. **This is the double review's second pass: pass `effort: xhigh` on this Agent call** (the owner's instruction; the definition's `high` covers Agents 1 and 3). Agents 1 and 3 pass no effort.
+Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. **This is the double review's second pass: pass `effort: xhigh` on this Agent call** (the owner's instruction; the definition's `high` covers Agents 1, 3 and 4). Agents 1, 3 and 4 pass no effort.
 
-**Agent 3 — State review** (`reviewer` agent), on `full-state` only:
+**Agent 3 — State review** (`reviewer` agent), on a `-state` verdict only:
 Invoke the `review-state` skill (`.claude/skills/review-state/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. It lists every writer of each state the diff writes across the whole repository, so it reads files outside the diff; that is its job, not scope creep.
 
-Wait for every agent you started to complete, and collect or stop each before this run returns, as Step 4 says. Present every report to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2, G-M1) so they can be referred to in discussion, in the report and in the issues Step 7 files. The PR is public and never carries an `S-`, `P-` or `C-` ID; `write-pr` says what it carries instead. A `G-` ID names a correctness defect and may appear there.
+**Agent 4 — Design review** (`reviewer` agent), on a `-design` verdict only:
+Invoke the `review-design` skill (`.claude/skills/review-design/SKILL.md`) and execute its instructions, passing the list of affected workspaces and the branch name as context. Not being alone, it starts no dev server: it measures contrast from token values where it can, and lists every check it could not run as `unmeasured` in its `## Measurements`, with the method. **Run those checks yourself once every reviewer has returned**, rendered as its Step 5 describes, in this worktree with nothing else building in it; a check that fails is that review's finding, taking the tier its finding format gives.
+
+Wait for every agent you started to complete, and collect or stop each before this run returns, as Step 4 says. Present every report to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2, G-M1, U-H1) so they can be referred to in discussion, in the report and in the issues Step 7 files. The PR is public and never carries an `S-`, `P-` or `C-` ID; `write-pr` says what it carries instead. A `G-` or `U-` ID names a correctness or design defect and may appear there.
 
 **Write each reviewer's result into the report as it returns**, not when every one has returned: one line per finding under `## Reviews`, with its ID, severity and a `pending` disposition. Update the disposition to its fix commit or issue when that exists, and do it before the first fix commit.
 
-**The state review's `## For the tracker` entries get their IDs last.** Each is a security, performance or compliance defect the state review found, written with no ID because a `G-` ID is public. Its `## Reviews` line goes in as it returns, reading `ID pending` with the lens and tier it names. Once every Step 6 reviewer has returned, drop any entry the owning lens's own report already holds (the same writer and the same defect; note the duplicate on the line), and give each one left the next free number in that lens's tier after its report's own: an `S-H` entry after a security report whose last High was `S-H2` becomes `S-H3`. From then on it is that lens's finding, and Step 7 files it in the tracker like any other.
+**The state and design reviews' `## For the tracker` entries get their IDs last.** Each is a security, performance or compliance defect one of them found, written with no ID because a `G-` or `U-` ID is public. Its `## Reviews` line goes in as it returns, reading `ID pending` with the lens and tier it names. Once every Step 6 reviewer has returned, drop any entry the owning lens's own report already holds (the same writer and the same defect; note the duplicate on the line), and give each one left the next free number in that lens's tier after its report's own: an `S-H` entry after a security report whose last High was `S-H2` becomes `S-H3`. From then on it is that lens's finding, and Step 7 files it in the tracker like any other.
 
-**A reviewer that stops on a usage limit is resumed, not dispatched afresh.** Once the limit resets, `SendMessage` it to carry on, naming the report file it keeps filling: `SECURITY-REVIEW.md`, `PERFORMANCE-REVIEW.md` or `STATE-REVIEW.md` here, and `TEST-REVIEW.md` or `DOCS-REVIEW.md` for Step 4. The findings it wrote before the limit are already in that file. A report with no closing `**Review complete.**` line is a partial review, not a finished one, and the resumed reviewer finishes it. A fresh dispatch would repeat that work and make a second copy of it. This covers a reviewer that stops while the run goes on; if the run itself must end, Step 4's rule applies.
+**A reviewer that stops on a usage limit is resumed, not dispatched afresh.** Once the limit resets, `SendMessage` it to carry on, naming the report file it keeps filling: `SECURITY-REVIEW.md`, `PERFORMANCE-REVIEW.md`, `STATE-REVIEW.md` or `DESIGN-REVIEW.md` here, and `TEST-REVIEW.md` or `DOCS-REVIEW.md` for Step 4. The findings it wrote before the limit are already in that file. A report with no closing `**Review complete.**` line is a partial review, not a finished one, and the resumed reviewer finishes it. A fresh dispatch would repeat that work and make a second copy of it. This covers a reviewer that stops while the run goes on; if the run itself must end, Step 4's rule applies.
 
 **On a large diff, one with many changed files or several stacked commits, stagger the reviewers.** Start one, and each next one only after the one before it has returned. Reviewers started together reach a session limit together, and each one that stops then needs resuming.
 
@@ -439,11 +444,12 @@ Work is tracked in GitHub Issues, not in a markdown checklist. Two repos:
 | ------------------------------------- | ----------------------------------- |
 | Review findings — `S-*`, `P-*`, `C-*` | **`englishstreetventures/osn-tracker`** (private) |
 | State findings — `G-*`                | **`englishstreetventures/osn`** (public)          |
+| Design findings — `U-*`               | **`englishstreetventures/osn`** (public)          |
 | Planned work, features, bugs          | **`englishstreetventures/osn`** (public)          |
 
-`englishstreetventures/osn` is public. A security, performance or compliance finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks, and that includes one Step 6 gave to a state review's `## For the tracker` entry.
+`englishstreetventures/osn` is public. A security, performance or compliance finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks, and that includes one Step 6 gave to a state or design review's `## For the tracker` entry.
 
-**A `G-` finding is a correctness defect and is filed only when it stays open** — one of Step 6's three, or one in scope this run could not finish, so it keeps an owner — or when the follow-up pull request fixes it, so that pull request closes it. One this branch fixes gets no issue: the public pull request and its commit are its record. Its issue is `--type Bug`, with its ID leading the title, `product:`, `severity:` from its tier letter (`C` → `critical`, `H` → `high`, `M` → `medium`, `L` → `low`), and `area:schema` when the fix is a migration; the body is the four fields, written with `write-issue`. The rest of this step's filing rules are for the tracker.
+**A `G-` finding is a correctness defect and is filed only when it stays open** — one of Step 6's three, or one in scope this run could not finish, so it keeps an owner — or when the follow-up pull request fixes it, so that pull request closes it. One this branch fixes gets no issue: the public pull request and its commit are its record. Its issue is `--type Bug`, with its ID leading the title, `product:`, `severity:` from its tier letter (`C` → `critical`, `H` → `high`, `M` → `medium`, `L` → `low`), and `area:schema` when the fix is a migration; the body is the four fields, written with `write-issue`. **A `U-` finding is filed the same way**, on the same terms, with no `area:` label. The rest of this step's filing rules are for the tracker.
 
 Auditing a defect class — when a finding is an instance of a class, enumerate the *shapes* the defect can take rather than re-grepping the first form you found. Recipe and the D1 bind-cap case study: `references/auditing-defect-classes.md`.
 
