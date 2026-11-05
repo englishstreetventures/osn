@@ -30,9 +30,12 @@ export function clearStripeConnectParam(url: URL): string {
   return `${next.pathname}${next.search}${next.hash}`;
 }
 
-/** What the toast says, and whether it is good news. */
+/**
+ * What the toast says, and its tone: `success` for a connection, `info` for an
+ * owner who chose not to connect on Stripe's page, `error` for a refusal.
+ */
 export interface StripeConnectWords {
-  ok: boolean;
+  tone: "success" | "info" | "error";
   text: string;
 }
 
@@ -40,60 +43,63 @@ export function stripeConnectWords(outcome: string): StripeConnectWords {
   switch (outcome) {
     case "connected":
       return {
-        ok: true,
+        tone: "success",
         text: "Your Stripe account is connected. Gifts go straight to it, and you run it in your own Stripe Dashboard.",
       };
     case "denied":
       return {
-        ok: false,
+        tone: "info",
         text: "You didn’t connect a Stripe account. Connect one whenever you like.",
       };
     case "expired":
       return {
-        ok: false,
+        tone: "error",
         text: "That Stripe sign-in had run out or was already used. Connect again to try once more.",
       };
     case "signed_out":
       return {
-        ok: false,
+        tone: "error",
         text: "You were signed out while on Stripe. Connect again now you’re back.",
       };
     case "forbidden":
       return {
-        ok: false,
+        tone: "error",
         text: "Only the wedding’s owner can connect the account gifts are paid into.",
       };
     case "already_connected":
       return {
-        ok: false,
+        tone: "error",
         text: "This wedding already has a Stripe account — someone connected one while you were on Stripe.",
       };
     case "rejected":
       return {
-        ok: false,
+        tone: "error",
         text: "Stripe didn’t accept that connection. Connect again to try once more.",
       };
     case "currency_mismatch":
       return {
-        ok: false,
+        tone: "error",
         text: "That Stripe account pays out in a different currency from this wedding, so it can’t take its gifts.",
       };
     case "owners_differ":
       return {
-        ok: false,
+        tone: "error",
         text: "That Stripe account already takes gifts for a wedding with different owners, so it can’t be used here.",
       };
     case "account_on_deleted_wedding":
       return {
-        ok: false,
+        tone: "error",
         text: "That Stripe account is still on a wedding that is being deleted. It can take this one’s gifts once that wedding is gone for good, or restore that wedding.",
       };
     case "unavailable":
       return {
-        ok: false,
+        tone: "error",
         text: "Couldn’t finish connecting with Stripe just now. Try again in a moment.",
       };
     default:
-      return { ok: false, text: "Your Stripe account wasn’t connected. Try again in a moment." };
+      return {
+        tone: "error",
+        text: "Your Stripe account wasn’t connected. Try again in a moment.",
+      };
   }
 }

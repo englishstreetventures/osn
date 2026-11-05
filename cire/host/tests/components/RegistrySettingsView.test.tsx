@@ -2084,6 +2084,23 @@ describe("a Stripe account the couple already have", () => {
     );
   });
 
+  it("keeps focus on the panel when the account connected meanwhile draws no button", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    const current = {
+      ...snapshot({ items: [item()] }).settings,
+      stripeConnected: true,
+      stripeChargesEnabled: true,
+      stripeConnectedByOsnProfileId: "usr_other",
+      stripeAccountType: "standard",
+    };
+    api({ oauth: json({ error: "stripe_already_connected", settings: current }, 409) });
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: EXISTING }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("stripe-status")));
+  });
+
   const theirOwn = (connector: string | null, ready = true) =>
     withOAuth({
       settings: {
@@ -2113,9 +2130,11 @@ describe("a Stripe account the couple already have", () => {
     setCachedRegistry("wed_1", theirOwn("usr_other"));
     api({});
     renderPanel({ canManage: true });
-    expect((await screen.findByTestId("stripe-connector-only")).textContent).toMatch(
-      /only they can manage it, in their own Stripe Dashboard/,
+    expect((await screen.findByTestId("stripe-status")).textContent).toMatch(
+      /Only they can manage it, in their own Stripe Dashboard/,
     );
+    // The status line says it; no second note describes a control that is not there.
+    expect(screen.queryByTestId("stripe-connector-only")).toBeNull();
     expect(screen.queryByTestId("stripe-dashboard-link")).toBeNull();
     expect(screen.queryByRole("button", { name: "Continue on Stripe" })).toBeNull();
   });

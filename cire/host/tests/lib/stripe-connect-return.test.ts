@@ -37,10 +37,10 @@ describe("clearStripeConnectParam", () => {
 });
 
 describe("stripeConnectWords", () => {
-  it("is good news only for a connection", () => {
-    expect(stripeConnectWords("connected").ok).toBe(true);
+  it("is good news only for a connection, and a choice not to connect is no error", () => {
+    expect(stripeConnectWords("connected").tone).toBe("success");
+    expect(stripeConnectWords("denied").tone).toBe("info");
     for (const outcome of [
-      "denied",
       "expired",
       "signed_out",
       "forbidden",
@@ -52,7 +52,7 @@ describe("stripeConnectWords", () => {
       "something_new",
     ]) {
       const words = stripeConnectWords(outcome);
-      expect(words.ok).toBe(false);
+      expect(words.tone).toBe("error");
       expect(words.text.length).toBeGreaterThan(0);
     }
   });

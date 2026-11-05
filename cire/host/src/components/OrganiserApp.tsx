@@ -848,16 +848,6 @@ function Dashboard() {
   }
 
   /**
-   * Back from Stripe.
-   *
-   * The tier is raised by the webhook, not by this page, so all this does is
-   * ask what happened and refresh the list once it has. The params are
-   * stripped the moment they are read: `setRoute` rebuilds the URL as
-   * `pathname + search + hash` on every hash write and the login bounce carries
-   * `search` through, so leaving them would re-run this on every later
-   * navigation, refresh and bookmark.
-   */
-  /**
    * Back from connecting a Stripe account. cire-api's callback did the work;
    * the redirect carries one word saying how it ended and the route of the
    * wedding's registry settings, which read the account as stored. The word is
@@ -869,10 +859,19 @@ function Dashboard() {
     if (!outcome) return;
     history.replaceState(null, "", clearStripeConnectParam(new URL(window.location.href)));
     const words = stripeConnectWords(outcome);
-    if (words.ok) toast.success(words.text);
-    else toast.error(words.text);
+    toast[words.tone](words.text);
   });
 
+  /**
+   * Back from Stripe.
+   *
+   * The tier is raised by the webhook, not by this page, so all this does is
+   * ask what happened and refresh the list once it has. The params are
+   * stripped the moment they are read: `setRoute` rebuilds the URL as
+   * `pathname + search + hash` on every hash write and the login bounce carries
+   * `search` through, so leaving them would re-run this on every later
+   * navigation, refresh and bookmark.
+   */
   onMount(() => {
     if (typeof window === "undefined") return;
     const receipt = readUpgradeReturn(window.location.search);

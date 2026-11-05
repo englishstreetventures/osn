@@ -229,10 +229,6 @@ function fundsDontCountWords(reason: MoneyGiftsBlock | null | undefined, currenc
 const CONNECTOR_ONLY =
   "Only the person who connected this Stripe account can continue its setup or change it.";
 
-/** The same, for an account that is its holder's own Stripe account. */
-const THEIR_OWN_ACCOUNT_ONLY =
-  "This is the Stripe account of the person who connected it, and only they can manage it, in their own Stripe Dashboard.";
-
 /** What a press of "Check again" found: the toast, and whether it is good news. */
 interface StripeCheckWords {
   ready: boolean;
@@ -292,6 +288,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
    */
   let questionEl: HTMLFieldSetElement | undefined;
   let connectButtonEl: HTMLButtonElement | undefined;
+  /** Where focus goes when the question closes onto an account whose row
+   *  draws no button: the status line that says what is connected. */
+  let statusEl: HTMLParagraphElement | undefined;
   /**
    * Close the account question and give focus back to the panel's button,
    * which a request still in flight leaves disabled and so unfocusable: the
@@ -303,7 +302,11 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
       setOffered(null);
       setChosen("");
     });
-    connectButtonEl?.focus();
+    // An account connected meanwhile may be one whose row has no button at
+    // all — the couple's own, or another owner's — so the old ref can point at
+    // nothing in the page.
+    if (connectButtonEl?.isConnected) connectButtonEl.focus();
+    else statusEl?.focus();
   }
   const [checking, setChecking] = createSignal(false);
   /** `null` until the first snapshot lands; the form seeds from it once. */
@@ -1071,14 +1074,20 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
             {/* An owner who did not connect the account is not told it is
                 theirs: it carries the identity and bank of whoever connected it. */}
-            <p class={hintClass} data-testid="stripe-status">
+            <p
+              ref={statusEl}
+              id="stripe-status"
+              tabindex="-1"
+              class={`${hintClass} outline-none`}
+              data-testid="stripe-status"
+            >
               {accountIsTheirOwn() && stripeState() !== "none"
                 ? stripeState() === "ready"
                   ? accountIsAnotherOwners()
-                    ? "The Stripe account of the person who connected it can take payments. Gifts go straight to it — we never hold the money — and they run it in their own Stripe Dashboard."
+                    ? "The Stripe account of the person who connected it can take payments. Gifts go straight to it — we never hold the money. Only they can manage it, in their own Stripe Dashboard."
                     : "Your own Stripe account is connected and can take payments. Gifts go straight to it — we never hold the money. Stripe’s fees come out of each gift at your account’s rates, and you handle refunds and disputes in your Stripe Dashboard."
                   : accountIsAnotherOwners()
-                    ? "The Stripe account of the person who connected it can’t take payments yet: Stripe wants something from them, in their own Stripe Dashboard."
+                    ? "The Stripe account of the person who connected it can’t take payments yet: Stripe wants something from them. Only they can manage it, in their own Stripe Dashboard."
                     : "Your Stripe account is connected but can’t take payments yet. Finish what Stripe asks for in your Stripe Dashboard."
                 : stripeState() === "ready"
                   ? accountIsAnotherOwners()
@@ -1272,9 +1281,11 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 Only the wedding’s owner can connect the account gifts are paid into.
               </p>
             </Show>
-            <Show when={props.canManage && !canOpenStripe()}>
+            {/* Their own account draws no disabled button for this to describe:
+                the status line above already says whose it is. */}
+            <Show when={props.canManage && !canOpenStripe() && !accountIsTheirOwn()}>
               <p id="stripe-connector-only" class={hintClass} data-testid="stripe-connector-only">
-                {accountIsTheirOwn() ? THEIR_OWN_ACCOUNT_ONLY : CONNECTOR_ONLY}
+                {CONNECTOR_ONLY}
               </p>
             </Show>
 

@@ -342,9 +342,11 @@ describe("OrganiserApp Dashboard", () => {
     for (const [outcome, said] of [
       ["connected", toastSuccess],
       ["expired", toastError],
+      ["denied", toastInfo],
     ] as const) {
       toastSuccess.mockReset();
       toastError.mockReset();
+      toastInfo.mockReset();
       history.replaceState(
         null,
         "",
@@ -356,7 +358,11 @@ describe("OrganiserApp Dashboard", () => {
       render(() => <OrganiserApp />);
       await waitFor(() => expect(said).toHaveBeenCalledTimes(1));
       expect(String(said.mock.calls[0]?.[0])).toMatch(
-        outcome === "connected" ? /is connected/ : /run out or was already used/,
+        outcome === "connected"
+          ? /is connected/
+          : outcome === "denied"
+            ? /didn’t connect/
+            : /run out or was already used/,
       );
       expect(window.location.search).toBe("?keep=1");
       expect(window.location.hash).toBe("#/w/wed_a/registry/settings");
