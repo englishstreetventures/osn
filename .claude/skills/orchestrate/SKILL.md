@@ -293,7 +293,7 @@ For a **large phase** — a plan with many independent tasks — tell the subage
 
 1. The builder runs `new-feat` up to its Step 3 and returns once `NEW-FEAT.md` holds the plan.
 2. An `attacker` stage attacks `NEW-FEAT.md` with `stress-plan` Step 2's prompt.
-3. The builder writes that report to `PLAN-REVIEW.md`, closes each finding as `stress-plan` Step 3 says, builds, and runs `prep-pr` Steps 0 to 3 and Step 4's gates.
+3. The builder writes that report to `PLAN-REVIEW.md`, closes each finding as `stress-plan` Step 3 says, builds, and runs `prep-pr` Steps 0 to 5, all but Step 4's review.
 4. `reviewer` stages run the reviews `scripts/review-scope.ts` calls for, as `prep-pr` Steps 4 and 6 dispatch them: `review-tests` alone first, then the rest together.
 5. The builder writes the missing tests and fixes the findings, as `prep-pr` Steps 4 and 6 say, then runs `prep-pr` from Step 7.
 
