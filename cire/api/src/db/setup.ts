@@ -768,6 +768,18 @@ WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'decline
 BEGIN
   SELECT RAISE(ABORT, 'vendor status is not a pipeline stage');
 END;
+CREATE TRIGGER IF NOT EXISTS registry_items_group_gift_shape BEFORE INSERT ON registry_items
+WHEN NEW.allow_partial NOT IN (0, 1)
+  OR (NEW.allow_partial = 1 AND (NEW.kind <> 'cash_fund' OR NEW.target_minor IS NULL))
+BEGIN
+  SELECT RAISE(ABORT, 'a group gift is a cash fund with a target');
+END;
+CREATE TRIGGER IF NOT EXISTS registry_items_group_gift_shape_update BEFORE UPDATE OF kind, allow_partial, target_minor ON registry_items
+WHEN NEW.allow_partial NOT IN (0, 1)
+  OR (NEW.allow_partial = 1 AND (NEW.kind <> 'cash_fund' OR NEW.target_minor IS NULL))
+BEGIN
+  SELECT RAISE(ABORT, 'a group gift is a cash fund with a target');
+END;
 `;
 
 export function createDb(path: string = ":memory:") {

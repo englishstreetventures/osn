@@ -622,6 +622,65 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "D1 refuses a group gift that is not a cash fund with a target",
+    async () => {
+      const columns =
+        "INSERT INTO registry_items (id, wedding_id, kind, title, allow_partial, target_minor, sort_order, created_at, updated_at)";
+      const attempt = async (statement: string): Promise<string> => {
+        try {
+          await d1.prepare(statement).run();
+          return "accepted";
+        } catch (error) {
+          return String(error);
+        }
+      };
+      const REFUSED = "a group gift is a cash fund with a target";
+      // A gift to reserve, a fund with no target, and a flag that is no flag.
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_product', '${BOOTSTRAP_WEDDING_ID}', 'product', 'Pan', 1, 1000, 90, 1, 1)`,
+        ),
+      ).toContain(REFUSED);
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_untargeted', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Sofa', 1, NULL, 91, 1, 1)`,
+        ),
+      ).toContain(REFUSED);
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_flag', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Sofa', 2, 1000, 92, 1, 1)`,
+        ),
+      ).toContain(REFUSED);
+      // A group gift as the service writes it, and a plain fund with no goal.
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_ok', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Sofa', 1, 1000, 93, 1, 1)`,
+        ),
+      ).toBe("accepted");
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_fund', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Trip', 0, NULL, 94, 1, 1)`,
+        ),
+      ).toBe("accepted");
+      // Clearing a group gift's target is refused; a plain fund's goal is not.
+      expect(
+        await attempt("UPDATE registry_items SET target_minor = NULL WHERE id = 'reg_gg_ok'"),
+      ).toContain(REFUSED);
+      expect(
+        await attempt(
+          "UPDATE registry_items SET target_minor = NULL, title = 'Trip away' WHERE id = 'reg_gg_fund'",
+        ),
+      ).toBe("accepted");
+      const kept = await d1
+        .prepare("SELECT target_minor FROM registry_items WHERE id = 'reg_gg_ok'")
+        .first<{ target_minor: number | null }>();
+      expect(kept?.target_minor).toBe(1000);
+      await d1.prepare("DELETE FROM registry_items WHERE id IN ('reg_gg_ok', 'reg_gg_fund')").run();
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "claim.lookup fails for an unknown code",
     async () => {
       await expect(run(claimService.lookup("NOPE-0000"))).rejects.toThrow();

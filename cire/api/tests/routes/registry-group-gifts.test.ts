@@ -459,6 +459,17 @@ describe("what counts as raised", () => {
     const { app, db } = buildApp();
     const gift = await addGroupGift(app, "Espresso machine", 20_000);
     insertGift(db, { id: "rct_1", itemId: gift.id, amountMinor: 4_000 });
+    insertGift(db, { id: "rct_usd", itemId: gift.id, amountMinor: 500, currency: "USD" });
+    // Another wedding's row naming this item is not this item's money here
+    // either, nor is a gift that never settled.
+    insertGift(db, {
+      id: "rct_foreign",
+      itemId: gift.id,
+      weddingId: "wed_other",
+      familyId: "fam_other",
+      amountMinor: 50_000,
+    });
+    insertGift(db, { id: "rct_pending", itemId: gift.id, amountMinor: 7_000, status: "pending" });
     const statements = recordStatements(db);
 
     const res = await organiser(app, "PATCH", `/items/${gift.id}`, { title: "Espresso grinder" });
@@ -466,21 +477,24 @@ describe("what counts as raised", () => {
     expect(res.status).toBe(200);
     const { item } = (await res.json()) as { item: RegistryItemDto };
     expect(item.title).toBe("Espresso grinder");
-    expect(item.raised).toEqual({ raisedMinor: 4_000, giftCount: 1, otherCurrencyCount: 0 });
+    expect(item.raised).toEqual({ raisedMinor: 4_000, giftCount: 1, otherCurrencyCount: 1 });
     expect(
       statements.filter((s) => /registry_items|registry_contributions/.test(s.sql)),
     ).toHaveLength(1);
   });
 
   it("sends no raised figure on a gift to reserve or a plain fund", async () => {
-    const { app } = buildApp();
+    const { app, db } = buildApp();
     const product = await organiser(app, "POST", "/items", { title: "Copper pan" });
     const fund = await organiser(app, "POST", "/items", { kind: "cash_fund", title: "Honeymoon" });
     const snap = await snapshot(app);
     for (const res of [product, fund]) {
       const { item } = (await res.json()) as { item: RegistryItemDto };
+      insertGift(db, { id: `rct_${item.id}`, itemId: item.id });
+      const edited = await organiser(app, "PATCH", `/items/${item.id}`, { title: "Renamed" });
       expect(item.raised).toBeNull();
       expect(snap.items.find((i) => i.id === item.id)?.raised).toBeNull();
+      expect(((await edited.json()) as { item: RegistryItemDto }).item.raised).toBeNull();
     }
   });
 });

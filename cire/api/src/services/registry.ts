@@ -1197,39 +1197,54 @@ function foldRaised(totals: readonly CurrencyTotal[], primary: string): GroupGif
 
 /** What {@link raisedColumns} adds to an item row. */
 interface RaisedColumns {
-  raisedMinor: number | null;
-  raisedCount: number | null;
-  raisedOtherCount: number | null;
+  /** `{"minor":…,"count":…,"other":…}` on a group gift; NULL on anything else. */
+  raisedJson: string | null;
 }
 
 /**
- * One item's {@link GroupGiftRaised}, as columns of a statement that names
+ * One item's {@link GroupGiftRaised}, as a column of a statement that names
  * `registry_items` — an UPDATE's RETURNING — so an edit learns it without a
  * second read. The same rule as `contributionsByCurrency` and `foldRaised`:
- * succeeded gifts of this item and wedding, keyed on the primary currency
- * where a row has one, compared with the wedding's own.
+ * succeeded gifts of this item and wedding, keyed on the primary currency where
+ * a row has one, compared with the wedding's own.
+ *
+ * Gated on the row being a group gift, so a gift to reserve or a plain fund
+ * reads no contribution at all. One scan of the item's gifts, with the
+ * wedding's currency read once beside it, and the three figures packed into
+ * one JSON value.
  */
 function raisedColumns() {
-  const mine = sql`${registryContributions.itemId} = ${registryItems.id} AND ${registryContributions.weddingId} = ${registryItems.weddingId} AND ${registryContributions.status} = 'succeeded'`;
-  const ours = sql`upper(coalesce(${registryContributions.primaryCurrency}, ${registryContributions.currency})) = upper(coalesce((SELECT ${weddings.currency} FROM ${weddings} WHERE ${weddings.id} = ${registryItems.weddingId}), 'AUD'))`;
+  const rc = registryContributions;
+  const ours = sql`upper(coalesce(${rc.primaryCurrency}, ${rc.currency})) = wc.cur`;
   return {
-    raisedMinor: sql<
-      number | null
-    >`(SELECT coalesce(sum(coalesce(${registryContributions.primaryAmountMinor}, ${registryContributions.amountMinor})), 0) FROM ${registryContributions} WHERE ${mine} AND ${ours})`,
-    raisedCount: sql<
-      number | null
-    >`(SELECT count(*) FROM ${registryContributions} WHERE ${mine} AND ${ours})`,
-    raisedOtherCount: sql<
-      number | null
-    >`(SELECT count(*) FROM ${registryContributions} WHERE ${mine} AND NOT (${ours}))`,
+    raisedJson: sql<
+      string | null
+    >`CASE WHEN ${registryItems.kind} = 'cash_fund' AND ${registryItems.allowPartial} = 1 THEN (
+      SELECT json_object(
+        'minor', coalesce(sum(CASE WHEN ${ours} THEN coalesce(${rc.primaryAmountMinor}, ${rc.amountMinor}) END), 0),
+        'count', coalesce(sum(CASE WHEN ${ours} THEN 1 END), 0),
+        'other', coalesce(sum(CASE WHEN ${ours} THEN NULL ELSE 1 END), 0)
+      )
+      FROM (SELECT upper(coalesce(${weddings.currency}, 'AUD')) AS cur FROM ${weddings} WHERE ${weddings.id} = ${registryItems.weddingId}) AS wc
+      JOIN ${rc} ON ${rc.itemId} = ${registryItems.id} AND ${rc.weddingId} = ${registryItems.weddingId} AND ${rc.status} = 'succeeded'
+    ) END`,
   };
 }
 
-const raisedOf = (row: RaisedColumns): GroupGiftRaised => ({
-  raisedMinor: Number(row.raisedMinor ?? 0) || 0,
-  giftCount: Number(row.raisedCount ?? 0) || 0,
-  otherCurrencyCount: Number(row.raisedOtherCount ?? 0) || 0,
-});
+/** A group gift's figures from {@link raisedColumns}; nothing raised when absent. */
+function raisedOf(row: RaisedColumns): GroupGiftRaised {
+  if (!row.raisedJson) return NOTHING_RAISED;
+  const parsed = JSON.parse(row.raisedJson) as {
+    minor?: unknown;
+    count?: unknown;
+    other?: unknown;
+  };
+  return {
+    raisedMinor: Number(parsed.minor ?? 0) || 0,
+    giftCount: Number(parsed.count ?? 0) || 0,
+    otherCurrencyCount: Number(parsed.other ?? 0) || 0,
+  };
+}
 
 /**
  * The kind of a household of this wedding, or `null` when it is not one of
@@ -1376,7 +1391,8 @@ interface ContributionPatch {
 interface RefundPatch {
   updatedAt: Date;
   status?: RegistryContributionStatus;
-  refundedAmountMinor?: number;
+  /** Written as the larger of the stored total and the new one, in SQL. */
+  refundedAmountMinor?: SQL;
 }
 
 /**
@@ -1592,7 +1608,11 @@ export const registryService = {
       return {
         settings: toSettingsDto(record, deployment, currency),
         items: (itemRows as ItemRow[]).map((r) =>
-          toItemDto(r, claimed.get(r.id) ?? 0, foldRaised(byItem.get(r.id) ?? [], primary)),
+          toItemDto(
+            r,
+            claimed.get(r.id) ?? 0,
+            isGroupGift(r) ? foldRaised(byItem.get(r.id) ?? [], primary) : undefined,
+          ),
         ),
         gifts: gifts.entries,
         giftsHasMore: gifts.hasMore,
@@ -2819,19 +2839,29 @@ export const registryService = {
         db
           .update(registryContributions)
           .set(patch)
+          // `pending` is re-checked in the predicate, not only read above:
+          // Stripe can deliver an unpaid completion while the debit that
+          // cleared is being settled, and writing `pending` over that would
+          // take a received gift out of every total.
           .where(
-            adopting
-              ? sessionAdoptionGuard(pending.id, input.checkoutSessionId)
-              : eq(registryContributions.id, pending.id),
+            and(
+              adopting
+                ? sessionAdoptionGuard(pending.id, input.checkoutSessionId)
+                : eq(registryContributions.id, pending.id),
+              eq(registryContributions.status, "pending"),
+            ),
           )
           .returning({ id: registryContributions.id })
           .all(),
       );
       if ((updated as Array<{ id: string }>).length === 0) {
-        // Only reachable while adopting: another row claimed this session id
-        // between the read and the write, so this row is not the one that was
-        // paid. Nothing is written, and Stripe is still answered — a retry
-        // would only lose the same race again.
+        // Another delivery moved the row off `pending` between the read and
+        // the write, which is a duplicate like any other.
+        if (!adopting) return "duplicate";
+        // While adopting it may also be that another row claimed this session
+        // id, so this row is not the one that was paid. Nothing is written,
+        // and Stripe is still answered — a retry would only lose the same
+        // race again.
         yield* Effect.logError("settle lost the race to adopt a checkout session", {
           contributionId: pending.id,
           checkoutSessionId: input.checkoutSessionId,
@@ -2891,16 +2921,23 @@ export const registryService = {
         db
           .update(registryContributions)
           .set(patch)
+          // `pending` is re-checked in the predicate: a settlement landing
+          // between the read and this write must not be closed as `failed`.
           .where(
-            adopting
-              ? sessionAdoptionGuard(row.id, input.checkoutSessionId)
-              : eq(registryContributions.id, row.id),
+            and(
+              adopting
+                ? sessionAdoptionGuard(row.id, input.checkoutSessionId)
+                : eq(registryContributions.id, row.id),
+              eq(registryContributions.status, "pending"),
+            ),
           )
           .returning({ id: registryContributions.id })
           .all(),
       );
       if ((updated as Array<{ id: string }>).length === 0) {
-        // Adopting only, same race as settle: the session belongs to another
+        // The row moved off `pending` meanwhile: nothing left to close.
+        if (!adopting) return "ignored";
+        // Adopting, the same race as settle: the session may belong to another
         // row, so closing this one against it would be closing the wrong gift.
         yield* Effect.logError("expiry lost the race to adopt a checkout session", {
           contributionId: row.id,
@@ -3017,16 +3054,30 @@ export const registryService = {
       }
 
       const patch: RefundPatch = { updatedAt: new Date() };
-      if (advances) patch.refundedAmountMinor = refunded;
+      // The larger of the two in the statement itself, so a delivery of an
+      // older total racing a newer one can never lower what is recorded.
+      if (advances) {
+        patch.refundedAmountMinor = sql`max(coalesce(${registryContributions.refundedAmountMinor}, 0), ${refunded})`;
+      }
       if (input.fullyRefunded) patch.status = "refunded";
 
-      yield* dbQuery(() =>
+      const written = yield* dbQuery(() =>
         db
           .update(registryContributions)
           .set(patch)
-          .where(eq(registryContributions.id, row.id))
-          .run(),
+          // `succeeded` is re-checked in the predicate, as the dispute path
+          // does: a dispute that took hold meanwhile is the next delivery's
+          // to resolve, not this one's to overwrite.
+          .where(
+            and(
+              eq(registryContributions.id, row.id),
+              eq(registryContributions.status, "succeeded"),
+            ),
+          )
+          .returning({ id: registryContributions.id })
+          .all(),
       );
+      if ((written as Array<{ id: string }>).length === 0) return "ignored";
       return input.fullyRefunded ? "refunded" : "partial";
     }).pipe(Effect.withSpan("cire.registry.refundContribution"));
   },

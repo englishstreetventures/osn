@@ -170,6 +170,25 @@ function giftStatus(gift: GiftLogEntry) {
 }
 
 /**
+ * Whether a refetched row is the row already on screen but for its order.
+ * `raised` is a fresh object on every read, so it is compared by value: a
+ * group gift whose figures did not change keeps its row, and an inline editor
+ * open on it keeps its caret.
+ */
+function sameRow(a: RegistryItem | undefined, b: RegistryItem | undefined): boolean {
+  if (!sameButOrder(a, b, ["raised"])) return false;
+  const x = a?.raised;
+  const y = b?.raised;
+  if (x === y) return true;
+  if (!x || !y) return false;
+  return (
+    x.raisedMinor === y.raisedMinor &&
+    x.giftCount === y.giftCount &&
+    x.otherCurrencyCount === y.otherCurrencyCount
+  );
+}
+
+/**
  * A group gift's standing, beside its name: the "Group gift" tag (left out
  * where a heading already says it), what has come in against the target, what
  * is left, and a tag once the target is reached or passed.
@@ -379,7 +398,9 @@ export default function RegistryView(props: RegistryViewProps) {
 
   // The wedding's primary currency — what every AUTHORED figure is in. A gift
   // may have arrived in something else; those rows carry their own code.
-  const currency = () => snapshot()?.currency ?? "AUD";
+  // A memo, so a write that leaves the currency alone does not re-run what
+  // reads it: each group gift's status, on every gift-log page or thank-you.
+  const currency = createMemo(() => snapshot()?.currency ?? "AUD");
 
   // Declared below the accessors it reads: `createMemo` computes eagerly, so a
   // memo above its dependencies throws at component-init rather than on read.
@@ -422,7 +443,7 @@ export default function RegistryView(props: RegistryViewProps) {
    */
   const fundsHidden = () => moneyBlock() !== null && hasFund();
   /** The sweep has taken the gifts; a group gift's live figure would be false. */
-  const swept = () => (snapshot()?.giftSummary ?? null) !== null;
+  const swept = createMemo(() => (snapshot()?.giftSummary ?? null) !== null);
   /** The group gifts, in list order, for the gifts tab's card. */
   const groupGifts = createMemo(() => items().filter(isGroupGift));
 
@@ -1222,7 +1243,7 @@ export default function RegistryView(props: RegistryViewProps) {
                     // rebuilds the row when anything else did, as an edit
                     // always has.
                     const row = createMemo(() => itemById().get(id), undefined, {
-                      equals: sameButOrder,
+                      equals: sameRow,
                     });
                     return (
                       <Show when={row()} keyed>

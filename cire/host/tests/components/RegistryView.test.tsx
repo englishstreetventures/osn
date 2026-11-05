@@ -2049,6 +2049,28 @@ describe("RegistryView — group gifts", () => {
     expect(screen.queryByText("Espresso machine")).toBeNull();
   });
 
+  it("keeps an open editor's field across a re-read whose figures did not change", async () => {
+    // Every read sends `raised` as a new object. A row rebuilt for it would
+    // take the field the couple are typing in out from under them.
+    setCachedRegistry("wed_1", snapshot({ items: [groupGift()] }));
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Espresso machine" }));
+    const field = screen.getByLabelText("Group gift");
+    field.focus();
+
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [
+          groupGift({ raised: { raisedMinor: 140_000, giftCount: 2, otherCurrencyCount: 0 } }),
+        ],
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByLabelText("Group gift")).toBe(field));
+    expect(document.activeElement).toBe(field);
+  });
+
   it("shows only the target once the sweep has taken the gifts, and no group-gift card", async () => {
     // After the yearly sweep the gifts are gone with the households, so a live
     // figure would say nothing came in. The record band holds what did.

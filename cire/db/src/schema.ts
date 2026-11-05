@@ -1106,8 +1106,10 @@ export const registryItems = sqliteTable(
     quantityWanted: integer("quantity_wanted").notNull().default(1),
     // On a cash fund: the fund is a GROUP GIFT, one named item several
     // households give money towards, which the couple buy themselves. Set at
-    // create and never changed; the service writes it on a cash fund with a
-    // target and nowhere else, and nothing reads it on a product.
+    // create and never changed. The triggers `registry_items_group_gift_shape`
+    // and `…_shape_update` refuse it on anything but a cash fund with a target,
+    // since SQLite cannot add a CHECK to the table without a copy-and-swap that
+    // would cascade into `registry_claims`.
     allowPartial: integer("allow_partial", { mode: "boolean" }).notNull().default(false),
     // A cash fund's goal, or a group gift's target, minor units of the
     // wedding's currency, or NULL. The couple's planning number, never sent to a
