@@ -12,8 +12,9 @@ Two files, always, whatever else fails:
 1. A **PR body** with exactly six `##` sections, filled in at Step 8 with the
    `write-pr` skill.
 2. A **report** of what was checked, what would fail in CI (named exactly, with
-   its fix), whether the branch is ready, whether its pull request opens as a
-   draft and why (Step 9), and the **finding tally**: how many
+   its fix), whether the branch is ready, whether it can merge into its base
+   (Step 9), whether its pull request opens as a draft and why (Step 9), and
+   the **finding tally**: how many
    findings the reviews raised, how many were fixed on this branch, which
    follow-up pull requests fixed (by number), and each issue left open with
    which of the three allowed it — out of scope, unrelated and found mid-task,
@@ -629,29 +630,66 @@ omits it is refused rather than opened — with `-F draft=true` when it waits on
 the owner, and run that step's check that GitHub registered every `Closes` line.
 
 With no network or no `gh`, record that the PR was not opened, name the base it
-should target, and leave the body file in place. That is a complete run.
+should target, and leave the body file in place. Still run the local half of
+the merge check below, on the refs on disk. That is a complete run.
 
 Confirming the base took, and registering a stack when `$BASE` is not `main`,
 are in `references/workflow-steps.md`.
 
-**Before reporting, read whether GitHub can merge it.** Green checks say
-nothing about conflicts, and `main` keeps moving while a pull request waits:
+### Can it merge
+
+Green checks say nothing about conflicts, and `main` keeps moving while a pull
+request waits. Before the report calls the branch ready, check both views.
+
+**Locally, with no API call.** Fetch with explicit refspecs, since a bare clone
+maps no remote-tracking refs and a plain fetch leaves them stale:
+
+```bash
+git fetch origin "+refs/heads/${BASE}:refs/remotes/origin/${BASE}" \
+  "+refs/heads/$(git branch --show-current):refs/remotes/origin/$(git branch --show-current)"
+git merge-tree --write-tree "refs/remotes/origin/${BASE}" HEAD; echo "exit $?"
+```
+
+Read the exit status, not the text: `0` merges cleanly, `1` conflicts and lists
+the files, anything else is an error (a bad ref, say), which proves nothing.
+For a stack, run it once more with `refs/remotes/origin/main` and the top
+branch: each pull request is merged against its parent, so only this shows
+`main` conflicting with a higher layer. With no network, run it on the refs
+already on disk and say so.
+
+**GitHub's view**, once the pull request exists:
 
 ```bash
 gh api repos/englishstreetventures/osn/pulls/<n> --jq '[.mergeable, .mergeable_state]'
 ```
 
-`null` means GitHub has not worked it out yet: read it again a few seconds
-later. `false` or `dirty` is a conflict, and the run is not done until it is
-fixed (`wiki/conventions/stacked-prs.md` §Rebasing a stack). `blocked` only
-means checks or a review are pending. For a stack, read every pull request in
-it, and run `git merge-tree --write-tree refs/remotes/origin/main <top branch>`
-after a fetch: a `CONFLICT` line means `main` has moved under one of its layers.
+`.mergeable` decides: `false` is a conflict. `null` means GitHub has not worked
+it out yet; read it once more, and if it is still `null`, the local result
+stands and the report says GitHub's answer was not ready. Never poll it in a
+loop: each read spends the REST budget every agent on the account shares. Of
+the `mergeable_state` values, `dirty` is a conflict; `behind` means the base
+moved and the branch needs a rebase; `blocked` means a required check or review
+is pending or has failed, so read the checks; `draft`, `unstable`, `clean` and
+`has_hooks` do not stop this step.
 
-Report the PR number, its base branch, whether it can merge, whether it opened
-as a draft and what it waits on, whether the stack is registered, the issues it
-closes, and any close it could not make — a tracker line the classifier
-refused, or a stacked PR's closes — so the owner can make it by hand.
+**A conflict or `behind` means the run is not done.** Report it with the
+conflicting files; this step does not rebase or force-push on its own account.
+Under `orchestrate`, the orchestrator dispatches an `implementer` to resolve it
+(its `DIRTY` or `BEHIND` rule). Run on its own, the session rebases only its own
+branch, onto its base: `origin/main` for a bottom or single pull request, its
+parent branch for a stacked one (`wiki/conventions/stacked-prs.md` §Carrying a
+change up). It never rewrites a lower layer under a session still building it.
+Record the head before the fetch and push with the lease pinned to it,
+`--force-with-lease=<branch>:<recorded head> --force-if-includes`. Then run
+`bun install --frozen-lockfile`, re-run the build and tests the resolution
+touched, and add a `## Test plan` row naming the new commit and saying its tree
+postdates the reviews. Check again before reporting.
+
+Report the PR number, its base branch, whether it can merge (each view's
+answer), whether it opened as a draft and what it waits on, whether the stack
+is registered, the issues it closes, and any close it could not make — a
+tracker line the classifier refused, or a stacked PR's closes — so the owner
+can make it by hand.
 
 ---
 
