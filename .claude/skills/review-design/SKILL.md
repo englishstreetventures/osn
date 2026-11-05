@@ -189,7 +189,7 @@ any list of them.
    `git grep -n '<two or three of its classes>' -- shared/ui/src cire/ui/src osn/auth-ui/src`.
    A bundle that lives in a package is that package's component.
 3. How the surface's other screens draw the same thing:
-   `git grep -ln '<Eyebrow\|cardClass(' -- '<surface>/src'`. Sibling screens
+   `git grep -ln -e '<Eyebrow' -e 'cardClass(' -- '<surface>/src'`. Sibling screens
    that use a component for it are the evidence a reader can check.
 
 **Record every element in `## Components`**, one line each: the file and line,
@@ -227,7 +227,7 @@ git diff "$DIFF_BASE"...HEAD -- <file> | grep -nE '<pattern>'
 
 ### Tokens, never raw values
 
-`rounded-\[|#[0-9a-fA-F]{3,8}\b|oklch\(|rgba?\(|hsla?\(|[0-9]ms\b|cubic-bezier\(|style=|<style`
+`rounded-\[|#[0-9a-fA-F]{3,8}|oklch\(|rgba?\(|hsla?\(|[0-9]ms|cubic-bezier\(|style=|<style`
 
 - Colour, radius, spacing, type step, tracking, leading, duration and easing
   come from the surface's tokens and the `ui-*` contract
