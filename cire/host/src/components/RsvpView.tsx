@@ -1440,7 +1440,7 @@ export default function RsvpView(props: RsvpViewProps) {
                 <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                   Share our privacy notice with them:{" "}
                   <a
-                    href={`${CIRE_MARKETING_URL}/privacy`}
+                    href={`${CIRE_MARKETING_URL}/privacy/`}
                     target="_blank"
                     rel="noopener noreferrer"
                     class={proseLinkClass()}

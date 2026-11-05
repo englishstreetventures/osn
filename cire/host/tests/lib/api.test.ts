@@ -67,7 +67,7 @@ describe("isAuthExpired", () => {
   });
 });
 
-// The assignment `window.location.href = "/login?…"` is resolved against the
+// The assignment `window.location.href = "/login/?…"` is resolved against the
 // document origin by the DOM, so these assert the absolute form.
 describe("redirectToLogin", () => {
   const ORIGIN = "http://localhost:4322";
@@ -80,14 +80,15 @@ describe("redirectToLogin", () => {
     window.location.href = `${ORIGIN}/weddings/w1/guests?tab=rsvp#top`;
     redirectToLogin();
     expect(window.location.href).toBe(
-      `${ORIGIN}/login?returnTo=` + encodeURIComponent("/weddings/w1/guests?tab=rsvp#top"),
+      `${ORIGIN}/login/?returnTo=` + encodeURIComponent("/weddings/w1/guests?tab=rsvp#top"),
     );
   });
 
-  it("does not remember /login itself", () => {
-    window.location.href = `${ORIGIN}/login?returnTo=%2Fwhatever`;
+  // The page is served at `/login/`; the dev server answers `/login` too.
+  it.each(["/login", "/login/"])("does not remember %s itself", (path) => {
+    window.location.href = `${ORIGIN}${path}?returnTo=%2Fwhatever`;
     redirectToLogin();
-    expect(window.location.href).toBe(`${ORIGIN}/login`);
+    expect(window.location.href).toBe(`${ORIGIN}/login/`);
   });
 
   it("carries only a same-origin path, never an absolute URL", () => {
@@ -190,7 +191,7 @@ describe("signOutToLogin", () => {
     // The next person to sign in on this device must not land on this page.
     window.location.href = `${ORIGIN}/#/w/w1/guests`;
     await signOutToLogin(() => Promise.resolve());
-    expect(window.location.href).toBe(`${ORIGIN}/login`);
+    expect(window.location.href).toBe(`${ORIGIN}/login/`);
   });
 
   it("keeps the expired-session redirect the sign-out sets off from carrying the page", async () => {
@@ -199,10 +200,10 @@ describe("signOutToLogin", () => {
     window.location.href = `${ORIGIN}/#/w/w1/guests`;
     await signOutToLogin(async () => {
       redirectToLogin();
-      expect(window.location.href).toBe(`${ORIGIN}/login`);
+      expect(window.location.href).toBe(`${ORIGIN}/login/`);
       window.location.href = `${ORIGIN}/#/w/w1/guests`;
     });
-    expect(window.location.href).toBe(`${ORIGIN}/login`);
+    expect(window.location.href).toBe(`${ORIGIN}/login/`);
   });
 
   it("still leaves for the login page when the sign-out request fails", async () => {
@@ -210,6 +211,6 @@ describe("signOutToLogin", () => {
     await expect(signOutToLogin(() => Promise.reject(new Error("offline")))).rejects.toThrow(
       "offline",
     );
-    expect(window.location.href).toBe(`${ORIGIN}/login`);
+    expect(window.location.href).toBe(`${ORIGIN}/login/`);
   });
 });
