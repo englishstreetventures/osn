@@ -58,7 +58,8 @@
  * two through the API before the guest tab opens and removes them at the end.
  *
  * And the eyebrow checks (`../support/cire-eyebrows.ts`): no small-caps line
- * repeats the heading under it on the guest list, the guest editor, the
+ * repeats the heading under it on the wedding list, whose slug sits under each
+ * wedding's name, the guest list, the guest editor, the
  * settings, the import panel, the co-hosts, getting started, the gift-list
  * settings, the invite builder, the marketing site's
  * live demo and its sheet, while the sign-in page and the marketing hero keep
@@ -291,7 +292,8 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await loginSurfaces(flow, page);
   await signInToCireHost(flow, page);
   // Sign-in lands on the wedding list: each card is the wedding's name, with
-  // no small-caps line over it repeating the name as its link's slug.
+  // no small-caps line over it, and its slug — the guest link's path — under
+  // it, as the wedding switcher prints it.
   const weddingName = page
     .getByRole("button", { name: /Cire Wedding/ })
     .getByText("Cire Wedding", { exact: true });
@@ -299,6 +301,11 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     await expect(weddingName).toBeVisible({ timeout: 60_000 });
   });
   flow.check("wedding list: no eyebrow over a wedding's name", "", await eyebrowOver(weddingName));
+  flow.check(
+    "wedding list: the slug under a wedding's name",
+    "cire-wedding",
+    await weddingName.evaluate((el) => el.nextElementSibling?.textContent?.trim() ?? ""),
+  );
   await wordmarkSwap(flow, page);
 
   // ── The portal ────────────────────────────────────────────────────────────

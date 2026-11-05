@@ -103,6 +103,13 @@ export default function WeddingList(props: {
                     <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
                       {wedding.displayName}
                     </span>
+                    {/* The slug under the name, as the wedding switcher prints
+                        it: the guest link's path, and what tells two weddings
+                        of one name apart. Under the name, not over it, so it
+                        reads as the name's detail rather than its label. */}
+                    <span class="text-text-muted text-ui-xs tracking-ui-widest mt-1 uppercase">
+                      {wedding.slug}
+                    </span>
                     <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm transition-ui-colors mt-2 flex items-center gap-2 duration-(--dur-base) ease-(--ease-out)">
                       Open dashboard
                       <span

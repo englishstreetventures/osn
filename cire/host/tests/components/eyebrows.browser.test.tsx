@@ -22,6 +22,7 @@ import EnquireDialog from "../../src/components/EnquireDialog";
 import ImageCropModal from "../../src/components/ImageCropModal";
 import RemintPanel from "../../src/components/RemintPanel";
 import SecurityPanel from "../../src/components/SecurityPanel";
+import WeddingList from "../../src/components/WeddingList";
 import { eyebrowOver } from "../test-support/eyebrow-over";
 import * as pictures from "../test-support/picture-each";
 
@@ -31,10 +32,12 @@ import * as pictures from "../test-support/picture-each";
  * end-to-end flows never open: the account's Security view, the re-mint panel, the new-wedding form (which is
  * also the whole page for an organiser with no weddings yet), a vendor's
  * enquiry dialog, which needs a directory listing the stack does not seed, and
- * the picture crop, which needs a picture it does not seed either. The form
- * and the two dialogs are pictured at a phone's width and a desktop's, light
- * and dark, in `e2e-artifacts/cire-eyebrows/host/` at the repository root
- * (gitignored).
+ * the picture crop, which needs a picture it does not seed either. And the
+ * wedding list with a deleted wedding, which no flow deletes: each tile's slug
+ * sits under its name, and "Recently deleted" is the shared muted `Eyebrow`.
+ * The form, the two dialogs and the list are pictured at a phone's width and a
+ * desktop's, light and dark, in `e2e-artifacts/cire-eyebrows/host/` at the
+ * repository root (gitignored).
  */
 
 /** Pictures the page at each width and theme into `e2e-artifacts/cire-eyebrows/host/`. */
@@ -159,5 +162,61 @@ describe("a view's heading stands without an eyebrow", () => {
     const heading = await screen.findByRole("heading", { name: "Choose what guests see" });
     expect(eyebrowOver(heading)).toBe("");
     await pictureEach("crop-dialog");
+  });
+
+  it("on the wedding list, with its slugs under the names and its deleted weddings under an Eyebrow", async () => {
+    useFallbackFonts();
+    render(() => (
+      <main class="page-frame @container/page py-8">
+        <WeddingList
+          weddings={[
+            {
+              id: "wed_a",
+              slug: "amara-sam",
+              displayName: "Amara & Sam",
+              role: "owner",
+              entitlements: [],
+              guestCap: 100,
+            },
+            {
+              id: "wed_b",
+              slug: "amara-sam-2",
+              displayName: "Amara & Sam",
+              role: "editor",
+              entitlements: [],
+              guestCap: 100,
+            },
+          ]}
+          deleted={[
+            {
+              id: "wed_gone",
+              slug: "ada-lin",
+              displayName: "Ada & Lin",
+              deletedAt: "2026-10-01T12:00:00.000Z",
+              restoreUntil: "2026-10-08T12:00:00.000Z",
+            },
+          ]}
+          onSelect={() => {}}
+          onCreated={() => {}}
+        />
+      </main>
+    ));
+    // Two weddings of one name, told apart by the slug under each.
+    const names = screen.getAllByText("Amara & Sam", { exact: true });
+    expect(names.map((name) => [eyebrowOver(name), name.nextElementSibling?.textContent])).toEqual([
+      ["", "amara-sam"],
+      ["", "amara-sam-2"],
+    ]);
+    // "Recently deleted" paints as the shared muted `Eyebrow` does.
+    const { container } = render(() => <Eyebrow tone="muted">Probe</Eyebrow>);
+    const look = (el: Element) => {
+      const style = getComputedStyle(el);
+      return [style.fontSize, style.letterSpacing, style.textTransform, style.color];
+    };
+    expect(look(screen.getByRole("heading", { name: "Recently deleted" }))).toEqual(
+      look(container.firstElementChild!),
+    );
+    container.remove();
+    await pictureEach("wedding-list");
   });
 });

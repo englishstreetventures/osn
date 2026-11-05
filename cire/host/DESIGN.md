@@ -250,10 +250,13 @@ actions, and no eyebrow. An eyebrow stays over a heading only when it carries
 something the screen lacks — a count, a date, a step, a state, the tier: the
 upgrade dialog's "Upgrade from Gold" over the feature's name, a locked module's
 "Included with Gold", the sign-in page's "Cire · Host portal", the only words
-telling the two portals' sign-in pages apart. Removing an eyebrow never
-removes the heading element under it. A label that stands alone — a card's,
-a fieldset's legend, a group's head — names its block and is not a pair, so
-this rule leaves it be. The guest invitation's section eyebrows are the
+telling the two portals' sign-in pages apart. A detail that is not a label
+goes under the name it belongs to, not over it: a wedding tile prints the
+wedding's slug, the guest link's path and what tells two weddings of one name
+apart, under the name in muted small caps, as the wedding switcher does.
+Removing an eyebrow never removes the heading element under it. A label that
+stands alone — a card's, a fieldset's legend, a group's head — names its block
+and is not a pair, so this rule leaves it be. The guest invitation's section eyebrows are the
 couple's copy in the invite's own design, not the portal's (`wiki/cire/cire-invite-designs.md`).
 
 ---
