@@ -62,9 +62,9 @@ Cire's own Connect calls), and the webhook refuses any event naming an account.
 The Stripe request helper, the verifier and `readBoundedText` are copies of
 Cire's (`cire/api/src/services/stripe.ts`, `cire/api/src/lib/webhook-body.ts`),
 with these differences: GET parameters go in the query string, arrays encode
-as `key[0]=` (the form stripe-node sends), the fetch is `instrumentedFetch`
-unless a `fetchImpl` is passed, and the one timeout over the fetch and the body
-read is an option (`timeoutMs`, default 10 s). englishstreetventures/osn#1175
+as `key[0]=` (the form stripe-node sends), the default fetch reads the global
+`fetch` on each call rather than when the client is built, and the one timeout
+over the fetch and the body read is an option (`timeoutMs`, default 10 s). englishstreetventures/osn#1175
 moves Cire onto them.
 
 ## Plans and features
@@ -469,8 +469,8 @@ and portal pages were read at their current version.
   `.grant`, `.revoke_grant`, `.webhook.handle` with `.verify` and `.apply`,
   `.access.apply`, `.reconcile`, `.sweep`, `.reapply`, `.prune_webhook_events`,
   `.forget_customer`, `.sync`,
-  `billing.stripe.<op>`, `billing.storage.<operation>`. Outbound calls go
-  through `instrumentedFetch`.
+  `billing.stripe.<op>`, `billing.storage.<operation>`. On a Worker,
+  Cloudflare traces each outbound call as a `fetch` span.
 - **Metrics** (`src/metrics.ts`, [[shared/observability/metrics|metrics]]):
   `osn.billing.checkout.started`, `.portal.opened`, `.webhook.received`,
   `.subscription.transitions`, `.access.checked`, `.access.applied`,

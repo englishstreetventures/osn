@@ -8,12 +8,26 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Logging
 
-Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError` inside Effect pipelines. The logger attaches trace context automatically -- no manual `traceId` plumbing.
+Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError` inside Effect pipelines. No manual `traceId` plumbing: on a Worker, Workers Logs files each line under the invocation's trace, and on Bun the tracer logger adds each line to its span.
+
+## Where a log line goes
+
+`makeLoggerLayer` ([layer.ts](../../../shared/observability/src/logger/layer.ts)) picks one console logger per tier, and all three see the entry after redaction ([[#Redaction]]). Effect's console is the only sink; no service code calls `console.*`.
+
+| Tier | Runtime | What reaches the console |
+|---|---|---|
+| `local` | any | Effect's pretty logger, coloured, multi-line |
+| `dev`, `staging`, `production` | workerd (`navigator.userAgent` is `Cloudflare-Workers`) | The entry as an object, through the console method of its level: `console.info`, `console.warn`, `console.error`, `console.debug` |
+| `dev`, `staging`, `production` | anything else (Bun with `OSN_ENV` set) | The entry as one JSON line through `console.log` |
+
+On a Worker that object is what Workers Logs indexes: it extracts and indexes the keys of a logged object, and keeps a logged string as one message that only a text match finds ([Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/), read 2026-11-05). A line's level in Workers Logs is the console method's. The entry's own fields are `message`, `level`, `timestamp`, `cause`, `annotations`, `spans` and `fiberId`, so an annotation is queried as `annotations.<key>`.
+
+Each Worker's `[observability]` block decides what is kept: `enabled = true` writes logs, `head_sampling_rate` samples invocations (1 everywhere today), and `[observability.logs] invocation_logs = false` drops the per-invocation record, which every cire Worker sets because the record stores the request URL and cire paths carry the wedding slug. Workers Free keeps logs three days and Workers Paid seven, and both seven from 2026-12-01, within the limits in [[free-tier-limits#Monitoring]].
 
 ## Log level guide
 
@@ -72,9 +86,12 @@ Effect v4 moved annotations off the logger's `Options` and onto the fiber, so
 there is no input to intercept any more. Redaction therefore sits on the output
 side, wrapping `Logger.formatStructured` — whose output object already carries
 the resolved `message` and `annotations`. Anything that rebuilds the logger must
-keep that seam, and must keep `Logger.tracerLogger` in the `Logger.layer([…])`
+keep that seam, and must keep the tracer logger in the `Logger.layer([…])`
 array: that call replaces the **whole** active set, so omitting it drops
-log-to-span correlation with no error.
+log-to-span correlation with no error. The tracer logger is wrapped in the same
+input-side scrub as the pretty logger (`redactInput`), because it copies each
+line's message and annotations onto the span as an event, which the Bun OTLP
+path exports. A Workers span carries no events ([[tracing#Effect spans in Workers traces]]).
 
 ### The JSON field is `level`, not `logLevel`
 
@@ -123,7 +140,7 @@ Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being uns
 
 ## Route-level logger wiring
 
-`createAuthRoutes` and `createGraphRoutes` accept an optional `loggerLayer: Layer.Layer<never>` parameter (default `Layer.empty`). Each host entry passes its own layer so that `Effect.logDebug` / `Effect.logError` calls inside service pipelines fire through the configured logger + redactor: the Bun entry (`osn/api/src/local.ts`) passes the `observabilityLayer` from `initObservability()`; the Workers entry (`osn/api/src/index.ts`) passes the redacting logger layer alone, because the OTel SDK does not run on workerd.
+`createAuthRoutes` and `createGraphRoutes` accept an optional `loggerLayer: Layer.Layer<never>` parameter (default `Layer.empty`). Each host entry passes its own layer so that `Effect.logDebug` / `Effect.logError` calls inside service pipelines fire through the configured logger + redactor: the Bun entry (`osn/api/src/local.ts`) passes the `observabilityLayer` from `initObservability()`; the Workers entry (`osn/api/src/index.ts`) passes `osnLoggerLayer`, the redacting logger with the Workers trace mirror, because the OTel SDK does not run on workerd.
 
 Without this wiring, per-request Effect pipelines use Effect's default logger (which drops `Debug` and doesn't redact).
 

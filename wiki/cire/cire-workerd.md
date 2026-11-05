@@ -5,7 +5,7 @@ related:
   - "[[shared/observability/overview]]"
   - "[[cire]]"
   - "[[decisions/deferred-decisions]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-11-05
 ---
 # Observability Overview
 
@@ -18,12 +18,12 @@ cire/api is an Elysia app on workerd; cire uses Effect.ts only in the service + 
 | Concern | What cire uses | Workerd-safe because |
 | --- | --- | --- |
 | **Logs** | `makeLoggerLayer` from `@shared/observability/logger` (`src/observability.ts` → `cireLoggerLayer`, provided via `runCire` / `runCireSync`) | pure `effect` code, zero OTel imports |
-| **Traces** | `Effect.withSpan("cire.<domain>.<op>")` on service functions; `makeOtlpTracing` from `@shared/observability/tracing` | the optional exporter uses Effect and `fetch`, without the Node OpenTelemetry SDK |
+| **Traces** | `Effect.withSpan("cire.<domain>.<op>")` on service functions; `WorkersTracingLive` from `@shared/observability/tracing`, merged into `cireLoggerLayer` | pure `effect` code calling the Workers `tracing` API from `ctx.tracing`; no OTel SDK |
 | **Metrics** | `cire/api/src/metrics.ts` — typed counters/histograms via `createCounter`/`createHistogram` (`@shared/observability/metrics`) | factory imports only `@opentelemetry/api`; lazily resolves a no-op meter |
 
-### Application export
+### Traces and logs in Cloudflare
 
-`cire/api` exports application spans through a workerd-safe OTLP/HTTP exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The Worker flushes after each request through `ctx.waitUntil`; without the endpoint, the exporter is inert. Application metrics still need a workerd export path; see `[[decisions/deferred-decisions]]`. Cloudflare's native tracing is separate: the local Wrangler config enables it without URL redaction, and dev enables it with query strings redacted on cire-api and cire-invites. The production `cire-invites` Worker traces both existing `/<slug>` guest links and new fixed-path links at `/cire/invite?slug=…` and `/cire/registry?slug=…`. Existing path slugs and outbound API URLs appear in traces; new fixed-path pages resolve invitations through a fixed API URL with the slug in the request body. The production API Worker keeps native traces off while path-bearing URLs are reviewed. Production query strings are redacted in Cloudflare logs and native traces. See [[shared/observability/tracing]].
+`cire/api` exports nothing itself. Its `fetch` and `scheduled` handlers install `ctx.tracing` first, so every `Effect.withSpan` run through `runCire` (each route and each cron sweep) joins the invocation's Cloudflare trace as a custom span, beside Cloudflare's own D1, R2 and outbound `fetch` spans; its log lines reach Workers Logs as structured objects ([[shared/observability/tracing#Effect spans in Workers traces]], [[logging#Where a log line goes]]). Application metrics still need a workerd export path; see `[[decisions/deferred-decisions]]`. Where native tracing is on: the local Wrangler config enables it without URL redaction, and dev enables it with query strings redacted on cire-api and cire-invites. The production `cire-invites` Worker traces both existing `/<slug>` guest links and new fixed-path links at `/cire/invite?slug=…` and `/cire/registry?slug=…`. Existing path slugs and outbound API URLs appear in traces; new fixed-path pages resolve invitations through a fixed API URL with the slug in the request body. The production API Worker keeps native traces off while path-bearing URLs are reviewed. Production query strings are redacted in Cloudflare logs and native traces. See [[shared/observability/tracing]].
 
 ## Three Rules
 

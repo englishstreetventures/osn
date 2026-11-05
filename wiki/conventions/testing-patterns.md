@@ -11,6 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
+  - "[[tracing]]"
 last-reviewed: 2026-11-05
 ---
 
@@ -32,7 +33,12 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 
 `tools/e2e` (`@tools/e2e`) is where E2E tests live. `bun run test:e2e` boots the real stack, runs every flow in Chromium, and writes the artifact. `bun run test:e2e:repro` runs it twice and fails unless both runs wrote the same `results.json` byte for byte. CI runs the repro on every pull request (the `E2E` job) and uploads `e2e-artifacts/`.
 
-One E2E test lives outside it: [`scripts/tests/guest-route-parity-wrangler.e2e.ts`](../../scripts/tests/guest-route-parity-wrangler.e2e.ts), run by `bun run test:scripts:wrangler`. It runs the guest route comparison's Node child on real Wrangler and a fixture Worker ([[infrastructure-as-code#The guest route comparison]]): it tests a script under `scripts/`, and needs no stack, only an install and Node. Its `.e2e.ts` name keeps it out of `bun test ./scripts/`, since the Scripts job installs nothing; CI's Build & Test job runs it. Its artifact, the fake origins' request logs with ports and paths normalised, goes to `test-artifacts/guest-route-parity-wrangler.json`, not `e2e-artifacts/`, which the suite clears.
+Two E2E tests live outside it, both on real Wrangler under Node, both needing no stack, only an install and Node, and both run by CI's Build & Test job:
+
+- [`scripts/tests/guest-route-parity-wrangler.e2e.ts`](../../scripts/tests/guest-route-parity-wrangler.e2e.ts), run by `bun run test:scripts:wrangler`. It runs the guest route comparison's Node child on a fixture Worker ([[infrastructure-as-code#The guest route comparison]]). Its `.e2e.ts` name keeps it out of `bun test ./scripts/`, since the Scripts job installs nothing. Its artifact, the fake origins' request logs with ports and paths normalised, goes to `test-artifacts/guest-route-parity-wrangler.json`.
+- [`shared/observability/tests/wrangler/workers-observability.e2e.ts`](../../shared/observability/tests/wrangler/workers-observability.e2e.ts), run by `bun run --cwd shared/observability test:wrangler`. It starts `wrangler dev` on a fixture Worker that composes the shared logger and the Workers trace mirror as osn-api and cire-api do, sends two overlapping requests, and reads their spans and logs back through wrangler's local explorer (`POST /cdn-cgi/local/explorer/api/local/observability/query`) ([[tracing#Effect spans in Workers traces]]). Its `.e2e.ts` name keeps it out of vitest's `tests/**/*.test.ts`; it is not in `test:d1`, which gates the dev deploy and every production release. Its artifact, each request's spans and log lines with ids, times and ports removed, goes to `test-artifacts/observability-workers.json`.
+
+Both write to `test-artifacts/`, not `e2e-artifacts/`, which the suite clears.
 
 A script test that needs no install but waits out seconds is named out of `bun test ./scripts/` too, since that command runs its files one after another, and gets a root script and a step of its own in the Scripts job, not in Build & Test, whose time sets when the `ci` gate finishes on a cold turbo cache. The one such test is the relay's 13 s idle-timeout test, [`scripts/tests/guest-route-parity-relay-idle.slow.ts`](../../scripts/tests/guest-route-parity-relay-idle.slow.ts), run by `bun run test:scripts:relay-idle`.
 

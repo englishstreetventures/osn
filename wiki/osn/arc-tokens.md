@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 # ARC Tokens (S2S Auth)
 
@@ -313,7 +313,7 @@ the runs where the timing happens to tie.
 - `/register-service` validates `allowedScopes` against `PERMITTED_SCOPES` allowlist — services cannot self-promote.
 - A `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
 - ARC tokens are machine-to-machine only. Never use them for user-facing authentication — use access tokens for that.
-- An `Authorization: ARC ...` header earns no trust for inbound trace context: the observability plugin links any caller's well-formed `traceparent` to its server span and never makes it the parent ([[tracing#Inbound trace context]]).
+- An `Authorization: ARC ...` header earns no trust for inbound trace context: no service adopts a caller's `traceparent`, and a Worker's handler span starts a trace of its own ([[tracing#Trace context across services]]).
 
 ## Metrics
 

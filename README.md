@@ -169,7 +169,7 @@ shared/           # @shared/* — cross-cutting utilities
   design-tokens/     # The ui-* token contract every shared component reads
   email/             # EmailService Tag — Resend / Cloudflare / Log / Noop transports
   feature-flags/     # Key-optional, fail-safe flag client (GrowthBook)
-  observability/     # OpenTelemetry helpers, Elysia plugin, instrumentedFetch
+  observability/     # Redacting logger, Workers trace mirror, metric helpers, Elysia plugin
   osn-auth-client/   # Downstream access-JWT verification — JWKS cache, Elysia adapter
   rate-limit/        # Per-IP / per-user limiter primitives, client-IP trust policy
   turnstile/         # Key-optional, fail-closed Turnstile verifier

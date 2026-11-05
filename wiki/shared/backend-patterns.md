@@ -23,7 +23,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Backend Code Patterns
@@ -205,9 +205,11 @@ phases have since shipped too — osn-api runs a Workers `fetch` entry
 `index.ts` shape per [[database-environments]].
 
 The two entries differ in what they wire: `local.ts` starts the OTel SDK through
-`initObservability()`, while `index.ts` builds the redacting logger layer alone
-and sets `includeObservabilityPlugin: false` (the per-request plugin calls
-`process.hrtime.bigint()`, absent on workerd). See [[logging]].
+`initObservability()`, while `index.ts` builds the redacting logger layer with
+the Workers trace mirror (`osnLoggerLayer`), installs `ctx.tracing` at the top
+of `fetch` and `scheduled`, and sets `includeObservabilityPlugin: false` (the
+per-request plugin calls `process.hrtime.bigint()`, absent on workerd). See
+[[logging]] and [[tracing]].
 
 ## Error Handling Pattern
 

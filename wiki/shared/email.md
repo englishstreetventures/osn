@@ -170,8 +170,8 @@ Content-Type: application/json
 `@shared/email` exposes four Layers + the `EmailService` Tag:
 
 - `makeResendEmailLive(config)` — **preferred** real dispatch. POSTs to
-  Resend's HTTP API (`https://api.resend.com/emails`) via
-  `instrumentedFetch` so the call becomes a child span. Same render path,
+  Resend's HTTP API (`https://api.resend.com/emails`) with `fetch`, which
+  Cloudflare traces on a Worker. Same render path,
   metrics, and failure reasons as the Cloudflare transport: a 429 fails as
   `rate_limited`, any other non-2xx as `dispatch_failed`, a rejected fetch as
   `api_unreachable`. Unlike it, the Resend transport logs every failure
@@ -190,8 +190,8 @@ Content-Type: application/json
   `resendApiUrlProblem` is that check, exported for callers that want the
   reason instead of a throw.
 - `makeCloudflareEmailLive(config)` — legacy real dispatch. POSTs directly
-  to Cloudflare's Email Service REST API via `instrumentedFetch` so the
-  call becomes a child span.
+  to Cloudflare's Email Service REST API with `fetch`, which Cloudflare
+  traces on a Worker.
 - `EmailService.sendBatch` (optional) — several emails in as few provider
   calls as the transport allows. Resend implements it as `POST
   https://api.resend.com/emails/batch`, up to 100 emails per call, all or
@@ -416,8 +416,8 @@ through Resend itself whenever the key is set.
   - `email.render`
   - `email.resend.dispatch` (live transport) / `email.cloudflare.dispatch`
     (legacy fallback)
-  - Outbound HTTP becomes a child `HTTP POST` span via
-    `@shared/observability/fetch → instrumentedFetch`.
+  - On a Worker, Cloudflare records each POST as a `fetch` span in the
+    request's trace, beside the dispatch span.
 - **Logs** (Resend transport only; the Cloudflare transport logs nothing):
   - `email.dispatch_failed` (error), once per failed send or batch call,
     annotated `template`, `reason` (`render_failed`, `api_unreachable`,
