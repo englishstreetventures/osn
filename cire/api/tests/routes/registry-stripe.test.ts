@@ -484,6 +484,25 @@ describe("create-or-resume", () => {
     expect(row?.published).toBe(false);
   });
 
+  it("stores what Stripe said about the new account, its currency included", async () => {
+    const stripe = stripeStub({
+      account: { ...ACCOUNT, chargesEnabled: true, payoutsEnabled: true, defaultCurrency: "AUD" },
+    });
+    const { app, db } = buildApp({ stripe: stripe.client });
+
+    expect((await req(app, `${base}/session`, OWNER)).status).toBe(200);
+
+    const row = db
+      .select()
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+    expect(row?.stripeChargesEnabled).toBe(true);
+    expect(row?.stripePayoutsEnabled).toBe(true);
+    expect(row?.stripeDefaultCurrency).toBe("AUD");
+    expect(row?.stripeAccountUpdatedAt).not.toBeNull();
+  });
+
   it("reuses the account on every return trip — onboarding is a form people abandon", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });
