@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 # Cire invite builder
 
@@ -408,18 +408,19 @@ wedding that silently relied on those defaults must save its own copy via the
 builder (the old values live in the PR #248 description). The Our-Story eyebrow is a
 label, not content — it does not keep the section alive on its own.
 
-**Builder reflection (no surprises):** `InviteBuilder.tsx` shows a per-section
-badge — **"Shown"**, **"Hidden — empty"** or **"Hidden — switched off"** — on the
-Hero, Our Story, FAQ and Closing Section fieldsets, beside the section's "Show on the
-invite" switch, and under it a line saying why a hidden section is hidden. The
-badge is driven by the **same** logic as the guest render: the content predicates
-are mirrored in `cire/host/src/lib/invite-emptiness.ts` (a hand-kept copy; keep
-the two in lockstep) and `sectionState` comes from `@cire/theme`. The badge
-updates **live** as the organiser types or flips the switch, so they know exactly
-what a guest will see before saving. The switches save with the copy and theme
-(`PUT /invite/visibility`), and "Reset section" switches the section back on.
-The FAQ's badge reads its switch from the draft and its content from the live
-entry list, since entries save as they are made; `faqState` and `isFaqEmpty` are
+**Builder reflection (no surprises):** `InviteBuilder.tsx` gives the Hero, Our
+Story, FAQ and Closing Section fieldsets a "Show on the invite" switch, and under
+it a line saying why a hidden section is hidden. The section's tab and phone menu
+row name its state — "(hidden — empty)" or "(hidden — switched off)" — with the
+eye-off icon; the card itself shows no state pill, since the switch already says
+whether it is on. The state is driven by the **same** logic as the guest render:
+the content predicates are mirrored in `cire/host/src/lib/invite-emptiness.ts`
+(a hand-kept copy; keep the two in lockstep) and `sectionState` comes from
+`@cire/theme`. It updates **live** as the organiser types or flips the switch, so
+they know exactly what a guest will see before saving. The switches save with the
+copy and theme (`PUT /invite/visibility`), and "Reset section" switches the
+section back on. The FAQ's state reads its switch from the draft and its content
+from the live entry list, since entries save as they are made; `faqState` and `isFaqEmpty` are
 mirrored in the host module like the other predicates.
 
 ## Required event fields (Name + Start + Timezone)
@@ -1334,7 +1335,7 @@ endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 | --- | --- |
 | `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout, the view's cards, Content's section strip and the phone's place menu |
 | `invite/model.ts` | Wire types, closed option sets, `COPY_CAPS` (client mirror of `InviteTextBody`), the `InviteDraft` shape + pure `textPayload`/`themePayload` builders |
-| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`, three states) / `SectionCard` (`hidden` prop; `visibility` prop renders the badge, the "Show on the invite" switch and the reason line) / `Disclosure` / `InstantBadge` |
+| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SectionCard` (`hidden` prop; `visibility` prop renders the "Show on the invite" switch and the reason line, and sets the fieldset's `data-state`) / `Disclosure` / `InstantBadge` |
 | `invite/previews.tsx` | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle` |
 | `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
 | `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button in the module's view bar |
@@ -1450,8 +1451,8 @@ still loading, or one that failed, leaves the module's strip to leave by.
 
 **A hidden section says so with an icon and words, not a fade.** Its tab, the
 pill and its menu row lead with `HiddenSectionIcon` (lucide's `eye-off`,
-`aria-hidden`, in the label's ink), and its name carries the badge's words
-("Hero (hidden — empty)", "(hidden — switched off)"). The label keeps the idle
+`aria-hidden`, in the label's ink), and its name carries the state's words
+(`SECTION_STATE_LABELS`: "Hero (hidden — empty)", "(hidden — switched off)"). The label keeps the idle
 ink, so it reads at 4.5:1 (`@cire/ui` `segmented-tabs.browser.test.tsx`).
 Only Content's six cards are tab panels (`SectionCard`'s `tabPanel`), and only
 while the section strip is drawn: on a phone, with no strip, they are fieldsets

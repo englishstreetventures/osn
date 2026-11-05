@@ -1,7 +1,7 @@
 /**
  * The invite builder's shared form primitives: labelled text inputs and
  * textareas (with live character counters against the server caps), closed-set
- * dropdowns, range sliders, the per-section visibility badge and switch, and
+ * dropdowns, range sliders, the per-section visibility switch, and
  * the section-card chrome every builder section shares. `EventTable`'s image field
  * imitates patterns from here — if a primitive grows a second consumer, move
  * it to the shared component library rather than copying it again.
@@ -184,7 +184,7 @@ export function SliderField(props: {
   );
 }
 
-/** The badge's words for each state — also the wording of the tab clauses. */
+/** The words for each state, as the section tabs and menu name them. */
 export const SECTION_STATE_LABELS = {
   shown: "Shown",
   empty: "Hidden — empty",
@@ -215,39 +215,8 @@ export function HiddenSectionIcon(props: { class?: string; strokeWidth?: number 
 }
 
 /**
- * A small per-section status badge telling the organiser whether this section
- * will render on the live guest invite: "Shown" when it is switched on and has
- * content, "Hidden — empty" when it is switched on with nothing in it, "Hidden —
- * switched off" when its switch is off (mirrors the guest-side state functions
- * in `../../lib/invite-emptiness`). It updates live as the fields and the switch
- * change, and announces the flip (`role="status"`) so a screen-reader user hears
- * the new state the moment their edit changes it.
- */
-export function SegmentBadge(props: { state: SectionState }) {
-  const shown = () => props.state === "shown";
-  return (
-    <Chip
-      variant="outline"
-      tone={shown() ? "accent" : "neutral"}
-      data-segment-badge
-      data-shown={shown() ? "true" : "false"}
-      data-state={props.state}
-      role="status"
-      class="w-fit"
-    >
-      <span
-        aria-hidden="true"
-        class="inline-block h-1.5 w-1.5 rounded-full"
-        classList={{ "bg-gold": shown(), "bg-text-muted/60": !shown() }}
-      />
-      {SECTION_STATE_LABELS[props.state]}
-    </Chip>
-  );
-}
-
-/**
- * What a switchable section's card needs: the state the badge shows, the switch
- * and its setter, and the words for why a hidden section is hidden.
+ * What a switchable section's card needs: its state, the switch and its
+ * setter, and the words for why a hidden section is hidden.
  */
 export interface SectionVisibility {
   state: SectionState;
@@ -268,7 +237,7 @@ const DEFAULT_OFF_NOTE =
   "Switched off. Guests won't see this section on the invite; everything in it is kept for when you switch it back on. Switching off hides the section — it does not make its photo private.";
 
 /**
- * The reason a switchable section is hidden, in words, under its badge: switched
+ * The reason a switchable section is hidden, in words, under its switch: switched
  * on but empty says what to add; switched off says the content is kept. Nothing
  * while the section is shown.
  */
@@ -296,15 +265,16 @@ export function InstantBadge() {
  * `tabpanel` for the section nav's `id`/`aria-labelledby` pair (`props.id` is
  * both the fieldset's DOM id — the tab's `aria-controls` target — and half of
  * `${id}-tab`, the tab's own id), the micro-caps legend, the optional visibility
- * badge + switch + reason line, the optional per-section reset, and the optional
+ * switch + reason line, the optional per-section reset, and the optional
  * description paragraph. Keeping this in one place is what keeps the section
  * cards from drifting apart.
  */
 export function SectionCard(props: {
   id: string;
   legend: string;
-  /** Present ⇒ the section has a visibility switch: render the state badge, the
-   *  "Show on the invite" switch and, while hidden, the reason. */
+  /** Present ⇒ the section has a visibility switch: render the "Show on the
+   *  invite" switch and, while hidden, the reason. The state goes on the
+   *  fieldset as `data-state`; the tabs show it to the organiser. */
   visibility?: SectionVisibility;
   description?: JSX.Element;
   /** Present ⇒ render a "Reset section" action that reverts the section's
@@ -327,6 +297,7 @@ export function SectionCard(props: {
       hidden={props.hidden}
       role={props.tabPanel ? "tabpanel" : undefined}
       aria-labelledby={props.tabPanel ? `${props.id}-tab` : undefined}
+      data-state={props.visibility?.state}
       class="border-border flex flex-col gap-4 rounded-sm border p-4"
     >
       {/* The legend's side padding opens the gap in the fieldset's border; the
@@ -340,16 +311,13 @@ export function SectionCard(props: {
         <div class="flex flex-wrap items-center justify-between gap-3">
           <Show when={props.visibility} fallback={<span aria-hidden />}>
             {(visibility) => (
-              <span class="flex flex-wrap items-center gap-4">
-                <SegmentBadge state={visibility().state} />
-                <Checkbox
-                  box="native"
-                  size="sm"
-                  checked={visibility().visible}
-                  onChange={(next) => visibility().onChange(next)}
-                  label="Show on the invite"
-                />
-              </span>
+              <Checkbox
+                box="native"
+                size="sm"
+                checked={visibility().visible}
+                onChange={(next) => visibility().onChange(next)}
+                label="Show on the invite"
+              />
             )}
           </Show>
           <Show when={props.onReset}>
