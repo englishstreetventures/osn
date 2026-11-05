@@ -38,8 +38,9 @@ export interface GiftRegistryItem {
 
 /**
  * Mirrors `PublicRegistryFundDto` — one of the couple's cash funds. Its name,
- * picture and the couple's words about it, and nothing else: a fund's goal,
- * and how much has come in, are the couple's alone.
+ * picture and the couple's words about it, and whether it is a group gift, and
+ * nothing else: a fund's goal or a group gift's target, and how much has come
+ * in, are the couple's alone.
  */
 export interface GiftRegistryFund {
   id: string;
@@ -49,6 +50,12 @@ export interface GiftRegistryFund {
   imageName: string | null;
   imageCrop: string | null;
   sortOrder: number;
+  /**
+   * One item several households give money towards, which the couple buy
+   * themselves. Optional because this site can reach production before the
+   * API that sends it; absent reads as a plain fund.
+   */
+  groupGift?: boolean;
 }
 
 /** Mirrors `PublicRegistryDto`. One primary currency for the whole list. */

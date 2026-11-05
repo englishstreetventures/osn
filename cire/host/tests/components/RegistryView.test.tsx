@@ -1429,6 +1429,7 @@ describe("RegistryView — cash funds", () => {
     expect(init.headers).toEqual({ "Content-Type": "application/json" });
     expect(JSON.parse(init.body)).toEqual({
       kind: "cash_fund",
+      allowPartial: false,
       title: "Honeymoon in Kyoto",
       description: "Trains, temples and a very good dinner.",
       targetMinor: 50_000,
@@ -1962,5 +1963,110 @@ describe("RegistryView — cash funds", () => {
       );
       view.unmount();
     }
+  });
+});
+
+describe("RegistryView — group gifts", () => {
+  const groupGift = (over: Partial<RegistryItem> = {}): RegistryItem =>
+    item({
+      id: "group_1",
+      kind: "cash_fund",
+      allowPartial: true,
+      title: "Espresso machine",
+      targetMinor: 120_000,
+      raised: { raisedMinor: 140_000, giftCount: 2, otherCurrencyCount: 0 },
+      ...over,
+    });
+  const renderList = () =>
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+  it("refuses a group gift with no target and sends nothing", async () => {
+    // A group gift with no target is a plain fund, which the couple choose
+    // with the other radio.
+    setCachedRegistry("wed_1", snapshot());
+    renderList();
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A group gift" }));
+    fireEvent.input(screen.getByLabelText("Group gift"), {
+      target: { value: "Espresso machine" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add group gift/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "A group gift needs a target: what it costs.",
+    );
+    expect(authFetch).not.toHaveBeenCalled();
+    // What was typed stays, so the couple add the target and press again.
+    expect((screen.getByLabelText("Group gift") as HTMLInputElement).value).toBe(
+      "Espresso machine",
+    );
+  });
+
+  it("takes back a group gift an older API saved as a plain fund, and says so", async () => {
+    // The portal can reach production before the API that knows group gifts.
+    // That API drops `allowPartial` and saves a plain fund; the portal deletes
+    // it at once.
+    setCachedRegistry("wed_1", snapshot());
+    authFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            item: item({
+              id: "oops",
+              kind: "cash_fund",
+              title: "Espresso machine",
+              targetMinor: 120_000,
+            }),
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    renderList();
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A group gift" }));
+    fireEvent.input(screen.getByLabelText("Group gift"), {
+      target: { value: "Espresso machine" },
+    });
+    fireEvent.input(screen.getByLabelText("Target"), { target: { value: "1200" } });
+    fireEvent.click(screen.getByRole("button", { name: /add group gift/i }));
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toEqual({
+      kind: "cash_fund",
+      allowPartial: true,
+      title: "Espresso machine",
+      description: null,
+      targetMinor: 120_000,
+      imageKey: null,
+    });
+    const [url, init] = authFetch.mock.calls[1]!;
+    expect(String(url)).toMatch(/\/registry\/items\/oops$/);
+    expect(init.method).toBe("DELETE");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Group gifts aren’t available yet. Try again in a few minutes.",
+    );
+    expect(screen.queryByText("Espresso machine")).toBeNull();
+  });
+
+  it("shows only the target once the sweep has taken the gifts, and no group-gift card", async () => {
+    // After the yearly sweep the gifts are gone with the households, so a live
+    // figure would say nothing came in. The record band holds what did.
+    const swept = snapshot({
+      items: [groupGift({ raised: { raisedMinor: 0, giftCount: 0, otherCurrencyCount: 0 } })],
+      giftSummary: summary(),
+    });
+    setCachedRegistry("wed_1", swept);
+    const list = renderList();
+
+    const row = await screen.findByText("Espresso machine");
+    const rowText = row.closest("li")?.textContent ?? "";
+    expect(rowText).toContain(`Target ${formatMinor(120_000, "AUD")}`);
+    expect(rowText).not.toMatch(/ of |to go|Target reached|Past target/);
+    list.unmount();
+
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="gifts" />);
+    expect(await screen.findByText("Your record of gifts")).toBeInTheDocument();
+    expect(screen.queryByTestId("group-gifts")).toBeNull();
   });
 });

@@ -1646,10 +1646,20 @@ describe("registry ownership + range guards", () => {
     const second = await ok(db, registryService.createItem({ ...newItem(), imageKey: ownKey }));
 
     const shared = await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, first.id));
-    expect(shared).toEqual({ kind: "product", imageKey: ownKey, imageKeyOrphaned: false });
+    expect(shared).toEqual({
+      kind: "product",
+      allowPartial: false,
+      imageKey: ownKey,
+      imageKeyOrphaned: false,
+    });
 
     const last = await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, second.id));
-    expect(last).toEqual({ kind: "product", imageKey: ownKey, imageKeyOrphaned: true });
+    expect(last).toEqual({
+      kind: "product",
+      allowPartial: false,
+      imageKey: ownKey,
+      imageKeyOrphaned: true,
+    });
   });
 
   it("refuses an out-of-range quantity on create, update and claim", async () => {

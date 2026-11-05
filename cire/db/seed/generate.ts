@@ -599,7 +599,7 @@ function registryItemsBlock(): string {
     ${sqlOrNull(i.description)},
     ${sqlOrNull(i.externalUrl)},
     ${numOrNull(i.priceMinor)}, ${i.quantityWanted}, ${sqlOrNull(i.category)},
-    ${numOrNull(i.targetMinor)}, ${i.sortOrder},
+    ${numOrNull(i.targetMinor)}, ${"allowPartial" in i && i.allowPartial ? 1 : 0}, ${i.sortOrder},
     unixepoch(), unixepoch()
   )`,
   );
@@ -609,12 +609,13 @@ function registryItemsBlock(): string {
 -- with no bytes behind it renders a broken image on both the organiser list and
 -- the guest site. The link-preview path fills it in normally.
 --
--- The last row is a cash fund with a goal. Money gifts are off here, so it
--- shows in the organiser's list and not on the guest page.
+-- The last two rows are a cash fund with a goal and a group gift with a
+-- target. Money gifts are off here, so both show in the organiser's list and
+-- not on the guest page.
 INSERT OR IGNORE INTO registry_items (
   id, wedding_id, kind, title, description,
-  external_url, price_minor, quantity_wanted, category, target_minor, sort_order,
-  created_at, updated_at
+  external_url, price_minor, quantity_wanted, category, target_minor, allow_partial,
+  sort_order, created_at, updated_at
 ) VALUES
 ${rows.join(",\n")};`,
   );

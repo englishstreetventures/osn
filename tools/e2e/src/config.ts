@@ -253,6 +253,8 @@ export const CIRE_ORGANISER = {
   money: {
     weddingId: "wed_e2e_money",
     fundTitle: "Honeymoon fund",
+    /** Past its $1,200 target: $1,400 from two households, one refund aside. */
+    groupGift: { id: "reg_e2e_money_group", title: "Espresso machine" },
     accountId: "acct_e2e_money",
     connector: { hostId: "whost_e2e_kit", profileId: "usr_e2e_kit" },
   },

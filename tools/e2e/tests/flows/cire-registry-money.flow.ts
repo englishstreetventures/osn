@@ -5,8 +5,17 @@
  * Connect webhook secret, so the registry read answers `takesPayments: false`,
  * its settings name `payments_unavailable` as why guests cannot give money,
  * and the portal says so: the Money gifts panel names the site, a list holding
- * one cash fund and nothing else cannot be published, and the gift list says
- * guests cannot see the fund.
+ * one cash fund and one group gift and nothing else cannot be published, and
+ * the gift list says guests cannot see either.
+ *
+ * The group gift, an espresso machine with a $1,200 target, has had $1,400
+ * given by two households beside a gift refunded in full and one not yet paid.
+ * The registry read counts the two received gifts and nothing else, its row
+ * says it is past its target, and the owner adds a second group gift through
+ * the form, which the API stores as a cash fund marked a group gift and whose
+ * row says what is left to raise. The gifts tab lists both together. Guests
+ * cannot give on this stack, so the money a guest gives towards one is held by
+ * cire-api's route tests (`tests/routes/registry-group-gifts.test.ts`).
  *
  * The wedding is `CIRE_ORGANISER.money`, which cire-api seeds for the suite
  * (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`). The flow reads its
@@ -50,7 +59,7 @@
 import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
 import { expect, queryOne, signInToCireHost, test } from "../support/fixtures";
 
-const { weddingId, fundTitle, accountId, connector } = CIRE_ORGANISER.money;
+const { weddingId, fundTitle, groupGift, accountId, connector } = CIRE_ORGANISER.money;
 const REGISTRY_URL = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/registry`;
 const ONBOARDING_URL = `${REGISTRY_URL}/stripe/session`;
 const SESSION_URL = `${ORIGINS.cireApi}/api/auth/session`;
@@ -96,7 +105,9 @@ test("cire-registry-money", async ({ page, flow }) => {
     const response = await read;
     const body = (await response.json()) as Record<string, unknown> & {
       settings?: Record<string, unknown>;
+      items?: Array<{ id: string; allowPartial?: boolean; raised?: unknown }>;
     };
+    const group = body.items?.find((item) => item.id === groupGift.id);
     const notice = page.getByTestId("money-gifts-unavailable");
     await expect(notice).toBeVisible();
     const publish = page.getByRole("radio", { name: /^Published/ });
@@ -111,6 +122,8 @@ test("cire-registry-money", async ({ page, flow }) => {
       notice: (await notice.textContent()) ?? "",
       publishBlocked: await publish.isDisabled(),
       publishNotice: (await page.locator("#registry-publish-blocked").textContent()) ?? "",
+      groupGift: group?.allowPartial === true ? "group gift" : "absent",
+      raised: JSON.stringify(group?.raised ?? null),
     };
   });
   flow.check("registry read", 200, settings.status);
@@ -121,7 +134,11 @@ test("cire-registry-money", async ({ page, flow }) => {
     settings.blockedBy,
   );
   flow.check("Money gifts panel names the site", true, UNAVAILABLE.test(settings.notice));
-  flow.check("a list of one cash fund is blocked from publishing", true, settings.publishBlocked);
+  flow.check(
+    "a list of a cash fund and a group gift is blocked from publishing",
+    true,
+    settings.publishBlocked,
+  );
   flow.check("the publish notice names the site", true, UNAVAILABLE.test(settings.publishNotice));
 
   const list = await flow.step("open the gift list", async () => {
@@ -133,6 +150,88 @@ test("cire-registry-money", async ({ page, flow }) => {
     return (await notice.textContent()) ?? "";
   });
   flow.check("the gift list says guests cannot see the fund", true, UNAVAILABLE.test(list));
+  flow.check("registry read marks the group gift", "group gift", settings.groupGift);
+  flow.check(
+    "registry read counts the two received gifts towards it, and nothing else",
+    JSON.stringify({ raisedMinor: 140_000, giftCount: 2, otherCurrencyCount: 0 }),
+    settings.raised,
+  );
+
+  const rows = page.getByTestId("registry-items").locator(":scope > li");
+  const pastTarget = await flow.step(
+    "the group gift's row says it is past its target",
+    async () => {
+      const row = rows.filter({ hasText: groupGift.title });
+      await expect(row).toContainText("Past target");
+      return (await row.textContent()) ?? "";
+    },
+  );
+  flow.check("its row names it a group gift", true, pastTarget.includes("Group gift"));
+  flow.check(
+    "its row says what has come in against the target",
+    true,
+    pastTarget.includes("$1,400.00 of $1,200.00 · 2 gifts"),
+  );
+  flow.check("its row says the target is passed", true, pastTarget.includes("Past target"));
+
+  const added = await flow.step("add a group gift through the form", async () => {
+    await page.getByRole("radio", { name: "A group gift" }).check();
+    await page.getByLabel("Group gift", { exact: true }).fill("Record player");
+    await page.getByLabel("Target", { exact: true }).fill("600");
+    const created = page.waitForResponse(
+      (r) => r.url().endsWith("/registry/items") && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Add group gift" }).click();
+    const response = await created;
+    const { item } = (await response.json()) as {
+      item: { id: string; kind: string; allowPartial: boolean; targetMinor: number };
+    };
+    const row = rows.filter({ hasText: "Record player" });
+    await expect(row).toContainText("to go");
+    const stored = queryOne<{ kind: string; group: number; target: number }>(
+      DB_FILES.cire,
+      `SELECT kind, allow_partial AS "group", target_minor AS target
+         FROM registry_items WHERE id = ?`,
+      item.id,
+    );
+    return {
+      status: response.status(),
+      answer: `${item.kind}/${String(item.allowPartial)}/${item.targetMinor}`,
+      stored: `${stored?.kind}/${stored?.group}/${stored?.target}`,
+      row: (await row.textContent()) ?? "",
+    };
+  });
+  flow.check("cire-api adds the group gift", 200, added.status);
+  flow.check(
+    "cire-api answers a cash fund marked a group gift",
+    "cash_fund/true/60000",
+    added.answer,
+  );
+  flow.check("the row is stored as a group gift", "cash_fund/1/60000", added.stored);
+  flow.check("the new row says what is left to raise", true, added.row.includes("$600.00 to go"));
+
+  const together = await flow.step("the gifts tab lists the group gifts together", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/gifts`);
+    const card = page.getByTestId("group-gifts");
+    await expect(card).toContainText("Record player");
+    return (await card.locator("li").allTextContents()).map((text) => text.trim());
+  });
+  flow.check("the gifts tab shows two group gifts", 2, together.length);
+  flow.check(
+    "the gifts tab shows the espresso machine past its target",
+    true,
+    together.some(
+      (text) =>
+        text.includes(groupGift.title) &&
+        text.includes("$1,400.00 of $1,200.00 · 2 gifts") &&
+        text.includes("Past target"),
+    ),
+  );
+  flow.check(
+    "the gifts tab shows the record player with nothing in yet",
+    true,
+    together.some((text) => text.includes("Record player") && text.includes("$0.00 of $600.00")),
+  );
 
   const panel = await flow.step(
     "open the settings again, as an owner who did not connect Stripe",

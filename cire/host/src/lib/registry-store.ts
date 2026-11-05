@@ -66,12 +66,35 @@ export interface RegistryItem {
   quantityWanted: number;
   /** Sum of non-released claim quantities. Derived server-side, never stored. */
   quantityClaimed: number;
+  /** On a cash fund: a group gift (`isGroupGift`). Always false on a gift. */
   allowPartial: boolean;
+  /** A fund's goal, or a group gift's target, in the wedding's minor units. */
   targetMinor: number | null;
+  /**
+   * What a group gift has raised; null or absent on everything else. Absent
+   * also from an API that predates group gifts.
+   */
+  raised?: GroupGiftRaised | null;
   category: string | null;
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
+}
+
+/**
+ * What has come in towards a group gift (`GroupGiftRaised` in cire-api): the
+ * received gifts in the wedding's currency, how many, and how many more came
+ * in another currency and are added to nothing.
+ */
+export interface GroupGiftRaised {
+  raisedMinor: number;
+  giftCount: number;
+  otherCurrencyCount: number;
+}
+
+/** A cash fund that guests give towards one named item. */
+export function isGroupGift(item: Pick<RegistryItem, "kind" | "allowPartial">): boolean {
+  return item.kind === "cash_fund" && item.allowPartial === true;
 }
 
 /**

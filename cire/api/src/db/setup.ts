@@ -1154,8 +1154,11 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   sees their own tasks, and a co-host holds a task of another event; for
  *   reading what such a helper is given.
  * - `wed_e2e_money`: money gifts on, a connected Stripe account that can charge
- *   and settles in the wedding's currency, one cash fund and nothing to
- *   reserve, unpublished. For the portal on a site that cannot take a money
+ *   and settles in the wedding's currency, one cash fund, one group gift and
+ *   nothing to reserve, unpublished. The group gift, an espresso machine with
+ *   a $1,200 target, has had $1,400 given by two households — past its
+ *   target — beside a gift refunded in full and one not yet paid, which count
+ *   for nothing. For the portal on a site that cannot take a money
  *   gift: the stack's cire-api holds a Stripe key and no webhook secret. Its
  *   second owner, Kit (`usr_e2e_kit`), connected the account, so the dev
  *   profile is an owner who sees the account's status and cannot open its
@@ -1509,6 +1512,59 @@ export function seedE2eOrganiser(db: TestDb): void {
       createdAt: now,
       updatedAt: now,
     })
+    .run();
+  db.insert(schema.registryItems)
+    .values({
+      id: "reg_e2e_money_group",
+      weddingId: "wed_e2e_money",
+      kind: "cash_fund",
+      allowPartial: true,
+      title: "Espresso machine",
+      description: "For slow Sunday mornings.",
+      targetMinor: 120_000,
+      sortOrder: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.families)
+    .values(
+      (["Okafor", "Lindqvist"] as const).map((familyName, i) => ({
+        id: `fam_e2e_money_${i + 1}`,
+        weddingId: "wed_e2e_money",
+        publicId: `MONEY${i + 1}-E2E-GG0${i + 1}`,
+        familyName,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
+    .run();
+  const groupGift = (
+    id: string,
+    familyId: string,
+    status: "succeeded" | "refunded" | "pending",
+    amountMinor: number,
+  ) => ({
+    id,
+    weddingId: "wed_e2e_money",
+    itemId: "reg_e2e_money_group",
+    itemTitle: "Espresso machine",
+    familyId,
+    status,
+    amountMinor,
+    currency: "AUD",
+    stripeCheckoutSessionId: `cs_e2e_${id}`,
+    stripePaymentIntentId: status === "pending" ? null : `pi_e2e_${id}`,
+    createdAt: now,
+    updatedAt: now,
+  });
+  db.insert(schema.registryContributions)
+    .values([
+      groupGift("rct_e2e_money_1", "fam_e2e_money_1", "succeeded", 80_000),
+      groupGift("rct_e2e_money_2", "fam_e2e_money_2", "succeeded", 60_000),
+      groupGift("rct_e2e_money_3", "fam_e2e_money_2", "refunded", 50_000),
+      groupGift("rct_e2e_money_4", "fam_e2e_money_1", "pending", 10_000),
+    ])
     .run();
 
   wedding("wed_e2e_shared_from", "ceremony-wedding", "Ceremony Wedding");

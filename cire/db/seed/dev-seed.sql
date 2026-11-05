@@ -473,26 +473,27 @@ INSERT OR IGNORE INTO registry_settings (
 );
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Registry items (11)
+-- Registry items (12)
 -- ────────────────────────────────────────────────────────────────────────────
 
 -- `image_key` is left NULL on every row: it is an R2 object key, and a key
 -- with no bytes behind it renders a broken image on both the organiser list and
 -- the guest site. The link-preview path fills it in normally.
 --
--- The last row is a cash fund with a goal. Money gifts are off here, so it
--- shows in the organiser's list and not on the guest page.
+-- The last two rows are a cash fund with a goal and a group gift with a
+-- target. Money gifts are off here, so both show in the organiser's list and
+-- not on the guest page.
 INSERT OR IGNORE INTO registry_items (
   id, wedding_id, kind, title, description,
-  external_url, price_minor, quantity_wanted, category, target_minor, sort_order,
-  created_at, updated_at
+  external_url, price_minor, quantity_wanted, category, target_minor, allow_partial,
+  sort_order, created_at, updated_at
 ) VALUES
   (
     'reg_c4b8a2f1-0000-4000-8000-000000000001', 'wed_bootstrap', 'product', 'Cast-iron casserole, 26cm',
     'Anything oven-to-table. Blue if there''s a choice.',
     'https://example.com/kitchen/cast-iron-casserole',
     45000, 1, 'Kitchen',
-    NULL, 0,
+    NULL, 0, 0,
     unixepoch(), unixepoch()
   ),
   (
@@ -500,7 +501,7 @@ INSERT OR IGNORE INTO registry_items (
     NULL,
     'https://example.com/kitchen/stand-mixer',
     79900, 1, 'Kitchen',
-    NULL, 1,
+    NULL, 0, 1,
     unixepoch(), unixepoch()
   ),
   (
@@ -508,7 +509,7 @@ INSERT OR IGNORE INTO registry_items (
     'The one gift that gets used every single morning.',
     'https://example.com/kitchen/espresso-machine',
     129900, 1, 'Kitchen',
-    NULL, 2,
+    NULL, 0, 2,
     unixepoch(), unixepoch()
   ),
   (
@@ -516,7 +517,7 @@ INSERT OR IGNORE INTO registry_items (
     'Two sets would not go astray.',
     'https://example.com/table/wine-glasses',
     12000, 2, 'Table',
-    NULL, 3,
+    NULL, 0, 3,
     unixepoch(), unixepoch()
   ),
   (
@@ -524,7 +525,7 @@ INSERT OR IGNORE INTO registry_items (
     NULL,
     'https://example.com/table/cutlery-set',
     34900, 1, 'Table',
-    NULL, 4,
+    NULL, 0, 4,
     unixepoch(), unixepoch()
   ),
   (
@@ -532,7 +533,7 @@ INSERT OR IGNORE INTO registry_items (
     'Made in Bowral, so no two are the same.',
     'https://example.com/table/serving-platter',
     18000, 1, 'Table',
-    NULL, 5,
+    NULL, 0, 5,
     unixepoch(), unixepoch()
   ),
   (
@@ -540,7 +541,7 @@ INSERT OR IGNORE INTO registry_items (
     NULL,
     'https://example.com/home/linen-bedding',
     39900, 1, 'Home',
-    NULL, 6,
+    NULL, 0, 6,
     unixepoch(), unixepoch()
   ),
   (
@@ -548,7 +549,7 @@ INSERT OR IGNORE INTO registry_items (
     NULL,
     'https://example.com/home/wool-throw',
     24900, 2, 'Home',
-    NULL, 7,
+    NULL, 0, 7,
     unixepoch(), unixepoch()
   ),
   (
@@ -556,7 +557,7 @@ INSERT OR IGNORE INTO registry_items (
     'For the drive up the coast afterwards.',
     'https://example.com/outdoors/picnic-hamper',
     15900, 1, 'Outdoors',
-    NULL, 8,
+    NULL, 0, 8,
     unixepoch(), unixepoch()
   ),
   (
@@ -564,7 +565,7 @@ INSERT OR IGNORE INTO registry_items (
     'Written out, in your handwriting. That''s the whole gift.',
     NULL,
     NULL, 1, NULL,
-    NULL, 9,
+    NULL, 0, 9,
     unixepoch(), unixepoch()
   ),
   (
@@ -572,7 +573,15 @@ INSERT OR IGNORE INTO registry_items (
     'Trains, temples and one very good dinner.',
     NULL,
     NULL, 1, NULL,
-    500000, 10,
+    500000, 0, 10,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000012', 'wed_bootstrap', 'cash_fund', 'A record player and speakers',
+    'For slow Sunday mornings.',
+    NULL,
+    NULL, 1, NULL,
+    150000, 1, 11,
     unixepoch(), unixepoch()
   );
 

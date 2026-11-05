@@ -591,8 +591,8 @@ type PlusOnePermissionSetAttrs = { scope: PlusOnePermissionScope; allowed: "on" 
 type DietaryPresetAttrs = { preset: DietaryPreset };
 /** Which organiser write touched a registry item. Bounded, one per route. */
 export type RegistryItemAction = "create" | "update" | "remove";
-/** Which kind of item it was: a gift to reserve, or a cash fund. Two values. */
-export type RegistryItemKindAttr = "product" | "cash_fund";
+/** Which kind of item it was: a gift to reserve, a cash fund, or a group gift. */
+export type RegistryItemKindAttr = "product" | "cash_fund" | "group_gift";
 type RegistryItemWriteAttrs = { action: RegistryItemAction; kind: RegistryItemKindAttr };
 /** Which seating-plan write ran: a blank plan, a copy of another, a rename,
  *  a change of the selected plan, or a delete. */

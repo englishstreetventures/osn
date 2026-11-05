@@ -1083,9 +1083,9 @@ export const registryItems = sqliteTable(
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
     // `product` is a thing a household reserves; `cash_fund` is a named purpose
-    // guests give money to (honeymoon, house deposit, charity). A fund is never
-    // claimed, and reaches guests only while the couple take money. Set at
-    // create and never changed.
+    // guests give money to (honeymoon, house deposit, charity), or with
+    // `allow_partial` a group gift. A fund is never claimed, and reaches guests
+    // only while the couple take money. Set at create and never changed.
     kind: text("kind", { enum: ["product", "cash_fund"] })
       .notNull()
       .default("product"),
@@ -1104,10 +1104,15 @@ export const registryItems = sqliteTable(
     // currency column — see the module comment above.
     priceMinor: integer("price_minor"),
     quantityWanted: integer("quantity_wanted").notNull().default(1),
-    // Group-gifting seam (many guests part-fund one item). Off in v1.
+    // On a cash fund: the fund is a GROUP GIFT, one named item several
+    // households give money towards, which the couple buy themselves. Set at
+    // create and never changed; the service writes it on a cash fund with a
+    // target and nowhere else, and nothing reads it on a product.
     allowPartial: integer("allow_partial", { mode: "boolean" }).notNull().default(false),
-    // A cash fund's goal, minor units of the wedding's currency, or NULL. The
-    // couple's planning number, never sent to a guest. Always NULL on a product.
+    // A cash fund's goal, or a group gift's target, minor units of the
+    // wedding's currency, or NULL. The couple's planning number, never sent to a
+    // guest, and a soft target: nothing caps what a group gift may raise.
+    // Always NULL on a product.
     targetMinor: integer("target_minor"),
     category: text("category"),
     sortOrder: integer("sort_order").notNull().default(0),

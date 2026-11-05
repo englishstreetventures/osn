@@ -468,6 +468,45 @@ describe("giving to a fund", () => {
   });
 });
 
+const ESPRESSO: GiftRegistryFund = {
+  id: "group-espresso",
+  title: "Espresso machine",
+  description: "For slow Sunday mornings.",
+  imageName: null,
+  imageCrop: null,
+  sortOrder: 2,
+  groupGift: true,
+};
+
+describe("giving towards a group gift", () => {
+  it("says it is a group gift the couple buy, and shows no figure of it", () => {
+    const { container } = renderPanel({ funds: [HONEYMOON, ESPRESSO] });
+    const row = container.querySelector(`[data-gift-money-fund="${ESPRESSO.id}"]`) as HTMLElement;
+
+    expect(row.textContent).toContain("Group gift");
+    expect(row.textContent).toContain("Espresso machine");
+    expect(row.textContent).toContain(
+      "Guests give towards it together, and the couple buy it with what comes in.",
+    );
+    // No target, no total, no count: nothing a guest could read as how near
+    // it is. The row carries no figure at all.
+    expect(row.textContent).not.toMatch(/\d|\$/);
+    // A plain fund says neither.
+    const fund = container.querySelector(`[data-gift-money-fund="${HONEYMOON.id}"]`) as HTMLElement;
+    expect(fund.textContent).not.toContain("Group gift");
+  });
+
+  it("says the group gift has closed, in its own words", async () => {
+    stubFetch(json({ error: "fund_unavailable" }, 409));
+    const { container } = renderPanel({ funds: [ESPRESSO] });
+    fireEvent.click(screen.getByRole("radio", { name: /Espresso machine/ }));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    expect(await screen.findByText("This group gift is no longer available.")).toBeTruthy();
+    expect(screen.queryByText(FUND_CLOSED)).toBeNull();
+  });
+});
+
 describe("in the organiser's preview", () => {
   it("shows the panel a guest would see, and sends nothing", async () => {
     const assign = captureNavigation();

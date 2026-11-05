@@ -38,6 +38,7 @@ import {
   type GiftLogPage,
   type GiftNoteView,
   invalidateRegistry,
+  isGroupGift,
   type MoneyGiftsBlock,
   peekCachedRegistry,
   registryAccessor,
@@ -90,6 +91,15 @@ type ItemPatch = Partial<
     | "targetMinor"
   >
 >;
+
+/**
+ * What the add form makes. A group gift is a cash fund the API marks with
+ * `allowPartial`, so it has no `kind` of its own on the wire.
+ */
+type NewItemKind = "product" | "cash_fund" | "group_gift";
+
+/** Which add-form kind an item is, for the words a refusal uses. */
+const kindOf = (item: RegistryItem): NewItemKind => (isGroupGift(item) ? "group_gift" : item.kind);
 
 /** Quantity range the API's schema allows (`Quantity` in `schemas/registry.ts`). */
 const MIN_QUANTITY = 1;
@@ -160,6 +170,40 @@ function giftStatus(gift: GiftLogEntry) {
 }
 
 /**
+ * A group gift's standing, beside its name: the "Group gift" tag (left out
+ * where a heading already says it), what has come in against the target, what
+ * is left, and a tag once the target is reached or passed.
+ */
+function GroupGiftStatus(props: {
+  item: RegistryItem;
+  currency: string;
+  swept: boolean;
+  tag?: boolean;
+}) {
+  const status = createMemo(() => groupGiftStatus(props.item, props.currency, props.swept));
+  return (
+    <>
+      <Show when={props.tag !== false}>
+        <Chip treatment="tag">Group gift</Chip>
+      </Show>
+      <Show when={status().figure}>
+        {(figure) => <span class="text-text-muted text-ui-sm">{figure()}</span>}
+      </Show>
+      <Show when={status().toGo}>
+        {(toGo) => <span class="text-text-muted text-ui-sm">{toGo()}</span>}
+      </Show>
+      <Show when={status().state}>
+        {(state) => (
+          <Chip treatment="tag" tone="success">
+            {state()}
+          </Chip>
+        )}
+      </Show>
+    </>
+  );
+}
+
+/**
  * One formatter for every date in the record band: up to 200 listed gifts each
  * print a day. Pinned to UTC on both ends — see `summaryDate`.
  */
@@ -174,25 +218,77 @@ const SUMMARY_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
  * Why the couple's cash funds are hidden from guests, in their words, from the
  * reason the server sent. A reason this build has no words for — or none, from
  * an API that predates the field — still says the funds are hidden, and names
- * nothing it cannot vouch for.
+ * nothing it cannot vouch for. `what` names what is hidden: "cash funds",
+ * "group gifts", or both; a group gift reaches guests only when a fund does.
  */
-function fundsHiddenWords(reason: MoneyGiftsBlock | null | undefined, currency: string): string {
+function fundsHiddenWords(
+  reason: MoneyGiftsBlock | null | undefined,
+  currency: string,
+  what: string,
+): string {
   switch (reason) {
     case "payments_unavailable":
-      return "Guests can’t see your cash funds: money gifts aren’t available on this site yet.";
+      return `Guests can’t see your ${what}: money gifts aren’t available on this site yet.`;
     case "stripe_not_ready":
-      return "Guests see your cash funds only once Stripe can take payments for you and money gifts are on. Both are in the Settings tab.";
+      return `Guests see your ${what} only once Stripe can take payments for you and money gifts are on. Both are in the Settings tab.`;
     case "stripe_currency_unknown":
-      return "Guests can’t see your cash funds until Stripe says which currency your account pays out in.";
+      return `Guests can’t see your ${what} until Stripe says which currency your account pays out in.`;
     case "currency_mismatch":
-      return `Guests can’t see your cash funds: your Stripe account pays out in a currency other than ${currency}, the one every gift is charged in.`;
+      return `Guests can’t see your ${what}: your Stripe account pays out in a currency other than ${currency}, the one every gift is charged in.`;
     case "cash_gifts_off":
-      return "Guests see your cash funds only while money gifts are on. Turn them on in the Settings tab.";
+      return `Guests see your ${what} only while money gifts are on. Turn them on in the Settings tab.`;
     case "not_offered":
-      return "Guests can’t see your cash funds right now. Anyone who can edit the gift list can see why in the Settings tab.";
+      return `Guests can’t see your ${what} right now. Anyone who can edit the gift list can see why in the Settings tab.`;
     default:
-      return "Guests can’t see your cash funds right now.";
+      return `Guests can’t see your ${what} right now.`;
   }
+}
+
+/**
+ * Where a group gift stands, in the couple's words: what has come in against
+ * the target, and whether it is reached. Derived here from the server's
+ * `raised` and the target, never stored. The target is soft: money past it is
+ * the couple's, so past it is a state of its own rather than an error.
+ *
+ * `swept` is the retention sweep having taken the gifts with the households:
+ * a live figure then would say nothing came in, so only the target is shown.
+ * An API that sends no `raised` is read the same way.
+ */
+function groupGiftStatus(item: RegistryItem, currency: string, swept: boolean) {
+  const target = item.targetMinor;
+  const raised = item.raised;
+  if (swept || !raised) {
+    return {
+      figure: target == null ? null : `Target ${formatMinor(target, currency)}`,
+      toGo: null,
+      state: null,
+    };
+  }
+  const given = formatMinor(raised.raisedMinor, currency);
+  const count =
+    raised.giftCount === 0
+      ? ""
+      : ` · ${raised.giftCount} ${raised.giftCount === 1 ? "gift" : "gifts"}`;
+  const other =
+    raised.otherCurrencyCount === 0
+      ? ""
+      : ` · ${raised.otherCurrencyCount} more in another currency, not added in`;
+  if (target == null) {
+    return { figure: `${given} raised${count}${other}`, toGo: null, state: null };
+  }
+  const figure = `${given} of ${formatMinor(target, currency)}${count}${other}`;
+  if (raised.raisedMinor < target) {
+    return {
+      figure,
+      toGo: `${formatMinor(target - raised.raisedMinor, currency)} to go`,
+      state: null,
+    };
+  }
+  return {
+    figure,
+    toGo: null,
+    state: raised.raisedMinor === target ? "Target reached" : "Past target",
+  };
 }
 
 /**
@@ -212,9 +308,9 @@ export default function RegistryView(props: RegistryViewProps) {
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [exporting, setExporting] = createSignal(false);
 
-  // Add-item form state. `newKind` picks a gift to reserve or a cash fund; each
-  // shows only its own fields, and the body carries only those.
-  const [newKind, setNewKind] = createSignal<RegistryItem["kind"]>("product");
+  // Add-item form state. `newKind` picks a gift to reserve, a group gift or a
+  // cash fund; each shows only its own fields, and the body carries only those.
+  const [newKind, setNewKind] = createSignal<NewItemKind>("product");
   const kindLegendId = createUniqueId();
   const [newTarget, setNewTarget] = createSignal("");
   const [newDescription, setNewDescription] = createSignal("");
@@ -311,28 +407,56 @@ export default function RegistryView(props: RegistryViewProps) {
   const moneyBlock = () => snapshot()?.settings.moneyGiftsBlockedBy;
   /** Its own memo, so a write that leaves the items alone does not walk them. */
   const hasFund = createMemo(() => items().some((it) => it.kind === "cash_fund"));
+  /** What the funds-hidden notice names: plain funds, group gifts, or both. */
+  const hiddenWhat = createMemo(() => {
+    const groups = items().some(isGroupGift);
+    const plain = items().some((it) => it.kind === "cash_fund" && !isGroupGift(it));
+    if (groups && plain) return "cash funds and group gifts";
+    return groups ? "group gifts" : "cash funds";
+  });
   /**
-   * The couple have cash funds, and guests cannot see them. Anything but an
-   * explicit `null` is hidden — a reason this build has no words for, or an
-   * API that sends none — so the list never claims guests see a fund the guest
-   * list leaves out.
+   * The couple have cash funds or group gifts, and guests cannot see them.
+   * Anything but an explicit `null` is hidden — a reason this build has no
+   * words for, or an API that sends none — so the list never claims guests see
+   * a fund the guest list leaves out.
    */
   const fundsHidden = () => moneyBlock() !== null && hasFund();
+  /** The sweep has taken the gifts; a group gift's live figure would be false. */
+  const swept = () => (snapshot()?.giftSummary ?? null) !== null;
+  /** The group gifts, in list order, for the gifts tab's card. */
+  const groupGifts = createMemo(() => items().filter(isGroupGift));
 
   /**
    * What a refused item write means, from the code the API sent. Read by its
    * code: the schema's own 400 and the kind check's share a status.
    */
-  const itemWriteRefusal = async (res: Response, kind: RegistryItem["kind"]): Promise<string> => {
+  const itemWriteRefusal = async (res: Response, kind: NewItemKind): Promise<string> => {
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
     if (body?.error === "invalid_item_fields") {
+      if (kind === "group_gift") {
+        return "A group gift takes a name, a target, a description and a picture, and nothing else.";
+      }
       return kind === "cash_fund"
         ? "A cash fund takes a name, a goal, a description and a picture, and nothing else."
         : "A gift to reserve has no goal. Refresh and try again.";
     }
+    if (kind === "group_gift") return "Check the group gift’s name and target.";
     return kind === "cash_fund"
       ? "Check the fund’s name and goal."
       : "A link must be a full https:// address.";
+  };
+
+  /**
+   * A group gift's target, which it cannot do without: `undefined` (with the
+   * error on screen) for an empty or refused box, the minor units otherwise.
+   */
+  const typedTarget = (raw: string): number | undefined => {
+    if (raw.trim() === "") {
+      haptic("reject");
+      setError("A group gift needs a target: what it costs.");
+      return undefined;
+    }
+    return typedGoal(raw) ?? undefined;
   };
 
   /**
@@ -353,16 +477,20 @@ export default function RegistryView(props: RegistryViewProps) {
     return minor;
   };
 
-  // ── Add a cash fund ───────────────────────────────────────────────────────
+  // ── Add a cash fund, or a group gift ──────────────────────────────────────
   // A fund carries its name, its goal, the couple's words and a picture, and
-  // none of a gift's fields. An API older than funds drops `kind` and would
-  // save a gift guests can reserve, so a fund answered as anything else is
+  // none of a gift's fields; a group gift is a fund with `allowPartial` and a
+  // target it cannot do without. An API older than funds drops `kind` and
+  // would save a gift guests can reserve, and one older than group gifts drops
+  // `allowPartial` and saves a plain fund, so an answer of any other kind is
   // deleted at once and the couple told.
-  const addFund = async (title: string) => {
-    const targetMinor = typedGoal(newTarget());
+  const addFund = async (title: string, groupGift: boolean) => {
+    const targetMinor = groupGift ? typedTarget(newTarget()) : typedGoal(newTarget());
     if (targetMinor === undefined) return;
+    const kind: NewItemKind = groupGift ? "group_gift" : "cash_fund";
     const body = {
       kind: "cash_fund" as const,
+      allowPartial: groupGift,
       title,
       description: newDescription().trim() || null,
       targetMinor,
@@ -386,22 +514,24 @@ export default function RegistryView(props: RegistryViewProps) {
       }
       if (res.status === 400) {
         haptic("reject");
-        setError(await itemWriteRefusal(res, "cash_fund"));
+        setError(await itemWriteRefusal(res, kind));
         return;
       }
       if (!res.ok) throw new Error(`create ${res.status}`);
       const { item } = (await res.json()) as { item: RegistryItem };
-      if (item.kind !== "cash_fund") {
+      if (kindOf(item) !== kind) {
         haptic("reject");
         const removed = await authFetch(itemUrl(item.id), { method: "DELETE" }).catch(() => null);
+        const what = groupGift ? "Group gifts" : "Cash funds";
         if (removed?.ok) {
-          setError("Cash funds aren’t available yet. Try again in a few minutes.");
+          setError(`${what} aren’t available yet. Try again in a few minutes.`);
           return;
         }
-        // The gift is still on the list, where guests can reserve it. Show it
-        // to the couple so they can remove it themselves.
+        // The item is still on the list, as something the couple did not
+        // choose. Show it to them so they can remove it themselves.
+        const savedAs = item.kind === "cash_fund" ? "a cash fund" : "a gift guests can reserve";
         setError(
-          `Cash funds aren’t available yet, and “${item.title}” was saved as a gift guests can reserve. Remove it from your list.`,
+          `${what} aren’t available yet, and “${item.title}” was saved as ${savedAs}. Remove it from your list.`,
         );
         void reload();
         return;
@@ -410,7 +540,7 @@ export default function RegistryView(props: RegistryViewProps) {
       haptic("commit");
     } catch {
       haptic("reject");
-      setError("Couldn't add that fund.");
+      setError(groupGift ? "Couldn't add that group gift." : "Couldn't add that fund.");
       void reload();
     }
   };
@@ -421,7 +551,7 @@ export default function RegistryView(props: RegistryViewProps) {
     const title = newTitle().trim();
     if (!title) return;
     setError(null);
-    if (newKind() === "cash_fund") return addFund(title);
+    if (newKind() !== "product") return addFund(title, newKind() === "group_gift");
 
     const priceRaw = newPrice().trim();
     const priceMinor = priceRaw === "" ? null : parseMinor(priceRaw, currency());
@@ -495,7 +625,7 @@ export default function RegistryView(props: RegistryViewProps) {
   const editPatch = (item: RegistryItem, title: string): ItemPatch | undefined => {
     const description = editDescription().trim() || null;
     if (item.kind === "cash_fund") {
-      const targetMinor = typedGoal(editTarget());
+      const targetMinor = isGroupGift(item) ? typedTarget(editTarget()) : typedGoal(editTarget());
       if (targetMinor === undefined) return undefined;
       return { title, description, targetMinor, imageKey: editImageKey() };
     }
@@ -545,7 +675,7 @@ export default function RegistryView(props: RegistryViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (res.status === 400) {
         haptic("reject");
-        setError(await itemWriteRefusal(res, item.kind));
+        setError(await itemWriteRefusal(res, kindOf(item)));
         void reload();
         return;
       }
@@ -885,9 +1015,10 @@ export default function RegistryView(props: RegistryViewProps) {
       <Show when={props.view === "list"}>
         <Show when={props.canEdit}>
           <form onSubmit={addItem} class={FIELD_BAR_CLASS}>
-            {/* A gift is a thing a household reserves; a cash fund is a named
-                purpose guests give money to. Each kind shows only its own
-                fields, so nothing typed here can belong to the other. */}
+            {/* A gift is a thing a household reserves; a group gift is one
+                thing several households give money towards; a cash fund is a
+                named purpose guests give money to. Each kind shows only its own
+                fields, so nothing typed here can belong to another. */}
             <div class="flex w-full flex-col gap-1">
               <Eyebrow id={kindLegendId} tone="muted" class="mb-1">
                 Add
@@ -897,17 +1028,60 @@ export default function RegistryView(props: RegistryViewProps) {
                 size="sm"
                 name="registry-new-kind"
                 value={newKind()}
-                onChange={(value) => setNewKind(value === "cash_fund" ? "cash_fund" : "product")}
+                onChange={(value) =>
+                  setNewKind(value === "cash_fund" || value === "group_gift" ? value : "product")
+                }
                 aria-labelledby={kindLegendId}
               >
                 <RadioGroupItem value="product" label="A gift to reserve" />
+                <RadioGroupItem value="group_gift" label="A group gift" />
                 <RadioGroupItem value="cash_fund" label="A cash fund" />
               </RadioGroup>
             </div>
+            <Show when={newKind() === "group_gift"}>
+              <Field label="Group gift" class="min-w-48 flex-1">
+                {(field) => (
+                  <Input
+                    size="form"
+                    {...field}
+                    value={newTitle()}
+                    onInput={(e) => setNewTitle(e.currentTarget.value)}
+                    placeholder="An espresso machine, a good sofa…"
+                  />
+                )}
+              </Field>
+              {/* What it costs. Guests never see it, nor how much has come in;
+                  they may give past it, and the couple keep what they give. */}
+              <Field label="Target" class="w-32">
+                {(field) => (
+                  <Input
+                    size="form"
+                    {...field}
+                    type="number"
+                    min="0"
+                    // `any`, for the same reason as the price: the currency
+                    // decides how many decimals a target may carry.
+                    step="any"
+                    value={newTarget()}
+                    onInput={(e) => setNewTarget(e.currentTarget.value)}
+                  />
+                )}
+              </Field>
+              <Field label="Description (optional)" class="w-full">
+                {(field) => (
+                  <Textarea
+                    {...field}
+                    rows={2}
+                    value={newDescription()}
+                    onInput={(e) => setNewDescription(e.currentTarget.value)}
+                  />
+                )}
+              </Field>
+            </Show>
             <Show
               when={newKind() === "cash_fund"}
               fallback={
-                <>
+                <Show when={newKind() === "product"}>
                   <Field label="Gift" class="min-w-48 flex-1">
                     {(field) => (
                       <Input
@@ -963,7 +1137,7 @@ export default function RegistryView(props: RegistryViewProps) {
                       />
                     )}
                   </Field>
-                </>
+                </Show>
               }
             >
               <Field label="Fund" class="min-w-48 flex-1">
@@ -1014,7 +1188,11 @@ export default function RegistryView(props: RegistryViewProps) {
               />
             </div>
             <Button type="submit" variant="primary">
-              {newKind() === "cash_fund" ? "Add fund" : "Add gift"}
+              {newKind() === "cash_fund"
+                ? "Add fund"
+                : newKind() === "group_gift"
+                  ? "Add group gift"
+                  : "Add gift"}
             </Button>
           </form>
         </Show>
@@ -1024,7 +1202,7 @@ export default function RegistryView(props: RegistryViewProps) {
             list's own rule, the currency included. */}
         <Show when={fundsHidden()}>
           <Notice tone="info" data-testid="funds-hidden">
-            {fundsHiddenWords(moneyBlock(), currency())}
+            {fundsHiddenWords(moneyBlock(), currency(), hiddenWhat())}
           </Notice>
         </Show>
 
@@ -1084,7 +1262,8 @@ export default function RegistryView(props: RegistryViewProps) {
                                 </Show>
                                 {/* A fund is given to, never reserved, so it has no
                         claimed count. Its goal is the couple's own planning
-                        number, shown here and never to a guest. */}
+                        number, shown here and never to a guest; so is a group
+                        gift's target and what has come in towards it. */}
                                 <Show
                                   when={item.kind === "cash_fund"}
                                   fallback={
@@ -1096,11 +1275,24 @@ export default function RegistryView(props: RegistryViewProps) {
                                     </span>
                                   }
                                 >
-                                  <Chip treatment="tag">Cash fund</Chip>
-                                  <Show when={item.targetMinor != null}>
-                                    <span class="text-text-muted text-ui-sm">
-                                      Goal {formatMinor(item.targetMinor!, currency())}
-                                    </span>
+                                  <Show
+                                    when={isGroupGift(item)}
+                                    fallback={
+                                      <>
+                                        <Chip treatment="tag">Cash fund</Chip>
+                                        <Show when={item.targetMinor != null}>
+                                          <span class="text-text-muted text-ui-sm">
+                                            Goal {formatMinor(item.targetMinor!, currency())}
+                                          </span>
+                                        </Show>
+                                      </>
+                                    }
+                                  >
+                                    <GroupGiftStatus
+                                      item={item}
+                                      currency={currency()}
+                                      swept={swept()}
+                                    />
                                   </Show>
                                 </Show>
                                 {/* Scheme-checked at the render site, not merely at write
@@ -1157,7 +1349,13 @@ export default function RegistryView(props: RegistryViewProps) {
                                   class="border-border/60 ml-2 flex flex-wrap items-end gap-3 border-l pl-3"
                                 >
                                   <Field
-                                    label={item.kind === "cash_fund" ? "Fund" : "Gift"}
+                                    label={
+                                      isGroupGift(item)
+                                        ? "Group gift"
+                                        : item.kind === "cash_fund"
+                                          ? "Fund"
+                                          : "Gift"
+                                    }
                                     class="min-w-48 flex-1"
                                   >
                                     {(field) => (
@@ -1171,7 +1369,10 @@ export default function RegistryView(props: RegistryViewProps) {
                                   </Field>
                                   {/* A fund's own field; a gift's are below. */}
                                   <Show when={item.kind === "cash_fund"}>
-                                    <Field label="Goal" class="w-32">
+                                    <Field
+                                      label={isGroupGift(item) ? "Target" : "Goal"}
+                                      class="w-32"
+                                    >
                                       {(field) => (
                                         <Input
                                           {...field}
@@ -1410,6 +1611,28 @@ export default function RegistryView(props: RegistryViewProps) {
               </div>
             </Show>
           )}
+        </Show>
+
+        {/* Each group gift's gifts taken together, against its target: the
+            couple's status for it, which no guest sees. Not drawn once the
+            sweep has taken the gifts — the record band above holds what came
+            in, and a live figure would say nothing did. */}
+        <Show when={!swept() && groupGifts().length > 0}>
+          <div class={CASH_CLASS} data-testid="group-gifts">
+            <Eyebrow as="span" tone="muted">
+              Group gifts
+            </Eyebrow>
+            <ul class="m-0 flex list-none flex-col gap-1 p-0">
+              <For each={groupGifts()}>
+                {(gift) => (
+                  <li class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span class="text-text text-ui-sm font-medium">{gift.title}</span>
+                    <GroupGiftStatus item={gift} currency={currency()} swept={false} tag={false} />
+                  </li>
+                )}
+              </For>
+            </ul>
+          </div>
         </Show>
 
         {/* Shown only to an owner, and only when there is a log to download —
