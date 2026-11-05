@@ -89,7 +89,9 @@ function resumeTarget(): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return root;
   try {
     const url = new URL(raw, window.location.origin);
-    if (url.origin !== window.location.origin || url.pathname.replace(/\/+$/, "") === "/login") {
+    // Compared in the slash form the page is served at, `/login/`, so the
+    // bundle names it only as it is linked.
+    if (url.origin !== window.location.origin || url.pathname.replace(/\/*$/, "/") === "/login/") {
       return root;
     }
     // A marker carried inside the page someone was on belongs to a sign-in
