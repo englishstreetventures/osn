@@ -15,9 +15,11 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
-import { checkDirectoryLinks, directoryLinks } from "../check-directory-links";
+import { Glob } from "bun";
+
+import { CIRE_SITES, checkDirectoryLinks, directoryLinks } from "../check-directory-links";
 
 const ADDRESSES = new Set([
   "/privacy",
@@ -163,6 +165,24 @@ describe("checkDirectoryLinks", () => {
     }
   });
 
+  test("a server chunk is read as a script", async () => {
+    // The guest site renders some pages on the Worker, so a link may sit only
+    // in `dist/server/chunks/*.mjs`.
+    const root = await fixture({
+      "index.html": PRIVACY_PAGE,
+      "privacy/index.html": PRIVACY_PAGE,
+      "chunks/NotFoundDocument_x.mjs": 'const t=`<a href="${e}">`,n="/privacy";',
+    });
+    try {
+      const { findings } = await checkDirectoryLinks([{ name: "site", pages: root, scan: [root] }]);
+      expect(findings.map((finding) => [finding.file, finding.address])).toEqual([
+        ["chunks/NotFoundDocument_x.mjs", "/privacy"],
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("a missing directory is a finding, not a pass", async () => {
     const root = await fixture({ "index.html": PRIVACY_PAGE, "privacy/index.html": PRIVACY_PAGE });
     const missing = join(root, "no-such-dist");
@@ -222,5 +242,26 @@ describe("checkDirectoryLinks", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("CIRE_SITES", () => {
+  // CI runs the guard with no arguments, so this list is all it checks. It is
+  // read against the repository, not a copy of itself: a cire Astro site added,
+  // dropped or switched to server output fails here until the list follows.
+  test("names every cire Astro site, with its pages and, for a server site, its chunks", async () => {
+    const repo = resolve(import.meta.dir, "../..");
+    const expected = [];
+    for await (const config of new Glob("cire/*/astro.config.*").scan({ cwd: repo })) {
+      const dir = dirname(config);
+      const source = await Bun.file(join(repo, config)).text();
+      const server = /\boutput:\s*["']server["']/.test(source);
+      const pages = join(repo, dir, server ? "dist/client" : "dist");
+      const scan = server ? [pages, join(repo, dir, "dist/server/chunks")] : [pages];
+      expected.push({ name: dir, pages, scan });
+    }
+    const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+    expect(expected.length).toBeGreaterThanOrEqual(4);
+    expect(CIRE_SITES.toSorted(byName)).toEqual(expected.toSorted(byName));
   });
 });
