@@ -289,6 +289,16 @@ its brief, and the `agent:` line changes to say so.
 
 For a **large phase** — a plan with many independent tasks — tell the subagent to run `superpowers:subagent-driven-development` against the plan file instead of `new-feat`: a fresh implementer per task, a review per task, a review of the whole branch, all inside the one branch. Still one PR; `prep-pr` runs once at the end. That plugin's templates dispatch `general-purpose` with a `model`; tell the subagent to route them as `pick-agent` §Never `general-purpose` says — cheapest-tier implementer prompts to `mechanic`, the rest to `implementer`, the final whole-branch review to `reviewer`, per-task reviews left as the plugin dispatches them.
 
+**A builder that a Workflow script starts has no `Agent` tool.** It cannot dispatch `stress-plan`'s `attacker` or `prep-pr`'s `reviewer` agents, so its plan attack and its reviews would be its own. When a script runs the task, the script runs those passes as stages of their own, each an agent with its definition set, and splits the builder around them. Each builder stage picks up from the worktree's `NEW-FEAT.md`:
+
+1. The builder runs `new-feat` up to its Step 3 and returns once `NEW-FEAT.md` holds the plan.
+2. An `attacker` stage attacks `NEW-FEAT.md` with `stress-plan` Step 2's prompt.
+3. The builder writes that report to `PLAN-REVIEW.md`, closes each finding as `stress-plan` Step 3 says, builds, and runs `prep-pr` Steps 0 to 3 and Step 4's gates.
+4. `reviewer` stages run the reviews `scripts/review-scope.ts` calls for, as `prep-pr` Steps 4 and 6 dispatch them: `review-tests` alone first, then the rest together.
+5. The builder writes the missing tests and fixes the findings, as `prep-pr` Steps 4 and 6 say, then runs `prep-pr` from Step 7.
+
+Each builder brief names the passes that run outside it, so it neither skips them nor runs them on itself; `prep-pr` takes the task's word that its reviews have run.
+
 ### Step 4 — `prep-pr`, with findings fixed
 
 **No subagent's stated verification counts.** Before reading a word of its report,
@@ -328,6 +338,25 @@ complexity declared at Step 1. Under this skill that matters more than
 anywhere else: an orchestrated task's spend sits in subagent transcripts, and
 the card is the only place it is ever added up. Skip it and the task's own cost
 is unrecoverable once the worktree is torn down at the end of this step.
+
+**Every push must start CI.** After each push to a branch with an open pull
+request — yours, one a subagent reports, each branch a rebase carries up a
+stack — check at the next step boundary that GitHub started `ci.yml` on the new
+head:
+
+```bash
+sha=$(gh api repos/englishstreetventures/osn/pulls/<n> --jq .head.sha)
+gh api "repos/englishstreetventures/osn/actions/runs?head_sha=$sha&event=pull_request" \
+  --jq '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml")] | length'
+```
+
+`0` is a blocked gate, never a pass. Nothing ran on that head, so green checks
+from an earlier head say nothing about it, and `wait-pr.sh` would only run out
+its deadline. Write `CI NOT RUN on <sha>` on the task's `gates:` line, neither
+queue nor park the pull request as green while it stands, and name it in the
+closing summary. A run of another workflow, such as the changeset check, does
+not count. A count above zero says only that CI started; the wait below says
+how it ended.
 
 **Then wait, with an end, and keep the polling out of your context.** Read the
 body first, with the check in the first bullet below: no session marks ready a
