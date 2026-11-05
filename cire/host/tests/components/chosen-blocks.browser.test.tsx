@@ -29,7 +29,7 @@ import SecurityPanel from "../../src/components/SecurityPanel";
  * as `choice` marks an answer, at their own 14px corner — a gold edge and a 2px
  * ring at 60%, no wash — and an unchosen card under the pointer goes halfway,
  * a 1px ring and an edge apart from the chosen one's, so a hover never reads
- * as a choice made. And Security's heading and link take the portal's section
+ * as a choice made. At rest an unchosen card moves on the quick step. And Security's heading and link take the portal's section
  * heading (the display face, light) and secondary action (`outline`).
  */
 
@@ -59,11 +59,25 @@ function ringSpread(el: Element): number {
 
 const settled = (el: Element) => Promise.all(el.getAnimations().map((a) => a.finished));
 
+/** The duration `var(--dur-fast)` computes to: the clock a block rests on. */
+function quickStep(): string {
+  const probe = document.createElement("div");
+  probe.style.transitionDuration = "var(--dur-fast)";
+  document.body.append(probe);
+  const value = getComputedStyle(probe).transitionDuration;
+  probe.remove();
+  return value;
+}
+
 /** What a chosen card and an unchosen one paint, at rest and under the pointer. */
 async function measure(chosen: HTMLElement, idle: HTMLElement) {
   await settled(chosen);
   const style = getComputedStyle(chosen);
-  const before = { corner: style.borderTopLeftRadius, ring: ringSpread(idle) };
+  const before = {
+    corner: style.borderTopLeftRadius,
+    ring: ringSpread(idle),
+    clock: getComputedStyle(idle).transitionDuration === quickStep(),
+  };
   await userEvent.hover(idle);
   await settled(idle);
   return {
@@ -72,6 +86,7 @@ async function measure(chosen: HTMLElement, idle: HTMLElement) {
     chosenRing: ringSpread(chosen),
     chosenGround: style.backgroundColor === paint("backgroundColor", "var(--bg)"),
     idleRing: before.ring,
+    idleOnQuickStep: before.clock,
     hoveredRing: ringSpread(idle),
     hoveredEdgeApart: getComputedStyle(idle).borderTopColor !== style.borderTopColor,
   };
@@ -83,6 +98,7 @@ const CHOSEN_AND_HALFWAY = {
   chosenRing: 2,
   chosenGround: true,
   idleRing: 0,
+  idleOnQuickStep: true,
   hoveredRing: 1,
   hoveredEdgeApart: true,
 };
