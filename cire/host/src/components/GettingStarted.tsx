@@ -1,6 +1,5 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
-import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
@@ -231,7 +230,6 @@ export default function GettingStarted(props: {
 
           <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 pr-8">
             <div class="flex flex-col gap-1">
-              <Eyebrow>{allDone() ? "You're all set" : "Getting started"}</Eyebrow>
               <h2 class="font-display text-text text-ui-lg font-light">
                 {allDone() ? "Everything's ready for your guests" : "Four steps to your invite"}
               </h2>

@@ -104,7 +104,7 @@ interface ApplyResponse {
  */
 const KIND = {
   events: {
-    eyebrow: "Events",
+    noun: "events",
     title: "Import your events from a spreadsheet",
     fileName: "events.csv",
     templateFile: "cire-events-template.csv",
@@ -118,7 +118,7 @@ const KIND = {
     bodyKey: "eventsCsv",
   },
   guests: {
-    eyebrow: "Guests",
+    noun: "guests",
     title: "Import your guest list from a spreadsheet",
     fileName: "guests.csv",
     templateFile: "cire-guests-template.csv",
@@ -134,7 +134,8 @@ const KIND = {
 } satisfies Record<
   ImportKind,
   {
-    eyebrow: string;
+    /** What the sheet holds, as the scope notice names it. */
+    noun: string;
     title: string;
     /** The file name organisers are told to upload, and the label on the input. */
     fileName: string;
@@ -415,7 +416,7 @@ export default function ImportPanel(props: {
 
   return (
     <div class="flex flex-col gap-6">
-      <SectionIntro eyebrow={copy().eyebrow} title={copy().title} />
+      <SectionIntro title={copy().title} />
 
       <div class="flex flex-wrap items-center gap-3">
         <Button
@@ -514,9 +515,8 @@ export default function ImportPanel(props: {
               fallback={<p class="text-text-muted text-ui-sm">{copy().scopeHint}</p>}
             >
               <Notice tone="danger" alert>
-                This change covers more than your {copy().eyebrow.toLowerCase()} — the server
-                reports a scope of “{p().scope}”. Check the counts below before applying; nothing is
-                saved until you do.
+                This change covers more than your {copy().noun} — the server reports a scope of “
+                {p().scope}”. Check the counts below before applying; nothing is saved until you do.
               </Notice>
             </Show>
             <PlanCounts plan={p().plan} />

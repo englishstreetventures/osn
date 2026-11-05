@@ -318,7 +318,6 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   return (
     <div class={PANEL_CLASS}>
       <SectionIntro
-        eyebrow="Settings"
         title="Wedding profile"
         description="The facts that drive your planning tools — the date and roughly how many guests, in the currency you think in. Where each event happens is set per event on the Events tab, so celebrations across cities or countries just work. Guests only ever see the name, the invite link and the RSVP-by date; the rest is yours alone."
       />

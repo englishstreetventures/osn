@@ -1,6 +1,6 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
-import { eyebrowClass } from "@cire/ui/eyebrow";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import Plus from "lucide-solid/icons/plus";
@@ -14,12 +14,6 @@ import CreateWeddingForm, {
   MAX_DISPLAY_NAME,
   type WeddingSummary,
 } from "./CreateWeddingForm";
-
-/**
- * A row's label, drawn once per row: the eyebrow's classes on a plain element,
- * without `Eyebrow`'s run-time choice of tag.
- */
-const ROW_LABEL_CLASS = eyebrowClass();
 
 const DELETED_ROW_CLASS = `${cardClass({ padding: "sm", fill: "none" })} flex-row flex-wrap items-center justify-between`;
 
@@ -106,9 +100,15 @@ export default function WeddingList(props: {
                       aria-hidden="true"
                       class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
                     />
-                    <span class={ROW_LABEL_CLASS}>{wedding.slug}</span>
                     <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
                       {wedding.displayName}
+                    </span>
+                    {/* The slug under the name, as the wedding switcher prints
+                        it: the guest link's path, and what tells two weddings
+                        of one name apart. Under the name, not over it, so it
+                        reads as the name's detail rather than its label. */}
+                    <span class="text-text-muted text-ui-xs tracking-ui-widest mt-1 uppercase">
+                      {wedding.slug}
                     </span>
                     <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm transition-ui-colors mt-2 flex items-center gap-2 duration-(--dur-base) ease-(--ease-out)">
                       Open dashboard
@@ -192,12 +192,9 @@ function RecentlyDeleted(props: {
 
   return (
     <section aria-labelledby="recently-deleted-title" class="flex flex-col gap-3">
-      <h2
-        id="recently-deleted-title"
-        class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase"
-      >
+      <Eyebrow as="h2" id="recently-deleted-title" tone="muted">
         Recently deleted
-      </h2>
+      </Eyebrow>
       <Show when={error()}>
         {(message) => (
           <Notice tone="danger" alert>

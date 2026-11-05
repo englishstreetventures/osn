@@ -930,7 +930,6 @@ export default function HostsPanel(props: HostsPanelProps) {
   return (
     <div class="flex flex-col gap-8">
       <SectionIntro
-        eyebrow="Co-hosts"
         title="Share this wedding's dashboard"
         description={
           canManage()

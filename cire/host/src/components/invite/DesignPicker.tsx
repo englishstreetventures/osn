@@ -12,14 +12,11 @@
  */
 
 import { DESIGNS } from "@cire/invite-designs";
-import { cardClass } from "@cire/ui/card";
 import { createSignal, For, Show } from "solid-js";
 
-import { BLOCK_CHOSEN } from "../../lib/chosen-block";
 import { LinkPill } from "../LinkPill";
 import { isDesignLocked } from "./model";
-
-const DESIGN_CARD_CLASS = `${cardClass({ padding: "sm", fill: "none" })} items-start gap-2`;
+import { pickerCardClass } from "./picker-card";
 
 export default function DesignPicker(props: {
   entitlements: string[];
@@ -107,11 +104,7 @@ export default function DesignPicker(props: {
             const isLocked = () => isDesignLocked(design.tier, props.entitlements);
             const checked = () => props.currentId === design.id;
             return (
-              <div
-                class={`${DESIGN_CARD_CLASS} transition-[color,background-color,border-color,box-shadow] ${
-                  checked() ? BLOCK_CHOSEN : ""
-                }`}
-              >
+              <div class={pickerCardClass(checked())}>
                 {/* Raw: one radio of a roving-focus group, unframed inside the
                     card that holds it beside its preview link. */}
                 <button
