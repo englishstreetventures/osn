@@ -269,7 +269,7 @@ describe("GET /api/auth/oidc/callback", () => {
         );
         expect(res.status).toBe(302);
         const location = new URL(res.headers.get("location")!);
-        expect(location.origin + location.pathname).toBe(`${origin}/login`);
+        expect(location.origin + location.pathname).toBe(`${origin}/login/`);
         expect(location.searchParams.get("returnTo")).toBe(path);
         expect(location.searchParams.get("auth_error")).toBe("sign_in_declined");
         expect(res.headers.get("location")).not.toContain("access_denied");
@@ -287,7 +287,7 @@ describe("GET /api/auth/oidc/callback", () => {
         },
       );
       const location = new URL(res.headers.get("location")!);
-      expect(location.origin + location.pathname).toBe(`${VENDOR}/login`);
+      expect(location.origin + location.pathname).toBe(`${VENDOR}/login/`);
       expect(location.searchParams.has("returnTo")).toBe(false);
       expect(location.searchParams.get("auth_error")).toBe("sign_in_failed");
     });
@@ -311,14 +311,14 @@ describe("GET /api/auth/oidc/callback", () => {
         },
       );
       const location = new URL(res.headers.get("location")!);
-      expect(location.origin + location.pathname).toBe(`${HOST}/login`);
+      expect(location.origin + location.pathname).toBe(`${HOST}/login/`);
       expect(location.searchParams.has("returnTo")).toBe(false);
       expect(location.searchParams.get("auth_error")).toBe("sign_in_declined");
     });
 
     it("a declined claim sign-in returns to the vendor's /login, resuming on the claim", async () => {
       const config = portalConfig();
-      const { tx } = await startedTx(config, `${VENDOR}/claim`);
+      const { tx } = await startedTx(config, `${VENDOR}/claim/`);
       const res = await appRequest(
         portalApp(config),
         "/api/auth/oidc/callback?error=access_denied",
@@ -327,8 +327,8 @@ describe("GET /api/auth/oidc/callback", () => {
         },
       );
       const location = new URL(res.headers.get("location")!);
-      expect(location.origin + location.pathname).toBe(`${VENDOR}/login`);
-      expect(location.searchParams.get("returnTo")).toBe("/claim");
+      expect(location.origin + location.pathname).toBe(`${VENDOR}/login/`);
+      expect(location.searchParams.get("returnTo")).toBe("/claim/");
     });
 
     it("a sign-in whose session cannot be stored lands on the portal's /login as failed", async () => {
@@ -349,7 +349,7 @@ describe("GET /api/auth/oidc/callback", () => {
         headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
       });
       const location = new URL(res.headers.get("location")!);
-      expect(location.origin + location.pathname).toBe(`${HOST}/login`);
+      expect(location.origin + location.pathname).toBe(`${HOST}/login/`);
       expect(location.searchParams.get("returnTo")).toBe("/#/w/w_1");
       expect(location.searchParams.get("auth_error")).toBe("sign_in_failed");
       expect(setCookie(res, ORGANISER_COOKIE_NAME)).toBeUndefined();
@@ -390,11 +390,11 @@ describe("GET /api/auth/oidc/callback", () => {
     });
 
     it.each([
-      ["the vendor portal", `${VENDOR}/#/orgs/org_1`, `${VENDOR}/login`],
-      ["the host portal", `${HOST}/`, `${HOST}/login`],
-      ["another host", "https://evil.example/login", `${HOST}/login`],
-      ["a protocol-relative path", "//evil.example/", `${HOST}/login`],
-      ["nothing", "", `${HOST}/login`],
+      ["the vendor portal", `${VENDOR}/#/orgs/org_1`, `${VENDOR}/login/`],
+      ["the host portal", `${HOST}/`, `${HOST}/login/`],
+      ["another host", "https://evil.example/login", `${HOST}/login/`],
+      ["a protocol-relative path", "//evil.example/", `${HOST}/login/`],
+      ["nothing", "", `${HOST}/login/`],
     ])(
       "an unavailable sign-in from %s picks only which portal's /login",
       async (_, returnTo, landing) => {

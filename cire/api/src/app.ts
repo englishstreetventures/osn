@@ -440,7 +440,7 @@ export interface AppOptions {
   organiserOrigin?: string;
   /**
    * Vendor portal origin (`vendor.cireweddings.com`) — base for the vendor
-   * claim link (`/claim?token=…`). Threaded into the default directory service
+   * claim link (`/claim/?token=…`). Threaded into the default directory service
    * so dev/staging tiers mint claim URLs on the correct host. Ignored when a
    * `directoryService` instance is injected. Defaults to the prod vendor origin.
    */
@@ -1139,7 +1139,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           // Where a terminal callback/start failure lands when there is no
           // trusted `return_to` — the organiser login page (an allowlisted
           // origin), so the SPA can render a friendly message from `?auth_error`.
-          loginFallbackUrl: `${organiserOrigin.replace(/\/+$/, "")}/login`,
+          loginFallbackUrl: `${organiserOrigin.replace(/\/+$/, "")}/login/`,
           portalOrigins: [new URL(organiserOrigin).origin, new URL(vendorPortalOrigin).origin],
           startLimiter: oidcStartLimiter,
           sessionLimiter: oidcSessionLimiter,

@@ -382,7 +382,7 @@ function requireVendor(
 export function createDirectoryService(config: DirectoryServiceConfig = {}) {
   const vendorPortalOrigin = config.vendorPortalOrigin ?? "https://vendor.cireweddings.com";
 
-  const claimUrl = (token: string) => `${vendorPortalOrigin}/claim?token=${token}`;
+  const claimUrl = (token: string) => `${vendorPortalOrigin}/claim/?token=${token}`;
 
   return {
     /**
@@ -587,7 +587,7 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
      * Mint a single-use claim token + URL for an EXISTING listing so an
      * out-of-band surface (e.g. the couple-side enquiry-new email) can invite
      * the vendor to claim their listing via the canonical
-     * `${vendorPortalOrigin}/claim?token=…` → `consumeClaim` flow.
+     * `${vendorPortalOrigin}/claim/?token=…` → `consumeClaim` flow.
      *
      * Returns `null` when the listing is unknown, already claimed
      * (`owner_org_id` set) or holding a claim that waits for an operator
