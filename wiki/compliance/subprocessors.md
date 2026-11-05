@@ -91,8 +91,8 @@ the merge.
 2. **Enable Connect and accept the Connect platform terms** — same
    person, same Dashboard. Complete Stripe's platform profile; read the
    Express loss-liability position before accepting. To let couples bring
-   a Stripe account they already have, also turn on OAuth (Settings →
-   Connect → Onboarding options → OAuth) and register cire-api's callback
+   a Stripe account they already have, also turn on OAuth (Settings ›
+   Connect › Onboarding options › OAuth) and register cire-api's callback
    ([[stripe-webhooks#Turn on Connect OAuth]]).
 3. **Record the evidence.** Acceptance dates + versions + who accepted
    go in the gitignored business pages (entity details never commit —

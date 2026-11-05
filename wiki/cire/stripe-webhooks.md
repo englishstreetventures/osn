@@ -142,7 +142,7 @@ settings ([[cire-registry#An account the couple already have]]). Stripe offers
 OAuth to platforms and does not recommend it for new ones; it is still the only
 way to connect an account made outside cire.
 
-1. Settings → Connect → **Onboarding options** → **OAuth**, in the mode the
+1. Settings › Connect › **Onboarding options** › **OAuth**, in the mode the
    tier uses (test for dev). Turn on onboarding with OAuth.
 2. Copy that mode's **client id** (`ca_…`).
 3. Add the redirect URI — cire-api's own callback, built on `CIRE_API_ORIGIN`:
@@ -165,8 +165,8 @@ the same, and the Worker logs `stripe connect oauth disabled:
 STRIPE_CONNECT_CLIENT_ID is not a ca_ id` when it builds the app.
 
 **Check it on a tier**: as an owner of a Gold wedding with no account, press
-**Connect an account** → **Connect a Stripe account you already have** →
-**Continue to Stripe**, sign in with a test Standard account, approve. You
+**Connect an account**, then **Connect a Stripe account you already have**,
+then **Continue to Stripe**, sign in with a test Standard account, approve. You
 should land back on the wedding's registry settings with "Your Stripe account
 is connected" and a link to your Stripe Dashboard, through Cloudflare Access on
 dev. Then `SELECT stripe_account_id, stripe_account_type FROM registry_settings WHERE wedding_id = '<id>'`
