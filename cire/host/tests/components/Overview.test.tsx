@@ -165,6 +165,9 @@ describe("Overview", () => {
     });
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={vi.fn()} />);
 
+    // Loaded first: the outline drawn meanwhile holds sample cards with the
+    // same words.
+    await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
     // Countdown: ~30 days out (allow ±1 for the local-midnight rounding boundary).
     await waitFor(() => expect(screen.getByText(/days to go/i)).toBeTruthy());
     // The day count is shown ONCE (a headline number + a "days to go" label) —
@@ -439,6 +442,8 @@ describe("Overview", () => {
     setCachedGuests("wed_1", [{ familyId: "fam_a", firstName: "Al" } as never]);
     render(() => <Overview weddingId="wed_1" tier="crimson" onNavigate={() => {}} />);
 
+    // Loaded first: the outline drawn meanwhile holds a sample "Ceremony" too.
+    await waitFor(() => expect(document.querySelector("[data-skeleton-outline]")).toBeNull());
     // Per-event line for the Ceremony shows its attending count.
     const ceremony = await screen.findByText("Ceremony");
     expect(ceremony.closest("div,li,p")?.textContent).toMatch(/42/);

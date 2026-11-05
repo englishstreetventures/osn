@@ -1,6 +1,6 @@
 import Card, { CardCtaButton, cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
-import Skeleton from "@cire/ui/skeleton";
+import SkeletonOutline from "@cire/ui/skeleton-outline";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
 import { Stat } from "@shared/ui/ui/stat";
@@ -153,6 +153,58 @@ function formatWeddingDate(isoDate: string): string {
     year: "numeric",
   }).format(date);
 }
+
+/**
+ * What the overview draws hollow from while it loads (`SkeletonOutline`): an
+ * agenda, a countdown, the replies and the counts of a wedding a few months
+ * out, run through the same band and cards as the loaded ones. Never shown —
+ * every word in the outline is transparent — so they only have to be shaped
+ * like a real overview. The owner's call (englishstreetventures/osn#1955):
+ * typed samples beside the view, not data.
+ */
+const sampleAgendaItem = (
+  kind: AgendaItem["kind"],
+  date: string,
+  label: string,
+  detail: string | null = null,
+): AgendaItem => ({
+  key: `${kind}:sample-${date}`,
+  kind,
+  date,
+  label,
+  detail,
+  sourceId: `sample-${date}`,
+  overdue: false,
+});
+
+const SAMPLE_AGENDA: readonly AgendaItem[] = [
+  sampleAgendaItem("task", "2027-01-08", "Book the florist"),
+  sampleAgendaItem("payment", "2027-01-15", "Venue deposit", "$2,400.00"),
+  sampleAgendaItem("task", "2027-01-22", "Send the save-the-dates"),
+  sampleAgendaItem("event", "2027-02-05", "Engagement drinks"),
+  sampleAgendaItem("payment", "2027-02-12", "Photographer", "$900.00"),
+  sampleAgendaItem("task", "2027-02-19", "Choose the menu"),
+];
+
+const SAMPLE_COUNTDOWN = { date: "2027-03-20", days: 135 } as const;
+
+const SAMPLE_RSVPS: Pick<OverviewData, "rsvps" | "rsvpEvents"> = {
+  rsvps: {
+    invited: 240,
+    attending: 128,
+    declined: 24,
+    maybe: 8,
+    responded: 160,
+    noResponse: 80,
+    eventCount: 2,
+  },
+  rsvpEvents: [
+    { id: "sample-ceremony", name: "Ceremony", attending: 64 },
+    { id: "sample-reception", name: "Reception", attending: 64 },
+  ],
+};
+
+const SAMPLE_COUNTS = { households: 48, events: 3, estimate: 150 } as const;
 
 /** A card whose whole rectangle is the control — it jumps to a module. The
  *  classes rather than the `<Card>` component, because this one is a `<button>`
@@ -411,11 +463,12 @@ export default function Overview(props: {
   // raw calls per Budget card render becomes one.
   const spentSoFarMemo = createMemo(() => spentSoFar(props.weddingId));
 
-  const WhatsNext = () => (
+  /** The agenda band: what needs attention, dated, in columns. */
+  const whatsNext = (items: () => readonly AgendaItem[]) => (
     <Card>
       <Eyebrow>What&rsquo;s next</Eyebrow>
       <Show
-        when={agenda().length > 0}
+        when={items().length > 0}
         fallback={
           <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             Nothing scheduled yet — add events, payment due dates, or task deadlines.
@@ -428,12 +481,15 @@ export default function Overview(props: {
             per row rather than `divide-y`, which follows DOM order and so draws
             its lines in the wrong places once the list wraps into columns. */}
         <ul class="grid gap-x-8 @3xl/panel:grid-cols-2 @6xl/panel:grid-cols-3">
-          <For each={agenda()}>
+          <For each={items()}>
             {(item) => (
               <li class="border-border/40 border-t">
                 {/* Raw: a whole list row is the control, ruled rather than boxed. */}
                 <button
                   type="button"
+                  // A ruled row of words, not a boxed control: hollow, its
+                  // date, glyph and label each draw as themselves.
+                  data-skeleton="text"
                   onClick={() => props.onNavigate(AGENDA_MODULE[item.kind])}
                   class="hover:bg-surface/40 transition-ui-colors flex w-full items-center gap-3 py-2 text-left duration-(--dur-fast) ease-(--ease-out)"
                 >
@@ -461,22 +517,189 @@ export default function Overview(props: {
     </Card>
   );
 
+  /** The countdown to the date, or the date's absence and the way to set it. */
+  const countdownCard = (date: () => string | null, daysLeft: () => number | null) => (
+    <Card tone="accent">
+      <Eyebrow>Countdown</Eyebrow>
+      <Show
+        when={date()}
+        fallback={
+          <>
+            <p class="font-display text-text text-ui-lg leading-ui-tight font-light">No date yet</p>
+            <CardCtaButton onClick={() => props.onNavigate("settings", "wedding")}>
+              Set your wedding date
+            </CardCtaButton>
+          </>
+        }
+      >
+        {(iso) => (
+          <>
+            <Show
+              when={daysLeft() !== null}
+              fallback={
+                <p class="font-display text-text text-ui-lg leading-ui-tight font-light">
+                  {formatWeddingDate(iso())}
+                </p>
+              }
+            >
+              {(() => {
+                const days = daysLeft()!;
+                // Show the count ONCE: a headline number/word with a single
+                // label beneath it (no separate "N days to go" line that
+                // repeats the same figure). "Tomorrow!"/"Today!" and past
+                // dates read as words with no redundant numeral above them.
+                if (days === 0) {
+                  return (
+                    <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
+                      Today!
+                    </p>
+                  );
+                }
+                if (days === 1) {
+                  return (
+                    <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
+                      Tomorrow!
+                    </p>
+                  );
+                }
+                const abs = Math.abs(days);
+                const unit = abs === 1 ? "day" : "days";
+                return <Stat value={abs} label={days > 0 ? `${unit} to go` : `${unit} ago`} />;
+              })()}
+            </Show>
+            <p class="font-body text-text-muted text-ui-sm">{formatWeddingDate(iso())}</p>
+          </>
+        )}
+      </Show>
+    </Card>
+  );
+
+  /** The replies across every event, and the first five events' counts. */
+  const rsvpCard = (summary: () => Pick<OverviewData, "rsvps" | "rsvpEvents"> | undefined) => (
+    <Card>
+      <Eyebrow>RSVPs</Eyebrow>
+      <Show
+        when={summary()?.rsvps && summary()!.rsvps!.eventCount > 0}
+        fallback={
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
+            Replies will roll up here once you have events and guests.
+          </p>
+        }
+      >
+        {(() => {
+          const r = summary()!.rsvps!;
+          return (
+            <>
+              <div class="flex items-baseline gap-2">
+                <span class="font-display text-gold-ink text-ui-xl leading-ui-none tabular-nums">
+                  {r.attending}
+                </span>
+                <span class="font-body text-text-muted text-ui-sm">
+                  attending across {r.eventCount} {r.eventCount === 1 ? "event" : "events"}
+                </span>
+              </div>
+              <Meter value={r.responded} max={r.invited} label="RSVP responses" />
+              <dl class="font-body text-text-muted text-ui-sm grid grid-cols-2 gap-x-4 gap-y-1">
+                <div class="flex justify-between gap-2">
+                  <dt>Declined</dt>
+                  <dd class="text-text font-ui-mono">{r.declined}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                  <dt>Maybe</dt>
+                  <dd class="text-text font-ui-mono">{r.maybe}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                  <dt>No reply</dt>
+                  <dd class="text-text font-ui-mono">{r.noResponse}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                  <dt>Invited</dt>
+                  <dd class="text-text font-ui-mono">{r.invited}</dd>
+                </div>
+              </dl>
+              <Show when={summary()!.rsvpEvents.length > 0}>
+                <ul class="font-body text-text-muted text-ui-sm flex flex-col gap-0.5">
+                  <For each={summary()!.rsvpEvents.slice(0, 5)}>
+                    {(e) => (
+                      <li class="flex justify-between gap-2">
+                        <span class="truncate">{e.name}</span>
+                        <span class="text-text font-ui-mono tabular-nums">
+                          {e.attending} attending
+                        </span>
+                      </li>
+                    )}
+                  </For>
+                  <Show when={summary()!.rsvpEvents.length > 5}>
+                    <li class="text-text-muted/70">+{summary()!.rsvpEvents.length - 5} more</li>
+                  </Show>
+                </ul>
+              </Show>
+              <CardCtaButton onClick={() => props.onNavigate("guests", "rsvps")}>
+                See replies per event
+              </CardCtaButton>
+            </>
+          );
+        })()}
+      </Show>
+    </Card>
+  );
+
+  /** How many households and events the wedding has, and the guest estimate. */
+  const guestsCard = (
+    households: () => number,
+    events: () => number,
+    estimate: () => number | null | undefined,
+  ) => (
+    <Card>
+      <Eyebrow>Guests &amp; events</Eyebrow>
+      <dl class="font-body text-text-muted text-ui-sm flex flex-col gap-1.5">
+        <div class="flex justify-between gap-2">
+          <dt>Households</dt>
+          <dd class="text-text font-ui-mono">{households()}</dd>
+        </div>
+        <div class="flex justify-between gap-2">
+          <dt>Events</dt>
+          <dd class="text-text font-ui-mono">{events()}</dd>
+        </div>
+        <Show when={estimate() != null}>
+          <div class="flex justify-between gap-2">
+            <dt>Guest estimate</dt>
+            <dd class="text-text font-ui-mono">{estimate()}</dd>
+          </div>
+        </Show>
+      </dl>
+      <CardCtaButton onClick={() => props.onNavigate("guests", "list")}>
+        Open the guest list
+      </CardCtaButton>
+    </Card>
+  );
+
   // No section header of its own: the module shell prints the panel header —
   // the module's label and its one-line hint — directly above this.
   return (
     // Busy while the first read is out: the placeholders are all it holds then.
     <div class="flex flex-col gap-8" aria-busy={data.loading ? "true" : undefined}>
       <Show when={data.loading}>
-        {/* The agenda band and the snapshot cards at the heights they draw
-            for a wedding the size weddings reach (DESIGN.md §4, Skeletons). */}
-        <div class="flex flex-col gap-4">
-          <Skeleton class="h-47" />
-          {/* Same intrinsic grid as the real cards, so the skeleton has the
-              same column count at every width. */}
-          <div class="auto-grid [--auto-grid-min:15rem]">
-            <For each={[1, 2, 3]}>{() => <Skeleton class="h-86" />}</For>
+        {/* The agenda band and the first three cards drawn hollow from the
+            samples, in the loaded stack and grid, so they take the loaded
+            heights at every width (DESIGN.md §4, Hollow rows). */}
+        <SkeletonOutline>
+          <div class="flex flex-col gap-4">
+            {whatsNext(() => SAMPLE_AGENDA)}
+            <div class="auto-grid [--auto-grid-min:15rem]">
+              {countdownCard(
+                () => SAMPLE_COUNTDOWN.date,
+                () => SAMPLE_COUNTDOWN.days,
+              )}
+              {rsvpCard(() => SAMPLE_RSVPS)}
+              {guestsCard(
+                () => SAMPLE_COUNTS.households,
+                () => SAMPLE_COUNTS.events,
+                () => SAMPLE_COUNTS.estimate,
+              )}
+            </div>
           </div>
-        </div>
+        </SkeletonOutline>
       </Show>
 
       <Show when={!data.loading}>
@@ -499,144 +722,20 @@ export default function Overview(props: {
           {/* The home reads top-down as a briefing: the agenda band first —
               what needs attention, dated — then the module snapshots beneath
               it. The written summary the band will lead
-              with slots in at the top of this stack, above `<WhatsNext />`.
+              with slots in at the top of this stack, above `whatsNext`.
               The band earns the full width by laying its rows out in columns —
               see the list inside `WhatsNext`. */}
           <div class="flex flex-col gap-4">
-            <WhatsNext />
+            {whatsNext(agenda)}
             {/* The cards themselves need no breakpoints: as many ≥15rem columns
                 as fit, so the widescreen fills rows instead of leaving three
                 stretched cards on a 1300px row. */}
             <div class="auto-grid [--auto-grid-min:15rem]">
               {/* ── Countdown ─────────────────────────────────────────────── */}
-              <Card tone="accent">
-                <Eyebrow>Countdown</Eyebrow>
-                <Show
-                  when={weddingDate()}
-                  fallback={
-                    <>
-                      <p class="font-display text-text text-ui-lg leading-ui-tight font-light">
-                        No date yet
-                      </p>
-                      <CardCtaButton onClick={() => props.onNavigate("settings", "wedding")}>
-                        Set your wedding date
-                      </CardCtaButton>
-                    </>
-                  }
-                >
-                  {(iso) => (
-                    <>
-                      <Show
-                        when={countdown() !== null}
-                        fallback={
-                          <p class="font-display text-text text-ui-lg leading-ui-tight font-light">
-                            {formatWeddingDate(iso())}
-                          </p>
-                        }
-                      >
-                        {(() => {
-                          const days = countdown()!;
-                          // Show the count ONCE: a headline number/word with a single
-                          // label beneath it (no separate "N days to go" line that
-                          // repeats the same figure). "Tomorrow!"/"Today!" and past
-                          // dates read as words with no redundant numeral above them.
-                          if (days === 0) {
-                            return (
-                              <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
-                                Today!
-                              </p>
-                            );
-                          }
-                          if (days === 1) {
-                            return (
-                              <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
-                                Tomorrow!
-                              </p>
-                            );
-                          }
-                          const abs = Math.abs(days);
-                          const unit = abs === 1 ? "day" : "days";
-                          return (
-                            <Stat value={abs} label={days > 0 ? `${unit} to go` : `${unit} ago`} />
-                          );
-                        })()}
-                      </Show>
-                      <p class="font-body text-text-muted text-ui-sm">{formatWeddingDate(iso())}</p>
-                    </>
-                  )}
-                </Show>
-              </Card>
+              {countdownCard(weddingDate, countdown)}
 
               {/* ── RSVP totals ───────────────────────────────────────────── */}
-              <Card>
-                <Eyebrow>RSVPs</Eyebrow>
-                <Show
-                  when={data()?.rsvps && data()!.rsvps!.eventCount > 0}
-                  fallback={
-                    <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
-                      Replies will roll up here once you have events and guests.
-                    </p>
-                  }
-                >
-                  {(() => {
-                    const r = data()!.rsvps!;
-                    return (
-                      <>
-                        <div class="flex items-baseline gap-2">
-                          <span class="font-display text-gold-ink text-ui-xl leading-ui-none tabular-nums">
-                            {r.attending}
-                          </span>
-                          <span class="font-body text-text-muted text-ui-sm">
-                            attending across {r.eventCount}{" "}
-                            {r.eventCount === 1 ? "event" : "events"}
-                          </span>
-                        </div>
-                        <Meter value={r.responded} max={r.invited} label="RSVP responses" />
-                        <dl class="font-body text-text-muted text-ui-sm grid grid-cols-2 gap-x-4 gap-y-1">
-                          <div class="flex justify-between gap-2">
-                            <dt>Declined</dt>
-                            <dd class="text-text font-ui-mono">{r.declined}</dd>
-                          </div>
-                          <div class="flex justify-between gap-2">
-                            <dt>Maybe</dt>
-                            <dd class="text-text font-ui-mono">{r.maybe}</dd>
-                          </div>
-                          <div class="flex justify-between gap-2">
-                            <dt>No reply</dt>
-                            <dd class="text-text font-ui-mono">{r.noResponse}</dd>
-                          </div>
-                          <div class="flex justify-between gap-2">
-                            <dt>Invited</dt>
-                            <dd class="text-text font-ui-mono">{r.invited}</dd>
-                          </div>
-                        </dl>
-                        <Show when={data()!.rsvpEvents.length > 0}>
-                          <ul class="font-body text-text-muted text-ui-sm flex flex-col gap-0.5">
-                            <For each={data()!.rsvpEvents.slice(0, 5)}>
-                              {(e) => (
-                                <li class="flex justify-between gap-2">
-                                  <span class="truncate">{e.name}</span>
-                                  <span class="text-text font-ui-mono tabular-nums">
-                                    {e.attending} attending
-                                  </span>
-                                </li>
-                              )}
-                            </For>
-                            <Show when={data()!.rsvpEvents.length > 5}>
-                              <li class="text-text-muted/70">
-                                +{data()!.rsvpEvents.length - 5} more
-                              </li>
-                            </Show>
-                          </ul>
-                        </Show>
-                        <CardCtaButton onClick={() => props.onNavigate("guests", "rsvps")}>
-                          See replies per event
-                        </CardCtaButton>
-                      </>
-                    );
-                  })()}
-                </Show>
-              </Card>
+              {rsvpCard(data)}
 
               {/* ── RSVP changes since this organiser last looked ─────────── */}
               {/* Renders nothing when its read failed, so it never blanks the
@@ -649,28 +748,7 @@ export default function Overview(props: {
               />
 
               {/* ── Guests + events snapshot ─────────────────────────────── */}
-              <Card>
-                <Eyebrow>Guests &amp; events</Eyebrow>
-                <dl class="font-body text-text-muted text-ui-sm flex flex-col gap-1.5">
-                  <div class="flex justify-between gap-2">
-                    <dt>Households</dt>
-                    <dd class="text-text font-ui-mono">{householdCount()}</dd>
-                  </div>
-                  <div class="flex justify-between gap-2">
-                    <dt>Events</dt>
-                    <dd class="text-text font-ui-mono">{eventCount()}</dd>
-                  </div>
-                  <Show when={data()?.profile?.guestCountEstimate != null}>
-                    <div class="flex justify-between gap-2">
-                      <dt>Guest estimate</dt>
-                      <dd class="text-text font-ui-mono">{data()!.profile!.guestCountEstimate}</dd>
-                    </div>
-                  </Show>
-                </dl>
-                <CardCtaButton onClick={() => props.onNavigate("guests", "list")}>
-                  Open the guest list
-                </CardCtaButton>
-              </Card>
+              {guestsCard(householdCount, eventCount, () => data()?.profile?.guestCountEstimate)}
 
               {/* ── Checklist snapshot (live open-task count) ─────────────── */}
               {/* Absent while the module is locked, like Vendors below. */}
