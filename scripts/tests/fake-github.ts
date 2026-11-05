@@ -61,15 +61,19 @@ export interface FakeGitHub {
  * otherwise, on `main` in this repository, unless `origins` says otherwise.
  * `goneRuns` answer 404, as a run past log retention does. The jobs list
  * honours `filter`: without `filter=all` it holds only the latest attempt.
+ * `failing` answers its first `times` requests whose path and query match
+ * with `status`, as GitHub does during an outage.
  */
 export function fakeGitHub(
   records: readonly FixtureRecord[],
   options: {
     readonly goneRuns?: readonly number[];
     readonly origins?: Readonly<Record<number, FixtureOrigin>>;
+    readonly failing?: { readonly match: RegExp; readonly status: number; readonly times: number };
   } = {},
 ): FakeGitHub {
   const calls: string[] = [];
+  let failed = 0;
   const withIds = records.map((record, index) => ({
     ...record,
     id: 1000 + index,
@@ -82,6 +86,11 @@ export function fakeGitHub(
     const request = input instanceof Request ? input : undefined;
     const url = new URL(request?.url ?? (input instanceof URL ? input.href : String(input)));
     calls.push(`${url.pathname}${url.search}`);
+    const { failing } = options;
+    if (failing !== undefined && failed < failing.times && failing.match.test(calls.at(-1) ?? "")) {
+      failed += 1;
+      return json({ message: "Server Error" }, failing.status);
+    }
     const headers = new Headers(init?.headers ?? request?.headers);
     if (headers.get("authorization") !== `Bearer ${TOKEN}`)
       return json({ message: "Bad credentials" }, 401);
@@ -126,10 +135,15 @@ export function fakeGitHub(
                 ? "success"
                 : "failure"
               : r.conclusion;
-          // A dev stack job's steps include its deploy step, by the name the
-          // planner reads; GitHub reports a step still running with no
-          // conclusion, as it does the job.
+          // A dev stack job's steps hold its deploy step, by the name the
+          // planner reads, among steps that succeed whether it deploys or
+          // not, as a real job's do; GitHub reports a step still running with
+          // no conclusion, as it does the job.
           const devStack = STACKS.find((s) => s.job.name === r.job);
+          const around = (name: string) => ({
+            name,
+            conclusion: conclusion === null ? null : "success",
+          });
           return {
             id: r.jobId,
             name: r.job,
@@ -139,10 +153,13 @@ export function fakeGitHub(
               devStack === undefined
                 ? []
                 : [
+                    around("Set up job"),
+                    around("Refuse a commit older than one the stack already passed on dev"),
                     {
                       name: devDeployStep(devStack.key),
                       conclusion: r.deployStep === undefined ? conclusion : r.deployStep,
                     },
+                    around("Complete job"),
                   ],
           };
         });

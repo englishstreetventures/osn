@@ -8,7 +8,9 @@
 // green, and a `true` that should have been `false` puts older code back.
 //
 // The history every test builds: base ← older ← head ← newer on main, and an
-// orphan commit no branch reaches. The job under test runs at `head`.
+// orphan commit no branch reaches. The job under test runs at `head`. The two
+// retry cases run the step in process instead, so that its retries can come
+// 1 ms apart rather than the step's 1 s and 2 s.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -16,7 +18,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { type StackKey, SURFACES } from "../deploy-surfaces";
+import { runDevDeployOrder } from "../dev-deploy-order";
 import {
+  API,
   dev,
   fakeGitHub,
   type FakeGitHub,
@@ -125,6 +129,20 @@ async function withHistory(
 }
 
 const readOr = async (path: string) => readFile(path, "utf8").catch(() => "");
+
+/** The step's inputs for an in-process run at `head`, with retries 1 ms apart. */
+const inProcess = (history: History) => ({
+  argv: ["--stack", "cire"],
+  env: {
+    GITHUB_SHA: history.head,
+    GITHUB_REPOSITORY: REPO,
+    GITHUB_TOKEN: TOKEN,
+    GITHUB_API_URL: API,
+  },
+  fetch: github.fetch,
+  cwd: history.repo,
+  retry: { delays: [1, 1], timeoutMs: 2_000 },
+});
 
 /** Run the order check for `stack` at `head`, as the stack job does. */
 async function check(
@@ -399,7 +417,7 @@ describe("what the check costs", () => {
 });
 
 describe("it fails, deploying nothing, when it cannot tell", () => {
-  test("F12b: an API error that is not worth a retry fails the step with an annotation and writes no output", async () => {
+  test("F12c: an API error no retry can change fails the step at once, with an annotation, and writes no output", async () => {
     await withHistory(async (h) => {
       github = fakeGitHub([stackRecord(h.newer, 2)]);
 
@@ -412,16 +430,26 @@ describe("it fails, deploying nothing, when it cannot tell", () => {
     });
   });
 
-  test("F13: an unknown or missing --stack, or a GITHUB_SHA that is not a full commit id, fails before any call", async () => {
+  test("F13: an unknown or missing --stack, a GITHUB_SHA that is not a full commit id, a GITHUB_REPOSITORY that is not owner/name, or no GITHUB_TOKEN fails before any call, naming it", async () => {
     await withHistory(async (h) => {
       github = fakeGitHub([]);
-      const cases: [string[], Record<string, string>][] = [
-        [["--stack", "cire-api"], {}],
-        [[], {}],
-        [["--stack", "cire"], { GITHUB_SHA: h.head.slice(0, 7) }],
-        [["--stack", "cire"], { GITHUB_SHA: "" }],
+      const cases: [string[], Record<string, string>, string][] = [
+        [["--stack", "cire-api"], {}, "--stack"],
+        [[], {}, "--stack"],
+        [["--stack", "cire"], { GITHUB_SHA: h.head.slice(0, 7) }, "GITHUB_SHA"],
+        [["--stack", "cire"], { GITHUB_SHA: "" }, "GITHUB_SHA"],
+        // The repository is part of every API path the token reads.
+        [
+          ["--stack", "cire"],
+          { GITHUB_REPOSITORY: "englishstreetventures/.." },
+          "GITHUB_REPOSITORY",
+        ],
+        [["--stack", "cire"], { GITHUB_REPOSITORY: "osn" }, "GITHUB_REPOSITORY"],
+        // Without this refusal a job with no token fails only once it reaches
+        // the API, and one at main's newest commit never does.
+        [["--stack", "cire"], { GITHUB_TOKEN: "" }, "GITHUB_TOKEN"],
       ];
-      for (const [args, env] of cases) {
+      for (const [args, env, named] of cases) {
         const { exitCode, stderr } = await run(["bun", "run", SCRIPT, ...args], h.repo, {
           GITHUB_SHA: h.head,
           GITHUB_REPOSITORY: REPO,
@@ -432,9 +460,36 @@ describe("it fails, deploying nothing, when it cannot tell", () => {
         });
         expect(exitCode).toBe(1);
         expect(stderr).toContain("::error::dev-deploy-order:");
+        expect(stderr).toContain(named);
       }
       expect(github.calls).toEqual([]);
       expect(await readOr(h.output)).toBe("");
+    });
+  }, 30_000);
+
+  // In process, so the retry's delays can be short; the step's own reader is
+  // what is under test, not the helper alone (dev-deploy-order.test.ts).
+  test("F12a: the step's own reader tries a 502 again and decides on the answer after it", async () => {
+    await withHistory(async (h) => {
+      github = fakeGitHub([stackRecord(h.newer, 2)], {
+        failing: { match: /\/deployments\?/, status: 502, times: 1 },
+      });
+
+      const step = await runDevDeployOrder(inProcess(h));
+
+      expect(step.outputs).toBe("deploy=false\n");
+      expect(listReads()).toHaveLength(2);
+    });
+  });
+
+  test("F12b: a 502 that does not clear after two retries fails the step, after three tries", async () => {
+    await withHistory(async (h) => {
+      github = fakeGitHub([stackRecord(h.newer, 2)], {
+        failing: { match: /./, status: 502, times: Number.POSITIVE_INFINITY },
+      });
+
+      await expect(runDevDeployOrder(inProcess(h))).rejects.toThrow("GitHub API answered 502");
+      expect(listReads()).toHaveLength(3);
     });
   });
 
