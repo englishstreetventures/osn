@@ -62,8 +62,8 @@ function sharedPromptContract(mount: () => HTMLElement) {
 
   it("links to both legal pages from the prompt itself", () => {
     const root = mount();
-    expect(root.querySelector('a[href="/privacy"]')).not.toBeNull();
-    expect(root.querySelector('a[href="/terms"]')).not.toBeNull();
+    expect(root.querySelector('a[href="/privacy/"]')).not.toBeNull();
+    expect(root.querySelector('a[href="/terms/"]')).not.toBeNull();
   });
 
   it("offers 'Accept all', 'Reject all' and 'Choose', in that order, all three alike", () => {

@@ -27,7 +27,7 @@ function ClaimContent() {
   // pressed, a second press ignored and announced, and the button back after
   // a back-forward restore or a navigation that never completes.
   const press = createSignInPress(() =>
-    signIn(new URL("/claim", window.location.origin).toString()),
+    signIn(new URL("/claim/", window.location.origin).toString()),
   );
 
   // Step 1: Read token from URL and immediately strip it from the visible URL.
@@ -48,7 +48,7 @@ function ClaimContent() {
       sessionStorage.setItem(CLAIM_TOKEN_KEY, fromUrl);
       // Immediately strip the token from the URL to prevent it appearing in
       // browser history, referrer headers, or server logs.
-      history.replaceState(null, "", "/claim");
+      history.replaceState(null, "", "/claim/");
     }
     setToken(fromUrl || (sessionStorage.getItem(CLAIM_TOKEN_KEY) ?? ""));
   });

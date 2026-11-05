@@ -35,15 +35,13 @@ const redirect = (location: string, cookies: string[]): Response => {
 /**
  * Whether a portal page is worth resuming on, by the rule the portals'
  * sign-in panel applies again: a path (a URL's always is) that is not
- * protocol-relative, holds no backslash, and is neither the root nor `/login`. The
- * allowlist checked `return_to`'s origin only; its path is whoever started the
- * sign-in.
+ * protocol-relative, holds no backslash, and is neither the root nor `/login`
+ * with any trailing slashes. The allowlist checked `return_to`'s origin only;
+ * its path is whoever started the sign-in, so the login test is
+ * start-anchored and reads a run of slashes once, not once per slash.
  */
 const isResumable = (pathname: string, page: string): boolean =>
-  page !== "/" &&
-  !page.startsWith("//") &&
-  !page.includes("\\") &&
-  pathname.replace(/\/+$/, "") !== "/login";
+  page !== "/" && !page.startsWith("//") && !page.includes("\\") && !/^\/login\/*$/.test(pathname);
 
 /**
  * Terminal sign-in failure on a top-level browser navigation. Rather than
@@ -52,7 +50,7 @@ const isResumable = (pathname: string, page: string): boolean =>
  * message:
  *
  * - a trusted `return_to` on a portal (the host or vendor origin) lands on
- *   that portal's own `/login`, carrying the page as `returnTo`, so the sign-in
+ *   that portal's own `/login/`, carrying the page as `returnTo`, so the sign-in
  *   panel shows the message and the next sign-in resumes there;
  * - any other trusted `return_to` (the guest site) gets the marker itself;
  * - with none — the transaction cookie missing, expired or forged — the
@@ -72,7 +70,7 @@ const failureLanding = (
   if (returnTo) {
     const back = new URL(returnTo);
     if (portalOrigins.includes(back.origin)) {
-      const login = new URL("/login", back.origin);
+      const login = new URL("/login/", back.origin);
       const page = back.pathname + back.search + back.hash;
       if (isResumable(back.pathname, page)) login.searchParams.set("returnTo", page);
       login.searchParams.set("auth_error", reason);
@@ -99,7 +97,7 @@ const portalLoginFor = (
 ): string => {
   try {
     const origin = new URL(String(rawReturnTo)).origin;
-    if (portalOrigins.includes(origin)) return new URL("/login", origin).toString();
+    if (portalOrigins.includes(origin)) return new URL("/login/", origin).toString();
   } catch {
     // Not a URL: the organiser login page.
   }
@@ -122,7 +120,7 @@ export interface AuthOidcRouteOptions {
   loginFallbackUrl: string;
   /**
    * The host and vendor portals' origins. A failed sign-in whose trusted
-   * `return_to` is on one of them lands on that portal's `/login`.
+   * `return_to` is on one of them lands on that portal's `/login/`.
    */
   portalOrigins: readonly string[];
   /**

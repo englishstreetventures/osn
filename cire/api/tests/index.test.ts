@@ -434,7 +434,7 @@ describe("organiser sign-in config on the Worker", () => {
       );
       expect(res.status).toBe(302);
       const location = new URL(res.headers.get("location") ?? "");
-      expect(location.pathname).toBe("/login");
+      expect(location.pathname).toBe("/login/");
       expect(location.searchParams.get("auth_error")).toBe("sign_in_unavailable");
       expect(logs).toContain("OIDC client config incomplete");
       expect(logs).toContain("OSN_JWKS_URL");

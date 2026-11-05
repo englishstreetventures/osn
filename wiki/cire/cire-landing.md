@@ -150,7 +150,7 @@ an invitation" in the footer. The footer's section links go to `/#journey`,
 The footer (`MarketingFooter.astro`, filling `@cire/ui`'s `site-footer.astro`,
 the one the guest site ends on too) is one centred stack: the italic "Cire"
 logotype and "Invitations worthy of the moment.", a gold rule, the section
-links, the legal row (`/privacy`, `/terms`, `/refunds`; the legal pages are
+links, the legal row (`/privacy/`, `/terms/`, `/refunds/`; the legal pages are
 review drafts), "© 2026 Cire. Made with care." and the build's version — the
 first seven characters of `PUBLIC_BUILD_SHA`, which the deploy workflows set to
 the commit, or "local" for a build without it. Every link keeps the word's size
@@ -273,7 +273,7 @@ carries the names to the organiser portal.
 - **In the portal**, `WeddingList` reads `?name=`, opens the create form with
   the names in its field and drops the parameter from the address
   ([[cire-organiser#Arriving from the marketing site]]). A signed-out visitor keeps it
-  through `/login?returnTo=`; the `cire-checklist-starter` flow signs in from
+  through `/login/?returnTo=`; the `cire-checklist-starter` flow signs in from
   that address and finds the names in the form.
 - **Held to the API by a test.** `tests/lib/slug-preview.test.ts` imports
   `cire/api/src/lib/slug.ts` and compares the two rules on a corpus of names
@@ -294,7 +294,7 @@ each kind of person who uses Cire. Each notice carries its own "Last updated".
 | `/privacy/guests` | `src/pages/privacy/guests.astro`, rendering `cire/ui/src/guest-privacy-notice.astro` | Invited households and the people they bring |
 | `/privacy/vendors` | `src/pages/privacy/vendors.astro` | Wedding suppliers |
 
-The site footer links `/privacy`, which links to the three notices. So does the
+The site footer links `/privacy/`, which links to the three notices. So does the
 organiser portal's RSVP editor, under a plus-one's dietary attestation; the
 portal reads this site's origin from `PUBLIC_MARKETING_URL`
 (`CIRE_MARKETING_URL` in `cire/host/src/lib/osn.ts`).

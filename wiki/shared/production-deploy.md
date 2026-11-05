@@ -1494,7 +1494,10 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
 
   The comparison does not ask a directory page's address without its trailing slash
   (`/login`, `/privacy`), which both redirect to the slash form, the Worker with a 307
-  and Pages with a 308.
+  and Pages with a 308. The owner accepted the 307 (englishstreetventures/osn#1988):
+  cire's own links name each page in the slash form, which CI checks after the build
+  ([[cire-development#Links to a site's own pages]]), so only an address typed or
+  linked from elsewhere meets the redirect.
 
   *Measured 2026-11-05 — release run 41818903897: its `site-parity` report; each HTML
   file of its `production-sites` artifact searched for `<meta charset` in its first 1024

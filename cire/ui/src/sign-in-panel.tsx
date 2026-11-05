@@ -89,7 +89,11 @@ function resumeTarget(): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return root;
   try {
     const url = new URL(raw, window.location.origin);
-    if (url.origin !== window.location.origin || url.pathname.replace(/\/+$/, "") === "/login") {
+    // The login page, with any trailing slashes. Start-anchored, so a run of
+    // slashes elsewhere in a crafted `returnTo` is read once, not once per
+    // slash; and free of a quoted `/login`, so the bundle names the page only
+    // as it is linked.
+    if (url.origin !== window.location.origin || /^\/login\/*$/.test(url.pathname)) {
       return root;
     }
     // A marker carried inside the page someone was on belongs to a sign-in

@@ -50,22 +50,30 @@ export function isAuthExpired(err: unknown): boolean {
 }
 
 /**
+ * The login page's path with any trailing slashes. Start-anchored, so a run of
+ * slashes elsewhere in a crafted address is read once, not once per slash; and
+ * free of a quoted `/login`, so the bundle names the page only as it is linked.
+ */
+const LOGIN_PAGE = /^\/login\/*$/;
+
+/**
  * Bounce to the login page on an expired session, remembering where the user
  * was so the post-login resume can send them back instead of always dumping
  * them on the dashboard. Only the same-origin path+query+hash is carried (as a
  * `returnTo` param) — never an absolute URL — so this can never become an open
- * redirect. `/login` itself is never remembered (it would just loop).
+ * redirect. The login page itself is never remembered (it would just loop),
+ * at `/login/`, where it is served, or `/login`, which the dev server answers
+ * too. It is linked as `/login/`: the asset server redirects `/login` there.
  */
 export function redirectToLogin(): void {
   if (signingOut) {
-    window.location.href = "/login";
+    window.location.href = "/login/";
     return;
   }
   const here = window.location.pathname + window.location.search + window.location.hash;
-  const target =
-    window.location.pathname === "/login"
-      ? "/login"
-      : `/login?returnTo=${encodeURIComponent(here)}`;
+  const target = LOGIN_PAGE.test(window.location.pathname)
+    ? "/login/"
+    : `/login/?returnTo=${encodeURIComponent(here)}`;
   window.location.href = target;
 }
 
@@ -84,7 +92,7 @@ export async function signOutToLogin(logout: () => Promise<void>): Promise<void>
   try {
     await logout();
   } finally {
-    window.location.href = "/login";
+    window.location.href = "/login/";
   }
 }
 

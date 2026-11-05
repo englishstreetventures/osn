@@ -42,7 +42,7 @@ export default function EmailAttestationCheck(props: {
             <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
               The notice to share:{" "}
               <a
-                href={`${CIRE_MARKETING_URL}/privacy/guests`}
+                href={`${CIRE_MARKETING_URL}/privacy/guests/`}
                 target="_blank"
                 rel="noopener noreferrer"
                 class={proseLinkClass()}

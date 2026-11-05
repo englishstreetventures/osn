@@ -1498,7 +1498,7 @@ describe("RsvpView — plus-ones", () => {
     );
     // The page the line names, on the marketing site, in a new tab so the
     // open form keeps what was typed.
-    expect(link.getAttribute("href")).toBe("https://marketing.test/privacy");
+    expect(link.getAttribute("href")).toBe("https://marketing.test/privacy/");
     expect(link.target).toBe("_blank");
     expect(link.rel).toBe("noopener noreferrer");
     // Under the box it goes with, and outside its label.
