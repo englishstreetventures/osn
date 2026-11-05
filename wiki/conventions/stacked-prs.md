@@ -169,6 +169,14 @@ A fix to an upper layer after that is a plumbing commit: `git read-tree` that la
 
 The upper layers then have no local per-layer gates, since none was ever checked out. Their bodies say so, and CI on each pull request is their proof.
 
+To rebuild such a stack on a newer `main`, when a layer conflicts with it:
+
+1. Save the four tips, then `git diff <old bottom layer commit> <old top>` to scratch. Diff from the bottom *layer's own commit*, never the bottom branch's tip: commits added on the bottom after the cut, such as its session-metrics card, are not in the upper layers, and a diff from the tip deletes them.
+2. `git rebase refs/remotes/origin/main` on the bottom branch, then `bun install --frozen-lockfile`.
+3. `git apply --3way <diff>`. Resolve each conflict by keeping `main`'s new code and re-applying only the layer's intent, and check `main` for new readers of anything the layer removes.
+4. Run the gates again, commit each upper layer with `git commit -o <its paths>`, move the branch refs with `git branch -f`, reset the bottom, and push all four with `--force-with-lease=<branch>:<old sha>`.
+5. Confirm `git merge-tree --write-tree refs/remotes/origin/main <top>` prints a tree and no `CONFLICT` line.
+
 ## CI on a stacked PR
 
 Path-filtered jobs must diff against the PR's own base, not `main`, or a stacked PR sees its parent's files as changed. `.github/workflows/ci-swift.yml` does this: on `pull_request` it diffs `origin/$BASE_REF`. Copy that shape for any new filter.
