@@ -675,7 +675,7 @@ test("cire-registry-money", async ({ page, flow }) => {
   const row = gardenAccount();
   flow.check(
     "Garden Wedding names the Standard account",
-    "acct_e2e_standard",
+    "acct_e2eStandard",
     row?.account ?? "absent",
   );
   flow.check("as a Standard account", "standard", row?.type ?? "absent");

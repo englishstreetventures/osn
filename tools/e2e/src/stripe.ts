@@ -21,7 +21,7 @@
  */
 
 /** The Standard account every exchange connects. */
-export const STRIPE_STANDIN_ACCOUNT = "acct_e2e_standard";
+export const STRIPE_STANDIN_ACCOUNT = "acct_e2eStandard";
 
 export interface StripeCalls {
   token: number;
