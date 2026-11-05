@@ -47,6 +47,7 @@ import { rsvpDigestService } from "./services/rsvp-digest";
 import { sessionService } from "./services/session";
 import { sheetReconcileService } from "./services/sheet-reconcile";
 import { createStripeClientFromEnv } from "./services/stripe";
+import { stripeConnectOAuthFromEnv } from "./services/stripe-connect-oauth";
 import { createZapChatClientFromEnv } from "./services/zap-bridge";
 
 // Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [[r2_buckets]],
@@ -169,6 +170,16 @@ export interface Env {
   // the app is built. Both: `wrangler secret put …`, then a deploy.
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  // The platform's Stripe Connect OAuth client id (`ca_…`), from the Connect
+  // settings' OAuth page (KEY-OPTIONAL). With it, the key and CIRE_API_ORIGIN,
+  // an owner may connect a Stripe account they already have, and Stripe sends
+  // the browser back to `${CIRE_API_ORIGIN}/api/organiser/stripe/oauth/callback`,
+  // which must be registered there. Unset ⇒ neither route is mounted and the
+  // portal offers no such choice. Set but not a `ca_` id ⇒ the same, and the
+  // Worker logs "stripe connect oauth disabled: …" when it builds the app.
+  // Not secret — it appears in every authorize URL — but kept with the other
+  // Stripe values in the GitHub Environment, so `wrangler secret put`.
+  STRIPE_CONNECT_CLIENT_ID?: string;
   // Signing secret for the PLATFORM webhook (upgrade purchases). A DIFFERENT
   // secret from STRIPE_WEBHOOK_SECRET: two Stripe endpoints, two secrets. That
   // one is Connect-scoped and hears about gifts on a couple's account; this one
@@ -475,6 +486,18 @@ const handler: ExportedHandler<Env> = {
       // `null` without a key, exactly like the Turnstile verifier above: the
       // absence of configuration is a state this product supports, not a fault.
       const stripe = createStripeClientFromEnv(env);
+      // Connecting an account the couple already have (KEY-OPTIONAL): the
+      // platform key, the OAuth client id and this Worker's own origin, which
+      // the registered redirect URI is built on. A mistyped id is said once.
+      const oauth = stripeConnectOAuthFromEnv(env);
+      if (oauth.gap === "malformed_client_id") {
+        await runCire(
+          Effect.logWarning(
+            "stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id",
+            { detail: "set the client id from Stripe's Connect OAuth settings and redeploy" },
+          ),
+        );
+      }
       // GrowthBook feature flags (KEY-OPTIONAL). Unset client key ⇒ an inert
       // provider that serves registry defaults with no network. Built once per
       // isolate alongside the app so its payload cache is isolate-lived. No
@@ -558,6 +581,7 @@ const handler: ExportedHandler<Env> = {
         resolveOsnConnectionSearch,
         turnstileVerifier,
         stripe,
+        stripeConnectOAuth: oauth.oauth,
         stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET ?? null,
         stripePlatformWebhookSecret: env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
         // Two dashboard endpoints, two secrets: a deployed tier refuses one
@@ -665,7 +689,8 @@ const handler: ExportedHandler<Env> = {
   //     only when osn-api can be asked for addresses and Resend is configured
   //     — services/rsvp-digest.ts.
   // 10. The purge of soft-deleted weddings past their restore window, a few a
-  //     run, with the R2 objects their rows name — services/maintenance-sweeps.ts.
+  //     run, with the R2 objects their rows name, handing back to Stripe any
+  //     Standard account no other wedding uses — services/maintenance-sweeps.ts.
   // 11. `cire-sheets` orphan reconciliation — the same guarded walk as 4 over
   //     `imports/`, against the four key columns of `imports`, listing at most
   //     1,000 objects a run and resuming where the last run stopped. See
@@ -857,7 +882,13 @@ const handler: ExportedHandler<Env> = {
     runSweep(() =>
       runCire(
         maintenanceSweeps
-          .purgeDeletedWeddings(new Date(), { sheets: env.SHEETS, assets: env.ASSETS })
+          .purgeDeletedWeddings(
+            new Date(),
+            { sheets: env.SHEETS, assets: env.ASSETS },
+            // A purged wedding's unused Standard account is handed back to its
+            // holder: at most MAX_PURGES_PER_RUN subrequests.
+            { deauthorize: stripeConnectOAuthFromEnv(env).oauth?.deauthorize },
+          )
           .pipe(
             Effect.catch((err) =>
               Effect.logError("scheduled wedding purge failed", { reason: err.reason }),

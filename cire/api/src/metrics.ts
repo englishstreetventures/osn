@@ -160,6 +160,8 @@ export const CIRE_METRICS = {
   // A Stripe Connect refund or dispute whose gift cire cannot find — the gift
   // was never recorded here, or its wedding was purged.
   registryStripeUnmatched: "cire.registry.stripe.unmatched",
+  // Stripe Connect OAuth callbacks, by how each ended.
+  registryStripeOAuth: "cire.registry.stripe.oauth",
   // Organiser wedding-profile (Settings) saves.
   weddingSettingsSaved: "cire.wedding.settings.saved",
   // Settings writes refused because a non-owner reached past the RSVP-by date.
@@ -308,6 +310,25 @@ export type OwnerNoticeKind = "owner_change" | "delete_started";
  *  throttle, or the lookup or send failed. */
 export type OwnerNoticeResult = "sent" | "no_recipients" | "throttled" | "failed";
 export type StripeUnmatchedEvent = "refund" | "dispute";
+
+/**
+ * The type of the account an unmatched refund or dispute arrived on: on a
+ * `standard` account it is the holder's own business, not a gift cire lost.
+ */
+export type StripeUnmatchedAccount = "express" | "standard" | "unknown";
+
+/** How a Stripe Connect OAuth callback ended — the outcome the portal is told. */
+export type StripeOAuthOutcome =
+  | "connected"
+  | "denied"
+  | "expired"
+  | "signed_out"
+  | "forbidden"
+  | "already_connected"
+  | "rejected"
+  | "unavailable"
+  | "currency_mismatch"
+  | "owners_differ";
 
 /** Outcome of a wedding-profile (Settings) save. Validation rejections are the
  *  schema's 400 upstream; `error` is a write failure. */
@@ -782,7 +803,8 @@ type WeddingDeletedAttrs = { result: WeddingDeletedResult };
 type WeddingRestoredAttrs = { result: WeddingRestoredResult };
 type WeddingPurgedAttrs = { result: WeddingPurgedResult };
 type OwnerNoticeAttrs = { kind: OwnerNoticeKind; result: OwnerNoticeResult };
-type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent };
+type StripeUnmatchedAttrs = { event: StripeUnmatchedEvent; account: StripeUnmatchedAccount };
+type StripeOAuthAttrs = { outcome: StripeOAuthOutcome };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
@@ -1279,8 +1301,15 @@ const weddingPurgeBacklog = createHistogram<Record<never, never>>({
 
 const registryStripeUnmatched = createCounter<StripeUnmatchedAttrs>({
   name: CIRE_METRICS.registryStripeUnmatched,
-  description: "Stripe Connect refund and dispute events whose gift cire has no row for, by event",
+  description:
+    "Stripe Connect refund and dispute events whose gift cire has no row for, by event and account type",
   unit: "{event}",
+});
+
+const registryStripeOAuth = createCounter<StripeOAuthAttrs>({
+  name: CIRE_METRICS.registryStripeOAuth,
+  description: "Stripe Connect OAuth callbacks, by outcome",
+  unit: "{callback}",
 });
 
 const weddingSettingsSaved = createCounter<WeddingSettingsSavedAttrs>({
@@ -1652,8 +1681,13 @@ export const metricWeddingPurged = (result: WeddingPurgedResult, count: number):
 /** The purge backlog one run left behind, recorded every run (zero included). */
 export const metricWeddingPurgeBacklog = (due: number): void => weddingPurgeBacklog.record(due, {});
 
-export const metricRegistryStripeUnmatched = (event: StripeUnmatchedEvent): void =>
-  registryStripeUnmatched.inc({ event });
+export const metricRegistryStripeUnmatched = (
+  event: StripeUnmatchedEvent,
+  account: StripeUnmatchedAccount,
+): void => registryStripeUnmatched.inc({ event, account });
+
+export const metricRegistryStripeOAuth = (outcome: StripeOAuthOutcome): void =>
+  registryStripeOAuth.inc({ outcome });
 
 export const metricWeddingSettingsSaved = (result: WeddingSettingsSavedResult): void =>
   weddingSettingsSaved.inc({ result });

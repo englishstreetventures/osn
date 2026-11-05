@@ -535,6 +535,7 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   shipping_visible_from TEXT,
   stripe_account_id TEXT,
   stripe_connected_by_osn_profile_id TEXT,
+  stripe_account_type TEXT,
   stripe_charges_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_payouts_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_account_updated_at INTEGER,
@@ -547,6 +548,15 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS registry_settings_stripe_account_idx ON registry_settings(stripe_account_id) WHERE stripe_account_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS registry_stripe_oauth_states (
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  osn_profile_id TEXT NOT NULL,
+  state_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (wedding_id, osn_profile_id)
+);
+CREATE INDEX IF NOT EXISTS registry_stripe_oauth_states_expires_idx ON registry_stripe_oauth_states(expires_at);
 CREATE TABLE IF NOT EXISTS registry_items (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
@@ -779,6 +789,16 @@ WHEN NEW.allow_partial NOT IN (0, 1)
   OR (NEW.allow_partial = 1 AND (NEW.kind <> 'cash_fund' OR NEW.target_minor IS NULL))
 BEGIN
   SELECT RAISE(ABORT, 'a group gift is a cash fund with a target');
+END;
+CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_type BEFORE INSERT ON registry_settings
+WHEN NEW.stripe_account_type IS NOT NULL AND NEW.stripe_account_type NOT IN ('express', 'standard')
+BEGIN
+  SELECT RAISE(ABORT, 'stripe account type is not express or standard');
+END;
+CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_type_update BEFORE UPDATE OF stripe_account_type ON registry_settings
+WHEN NEW.stripe_account_type IS NOT NULL AND NEW.stripe_account_type NOT IN ('express', 'standard')
+BEGIN
+  SELECT RAISE(ABORT, 'stripe account type is not express or standard');
 END;
 `;
 

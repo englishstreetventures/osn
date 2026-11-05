@@ -66,6 +66,7 @@ const invitesWrangler = Bun.JSONC.parse(readRepo("cire/invites/wrangler.jsonc"))
 const DEV_ONLY: Readonly<Record<string, string>> = {
   STRIPE_PLATFORM_WEBHOOK_SECRET:
     "production does not run Stripe yet: its inventory row holds no Stripe secret and production-release.yml passes none",
+  STRIPE_CONNECT_CLIENT_ID: "the same: Stripe runs on dev only",
   STRIPE_SECRET_KEY: "the same: Stripe runs on dev only",
   STRIPE_WEBHOOK_SECRET: "the same: Stripe runs on dev only",
 };

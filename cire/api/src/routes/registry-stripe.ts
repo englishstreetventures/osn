@@ -68,7 +68,7 @@ import { weddingOwner } from "../middleware/wedding-owner";
 import { weddingTier } from "../middleware/wedding-tier";
 import { runCire } from "../observability";
 import { ReuseStripeAccountBody } from "../schemas/registry";
-import { registryService, settingsForReader } from "../services/registry";
+import { accountTypeOf, registryService, settingsForReader } from "../services/registry";
 import type { RegistrySettingsDto } from "../services/registry";
 import type { StripeClient, StripeError } from "../services/stripe";
 
@@ -234,6 +234,20 @@ export const createRegistryStripeRoutes = (
               let accountId = settings.stripeAccountId;
               let chargesEnabled = settings.stripeChargesEnabled;
               let payoutsEnabled = settings.stripePayoutsEnabled;
+              // The couple's own account, connected through OAuth: they run it
+              // in their own Stripe Dashboard, and cire, which did not create
+              // it, has no onboarding of its own to send anyone into.
+              if (accountTypeOf(settings) === "standard") {
+                return yield* Effect.logInfo("stripe onboarding refused").pipe(
+                  Effect.annotateLogs({ weddingId, refusal: "standard_account" }),
+                  Effect.andThen(
+                    Effect.sync(() => {
+                      set.status = 409;
+                      return { error: "stripe_standard_account" };
+                    }),
+                  ),
+                );
+              }
               if (accountId && settings.stripeConnectedByOsnProfileId !== osnProfileId) {
                 return yield* notConnector(set, weddingId, "not_connector");
               }

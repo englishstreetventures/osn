@@ -42,6 +42,11 @@ import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/preferences";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { markRunSheetStale } from "../lib/run-sheet-store";
+import {
+  clearStripeConnectParam,
+  readStripeConnectReturn,
+  stripeConnectWords,
+} from "../lib/stripe-connect-return";
 import { TasksChangedContext } from "../lib/tasks-changed";
 import { markTasksStale } from "../lib/tasks-store";
 import { TIER_LABEL, tierOf } from "../lib/tiers";
@@ -852,6 +857,22 @@ function Dashboard() {
    * `search` through, so leaving them would re-run this on every later
    * navigation, refresh and bookmark.
    */
+  /**
+   * Back from connecting a Stripe account. cire-api's callback did the work;
+   * the redirect carries one word saying how it ended and the route of the
+   * wedding's registry settings, which read the account as stored. The word is
+   * stripped first, for the same reason the upgrade receipt is.
+   */
+  onMount(() => {
+    if (typeof window === "undefined") return;
+    const outcome = readStripeConnectReturn(window.location.search);
+    if (!outcome) return;
+    history.replaceState(null, "", clearStripeConnectParam(new URL(window.location.href)));
+    const words = stripeConnectWords(outcome);
+    if (words.ok) toast.success(words.text);
+    else toast.error(words.text);
+  });
+
   onMount(() => {
     if (typeof window === "undefined") return;
     const receipt = readUpgradeReturn(window.location.search);

@@ -43,6 +43,11 @@ export interface RegistrySettings {
    *  API hands its onboarding link. `null` with no account, with nobody on
    *  record (then no owner may), and for anyone who is not an owner. */
   stripeConnectedByOsnProfileId: string | null;
+  /** How the account came, to owners only: `standard` is the couple's own
+   *  Stripe account, connected through Stripe and run in their own Stripe
+   *  Dashboard, with no onboarding link of cire's. `null` with no account, for
+   *  anyone who is not an owner, and from an API that predates it. */
+  stripeAccountType?: "express" | "standard" | null;
   stripeChargesEnabled: boolean;
   /** `null` exactly when the guest list offers money and cash funds — the
    *  server's answer, by the guest list's own rule. Anything else, a value this
@@ -215,6 +220,9 @@ export interface RegistrySnapshot {
    *  offered no money and no cash fund, whatever the settings say. The same for
    *  every wedding, and never changed by a save. */
   takesPayments: boolean;
+  /** Whether an owner may connect a Stripe account they already have: the API
+   *  is set up for Stripe Connect OAuth. Missing reads as no. */
+  connectsExistingStripe?: boolean;
 }
 
 /** A further page of the gift log, as `GET /registry/gifts?offset=` returns it —

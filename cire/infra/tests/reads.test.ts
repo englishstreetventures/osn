@@ -38,6 +38,10 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
     "unset, email goes to the log transport (index.ts); the inventory declares it on neither tier",
   RESEND_API_URL:
     "the local Resend emulator's origin; a deployed tier refuses it (lib/resend-email.ts), and the inventory forbids it on both tiers",
+  STRIPE_API_URL:
+    "read only by src/local.ts, the Bun dev server, for a loopback Stripe stand-in; the inventory forbids it on both tiers",
+  STRIPE_CONNECT_URL:
+    "read only by src/local.ts, the Bun dev server, for a loopback Stripe stand-in; the inventory forbids it on both tiers",
   STRIPE_ACCOUNT_COUNTRY:
     "the optional default country for Connect onboarding; production sets none either",
   STRIPE_UPGRADE_PRICE_CRIMSON:

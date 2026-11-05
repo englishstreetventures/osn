@@ -14,7 +14,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { WEBHOOK_TOLERANCE_SECONDS } from "../../src/services/stripe";
-import { appRequest, beforeStatement, jsonBody } from "../test-helpers";
+import { appRequest, beforeStatement, jsonBody, recordStatements } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 
@@ -1249,15 +1249,92 @@ describe("refund and dispute events for a gift cire has no row for", () => {
     // A purged wedding's gifts are gone; a dispute on one still reaches the
     // platform's balance, so it is never dropped silently.
     const { app } = buildApp();
-    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, { event });
+    // The bootstrap wedding's account was created here: Express.
+    const attrs = { event, account: "express" };
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs);
     let res: Response | undefined;
     const logs = await captureLogs(async () => {
       res = await deliver(app, payload());
     });
     expect(res?.status).toBe(200);
     expect(await jsonBody(res!)).toEqual({ received: true, outcome: "unknown" });
-    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, { event })).toBe(before + 1);
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs)).toBe(before + 1);
     expect(logs).toContain("stripe webhook: money event for a gift cire has no row for");
+  });
+});
+
+/**
+ * A Standard account is the couple's own Stripe account, connected through
+ * OAuth, and this endpoint hears its own shop's events as well as gifts. Its
+ * holder has API keys, so a Checkout Session of theirs can carry any
+ * `client_reference_id`, and its refunds and disputes are its own liability.
+ */
+describe("a Standard account's own business on the gift endpoint", () => {
+  const standard = (db: ReturnType<typeof buildApp>["db"]) =>
+    db
+      .update(registrySettings)
+      .set({ stripeAccountType: "standard" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+  it("settles no gift that stored no session, whatever id the session names (20)", async () => {
+    const { app, db, familyId } = buildApp();
+    standard(db);
+    seedPending(db, familyId, { sessionId: null });
+    const res = await deliver(app, checkoutCompleted({ session: { id: "cs_couple_made" } }));
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "rejected" });
+    expect((await gifts(db))[0]?.status).toBe("pending");
+  });
+
+  it("still settles a Standard gift whose session it stored (20)", async () => {
+    const { app, db, familyId } = buildApp();
+    standard(db);
+    seedPending(db, familyId);
+    expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
+      received: true,
+      outcome: "settled",
+    });
+  });
+
+  it("still adopts a session on an Express account (20)", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId, { sessionId: null });
+    expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
+      received: true,
+      outcome: "settled",
+    });
+  });
+
+  it.each([
+    ["refund", () => chargeRefunded()],
+    ["dispute", () => dispute("charge.dispute.created")],
+  ] as const)("counts a %s on its own charge without raising it (21)", async (event, payload) => {
+    const { app, db } = buildApp();
+    standard(db);
+    const attrs = { event, account: "standard" };
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs);
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await deliver(app, payload());
+    });
+    expect(await jsonBody(res!)).toEqual({ received: true, outcome: "unknown" });
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs)).toBe(before + 1);
+    expect(logs).not.toContain("stripe webhook: money event for a gift cire has no row for");
+    expect(logs).toContain("money event on a Standard account's own charge");
+  });
+
+  it("acknowledges a session naming no gift of cire's before any read (21)", async () => {
+    const { app, db } = buildApp();
+    const statements = recordStatements(db);
+    const res = await deliver(
+      app,
+      checkoutCompleted({
+        session: { client_reference_id: "order_1001" },
+        metadata: { contributionId: "order_1001" },
+      }),
+    );
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
+    expect(statements).toEqual([]);
   });
 });
 

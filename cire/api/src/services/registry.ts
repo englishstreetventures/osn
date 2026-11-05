@@ -23,6 +23,7 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
+  registryStripeOAuthStates,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -35,6 +36,7 @@ import {
   gte,
   isNotNull,
   isNull,
+  lt,
   lte,
   ne,
   or,
@@ -236,12 +238,37 @@ export interface RegistrySettingsRecord {
    * owner may.
    */
   stripeConnectedByOsnProfileId: string | null;
+  /**
+   * How the account came to cire, as stored: NULL beside an account reads as
+   * `express` ({@link accountTypeOf}).
+   */
+  stripeAccountType: StripeAccountType | null;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
   /** The currency Stripe settles the account in, upper case, or null while unknown. */
   stripeDefaultCurrency: string | null;
   updatedAt: number | null;
 }
+
+/**
+ * How a wedding's Stripe account came to cire. `express`: one cire created and
+ * runs onboarding for. `standard`: the couple's own, connected through Stripe
+ * Connect OAuth and managed in their own Dashboard, which carries Stripe's fees
+ * and its disputes itself on the direct charges cire makes.
+ */
+export type StripeAccountType = "express" | "standard";
+
+/**
+ * The type of the account a row names, or null with none. A NULL column beside
+ * an account is `express`: every account a Worker without the column attached
+ * was one cire created, and so is one an older Worker gives another wedding
+ * during a deploy or a rollback.
+ */
+export const accountTypeOf = (settings: {
+  stripeAccountId: string | null;
+  stripeAccountType: StripeAccountType | null;
+}): StripeAccountType | null =>
+  settings.stripeAccountId === null ? null : (settings.stripeAccountType ?? "express");
 
 /**
  * Why guests are offered no money gift and no cash fund today. The first that
@@ -294,6 +321,12 @@ export interface RegistrySettingsDto {
    * recorded, and for anyone who is not an owner.
    */
   stripeConnectedByOsnProfileId: string | null;
+  /**
+   * The connected account's type, to owners only (`settingsForReader`): a
+   * `standard` account is managed in its holder's own Stripe Dashboard and has
+   * no onboarding link. Null with no account, and for anyone not an owner.
+   */
+  stripeAccountType: StripeAccountType | null;
   stripeChargesEnabled: boolean;
   /**
    * `null` exactly when the guest list offers money and cash funds: the same
@@ -593,6 +626,7 @@ interface SettingsRow {
   shippingVisibleFrom: string | null;
   stripeAccountId: string | null;
   stripeConnectedByOsnProfileId: string | null;
+  stripeAccountType: StripeAccountType | null;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
   stripeDefaultCurrency: string | null;
@@ -653,6 +687,7 @@ const defaultSettings = (weddingId: string): RegistrySettingsRecord => ({
   shippingVisibleFrom: null,
   stripeAccountId: null,
   stripeConnectedByOsnProfileId: null,
+  stripeAccountType: null,
   stripeChargesEnabled: false,
   stripePayoutsEnabled: false,
   stripeDefaultCurrency: null,
@@ -669,6 +704,7 @@ const toSettingsRecord = (r: SettingsRow): RegistrySettingsRecord => ({
   shippingVisibleFrom: r.shippingVisibleFrom,
   stripeAccountId: r.stripeAccountId,
   stripeConnectedByOsnProfileId: r.stripeConnectedByOsnProfileId,
+  stripeAccountType: r.stripeAccountType,
   stripeChargesEnabled: r.stripeChargesEnabled,
   stripePayoutsEnabled: r.stripePayoutsEnabled,
   stripeDefaultCurrency: r.stripeDefaultCurrency,
@@ -735,9 +771,10 @@ export interface SettingsReader {
  * The settings as one reader receives them; every organiser response that
  * carries settings goes through here.
  *
- * Only an owner is told which owner connected the account: the portal needs
- * it to offer that owner, and no one else, the onboarding link, and an editor
- * or a viewer need not know whose bank the gifts reach.
+ * Only an owner is told which owner connected the account and how it came to
+ * cire: the portal needs both to offer that owner, and no one else, the
+ * onboarding link or the way to their own Stripe Dashboard, and an editor or a
+ * viewer need not know whose bank the gifts reach.
  *
  * A member who cannot edit is also told less about why guests cannot give
  * money. The two currency reasons are an editor's to act on, and they say
@@ -751,7 +788,9 @@ export function settingsForReader(
   settings: RegistrySettingsDto,
   reader: SettingsReader,
 ): RegistrySettingsDto {
-  const told = reader.canManage ? settings : { ...settings, stripeConnectedByOsnProfileId: null };
+  const told = reader.canManage
+    ? settings
+    : { ...settings, stripeConnectedByOsnProfileId: null, stripeAccountType: null };
   if (reader.canEdit) return told;
   switch (settings.moneyGiftsBlockedBy) {
     case "stripe_currency_unknown":
@@ -783,6 +822,7 @@ const toSettingsDto = (
   shippingVisibleFrom: s.shippingVisibleFrom,
   stripeConnected: s.stripeAccountId !== null,
   stripeConnectedByOsnProfileId: s.stripeConnectedByOsnProfileId,
+  stripeAccountType: accountTypeOf(s),
   stripeChargesEnabled: s.stripeChargesEnabled,
   moneyGiftsBlockedBy: moneyGiftsBlock(deployment, s, currency),
   updatedAt: s.updatedAt,
@@ -1312,6 +1352,8 @@ interface WebhookContributionRow {
   refundedAmountMinor: number | null;
   /** Non-null exactly when the row's wedding owns the account the event came on. */
   ownedAccountId: string | null;
+  /** That account's stored type, beside `ownedAccountId`. */
+  ownedAccountType: StripeAccountType | null;
 }
 
 function contributionsOnAccount(
@@ -1331,6 +1373,7 @@ function contributionsOnAccount(
           currency: registryContributions.currency,
           refundedAmountMinor: registryContributions.refundedAmountMinor,
           ownedAccountId: registrySettings.stripeAccountId,
+          ownedAccountType: registrySettings.stripeAccountType,
         })
         .from(registryContributions)
         .leftJoin(
@@ -1566,6 +1609,25 @@ const ownsLiveWedding = (weddingId: string, osnProfileId: string): SQL =>
                 AND ts.role = 'owner'
                 AND EXISTS (SELECT 1 FROM ${weddings} tw
                             WHERE tw.id = ${weddingId} AND tw.deleted_at IS NULL))`;
+
+/**
+ * An account Stripe just connected for `osnProfileId` may join `weddingId`
+ * only where the reuse rules would let it: no other wedding names it, or one
+ * that does is the caller's to give — they connected it there and own it — and
+ * every owner here owns that wedding too. Stripe's sign-in proves the caller
+ * holds the account; it does not settle where it may go. One account across
+ * weddings of different couples is a planner's account, which is
+ * englishstreetventures/osn#2018's to decide. It also keeps every row naming
+ * one account on one connector.
+ */
+const accountMayJoin = (weddingId: string, osnProfileId: string, accountId: string): SQL =>
+  sql`(NOT EXISTS (SELECT 1 FROM ${registrySettings} other
+                   WHERE other.stripe_account_id = ${accountId}
+                     AND other.wedding_id <> ${weddingId})
+       OR EXISTS (SELECT 1 FROM ${registrySettings} src
+                  WHERE src.stripe_account_id = ${accountId}
+                    AND ${controlsSourceAccount(weddingId, osnProfileId)}
+                    AND ${ownersSitBesideSource(weddingId)}))`;
 
 /**
  * A `registry_settings` row's values in the table's column order, which is the
@@ -2015,6 +2077,21 @@ export const registryService = {
   },
 
   /**
+   * The settings as an organiser surface sends them, from the row and the
+   * wedding's currency in one read — what a refusal carries so the page can
+   * catch up.
+   */
+  settingsView(
+    weddingId: string,
+    deployment: MoneyDeployment,
+  ): Effect.Effect<RegistrySettingsDto, never, DbService> {
+    return Effect.gen(function* () {
+      const { record, currency } = yield* settingsWithCurrency(weddingId);
+      return toSettingsDto(record, deployment, currency);
+    }).pipe(Effect.withSpan("cire.registry.settingsView"));
+  },
+
+  /**
    * What `POST …/registry/stripe/refresh` answers from the row as stored —
    * the capability flags and why guests cannot give money — before it asks
    * Stripe, and after when its write was refused. `accountId` is for the
@@ -2065,9 +2142,22 @@ export const registryService = {
       defaultCurrency?: string | null;
     },
     connectedByOsnProfileId: string,
+    options: {
+      /** How the account came: `express` (created here) unless said. */
+      accountType?: StripeAccountType;
+      /**
+       * Also require {@link accountMayJoin}: the OAuth connect, whose account
+       * may already be on another wedding. A create makes a new account.
+       */
+      ownersMustFit?: boolean;
+    } = {},
   ): Effect.Effect<RegistrySettingsRecord | null, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      const accountType = options.accountType ?? "express";
+      const joins = options.ownersMustFit
+        ? sql` AND ${accountMayJoin(weddingId, connectedByOsnProfileId, account.id)}`
+        : sql``;
       const now = new Date();
       const stamp = toEpochSeconds(now);
       // What a new row holds: the defaults, and the account Stripe just made.
@@ -2081,6 +2171,7 @@ export const registryService = {
         shippingVisibleFrom: sql`NULL`,
         stripeAccountId: sql`${account.id}`,
         stripeConnectedByOsnProfileId: sql`${connectedByOsnProfileId}`,
+        stripeAccountType: sql`${accountType}`,
         stripeChargesEnabled: sql`${account.chargesEnabled ? 1 : 0}`,
         stripePayoutsEnabled: sql`${account.payoutsEnabled ? 1 : 0}`,
         stripeAccountUpdatedAt: sql`${stamp}`,
@@ -2097,7 +2188,7 @@ export const registryService = {
           .insert(registrySettings)
           .select(
             sql`SELECT ${sql.join(inColumnOrder(values), sql`, `)}
-                WHERE ${ownsLiveWedding(weddingId, connectedByOsnProfileId)}`,
+                WHERE ${ownsLiveWedding(weddingId, connectedByOsnProfileId)}${joins}`,
           )
           .onConflictDoUpdate({
             target: registrySettings.weddingId,
@@ -2107,6 +2198,9 @@ export const registryService = {
               stripeAccountId: sql`coalesce(${registrySettings.stripeAccountId}, ${account.id})`,
               // The connector follows the id: whoever filled it connected it.
               stripeConnectedByOsnProfileId: sql`case when ${registrySettings.stripeAccountId} is null then ${connectedByOsnProfileId} else ${registrySettings.stripeConnectedByOsnProfileId} end`,
+              // And so does how it came: an account another request attached
+              // first keeps its own type.
+              stripeAccountType: sql`case when ${registrySettings.stripeAccountId} is null then ${accountType} else ${registrySettings.stripeAccountType} end`,
               // And the capabilities follow the id. Writing them
               // unconditionally would leave a row describing account A's id
               // beside account B's capabilities — the invariant that saves that
@@ -2241,6 +2335,7 @@ export const registryService = {
         shippingVisibleFrom: sql`NULL`,
         stripeAccountId: sql`src.stripe_account_id`,
         stripeConnectedByOsnProfileId: sql`${osnProfileId}`,
+        stripeAccountType: sql`src.stripe_account_type`,
         stripeChargesEnabled: sql`src.stripe_charges_enabled`,
         stripePayoutsEnabled: sql`src.stripe_payouts_enabled`,
         stripeAccountUpdatedAt: sql`src.stripe_account_updated_at`,
@@ -2269,6 +2364,7 @@ export const registryService = {
             set: {
               stripeAccountId: sql`excluded.stripe_account_id`,
               stripeConnectedByOsnProfileId: sql`excluded.stripe_connected_by_osn_profile_id`,
+              stripeAccountType: sql`excluded.stripe_account_type`,
               stripeChargesEnabled: sql`excluded.stripe_charges_enabled`,
               stripePayoutsEnabled: sql`excluded.stripe_payouts_enabled`,
               stripeAccountUpdatedAt: sql`excluded.stripe_account_updated_at`,
@@ -2377,6 +2473,196 @@ export const registryService = {
   },
 
   /**
+   * Record a Stripe Connect OAuth sign-in this owner is starting for this
+   * wedding: the hash of the `state` sent to Stripe, and when it lapses. One
+   * per owner per wedding — starting again replaces the last, so an older state
+   * stops working — and every start deletes the rows already past their time,
+   * so the table holds little more than the sign-ins in flight.
+   */
+  issueStripeOAuthState(input: {
+    weddingId: string;
+    osnProfileId: string;
+    stateHash: string;
+    expiresAt: Date;
+    now: Date;
+  }): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      yield* dbQuery(() =>
+        db
+          .insert(registryStripeOAuthStates)
+          .values({
+            weddingId: input.weddingId,
+            osnProfileId: input.osnProfileId,
+            stateHash: input.stateHash,
+            expiresAt: input.expiresAt,
+            createdAt: input.now,
+          })
+          .onConflictDoUpdate({
+            target: [registryStripeOAuthStates.weddingId, registryStripeOAuthStates.osnProfileId],
+            set: {
+              stateHash: input.stateHash,
+              expiresAt: input.expiresAt,
+              createdAt: input.now,
+            },
+          })
+          .run(),
+      );
+      yield* dbQuery(() =>
+        db
+          .delete(registryStripeOAuthStates)
+          .where(lt(registryStripeOAuthStates.expiresAt, input.now))
+          .run(),
+      );
+    }).pipe(Effect.withSpan("cire.registry.issueStripeOAuthState"));
+  },
+
+  /**
+   * Use up the sign-in a callback names, if it is this owner's for this
+   * wedding and still in time. ONE statement: the row is deleted whether or not
+   * it has lapsed, so a state is good once — a replay finds nothing and never
+   * reaches Stripe, where a code exchanged twice revokes the connection. A
+   * forged state matches no row and deletes none.
+   */
+  consumeStripeOAuthState(input: {
+    weddingId: string;
+    osnProfileId: string;
+    stateHash: string;
+    now: Date;
+  }): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db
+          .delete(registryStripeOAuthStates)
+          .where(
+            and(
+              eq(registryStripeOAuthStates.weddingId, input.weddingId),
+              eq(registryStripeOAuthStates.osnProfileId, input.osnProfileId),
+              eq(registryStripeOAuthStates.stateHash, input.stateHash),
+            ),
+          )
+          .returning({ expiresAt: registryStripeOAuthStates.expiresAt })
+          .all(),
+      );
+      const [row] = rows as Array<{ expiresAt: Date }>;
+      return row !== undefined && row.expiresAt.getTime() > input.now.getTime();
+    }).pipe(Effect.withSpan("cire.registry.consumeStripeOAuthState"));
+  },
+
+  /**
+   * What the OAuth callback must know before it spends the code, in one read:
+   * the caller still owns the wedding, it is live and on Gold or above, and
+   * whether it already has an account. With the wedding's currency, which an
+   * account Stripe connects must settle in.
+   */
+  stripeOAuthTarget(
+    weddingId: string,
+    osnProfileId: string,
+  ): Effect.Effect<{ allowed: boolean; hasAccount: boolean; currency: string }, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({
+            tier: weddings.tier,
+            currency: weddings.currency,
+            owns: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
+            accountId: registrySettings.stripeAccountId,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .where(eq(weddings.id, weddingId))
+          .all(),
+      );
+      const found = row as
+        | { tier: unknown; currency: string; owns: number; accountId: string | null }
+        | undefined;
+      return {
+        allowed:
+          found !== undefined && found.owns === 1 && tierAtLeast(normaliseTier(found.tier), "gold"),
+        hasAccount: found?.accountId != null,
+        currency: found?.currency ?? "AUD",
+      };
+    }).pipe(Effect.withSpan("cire.registry.stripeOAuthTarget"));
+  },
+
+  /**
+   * Why an OAuth attach wrote nothing, read only when it did: the caller no
+   * longer owns the live wedding; it has an account now; or the account is on
+   * another wedding the caller may not bring it from ({@link accountMayJoin}).
+   */
+  stripeOAuthRefusal(
+    weddingId: string,
+    osnProfileId: string,
+    accountId: string,
+  ): Effect.Effect<"forbidden" | "already_connected" | "owners_differ", never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({
+            owns: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
+            accountId: registrySettings.stripeAccountId,
+            mayJoin: sql<number>`${accountMayJoin(weddingId, osnProfileId, accountId)}`,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .where(eq(weddings.id, weddingId))
+          .all(),
+      );
+      const found = row as { owns: number; accountId: string | null; mayJoin: number } | undefined;
+      if (found?.owns !== 1) return "forbidden" as const;
+      if (found.accountId !== null) return "already_connected" as const;
+      return found.mayJoin === 1 ? ("forbidden" as const) : ("owners_differ" as const);
+    }).pipe(Effect.withSpan("cire.registry.stripeOAuthRefusal"));
+  },
+
+  /** Whether any wedding names this account — what decides handing it back. */
+  stripeAccountNamed(accountId: string): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db
+          .select({ weddingId: registrySettings.weddingId })
+          .from(registrySettings)
+          .where(eq(registrySettings.stripeAccountId, accountId))
+          .limit(1)
+          .all(),
+      );
+      return rows.length > 0;
+    }).pipe(Effect.withSpan("cire.registry.stripeAccountNamed"));
+  },
+
+  /**
+   * The stored type of an account some wedding names, or `unknown` when none
+   * does. Read only for a refund or dispute that matched no gift: on a
+   * Standard account that is the holder's own business, not a gift cire lost.
+   */
+  stripeAccountTypeNamed(
+    accountId: string,
+  ): Effect.Effect<StripeAccountType | "unknown", never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({
+            stripeAccountId: registrySettings.stripeAccountId,
+            stripeAccountType: registrySettings.stripeAccountType,
+          })
+          .from(registrySettings)
+          .where(eq(registrySettings.stripeAccountId, accountId))
+          .limit(1)
+          .all(),
+      );
+      const found = row as
+        | { stripeAccountId: string | null; stripeAccountType: StripeAccountType | null }
+        | undefined;
+      return found ? (accountTypeOf(found) ?? "unknown") : "unknown";
+    }).pipe(Effect.withSpan("cire.registry.stripeAccountTypeNamed"));
+  },
+
+  /**
    * The couple revoked cire's access to their connected account, from their own
    * Stripe dashboard. Stripe says so once, as `account.application.deauthorized`.
    *
@@ -2395,19 +2681,24 @@ export const registryService = {
    * same as saying they never want gifts again. With no account the guest
    * surface is closed regardless, and reconnecting restores what they chose.
    *
-   * NO monotonic guard, unlike `applyStripeAccountState`, and deliberately.
-   * Deauthorization is terminal — after it, no `account.updated` can match a row
-   * whose id is now NULL — so the ordering hazard runs one way only: a stale
-   * `charges_enabled: true` arriving late must never re-open the surface, while
-   * a deauthorization arriving late must always close it. Gating this write on a
-   * timestamp would invert exactly that.
+   * ONE time guard, and only one. A late deauthorization still closes every row
+   * that knew the account before it: after it no `account.updated` can match a
+   * row whose id is NULL, so a stale `charges_enabled: true` cannot re-open the
+   * surface. What it leaves is a row attached or told of the account after
+   * Stripe's `created` — the couple reconnected, or cire handed an unused
+   * account back (`StripeConnectOAuth.deauthorize`) and they connected it
+   * again — which is a newer connection the old event knows nothing about. An
+   * attach stamps its own time, and a reuse copies the source's.
    *
    * Returns whether a row matched, so the caller can 200 either way: an event
    * for an account this platform does not know is not an error.
    */
   detachStripeAccount(input: {
     accountId: string;
-    /** Stripe's own `created`, in seconds. Recorded, never used as a gate. */
+    /**
+     * Stripe's own `created`, in seconds: recorded, and the time a row must
+     * have known the account by to be cleared.
+     */
     observedAt?: number;
   }): Effect.Effect<boolean, never, DbService> {
     return Effect.gen(function* () {
@@ -2422,6 +2713,7 @@ export const registryService = {
             // Nobody connected the account the wedding no longer has, so the
             // next one is whoever connects it.
             stripeConnectedByOsnProfileId: null,
+            stripeAccountType: null,
             // What the cleared id leaves behind — see the column comments.
             stripeDeauthorizedAccountId: input.accountId,
             stripeDeauthorizedAt: observed,
@@ -2430,7 +2722,21 @@ export const registryService = {
             stripeAccountUpdatedAt: observed,
             updatedAt: now,
           })
-          .where(eq(registrySettings.stripeAccountId, input.accountId))
+          .where(
+            and(
+              eq(registrySettings.stripeAccountId, input.accountId),
+              // A row attached, or told of the account, after the revocation
+              // is a newer connection: the couple reconnected, or cire handed
+              // the account back and they connected it again. Without Stripe's
+              // time, every row naming the account is cleared.
+              input.observedAt === undefined
+                ? undefined
+                : or(
+                    isNull(registrySettings.stripeAccountUpdatedAt),
+                    lte(registrySettings.stripeAccountUpdatedAt, observed),
+                  ),
+            ),
+          )
           .returning({ weddingId: registrySettings.weddingId })
           .all(),
       );
@@ -2829,6 +3135,20 @@ export const registryService = {
         return "rejected";
       }
       if (!pending.ownedAccountId) return "rejected";
+      // Adoption trusts `client_reference_id` to name our own gift, which holds
+      // only while nobody but cire creates Checkout Sessions on the account.
+      // A Standard account's holder has their own API keys and can put any id
+      // there, so on one a completed session settles only the row that stored
+      // its id. A real gift's id is stored before the guest is given the page.
+      if (
+        pending.sessionId === null &&
+        accountTypeOf({
+          stripeAccountId: pending.ownedAccountId,
+          stripeAccountType: pending.ownedAccountType,
+        }) === "standard"
+      ) {
+        return "rejected";
+      }
       if (pending.status !== "pending") return "duplicate";
 
       // The row's amount is what the guest was shown; the session's is
@@ -4129,8 +4449,9 @@ interface GateRow {
 
 /**
  * The settings half of a gate row whose wedding HAS a settings row. The guest
- * gate does not read who connected the account — no guest path uses it — so the
- * record says nobody, which no authorisation check would match.
+ * gate does not read who connected the account or how it came — no guest path
+ * uses either — so the record says nobody, which no authorisation check would
+ * match, and no type.
  */
 const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   weddingId: r.id,
@@ -4142,6 +4463,7 @@ const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   shippingVisibleFrom: r.shippingVisibleFrom,
   stripeAccountId: r.stripeAccountId,
   stripeConnectedByOsnProfileId: null,
+  stripeAccountType: null,
   stripeChargesEnabled: r.stripeChargesEnabled === true,
   stripePayoutsEnabled: r.stripePayoutsEnabled === true,
   stripeDefaultCurrency: r.stripeDefaultCurrency,
