@@ -85,10 +85,26 @@ describe("redirectToLogin", () => {
   });
 
   // The page is served at `/login/`; the dev server answers `/login` too.
-  it.each(["/login", "/login/"])("does not remember %s itself", (path) => {
+  it.each(["/login", "/login/", "/login//"])("does not remember %s itself", (path) => {
     window.location.href = `${ORIGIN}${path}?returnTo=%2Fwhatever`;
     redirectToLogin();
     expect(window.location.href).toBe(`${ORIGIN}/login/`);
+  });
+
+  it.each(["/loginx", "/x/login"])("remembers %s, which only looks like the login page", (path) => {
+    window.location.href = `${ORIGIN}${path}`;
+    redirectToLogin();
+    expect(window.location.href).toBe(`${ORIGIN}/login/?returnTo=` + encodeURIComponent(path));
+  });
+
+  // A run of slashes is read once, not once per slash: the check must not
+  // stall the tab on an address someone crafted.
+  it("reads a long run of slashes at once", () => {
+    const path = `/${"/".repeat(30_000)}x`;
+    window.location.href = `${ORIGIN}${path}`;
+    const started = performance.now();
+    redirectToLogin();
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   it("carries only a same-origin path, never an absolute URL", () => {
