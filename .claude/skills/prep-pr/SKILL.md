@@ -300,6 +300,15 @@ Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run
 
 Wait for it to complete, and write its result into the report when it returns. **Do not return while a reviewer you started is still running.** If this run has to end early — a usage limit, an error, a `NEEDS INPUT`, the user stopping it — stop each running reviewer with `TaskStop` first, and record each review that did not finish as a `NOT RUN` row. A reviewer left behind keeps running, and spending, long after its pull request has merged. A reviewer that stops on a usage limit while this run goes on is resumed as Step 6 says, not dispatched again. **Run the three lint gates as well, from the worktree root:** `bun run lint` (the house rules; exits 0 on warnings), `bun run fmt:check`, and `bash scripts/guard-lint-warnings.sh --base "$DIFF_BASE"`. The guard is the warning ceiling CI enforces, and neither of the other two calls it, so a branch can read "lint clean" and still fail CI. Each gate gets its own `## Test plan` row. If the build fails or any tests fail, record the failures in the report and in `## Test plan`, and continue. If the tooling itself is unavailable — no package manager, no dependencies installed — record every gate as **not run**. That is the honest `## Test plan` entry, and it is never a tick.
 
+**When the diff changes a `scripts` block in any `package.json`, run `bun run test:scripts` as well**, whatever the verdict, and give it its own `## Test plan` row. Its tests read every workspace's scripts: `scripts/tests/deploy-workflows.test.ts` fails when `.github/workflows/ci.yml` does not name each package that has a `test:browser` script, and a package it leaves out runs no browser test in CI with nothing turning red. `review-tests` runs that package's own tests, not these. This prints each `package.json` whose `scripts` differ from the branch point, committed or not:
+
+```bash
+FORK=$(git merge-base "$DIFF_BASE" HEAD)
+for f in $(git diff --name-only "$FORK" -- 'package.json' '*/package.json'); do
+  [ "$(git show "$FORK:$f" 2>/dev/null | jq -S .scripts)" = "$(jq -S .scripts "$f" 2>/dev/null)" ] || echo "scripts changed: $f"
+done
+```
+
 **Write the missing tests the review reports**, on this branch, before Step 6, for the files the branch changes — a coverage gap is the cheapest finding there is, and none is filed (`wiki/conventions/review-findings.md`). Dispatch them to a `mechanic` when the review spells out the cases, to an `implementer` when it does not, one code-writing agent at a time. A `T-S` suggestion you decline is a line in the report with the reason. Then re-run the gates the new tests touch.
 
 ---
