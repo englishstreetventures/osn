@@ -299,7 +299,7 @@
     },
     "musubi/infra": {
       "name": "@musubi/infra",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.84",
         "@effect/platform-bun": "4.0.7",
@@ -315,7 +315,7 @@
     },
     "musubi/landing": {
       "name": "@musubi/landing",
-      "version": "0.2.18",
+      "version": "0.2.19",
       "dependencies": {
         "@astrojs/solid-js": "7.1.0",
         "@shared/legal": "workspace:*",
@@ -336,7 +336,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.18.29",
+      "version": "0.18.30",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -366,7 +366,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.31.11",
+      "version": "3.31.12",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.16",
@@ -398,7 +398,7 @@
     },
     "osn/auth-ui": {
       "name": "@osn/auth-ui",
-      "version": "3.0.31",
+      "version": "3.0.32",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -437,7 +437,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.25.2",
+      "version": "0.25.3",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.5",
@@ -455,7 +455,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.28.10",
+      "version": "0.28.11",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -484,7 +484,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.20.15",
+      "version": "0.20.16",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.5",
@@ -502,7 +502,7 @@
     },
     "pulse/infra": {
       "name": "@pulse/infra",
-      "version": "0.1.12",
+      "version": "0.1.13",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.84",
         "@effect/platform-bun": "4.0.7",
@@ -518,7 +518,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.31",
+      "version": "0.1.32",
       "dependencies": {
         "@astrojs/solid-js": "7.1.0",
         "@shared/legal": "workspace:*",
@@ -540,7 +540,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.55",
+      "version": "0.24.56",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -577,7 +577,7 @@
     },
     "shared/billing": {
       "name": "@shared/billing",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -613,7 +613,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.14.21",
+      "version": "0.14.22",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -665,7 +665,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.16.15",
+      "version": "0.16.16",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.0.7",
@@ -689,7 +689,7 @@
     },
     "shared/infra": {
       "name": "@shared/infra",
-      "version": "0.6.6",
+      "version": "0.6.7",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.84",
         "@effect/platform-bun": "4.0.7",
@@ -713,7 +713,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.20.0",
+      "version": "0.20.1",
       "dependencies": {
         "@effect/opentelemetry": "4.0.7",
         "@opentelemetry/api": "^1.9.1",
@@ -744,7 +744,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.59",
+      "version": "0.4.60",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "6.2.14",
@@ -768,7 +768,7 @@
     },
     "shared/realtime": {
       "name": "@shared/realtime",
-      "version": "0.2.12",
+      "version": "0.2.13",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.0.7",
@@ -811,7 +811,7 @@
     },
     "shared/sortable": {
       "name": "@shared/sortable",
-      "version": "0.3.4",
+      "version": "0.3.5",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -827,7 +827,7 @@
     },
     "shared/toast": {
       "name": "@shared/toast",
-      "version": "0.3.11",
+      "version": "0.3.12",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -855,7 +855,7 @@
     },
     "shared/ui": {
       "name": "@shared/ui",
-      "version": "0.10.1",
+      "version": "0.10.2",
       "dependencies": {
         "@kobalte/core": "^0.13.14",
         "class-variance-authority": "^0.7.1",
@@ -896,7 +896,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.36",
+      "version": "0.3.37",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@shared/color": "workspace:*",
@@ -920,7 +920,7 @@
     },
     "tools/metrics": {
       "name": "@tools/metrics",
-      "version": "0.2.44",
+      "version": "0.2.45",
       "dependencies": {
         "@observablehq/plot": "^0.6.17",
         "@shared/ui": "workspace:*",
@@ -965,7 +965,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.9.42",
+      "version": "0.9.43",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -992,7 +992,7 @@
     },
     "zap/db": {
       "name": "@zap/db",
-      "version": "0.6.15",
+      "version": "0.6.16",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.5",
@@ -1010,7 +1010,7 @@
     },
     "zap/infra": {
       "name": "@zap/infra",
-      "version": "0.1.12",
+      "version": "0.1.13",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.84",
         "@effect/platform-bun": "4.0.7",
