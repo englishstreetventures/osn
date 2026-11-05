@@ -869,7 +869,8 @@ what holds it.
    surface that passes); the next release then ships it. A dev stack job's own record
    counts only when its deploy step ran: a stack job that refused a commit older than
    one its stack already passed on dev succeeds without deploying
-   ([[dev-environment#Concurrency]]).
+   ([[dev-environment#Concurrency]]). And a dev record counts only at a commit on
+   `origin/main`, since GitHub reports a run from a tag as on a branch of the tag's name.
 4. **`production is newer`** means production already runs a commit that contains the
    release commit: an older release was re-run in full. A release never ships an older
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke

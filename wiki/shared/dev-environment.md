@@ -203,10 +203,13 @@ summary, and runs no record job; a refused dispatch with `force` or
 `expect_no_change` fails instead, since it would re-upload or prove nothing.
 The check reads the records as the release planner does
 ([[production-deploy#5.0 Reading a release run (triage before you conclude anything is stale)]]),
-and only when `origin/main` holds a commit newer than the job's; it reads
-the newest 100 `dev` records, about three hours of pushes, so a re-run whose
-newer evidence is older than that deploys. A GitHub error that two retries do
-not clear fails the job, and nothing deploys until it is re-run.
+counting one only at a commit on `origin/main`, since GitHub reports a run
+from a tag as on a branch of the tag's name. It asks GitHub nothing unless
+`origin/main` holds a commit newer than the job's; then one GraphQL query
+reads the newest 100 `dev` records with their statuses, about three hours of
+pushes, so a re-run whose newer evidence is older than that deploys. A GitHub
+error that two retries do not clear fails the job, and nothing deploys until
+it is re-run.
 
 *Measured 2026-11-05 — `gh api 'repos/englishstreetventures/osn/deployments?environment=dev&per_page=100'`: the page spanned 08:52 to 11:43 UTC on 2026-11-04*
 
