@@ -233,7 +233,7 @@ done
 
 | Environment | Cloudflare account | Credential secrets | Reviewers |
 |---|---|---|---|
-| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` (not set yet, englishstreetventures/osn#1538) | none; branch policy `main` |
+| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` | none; branch policy `main` |
 | `production` | the production account | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | required; branch policy `main` |
 
 The separate account is the hard boundary: `Workers Scripts: Edit` and

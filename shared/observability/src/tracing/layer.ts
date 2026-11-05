@@ -31,6 +31,10 @@ export { otlpExporterUrl } from "./url";
  * (`NoopTracingLive`) — NOT the NodeSdk with an undefined URL, which would
  * fall back to `http://localhost:4318` and spam failing export attempts.
  * Setting the two env vars is all that's needed to turn export on.
+ *
+ * A root trace is sampled at `config.traceSampleRatio` (`OSN_TRACE_SAMPLE_RATIO`)
+ * and a child span follows its parent's decision. The standard
+ * `OTEL_TRACES_SAMPLER` variables are not read.
  */
 export const makeTracingLayer = (config: ObservabilityConfig): Layer.Layer<never> => {
   if (!config.otlpEndpoint) return NoopTracingLive;
@@ -59,8 +63,14 @@ export const makeTracingLayer = (config: ObservabilityConfig): Layer.Layer<never
       // Flush metrics every 30s in prod, every 5s in dev for faster feedback.
       exportIntervalMillis: config.env === "production" ? 30_000 : 5_000,
     }),
-    sampler: new ParentBasedSampler({
-      root: new TraceIdRatioBasedSampler(config.traceSampleRatio),
-    }),
+    // `NodeSdk.layer` builds the tracer provider from `spanProcessor` and
+    // `tracerConfig` alone, so a `sampler` key at this level is ignored. The
+    // type check does not flag one: a callback's returned literal gets no
+    // excess-property check.
+    tracerConfig: {
+      sampler: new ParentBasedSampler({
+        root: new TraceIdRatioBasedSampler(config.traceSampleRatio),
+      }),
+    },
   }));
 };
