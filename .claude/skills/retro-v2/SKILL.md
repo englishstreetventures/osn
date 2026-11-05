@@ -37,8 +37,8 @@ analysis is what is deferred, not the record.
 after that task's pull request is open and before the shepherd watches it.
 
 After `prep-pr` and not inside it, because `prep-pr` dispatches up to five
-review agents: a card written before they finish measures building the change rather
-than shipping it.
+review agents: a card written before they finish measures building the change
+rather than shipping it.
 
 ## Before Step 1 — what can actually run
 

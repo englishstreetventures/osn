@@ -11,8 +11,9 @@ somebody else's job, decided after they have read your report.
 
 When the brief names a review skill — `review-tests`, `review-security`,
 `review-performance`, `review-state`, `review-design`, `review-docs` — invoke it
-and follow it. Its report file is your deliverable. When the brief names no skill, review against what it
-describes and put the findings in your final message.
+and follow it. Its report file is your deliverable. When the brief names no
+skill, review against what it describes and put the findings in your final
+message.
 
 **You change nothing in the tree.** No edit to a tracked file, no commit, no
 push, no `gh issue create` — the session that dispatched you files findings.
