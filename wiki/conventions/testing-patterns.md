@@ -695,6 +695,43 @@ suite failed in file order and under two of three seeds.
 
 *Measured 2026-10-02 — drain removed, in `cire/host`: `bunx --bun vitest run --project unit tests/components/OrganiserApp.test.tsx --sequence.shuffle --sequence.seed=<1|7|42>`; seeds 1 and 7 failed, 42 passed*
 
+## A `lazy()` component's first render in a test
+
+A component loaded through Solid's `lazy()` renders once its chunk has loaded.
+In a Vitest run, the first load of that chunk includes Vite transforming every
+file it imports that nothing has imported yet. CI pays that on every run, since
+it starts with no `node_modules/.vitest-cache`. A local run seldom does: Vitest
+5 keeps transformed modules there between runs (`fsModuleCache`, on by
+default), so only a changed file is transformed again. On a loaded CI runner the
+transform can outlast the one-second default of `waitFor` and `findBy*`, so the
+first test in the file to render the component fails with the element missing
+(`expected null to be truthy`) and passes on rerun. Later tests in the file find
+the module loaded, so the failure lands on the first one. Run with
+`--no-fsModuleCache` to pay the cold cost locally.
+
+Import the module in a `beforeAll` of the `describe` that renders it:
+
+```ts
+beforeAll(async () => {
+  await import("../../../src/designs/gala/FaqSection");
+});
+```
+
+The hook's ten-second budget covers the transform. The test still renders
+through `lazy()` and its `Suspense` boundary, so it waits only for the swap.
+Raising the first test's `waitFor` budget instead covers that test alone: run
+another with `-t` and it pays the load inside its own one-second wait. A module
+the file replaces with `vi.mock` loads the mock and needs no warming.
+
+`cire/invites/tests/designs/gala/InvitePage.test.tsx` and its classic twin warm
+`EventCard` and each pack's `FaqSection` this way, and
+`cire/invites/tests/designs/InvitePage.browser.test.tsx` warms `FaqSection` for
+its Chromium tests. [[browser-tests]] covers that tier. Without the warm-up, a
+1.5 s transform failed both packs' first FAQ test in every run; with it, every
+run passed.
+
+*Measured 2026-11-05 — in `cire/invites`, a throwaway Vitest config adding a Vite plugin that delays `FaqSection.tsx`'s transform by 1.5 s, then `bunx vitest run --config <it> --no-fsModuleCache tests/designs/gala/InvitePage.test.tsx tests/designs/classic/InvitePage.test.tsx`, 10 runs each way: without the `beforeAll` both failed at 1010–1015 ms with `expected null to be truthy`; with it both passed in 11–39 ms*
+
 ## Schema-derived test databases
 
 Every DB package exports an emitter that builds `CREATE TABLE`/`CREATE INDEX` from the live Drizzle schema:
