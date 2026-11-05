@@ -35,16 +35,16 @@ export interface AppDeps {
   /** Service name threaded through observability + health routes. */
   serviceName: string;
   /**
-   * Whether to mount the Elysia `observabilityPlugin` (per-request server span
-   * + RED metrics + in-flight gauge). True on the Bun path. The future Workers
-   * entry passes `false`: the plugin calls `process.hrtime.bigint()` directly
-   * on every request (start timestamp + duration), which is not available on
-   * workerd without `nodejs_compat`, and even then it is a polyfill we'd rather
-   * not depend on for request hot-path timing. Its transitive imports are
-   * otherwise workerd-safe (only `@opentelemetry/api`'s no-op tracer/meter),
-   * so omitting it loses only the auto-emitted
-   * server span/metrics — the redacting logger (the load-bearing PII guard) and
-   * `healthRoutes` stay on both paths.
+   * Whether to mount the Elysia `observabilityPlugin` (request id, RED metrics
+   * and in-flight gauge). True on the Bun path. The Workers entry passes
+   * `false`: the plugin calls `process.hrtime.bigint()` directly on every
+   * request (start timestamp + duration), which is not available on workerd
+   * without `nodejs_compat`, and even then it is a polyfill we'd rather not
+   * depend on for request hot-path timing. Its transitive imports are otherwise
+   * workerd-safe (only `@opentelemetry/api`'s no-op meter), so omitting it loses
+   * only the auto-emitted metrics, which reach no exporter on workerd anyway.
+   * Cloudflare records each request's handler span itself; the redacting logger
+   * (the load-bearing PII guard) and `healthRoutes` stay on both paths.
    */
   includeObservabilityPlugin: boolean;
   /**
@@ -212,12 +212,10 @@ export function createApp(deps: AppDeps) {
     .onBeforeHandle(originGuard);
 
   // The per-request observability plugin is gated behind a deps flag: the Bun
-  // path mounts it; the future Workers path omits it (see `includeObservabilityPlugin`
+  // path mounts it; the Workers path omits it (see `includeObservabilityPlugin`
   // in AppDeps for why — `process.hrtime` on the request hot path). `healthRoutes`
   // and the redacting logger remain on both paths regardless.
-  const withObservability = includeObservabilityPlugin
-    ? base.use(observabilityPlugin({ serviceName }))
-    : base;
+  const withObservability = includeObservabilityPlugin ? base.use(observabilityPlugin()) : base;
 
   const withRoot = withObservability
     .use(healthRoutes({ serviceName }))

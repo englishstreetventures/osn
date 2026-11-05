@@ -9,9 +9,20 @@ related:
   - "[[tracing]]"
   - "[[feature-checklist]]"
 packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto", "@shared/realtime", "@shared/billing"]
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 # Metrics
+
+> [!warning] No metric reaches an exporter today
+> The factory instruments (`createCounter`, `createHistogram`,
+> `createUpDownCounter`) record into the global `@opentelemetry/api` meter, and
+> no service registers a global `MeterProvider`, so every instrument is a
+> type-checked no-op on every runtime. The Bun NodeSdk layer's metric reader
+> reads Effect's own `Metric` registry, which no service uses. Cloudflare's
+> Workers Observability offers no custom application metrics (its Metrics tab
+> holds only Cloudflare's own request and resource counts). englishstreetventures/osn#501 holds
+> the decision. Write metrics to the rules below anyway; the call sites are
+> correct and will export once a provider exists.
 
 ## Naming convention
 

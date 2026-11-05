@@ -17,7 +17,7 @@ packages:
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-05
 ---
 # Turnstile bot protection
 
@@ -79,8 +79,9 @@ Safety properties baked into the primitive:
   cause from `siteverify` (it could embed the request body, which contains the
   secret). Only the boolean outcome + Cloudflare's machine-readable
   `error-codes` (no PII) reach logs/spans.
-- The outbound call goes through `instrumentedFetch`, so it appears on the trace
-  tree. The span carries neither the token nor the secret.
+- On a Worker, Cloudflare traces the outbound call as a `fetch` span, which
+  records its URL and status and never its body, so it carries neither the
+  token nor the secret.
 
 `remoteip` is the caller's `cf-connecting-ip` (passed to `siteverify` for
 Cloudflare's own risk scoring when present), the same trusted IP the rate

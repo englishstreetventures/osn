@@ -17,9 +17,6 @@
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
-  "dependencies": {
-    "@shared/observability": "workspace:*"
-  },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "vitest": "5.0.5"

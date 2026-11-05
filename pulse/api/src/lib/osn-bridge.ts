@@ -1,4 +1,3 @@
-import { instrumentedFetch } from "@shared/observability";
 import type { StepUpPurpose } from "@shared/observability/metrics";
 import { Data, Effect } from "effect";
 
@@ -32,7 +31,7 @@ if (process.env.NODE_ENV === "production" && !OSN_API_URL.startsWith("https://")
  * Verifies a step-up token with osn-api and returns the verified
  * accountId from its `sub` claim. Pulse uses the returned accountId for
  * the rest of the leave-Pulse flow rather than trusting any client-
- * supplied value (S-H2 / P6 — accountId must never be exposed to clients).
+ * supplied value (an accountId must never be exposed to clients).
  */
 export const verifyStepUp = (
   token: string,
@@ -40,7 +39,7 @@ export const verifyStepUp = (
 ): Effect.Effect<{ ok: true; accountId: string } | { ok: false }, OsnBridgeError> =>
   Effect.tryPromise({
     try: async () => {
-      const res = await instrumentedFetch(`${OSN_API_URL}/internal/step-up/verify`, {
+      const res = await fetch(`${OSN_API_URL}/internal/step-up/verify`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -76,7 +75,7 @@ export const notifyAppLeft = (
 ): Effect.Effect<{ closed: boolean }, OsnBridgeError> =>
   Effect.tryPromise({
     try: async () => {
-      const res = await instrumentedFetch(`${OSN_API_URL}/internal/app-enrollment/leave`, {
+      const res = await fetch(`${OSN_API_URL}/internal/app-enrollment/leave`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -98,7 +97,7 @@ export const notifyAppJoined = (
 ): Effect.Effect<{ enrolled: boolean }, OsnBridgeError> =>
   Effect.tryPromise({
     try: async () => {
-      const res = await instrumentedFetch(`${OSN_API_URL}/internal/app-enrollment/join`, {
+      const res = await fetch(`${OSN_API_URL}/internal/app-enrollment/join`, {
         method: "POST",
         headers: {
           "content-type": "application/json",

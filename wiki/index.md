@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # OSN Wiki
@@ -56,7 +56,7 @@ Applies to every product: architecture, platform systems, observability, deploys
 
 - [[shared/observability/overview]] — three golden rules, package layout, Grafana Cloud
 - [[logging]] — Effect.log rules, redaction, log levels
-- [[tracing]] — Effect.withSpan, span naming, traceparent propagation
+- [[tracing]] — Workers traces, Effect spans mirrored into them, span naming, no cross-service trace context
 - [[metrics]] — naming convention, typed attributes, cardinality enforcement
 - [[feature-checklist]] — per-feature observability checklist
 - [[observability-setup]] — Grafana Cloud provisioning, OTEL wiring

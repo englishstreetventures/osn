@@ -1,5 +1,4 @@
 import { importKeyFromJwk, signArcToken } from "@shared/crypto/jwk";
-import { instrumentedFetch } from "@shared/observability/fetch";
 
 /**
  * Server-to-server bridge to osn-api: guest account linking, the co-host add
@@ -10,17 +9,13 @@ import { instrumentedFetch } from "@shared/observability/fetch";
  *
  * Why this is hand-rolled rather than reusing pulse/osn `outbound-arc.ts`:
  * those helpers import the `@shared/crypto` barrel (which pulls
- * `@osn/db` → `bun:sqlite`) and the node OpenTelemetry *SDK* — neither bundles
- * for Cloudflare Workers. cire/api runs on workerd, so it mints ARC tokens via
- * the DB-free, metric-free `@shared/crypto/jwk` subpath. The outbound call goes
- * through `instrumentedFetch` (from `@shared/observability/fetch`, which imports
- * only the workerd-safe `@opentelemetry/api` surface, never the SDK). It starts
- * its client span and writes its `traceparent` through the global
- * `@opentelemetry/api` registry, where nothing in cire-api registers a tracer
- * provider or a propagator, so the span records nothing and the call carries no
- * `traceparent`. The osn-api Worker mounts no observability plugin, so it would
- * read none either: osn-api's spans never join cire's trace. The wrapper leaves
- * the `Authorization: ARC` header untouched.
+ * `@osn/db` → `bun:sqlite`) — it does not bundle for Cloudflare Workers.
+ * cire/api runs on workerd, so it mints ARC tokens via the DB-free,
+ * metric-free `@shared/crypto/jwk` subpath. The call is a plain `fetch`, which
+ * Cloudflare traces as a `fetch` span in cire's request trace; it carries no
+ * trace context, since Workers do not propagate it, so osn-api's trace of the
+ * same call is a separate trace. The `Authorization: ARC` header is the only
+ * credential it sends.
  *
  * Key distribution: cire holds a stable ES256 private key (the
  * `CIRE_API_ARC_PRIVATE_KEY` wrangler secret); the matching public key is
@@ -120,7 +115,7 @@ export function createArcAccountResolver(config: ArcResolverConfig): OsnAccountR
       kid: config.arcKeyId,
     });
 
-    const res = await instrumentedFetch(
+    const res = await fetch(
       `${base}/graph/internal/profile-account?profileId=${encodeURIComponent(profileId)}`,
       { headers: { authorization: `ARC ${token}` }, signal: options?.signal },
     );
@@ -255,7 +250,7 @@ export function createArcHandleResolver(
       kid: config.arcKeyId,
     });
 
-    const res = await instrumentedFetch(
+    const res = await fetch(
       `${base}/graph/internal/profile-by-handle?handle=${encodeURIComponent(handle)}`,
       { headers: { authorization: `ARC ${token}` }, signal: AbortSignal.timeout(timeoutMs) },
     );
@@ -333,7 +328,7 @@ export function createArcBlockCheck(
       kid: config.arcKeyId,
     });
 
-    const res = await instrumentedFetch(
+    const res = await fetch(
       `${base}/graph/internal/either-blocked?profileA=${encodeURIComponent(profileA)}&profileB=${encodeURIComponent(profileB)}`,
       { headers: { authorization: `ARC ${token}` }, signal: AbortSignal.timeout(timeoutMs) },
     );
@@ -457,7 +452,7 @@ export function createArcProfileDisplayResolver(
         kid: config.arcKeyId,
       });
 
-      const res = await instrumentedFetch(`${base}/graph/internal/profile-displays`, {
+      const res = await fetch(`${base}/graph/internal/profile-displays`, {
         method: "POST",
         headers: { authorization: `ARC ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ profileIds: [...profileIds] }),
@@ -625,7 +620,7 @@ export function createArcHandleSearchResolver(
         kid: config.arcKeyId,
       });
 
-      const res = await instrumentedFetch(
+      const res = await fetch(
         `${base}/graph/internal/profile-search?prefix=${encodeURIComponent(prefix)}&requesterId=${encodeURIComponent(requesterId)}`,
         { headers: { authorization: `ARC ${token}` }, signal: AbortSignal.timeout(timeoutMs) },
       );
@@ -728,7 +723,7 @@ export function createArcOrganiserEmailLookup(config: ArcResolverConfig): OsnOrg
 
       const fetchChunk = async (chunk: string[]): Promise<[string, string][]> => {
         try {
-          const res = await instrumentedFetch(`${base}/internal/accounts/emails`, {
+          const res = await fetch(`${base}/internal/accounts/emails`, {
             method: "POST",
             headers: { authorization: `ARC ${token}`, "content-type": "application/json" },
             body: JSON.stringify({ profile_ids: chunk }),
@@ -856,7 +851,7 @@ export function createArcConnectionSearchResolver(
         kid: config.arcKeyId,
       });
 
-      const res = await instrumentedFetch(
+      const res = await fetch(
         `${base}/graph/internal/connection-search?profileId=${encodeURIComponent(profileId)}&q=${encodeURIComponent(prefix)}`,
         { headers: { authorization: `ARC ${token}` }, signal: AbortSignal.timeout(timeoutMs) },
       );
@@ -1004,7 +999,7 @@ export function createArcProfileOrgsResolver(config: ArcResolverConfig): OsnProf
         kid: config.arcKeyId,
       });
 
-      const res = await instrumentedFetch(
+      const res = await fetch(
         `${base}/organisations/internal/profile-orgs?profileId=${encodeURIComponent(profileId)}`,
         { headers: { authorization: `ARC ${token}` } },
       );
@@ -1083,7 +1078,7 @@ export function createArcOrgMembershipResolver(
         kid: config.arcKeyId,
       });
 
-      const res = await instrumentedFetch(
+      const res = await fetch(
         `${base}/organisations/internal/membership?orgId=${encodeURIComponent(orgId)}&profileId=${encodeURIComponent(profileId)}`,
         { headers: { authorization: `ARC ${token}` } },
       );

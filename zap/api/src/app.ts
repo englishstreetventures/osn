@@ -61,7 +61,7 @@ export function createApp(options: AppOptions = {}) {
     // `new Function`, which Cloudflare Workers forbid (no dynamic code eval).
     new Elysia({ aot: false })
       .use(corsOrigins ? cors({ origin: corsOrigins, credentials: true }) : cors())
-      .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
+      .use(observabilityPlugin())
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
       .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
       .use(createChatsRoutes(dbLayer, verification, undefined, rateLimiters))

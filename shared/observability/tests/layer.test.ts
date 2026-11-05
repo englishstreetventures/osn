@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { Effect, Logger, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Tracer } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DeploymentEnvironment, ObservabilityConfig } from "../src/config";
@@ -117,6 +117,45 @@ describe("makeLoggerLayer output format", () => {
     expect(() => JSON.parse(line) as unknown).toThrow(SyntaxError);
     expect(line).toContain("hello");
   });
+
+  it("hands the console an object, through its level's method, on workerd", async () => {
+    // Workers Logs indexes the keys of a logged object and stores a logged
+    // string as one opaque message, so a deployed Worker must log the object.
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" });
+    const calls: { readonly method: string; readonly args: readonly unknown[] }[] = [];
+    const c = globalThis.console;
+    const original = { log: c.log, info: c.info, warn: c.warn, error: c.error, debug: c.debug };
+    for (const method of ["log", "info", "warn", "error", "debug"] as const) {
+      c[method] = (...args: unknown[]) => {
+        calls.push({ method, args });
+      };
+    }
+    try {
+      const layer = makeLoggerLayer(loadConfig({ serviceName: "test", env: "dev" }));
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* Effect.logInfo("guest looked up");
+          yield* Effect.logError("lookup failed");
+        }).pipe(
+          Effect.annotateLogs({ email: "alice@example.com", weddingId: "wed_1" }),
+          Effect.provide(layer),
+        ),
+      );
+    } finally {
+      Object.assign(c, original);
+      vi.unstubAllGlobals();
+    }
+
+    expect(calls.map((call) => call.method)).toEqual(["info", "error"]);
+    for (const { args } of calls) {
+      expect(args).toHaveLength(1);
+      expect(typeof args[0]).toBe("object");
+      const entry = args[0] as { annotations: Record<string, unknown> };
+      expect(entry.annotations["email"]).toBe("[REDACTED]");
+      expect(entry.annotations["weddingId"]).toBe("wed_1");
+    }
+    expect((calls[0]!.args[0] as { message: unknown }).message).toBe("guest looked up");
+  });
 });
 
 /**
@@ -129,6 +168,86 @@ describe("makeLoggerLayer output format", () => {
  * shadows those two and delegates to an untouched pretty logger, which is why
  * colour, spans and date formatting survive the scrub.
  */
+describe("a logged cause", () => {
+  // A failure that is not an `Error` renders as its whole object in the
+  // cause text, so the cause must be scrubbed before any sink renders it.
+  const failure = { _tag: "LookupFailed", email: "alice@example.com", reason: "no row" };
+  const logWithCause = (layer: typeof PrettyLoggerLive) =>
+    Effect.runPromise(
+      Effect.fail(failure).pipe(
+        Effect.tapCause((cause) => Effect.logError("lookup failed", cause)),
+        Effect.catchCause(() => Effect.void),
+        Effect.withSpan("probe.cause"),
+        Effect.provide(layer),
+      ),
+    );
+
+  const sinks = (): string[] => {
+    const lines: string[] = [];
+    const sink = (...args: unknown[]) => {
+      lines.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+    };
+    const c = globalThis.console;
+    const original = { log: c.log, error: c.error, group: c.group, groupEnd: c.groupEnd };
+    Object.assign(c, { log: sink, error: sink, group: () => undefined, groupEnd: () => undefined });
+    afterAllRestore = () => Object.assign(c, original);
+    return lines;
+  };
+  let afterAllRestore = () => {};
+
+  it("carries no deny-listed field to the JSON line, the Workers Logs object or the pretty logger", async () => {
+    for (const make of [
+      () => makeLoggerLayer(loadConfig({ serviceName: "test", env: "production" })),
+      () => {
+        vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" });
+        return makeLoggerLayer(loadConfig({ serviceName: "test", env: "production" }));
+      },
+      () => PrettyLoggerLive,
+    ]) {
+      const lines = sinks();
+      try {
+        await logWithCause(make());
+      } finally {
+        afterAllRestore();
+        vi.unstubAllGlobals();
+      }
+      const out = lines.join("\n");
+      expect(out).toContain("lookup failed");
+      expect(out).not.toContain("alice@example.com");
+      expect(out).toContain("[REDACTED]");
+    }
+  });
+
+  it("carries no deny-listed field to the span event the tracer logger writes", async () => {
+    const spans: Tracer.NativeSpan[] = [];
+    const recording = Tracer.make({
+      span: (options) => {
+        const span = new Tracer.NativeSpan(options);
+        spans.push(span);
+        return span;
+      },
+    });
+    sinks();
+    try {
+      await logWithCause(
+        Layer.merge(
+          makeLoggerLayer(loadConfig({ serviceName: "test", env: "production" })),
+          Layer.succeed(Tracer.Tracer)(recording),
+        ),
+      );
+    } finally {
+      afterAllRestore();
+    }
+    const events = spans.flatMap((span) => span.events);
+    expect(events).toHaveLength(1);
+    const text = JSON.stringify(events, (_key, value: unknown) =>
+      typeof value === "bigint" ? String(value) : value,
+    );
+    expect(text).toContain("LookupFailed");
+    expect(text).not.toContain("alice@example.com");
+  });
+});
+
 describe("PrettyLoggerLive", () => {
   /** Capture everything the pretty logger writes for one `Effect.log*` call. */
   const capture = async (run: () => Promise<unknown>): Promise<string> => {
@@ -214,22 +333,45 @@ describe("PrettyLoggerLive", () => {
     expect(out).toContain("u_123");
   });
 
-  it("keeps Logger.tracerLogger in the active set", async () => {
+  it("turns a log line inside a span into a span event carrying the redacted message and annotations", async () => {
     // `Logger.layer` REPLACES the whole set, so dropping the tracer logger from
     // the list costs log-to-span correlation with no error and no failing
-    // type-check. Both layers that ship a logger are checked.
-    const activeSet = (layer: typeof PrettyLoggerLive) =>
-      Effect.runPromise(
-        Effect.service(Logger.CurrentLoggers).pipe(
-          Effect.map((loggers) => loggers.has(Logger.tracerLogger)),
-          Effect.provide(layer),
+    // type-check. The tracer logger copies a line's message and annotations
+    // onto the span, which the Bun OTLP path exports, so it must see them
+    // redacted like every other sink. Both layers that ship a logger are checked.
+    const eventsFor = async (layer: typeof PrettyLoggerLive) => {
+      const spans: Tracer.NativeSpan[] = [];
+      const recording = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
+      await capture(() =>
+        Effect.runPromise(
+          Effect.logInfo("guest looked up", { email: "alice@example.com" }).pipe(
+            Effect.annotateLogs({ accessToken: "eyJ-secret", profileId: "u_123" }),
+            Effect.withSpan("probe.span"),
+            Effect.provide(Layer.merge(layer, Layer.succeed(Tracer.Tracer)(recording))),
+          ),
         ),
       );
+      return spans.flatMap((span) => span.events);
+    };
 
-    await expect(activeSet(PrettyLoggerLive)).resolves.toBe(true);
-    await expect(
-      activeSet(makeLoggerLayer(loadConfig({ serviceName: "test", env: "production" }))),
-    ).resolves.toBe(true);
+    for (const layer of [
+      PrettyLoggerLive,
+      makeLoggerLayer(loadConfig({ serviceName: "test", env: "production" })),
+    ]) {
+      const events = await eventsFor(layer);
+      expect(events).toHaveLength(1);
+      const [name, , attributes] = events[0]!;
+      expect(name).toContain("guest looked up");
+      expect(name).not.toContain("alice@example.com");
+      expect(attributes["accessToken"]).toBe("[REDACTED]");
+      expect(attributes["profileId"]).toBe("u_123");
+    }
   });
 
   it("still emits ANSI colour when stdout is a TTY", async () => {

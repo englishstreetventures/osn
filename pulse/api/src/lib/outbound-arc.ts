@@ -1,5 +1,4 @@
 import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@shared/crypto";
-import { instrumentedFetch } from "@shared/observability";
 
 /**
  * Pulse-api outbound ARC issuer for the leave-app flow.
@@ -72,7 +71,7 @@ export async function registerLeaveAppKeyWithOsnApi(): Promise<boolean> {
   }
   const { publicKey, keyId, expiresAt } = await initKeys();
   const publicKeyJwk = await exportKeyToJwk(publicKey);
-  const res = await instrumentedFetch(`${OSN_API_URL}/graph/internal/register-service`, {
+  const res = await fetch(`${OSN_API_URL}/graph/internal/register-service`, {
     method: "POST",
     headers: {
       "content-type": "application/json",

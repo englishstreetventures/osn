@@ -239,7 +239,8 @@ export interface BuiltDeps {
  * - `dbAndEmailLayer` — Bun: `DbLive` (bun:sqlite) merged with the email layer;
  *   Workers: `makeDbD1Live(env.DB)` merged with the email layer.
  * - `observabilityLayer` — Bun: the full `initObservability()` layer (OTel SDK);
- *   Workers: `osnLoggerLayer` (redacting logger only, workerd-safe).
+ *   Workers: `osnLoggerLayer` (redacting logger + Workers trace mirror,
+ *   workerd-safe).
  * - `includeObservabilityPlugin` — Bun: true; Workers: false (see AppDeps).
  */
 export interface BuildParts {

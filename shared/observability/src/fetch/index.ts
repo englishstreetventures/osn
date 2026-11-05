@@ -1,1 +1,0 @@
-export { instrumentedFetch } from "./instrument";

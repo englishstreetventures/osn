@@ -26,7 +26,7 @@ export interface ObservabilityConfig {
   readonly logLevel: LogLevel;
   /** OTLP exporter endpoint (HTTP). If unset, exporters are disabled. */
   readonly otlpEndpoint: string | undefined;
-  /** Optional headers for the OTLP exporter (e.g. auth tokens for SaaS). */
+  /** Headers for the OTLP exporter (e.g. auth tokens for SaaS); empty without an endpoint. */
   readonly otlpHeaders: Record<string, string>;
   /** Trace sampling ratio in [0, 1]. Defaults to 1.0 in dev, 0.1 in prod. */
   readonly traceSampleRatio: number;
@@ -157,7 +157,12 @@ export const loadConfig = (overrides: ConfigOverrides = {}): ObservabilityConfig
     env,
     logLevel: parseLogLevel(process.env.OSN_LOG_LEVEL, env),
     otlpEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-    otlpHeaders: parseHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS),
+    // Parsed only alongside an endpoint, the one thing that sends them. A
+    // Worker sets no endpoint, so a stale header value there cannot stop the
+    // logger, and every request and cron sweep built on it, from starting.
+    otlpHeaders: process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+      ? parseHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
+      : {},
     traceSampleRatio: parseSampleRatio(
       process.env.OSN_TRACE_SAMPLE_RATIO,
       env === "production" ? 0.1 : 1.0,

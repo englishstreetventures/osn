@@ -15,13 +15,13 @@
     "./logger": "./src/logger/index.ts",
     "./metrics": "./src/metrics/index.ts",
     "./tracing": "./src/tracing/index.ts",
-    "./elysia": "./src/elysia/index.ts",
-    "./fetch": "./src/fetch/index.ts"
+    "./elysia": "./src/elysia/index.ts"
   },
   "scripts": {
     "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
-    "test:run": "bunx --bun vitest run"
+    "test:run": "bunx --bun vitest run",
+    "test:wrangler": "bun test ./tests/wrangler/workers-observability.e2e.ts"
   },
   "dependencies": {
     "@effect/opentelemetry": "4.0.7",
@@ -41,6 +41,7 @@
   "devDependencies": {
     "@effect/vitest": "4.0.5",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "wrangler": "4.149.0"
   }
 }

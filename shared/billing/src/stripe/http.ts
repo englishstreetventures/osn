@@ -11,7 +11,6 @@
  * carries a fixed reason, the HTTP status and Stripe's machine-readable `code`.
  */
 
-import { instrumentedFetch } from "@shared/observability/fetch";
 import { Data, Effect } from "effect";
 
 /** Stripe's live API origin. Overridable so tests never need the network. */
@@ -84,7 +83,7 @@ export interface StripeRequestConfig {
   readonly secretKey: string;
   /** Base origin. Tests point this at a stub; production leaves it alone. */
   readonly apiBase?: string;
-  /** Defaults to `instrumentedFetch`, so every call carries a client span. */
+  /** Defaults to the global `fetch`, read on each call. */
   readonly fetchImpl?: FetchFn;
   /** Defaults to {@link STRIPE_CALL_TIMEOUT_MS}. */
   readonly timeoutMs?: number;
@@ -115,7 +114,7 @@ export type StripeRequest = (
  */
 export function createStripeRequest(config: StripeRequestConfig): StripeRequest {
   const base = config.apiBase ?? STRIPE_API_BASE;
-  const doFetch = config.fetchImpl ?? instrumentedFetch;
+  const doFetch: FetchFn = config.fetchImpl ?? ((input, init) => fetch(input, init));
   const timeoutMs = config.timeoutMs ?? STRIPE_CALL_TIMEOUT_MS;
 
   return (method, path, params = {}, options = {}) =>

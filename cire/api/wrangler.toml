@@ -510,24 +510,3 @@ enabled = false
 
 [env.production.observability.logs]
 invocation_logs = false
-
-# ── OpenTelemetry export ─────────────────────────────────────────────────────
-# Read by `@shared/observability` `loadConfig` (the
-# `nodejs_compat_populate_process_env` flag at the top of this file is what
-# populates `process.env` from these [vars] + secrets). With the endpoint UNSET,
-# tracing + metrics are a true no-op (zero export attempts) — so leaving this
-# commented out keeps local/dev safe. Set the base OTLP/HTTP endpoint to turn
-# export on; `@shared/observability` appends `/v1/traces` + `/v1/metrics` itself.
-#
-#   OTEL_SERVICE_NAME            non-secret, can live in [vars] (defaults to "cire-api")
-#   OTEL_EXPORTER_OTLP_ENDPOINT  non-secret base URL, e.g. Grafana Cloud OTLP gateway
-#   OTEL_EXPORTER_OTLP_HEADERS   SECRET — carries the auth token, never commit it
-#
-# Non-secret placeholders (uncomment + set the real endpoint before deploy):
-#   OTEL_SERVICE_NAME = "cire-api"
-#   OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp-gateway-<region>.grafana.net/otlp"
-#
-# The headers carry a bearer/basic auth token → provision as a Worker SECRET,
-# NOT a committed var:
-#   bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS --env production
-#     value: "authorization=Basic <base64(instanceID:apiToken)>"

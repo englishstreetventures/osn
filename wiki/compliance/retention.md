@@ -91,13 +91,13 @@ already enforces some of them; the rest need a sweeper job.
 | Zap c2b message bodies in the cire vendor-enquiry thread | Governed by Zap message retention — currently indefinite pending the Zap disappearing-messages flag (Zap M1). Covered by the `account-export` DSAR path (PR A, [[zap]]). | Zap message retention sweeper (planned, Zap M1) | **TODO** — Zap M1 disappearing-messages flag (shared open item, see Zap row above) | Zap / Cire |
 | Cire `realtime_subscribe_budget` (`osn_profile_id`, `day`, `subscribes`; migration `20261021141814_realtime_subscribe_budget`) | The UTC day it counts | Deleted by the first realtime subscribe of a later UTC day and by the daily cron (`sweepRealtimeSubscribeBudget`, `cire/api/src/services/realtime.ts`), so at most a day and the time to the next 04:00 UTC run | **OK** | Cire |
 | Cire host-portal client caches (`cire/host/src/lib/*-store.ts`: guest names, vendor contact emails and phone numbers, budget figures and the gift log, held in the organiser's browser memory) | While that wedding's dashboard is on screen in the tab. Memory only — never written to browser storage, and gone when the tab closes. | App code: the dashboard drops a wedding's caches when it unmounts (another wedding, back to the list, sign-out, or the organiser removed or narrowed to a role without the dashboard), and the stores refuse writes for a wedding once dropped. See [[cire-host-portal-layout]]. | **OK** — outside the stored-data windows above, and listed so the register does not suggest the portal holds nothing client-side. | Cire |
-| Grafana Cloud traces | 14 days (free tier) | Vendor-enforced | OK | Platform |
-| Grafana Cloud logs | 50 GB rolling (~30 d typical) | Vendor-enforced | OK | Platform |
-| Grafana Cloud metrics | 30 days (free tier) | Vendor-enforced | OK | Platform |
+| Grafana Cloud traces (Bun processes only; no deployed tier exports) | 14 days (free tier) | Vendor-enforced | OK | Platform |
+| Grafana Cloud logs (none sent; the Workers log to Workers Logs) | 50 GB rolling (~30 d typical) | Vendor-enforced | OK | Platform |
+| Grafana Cloud metrics (none exported yet, englishstreetventures/osn#501) | 30 days (free tier) | Vendor-enforced | OK | Platform |
 | Frontend Faro events | 14 days | Vendor-enforced | OK | Platform |
 | Cloudflare Email delivery logs | Per Cloudflare DPA | Vendor-enforced | Confirm in DPA | Platform |
 | Cloudflare Workers Logs (application logs; invocation records on osn-api only) | 3 days on the Workers Free plan; 7 days from 2026-12-01 | Vendor-enforced | OK | Platform |
-| Cloudflare native Workers traces (production `cire-invites`, every dev tier) | 7 days | Vendor-enforced | OK — contents in [[data-map]] | Platform / Cire |
+| Cloudflare Workers traces, native and mirrored application spans (production `cire-invites`, every dev tier) | 7 days | Vendor-enforced | OK — contents in [[data-map]] | Platform / Cire |
 | DSAR request log | 24 months (CCPA requirement) | DSAR runbook | **TODO** — runbook | Identity |
 | DSA notice-and-action log (Art. 16 reports) | 6 months (Art. 20 internal complaint window) | App code: `moderation_actions` table | **TODO** — DSA notice-and-action work | Pulse + Zap |
 

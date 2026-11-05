@@ -8,25 +8,26 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Observability Setup Runbook
 
 ## Overview
 
-OSN uses **OpenTelemetry end-to-end**, shipped to **Grafana Cloud** (free tier). Frontend observability uses **Grafana Faro** (same OTLP endpoint, no Sentry).
+The deployed Workers use **Cloudflare's own observability**, Workers traces and Workers Logs, and export nothing. The **Grafana Cloud** pipeline below is for the **Bun** entries only. Frontend observability uses **Grafana Faro**.
 
 ### Runtime split — read this first
 
-The OTLP pipeline described below runs on the **Bun** entries only. `@osn/api` and `@cire/api` are deployed as **Cloudflare Workers**, and workerd cannot host the Node OTel SDK:
+| Runtime | Services | Logging | Traces | Metrics |
+|---|---|---|---|---|
+| **Bun** (`src/local.ts`) | local `@osn/api`, `@pulse/api`, `@zap/api` | redacting logger, through `initObservability()` | Effect spans over OTLP to Grafana Cloud when `OTEL_EXPORTER_OTLP_ENDPOINT` is set | none exported |
+| **Bun** (`src/local.ts`) | local `@cire/api` | redacting logger (`cireLoggerLayer`) | none exported; use `bunx wrangler dev` | none exported |
+| **Workers** (`src/index.ts`) | deployed API Workers and the Cire invites Worker | redacting logger, a structured object per line in Workers Logs where enabled | Workers traces where enabled (local, dev, and the production Cire invites Worker); osn-api and cire-api add their Effect spans | none exported |
 
-| Runtime | Services | Logging | Traces + metrics |
-|---|---|---|---|
-| **Bun** (`src/local.ts`) | local `@osn/api`, `@pulse/api`, `@zap/api` | redacting logger, through `initObservability()` | full OTLP export to Grafana Cloud |
-| **Workers** (`src/index.ts`) | deployed API Workers and the Cire invites Worker | redacting application logger; Cloudflare Workers Logs where enabled | native traces in local and dev, and in production on the Cire invites Worker; optional OTLP/HTTP application spans in OSN and Cire APIs |
+No metric reaches an exporter on any runtime: the factory instruments use the global `@opentelemetry/api` meter, which no service registers (englishstreetventures/osn#501).
 
-For a deployed Worker, Cloudflare Workers Logs currently retain three days on the Free plan. Cire keeps invocation logs off because existing request paths contain the current wedding's slug. Native traces are enabled in the local Wrangler configs without URL redaction, and on every dev API Worker and the dev guest site, where only zap-api keeps query strings. Production redacts query strings and traces the Cire guest Worker; existing path slugs and outbound API URLs appear in those traces. Production API Workers keep native traces off. See [[free-tier-limits]] → Monitoring and [[tracing]]. Steps 1–3 below apply to a Bun service; steps 4–6 apply to whichever surface actually exports.
+For a deployed Worker, Cloudflare Workers Logs currently retain three days on the Free plan. Cire keeps invocation logs off because existing request paths contain the current wedding's slug. Native traces are enabled in the local Wrangler configs without URL redaction, and on every dev API Worker and the dev guest site, where only zap-api keeps query strings. Production redacts query strings and traces the Cire guest Worker; existing path slugs and outbound API URLs appear in those traces. Production API Workers keep native traces off. See [[free-tier-limits]] → Monitoring, [[tracing]] and [[logging]]. Steps 1–3 below apply to a Bun service; step 4 to every service; steps 5–6 to a Bun service exporting to Grafana.
 
 ### Grafana Cloud Free Tier Limits
 
@@ -54,11 +55,11 @@ Set the following environment variables in each service deployment:
 OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-<region>.grafana.net/otlp"
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64-encoded-instance:token>"
 
-# Service identification
-OTEL_SERVICE_NAME="<service-name>"  # e.g. "pulse-api", "osn-app"
-OTEL_SERVICE_NAMESPACE="osn"
-DEPLOYMENT_ENVIRONMENT="<env>"      # dev | staging | production
+# The tier, which becomes `deployment.environment` on every span
+OSN_ENV="<env>"                      # dev | staging | production; unset is local
 ```
+
+The service name comes from the entry's `initObservability({ serviceName })` call, and `service.namespace` is always `osn` (`shared/observability/src/config.ts`).
 
 ### 3. Wire Into Deploy Environment
 
@@ -74,13 +75,13 @@ const { layer: observabilityLayer } = initObservability({
 ```
 
 The `initObservability()` call sets up:
-- JSON logger with redaction (prod) or pretty logger (dev)
-- OpenTelemetry NodeSdk with trace + metric exporters — or `NoopTracingLive` when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, so an unconfigured service never spams a failing localhost exporter
+- The redacting logger: pretty on `local`, a JSON line in a deployed tier
+- OpenTelemetry NodeSdk exporting Effect spans — or `NoopTracingLive` when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, so an unconfigured service never spams a failing localhost exporter. Its metric reader reads Effect's own `Metric` registry, which no service uses, so it exports no factory metric
 - Resource attributes (`service.name`, `service.namespace`, `service.version`, `deployment.environment`)
 
-A **Workers** service builds a redacting logger and an optional workerd-safe OTLP span exporter, because the NodeSdk cannot load on workerd. See [osn/api/src/observability.ts](../../../osn/api/src/observability.ts) and [cire/api/src/observability.ts](../../../cire/api/src/observability.ts): each builds the layer lazily when a request first runs and flushes through `ctx.waitUntil` after a response.
+A **Workers** service sets no endpoint and builds no exporter. Its layer is the redacting logger merged with `WorkersTracingLive`, and its `fetch` and `scheduled` handlers call `installWorkersTracing(ctx.tracing)` first. See [osn/api/src/observability.ts](../../../osn/api/src/observability.ts) and [cire/api/src/observability.ts](../../../cire/api/src/observability.ts): each builds the layer lazily when a request first runs. Cloudflare collects traces and logs itself; nothing is flushed.
 
-Import the workerd-safe `/config`, `/logger`, and `/tracing` subpaths, never the package root — the root barrel pulls in `@effect/opentelemetry/NodeSdk` and the bundle then fails to load. The Workers entry also passes `includeObservabilityPlugin: false`, because the per-request Elysia plugin calls `process.hrtime.bigint()`, which workerd does not provide.
+Import the workerd-safe `/config`, `/logger`, `/metrics` and `/tracing` subpaths. The package root also re-exports `makeTracingLayer`, whose `@effect/opentelemetry/NodeSdk` graph runs only on Bun; osn-api, pulse-api and zap-api import `healthRoutes` and `observabilityPlugin` from the root, and their Worker bundles stay free of NodeSdk only because the bundler drops the unused exports. osn-api's Workers entry passes `includeObservabilityPlugin: false`: the plugin times each request with `process.hrtime.bigint()`, which workerd has only as a `nodejs_compat` polyfill osn-api would rather not lean on (`osn/api/src/app.ts`). pulse-api and zap-api mount the plugin on Workers.
 
 ### 4. Verify with Health Endpoints
 
@@ -105,16 +106,15 @@ curl https://api.cireweddings.com/api/auth/session
 
 ### 5. Verify Data in Grafana
 
-Applies to Bun services and to Workers with `OTEL_EXPORTER_OTLP_ENDPOINT` configured. For native Worker logs and traces, use **Workers & Pages → osn-api / cire-api → Observability** in the Cloudflare dashboard.
+Applies to Bun services with `OTEL_EXPORTER_OTLP_ENDPOINT` configured. For a Worker's logs and traces, use **Workers & Pages → osn-api / cire-api → Observability** in the Cloudflare dashboard; under `bunx wrangler dev`, the dev server's local explorer holds the same spans and logs.
 
 1. Open Grafana Cloud explore view
-2. Check **Logs** -- look for structured JSON log entries from your service
-3. Check **Traces** -- look for spans matching your service name
-4. Check **Metrics** -- look for `http.server.*` metrics from the Elysia plugin
+2. Check **Traces** -- look for spans matching your service name
+3. **Metrics** -- none arrive today (englishstreetventures/osn#501)
 
 ### 6. Build First Dashboards
 
-Start with the RED metrics provided by the Elysia plugin:
+Once a metric path exists (englishstreetventures/osn#501), start with the RED metrics provided by the Elysia plugin:
 
 - **Rate** -- `http.server.request.duration` count
 - **Errors** -- `http.server.request.duration` filtered by status >= 400
@@ -158,9 +158,9 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Symptom:** Dev and production data mixed in dashboards.
 
-**Cause:** `DEPLOYMENT_ENVIRONMENT` is unset, or set to the wrong value.
+**Cause:** `OSN_ENV` is unset, or set to the wrong value. `loadConfig` reads it (then `NODE_ENV`) and treats anything else as `local`.
 
-**Fix:** Set `DEPLOYMENT_ENVIRONMENT` to exactly one of: `dev`, `staging`, `production`. This becomes the `deployment.environment` resource attribute on all telemetry.
+**Fix:** Set `OSN_ENV` to exactly one of: `dev`, `staging`, `production`. This becomes the `deployment.environment` resource attribute on every span.
 
 ### Debug Logs Appearing in Production
 
@@ -175,21 +175,19 @@ echo -n "<instance-id>:<api-token>" | base64
 
 ### Traces Not Linked Across Services
 
-Each service's server span is a root of its own by design; a call between services shows as a link from the receiving service's server span to the caller's span ([[shared/observability/tracing#Inbound trace context]]).
+**Symptom:** A call from one service to another shows as two separate traces.
 
-**Symptom:** A service's server span carries no link to the calling service's trace.
+**Cause:** By design. No call between services carries trace context: Cloudflare does not propagate it automatically, and no service writes a `traceparent` ([[shared/observability/tracing#Trace context across services]]).
 
-**Cause:** Outbound HTTP calls do not use `instrumentedFetch` from `@shared/observability/fetch`, so nothing injects the `traceparent` header.
-
-**Fix:** Never use raw `fetch()` for S2S calls. Route every service-to-service HTTP call through `instrumentedFetch`.
+**Fix:** None needed. Match the caller's `fetch` span (its URL path, status and time) to the callee's handler span for that path at that time.
 
 ### Inbound Trace Context Trust
 
-**Symptom:** A server span's trace id or sampling decision seems to come from the caller.
+**Symptom:** A handler span's trace id or sampling decision seems to come from the caller.
 
-**Cause:** Something made the inbound trace context the span's parent. The Elysia plugin never does: it starts every server span as a root and attaches a well-formed inbound `traceparent` as a link, whatever `Authorization` header the request carries.
+**Cause:** Cloudflare has started honouring an inbound `traceparent`. Today a Worker's handler span starts its own trace whatever the caller sends, and [`workers-observability.e2e.ts`](../../../shared/observability/tests/wrangler/workers-observability.e2e.ts) asserts it with a forged header on every CI run.
 
-**Fix:** Start server spans through the plugin, and never pass an extracted inbound context as a span's parent. A linked trace id is the caller's unverified claim, not proof of who sent the request. osn-api's Workers entry runs without the plugin, so it records no inbound trace context; pulse-api and zap-api mount the plugin on Workers as well.
+**Fix:** Treat a linked or adopted trace id as the caller's unverified claim, never proof of who sent the request, and revisit [[shared/observability/tracing#Trace context across services]] when that test fails.
 
 ## Related
 

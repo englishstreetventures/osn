@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-05
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -458,7 +458,9 @@ whose allowances are on the same pricing pages.
 **Native traces** sample every request on each dev API Worker and the dev
 `cire-invites`, and on the production `cire-invites` Worker; Cloudflare keeps
 them for **7 days**. The dev static sites and the production API Workers keep
-them off ([[tracing]]).
+them off ([[tracing]]). osn-api and cire-api add one custom span per Effect span
+to each traced invocation, a name and a few small attributes each
+([[tracing#Effect spans in Workers traces]]).
 
 **From 2026-12-01 the ceiling changes shape.** The Free plan's 200,000 log
 events a day becomes one **0.5 GB a day** ingestion allowance for the whole
@@ -474,8 +476,9 @@ allowance yet — englishstreetventures/osn#1505.
 
 - **Where to watch:** CF dashboard → **Workers & Pages → cire-api / osn-api →
   Observability / Logs** (and the Query Builder). D1 + Workers request metrics
-  live on each resource's **Metrics** tab. App-level OTel traces/metrics still
-  go to Grafana Cloud ([[observability-setup]]) when the OTEL endpoint is set.
+  live on each resource's **Metrics** tab. The Workers export nothing to
+  Grafana Cloud; only a Bun process with the OTEL endpoint set does
+  ([[observability-setup]]).
 - **What to alert on:**
   - **Workers requests** approaching **100K/day** (account-wide) on dev → find
     the traffic, or move dev to Workers Paid.

@@ -31,7 +31,7 @@ export interface Env {
   OSN_JWKS_URL?: string;
   /** Expected `iss` on access tokens — osn-api's own `OSN_ISSUER_URL`. */
   OSN_ISSUER_URL?: string;
-  /** CORS allowlist (S-M2), comma-separated. */
+  /** CORS allowlist, comma-separated. */
   ZAP_CORS_ORIGIN?: string;
   /** Environment discriminator — `local` vs anything else. */
   ZAP_ENV?: string;
@@ -60,9 +60,10 @@ let cached: { app: App; dbBinding: D1Database; loggerLayer: Layer.Layer<never> }
  * this module is workerd, where the log sink is Workers Logs: pretty output
  * there costs several ingested events per entry and cannot be queried by field.
  * `dev` is the mildest deployed tier, so an env block that names no tier at all
- * still gets one queryable JSON object per line rather than multi-line ANSI.
+ * still gets one structured, queryable object per entry rather than multi-line
+ * ANSI.
  *
- * `loadConfig` still runs so its S-L3 production-mismatch check applies.
+ * `loadConfig` still runs so its production-mismatch check applies.
  */
 function loggerLayerFor(env: Env): Layer.Layer<never> {
   const tier = parseDeploymentEnvironment(env.ZAP_ENV ?? env.OSN_ENV);
@@ -102,7 +103,7 @@ function buildApp(env: Env): App {
     throw new Error("OSN_ISSUER_URL must be set and use HTTPS in non-local environments");
   }
 
-  // S-M2: restrict CORS to a known origin allowlist instead of the open
+  // Restrict CORS to a known origin allowlist instead of the open
   // reflect-any default. Fail closed in non-local envs (empty allowlist throws).
   const corsOrigins = resolveCorsOrigins({ ZAP_CORS_ORIGIN: env.ZAP_CORS_ORIGIN });
   assertCorsOriginsConfigured(corsOrigins, nonLocal);
@@ -122,16 +123,16 @@ function buildApp(env: Env): App {
 // fail closed); throws in non-local envs via the helper so a misconfigured
 // deploy surfaces on the first request rather than silently mis-authing.
 //
-// Both log calls take the same redacting layer the rest of the service runs on
-// (`makeLoggerLayer`), not the bare dev-server pretty logger they used to. This
-// is the first request of every isolate in production, and the error branch logs
+// Both log calls take the redacting layer (`makeLoggerLayer`), not the bare
+// dev-server pretty logger. This is the first request of every isolate in
+// production, and the error branch logs
 // an arbitrary caught `unknown` from `registerWithOsnApi` — every throw site
 // reachable there today is benign (variable names, an HTTP status, a WebCrypto
 // or workerd `TypeError`), so this is about the shape rather than a present
 // leak. The layer buys three things the pretty logger has none of: the
 // secret/PII deny-list over the message and its annotations, the configured
-// minimum log level, and one queryable JSON object per line instead of
-// multi-line ANSI in Workers Logs. `Logger.tracerLogger` is in both.
+// minimum log level, and one structured, queryable object per entry instead of
+// multi-line ANSI in Workers Logs.
 let _registration: Promise<void> | undefined;
 
 function ensureRegistered(loggerLayer: Layer.Layer<never>): Promise<void> {
