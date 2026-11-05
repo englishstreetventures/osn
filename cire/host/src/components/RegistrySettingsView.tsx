@@ -191,17 +191,17 @@ function isStripeConnectUrl(raw: string): boolean {
 function fundsDontCountWords(reason: MoneyGiftsBlock | null | undefined, currency: string): string {
   switch (reason) {
     case "payments_unavailable":
-      return " Cash funds don’t count: money gifts aren’t available on this site yet.";
+      return " Cash funds and group gifts don’t count: money gifts aren’t available on this site yet.";
     case "stripe_not_ready":
-      return " Cash funds count once Stripe can take payments for you and money gifts are on.";
+      return " Cash funds and group gifts count once Stripe can take payments for you and money gifts are on.";
     case "stripe_currency_unknown":
-      return " Cash funds don’t count until Stripe says which currency your account pays out in.";
+      return " Cash funds and group gifts don’t count until Stripe says which currency your account pays out in.";
     case "currency_mismatch":
-      return ` Cash funds don’t count: your Stripe account pays out in a currency other than ${currency}.`;
+      return ` Cash funds and group gifts don’t count: your Stripe account pays out in a currency other than ${currency}.`;
     case "cash_gifts_off":
-      return " Cash funds count once money gifts are on.";
+      return " Cash funds and group gifts count once money gifts are on.";
     default:
-      return " Cash funds don’t count while guests can’t see them.";
+      return " Cash funds and group gifts don’t count while guests can’t see them.";
   }
 }
 
@@ -975,14 +975,14 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 the switch on or off. A standing note, so `info` and no alert. */}
             <Show when={moneyBlock() === "currency_mismatch"}>
               <Notice tone="info" data-testid="money-gifts-currency">
-                Guests aren’t offered money gifts or cash funds: your Stripe account pays out in a
-                currency other than {currency()}, the one every gift is charged in.
+                Guests aren’t offered money gifts, cash funds or group gifts: your Stripe account
+                pays out in a currency other than {currency()}, the one every gift is charged in.
               </Notice>
             </Show>
             <Show when={moneyBlock() === "stripe_currency_unknown"}>
               <Notice tone="info" data-testid="money-gifts-currency">
-                Guests aren’t offered money gifts or cash funds until Stripe says which currency
-                your account pays out in.{" "}
+                Guests aren’t offered money gifts, cash funds or group gifts until Stripe says which
+                currency your account pays out in.{" "}
                 {props.canManage
                   ? "Check again to ask it."
                   : "Ask an owner to check the Stripe connection."}
