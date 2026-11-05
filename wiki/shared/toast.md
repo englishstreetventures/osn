@@ -67,8 +67,9 @@ takes the action with it. Cire's gift page does this for a cash fund that closed
 under the guest, whose **Refresh** re-reads the list ([[cire-registry]]). A toast
 with no action pins itself the same way when its message is the user's next
 step and nothing else on the page says it: the cire portal's return from Stripe
-does this for a payment that went through and upgraded nothing
-([[cire-upgrades]]).
+does this for a payment that went through and upgraded nothing, and its
+message, a `JSX.Element` like any toast's, carries the address to write to as a
+`mailto:` link ([[cire-upgrades]]).
 
 Three behaviours worth knowing, all of them bugs first:
 

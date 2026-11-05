@@ -113,6 +113,7 @@
         "@kobalte/core": "^0.13.14",
         "@shared/db-utils": "workspace:*",
         "@shared/design-tokens": "workspace:*",
+        "@shared/legal": "workspace:*",
         "@shared/realtime": "workspace:*",
         "@shared/rp-auth": "workspace:*",
         "@shared/sortable": "workspace:*",

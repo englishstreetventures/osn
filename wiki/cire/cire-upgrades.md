@@ -367,7 +367,7 @@ each status the purchase reaches ends the poll its own way:
 | --- | --- |
 | `succeeded` | Drops the cached catalogue, refetches the wedding list — which is what the nav locks by, so that is what unlocks the modules — and names the tier bought in a success toast |
 | `failed`, `expired` | Error toast: "That payment did not go through. Nothing was charged." |
-| `mismatch` | Error toast, pinned until closed: "Your payment went through, but it did not upgrade this wedding. Please contact support." It is the only place the portal says the money arrived. It does not stop the owner opening a second checkout: englishstreetventures/osn#1951 |
+| `mismatch` | Error toast, pinned until closed: "Your payment went through, but it did not upgrade this wedding. Please contact us at <address>.", the address being `LEGAL_ENTITY.contactEmail` from `@shared/legal`, as a `mailto:` link. It is the only place the portal says the money arrived. It does not stop the owner opening a second checkout: englishstreetventures/osn#1951 |
 | `refunded` | Info toast: "That purchase was refunded, so it no longer applies to this wedding." Only `grant-tier.ts --lower` writes the status, over a purchase that had succeeded, so the poll meets it on a return URL opened again |
 | Still `pending`, not found, or unreadable at the last attempt | Info toast: "Your payment is still being confirmed. This page will show it once it is." |
 

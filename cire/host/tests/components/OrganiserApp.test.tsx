@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { LEGAL_ENTITY } from "@shared/legal";
 import type { SignalKind } from "@shared/realtime";
 import type { SignalEvent, SubscriptionOptions } from "@shared/realtime/client";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
@@ -603,11 +604,18 @@ describe("OrganiserApp Dashboard", () => {
       await vi.advanceTimersByTimeAsync(pollDelayMs(0));
       expect(reads.purchase).toBe(2);
       // Pinned until closed: it is the organiser's next step, and the only
-      // place the portal says the money arrived and bought nothing.
-      expect(toastError).toHaveBeenCalledWith(
-        "Your payment went through, but it did not upgrade this wedding. Please contact support.",
-        { duration: Number.POSITIVE_INFINITY, dismissible: true },
+      // place the portal says the money arrived and bought nothing. The
+      // address comes from the legal entity, and it is a link to write to.
+      expect(toastError).toHaveBeenCalledTimes(1);
+      const [shown, options] = toastError.mock.calls[0] as [HTMLElement, unknown];
+      expect(shown.textContent).toBe(
+        "Your payment went through, but it did not upgrade this wedding. " +
+          `Please contact us at ${LEGAL_ENTITY.contactEmail}.`,
       );
+      const link = shown.querySelector("a");
+      expect(link?.getAttribute("href")).toBe(`mailto:${LEGAL_ENTITY.contactEmail}`);
+      expect(link?.textContent).toBe(LEGAL_ENTITY.contactEmail);
+      expect(options).toEqual({ duration: Number.POSITIVE_INFINITY, dismissible: true });
 
       // The poll is over: no third read, and never "still being confirmed".
       await vi.advanceTimersByTimeAsync(pollDelayMs(1));

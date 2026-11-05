@@ -1,3 +1,4 @@
+import { LEGAL_ENTITY } from "@shared/legal";
 import type { SignalKind } from "@shared/realtime";
 import type { SignalEvent } from "@shared/realtime/client";
 import { useTopic } from "@shared/realtime/solid";
@@ -927,9 +928,17 @@ function Dashboard() {
         if (state?.status === "mismatch") {
           // Paid, and nothing granted: a person has to refund it or apply it.
           // Pinned, because this is the organiser's next step and nowhere else
-          // in the portal says the money arrived.
+          // in the portal says the money arrived. A plain identifier in the
+          // markup, so Solid builds the nodes once and no effect outlives them.
+          const contact = LEGAL_ENTITY.contactEmail;
           toast.error(
-            "Your payment went through, but it did not upgrade this wedding. Please contact support.",
+            <span>
+              Your payment went through, but it did not upgrade this wedding. Please contact us at{" "}
+              <a href={`mailto:${contact}`} class="underline underline-offset-2">
+                {contact}
+              </a>
+              .
+            </span>,
             { duration: Number.POSITIVE_INFINITY, dismissible: true },
           );
           return;
