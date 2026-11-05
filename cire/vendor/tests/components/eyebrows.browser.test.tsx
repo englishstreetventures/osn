@@ -35,6 +35,8 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
   signOutToLogin: async () => {},
 }));
 
+import Eyebrow from "@cire/ui/eyebrow";
+
 import VendorApp from "../../src/components/VendorApp";
 import { setThemePreference } from "../../src/lib/preferences";
 import { ENQUIRY, ORGS } from "../test-support/dashboard";
@@ -103,6 +105,16 @@ afterEach(() => {
 });
 
 describe("a vendor view's heading stands without an eyebrow", () => {
+  it("is read by a reader that sees a kept one", () => {
+    render(() => (
+      <div>
+        <Eyebrow>Kept</Eyebrow>
+        <h2>Heading</h2>
+      </div>
+    ));
+    expect(eyebrowOver(screen.getByRole("heading", { name: "Heading" }))).toBe("Kept");
+  });
+
   it("in the enquiries inbox", async () => {
     renderPortal("#/enquiries");
     await screen.findByRole(

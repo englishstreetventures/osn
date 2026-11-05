@@ -317,16 +317,22 @@ describe("ImportPanel — single-sheet uploads", () => {
     expect(document.body.textContent ?? "").toMatch(/guest list won't be touched/i);
   });
 
-  it("says so when the server reports a wider scope than this module's", async () => {
-    authFetchMock.mockResolvedValueOnce(previewResponse("events"));
-    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
-    choose(csvFile("guests.csv"));
-    fireEvent.click(previewButton());
+  it.each([
+    { kind: "guests", other: "events" },
+    { kind: "events", other: "guests" },
+  ] as const)(
+    "says so when the server reports a wider scope than the $kind module's",
+    async ({ kind, other }) => {
+      authFetchMock.mockResolvedValueOnce(previewResponse(other));
+      render(() => <ImportPanel weddingId="wed_a" kind={kind} />);
+      choose(csvFile(`${kind}.csv`));
+      fireEvent.click(previewButton());
 
-    const notice = await waitFor(() => screen.getByText(/this change covers more than your/i));
-    expect(notice.textContent).toContain("This change covers more than your guests");
-    expect(notice.textContent).toContain("the server reports a scope of “events”");
-  });
+      const notice = await waitFor(() => screen.getByText(/this change covers more than your/i));
+      expect(notice.textContent).toContain(`This change covers more than your ${kind}`);
+      expect(notice.textContent).toContain(`the server reports a scope of “${other}”`);
+    },
+  );
 
   it("Remove clears the chosen sheet and any preview computed from it", async () => {
     authFetchMock.mockResolvedValueOnce(previewResponse("guests"));

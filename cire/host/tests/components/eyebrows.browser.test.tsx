@@ -16,6 +16,8 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
   redirectToLogin: () => {},
 }));
 
+import Eyebrow from "@cire/ui/eyebrow";
+
 import CreateWeddingForm from "../../src/components/CreateWeddingForm";
 import EnquireDialog from "../../src/components/EnquireDialog";
 import ImageCropModal from "../../src/components/ImageCropModal";
@@ -121,6 +123,16 @@ afterEach(() => {
 });
 
 describe("a view's heading stands without an eyebrow", () => {
+  it("is read by a reader that sees a kept one", () => {
+    render(() => (
+      <div>
+        <Eyebrow>Kept</Eyebrow>
+        <h2>Heading</h2>
+      </div>
+    ));
+    expect(eyebrowOver(screen.getByRole("heading", { name: "Heading" }))).toBe("Kept");
+  });
+
   it("on Security", () => {
     render(() => <SecurityPanel />);
     expect(eyebrowOver(screen.getByRole("heading", { name: /devices & passkeys/i }))).toBe("");

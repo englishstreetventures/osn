@@ -646,9 +646,22 @@ export async function builderSurfaces(
   await settled(envelopeChosen);
   await settled(envelopeOther);
   const shape = async (card: Locator) =>
-    `${await computed(card, "border-top-left-radius")} ${await computed(card, "padding-top")}`;
+    `${await computed(card, "border-top-left-radius")} ${await computed(card, "padding-top")} ${await computed(card, "border-top-width")}`;
+  // The design card against fixed values first — the card's 16px corner, its
+  // small 16px padding step, the hairline, the chosen ring — so the envelope
+  // card, compared with it next, is held to them too.
   flow.check(
-    "builder: an envelope card takes a design card's corner and padding",
+    "builder: a design card is the card at its small step",
+    "16px 16px 1px",
+    await shape(other),
+  );
+  flow.check(
+    "builder: the chosen design card wears the chosen ring",
+    await probed(chosen, "ring-2 ring-gold/60", "box-shadow"),
+    await computed(chosen, "box-shadow"),
+  );
+  flow.check(
+    "builder: an envelope card takes a design card's corner, padding and edge",
     await shape(other),
     await shape(envelopeOther),
   );
