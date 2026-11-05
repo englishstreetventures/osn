@@ -1244,6 +1244,16 @@ describe("InvitePage", () => {
   });
 
   describe("FAQ section", () => {
+    // `FaqSection` reaches the tree through a `lazy()` import of its own, which
+    // the page leaves cold until a claim carries a FAQ. Without this, the first
+    // test here to render it pays that chunk's first transform inside its
+    // one-second `waitFor`, which a loaded CI runner overruns. Loaded here, for
+    // the reason the `EventCard` import at the top of the file gives, each test
+    // waits only for Suspense to swap the section in.
+    beforeAll(async () => {
+      await import("../../../src/designs/classic/FaqSection");
+    });
+
     const FAQ = {
       visible: true,
       entries: [
