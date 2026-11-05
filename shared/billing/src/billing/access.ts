@@ -29,10 +29,7 @@ const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
 export const planOf = (ctx: BillingContext, row: SubscriptionRecord) =>
   row.planId === null ? undefined : ctx.planById.get(row.planId);
 
-export function subscriptionStatus(
-  ctx: BillingContext,
-  row: SubscriptionRecord,
-): SubscriptionStatus {
+function subscriptionStatus(ctx: BillingContext, row: SubscriptionRecord): SubscriptionStatus {
   const paid =
     row.paidPeriodStart !== null && row.paidPeriodEnd !== null
       ? {
@@ -139,7 +136,7 @@ const runHook = (ctx: BillingContext, decision: AccessDecision) => {
   });
 };
 
-export type ApplyOutcome = "applied" | "covered";
+type ApplyOutcome = "applied" | "covered";
 
 /**
  * How a call waits while another process holds the lease. `write`: the caller
@@ -147,7 +144,7 @@ export type ApplyOutcome = "applied" | "covered";
  * application covers that write. `lease`: it waits for the lease itself
  * (`reapplyAll`). `never`: it gives up at once (the sweep, which comes back).
  */
-export type ApplyWait = "write" | "lease" | "never";
+type ApplyWait = "write" | "lease" | "never";
 
 /**
  * Apply the current decision for `customerRef`. A wait polls by reading the
