@@ -30,7 +30,10 @@
  * deploys that tier (`DEPLOYING_WORKFLOWS`), on `main`, from this repository.
  * A dev stack job's record counts only when its deploy step succeeded too: a
  * stack job that finds its commit older than one its stack already passed on
- * dev succeeds without deploying (scripts/dev-deploy-order.ts).
+ * dev succeeds without deploying (scripts/dev-deploy-order.ts). And a dev
+ * record counts only at a commit on main (an ancestor of `origin/main`, or of
+ * the release commit in a checkout without it): GitHub reports a run from a
+ * tag as on a branch of the tag's name.
  *
  * Dev gates production. A changed surface ships only when a recent successful
  * dev deployment of it was built from the same content (its own paths and the
@@ -1206,6 +1209,16 @@ export interface ReleasePlan extends ReleaseDecisions {
   readonly summary: string;
 }
 
+/** The commit `origin/main` names in the checkout, or undefined when it has none. */
+export function mainCommit(cwd: string): string | undefined {
+  const proc = Bun.spawnSync(
+    ["git", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}"],
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  );
+  const sha = proc.stdout.toString().trim();
+  return proc.exitCode === 0 && /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+}
+
 function revParse(cwd: string): string {
   const proc = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd, stdout: "pipe", stderr: "pipe" });
   if (proc.exitCode !== 0) throw new Error("GITHUB_SHA is unset and git rev-parse HEAD failed");
@@ -1255,11 +1268,21 @@ export async function runReleasePlan(options: {
   ]);
   const changed = changedSurfaces({ head, request, production, diff, productionIsNewer });
   const stackChanges = changedStacks({ head, request, production, diff, productionIsNewer });
+  // Dev deploys only from main, so a dev record whose commit main never held
+  // proves nothing, whatever branch its run reports: GitHub reports a run
+  // from a tag as on a branch of the tag's name.
+  const mainTip = mainCommit(options.cwd) ?? head;
+  const onMain = new Map<string, boolean>();
+  const isOnMain = (commit: string): boolean => {
+    if (!onMain.has(commit)) onMain.set(commit, isAncestor(commit, mainTip, options.cwd));
+    return onMain.get(commit) === true;
+  };
   const dev = await findDeployed(
     reader,
     "dev",
     [...devGateWanted(changed, request.force), ...stackDevGateWanted(stackChanges, request.force)],
     {
+      only: isOnMain,
       accept: (key, commit) =>
         isStackRecordKey(key)
           ? sameStackContent(stackOfRecord(key), diff(commit))

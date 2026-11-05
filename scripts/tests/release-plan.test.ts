@@ -817,6 +817,28 @@ describe("a record counts only when the run it links bears it out", () => {
     });
   });
 
+  test("a dev record at a commit off main, as a run from a tag named main leaves, cannot carry a change past the dev gate", async () => {
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "cire/host/src/App.tsx": "1" });
+      const b = await commit(repo, { "cire/host/src/App.tsx": "2" });
+      await git(repo, "checkout", "-q", "-b", "side");
+      const offMain = await commit(repo, { "README.md": "tagged" });
+      await git(repo, "checkout", "-q", "main");
+      // GitHub reports a run from a tag as on a branch of the tag's name, so
+      // this record's run passes as main's; its commit builds the organiser
+      // portal from B's content, but main never held it. Dev's deploy of B
+      // itself failed.
+      const github = fakeGitHub([
+        { environment: "dev", sha: offMain, run: 3, job: dev("cire_host"), states: ["success"] },
+        ...fullRun("production", a, 1),
+        ...fullRun("dev", a, 1),
+      ]);
+      const result = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(parseOutputs(result.outputs).cire_host).toBe("false");
+      expect(result.summary).toContain("held back");
+    });
+  });
+
   test("a forged dev record cannot carry a change past the dev gate", async () => {
     await withRepo(async (repo) => {
       const a = await commit(repo, { "cire/host/src/App.tsx": "1" });
