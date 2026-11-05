@@ -4,8 +4,8 @@
 "@cire/landing": patch
 ---
 
-Cire screens no longer put a small-caps eyebrow over a heading that the module,
-the tab, the top bar or the heading itself already names: "Settings" over
+Cire screens drop the small-caps eyebrow over a heading that the module, the
+tab, the top bar or the heading itself already names. "Settings" over
 "Wedding profile", "Guest list" over the Households tab, "Enquiries" over the
 vendor inbox, "See it live" over the marketing demo and eighteen more are gone,
 and `SectionIntro` draws no eyebrow. An eyebrow stays where it carries
