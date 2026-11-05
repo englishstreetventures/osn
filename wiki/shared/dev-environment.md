@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Dev environment (cire + OSN identity)
@@ -867,8 +867,9 @@ production, and nothing here should ever grow one.
 - **cire and musubi dev hosts are same-site.** Both live under one dev zone,
   while in production they are cross-site, so a defect that depends on them
   being cross-site does not show on dev.
-- **Unknown paths on the dev sites answer 404.** Workers static assets serve no
-  `index.html` for an unknown path where Pages did; only musubi social has a
+- **Unknown paths on the dev marketing sites answer 404.** cire landing, musubi
+  landing and pulse landing serve no `index.html` for an unknown path where
+  Pages did; musubi social and the cire organiser and vendor portals have a
   single-page fallback ([[infrastructure-as-code#Sites]]).
 - **A rollback restores code only.** No rollback undoes a D1 migration
   ([[production-deploy]] §4), and a half-applied migration has no scripted

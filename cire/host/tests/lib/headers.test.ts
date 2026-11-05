@@ -11,6 +11,17 @@ function headerValues(contents: string, name: string): string[] {
   );
 }
 
+/** Each rule of a `_headers` file, in order: its path and its header lines, comments left out. */
+function rules(contents: string): { path: string; lines: string[] }[] {
+  const found: { path: string; lines: string[] }[] = [];
+  for (const line of contents.split("\n")) {
+    if (line.trim() === "" || line.trim().startsWith("#")) continue;
+    if (/^\s/.test(line)) found.at(-1)?.lines.push(line.trim());
+    else found.push({ path: line.trim(), lines: [] });
+  }
+  return found;
+}
+
 /** Each directive of `policy`, in order, as its name followed by its sources. */
 function directives(policy: string): string[][] {
   return policy.split(";").map((part) => part.trim().split(/\s+/));
@@ -176,11 +187,22 @@ describe("_headers", () => {
       expect(csp).toContain(directive);
     }
   });
-  it("keeps the signed-in dashboard out of the browser's caches", () => {
-    // Back after sign-out must not show the account's data again. The rule
-    // names `/` alone: the long-lived `/_astro/*` cache stays as it is.
-    const dashboard = contents.match(/^\/\n((?:[ \t]+.+\n?)+)/m);
-    expect(dashboard).not.toBeNull();
-    expect(dashboard![1]).toMatch(/^\s+Cache-Control:\s*no-store\s*$/m);
+  it("keeps every page out of the browser's caches, at any path the single-page fallback answers", () => {
+    // Back after sign-out must not show the account's data again. The fallback
+    // serves the dashboard at any path no file answers, such as the
+    // `/vendors/enquiries/<id>` cire-api's enquiry emails link, and a rule
+    // matches the path asked, so `no-store` sits on `/*`. A second rule's
+    // value is joined to the first's, and `no-store` would win, so the
+    // bundles drop it before their year-long cache.
+    const cacheLines = rules(contents).flatMap((rule) =>
+      rule.lines
+        .filter((line) => /^!?\s*Cache-Control\b/i.test(line))
+        .map((line) => [rule.path, line]),
+    );
+    expect(cacheLines).toEqual([
+      ["/*", "Cache-Control: no-store"],
+      ["/_astro/*", "! Cache-Control"],
+      ["/_astro/*", "Cache-Control: public, max-age=31536000, immutable"],
+    ]);
   });
 });

@@ -1541,11 +1541,56 @@ describe("a production site the production stack deployed", () => {
   });
 });
 
+describe("the organiser portal", () => {
+  // cire-api's enquiry emails link `/vendors/enquiries/<id>` on the portal's
+  // host. No file answers that path; the portal's single-page fallback does.
+  const STAGED_HOST = "https://next.host.cireweddings.com";
+  const THREAD = "/vendors/enquiries/smoke-check";
+  const hostEnv = { SMOKE_ORIGIN: STAGED_HOST, SMOKE_DEPLOYMENT: DEP_THIS_JOB };
+
+  test("SM4: production asks `/` and an enquiry email's path, and passes when both answer 200 HTML", async () => {
+    const result = await smoke(
+      ["cire_host", "production"],
+      { [`${STAGED_HOST}/`]: html(200), [`${STAGED_HOST}${THREAD}`]: html(200) },
+      { env: hostEnv },
+    );
+    expect(result.code).toBe(0);
+    expect([...new Set(result.calls.map((call) => call.url))].toSorted()).toEqual([
+      `${STAGED_HOST}/`,
+      `${STAGED_HOST}${THREAD}`,
+    ]);
+    expect(result.posts).toEqual([]);
+  });
+
+  test("SM5: an enquiry email's path answering 404 fails the check and rolls back this run's deployment", async () => {
+    const result = await smoke(
+      ["cire_host", "production"],
+      {
+        [`${STAGED_HOST}/`]: html(200),
+        [`${STAGED_HOST}${THREAD}`]: new Response(null, { status: 404 }),
+      },
+      { env: hostEnv },
+    );
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(THREAD);
+    expect(result.posts).toHaveLength(1);
+  });
+
+  test("SM6: dev asks the same two paths on the dev host", () => {
+    const origin = "https://host.cire.example.test";
+    expect(
+      devTarget("cire_host")
+        ?.probes({ origin })
+        .map((asked) => asked.url),
+    ).toEqual([`${origin}/`, `${origin}${THREAD}`]);
+  });
+});
+
 describe("a production site the release gives a new host", () => {
   // A new host two labels below its zone answers no TLS handshake until its
   // certificate arrives, about two minutes after the deploy. The stack job
   // passes SMOKE_BUDGET_MS for such a site; every other site passes "".
-  const NEW_HOST = "https://next.host.cireweddings.com";
+  const NEW_HOST = "https://next.vendor.cireweddings.com";
   const hostEnv = (budget: string) => ({
     SMOKE_ORIGIN: NEW_HOST,
     SMOKE_DEPLOYMENT: DEP_THIS_JOB,
@@ -1557,7 +1602,7 @@ describe("a production site the release gives a new host", () => {
   });
 
   test("SB1: waits out a certificate that takes 200 s, still asking every 10 s and passing on the first two good rounds; with no budget set it gives up at 60 s", async () => {
-    const waited = await smoke(["cire_host", "production"], certificateAfter(20), {
+    const waited = await smoke(["cire_vendor", "production"], certificateAfter(20), {
       env: hostEnv("240000"),
     });
     expect(waited.code).toBe(0);
@@ -1566,10 +1611,10 @@ describe("a production site the release gives a new host", () => {
     expect(fetchesOf(waited, `${NEW_HOST}/`)).toBe(22);
     expect(waited.posts).toEqual([]);
     expect(waited.output).toContain(
-      "Smoke check passed: cire_host (production), 1 probes, 22 rounds.",
+      "Smoke check passed: cire_vendor (production), 1 probes, 22 rounds.",
     );
 
-    const minute = await smoke(["cire_host", "production"], certificateAfter(20), {
+    const minute = await smoke(["cire_vendor", "production"], certificateAfter(20), {
       env: hostEnv(""),
     });
     expect(minute.code).toBe(1);
@@ -1579,7 +1624,7 @@ describe("a production site the release gives a new host", () => {
   });
 
   test("SB2: a host that never answers fails when the budget runs out, at 240 s, without a rollback", async () => {
-    const result = await smoke(["cire_host", "production"], certificateAfter(Infinity), {
+    const result = await smoke(["cire_vendor", "production"], certificateAfter(Infinity), {
       env: hostEnv("240000"),
     });
     expect(result.code).toBe(1);
@@ -1602,7 +1647,7 @@ describe("a production site the release gives a new host", () => {
     "2.4e5",
     "0x3a980",
   ])("SB3: SMOKE_BUDGET_MS=%j is refused with exit 2, asking nothing", async (budget) => {
-    const result = await smoke(["cire_host", "production"], certificateAfter(0), {
+    const result = await smoke(["cire_vendor", "production"], certificateAfter(0), {
       env: hostEnv(budget),
     });
     expect(result.code).toBe(2);
@@ -1633,11 +1678,11 @@ describe("a production site the release gives a new host", () => {
         }
         return new Response("Worker threw", { status: 500 });
       },
-      [deploymentsUrl("cire-host")]: api.answer,
+      [deploymentsUrl("cire-vendor")]: api.answer,
     });
     const lines: string[] = [];
     const code = await runSmokeCheck({
-      args: ["cire_host", "production"],
+      args: ["cire_vendor", "production"],
       env: { ...RUN_ENV, ...hostEnv(String(TIMING.maxBudgetMs)) },
       fetch: (async (input: string | URL | Request, init?: RequestInit) => {
         startedAt = now;

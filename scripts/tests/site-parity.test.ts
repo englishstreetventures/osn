@@ -95,6 +95,18 @@ describe("what a site is asked", () => {
     ]);
     expect(probes.unmatched).toEqual(["/fonts/:name.woff2", "https://cire-host.pages.dev/*"]);
   });
+
+  test("SP1: the organiser portal is asked an enquiry email's path, which no file answers", () => {
+    // cire-api's enquiry emails link `/vendors/enquiries/<id>` on the portal.
+    const root = build({
+      "cire/host/dist/_headers": "/vendors/*\n  Cache-Control: no-store\n",
+      "cire/host/dist/index.html": "<!doctype html>",
+    });
+    const probes = siteProbes("cire_host", join(root, "cire/host/dist"));
+    expect(probes.paths).toEqual(["/", UNKNOWN_PATH, "/vendors/enquiries/site-parity"].toSorted());
+    expect(probes.headers).toContain("cache-control");
+    expect(probes.unmatched).toEqual(["/vendors/*"]);
+  });
 });
 
 describe("comparing two answers", () => {

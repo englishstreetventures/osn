@@ -315,18 +315,20 @@ describe("the cire stack, evaluated offline", () => {
     });
 
     // The organiser portal, vendor portal and marketing site are static
-    // output with Wrangler's defaults, and a `_redirects` they build applies.
+    // output, and a `_redirects` they build applies. The two portals route in
+    // the browser, so an unknown path serves the portal's page, as their Pages
+    // projects do; the marketing site answers it 404.
     const resources = resourcesOf(dev);
-    for (const [logicalId, directory] of [
-      ["CireHost", "../host/dist"],
-      ["CireVendor", "../vendor/dist"],
-      ["CireLanding", "../landing/dist"],
+    for (const [logicalId, directory, notFoundHandling] of [
+      ["CireHost", "../host/dist", "single-page-application"],
+      ["CireVendor", "../vendor/dist", "single-page-application"],
+      ["CireLanding", "../landing/dist", "none"],
     ] as const) {
       const site = resources[logicalId]?.Props;
       expect({ [logicalId]: { main: site?.main, assets: site?.assets } }).toEqual({
         [logicalId]: {
           main: undefined,
-          assets: { directory, htmlHandling: "auto-trailing-slash", notFoundHandling: "none" },
+          assets: { directory, htmlHandling: "auto-trailing-slash", notFoundHandling },
         },
       });
     }
@@ -586,8 +588,36 @@ describe("the cire stack on production", () => {
           issues: { enabled: true },
         },
       });
-      expect(resource.Props.assets).toMatchObject({ notFoundHandling: "none" });
     }
+  });
+
+  test("KP7: on production, an unknown path serves the portal's page on the organiser and vendor portals, as their Pages projects do, and 404s on the marketing site", () => {
+    // cire-api's enquiry emails link the organiser portal at
+    // `/vendors/enquiries/<id>`, a path no file answers.
+    expect(
+      Object.fromEntries(
+        Object.entries(resourcesOf(production)).map(([id, resource]) => [
+          id,
+          resource.Props.assets,
+        ]),
+      ),
+    ).toEqual({
+      CireHost: {
+        directory: "../host/dist",
+        htmlHandling: "auto-trailing-slash",
+        notFoundHandling: "single-page-application",
+      },
+      CireVendor: {
+        directory: "../vendor/dist",
+        htmlHandling: "auto-trailing-slash",
+        notFoundHandling: "single-page-application",
+      },
+      CireLanding: {
+        directory: "../landing/dist",
+        htmlHandling: "auto-trailing-slash",
+        notFoundHandling: "none",
+      },
+    });
   });
 
   test("KP3: reads no Worker secret, seed value or DEV_DOMAIN, and writes nothing", async () => {

@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1476,9 +1476,35 @@ Each Pages site moves one at a time, in the order cire vendor, cire host, cire l
 then `musubi.social` (englishstreetventures/osn#1787). Before each:
 
 - The site has run `staged` through at least one release, and the `site-parity` artifact
-  of the latest release shows no difference a real path relies on (an unknown path's 404
-  in place of Pages' 200, and Pages' `access-control-allow-origin: *`, are accepted
-  unless one does). Both comparisons, this one and the dev guest route comparison
+  of the latest release shows no difference a real path relies on. Four are expected
+  and accepted:
+  - Pages' `access-control-allow-origin: *`, which the Worker does not send (accepted by
+    the owner).
+  - HTML's `content-type`: `text/html` from the Worker, `text/html; charset=utf-8` from
+    Pages. Cloudflare's asset upload keeps the media type and drops the parameter, from
+    Alchemy and Wrangler alike, so no upload can set it, and every page of the four
+    staged sites declares `<meta charset="UTF-8">` within its first 1024 bytes, where
+    the browser looks when the header names no charset.
+  - JavaScript's `text/javascript` where Pages says `application/javascript`: the same
+    type.
+  - An unknown path on cire landing: the Worker answers 404, Pages 200 with its
+    single-page fallback. Every page the site links is a file. The organiser and vendor
+    portals, like musubi social, serve their own page there as Pages does
+    ([[infrastructure-as-code#Sites]]).
+
+  The comparison does not ask a directory page's address without its trailing slash
+  (`/login`, `/privacy`), which both redirect to the slash form, the Worker with a 307
+  and Pages with a 308.
+
+  *Measured 2026-11-05 — release run 41818903897: its `site-parity` report; each HTML
+  file of its `production-sites` artifact searched for `<meta charset` in its first 1024
+  bytes (byte 38 on every cire page, 137 on musubi social's); and
+  `curl -sS -D - -o /dev/null` of each built page's address, with and without the
+  slash, on both hosts. The staged host's `/_astro/theme-boot.B7YqAPRH.css` answers
+  `text/css` with ETag `f23e95daca37f70e89cfd58fba764a14`, the manifest hash Alchemy
+  gives the file uploaded as `text/css; charset=utf-8`.*
+
+  Both comparisons, this one and the dev guest route comparison
   ([[infrastructure-as-code#The guest route comparison]]), send smoke-check's CI user agent
   (`CI_USER_AGENT`) — the guest comparison's local Wrangler runtime too, whose calls to
   cire-api go out through a relay that sets it — and a refused run — the `site-parity` job failing on exit 3, its
@@ -1675,7 +1701,8 @@ from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
 | cire-api | `https://api.cireweddings.com/api/auth/session` | the same path | 200 `{"signedIn":false}`. cire-api has no health route — its root and `/health` answer 404 |
 | cire-invites | `https://invite.cireweddings.com/` and `/smoke-check-no-such-wedding` | the same paths, the redirect judged against `SMOKE_MARKETING_ORIGIN` | a redirect to the marketing site; a rendered page, 404 or 200 — so a broken design import fails it, and cire-api being down does not |
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
-| cire host, cire vendor, cire landing | the site Worker's `/`, on its spare host while staged (the Pages project has no check) | `/` | 200 HTML |
+| cire host | the site Worker's `/` and `/vendors/enquiries/smoke-check`, on its spare host while staged (the Pages project has no check) | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves |
+| cire vendor, cire landing | the site Worker's `/`, on its spare host while staged (the Pages project has no check) | `/` | 200 HTML |
 | musubi landing | `https://www.musubi.social/` | `/` | 200 HTML |
 | musubi social | the site Worker's `/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association`, on `next.musubi.social` while staged | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys |
 | pulse landing | none (`off` on production) | `/` and `/api/geo` | 200 HTML; 200 with a JSON object, from the Worker's own code |

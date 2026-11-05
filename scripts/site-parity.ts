@@ -9,13 +9,16 @@
  * host. This asks both hosts the same paths and reports where their answers
  * differ: the status, the Location (without its own origin), every header
  * the build's `_headers` names, and a fixed list besides. The paths are `/`,
- * an unknown path, musubi social's deep link, every `_headers` rule and every
+ * an unknown path, each `DEEP_LINKS` path, every `_headers` rule and every
  * `_redirects` source, a wildcard filled from a file the build holds.
  *
- * Two differences are expected and accepted unless a real path relies on
- * them: an unknown path that Pages answers 200 with the single-page fallback
- * and the Worker answers 404, and Pages' `access-control-allow-origin: *`.
- * The owner reads the report before each site's flip.
+ * Some differences are expected, and wiki/shared/production-deploy.md §5.7
+ * names each one accepted and why: Pages' `access-control-allow-origin: *`;
+ * HTML's `content-type` without its `charset=utf-8`, which Cloudflare's asset
+ * upload does not keep; JavaScript's `text/javascript` where Pages says
+ * `application/javascript`; and an unknown path on cire landing, which Pages
+ * answers 200 with the single-page fallback and the Worker answers 404. The
+ * owner reads the report before each site's flip.
  *
  *   bun run scripts/site-parity.ts --stack <cire|musubi> --out <report.json> [--root <dir>]
  *
@@ -101,8 +104,13 @@ export const RATE_LIMIT_MAX_MS = 30_000;
  */
 const CLOUDFLARE_PAGE_MARKER = 'id="cf-error-details"';
 
-/** musubi social routes in the browser, so a deep link must reach its shell. */
+/**
+ * Paths no file answers that a real link reaches: musubi social routes in the
+ * browser, so a deep link must reach its shell, and cire-api's enquiry emails
+ * link the organiser portal at `/vendors/enquiries/<id>`.
+ */
 const DEEP_LINKS: SomeSites<readonly string[]> = {
+  cire_host: ["/vendors/enquiries/site-parity"],
   osn_social: ["/site-parity-deep-link"],
 };
 
