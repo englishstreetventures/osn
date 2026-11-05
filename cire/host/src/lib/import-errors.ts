@@ -78,23 +78,58 @@ function at(body: ImportErrorBody, detail: string): string {
   return where ? `${where} — ${detail}` : detail;
 }
 
+/** Where the change the guest cap refused came from: a sheet upload or an
+ *  editor save. */
+export type CapacitySource = "import" | "editor";
+
+interface CapacityCopy {
+  /** The sentence's subject. */
+  change: string;
+  /** How to make the change fit, lower-case. */
+  trim: string;
+  /** What to do when the refusal came while the change was writing. */
+  spent: string;
+}
+
+const CAPACITY_COPY = {
+  import: {
+    change: "This import",
+    trim: "remove some guests from the sheet",
+    spent:
+      "Some of it may already be saved, so press Preview to compare your sheet with the guest list as it is now.",
+  },
+  editor: {
+    change: "These changes",
+    trim: "remove some guests",
+    spent: "Some of them may already be saved, so reload before you save again.",
+  },
+} satisfies Record<CapacitySource, CapacityCopy>;
+
 /**
- * The guest-cap 402. Names the tier that would hold the import when the API
- * said which one, and says plainly when none would — "upgrade" is no advice
- * past the largest plan's ceiling.
+ * The guest-cap 402, in the words of the door the change came through. Names
+ * the tier that would hold the change when the API said which one, and says
+ * plainly when none would — "upgrade" is no advice past the largest plan's
+ * ceiling. A refusal while the change was writing (`reason: "head_moved"`)
+ * adds that part of it may be saved, since its preview can no longer apply.
  */
-function capacityDetail(body: ImportErrorBody): string {
+export function capacityMessage(body: ImportErrorBody, source: CapacitySource): string {
+  const copy = CAPACITY_COPY[source];
+  const detail = capacityDetail(body, copy);
+  return body.reason === "head_moved" ? `${detail} ${copy.spent}` : detail;
+}
+
+function capacityDetail(body: ImportErrorBody, { change, trim }: CapacityCopy): string {
   if (typeof body.limit !== "number") {
-    return "This import would take you past your plan's guest limit.";
+    return `${change} would take you past your plan's guest limit.`;
   }
-  const past = `This import would take you past your plan's limit of ${body.limit} guests.`;
+  const past = `${change} would take you past your plan's limit of ${body.limit} guests.`;
   if (isPaidTier(body.tier)) {
-    return `${past} Remove some guests from the sheet, or upgrade to ${TIER_LABEL[body.tier]}.`;
+    return `${past} ${capitalise(trim)}, or upgrade to ${TIER_LABEL[body.tier]}.`;
   }
   if (body.tier === null) {
-    return `${past} No plan holds that many, so remove some guests from the sheet.`;
+    return `${past} No plan holds that many, so ${trim}.`;
   }
-  return `${past} Remove some guests from the sheet, or upgrade your plan.`;
+  return `${past} ${capitalise(trim)}, or upgrade your plan.`;
 }
 
 /**
@@ -200,7 +235,7 @@ export function formatImportError(status: number, body: ImportErrorBody): string
       );
 
     case "payment_required":
-      return capacityDetail(body);
+      return capacityMessage(body, "import");
   }
 
   // Non-parse failures that still deserve a plain-English line.
