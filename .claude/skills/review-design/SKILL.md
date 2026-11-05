@@ -489,7 +489,9 @@ as though someone had, is the one fault this lens must not commit.
   and that text would publish a compliance defect. The access gap goes in the
   hand-off.
 - **Contrast under the document's floor stays here**, as a `U-` finding: it is
-  the design system's own contract, held by its own tests.
+  the design system's own contract, held by its own tests. A shortfall in a
+  file the branch changes is fixed on that branch, like every in-scope finding;
+  a `U-` issue is filed only for one outside the branch's scope.
 - **Security, performance, state and test coverage** belong to their own
   lenses. A defect of theirs you notice goes on one line at the end of
   `## Sections checked`, with no ID.
