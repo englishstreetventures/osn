@@ -320,6 +320,16 @@ jobs:
       - name: Check Astro app bundle sizes and refuse public source maps
         run: ./scripts/guard-bundle-size.sh --all
 
+      # Every cire page is built as `<dir>/index.html`, and Cloudflare's asset
+      # server answers its address without the trailing slash (`/privacy`)
+      # with a redirect to `/privacy/`. This reads the four cire builds the
+      # Build step left (landing, host, vendor, and the guest site's client
+      # output and server chunks) and fails on any link that names a page
+      # without its slash, so no click on a cire link goes through that
+      # redirect. Seconds; it reads `dist/` and nothing else.
+      - name: Check cire sites link their pages by the slash form
+        run: bun run scripts/check-directory-links.ts
+
       # The guest route comparison (scripts/guest-route-parity.ts) starts
       # Wrangler's local runtime on Node through
       # scripts/guest-route-parity-reference.js, and relays the Worker's

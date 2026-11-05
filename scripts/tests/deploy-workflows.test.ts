@@ -778,6 +778,20 @@ describe("PR2: ci.yml's Build & Test job runs the guest route comparison's refer
   });
 });
 
+describe("ci.yml's Build & Test job checks the cire sites' links to their directory pages", () => {
+  const RUN = "bun run scripts/check-directory-links.ts";
+  const steps = stepsOf(load(".github/workflows/ci.yml").jobs["build-test"]);
+  const at = steps.findIndex((step) => step.run === RUN);
+
+  test("a step of its own runs the check after the build, and fails the job when it fails", () => {
+    // The check reads the four sites' `dist/`, which only the build writes.
+    expect(at).toBeGreaterThan(steps.findIndex((one) => one.run === "bun run build"));
+    expect(steps.findIndex((one) => one.run === "bun run build")).toBeGreaterThan(-1);
+    expect(steps[at]?.if).toBeUndefined();
+    expect(steps[at]?.["continue-on-error"]).toBeUndefined();
+  });
+});
+
 describe("ci.yml's `CI` gate, the one required check, covers every job beside Build & Test", () => {
   const ci = load(".github/workflows/ci.yml");
   const needs = [ci.jobs.ci?.needs ?? []].flat();
