@@ -4,17 +4,18 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Select } from "@shared/ui/ui/select";
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
 
 import { redirectToLogin } from "../lib/api";
 import { splitIso } from "../lib/event-datetime";
 import type { EventRow } from "../lib/events-store";
-import { haptic } from "../lib/haptics";
 import { type ZonedTime, zonedTime } from "../lib/run-sheet-display";
 import { type RunTimePatch, type RunTimeRefusal, saveTaskRunTime } from "../lib/run-time-write";
 import type { TaskRow } from "../lib/tasks-store";
 import { browserTimeZone, describeTimeZone, timeZoneGroups } from "../lib/timezones";
+import { haptic } from "../lib/touch-feedback";
 import { ClockGlyph, UnlinkGlyph } from "./RunGlyphs";
 
 /**
@@ -88,7 +89,7 @@ function shownTime(task: TaskRow): ZonedTime | null {
  *  is the boundary of an unfilled control, so `--border-strong`, and gold on
  *  hover and while its popover is open. */
 const SLOT =
-  "border-border-strong bg-bg text-text-muted hover:border-gold hover:text-text data-[expanded]:border-gold data-[expanded]:text-gold-ink flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted transition-colors duration-(--dur-fast) disabled:opacity-40";
+  "border-border-strong bg-bg text-text-muted hover:border-gold hover:text-text data-[expanded]:border-gold data-[expanded]:text-gold-ink flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted transition-ui-colors duration-(--dur-fast) ease-(--ease-out) disabled:opacity-40";
 /** A time: a pill holding a clock and the time. */
 const PILL =
   "font-body text-ui-xs inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 font-medium whitespace-nowrap tabular-nums";
@@ -97,7 +98,7 @@ const PILL_INK = "border-border-strong text-text";
 const PILL_INK_REMOVED = "border-warn/60 text-warn";
 /** The pill as a control. */
 const PILL_CONTROL =
-  "hover:border-gold data-[expanded]:border-gold transition-colors duration-(--dur-fast) disabled:opacity-40";
+  "hover:border-gold data-[expanded]:border-gold transition-ui-colors duration-(--dur-fast) ease-(--ease-out) disabled:opacity-40";
 
 /** What the trigger and the read-only chip both show: a glyph, the time, and
  *  what a screen reader needs to know which task's time it is. The time is
@@ -336,7 +337,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
         </Show>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content class="droplet-popover border-border bg-surface-raised lip z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none">
+        <Popover.Content class="droplet-popover border-border bg-surface-raised z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none">
           <form
             class="droplet-popover-body flex flex-col gap-4 p-4"
             onSubmit={save}
@@ -358,6 +359,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
             >
               {(field) => (
                 <Select
+                  size="form"
                   {...field}
                   value={eventId()}
                   onChange={(e) => pickEvent(e.currentTarget.value)}
@@ -413,6 +415,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                   >
                     {(field) => (
                       <Select
+                        size="form"
                         {...field}
                         value={zone()}
                         onChange={(e) => {
@@ -434,23 +437,18 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
               }
             >
               <>
-                <fieldset class="flex flex-col gap-2">
-                  <legend class="sr-only">How the time follows {eventName()}</legend>
-                  <Choice
-                    name={`${id}-mode`}
-                    checked={mode() === "offset"}
-                    onPick={() => setMode("offset")}
-                  >
-                    Before or after the start
-                  </Choice>
-                  <Choice
-                    name={`${id}-mode`}
-                    checked={mode() === "clock"}
-                    onPick={() => setMode("clock")}
-                  >
-                    At a clock time
-                  </Choice>
-                </fieldset>
+                <RadioGroup
+                  box="native"
+                  size="sm"
+                  orientation="vertical"
+                  name={`${id}-mode`}
+                  value={mode()}
+                  onChange={(value) => setMode(value === "clock" ? "clock" : "offset")}
+                  aria-label={`How the time follows ${eventName()}`}
+                >
+                  <RadioGroupItem value="offset" label="Before or after the start" />
+                  <RadioGroupItem value="clock" label="At a clock time" />
+                </RadioGroup>
                 <Show
                   when={mode() === "offset"}
                   fallback={
@@ -464,7 +462,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         }}
                         onTime={setTime}
                       />
-                      <p class="font-body text-text-muted text-ui-xs leading-snug">
+                      <p class="font-body text-text-muted text-ui-xs leading-ui-snug">
                         {chosen()
                           ? `On ${eventName()}'s clock: ${describeTimeZone(chosen()!.event.timezone, date())}`
                           : "On the event's own clock."}
@@ -477,6 +475,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                       <Field label="Minutes" class="w-24 shrink-0">
                         {(field) => (
                           <Input
+                            size="form"
                             {...field}
                             type="number"
                             inputMode="numeric"
@@ -491,6 +490,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                       <Field label="Before or after" class="min-w-0 flex-1">
                         {(field) => (
                           <Select
+                            size="form"
                             {...field}
                             value={direction()}
                             onChange={(e) =>
@@ -503,7 +503,10 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         )}
                       </Field>
                     </div>
-                    <p class="font-body text-text-muted text-ui-xs leading-snug" aria-live="polite">
+                    <p
+                      class="font-body text-text-muted text-ui-xs leading-ui-snug"
+                      aria-live="polite"
+                    >
                       {lands()
                         ? `${lands()}, on ${eventName()}'s clock`
                         : `Moves with ${eventName()}.`}
@@ -562,6 +565,7 @@ function DateAndTime(props: {
       <Field label="Date" class="min-w-0 flex-1">
         {(field) => (
           <Input
+            size="form"
             {...field}
             type="date"
             value={props.date}
@@ -572,6 +576,7 @@ function DateAndTime(props: {
       <Field label="Time" class="min-w-0 flex-1">
         {(field) => (
           <Input
+            size="form"
             {...field}
             type="time"
             value={props.time}
@@ -580,21 +585,5 @@ function DateAndTime(props: {
         )}
       </Field>
     </div>
-  );
-}
-
-/** One of two ways to tie a time to its event: a radio and its words. */
-function Choice(props: { name: string; checked: boolean; onPick: () => void; children: string }) {
-  return (
-    <label class="font-body text-text text-ui-sm flex cursor-pointer items-center gap-2.5">
-      <input
-        type="radio"
-        name={props.name}
-        checked={props.checked}
-        onChange={() => props.onPick()}
-        class="border-border-strong checked:border-brand-ink checked:bg-brand-ink size-4 shrink-0 cursor-pointer appearance-none rounded-full border-2 checked:shadow-[inset_0_0_0_2.5px_var(--surface-raised)]"
-      />
-      {props.children}
-    </label>
   );
 }

@@ -336,7 +336,7 @@ export interface RegistryContributeDeps {
 /**
  * GIVING MONEY:
  *
- *   POST /api/invite/:slug/registry/contribute  (limiter + sessionAuth)
+ *   POST /api/invite/:slug/registry/contribute  (sessionAuth + limiter)
  *
  * Answers with a hosted Stripe Checkout URL for the guest to be sent to. The
  * charge is DIRECT on the couple's connected account: the money is theirs from
@@ -344,9 +344,17 @@ export interface RegistryContributeDeps {
  *
  * **Its own limiter**, at the claim route's rate. Every call here is an outbound
  * Stripe request — the same "amplifier" shape the link-preview route is limited
- * for, and the one guest route that can cost money to be wrong about. It answers
- * before `sessionAuth`, so a refused request costs no session lookup, and a
- * caller with no claimed session spends the same per-IP budget as a guest.
+ * for, and the one guest route that can cost money to be wrong about.
+ *
+ * **The one per-IP limiter that answers after `sessionAuth`.** A reception on
+ * venue wifi is one address, so the budget is the whole room's; checking the
+ * session first means a caller with no live guest session gets 401 and spends
+ * none of it, and costs no Stripe call either way. Any live session spends it,
+ * whichever wedding's household it names (the host preview's included): the
+ * household-in-wedding check runs after the limiter, in `contributionContext`.
+ * The price: a refused request that carries a cookie costs the session lookup,
+ * which `GET /registry` beside this already spends with no limiter at all. A
+ * session holder with no resolvable address still meets the limiter's 429.
  *
  * **The gates that matter run before Stripe does** (`contributionContext`): the
  * registry must be visible, the household must belong to THIS wedding and not
@@ -361,8 +369,8 @@ export interface RegistryContributeDeps {
  */
 export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeDeps) =>
   new Elysia({ prefix: "/api/invite" })
-    .use(rateLimitMiddleware(deps.limiter))
     .use(sessionAuth(db))
+    .use(rateLimitMiddleware(deps.limiter))
     .post(
       "/:slug/registry/contribute",
       async ({ params, familyId, request, set }) => {

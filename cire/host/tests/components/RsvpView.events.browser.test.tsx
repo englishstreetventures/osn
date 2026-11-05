@@ -33,7 +33,10 @@ import "../../src/styles/global.css";
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
+vi.mock("../../src/lib/touch-feedback", () => ({
+  haptic: () => {},
+  hapticsAvailable: () => false,
+}));
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -115,6 +118,8 @@ const eventTab = (name: string) =>
     name: new RegExp(`^${name},`),
   });
 const strip = () => screen.getByRole("tablist", { name: "Events" });
+/** What scrolls: the glass strip sits in a scroller with room for the ring. */
+const scroller = () => strip().parentElement!;
 const eventPanel = () =>
   document.getElementById(strip().querySelector("[role=tab]")!.getAttribute("aria-controls")!)!;
 const viewBar = () => document.querySelector<HTMLElement>("[data-view-bar]")!;
@@ -286,13 +291,13 @@ describe("the RSVP page's event tabs", () => {
     await userEvent.keyboard("{ArrowRight}{Enter}");
     expect(reception!.getAttribute("aria-selected")).toBe("true");
     expect(chosen).toEqual(["evt_reception"]);
-    // What a sighted host sees of the choice: the chosen chip fills in the
-    // brand green, in its own ink, while the others stay on the surface.
-    expect(getComputedStyle(reception!).backgroundColor).toBe(probe("bg-brand", "backgroundColor"));
-    expect(getComputedStyle(reception!).color).toBe(probe("text-on-brand", "color"));
-    expect(getComputedStyle(ceremony!).backgroundColor).toBe(
-      probe("bg-surface", "backgroundColor"),
-    );
+    // What a sighted host sees of the choice: the chosen tab's word in the
+    // readable gold at medium weight, on the glass that slides to it, while
+    // the others keep the secondary ink at normal weight.
+    expect(getComputedStyle(reception!).color).toBe(probe("text-gold-ink", "color"));
+    expect(getComputedStyle(reception!).fontWeight).toBe("500");
+    expect(getComputedStyle(ceremony!).color).toBe(probe("text-text-muted", "color"));
+    expect(getComputedStyle(ceremony!).fontWeight).toBe("400");
     await vi.waitFor(() =>
       expect(document.querySelectorAll("tbody > tr")).toHaveLength(rowsOf(THREE, 1)),
     );
@@ -316,7 +321,7 @@ describe("the RSVP page's event tabs", () => {
     await ready(rowsOf(TWELVE, 10));
 
     // The strip overflows and scrolls; its box stays inside the page measure.
-    const track = strip();
+    const track = scroller();
     expect(track.scrollWidth).toBeGreaterThan(track.clientWidth);
     const main = document.querySelector("main")!.getBoundingClientRect();
     expect(track.getBoundingClientRect().right).toBeLessThanOrEqual(main.right);
@@ -352,7 +357,7 @@ describe("the RSVP page's event tabs", () => {
     await page.viewport(600, 844);
     renderPage(TWELVE, { rsvpEvent: "evt_5" });
     await ready(rowsOf(TWELVE, 5));
-    const track = strip();
+    const track = scroller();
     const inner = () => {
       const r = track.getBoundingClientRect();
       return {
@@ -496,10 +501,10 @@ describe("the RSVP table's stuck head row", () => {
     const list = screen.getByRole("list", { name: "Replies for Ceremony" });
     expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
-    // The sort is a select in the bar; the reply filter its row of chips.
+    // The sort is a select in the bar; the reply filter its strip of radios.
     expect(within(viewBar()).getByRole("combobox", { name: "Sort guests" })).toBeTruthy();
-    const replies = within(viewBar()).getByRole("group", { name: "Filter Ceremony by reply" });
-    expect(within(replies).getAllByRole("button")).toHaveLength(5);
+    const replies = within(viewBar()).getByRole("radiogroup", { name: "Filter Ceremony by reply" });
+    expect(within(replies).getAllByRole("radio")).toHaveLength(5);
   });
 
   for (const theme of ["light", "dark"] as const) {
@@ -580,6 +585,10 @@ describe("the RSVP page on a phone", () => {
     const presets = await vi.waitFor(() =>
       within(row).getByRole("group", { name: `Dietary requirements for ${guest}` }),
     );
+    // The inline presets are one long row; the editor holds it in the panel
+    // rather than widening the block or the page.
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
     // The pill is the label; its checkbox is hidden under it.
     await userEvent.click(within(presets).getByText("Vegetarian"));
     expect(
@@ -591,8 +600,8 @@ describe("the RSVP page on a phone", () => {
       );
     // A preset is dietary data: saving it needs the consent box ticked.
     await userEvent.click(within(row).getByRole("button", { name: /Save reply/ }));
-    await vi.waitFor(() =>
-      expect(within(row).getByText(/consented before storing dietary requirements/)).toBeTruthy(),
+    expect((await within(row).findByRole("alert")).textContent).toMatch(
+      /consented before storing dietary requirements/,
     );
     expect(puts()).toEqual([]);
     await userEvent.click(within(row).getByRole("checkbox", { name: /consent/i }));
@@ -607,9 +616,26 @@ describe("the RSVP page on a phone", () => {
     expect(body.dietaryPresets).toEqual(["vegetarian"]);
     expect(body.dietaryConsent).toBe(true);
   });
+
+  it("names the dietary group for the guest in the popover a wide panel draws", async () => {
+    await page.viewport(1280, 800);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const record = screen.getAllByRole("button", { name: /^Record reply for / })[0]!;
+    const guest = record.getAttribute("aria-label")!.replace("Record reply for ", "");
+    await userEvent.click(record);
+    // The trigger holds the value where a narrow panel draws the pills.
+    const trigger = await vi.waitFor(() =>
+      screen.getByRole("button", { name: /Add dietary requirements/ }),
+    );
+    await userEvent.click(trigger);
+    await vi.waitFor(() =>
+      expect(screen.getByRole("group", { name: `Dietary requirements for ${guest}` })).toBeTruthy(),
+    );
+  });
 });
 
-describe("the chips' focus ring", () => {
+describe("the event tabs' and reply chips' focus ring", () => {
   /** Whether `el`'s ring — its outline, offset and width — lies inside `box`. */
   function ringInside(el: Element, box: Element): boolean {
     const style = getComputedStyle(el);
@@ -623,7 +649,7 @@ describe("the chips' focus ring", () => {
     );
   }
 
-  it("shows whole on an event chip and a reply chip reached from the keyboard", async () => {
+  it("shows whole on an event tab and a reply chip reached from the keyboard", async () => {
     await page.viewport(1280, 800);
     renderPage(THREE);
     await ready(rowsOf(THREE));
@@ -634,15 +660,18 @@ describe("the chips' focus ring", () => {
     expect(getComputedStyle(reception!).outlineStyle).toBe("solid");
     expect(parseFloat(getComputedStyle(reception!).outlineWidth)).toBeGreaterThanOrEqual(2);
     // Not cut by the strip, which scrolls sideways and so clips on both axes.
-    expect(ringInside(reception!, strip())).toBe(true);
+    expect(ringInside(reception!, scroller())).toBe(true);
 
-    const replies = within(viewBar()).getByRole("group", { name: /^Filter .* by reply$/ });
+    // The reply filter is one tab stop, its checked radio; its strip scrolls
+    // sideways too, so the ring must fit inside the box that clips.
+    const replies = within(viewBar()).getByRole("radiogroup", { name: /^Filter .* by reply$/ });
     within(viewBar()).getByRole("searchbox").focus();
     await userEvent.keyboard("{Tab}");
     const chip = document.activeElement!;
     expect(replies.contains(chip)).toBe(true);
+    expect(chip.getAttribute("aria-checked")).toBe("true");
     expect(getComputedStyle(chip).outlineStyle).toBe("solid");
-    expect(ringInside(chip, replies)).toBe(true);
+    expect(ringInside(chip, replies.parentElement!)).toBe(true);
   });
 });
 
@@ -674,6 +703,8 @@ describe("the reply key", () => {
     ]) {
       expect([words, dialog.textContent?.includes(words)]).toEqual([words, true]);
     }
+    // Each line ends on one full stop, whether its words carry their own or not.
+    expect(dialog.textContent).not.toMatch(/\.\./);
     await userEvent.keyboard("{Escape}");
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await vi.waitFor(() => expect(document.activeElement).toBe(key));
@@ -690,6 +721,168 @@ describe("the reply key", () => {
     ).toBeLessThanOrEqual(0.5);
     expect(
       Math.abs(key.getBoundingClientRect().top - search.getBoundingClientRect().top),
+    ).toBeLessThanOrEqual(0.5);
+  });
+});
+
+/** A colour as one comparable paint, whatever form the engine reports it in. */
+function paint(color: string): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 1, 1);
+  return ctx.getImageData(0, 0, 1, 1).data.slice(0, 3).join(",");
+}
+
+const rootToken = (name: string) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+describe("the RSVP bar's one pill language", () => {
+  it("draws every pill in the bar, the download among them, at 28px", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const bar = within(viewBar());
+    const heights = {
+      search: bar.getByRole("searchbox").getBoundingClientRect().height,
+      events: strip().getBoundingClientRect().height,
+      replies: bar.getByRole("radiogroup").getBoundingClientRect().height,
+      key: bar.getByRole("button", { name: "What the reply icons mean" }).getBoundingClientRect()
+        .height,
+      download: bar.getByRole("button", { name: "Download RSVPs (CSV)" }).getBoundingClientRect()
+        .height,
+    };
+    expect(heights).toEqual({ search: 28, events: 28, replies: 28, key: 28, download: 28 });
+  });
+
+  it("rests the search box on the track's look, led by a magnifier, its edge strong under the pointer and on focus", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const search = within(viewBar()).getByRole("searchbox");
+    const rest = getComputedStyle(search);
+    expect(paint(rest.borderTopColor)).toBe(paint(rootToken("--border")));
+    expect(paint(rest.backgroundColor)).toBe(paint(getComputedStyle(strip()).backgroundColor));
+    // The 3:1 mark that says "a field": a magnifier in the secondary ink.
+    const glyph = search.parentElement!.querySelector("svg[data-filter-glyph]")!;
+    expect(glyph).toBeTruthy();
+    expect(glyph.getBoundingClientRect().left).toBeLessThan(
+      search.getBoundingClientRect().left + 16,
+    );
+    expect(paint(getComputedStyle(glyph).color)).toBe(paint(rootToken("--text-muted")));
+    await userEvent.hover(search);
+    expect(paint(getComputedStyle(search).borderTopColor)).toBe(
+      paint(rootToken("--border-strong")),
+    );
+    await userEvent.unhover(search);
+    search.focus();
+    expect(paint(getComputedStyle(search).borderTopColor)).toBe(
+      paint(rootToken("--border-strong")),
+    );
+  });
+
+  it("rests the phone's sort select on the track's look, its edge strong under the pointer and on focus", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const sort = within(viewBar()).getByRole("combobox", { name: "Sort guests" });
+    const search = within(viewBar()).getByRole("searchbox");
+    expect(sort.getBoundingClientRect().height).toBe(28);
+    // Its call site's own cap (`max-w-28`) reaches it through the part.
+    expect(sort.getBoundingClientRect().width).toBeLessThanOrEqual(112);
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border")));
+    expect(paint(getComputedStyle(sort).backgroundColor)).toBe(
+      paint(getComputedStyle(search).backgroundColor),
+    );
+    await userEvent.hover(sort);
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border-strong")));
+    await userEvent.unhover(sort);
+    sort.focus();
+    expect(paint(getComputedStyle(sort).borderTopColor)).toBe(paint(rootToken("--border-strong")));
+  });
+
+  it("draws the reply key and the download as the bar's icon buttons: lifted under the pointer, raised while open", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const bar = within(viewBar());
+    const key = bar.getByRole("button", { name: "What the reply icons mean" });
+    const download = bar.getByRole("button", { name: "Download RSVPs (CSV)" });
+    const search = bar.getByRole("searchbox");
+    /** `button`'s fill, edge and ink, each as one comparable paint. */
+    const look = (button: Element) => {
+      const style = getComputedStyle(button);
+      return [style.backgroundColor, style.borderTopColor, style.color].map(paint);
+    };
+    // The surface at 60%, as the portal paints it, read off a probe.
+    const ground = document.createElement("div");
+    ground.style.backgroundColor = "color-mix(in oklab, var(--surface) 60%, transparent)";
+    document.body.append(ground);
+    const lifted = getComputedStyle(ground).backgroundColor;
+    ground.remove();
+    // At rest, both: the search box's ground and the hairline.
+    for (const button of [key, download]) {
+      expect(button.getBoundingClientRect().width).toBe(28);
+      expect(paint(getComputedStyle(button).borderTopColor)).toBe(paint(rootToken("--border")));
+      expect(paint(getComputedStyle(button).backgroundColor)).toBe(
+        paint(getComputedStyle(search).backgroundColor),
+      );
+    }
+    // Under the pointer: the ground at 60%, the body ink, a gold edge.
+    for (const button of [download, key]) {
+      await userEvent.hover(button);
+      expect(look(button)).toEqual([lifted, rootToken("--gold"), rootToken("--text")].map(paint));
+    }
+    // Open, the pointer still on it: the raised surface, the body ink and the
+    // hairline, which the pointer does not move.
+    await userEvent.click(key);
+    const dialog = await screen.findByRole("dialog", { name: "What the reply icons mean" });
+    expect(look(key)).toEqual(
+      [rootToken("--surface-raised"), rootToken("--border"), rootToken("--text")].map(paint),
+    );
+    expect(dialog.textContent).toContain("Host-entered — Recorded by a host");
+    const panel = getComputedStyle(dialog);
+    expect(paint(panel.backgroundColor)).toBe(paint(rootToken("--surface-raised")));
+    expect(panel.borderTopLeftRadius).toBe("10px");
+    // The inner lip and the floating shadow, as every panel draws them.
+    expect(panel.boxShadow).toMatch(/inset/);
+    expect(panel.boxShadow).toMatch(/12px 32px -8px/);
+    await userEvent.keyboard("{Escape}");
+  });
+});
+
+describe("the RSVPs page's own lines", () => {
+  it("draws no decorative intro, and names the view to a screen reader by a hidden heading", async () => {
+    await page.viewport(1280, 900);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    expect(screen.queryByText("Replies at a glance")).toBeNull();
+    const heading = screen.getByRole("heading", { level: 2, name: "RSVPs" });
+    const box = heading.getBoundingClientRect();
+    expect(box.width <= 1 && box.height <= 1).toBe(true);
+    // Every word "RSVPs" a host can see is a control in the bar: the sub-tab.
+    const seen = [...document.querySelectorAll("body *")].filter((el) => {
+      const own = [...el.childNodes].some(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim() === "RSVPs",
+      );
+      const rect = el.getBoundingClientRect();
+      return own && el.checkVisibility() && rect.width > 1 && rect.height > 1;
+    });
+    expect(seen.every((el) => viewBar().contains(el))).toBe(true);
+  });
+
+  it("keeps the download in the bar's search row on a phone", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const download = within(viewBar()).getByRole("button", { name: "Download RSVPs (CSV)" });
+    const search = within(viewBar()).getByRole("searchbox");
+    expect(download.getBoundingClientRect().height).toBe(28);
+    expect(
+      Math.abs(download.getBoundingClientRect().top - search.getBoundingClientRect().top),
     ).toBeLessThanOrEqual(0.5);
   });
 });

@@ -41,8 +41,7 @@
     "cropperjs": "2.3.1",
     "lucide-solid": "1.59.0",
     "solid-js": "^1.9.18",
-    "tailwindcss": "^4.3.3",
-    "web-haptics": "0.0.6"
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@astrojs/ts-content-mapper": "0.2.0",

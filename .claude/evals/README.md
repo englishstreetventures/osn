@@ -118,6 +118,7 @@ and `report.html`.
 | `review-security-consent-cookie-rediscovery` | `review-security` | `Bash Write Edit` | |
 | `review-security-consent-hardened-restraint` | `review-security` | `Bash Write Edit` | |
 | `review-security-zap-chat-class-authz` | `review-security` | `Bash Write Edit` | |
+| `review-state-pulse-close-event` | `review-state` | `Bash Write Edit` | |
 | `review-tests-cire-consent-colocated-layout` | `review-tests` | `Bash Write Edit` | |
 | `review-tests-pulse-account-cookie-credential` | `review-tests` | `Bash Write Edit` | |
 | `write-issue-cire-meal-count-export` | `write-issue` | `Write Edit` | |
@@ -156,6 +157,7 @@ graders. In short:
 | `review-security-consent-cookie-rediscovery` | A consent cookie with no `__Host-` prefix, and a revocation that does not tear down loaded embeds. |
 | `review-security-consent-hardened-restraint` | The same module with both defects fixed. Half the points are for not reporting them. |
 | `review-security-zap-chat-class-authz` | A class check enforced on two operations and missing from their siblings in the same file. |
+| `review-state-pulse-close-event` | A new status write guarded only in code, whose WHERE names the row id alone, racing cancels by three writers outside the diff. Scores the finding, the writer it overwrites, the consequence, the guard, the test that fails without it, the writer table and four deliberate choices left alone. |
 | `review-tests-cire-consent-colocated-layout` | A package whose tests sit beside their source. Scores resolving the layout from disk before calling any test missing. |
 | `review-tests-pulse-account-cookie-credential` | Routes that accept a bearer token or a cookie, tested only with the bearer. |
 | `write-issue-cire-meal-count-export` | A planned feature brief. Scores the body, the command's type and labels, and a report that says the issue is not filed. |

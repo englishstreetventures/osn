@@ -188,8 +188,8 @@ function tally(section: HTMLElement, label: string) {
   return dt.parentElement?.querySelector("dd")?.textContent;
 }
 
-const chips = () => screen.getByRole("group", { name: /^Filter .+ by reply$/ });
-const chip = (name: RegExp) => within(chips()).getByRole("button", { name });
+const chips = () => screen.getByRole("radiogroup", { name: /^Filter .+ by reply$/ });
+const chip = (name: RegExp) => within(chips()).getByRole("radio", { name });
 const searchBox = () => screen.getByLabelText(/^Search .+ guests$/);
 /** An event's tab; its name starts with the event's. */
 const tab = (name: string) => screen.getByRole("tab", { name: new RegExp(`^${name}`) });
@@ -550,27 +550,32 @@ describe("RsvpView", () => {
     expect(screen.getByRole("button", { name: "Record reply for Ada Sharma" })).toBeTruthy();
   });
 
-  it("filters the event on screen by a status chip", async () => {
+  it("filters the event on screen by a reply in the filter's radio strip", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
 
     // The chips act on the event on screen, and say so.
     expect(chips().getAttribute("aria-label")).toBe("Filter Ceremony by reply");
-    // The chip carries its count: one Ceremony row owes a reply.
+    // Each reply carries its count, in its name too: one Ceremony row owes a reply.
     const noReply = chip(/^No reply/i);
     expect(noReply.textContent).toContain("1");
-    // "All" is the pressed one until a host picks another.
-    expect(chip(/^All/i).getAttribute("aria-pressed")).toBe("true");
+    expect(noReply.getAttribute("aria-label")).toBe("No reply, 1 guest");
+    expect(chip(/^All/i).getAttribute("aria-label")).toBe("All, 4 guests");
+    // "All" is the checked one until a host picks another.
+    expect(chip(/^All/i).getAttribute("aria-checked")).toBe("true");
 
     fireEvent.click(noReply);
-    expect(noReply.getAttribute("aria-pressed")).toBe("true");
-    expect(chip(/^All/i).getAttribute("aria-pressed")).toBe("false");
+    expect(noReply.getAttribute("aria-checked")).toBe("true");
+    expect(chip(/^All/i).getAttribute("aria-checked")).toBe("false");
     expect(
       within(chips())
-        .getAllByRole("button")
-        .filter((b) => b.getAttribute("aria-pressed") === "true"),
+        .getAllByRole("radio")
+        .filter((b) => b.getAttribute("aria-checked") === "true"),
     ).toHaveLength(1);
+    // A second press keeps the reply: only All clears it.
+    fireEvent.click(noReply);
+    expect(noReply.getAttribute("aria-checked")).toBe("true");
 
     expect(within(panel()).getByText("Cleo Jones")).toBeTruthy();
     expect(within(panel()).queryByText("Ada Sharma")).toBeNull();
@@ -582,7 +587,7 @@ describe("RsvpView", () => {
     // The chip stays chosen on another event, and the tallies stay the API's.
     fireEvent.click(chip(/^Attending/i));
     const reception = show("Reception");
-    expect(chip(/^Attending/i).getAttribute("aria-pressed")).toBe("true");
+    expect(chip(/^Attending/i).getAttribute("aria-checked")).toBe("true");
     expect(within(reception).getByText(/No guests match this filter/i)).toBeTruthy();
     expect(tally(reception, "No reply")).toBe("2");
 
@@ -807,6 +812,39 @@ describe("RsvpView", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(2);
   });
 
+  // The refusal is written under the form, so the box it is about names it; a
+  // refusal of the save itself is not the box's.
+  it("names the consent box by its refusal, and only by its own", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW)) // initial load
+      .mockResolvedValueOnce(json({ error: "forbidden" }, 403)); // PUT
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
+    fireEvent.input(await screen.findByLabelText(/Anything else/i), {
+      target: { value: "Nut allergy" },
+    });
+    const consent = screen.getByLabelText(
+      new RegExp(ORGANISER_DIETARY_ATTESTATION.text.slice(0, 30)),
+    ) as HTMLInputElement;
+    expect(consent.hasAttribute("aria-describedby")).toBe(false);
+    expect(consent.hasAttribute("aria-invalid")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    const refusal = await screen.findByRole("alert");
+    expect(refusal.textContent).toMatch(/Confirm the guest consented/);
+    const described = document.getElementById(consent.getAttribute("aria-describedby") ?? "");
+    expect(described?.textContent).toMatch(/Confirm the guest consented before storing/);
+    expect(consent.getAttribute("aria-invalid")).toBe("true");
+
+    fireEvent.click(consent);
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    expect(await screen.findByText(/You don't have permission/)).toBeTruthy();
+    expect(consent.hasAttribute("aria-describedby")).toBe(false);
+    expect(consent.hasAttribute("aria-invalid")).toBe(false);
+  });
+
   it("editor changes only the status of an existing reply: no attestation, a status-only body", async () => {
     // Narrow, so the prefilled preset is a checkbox on the page rather than a
     // label inside a closed popover trigger.
@@ -892,8 +930,9 @@ describe("RsvpView", () => {
 
     // Unticked, the save is refused before any PUT.
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/Confirm the guest consented before storing/i)).toBeTruthy(),
+    // An alert, so a screen reader hears the refusal the moment it appears.
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /Confirm the guest consented before storing/i,
     );
     expect(authFetchMock).toHaveBeenCalledTimes(1);
 
@@ -1116,6 +1155,14 @@ describe("RsvpView", () => {
     ).toBeTruthy();
     // A title beside the text would hand a screen reader the same words twice.
     expect(document.querySelector("tbody [title]")).toBeNull();
+
+    // The key names every mark, each line ending on one full stop whether its
+    // words carry their own or not.
+    fireEvent.click(screen.getByRole("button", { name: "What the reply icons mean" }));
+    const key = await screen.findByRole("dialog", { name: "What the reply icons mean" });
+    expect(key.textContent).toContain("— Recorded by a host (phone/paper RSVP).");
+    expect(key.textContent).toContain("their household gave.");
+    expect(key.textContent).not.toMatch(/\.\./);
   });
 
   it.each([
@@ -1413,8 +1460,8 @@ describe("RsvpView — plus-ones", () => {
     expect(consent.checked).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/Confirm the plus-one consented before storing/i)).toBeTruthy(),
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /Confirm the plus-one consented before storing/i,
     );
     expect(authFetchMock).toHaveBeenCalledTimes(1);
 

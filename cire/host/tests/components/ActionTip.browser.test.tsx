@@ -10,7 +10,7 @@ import { page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
-import { IconButton, TipLayer, TipNote, TipTrigger } from "../../src/components/ActionTip";
+import { IconButton, TipLayer, TipNote } from "../../src/components/ActionTip";
 
 /**
  * One tooltip for the whole page. An icon-only control carries its name as its
@@ -32,7 +32,8 @@ import { IconButton, TipLayer, TipNote, TipTrigger } from "../../src/components/
  * 6. a control removed while its tip is open leaves no panel behind;
  * 7. the panel sits in `<body>`, above its control, over a sticky `z-30` bar,
  *    `role="tooltip"` and `aria-hidden`, its text the label;
- * 8. `tipDisabled` shows none, and `TipTrigger` keeps its own description;
+ * 8. `tipDisabled` shows none, and a control that carries `data-tip` itself
+ *    (a glass strip's icon-only tab) keeps its own description;
  * 9. a `TipNote` shows its text on hover, carries it as hidden text, and is no
  *    tab stop;
  * 10. a tap — whose focus arrives after the finger lifts — never shows one;
@@ -94,10 +95,10 @@ async function mount(extra?: () => unknown) {
         <IconButton label="Deactivate" variant="quiet" size="icon" tipDisabled>
           <span aria-hidden="true">D</span>
         </IconButton>
-        <TipTrigger label="RSVPs" aria-describedby="hint">
+        <button type="button" data-tip="RSVPs" aria-describedby="hint">
           <span aria-hidden="true">R</span>
           <span class="sr-only">RSVPs</span>
-        </TipTrigger>
+        </button>
         <TipNote text="A guest opened this invite">
           <span>Opened</span>
         </TipNote>

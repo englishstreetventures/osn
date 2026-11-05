@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlusOnePrompt } from "../../src/components/PlusOnePrompt";
 import type { ClaimResult, FamilyMember, RsvpSummary } from "../../src/components/types";
+import { description } from "../test-support/described";
 
 const API = "https://api.test";
 
@@ -142,7 +143,9 @@ describe("PlusOnePrompt — who is asked", () => {
    */
   it("asks the household to share the privacy notice with their guest", () => {
     renderPrompt(household([bo]));
-    const link = screen.getByRole("link", { name: "privacy notice" }) as HTMLAnchorElement;
+    const link = screen.getByRole("link", {
+      name: /^privacy notice ?\(opens in a new tab\)$/,
+    }) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/privacy");
     expect(link.closest("p")?.textContent).toMatch(/won't see this invitation/);
   });
@@ -172,6 +175,30 @@ describe("PlusOnePrompt — naming a guest", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add guest" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/first name/));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // Focus goes back to the first-name box, so the box has to name the line
+  // under the form; a refusal from the server is not the box's.
+  it("names the first-name box by its refusal, and only by its own", async () => {
+    renderPrompt(household([bo]));
+    expect(firstName().hasAttribute("aria-describedby")).toBe(false);
+    expect(firstName().hasAttribute("aria-invalid")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add guest" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/first name/));
+    expect(description(firstName())).toMatch(/Please enter your guest's first name\./);
+    expect(firstName().getAttribute("aria-invalid")).toBe("true");
+    expect(lastName().hasAttribute("aria-describedby")).toBe(false);
+    expect(lastName().hasAttribute("aria-invalid")).toBe(false);
+
+    fetchMock.mockResolvedValue(json(409, { error: "guest_capacity" }));
+    fireEvent.input(firstName(), { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add guest" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(/guest list is full/),
+    );
+    expect(firstName().hasAttribute("aria-describedby")).toBe(false);
+    expect(firstName().hasAttribute("aria-invalid")).toBe(false);
   });
 
   it("says so when another device had already named someone", async () => {

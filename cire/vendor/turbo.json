@@ -1,0 +1,20 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // tests/styles/tokens.test.ts reads three stylesheets outside this
+    // package: host's, to hold the two ramps equal, and host's, the guest
+    // site's and landing's, to hold all four apps to one corner scale and one
+    // motion ladder. Named here, a change to any of them re-runs the suite
+    // rather than replaying a cached green.
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/cire/host/src/styles/global.css",
+        "$TURBO_ROOT$/cire/invites/src/styles/global.css",
+        "$TURBO_ROOT$/cire/landing/src/styles/global.css"
+      ]
+    }
+  }
+}

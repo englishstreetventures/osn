@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -6,9 +8,13 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { haptic } from "../lib/haptics";
+import { BLOCK_CHOSEN, BLOCK_IDLE } from "../lib/chosen-block";
 import type { Tier } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import type { WeddingRole } from "../lib/wedding-roles";
+
+const FORM_CLASS = `${cardClass({ padding: "lg" })} gap-4`;
+
 export interface WeddingSummary {
   id: string;
   slug: string;
@@ -123,18 +129,16 @@ export default function CreateWeddingForm(props: {
   }
 
   return (
-    <form
-      class="border-border bg-surface/30 flex flex-col gap-4 rounded-sm border p-6"
-      onSubmit={submit}
-    >
+    <form class={FORM_CLASS} onSubmit={submit}>
       <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">New wedding</p>
+        <Eyebrow>New wedding</Eyebrow>
         <h2 class="font-display text-text text-ui-lg font-light">Start a new celebration</h2>
       </div>
 
       <Field label="Wedding name">
         {(field) => (
           <Input
+            size="form"
             {...field}
             value={name()}
             maxLength={MAX_DISPLAY_NAME}
@@ -151,10 +155,8 @@ export default function CreateWeddingForm(props: {
           <For each={CODE_STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-                  codeStyle() === option.value
-                    ? "border-gold bg-gold/5"
-                    : "border-border bg-bg hover:border-gold/50"
+                class={`rounded-ui-field bg-bg flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-[color,background-color,border-color,box-shadow] ${
+                  codeStyle() === option.value ? BLOCK_CHOSEN : BLOCK_IDLE
                 } ${busy() ? "opacity-40" : ""}`}
               >
                 <span class="flex items-center gap-2">
@@ -165,11 +167,10 @@ export default function CreateWeddingForm(props: {
                     checked={codeStyle() === option.value}
                     disabled={busy()}
                     onChange={() => setCodeStyle(option.value)}
-                    class="accent-gold"
                   />
                   <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
-                <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
+                <span class="font-body text-text-muted text-ui-sm leading-ui-snug pl-6">
                   {option.hint}
                 </span>
               </label>

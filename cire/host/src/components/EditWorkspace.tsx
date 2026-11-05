@@ -1,11 +1,11 @@
+import SegmentedTabs from "@cire/ui/segmented-tabs";
 import FileSpreadsheet from "lucide-solid/icons/file-spreadsheet";
 import TableProperties from "lucide-solid/icons/table-properties";
 import type { Component, JSX } from "solid-js";
 import { createSignal, createUniqueId, For, lazy, Show, Suspense } from "solid-js";
 
-import { haptic } from "../lib/haptics";
+import { haptic } from "../lib/touch-feedback";
 import { confirmNavigation } from "../lib/unsaved-guard";
-import { TipTrigger } from "./ActionTip";
 import type { ImportKind } from "./ImportPanel";
 import PanelLoading from "./PanelLoading";
 import { createCompact, ViewBar } from "./ViewBar";
@@ -87,7 +87,7 @@ export default function EditWorkspace(props: {
     // until Apply), so it gets the same "are you sure" a module switch does.
     if (
       mode() === "editor" &&
-      !confirmNavigation("You have unsaved changes. Leave without saving?")
+      !confirmNavigation({ message: "You have unsaved changes. Leave without saving?" })
     )
       return;
     haptic("step");
@@ -110,52 +110,29 @@ export default function EditWorkspace(props: {
         {/* A hairline sets the mode switch apart from the module's sections
             beside it: two segmented controls, two groups. */}
         <span data-bar-divider aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
-        <div
-          role="radiogroup"
-          aria-label="How do you want to edit?"
-          class="border-border bg-surface/30 flex shrink-0 gap-1 rounded-sm border p-1"
-        >
-          <For each={MODES}>
-            {(m) => (
-              <TipTrigger
-                label={m.label}
-                tipDisabled={!compact()}
-                /* `aria-describedby`, not `title`. A `title` tooltip needs a
-                   hover: it is unreachable on touch, unreachable by keyboard,
-                   and announced inconsistently by AT — so the only sentence
-                   explaining what the two modes actually DO was missing for
-                   exactly the users who can't infer it from a two-word label.
-                   The hint is visible text under the bar, and each control
-                   points at its own. */
-                aria-describedby={hintId(m.id)}
-                /* A real <input type="radio"> would be the tag for this, and
-                   the lint rule is right in general. Not here: choosing a mode
-                   can be REFUSED (an unsaved draft, confirm declined), and a
-                   native radio has already moved its own checked state by the
-                   time the handler runs — leaving the dot on a mode the panel
-                   didn't switch to, with no signal change to re-render it back.
-                   `aria-checked` is derived from the signal, so a refusal
-                   simply never moves it. */
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="radio"
-                aria-checked={mode() === m.id}
-                onClick={() => choose(m.id)}
-                onPointerEnter={m.id === "import" ? warmImportPanel : undefined}
-                onFocus={m.id === "import" ? warmImportPanel : undefined}
-                class={`font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-                  compact() ? "px-3.5" : "px-3"
-                } ${
-                  mode() === m.id
-                    ? "bg-gold/12 text-gold"
-                    : "text-text-muted hover:text-text hover:bg-surface/60"
-                }`}
-              >
-                <m.icon aria-hidden="true" strokeWidth={1.75} class="size-3.5 shrink-0" />
-                <span class={compact() ? "sr-only" : undefined}>{m.label}</span>
-              </TipTrigger>
-            )}
-          </For>
-        </div>
+        {/* A refused choice (an unsaved draft, confirm declined) never shows
+            as made: `aria-checked` follows `mode()`, which `choose` leaves. */}
+        <SegmentedTabs
+          items={MODES.map((m) => ({
+            value: m.id,
+            label: m.label,
+            icon: m.icon,
+            /* The hint is visible text under the bar, and each control points
+               at its own: a `title` needs a hover, which touch and the
+               keyboard never give. */
+            describedBy: hintId(m.id),
+          }))}
+          value={mode()}
+          onChange={choose}
+          label="How do you want to edit?"
+          semantics="radio"
+          iconOnly={compact()}
+          tipAttribute="data-tip"
+          onIntent={(id) => {
+            if (id === "import") warmImportPanel();
+          }}
+          class="shrink-0"
+        />
       </ViewBar>
 
       {/* The hints, as real text. Only the active one is shown — both would be a

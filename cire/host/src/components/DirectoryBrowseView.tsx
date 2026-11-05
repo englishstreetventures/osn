@@ -1,18 +1,26 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
-import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
-import { Select } from "@shared/ui/ui/select";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
+import Globe from "lucide-solid/icons/globe";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { haptic } from "../lib/haptics";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
+import { haptic } from "../lib/touch-feedback";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
+import { FilterSearch, FilterSelect } from "./FilterField";
+import { InstagramMark, LINK_PILL_ROW, LinkPill } from "./LinkPill";
+
+const LISTING_CLASS = cardClass({ padding: "sm" });
+
 interface BrowseListing {
   id: string;
   name: string;
@@ -87,6 +95,10 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     const cleaned = handle.replace(/^[@\s]+/, "");
     return /^[A-Za-z0-9._]+$/.test(cleaned) ? `https://instagram.com/${cleaned}` : null;
   };
+
+  // The shown listing's own places, each checked once per listing.
+  const shownWebsite = createMemo(() => safeHref(shownListing()?.website));
+  const shownInstagram = createMemo(() => safeInstagramHref(shownListing()?.instagram));
 
   // Focus-return: track the element that triggered the modal open
   let modalOpener: HTMLElement | null = null;
@@ -235,11 +247,13 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
   return (
     <div class="flex flex-col gap-6">
-      {/* Filter bar */}
-      <div class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4">
+      {/* Filter bar. Filters are 28px pills (`FilterSelect`, `FilterSearch`),
+          and the bar's one action is their height, `Button`'s `sm` (DESIGN.md
+          §4, One pill language). */}
+      <div class={FIELD_BAR_CLASS}>
         <Field label="Category">
           {(field) => (
-            <Select
+            <FilterSelect
               {...field}
               value={category()}
               onChange={(e) => {
@@ -249,13 +263,13 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
             >
               <option value="">All categories</option>
               <For each={SERVICE_CATEGORIES}>{(c) => <option value={c.key}>{c.label}</option>}</For>
-            </Select>
+            </FilterSelect>
           )}
         </Field>
 
         <Field label="Keyword" class="min-w-40 flex-1">
           {(field) => (
-            <Input
+            <FilterSearch
               {...field}
               value={q()}
               onInput={(e) => {
@@ -269,7 +283,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
         <Field label="Location">
           {(field) => (
-            <Input
+            <FilterSearch
               {...field}
               value={location()}
               onInput={(e) => {
@@ -281,7 +295,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           )}
         </Field>
 
-        <Button variant="quiet" onClick={clearFilters}>
+        <Button variant="quiet" size="sm" onClick={clearFilters}>
           Clear filters
         </Button>
       </div>
@@ -302,9 +316,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
       {/* Loading */}
       <Show when={loading() && listings().length === 0}>
-        <p role="status" class="text-text-muted text-ui-sm italic">
-          Loading vendors…
-        </p>
+        <Loading label="Loading vendors…" />
       </Show>
 
       {/* Empty state */}
@@ -319,18 +331,14 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         <ul class="auto-grid items-start [--auto-grid-min:19rem]">
           <For each={listings()}>
             {(item) => (
-              <li class="border-border bg-surface/10 flex flex-col gap-3 rounded-sm border p-4">
+              <li class={LISTING_CLASS}>
                 <div class="flex flex-col gap-1">
                   <span class="text-text text-ui-base font-medium">{item.name}</span>
 
                   {/* Category chips */}
                   <div class="flex flex-wrap gap-1">
                     <For each={item.categories}>
-                      {(cat) => (
-                        <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                          {categoryLabel(cat)}
-                        </span>
-                      )}
+                      {(cat) => <Chip treatment="tag">{categoryLabel(cat)}</Chip>}
                     </For>
                   </div>
 
@@ -398,25 +406,18 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                         }
                       >
                         <div class="flex flex-col gap-2">
-                          <fieldset class="flex flex-wrap gap-2">
-                            <legend class="text-gold-dim font-body text-ui-xs sr-only uppercase">
-                              Pick a category
-                            </legend>
+                          <RadioGroup
+                            box="native"
+                            size="sm"
+                            name={`add-cat-${item.id}`}
+                            value={pickerCategory()}
+                            onChange={setPickerCategory}
+                            aria-label="Pick a category"
+                          >
                             <For each={item.categories}>
-                              {(cat) => (
-                                <label class="text-ui-sm flex items-center gap-1">
-                                  <input
-                                    type="radio"
-                                    name={`add-cat-${item.id}`}
-                                    value={cat}
-                                    checked={pickerCategory() === cat}
-                                    onChange={() => setPickerCategory(cat)}
-                                  />
-                                  {categoryLabel(cat)}
-                                </label>
-                              )}
+                              {(cat) => <RadioGroupItem value={cat} label={categoryLabel(cat)} />}
                             </For>
-                          </fieldset>
+                          </RadioGroup>
                           <div class="flex gap-2">
                             <Button
                               variant="primary"
@@ -479,7 +480,9 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         open={modalListing() !== null}
         onClose={closeModal}
         label={shownListing()?.name ?? "Vendor"}
-        class="flex max-h-[90vh] w-full max-w-lg flex-col gap-4 overflow-y-auto"
+        // `open:` because a display class on a `<dialog>` beats the browser's
+        // own `display: none` for a closed one, and this one stays mounted.
+        class="max-h-[90vh] w-full max-w-lg gap-4 overflow-y-auto open:flex open:flex-col"
       >
         <Show when={shownListing()}>
           {(ml) => (
@@ -500,11 +503,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
               {/* Category chips */}
               <div class="flex flex-wrap gap-1">
                 <For each={ml().categories}>
-                  {(cat) => (
-                    <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                      {categoryLabel(cat)}
-                    </span>
-                  )}
+                  {(cat) => <Chip treatment="tag">{categoryLabel(cat)}</Chip>}
                 </For>
               </div>
 
@@ -534,32 +533,33 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                 <p class="text-text text-ui-base">{ml().description}</p>
               </Show>
 
-              {/* Contact details */}
+              {/* Contact details: the listing's own places as pills, then how
+                  to reach the vendor as text. */}
+              <Show when={shownWebsite() || shownInstagram()}>
+                <div class={LINK_PILL_ROW}>
+                  <Show when={shownWebsite()}>
+                    {(href) => (
+                      <LinkPill
+                        href={href()}
+                        mark={Globe}
+                        hint={`for ${ml().name}`}
+                        label="Website"
+                      />
+                    )}
+                  </Show>
+                  <Show when={shownInstagram()}>
+                    {(href) => (
+                      <LinkPill
+                        href={href()}
+                        mark={InstagramMark}
+                        hint={`for ${ml().name}`}
+                        label="Instagram"
+                      />
+                    )}
+                  </Show>
+                </div>
+              </Show>
               <div class="flex flex-col gap-1">
-                <Show when={safeHref(ml().website)}>
-                  {(href) => (
-                    <a
-                      href={href()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
-                    >
-                      Website
-                    </a>
-                  )}
-                </Show>
-                <Show when={safeInstagramHref(ml().instagram)}>
-                  {(href) => (
-                    <a
-                      href={href()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
-                    >
-                      Instagram
-                    </a>
-                  )}
-                </Show>
                 <Show when={ml().email}>
                   <span class="text-text-muted text-ui-sm">{ml().email}</span>
                 </Show>
@@ -597,25 +597,18 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                     }
                   >
                     <div class="flex flex-col gap-2">
-                      <fieldset class="flex flex-wrap gap-2">
-                        <legend class="text-gold-dim font-body text-ui-xs sr-only uppercase">
-                          Pick a category
-                        </legend>
+                      <RadioGroup
+                        box="native"
+                        size="sm"
+                        name={`modal-add-cat-${ml().id}`}
+                        value={pickerCategory()}
+                        onChange={setPickerCategory}
+                        aria-label="Pick a category"
+                      >
                         <For each={ml().categories}>
-                          {(cat) => (
-                            <label class="text-ui-sm flex items-center gap-1">
-                              <input
-                                type="radio"
-                                name={`modal-add-cat-${ml().id}`}
-                                value={cat}
-                                checked={pickerCategory() === cat}
-                                onChange={() => setPickerCategory(cat)}
-                              />
-                              {categoryLabel(cat)}
-                            </label>
-                          )}
+                          {(cat) => <RadioGroupItem value={cat} label={categoryLabel(cat)} />}
                         </For>
-                      </fieldset>
+                      </RadioGroup>
                       <div class="flex gap-2">
                         <Button
                           variant="primary"

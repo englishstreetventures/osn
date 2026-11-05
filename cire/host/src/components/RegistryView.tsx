@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -12,15 +14,17 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { toast } from "@shared/toast";
+import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Textarea } from "@shared/ui/ui/textarea";
-import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createMemo, createSignal, createUniqueId, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
-import { haptic } from "../lib/haptics";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import {
   belowSmallestUnitError,
   formatMinor,
@@ -43,8 +47,14 @@ import {
   stillWanted,
 } from "../lib/registry-store";
 import { sameButOrder } from "../lib/sortable-rows";
+import { haptic } from "../lib/touch-feedback";
+import { LinkPill } from "./LinkPill";
 import RegistryImageField from "./RegistryImageField";
 import ReorderControls from "./ReorderControls";
+
+const RECORD_CLASS = `${cardClass({ padding: "sm" })} gap-2`;
+const CASH_CLASS = `${cardClass({ padding: "sm" })} gap-1`;
+
 interface RegistryViewProps {
   weddingId: string;
   /** Which sub-view this instance is: the gift list the couple authors, or the
@@ -205,6 +215,7 @@ export default function RegistryView(props: RegistryViewProps) {
   // Add-item form state. `newKind` picks a gift to reserve or a cash fund; each
   // shows only its own fields, and the body carries only those.
   const [newKind, setNewKind] = createSignal<RegistryItem["kind"]>("product");
+  const kindLegendId = createUniqueId();
   const [newTarget, setNewTarget] = createSignal("");
   const [newDescription, setNewDescription] = createSignal("");
   const [newTitle, setNewTitle] = createSignal("");
@@ -873,36 +884,26 @@ export default function RegistryView(props: RegistryViewProps) {
       {/* ── The gift list ─────────────────────────────────────────────────── */}
       <Show when={props.view === "list"}>
         <Show when={props.canEdit}>
-          <form
-            onSubmit={addItem}
-            class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
-          >
+          <form onSubmit={addItem} class={FIELD_BAR_CLASS}>
             {/* A gift is a thing a household reserves; a cash fund is a named
                 purpose guests give money to. Each kind shows only its own
                 fields, so nothing typed here can belong to the other. */}
-            <fieldset class="flex w-full flex-wrap gap-x-5 gap-y-1 border-0 p-0">
-              <legend class="text-gold-dim font-body text-ui-xs tracking-ui-widest mb-1 uppercase">
+            <div class="flex w-full flex-col gap-1">
+              <Eyebrow id={kindLegendId} tone="muted" class="mb-1">
                 Add
-              </legend>
-              <label class="text-text text-ui-sm flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-new-kind"
-                  checked={newKind() === "product"}
-                  onChange={() => setNewKind("product")}
-                />
-                A gift to reserve
-              </label>
-              <label class="text-text text-ui-sm flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-new-kind"
-                  checked={newKind() === "cash_fund"}
-                  onChange={() => setNewKind("cash_fund")}
-                />
-                A cash fund
-              </label>
-            </fieldset>
+              </Eyebrow>
+              <RadioGroup
+                box="native"
+                size="sm"
+                name="registry-new-kind"
+                value={newKind()}
+                onChange={(value) => setNewKind(value === "cash_fund" ? "cash_fund" : "product")}
+                aria-labelledby={kindLegendId}
+              >
+                <RadioGroupItem value="product" label="A gift to reserve" />
+                <RadioGroupItem value="cash_fund" label="A cash fund" />
+              </RadioGroup>
+            </div>
             <Show
               when={newKind() === "cash_fund"}
               fallback={
@@ -910,6 +911,7 @@ export default function RegistryView(props: RegistryViewProps) {
                   <Field label="Gift" class="min-w-48 flex-1">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
                         value={newTitle()}
                         onInput={(e) => setNewTitle(e.currentTarget.value)}
@@ -920,6 +922,7 @@ export default function RegistryView(props: RegistryViewProps) {
                   <Field label="Price (optional)" class="w-28">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
                         type="number"
                         min="0"
@@ -937,6 +940,7 @@ export default function RegistryView(props: RegistryViewProps) {
                   <Field label="How many" class="w-20">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
                         type="number"
                         min={MIN_QUANTITY}
@@ -950,6 +954,7 @@ export default function RegistryView(props: RegistryViewProps) {
                   <Field label="Link (optional)" class="w-56">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
                         type="url"
                         value={newUrl()}
@@ -964,6 +969,7 @@ export default function RegistryView(props: RegistryViewProps) {
               <Field label="Fund" class="min-w-48 flex-1">
                 {(field) => (
                   <Input
+                    size="form"
                     {...field}
                     value={newTitle()}
                     onInput={(e) => setNewTitle(e.currentTarget.value)}
@@ -976,6 +982,7 @@ export default function RegistryView(props: RegistryViewProps) {
               <Field label="Goal (optional)" class="w-32">
                 {(field) => (
                   <Input
+                    size="form"
                     {...field}
                     type="number"
                     min="0"
@@ -1054,9 +1061,9 @@ export default function RegistryView(props: RegistryViewProps) {
                               style={maybeTransformStyle(sortable.transform())}
                               class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
                               classList={{
-                                "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                   sortable.isActiveDraggable(),
-                                "transition-transform":
+                                "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                   dndState.dragging() && !sortable.isActiveDraggable(),
                               }}
                             >
@@ -1068,9 +1075,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                   {item.title}
                                 </span>
                                 <Show when={item.category}>
-                                  <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                                    {item.category}
-                                  </span>
+                                  <Chip treatment="tag">{item.category}</Chip>
                                 </Show>
                                 <Show when={item.priceMinor != null}>
                                   <span class="text-text text-ui-sm">
@@ -1091,9 +1096,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                     </span>
                                   }
                                 >
-                                  <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                                    Cash fund
-                                  </span>
+                                  <Chip treatment="tag">Cash fund</Chip>
                                   <Show when={item.targetMinor != null}>
                                     <span class="text-text-muted text-ui-sm">
                                       Goal {formatMinor(item.targetMinor!, currency())}
@@ -1106,19 +1109,17 @@ export default function RegistryView(props: RegistryViewProps) {
                         migration or a fixture, and a `javascript:` href here
                         runs in the organiser's own origin.
 
-                        The `aria-label` names the item, because a screen-reader
-                        user listing the page's links otherwise hears "Link,
-                        link, link" with nothing to tell them apart. */}
+                        Hidden words after "Link" name the item, because a
+                        screen-reader user listing the page's links otherwise
+                        hears "Link, link, link" with nothing to tell them
+                        apart; the visible word still starts the name, so
+                        "click Link" works by voice. */}
                                 <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
-                                  <a
+                                  <LinkPill
                                     href={item.externalUrl!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label={`Open the shop page for ${item.title}`}
-                                    class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
-                                  >
-                                    Link
-                                  </a>
+                                    hint={`to the shop page for ${item.title}`}
+                                    label="Link"
+                                  />
                                 </Show>
 
                                 <Show when={props.canEdit}>
@@ -1162,7 +1163,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                     {(field) => (
                                       <Input
                                         {...field}
-                                        size="sm"
+                                        size="form-compact"
                                         value={editTitle()}
                                         onInput={(e) => setEditTitle(e.currentTarget.value)}
                                       />
@@ -1174,7 +1175,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
+                                          size="form-compact"
                                           type="number"
                                           min="0"
                                           step="any"
@@ -1189,7 +1190,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
+                                          size="form-compact"
                                           type="number"
                                           min="0"
                                           step="any"
@@ -1202,7 +1203,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
+                                          size="form-compact"
                                           type="number"
                                           min={MIN_QUANTITY}
                                           max={MAX_QUANTITY}
@@ -1216,7 +1217,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
+                                          size="form-compact"
                                           value={editCategory()}
                                           onInput={(e) => setEditCategory(e.currentTarget.value)}
                                           placeholder="Kitchen"
@@ -1227,7 +1228,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
+                                          size="form-compact"
                                           type="url"
                                           value={editUrl()}
                                           onInput={(e) => setEditUrl(e.currentTarget.value)}
@@ -1294,10 +1295,10 @@ export default function RegistryView(props: RegistryViewProps) {
             Rendered ONLY when a summary exists, i.e. only after the sweep. */}
         <Show when={summaryBand()}>
           {(band) => (
-            <div class="border-border bg-surface/20 flex flex-col gap-2 rounded-sm border p-4">
-              <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+            <div class={RECORD_CLASS}>
+              <Eyebrow as="span" tone="muted">
                 Your record of gifts
-              </span>
+              </Eyebrow>
               <p class="text-text-muted text-ui-sm">
                 On {band().sweptOn}, a year after your wedding, we deleted your guests' details —
                 who gave each gift, and the notes they wrote. We kept the amount and the day of each
@@ -1386,10 +1387,10 @@ export default function RegistryView(props: RegistryViewProps) {
                 snap().contributionsPrimaryMinor > 0 || snap().contributionsOtherCurrencyCount > 0
               }
             >
-              <div class="border-border bg-surface/20 flex flex-col gap-1 rounded-sm border p-4">
-                <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+              <div class={CASH_CLASS}>
+                <Eyebrow as="span" tone="muted">
                   Cash gifts
-                </span>
+                </Eyebrow>
                 <span class="text-text text-ui-md">
                   {formatMinor(snap().contributionsPrimaryMinor, snap().currency)}
                 </span>
@@ -1467,15 +1468,11 @@ export default function RegistryView(props: RegistryViewProps) {
                           </Show>
                         </span>
                       </Show>
-                      <span
-                        class={
-                          status.gone
-                            ? "bg-error/10 text-error text-ui-xs rounded-full px-2 py-0.5"
-                            : "bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5"
-                        }
-                      >
+                      {/* Danger is outlined: the red tint reads under 4.5:1 on the
+                          pale theme. */}
+                      <Chip treatment="tag" tone={status.gone ? "danger" : "neutral"}>
                         {status.label}
-                      </span>
+                      </Chip>
                       <Show
                         when={props.canEdit}
                         fallback={

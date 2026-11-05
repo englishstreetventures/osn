@@ -1,5 +1,9 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Disclosure from "@cire/ui/disclosure";
+import Eyebrow from "@cire/ui/eyebrow";
+import FileInput from "@cire/ui/file-input";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Notice } from "@shared/ui/ui/notice";
@@ -11,7 +15,6 @@ import { isPreviewExpired } from "../lib/change-revision";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
-import { haptic } from "../lib/haptics";
 import { invalidateHouseholds } from "../lib/households-store";
 import { formatImportError } from "../lib/import-errors";
 import type { ImportErrorBody } from "../lib/import-errors";
@@ -26,6 +29,7 @@ import {
   buildGuestsTemplateCsv,
 } from "../lib/import-templates";
 import { scheduleChanged } from "../lib/schedule-changed";
+import { haptic } from "../lib/touch-feedback";
 import ChangeHistory from "./ChangeHistory";
 import {
   type ApplyChangeBody,
@@ -35,6 +39,9 @@ import {
 } from "./ChangePreview";
 import EmailAttestationCheck from "./EmailAttestationCheck";
 import SectionIntro from "./SectionIntro";
+
+const DIFF_PREVIEW_CLASS = `${cardClass({ padding: "sm", fill: "well" })} gap-4`;
+
 interface ImportPlan {
   eventCreates: unknown[];
   eventUpdates: unknown[];
@@ -426,24 +433,21 @@ export default function ImportPanel(props: {
             accessible name ("events.csv events.csv" instead of "Remove"), and a
             click on it would also re-open the file picker the label points at. */}
         <div class="flex flex-col gap-1.5">
-          {/* `Field` for the label wiring only — the control keeps its own
-              `file:` styling rather than taking `Input`'s box, because the part
-              a host clicks is the pseudo-element button, not the field. */}
+          {/* `Field` for the label wiring only: the picker is `FileInput`, whose
+              button is the part a host clicks, not `Input`'s box. */}
           <Field label={copy().fileName}>
             {(field) => (
-              <input
+              <FileInput
                 {...field}
-                type="file"
                 accept=".csv,text/csv"
                 ref={fileInput}
                 onChange={(e) => selectFile(e.currentTarget.files?.[0] ?? null)}
-                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
               />
             )}
           </Field>
           <Show when={file()}>
             <span class="flex items-center gap-2">
-              <span class="text-text-muted text-ui-xs font-mono">{file()?.name}</span>
+              <span class="text-text-muted text-ui-xs font-ui-mono">{file()?.name}</span>
               <Button variant="subtle" size="sm" type="button" onClick={clearFile}>
                 Remove {copy().fileName}
               </Button>
@@ -483,7 +487,7 @@ export default function ImportPanel(props: {
 
       <Show when={preview()}>
         {(p) => (
-          <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
+          <div class={DIFF_PREVIEW_CLASS}>
             <h3 class="font-display text-gold-ink text-ui-md">Diff preview</h3>
             {/* The reassurance under a destructive confirm is read off the
                 SERVER's echoed scope, not off what this panel believes it sent.
@@ -546,7 +550,7 @@ export default function ImportPanel(props: {
         {(s) => (
           <div class="border-gold/30 bg-gold/5 text-text text-ui-base flex flex-col gap-2 rounded-sm border p-4">
             <p class="font-display text-gold-ink text-ui-md">Applied</p>
-            <p class="text-text-muted text-ui-xs font-mono">{s().changeId}</p>
+            <p class="text-text-muted text-ui-xs font-ui-mono">{s().changeId}</p>
             <p>
               events: +{s().eventsCreated} / ~{s().eventsUpdated} / -{s().eventsRemoved} · families:
               +{s().familiesCreated} / ~{s().familiesUpdated ?? 0} / -{s().familiesRemoved} ·
@@ -581,7 +585,7 @@ export default function ImportPanel(props: {
 function Col(props: { children: string; required?: boolean }) {
   return (
     <code
-      class="text-ui-xs rounded-hair border px-1.5 py-0.5 font-mono"
+      class="text-ui-xs rounded-hair font-ui-mono border px-1.5 py-0.5"
       classList={{
         "text-gold-ink bg-gold/12 border-gold/45": props.required === true,
         "text-text-muted bg-bg/60 border-border": props.required !== true,
@@ -604,7 +608,7 @@ function Col(props: { children: string; required?: boolean }) {
 function KeyLegend() {
   return (
     <div class="text-ui-sm flex flex-wrap items-center gap-x-4 gap-y-1.5">
-      <span class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Key</span>
+      <Eyebrow as="span">Key</Eyebrow>
       <span class="text-text-muted flex items-center gap-1.5">
         <Col required>Aa</Col> indicates mandatory fields
       </span>
@@ -617,32 +621,23 @@ function KeyLegend() {
 
 /**
  * A collapsible "Formatting tips" aside — the deep, per-field guidance (timestamp
- * shape, IANA timezone, palette syntax, attendance tokens) lives behind a native
- * <details>/<summary> so the default sheet view stays short and scannable and the
- * nitty-gritty is one click away. Gold-accented to match the rest of the panel,
- * keyboard- and screen-reader-accessible with no JS.
+ * shape, IANA timezone, palette syntax, attendance tokens) lives behind a
+ * disclosure so the default sheet view stays short and scannable and the
+ * nitty-gritty is one click away. Nested: it sits inside a step card of the
+ * guide, so it takes the small corner.
  */
 function FormattingTips(props: { children: JSX.Element }) {
   return (
-    <details class="border-gold/25 bg-gold/[0.06] group/tips rounded-sm border">
-      <summary class="font-display text-gold-ink text-ui-base flex cursor-pointer list-none items-center gap-2 p-3 select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
-        <span
-          class="text-gold inline-block not-italic transition-transform group-open/tips:rotate-90"
-          aria-hidden
-        >
-          ›
-        </span>
-        Formatting tips
-      </summary>
-      <div class="flex flex-col gap-3 px-3.5 pt-1 pb-3.5">{props.children}</div>
-    </details>
+    <Disclosure nested summary="Formatting tips">
+      {props.children}
+    </Disclosure>
   );
 }
 
 /** The numbered circle that leads each step card. */
 function StepBadge(props: { n: number }) {
   return (
-    <span class="border-gold/50 text-gold text-ui-sm flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-mono">
+    <span class="border-gold/50 text-gold-ink text-ui-sm font-ui-mono flex h-6 w-6 shrink-0 items-center justify-center rounded-full border">
       {props.n}
     </span>
   );
@@ -656,7 +651,7 @@ function StepBadge(props: { n: number }) {
 function MiniMatrix() {
   return (
     <div class="border-border/70 rounded-hair overflow-hidden border">
-      <table class="text-ui-xs w-full border-collapse font-mono">
+      <table class="text-ui-xs font-ui-mono w-full border-collapse">
         <thead>
           <tr class="bg-bg/50 text-gold-ink">
             <th class="px-2 py-1 text-left font-normal">Name</th>
@@ -729,11 +724,11 @@ function EventsGuidance() {
             <dt class="text-text">Timestamps</dt>
             <dd class="text-text-muted">
               <Col required>Start</Col> and <Col>End</Col> as{" "}
-              <span class="text-text font-mono">YYYY-MM-DDTHH:MM</span> — e.g.{" "}
-              <span class="text-text font-mono">2026-11-14T15:00</span> is 3 pm on 14 Nov 2026. Give
-              the LOCAL time; the <Col required>Timezone</Col> column says which clock it's on, so
-              there's no UTC offset to work out. Leave <Col>End</Col> blank for an open-ended event
-              — the invite shows just the start time.
+              <span class="text-text font-ui-mono">YYYY-MM-DDTHH:MM</span> — e.g.{" "}
+              <span class="text-text font-ui-mono">2026-11-14T15:00</span> is 3 pm on 14 Nov 2026.
+              Give the LOCAL time; the <Col required>Timezone</Col> column says which clock it's on,
+              so there's no UTC offset to work out. Leave <Col>End</Col> blank for an open-ended
+              event — the invite shows just the start time.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
@@ -748,19 +743,20 @@ function EventsGuidance() {
             <dt class="text-text">Description</dt>
             <dd class="text-text-muted">
               Shown under About in the event's details. Line breaks are kept. A cell can't begin
-              with <span class="text-text font-mono">=</span>,{" "}
-              <span class="text-text font-mono">+</span>, <span class="text-text font-mono">-</span>{" "}
-              or <span class="text-text font-mono">@</span>, so start a list with a word or a •.
+              with <span class="text-text font-ui-mono">=</span>,{" "}
+              <span class="text-text font-ui-mono">+</span>,{" "}
+              <span class="text-text font-ui-mono">-</span> or{" "}
+              <span class="text-text font-ui-mono">@</span>, so start a list with a word or a •.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Run of show</dt>
             <dd class="text-text-muted">
               <Col>Run of Show</Col> is one item per line in the cell: a 24-hour time, a space, then
-              what happens — e.g. <span class="text-text font-mono">15:30 Vows</span>. Times are the
-              event's own <Col required>Timezone</Col>. Guests see the items in time order from the
-              start, so a time earlier than <Col required>Start</Col> reads as after midnight. At
-              most 40 items of 200 characters.
+              what happens — e.g. <span class="text-text font-ui-mono">15:30 Vows</span>. Times are
+              the event's own <Col required>Timezone</Col>. Guests see the items in time order from
+              the start, so a time earlier than <Col required>Start</Col> reads as after midnight.
+              At most 40 items of 200 characters.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
@@ -792,27 +788,27 @@ function EventsGuidance() {
                 href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
                 target="_blank"
                 rel="noreferrer"
-                class="text-gold-ink underline-offset-2 hover:underline"
+                class={proseLinkClass()}
               >
-                IANA
+                IANA<span class="sr-only"> (opens in a new tab)</span>
               </a>{" "}
-              name, e.g. <span class="text-text font-mono">Australia/Sydney</span>.
+              name, e.g. <span class="text-text font-ui-mono">Australia/Sydney</span>.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">URLs</dt>
             <dd class="text-text-muted">
               <Col>Pinterest URL</Col> and <Col>Maps URL</Col> as full links (e.g.{" "}
-              <span class="text-text font-mono">https://www.pinterest.com/...</span>).
+              <span class="text-text font-ui-mono">https://www.pinterest.com/...</span>).
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Dress code palette</dt>
             <dd class="text-text-muted">
               <Col>Dress Code Palette</Col> as{" "}
-              <span class="text-text font-mono">DisplayName:#RGB</span>, e.g.{" "}
-              <span class="text-text font-mono">Blush:#f4c2c2</span>. Separate swatches with{" "}
-              <span class="text-text font-mono">|</span>.
+              <span class="text-text font-ui-mono">DisplayName:#RGB</span>, e.g.{" "}
+              <span class="text-text font-ui-mono">Blush:#f4c2c2</span>. Separate swatches with{" "}
+              <span class="text-text font-ui-mono">|</span>.
             </dd>
           </div>
         </dl>
@@ -872,10 +868,10 @@ function GuestsGuidance() {
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Event attendance</dt>
             <dd class="text-text-muted">
-              Mark an invited guest's event column <span class="text-text font-mono">yes</span> (or{" "}
-              <span class="text-text font-mono">true</span> /{" "}
-              <span class="text-text font-mono">1</span> /{" "}
-              <span class="text-text font-mono">x</span>); leave it{" "}
+              Mark an invited guest's event column <span class="text-text font-ui-mono">yes</span>{" "}
+              (or <span class="text-text font-ui-mono">true</span> /{" "}
+              <span class="text-text font-ui-mono">1</span> /{" "}
+              <span class="text-text font-ui-mono">x</span>); leave it{" "}
               <span class="text-text">blank</span> if not invited.
             </dd>
           </div>
@@ -929,28 +925,20 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
     if (firstTime) markImportHelpSeen();
   });
 
+  // The glow is the portal's own treatment, so it goes on a wrapper with the
+  // guide's corner (its ring is `border-radius: inherit`), never on the part.
   return (
-    <details
-      open={firstTime}
-      class="border-border bg-bg/30 group rounded-sm border"
-      classList={{ "attention-glow": firstTime && !touched() }}
-    >
+    <div class="rounded-ui-lg" classList={{ "attention-glow": firstTime && !touched() }}>
       {/* The summary's own click — NOT the details' `toggle` — is what counts as
           "touched". Setting `open` programmatically fires `toggle` too, so a
           toggle listener would call the guide touched at the very moment it
           opened itself and the glow would never paint. A click covers the
           keyboard path as well: Enter/Space on a focused summary IS a click. */}
-      <summary
-        onClick={() => setTouched(true)}
-        class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition duration-(--dur-fast) ease-(--ease-out) select-none"
+      <Disclosure
+        open={firstTime}
+        onSummaryClick={() => setTouched(true)}
+        summary="How to structure your sheet — CSV format"
       >
-        <span class="text-gold inline-block transition-transform group-open:rotate-90" aria-hidden>
-          ›
-        </span>
-        How to structure your sheet — CSV format
-      </summary>
-
-      <div class="border-border/60 flex flex-col gap-5 border-t px-4 py-5">
         <ol class="auto-grid items-start [--auto-grid-min:17rem]">
           <StepCard n={1} title="New here?">
             <p class="text-text-muted text-ui-sm">
@@ -1002,7 +990,7 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
             </p>
           </StepCard>
         </ol>
-      </div>
-    </details>
+      </Disclosure>
+    </div>
   );
 }

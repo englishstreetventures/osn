@@ -1,5 +1,8 @@
-import Card, { CardCtaButton, CardEyebrow } from "@cire/ui/card";
+import Card, { CardCtaButton } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Notice } from "@shared/ui/ui/notice";
 import { type Accessor, createSignal, For, Show } from "solid-js";
 
 import {
@@ -52,7 +55,7 @@ export default function RsvpChangesCard(props: {
     <Show when={changes()}>
       {(feed) => (
         <Card>
-          <CardEyebrow>RSVP changes since your last visit</CardEyebrow>
+          <Eyebrow>RSVP changes since your last visit</Eyebrow>
           <Show
             when={feed().households > 0}
             fallback={
@@ -60,7 +63,7 @@ export default function RsvpChangesCard(props: {
             }
           >
             <p class="text-text text-ui-base">
-              <span class="text-gold text-ui-lg font-semibold tabular-nums">
+              <span class="text-gold-ink text-ui-lg font-semibold tabular-nums">
                 {feed().truncated ? `${feed().households}+` : feed().households}
               </span>{" "}
               {feed().households === 1
@@ -83,20 +86,20 @@ export default function RsvpChangesCard(props: {
             </CardCtaButton>
           </Show>
           <Show when={feed().digest.available}>
-            <label class="font-body text-text-muted text-ui-sm border-border/40 flex items-center gap-2 border-t pt-3">
-              <input
-                type="checkbox"
-                class="accent-gold h-4 w-4 shrink-0 cursor-pointer"
+            <div class="border-border/40 border-t pt-3">
+              <Checkbox
+                box="native"
+                size="sm"
                 checked={feed().digest.enabled}
                 disabled={saving()}
-                onChange={(e) => void toggleDigest(e.currentTarget.checked)}
+                onChange={(next) => void toggleDigest(next)}
+                label="Email me a daily summary"
               />
-              Email me a daily summary
-            </label>
+            </div>
             <Show when={saveFailed()}>
-              <p role="alert" class="text-error text-ui-xs">
+              <Notice size="inline" tone="danger" alert>
                 Could not save that. Please try again.
-              </p>
+              </Notice>
             </Show>
           </Show>
         </Card>

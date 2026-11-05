@@ -43,6 +43,7 @@ import {
   ORIGINS,
   SCREENSHOT_DIR,
 } from "../../src/config";
+import { invitePreviewFeedback } from "../support/cire-feedback";
 import {
   claimFromOrganiserAddress,
   cookieNamed,
@@ -594,13 +595,15 @@ test("cire-event-details", async ({ page, context, flow }) => {
     await expect(prompt).toBeHidden();
   });
 
+  await invitePreviewFeedback(flow, page);
+
   const sheet = page.getByRole("dialog");
   const details = sheet.locator('[data-panel="details"]');
   const openKitchenTea = async () => {
     await page
       .getByRole("article")
       .filter({ has: page.getByRole("heading", { name: CIRE_EVENT_EDIT.event }) })
-      .getByRole("button", { name: "Event Details" })
+      .getByRole("button", { name: "Event details" })
       .click();
     await expect(
       sheet.getByRole("heading", { name: new RegExp(`^Details.*${CIRE_EVENT_EDIT.event}`) }),

@@ -8,7 +8,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-04
 ---
 
 # Observability Setup Runbook
@@ -187,7 +187,7 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Cause:** An inbound `traceparent` is trustworthy only from an ARC-authenticated caller.
 
-**Fix:** The Elysia plugin only extracts upstream trace context when the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans. The Workers entries run without that plugin, so they neither extract nor emit trace context at all.
+**Fix:** The Elysia plugin only extracts upstream trace context when the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans. osn-api's Workers entry runs without that plugin, so it never extracts an inbound trace context; pulse-api and zap-api mount the plugin on Workers as well.
 
 ## Related
 

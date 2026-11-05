@@ -16,7 +16,11 @@ import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createCapturingTestLayer, createTestLayer } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -1673,6 +1677,150 @@ describe("internal graph routes (ARC-protected)", () => {
         }),
       );
       expect(rows[0]?.revokedAt).not.toBeNull();
+    });
+
+    const revokedAtOf = async (keyId: string) => {
+      const rows = await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db.select().from(serviceAccountKeys).where(eq(serviceAccountKeys.keyId, keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+      return rows[0]?.revokedAt;
+    };
+
+    it.each([
+      ["no Authorization header", {}],
+      ["a secret with one character too many", { Authorization: `Bearer ${SECRET}x` }],
+    ] as const)("refuses %s with 401 and leaves the key live", async (_, headers) => {
+      const { keyId } = await setupArcService("revoke-refused-svc", "graph:read");
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers,
+        }),
+      );
+      expect(res.status).toBe(401);
+      expect(await revokedAtOf(keyId)).toBeNull();
+    });
+
+    it("answers 500 without the database's text when the revoke write fails", async () => {
+      const withSqlite = createTestLayerWithSqlite();
+      layer = withSqlite.layer;
+      app = createInternalGraphRoutes(layer, undefined, SECRET);
+      const { keyId } = await setupArcService("revoke-fails-svc", "graph:read");
+      withSqlite.sqlite.run(
+        "CREATE TRIGGER refuse_key_revoke BEFORE UPDATE ON service_account_keys BEGIN SELECT RAISE(ABORT, 'refused by test'); END;",
+      );
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(500);
+      expect(await res.text()).not.toContain("refused by test");
+      expect(await revokedAtOf(keyId)).toBeNull();
+    });
+
+    it("answers 404 for a key id that matches no key", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/service-keys/no-such-key", {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("tells a repeat revoke that the key was already revoked", async () => {
+      const { keyId } = await setupArcService("revoke-again-svc", "graph:read");
+      const revoke = () =>
+        app.handle(
+          new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${SECRET}` },
+          }),
+        );
+      const first = await revoke();
+      expect(await first.json()).toEqual({ ok: true });
+      const second = await revoke();
+      expect(second.status).toBe(200);
+      expect(await second.json()).toEqual({ ok: true, alreadyRevoked: true });
+    });
+
+    it("refuses to re-register a revoked key id and keeps it revoked", async () => {
+      const publicKeyJwk = await exportKeyToJwk((await generateArcKeyPair()).publicKey);
+      const register = () =>
+        app.handle(
+          new Request("http://localhost/graph/internal/register-service", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
+            body: JSON.stringify({
+              serviceId: "reregister-svc",
+              keyId: "key-reregister-1",
+              publicKeyJwk,
+              allowedScopes: "graph:read",
+            }),
+          }),
+        );
+      expect((await register()).status).toBe(200);
+      const revoked = await app.handle(
+        new Request("http://localhost/graph/internal/service-keys/key-reregister-1", {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(revoked.status).toBe(200);
+      const firstRevokedAt = await revokedAtOf("key-reregister-1");
+      expect(firstRevokedAt).not.toBeNull();
+
+      const again = await register();
+      expect(again.status).toBe(409);
+      expect(await again.json()).toEqual({ error: "kid_revoked" });
+      expect(await revokedAtOf("key-reregister-1")).toBe(firstRevokedAt);
+    });
+
+    it("a second revoke keeps the time the key was first revoked", async () => {
+      const { keyId } = await setupArcService("revoke-twice-svc", "graph:read");
+      const FIRST_REVOKED_AT = 1_000;
+      await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db
+                .update(serviceAccountKeys)
+                .set({ revokedAt: FIRST_REVOKED_AT })
+                .where(eq(serviceAccountKeys.keyId, keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const rows = await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db.select().from(serviceAccountKeys).where(eq(serviceAccountKeys.keyId, keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+      expect(rows[0]?.revokedAt).toBe(FIRST_REVOKED_AT);
     });
 
     it("after revocation, ARC-protected requests using the key return 401", async () => {

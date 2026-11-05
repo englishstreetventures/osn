@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
-import { FADED_LABEL, isHiddenState, sectionTabTone } from "../../../src/components/invite/fields";
+import { isHiddenState } from "../../../src/components/invite/fields";
 
 describe("isHiddenState", () => {
   it.each([
@@ -11,39 +11,5 @@ describe("isHiddenState", () => {
     ["off", true],
   ] as const)("reads %s as hidden: %s", (state, hidden) => {
     expect(isHiddenState(state)).toBe(hidden);
-  });
-});
-
-describe("sectionTabTone", () => {
-  const tokens = (classes: string) => classes.split(/\s+/);
-  const looks = [
-    sectionTabTone(true, false),
-    sectionTabTone(true, true),
-    sectionTabTone(false, false),
-    sectionTabTone(false, true),
-  ];
-
-  it("gives each of the four states its own look", () => {
-    expect(new Set(looks).size).toBe(4);
-  });
-
-  it("puts the selection wash on the selected tabs only", () => {
-    expect(tokens(sectionTabTone(true, false))).toContain("bg-gold/12");
-    expect(tokens(sectionTabTone(true, true))).toContain("bg-gold/12");
-    expect(tokens(sectionTabTone(false, false))).not.toContain("bg-gold/12");
-    expect(tokens(sectionTabTone(false, true))).not.toContain("bg-gold/12");
-  });
-
-  it("paints a selected tab in the readable gold, not the metal", () => {
-    // `gold` carries no contrast contract; `gold-ink` is the gold for text.
-    for (const hidden of [false, true]) {
-      expect(tokens(sectionTabTone(true, hidden))).not.toContain("text-gold");
-    }
-  });
-
-  it("fades a hidden, unselected tab to the faded ink rather than the idle one", () => {
-    expect(tokens(sectionTabTone(false, true))).toContain(FADED_LABEL);
-    expect(tokens(sectionTabTone(false, true))).not.toContain("text-text-muted");
-    expect(tokens(sectionTabTone(false, false))).not.toContain(FADED_LABEL);
   });
 });

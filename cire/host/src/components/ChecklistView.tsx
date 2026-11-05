@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -11,6 +12,7 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -20,7 +22,7 @@ import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { haptic } from "../lib/haptics";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
   ensureHostsLoaded,
@@ -46,6 +48,7 @@ import {
   tasksAccessor,
   viewerHostIdOf,
 } from "../lib/tasks-store";
+import { haptic } from "../lib/touch-feedback";
 import { normaliseWeddingRole } from "../lib/wedding-roles";
 import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";
@@ -450,13 +453,11 @@ export default function ChecklistView(props: ChecklistViewProps) {
       </Show>
 
       <Show when={props.canEdit}>
-        <form
-          onSubmit={addTask}
-          class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
-        >
+        <form onSubmit={addTask} class={FIELD_BAR_CLASS}>
           <Field label="Task" class="min-w-48 flex-1">
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 value={newTitle()}
                 onInput={(e) => setNewTitle(e.currentTarget.value)}
@@ -467,6 +468,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
           <Field label="When">
             {(field) => (
               <Select
+                size="form"
                 {...field}
                 value={newBucket()}
                 onChange={(e) => setNewBucket(e.currentTarget.value as TimeframeBucket)}
@@ -480,6 +482,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
           <Field label="Due (optional)">
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 type="date"
                 value={newDue()}
@@ -487,7 +490,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
               />
             )}
           </Field>
-          <Button type="submit" variant="primary">
+          <Button type="submit" variant="primary" size="form">
             Add task
           </Button>
         </form>
@@ -526,9 +529,9 @@ export default function ChecklistView(props: ChecklistViewProps) {
             });
             return (
               <section class="flex flex-col gap-2">
-                <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                <Eyebrow as="h3" tone="muted">
                   {bucket.label}
-                </h3>
+                </Eyebrow>
                 <Show
                   when={bucketTasks().length > 0}
                   fallback={<p class="text-text-muted text-ui-sm italic">Nothing here yet.</p>}
@@ -572,17 +575,17 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                       style={maybeTransformStyle(sortable.transform())}
                                       class="border-border bg-surface/10 relative flex flex-wrap items-center gap-x-3 gap-y-2 rounded-sm border px-3 py-2"
                                       classList={{
-                                        "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                        "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                           sortable.isActiveDraggable(),
-                                        "transition-transform":
+                                        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                           dndState.dragging() && !sortable.isActiveDraggable(),
                                       }}
                                     >
                                       <Show when={props.canEdit}>
                                         <ReorderControls sortable={sortable} item={item} />
                                       </Show>
-                                      <input
-                                        type="checkbox"
+                                      <Checkbox
+                                        box="native"
                                         aria-label={task.title}
                                         checked={task.status === "done"}
                                         disabled={!props.canEdit}

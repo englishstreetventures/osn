@@ -8,7 +8,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-04
 ---
 # Host Portal Layout System
 
@@ -220,7 +220,8 @@ component was previously reading a container it did not live in.
   code predates this pass; it was simply unreachable under the old page cap.
 
   The builder itself shows **one section at a time** (2026-07-30) — a real tab
-  switcher (`activeSection` signal + `role="tablist"`/`role="tab"` pills), not
+  switcher (`activeSection` signal + `role="tablist"`/`role="tab"`, small-caps
+  tabs at the 6px step, `cire/host/DESIGN.md` §4), not
   the old vertical stack of all eight `SectionCard`s with a `scrollIntoView`
   jump nav bolted on top. Inactive cards stay MOUNTED (`SectionCard`'s `hidden`
   prop sets the native `hidden` attribute) rather than unmounting — draft
@@ -271,8 +272,8 @@ component was previously reading a container it did not live in.
 
   1. The thread's `Show` is **`keyed` on the open enquiry's id**. Side by side you
      can click row B while replying to row A, which keeps an unkeyed `Show`
-     truthy — Solid then reuses the same `EnquiryThread`, and its local `draft`
-     signal hands vendor A's half-typed reply to vendor B.
+     truthy — Solid then reuses the same `EnquiryThread`, and the draft its reply
+     box holds hands vendor A's half-typed reply to vendor B.
   2. Solid's `Show` only *calls* a children function whose **arity is ≥ 1** (it
      tests `children.length`). A zero-argument `{() => …}` is returned as a plain
      child, so `keyed` silently does nothing — which is exactly how the first fix
@@ -316,20 +317,20 @@ component was previously reading a container it did not live in.
   controls where it stands. A view chooses its narrow layout from the panel's
   width with `createCompact`, below the narrowest panel its wide layout fits
   and back only a rem above it, and draws one variant.
-- **RSVPs** (`RsvpView`) — one event at a time, from a row of event chips the
-  view lends the view bar after a divider, with the search and the reply chips
+- **RSVPs** (`RsvpView`) — one event at a time, from a glass strip of events the
+  view lends the view bar after a divider, with the search and the reply filter
   under them; what the page does is in [[cire-rsvp-table]]. The layout half:
 
-  - The chips are pills, not a second segmented control, so the bar holds two
-    groups that look like two (`cire/host/DESIGN.md` §Chips). Each chip row
-    scrolls sideways rather than wrapping, and scrolls a chosen or focused chip
-    into view, never the page.
+  - The events and the replies are glass strips (`cire/host/DESIGN.md` §Chips),
+    a divider setting the events apart from the sub-tabs. Each strip scrolls
+    sideways rather than wrapping, and scrolls a chosen or focused choice into
+    view, never the page.
   - The table scrolls **with the page** (`Table scroll="page"`) and its head row
     sticks under the view bar; the rule underneath is in [[frontend-patterns]]
     §`position: sticky` resolves its offsets against the scrollport.
   - Below a 45rem panel (37rem for a viewer, whose table is narrower) each row
     becomes three columns — the reply's mark over its word, the name and its
-    lines, the button — the sort a select and the reply chips a row of their
+    lines, the button — the sort a select and the reply filter a row of its
     own: a page-scrolling table is clipped, never scrolled, so it is never drawn
     narrower than its columns.
 - **Households** (`GuestTable`) — one group and one table per household under
@@ -618,13 +619,14 @@ landmark you mean (the nav tests do this for the rail vs the sheet, the
 checklist/budget tests for each bucket or category `<section>`) rather than
 asserting on visibility. Do not assert on class strings.
 
-The invite builder's section tabs are a different case worth knowing:
-`SectionCard`'s inactive-section `hidden` attribute is a REAL DOM attribute
+The invite builder's cards are a different case worth knowing:
+`SectionCard`'s inactive-card `hidden` attribute is a REAL DOM attribute
 (not a CSS class happy-dom ignores), and `@testing-library/dom`'s `getByRole`
 excludes hidden elements from the accessibility tree even in happy-dom —
 `getByLabelText`/`getByText` do not. So `InviteBuilder.test.tsx` needs its
-`openSection("Hero")` helper (clicks the named tab) before any `getByRole`
-query against a non-default section's controls, but the many tests that only
+`openSection("Hero")` helper (moves to the card's view and, under Content,
+clicks the named section) before any `getByRole` query against another card's
+controls, but the many tests that only
 read/type into fields via `getByLabelText` across several sections in one flow
 needed no change at all.
 
@@ -638,7 +640,7 @@ What that leaves testable, and where it lives:
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
 | The RSVP view's event tabs (in the view bar beside the shell's sub-tabs, ids apart, keys, a strip of twelve), sort heads, the head row stuck under the bar, and the stacked rows on a phone | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
 | The collapsed rail: icons and toggle that do not move, collapsed icons at 3:1 and the tooltip's text at 4.5:1 in both themes, the tooltip's place and stacking, labels only on the collapsed rail, Chrome's names and descriptions, labels kept off a locked row's card and no dwell, the label fade only after a press, the slide only on a press, reduced motion, and the sheet ignoring the choice at 390 | `ModuleSidebar.collapse.browser.test.tsx`, real Chromium, real `ModuleShell`; clears `cire.host.rail` before and after each test, since the browser context is shared across files. Its frame-time measurement runs only with `VITE_RAIL_SLIDE_BENCH=1`. The toggle, the stored choice across a reload, a locked card opened and closed from the narrow rail and the rail sticking below the real top bar are in the `cire-checklist-starter` E2E flow |
-| The stuck stack on every Guests tab at 1280 and 390, under the real `TopBar`: layers meeting to the pixel inside the height limits, the household bar on screen, searches, reply filters, sorts, event and sub-tab changes landing at the stack's foot, the panel's hold letting go, `--bar-h` ahead of the bar's slide and gone with the bar, focus kept clear, an invite-message link's heading on screen, no sideways scroll on a phone, each view's narrow line, the invite builder's tabs under the bar, one tooltip and no per-household popup | `GuestsStack.browser.test.tsx`, 300 households in the real `ModuleShell`; a pass or fail per check in `cire/host/.vitest/guests-stack/results.json` |
+| The stuck stack on every Guests tab at 1280 and 390, under the real `TopBar`: layers meeting to the pixel inside the height limits, the household bar on screen, searches, reply filters, sorts, event and sub-tab changes landing at the stack's foot, the panel's hold letting go, `--bar-h` ahead of the bar's slide and gone with the bar, focus kept clear, an invite-message link's heading on screen, no sideways scroll on a phone, each view's narrow line, the invite builder's two tiers in the bar (one row at 1280, two at 1024, the phone's pill and menu at 390), one tooltip and no per-household popup | `GuestsStack.browser.test.tsx`, 300 households in the real `ModuleShell`; a pass or fail per check in `cire/host/.vitest/guests-stack/results.json` |
 | The page's one tooltip: hover after its delay, the skip window, never for a touch or a tap, keyboard focus at once, closed by Escape, activation, a press, leaving or blur, gone with its control, in `<body>` over a sticky bar, `TipNote`'s hidden text | `ActionTip.browser.test.tsx`, real Chromium |
 | The run sheet's thread, and its `run-sheet` switch from two grid tracks to three | `RunSheetView.browser.test.tsx`, at 390 and 1280px |
 | The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |

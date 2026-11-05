@@ -1,5 +1,58 @@
 # @osn/pulse
 
+## 0.24.52
+
+### Patch Changes
+
+- Updated dependencies [5be7d49]
+  - @shared/ui@0.10.1
+
+## 0.24.51
+
+### Patch Changes
+
+- Updated dependencies [770d7c8]
+- Updated dependencies [3507ec6]
+  - @shared/ui@0.10.0
+
+## 0.24.50
+
+### Patch Changes
+
+- Updated dependencies [d158559]
+  - @shared/ui@0.9.0
+
+## 0.24.49
+
+### Patch Changes
+
+- Updated dependencies [7dc0fd8]
+- Updated dependencies [db781eb]
+- Updated dependencies [f6a7516]
+  - @shared/ui@0.8.0
+
+## 0.24.48
+
+### Patch Changes
+
+- Updated dependencies [94a7824]
+  - @shared/design-tokens@0.3.9
+  - @shared/ui@0.7.5
+
+## 0.24.47
+
+### Patch Changes
+
+- b204d58: The event page shows no RSVP buttons on a cancelled event, and says RSVPs are closed instead.
+- Updated dependencies [b204d58]
+  - @pulse/api@0.28.7
+
+## 0.24.46
+
+### Patch Changes
+
+- @pulse/api@0.28.6
+
 ## 0.24.45
 
 ### Patch Changes

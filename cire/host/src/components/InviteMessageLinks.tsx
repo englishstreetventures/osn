@@ -1,68 +1,71 @@
-import Button from "@cire/ui/button";
+import { proseLinkClass } from "@cire/ui/button";
 import { For, type JSX, Show } from "solid-js";
 
 import { ROLE_COPY } from "../lib/wedding-roles";
 
 /**
- * The three places that together make the message an organiser sends a
- * household: its first line (the invite builder's Message section, which can
- * also copy one household's message), the code on its last line (Invite →
- * Codes, where the owner changes the code style), and the household list with a
- * copy action on every row (Guests → Households).
+ * The two places that together make the message an organiser sends a
+ * household: Invite → Codes, where its first line is written (and one
+ * household's message copied) beside the codes that end it, whose style an
+ * owner changes there; and the household list with a copy action on every row
+ * (Guests → Households).
  */
-export type InviteMessagePlace = "message" | "codes" | "households";
+export type InviteMessagePlace = "codes" | "households";
 
 interface InviteMessageLinksProps {
-  /** Where this line is shown. It names the other two places, never this one. */
+  /** Where this line is shown. It names the other place, never this one. */
   here: InviteMessagePlace;
-  /** Owner or editor: may open the invite builder, and so the message editor. */
+  /** Owner or editor: may open Invite → Codes, and so the message editor. */
   canEdit: boolean;
-  /** Owner: may open Invite → Codes. */
+  /** Owner: may change the code style there. */
   canManage: boolean;
+  /** A place's address, so a link can open in a new tab and say where it goes. */
+  href: (place: InviteMessagePlace) => string;
   /** Go to a place. Only called for a place the reader may open. */
   onNavigate: (place: InviteMessagePlace) => void;
 }
 
-/** Each place as the path an organiser follows to it — the words on the rail,
- *  the sub-tabs and the builder's section tabs. */
+/** Each place as the path an organiser follows to it — the words on the rail
+ *  and the sub-tabs. */
 const PLACE_PATH = {
-  message: ["Invite", "Design", "Message"],
   codes: ["Invite", "Codes"],
   households: ["Guests", "Households"],
 } as const satisfies Readonly<Record<InviteMessagePlace, readonly string[]>>;
 
 /** Who may open a place, said after its name when the reader may not. */
 const OPENED_BY = {
-  message: `${ROLE_COPY.owner.label} and ${ROLE_COPY.editor.label} only`,
-  codes: `${ROLE_COPY.owner.label} only`,
+  codes: `${ROLE_COPY.owner.label} and ${ROLE_COPY.editor.label} only`,
   households: "",
 } satisfies Readonly<Record<InviteMessagePlace, string>>;
 
 type PlaceRenderer = (place: InviteMessagePlace) => JSX.Element;
 
 /** The sentence shown in each place. The code style is picked when the wedding
- *  is created; Codes only changes it, by re-minting every code. */
+ *  is created; an owner changes it in Codes, by re-minting every code, at the
+ *  top of the same view as the message. */
 const SENTENCE = {
-  message: (place) => (
+  codes: (place, canManage) => (
     <>
       Save, then copy a household's message above, or from {place("households")}. The code on its
-      last line keeps the style chosen when the wedding was created; change it in {place("codes")}.
+      last line keeps the style chosen when the wedding was created
+      {canManage ? "; change it at the top of this page." : ", which an owner can change."}
     </>
   ),
-  codes: (place) => (
+  households: (place, canManage) => (
     <>
-      Each code is the last line of a household's invite message. Write the line above it in{" "}
-      {place("message")}, and copy each household's message from there or from {place("households")}
-      .
+      Each message opens with the line written in {place("codes")} and ends with the household's
+      code, in the style chosen when the wedding was created
+      {canManage ? "; change it there." : "."}
     </>
   ),
-  households: (place) => (
-    <>
-      Each message opens with the line written in {place("message")} and ends with the household's
-      code, in the style chosen when the wedding was created; change it in {place("codes")}.
-    </>
-  ),
-} satisfies Readonly<Record<InviteMessagePlace, (place: PlaceRenderer) => JSX.Element>>;
+} satisfies Readonly<
+  Record<InviteMessagePlace, (place: PlaceRenderer, canManage: boolean) => JSX.Element>
+>;
+
+/** A click the browser should handle itself: a new tab, a new window, a
+ *  download, or any button but the main one. */
+const opensElsewhere = (event: MouseEvent): boolean =>
+  event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
 
 /** A place's path spoken as a list, "Invite, Codes" — never "Invite right
  *  arrow Codes". */
@@ -92,17 +95,17 @@ function PlacePath(props: { place: InviteMessagePlace }) {
  * the three has to be found by guessing. A place the reader can open is a link;
  * one their role cannot open is named as text, with who can.
  *
- * The links are buttons that navigate through the dashboard's own route
- * callbacks rather than `#/…` anchors, because a hash change skips the invite
- * builder's unsaved-changes check.
+ * Each link is an `<a href>` to the place's address, so it wraps with its
+ * sentence and a modifier or middle click opens the place in a new tab. A plain
+ * click does not follow the address: it navigates through the dashboard's own
+ * route callback, because a hash change skips the invite builder's
+ * unsaved-changes check.
  */
 export default function InviteMessageLinks(props: InviteMessageLinksProps) {
   const canOpen = (place: InviteMessagePlace): boolean => {
     switch (place) {
-      case "message":
-        return props.canEdit;
       case "codes":
-        return props.canManage;
+        return props.canEdit;
       case "households":
         return true;
     }
@@ -117,27 +120,26 @@ export default function InviteMessageLinks(props: InviteMessageLinksProps) {
         </span>
       }
     >
-      {/* `touchLink`, not `link`: inside a sentence the underline at rest is
-          what marks the words as a link. `link` shows its underline only on
-          hover, leaving colour alone to do it, which WCAG 1.4.1 does not
-          accept for a link set in running text. */}
-      <Button
-        variant="touchLink"
+      {/* The muted prose link: inside a sentence the underline at rest is what
+          marks the words as a link (WCAG 1.4.1). */}
+      <a
+        href={props.href(target)}
+        class={proseLinkClass({ tone: "muted" })}
         aria-label={spokenPath(target)}
-        onClick={() => props.onNavigate(target)}
+        onClick={(event) => {
+          if (opensElsewhere(event)) return;
+          event.preventDefault();
+          props.onNavigate(target);
+        }}
       >
-        {/* One flex item, so the button's gap does not open between the path's
-            words and the underline runs unbroken. */}
-        <span>
-          <PlacePath place={target} />
-        </span>
-      </Button>
+        <PlacePath place={target} />
+      </a>
     </Show>
   );
 
   return (
-    <p class="font-body text-text-muted text-ui-sm max-w-prose leading-relaxed">
-      {SENTENCE[props.here](place)}
+    <p class="font-body text-text-muted text-ui-sm leading-ui-normal max-w-prose">
+      {SENTENCE[props.here](place, props.canManage)}
     </p>
   );
 }

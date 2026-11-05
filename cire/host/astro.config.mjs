@@ -45,8 +45,8 @@ export default defineConfig({
       optimizedFallbacks: true,
     },
     {
-      // Flair only, and rationed: the wordmark, a wedding's name, and the
-      // invite preview. Italics ship because the preview uses them; the portal
+      // Flair only, and rationed: the wordmark, a wedding's name, an account's
+      // initial, and the invite preview. Italics ship because the preview uses them; the portal
       // chrome never does (see the `h1..h4` rule in `styles/global.css`).
       name: "Cormorant Garamond",
       cssVariable: "--font-flair",

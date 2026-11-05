@@ -1,5 +1,7 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import { createSignal, createUniqueId, For, Show } from "solid-js";
@@ -219,15 +221,14 @@ export function LinkedTasksChoice(props: {
             )}
           </For>
         </ul>
-        <label class="text-text text-ui-sm flex items-start gap-2">
-          <input
-            type="checkbox"
-            class="mt-0.5"
-            checked={props.remove}
-            onChange={(e) => props.onChange(e.currentTarget.checked)}
-          />
-          <span>{`Also remove ${count() === 1 ? "this task" : `these ${count()} ${noun()}`} from the checklist`}</span>
-        </label>
+        <Checkbox
+          box="native"
+          size="sm"
+          align="start"
+          checked={props.remove}
+          onChange={props.onChange}
+          label={`Also remove ${count() === 1 ? "this task" : `these ${count()} ${noun()}`} from the checklist`}
+        />
         <p class="text-text-muted text-ui-xs">
           Left unticked, they stay on the checklist at the time they had, marked "event removed".
           Reverting this change does not link them again or bring back any you remove.
@@ -267,7 +268,7 @@ export default function ChangePreview(props: ChangePreviewProps) {
   };
   return (
     <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
-      <h3 class="font-display text-gold-dim text-ui-md">Diff preview</h3>
+      <h3 class="font-display text-gold-ink text-ui-md">Diff preview</h3>
       <Show when={props.clears}>
         {(clears) => (
           <Notice tone="warn" id={clearsId}>
@@ -296,10 +297,8 @@ export default function ChangePreview(props: ChangePreviewProps) {
       </Show>
 
       <Show when={props.warnings.length > 0}>
-        <div class="border-gold/30 bg-gold/[0.06] flex flex-col gap-1.5 rounded-sm border p-3">
-          <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-            Before you apply
-          </p>
+        <div class="border-gold/30 bg-gold/6 flex flex-col gap-1.5 rounded-sm border p-3">
+          <Eyebrow>Before you apply</Eyebrow>
           {/* A real list with the platform's own markers, rather than a flex
               column with a `::before` glyph: a flex item is blockified and
               loses its `::marker`, and a bullet that is generated content is

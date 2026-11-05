@@ -1,5 +1,8 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { toast, type ToastOptions } from "@shared/toast";
+import { Input } from "@shared/ui/ui/input";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import {
@@ -212,9 +215,9 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
   return (
     <section
       data-gift-money
-      class="border-border max-w-ui-md mx-auto mb-10 rounded-sm border px-5 py-6 text-center"
+      class="border-border rounded-ui-lg max-w-ui-md mx-auto mb-10 border px-5 py-6 text-center"
     >
-      <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-2 uppercase">Give money</p>
+      <Eyebrow class="mb-2">Give money</Eyebrow>
       <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5">
         Straight to the couple, whether or not anything is left on the list.
       </p>
@@ -229,9 +232,9 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
             <legend class="font-body text-text-muted text-ui-sm mb-2">What it’s for</legend>
             <div class="flex flex-col gap-2">
               <label
-                class="font-body focus-within:ring-gold/60 flex cursor-pointer items-center gap-3 rounded-sm border px-4 py-3 transition-colors duration-200 focus-within:ring-2"
+                class="font-body rounded-ui-field focus-within:outline-ui-focus transition-ui-colors flex cursor-pointer items-center gap-3 border px-4 py-3 duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                 classList={{
-                  "border-gold bg-gold/5": fundId() === null,
+                  "border-gold": fundId() === null,
                   "border-border": fundId() !== null,
                 }}
               >
@@ -249,9 +252,9 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                 {(fund) => (
                   <label
                     data-gift-money-fund={fund.id}
-                    class="font-body focus-within:ring-gold/60 flex cursor-pointer items-start gap-3 rounded-sm border px-4 py-3 transition-colors duration-200 focus-within:ring-2"
+                    class="font-body rounded-ui-field focus-within:outline-ui-focus transition-ui-colors flex cursor-pointer items-start gap-3 border px-4 py-3 duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                     classList={{
-                      "border-gold bg-gold/5": fundId() === fund.id,
+                      "border-gold": fundId() === fund.id,
                       "border-border": fundId() !== fund.id,
                     }}
                   >
@@ -270,12 +273,12 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                           alt=""
                           loading="lazy"
                           decoding="async"
-                          class="border-border aspect-4/3 w-20 shrink-0 rounded-sm border object-cover"
+                          class="border-border rounded-ui-field aspect-4/3 w-20 shrink-0 border object-cover"
                         />
                       )}
                     </Show>
                     <span class="flex min-w-0 flex-col gap-1">
-                      <span class="font-display text-text text-ui-md leading-snug font-light break-words">
+                      <span class="font-display text-text text-ui-md leading-ui-snug font-light break-words">
                         {fund.title}
                       </span>
                       <Show when={fund.description}>
@@ -302,9 +305,9 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
             <For each={GIFT_AMOUNT_PRESETS_MINOR}>
               {(minor) => (
                 <label
-                  class="font-body focus-within:ring-gold/60 text-ui-sm cursor-pointer rounded-sm border px-4 py-2 transition-colors duration-200 focus-within:ring-2"
+                  class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus transition-ui-colors cursor-pointer border px-4 py-2 duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                   classList={{
-                    "border-gold text-gold-ink bg-gold/5": preset() === minor,
+                    "border-gold text-gold-ink": preset() === minor,
                     "border-border text-text-muted": preset() !== minor,
                   }}
                 >
@@ -326,9 +329,9 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               )}
             </For>
             <label
-              class="font-body focus-within:ring-gold/60 text-ui-sm cursor-pointer rounded-sm border px-4 py-2 transition-colors duration-200 focus-within:ring-2"
+              class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus transition-ui-colors cursor-pointer border px-4 py-2 duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
               classList={{
-                "border-gold text-gold-ink bg-gold/5": preset() === null,
+                "border-gold text-gold-ink": preset() === null,
                 "border-border text-text-muted": preset() !== null,
               }}
             >
@@ -352,13 +355,16 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
         <Show when={preset() === null}>
           <label class="font-body text-text-muted text-ui-sm mb-5 block">
             <span class="mb-1 block">Amount ({props.currency})</span>
-            <input
+            <Input
+              fill="ink"
+              size="touch"
+              face="amount"
+              class="mx-auto w-40"
               data-gift-money-amount
               type="text"
               inputmode="decimal"
               value={customText()}
               onInput={(event) => setCustomText(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base mx-auto w-40 rounded-sm border px-3 py-2 text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
             />
           </label>
         </Show>
@@ -366,22 +372,24 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
         <div class="mx-auto mb-5 flex max-w-104 flex-col gap-3 text-left">
           <label class="font-body text-text-muted text-ui-sm">
             <span class="mb-1 block">Your name (optional)</span>
-            <input
+            <Input
+              fill="ink"
+              size="touch"
               type="text"
               maxlength="120"
               value={displayName()}
               onInput={(event) => setDisplayName(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
             />
           </label>
           <label class="font-body text-text-muted text-ui-sm">
             <span class="mb-1 block">A note for them (optional)</span>
-            <textarea
+            <Textarea
+              fill="ink"
+              size="touch"
               rows="2"
               maxlength="400"
               value={message()}
               onInput={(event) => setMessage(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
             />
           </label>
         </div>
@@ -414,7 +422,9 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           <Show when={status().includes("invite code")}>
             <a
               href={props.inviteHref}
-              class="font-body text-gold-ink focus-visible:ring-gold/60 text-ui-sm rounded-sm underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+              // A link standing alone is a pill, at the guest site's 44px
+              // touch floor.
+              class={`${buttonClass({ variant: "outline", size: "md" })} min-h-11`}
             >
               Open the invitation
             </a>

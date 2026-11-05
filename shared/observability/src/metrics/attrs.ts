@@ -25,6 +25,25 @@ export const RESULT_VALUES = [
 export type Result = (typeof RESULT_VALUES)[number];
 
 /**
+ * HTTP request methods, the OpenTelemetry HTTP semantic conventions' set.
+ * Any other method is recorded as `_OTHER`.
+ */
+export const HTTP_METHOD_VALUES = [
+  "CONNECT",
+  "DELETE",
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "PATCH",
+  "POST",
+  "PUT",
+  "TRACE",
+  "_OTHER",
+] as const;
+
+export type HttpMethod = (typeof HTTP_METHOD_VALUES)[number];
+
+/**
  * Auth methods supported by OSN Core. Passkey (incl. security keys) is the only
  * primary login factor; refresh tracks token refresh cycles. The other three are
  * account recovery, and none of them is a login factor.

@@ -2,7 +2,8 @@ import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Select } from "@shared/ui/ui/select";
-import { createSignal, createUniqueId, For, onMount, Show } from "solid-js";
+import { createEffect, createSignal, createUniqueId, For, on, Show } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
 import type { OrganiserHouseholdRow } from "../../lib/households-store";
@@ -25,6 +26,9 @@ interface InviteMessageCopyProps {
   savedLine: string | null;
   /** The first line as typed — what the preview shows. */
   draftLine: string;
+  /** Counts the owner's re-mints on this view: a change reads the households
+   *  again, since every code just changed. */
+  codesRevision?: number;
 }
 
 /** A household whose code gets someone into an invitation: it has a guest, and
@@ -48,13 +52,17 @@ const asSent = (line: string | null) => line?.trim() || null;
  * and waits while the two would differ — the copy is built on the client, and
  * a message a guest receives has to match what the builder has saved.
  *
- * The households are read fresh each time the builder mounts: the codes change
- * in Invite → Codes and households are cut off in Guests, and a cached list
- * would offer a code that no longer opens anything.
+ * The households are read fresh each time the builder mounts — households are
+ * cut off in Guests — and again after each re-mint above it on Codes
+ * (`codesRevision`): a cached list would offer a code that no longer opens
+ * anything. The household chosen stays chosen.
  */
 export default function InviteMessageCopy(props: InviteMessageCopyProps) {
   const { authFetch } = useAuth();
-  const [households, setHouseholds] = createSignal<OrganiserHouseholdRow[]>([]);
+  // A store reconciled by household, so a second read (after a re-mint) keeps
+  // each household's option and with it the picker's selection, its code
+  // updated in place.
+  const [households, setHouseholds] = createStore<OrganiserHouseholdRow[]>([]);
   const [status, setStatus] = createSignal<"loading" | "ready" | "failed">("loading");
   const [chosenId, setChosenId] = createSignal("");
   // Households marked sent from here. The rows stay as read, so marking one
@@ -65,27 +73,33 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
   const pickerNoteId = createUniqueId();
   const copyNoteId = createUniqueId();
 
-  onMount(async () => {
+  async function loadHouseholds() {
     try {
       const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/households")));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Could not load households (${res.status})`);
       const rows = (await res.json()) as OrganiserHouseholdRow[];
-      setHouseholds(rows.filter(canReceive));
+      setHouseholds(reconcile(rows.filter(canReceive), { key: "familyId" }));
       setStatus("ready");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setStatus("failed");
     }
-  });
+  }
+  createEffect(
+    on(
+      () => props.codesRevision,
+      () => void loadHouseholds(),
+    ),
+  );
 
   const pickerNote = () =>
     status() === "failed"
       ? "Could not load the households. Refresh to try again."
-      : status() === "ready" && households().length === 0
+      : status() === "ready" && households.length === 0
         ? "No households to choose yet."
         : null;
-  const chosen = () => households().find((row) => row.familyId === chosenId()) ?? null;
+  const chosen = () => households.find((row) => row.familyId === chosenId()) ?? null;
   const isSent = (row: OrganiserHouseholdRow) =>
     row.codeSharedAt !== null || sentNow().has(row.familyId);
   const unsaved = () => asSent(props.draftLine) !== asSent(props.savedLine);
@@ -122,13 +136,14 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
           Household
         </label>
         <Select
+          size="form"
           id={pickerId}
           value={chosenId()}
           aria-describedby={pickerNote() ? pickerNoteId : undefined}
           onChange={(e) => setChosenId(e.currentTarget.value)}
         >
           <option value="">No household (placeholder code)</option>
-          <For each={households()}>
+          <For each={households}>
             {(row) => (
               <option value={row.familyId}>
                 {`${row.familyName} · ${row.publicId}${isSent(row) ? " · sent" : ""}`}
@@ -148,7 +163,7 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
           by hand when the clipboard refuses. */}
       <p
         data-testid="invite-message-preview"
-        class="border-border font-body text-text text-ui-sm rounded-sm border p-3 wrap-break-word whitespace-pre-wrap select-all"
+        class="border-border font-body text-text text-ui-sm rounded-ui-field border p-3 wrap-break-word whitespace-pre-wrap select-all"
       >
         {message(props.draftLine)}
       </p>

@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Skeleton from "@cire/ui/skeleton";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -13,6 +15,7 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { toast } from "@shared/toast";
+import { Chip } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -64,9 +67,9 @@ import {
   runOfShowItem,
 } from "../lib/guest-event-draft";
 import { invalidateGuests } from "../lib/guests-store";
-import { haptic } from "../lib/haptics";
 import { scheduleChanged } from "../lib/schedule-changed";
 import { describeTimeZone, timeZoneGroups, zoneOffset } from "../lib/timezones";
+import { haptic } from "../lib/touch-feedback";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import ChangePreview, {
   type ApplyChangeBody,
@@ -77,6 +80,9 @@ import ChangePreview, {
 import ColorPicker from "./ColorPicker";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
+
+const EVENT_ROW_CLASS = `${cardClass({ padding: "sm" })} flex-row flex-wrap items-center`;
+
 interface PreviewResponse {
   changeId: string;
   plan: ChangePlan;
@@ -410,8 +416,9 @@ export default function EventsEditor(props: { weddingId: string }) {
         eyebrow="Schedule"
         title="Edit your events"
         description="Add the events your guests can be invited to, drag them by the grip to re-order, set the details, and save. Every change is previewed before it's applied — you'll see exactly what will change, including anything that affects RSVPs or images."
+        holdActions={!store.loaded()}
         actions={
-          <Show when={store.loaded()}>
+          <Show when={store.loaded() || !loadError()}>
             <Button variant="outline" size="sm" onClick={handleAdd}>
               Add event
             </Button>
@@ -434,62 +441,74 @@ export default function EventsEditor(props: { weddingId: string }) {
         </Notice>
       </Show>
 
-      <Show when={!store.loaded() && !loadError()}>
-        <div class="flex flex-col gap-3">
-          <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-18 animate-pulse rounded-sm" />}
-          </For>
-        </div>
-      </Show>
+      {/* Busy while the first read is out: it holds the placeholders and what
+          replaces them, never a form or the heading. Hidden when empty, so it
+          adds no gap. */}
+      <div
+        class="flex flex-col gap-8 empty:hidden"
+        aria-busy={!store.loaded() && !loadError() ? "true" : undefined}
+      >
+        <Show when={!store.loaded() && !loadError()}>
+          {/* Event rows at the height a loaded row draws (DESIGN.md §4,
+            Skeletons). */}
+          <div class="flex flex-col gap-3">
+            <For each={[1, 2, 3]}>{() => <Skeleton class="h-20" />}</For>
+          </div>
+        </Show>
 
-      <Show when={store.loaded()}>
-        <Show
-          when={store.draft.events.length > 0}
-          fallback={
-            <EmptyState
-              title="No events yet"
-              description="Add an event to start building your schedule. Guests are matched to events that exist."
-              action={
-                <Button variant="outline" size="sm" onClick={handleAdd}>
-                  Add event
-                </Button>
-              }
-            />
-          }
-        >
-          {/* `DragDropSensors` registers the pointer sensor; the keyboard and
+        <Show when={store.loaded()}>
+          <Show
+            when={store.draft.events.length > 0}
+            fallback={
+              <EmptyState
+                title="No events yet"
+                description="Add an event to start building your schedule. Guests are matched to events that exist."
+                action={
+                  <Button variant="outline" size="sm" onClick={handleAdd}>
+                    Add event
+                  </Button>
+                }
+              />
+            }
+          >
+            {/* `DragDropSensors` registers the pointer sensor; the keyboard and
               screen-reader paths come from `createSortableList` above.
               `closestCenter` is the right detector for a single-column list. */}
-          <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
-            <DragDropSensors />
-            <ul class="flex flex-col gap-3" data-testid="event-list">
-              <SortableProvider ids={eventKeys()}>
-                <For each={store.draft.events}>
-                  {(event, index) => (
-                    <EventRowCard
-                      event={event}
-                      index={index()}
-                      count={store.draft.events.length}
-                      hasError={(errorsByKey().get(event.key)?.length ?? 0) > 0}
-                      onEdit={() => setEditingKey(event.key)}
-                      onDelete={() => handleDelete(event)}
-                      sortableItem={reorder.item(event.key, index, () => store.draft.events.length)}
-                    />
-                  )}
-                </For>
-              </SortableProvider>
-            </ul>
-          </DragDropProvider>
+            <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
+              <DragDropSensors />
+              <ul class="flex flex-col gap-3" data-testid="event-list">
+                <SortableProvider ids={eventKeys()}>
+                  <For each={store.draft.events}>
+                    {(event, index) => (
+                      <EventRowCard
+                        event={event}
+                        index={index()}
+                        count={store.draft.events.length}
+                        hasError={(errorsByKey().get(event.key)?.length ?? 0) > 0}
+                        onEdit={() => setEditingKey(event.key)}
+                        onDelete={() => handleDelete(event)}
+                        sortableItem={reorder.item(
+                          event.key,
+                          index,
+                          () => store.draft.events.length,
+                        )}
+                      />
+                    )}
+                  </For>
+                </SortableProvider>
+              </ul>
+            </DragDropProvider>
 
-          {/* Keyboard instructions, referenced by every grip's aria-describedby —
+            {/* Keyboard instructions, referenced by every grip's aria-describedby —
               the drag affordance is invisible to a screen-reader user otherwise.
               The id is generated per list, so several sortable lists can share a
               page without every grip describing itself with whichever won. */}
-          <p {...reorder.hintProps()}>{reorder.hintText}</p>
-          {/* Screen-reader feedback for a completed move (drag or keyboard). */}
-          <p {...reorder.liveRegionProps()}>{reorder.announcement()}</p>
+            <p {...reorder.hintProps()}>{reorder.hintText}</p>
+            {/* Screen-reader feedback for a completed move (drag or keyboard). */}
+            <p {...reorder.liveRegionProps()}>{reorder.announcement()}</p>
+          </Show>
         </Show>
-      </Show>
+      </div>
 
       {/* Drawer form for the event being edited/added. */}
       <Show when={editingEvent()}>
@@ -591,7 +610,7 @@ export default function EventsEditor(props: { weddingId: string }) {
               </div>
             </div>
             <Show when={store.warnings().length > 0 && !hasErrors()}>
-              <p class="border-gold/20 bg-gold/5 text-gold-dim page-frame text-ui-sm border-t py-2">
+              <p class="border-gold/20 bg-gold/5 text-gold-ink page-frame text-ui-sm border-t py-2">
                 {store.warnings().join(" ")}
               </p>
             </Show>
@@ -599,7 +618,9 @@ export default function EventsEditor(props: { weddingId: string }) {
               <div class="border-error/20 bg-error/5 text-error page-frame text-ui-sm flex flex-wrap items-center gap-3 border-t py-2">
                 {/* Announced: a refused apply closes the preview, and focus
                     returning to Save says nothing about why. */}
-                <p role="alert">{saveError()}</p>
+                <Notice size="inline" tone="danger" alert>
+                  {saveError()}
+                </Notice>
                 <Show when={stale()}>
                   <Button
                     variant="outline"
@@ -660,15 +681,16 @@ function EventRowCard(props: {
       // `maybeTransformStyle` sees a truthy function and paints
       // `translate3d(undefinedpx, …)`.
       style={maybeTransformStyle(sortable.transform())}
-      class="border-border bg-surface/30 flex flex-wrap items-center gap-3 rounded-sm border p-4"
+      class={EVENT_ROW_CLASS}
       classList={{
         "border-error/50": props.hasError,
         // Lift the row being dragged clear of its neighbours.
-        "border-gold/60 bg-surface/80 z-10 shadow-lg": sortable.isActiveDraggable(),
+        "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)": sortable.isActiveDraggable(),
         // Animate the OTHER rows shifting aside, but never the dragged one —
         // that must track the pointer without easing. Only while a drag is live,
         // so the post-drop settle isn't double-animated.
-        "transition-transform": dndState.dragging() && !sortable.isActiveDraggable(),
+        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
+          dndState.dragging() && !sortable.isActiveDraggable(),
       }}
     >
       {/* Re-order controls: a grip you drag, plus two activate-to-move buttons
@@ -726,9 +748,9 @@ function EventRowCard(props: {
           <p class="text-error text-ui-sm">This event has errors — open it to fix them.</p>
         </Show>
         <Show when={props.event.id === null}>
-          <span class="font-body text-gold/70 border-gold/30 text-ui-xs tracking-ui-widest mt-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
+          <Chip variant="outline" tone="accent" class="mt-1">
             New — saved on apply
-          </span>
+          </Chip>
         </Show>
       </div>
 
@@ -865,7 +887,7 @@ function EventDrawer(props: {
        `container-type`, the dialog ARIA — is the element's. */
     <Modal open onClose={props.onClose} label="Edit event" presentation="drawer" class="max-w-md">
       <div class="mb-6 flex items-center justify-between">
-        <h2 class="font-display text-gold-dim text-ui-lg">Event details</h2>
+        <h2 class="font-display text-gold-ink text-ui-lg">Event details</h2>
         <Button variant="bare" size="icon" type="button" onClick={props.onClose} aria-label="Close">
           ✕
         </Button>
@@ -881,6 +903,7 @@ function EventDrawer(props: {
         <Field label="Event name">
           {(field) => (
             <Input
+              size="form"
               {...field}
               value={props.event.name}
               onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
@@ -897,6 +920,7 @@ function EventDrawer(props: {
         <Field label="Timezone" hint={zoneHint()}>
           {(field) => (
             <Select
+              size="form"
               {...field}
               value={props.event.timezone}
               onChange={(e) => setTimezone(e.currentTarget.value)}
@@ -931,6 +955,7 @@ function EventDrawer(props: {
             <Field label="Time">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   type="time"
                   value={start().time}
@@ -953,6 +978,7 @@ function EventDrawer(props: {
             <Field label="Time">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   type="time"
                   value={end().time}
@@ -971,6 +997,7 @@ function EventDrawer(props: {
         <Field label="Venue name" hint="Shown above the address on the invite.">
           {(field) => (
             <Input
+              size="form"
               {...field}
               value={props.event.venueName ?? ""}
               placeholder="The Grounds of Alexandria"
@@ -986,6 +1013,7 @@ function EventDrawer(props: {
         <Field label="Address">
           {(field) => (
             <Input
+              size="form"
               {...field}
               value={props.event.address ?? ""}
               onInput={(e) =>
@@ -1027,6 +1055,7 @@ function EventDrawer(props: {
               <Field label="Children" class="min-w-44 flex-1">
                 {(field) => (
                   <Select
+                    size="form"
                     {...field}
                     value={props.event.childrenPolicy ?? ""}
                     onChange={(e) =>
@@ -1042,6 +1071,7 @@ function EventDrawer(props: {
               <Field label="Plus-ones" class="min-w-44 flex-1">
                 {(field) => (
                   <Select
+                    size="form"
                     {...field}
                     value={props.event.plusOnePolicy ?? ""}
                     onChange={(e) =>
@@ -1126,6 +1156,7 @@ function EventDrawer(props: {
                 <Field labelHidden label={`Swatch ${i() + 1} name`} class="flex-1">
                   {(field) => (
                     <Input
+                      size="form"
                       {...field}
                       data-swatch-name
                       value={swatch.name}
@@ -1165,6 +1196,7 @@ function EventDrawer(props: {
         <Field label="Pinterest URL">
           {(field) => (
             <Input
+              size="form"
               {...field}
               type="url"
               value={props.event.pinterestUrl ?? ""}
@@ -1181,6 +1213,7 @@ function EventDrawer(props: {
         <Field label="Maps URL">
           {(field) => (
             <Input
+              size="form"
               {...field}
               type="url"
               value={props.event.mapsUrl ?? ""}
@@ -1362,7 +1395,8 @@ function RunOfShowRow(props: {
       class="flex flex-col gap-1"
       classList={{
         "relative z-10": sortable.isActiveDraggable(),
-        "transition-transform": dndState.dragging() && !sortable.isActiveDraggable(),
+        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
+          dndState.dragging() && !sortable.isActiveDraggable(),
       }}
       // The row is left when focus moves to something outside it.
       onFocusOut={(e) => {
@@ -1408,6 +1442,7 @@ function RunOfShowRow(props: {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 // The after-midnight line describes the time it is about.
                 aria-describedby={
@@ -1429,6 +1464,7 @@ function RunOfShowRow(props: {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 data-ros-name
                 value={props.item.label}

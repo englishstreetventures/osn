@@ -1,7 +1,10 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Skeleton from "@cire/ui/skeleton";
 import { UsernameInput } from "@cire/ui/username-input";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Chip } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
@@ -10,7 +13,6 @@ import { Select } from "@shared/ui/ui/select";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { haptic } from "../lib/haptics";
 import { type HostSeat, invalidateHosts, setFreshHosts } from "../lib/hosts-store";
 import { useMembersChanged } from "../lib/members-changed";
 import {
@@ -30,6 +32,7 @@ import {
 import { markRunSheetStale } from "../lib/run-sheet-store";
 import { invalidateTasks, peekCachedTasks } from "../lib/tasks-store";
 import { type PaidTier, type Tier, TIER_LABEL, tierAtLeast } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import {
   type AssignableRole,
   assignableRolesFor,
@@ -40,9 +43,12 @@ import {
   surfacesFor,
   type WeddingRole,
 } from "../lib/wedding-roles";
+import { TipNote } from "./ActionTip";
 import LeaveWedding from "./LeaveWedding";
 import SectionIntro from "./SectionIntro";
 import UpgradeDialog from "./UpgradeDialog";
+
+const HOST_ROW_CLASS = `${cardClass({ padding: "sm" })} flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2`;
 
 /** A seat on the wedding — an owner's or a co-host's. Owners are seats like
  *  everyone else, so one shape serves both. */
@@ -992,7 +998,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 {(option) => (
                   <div class="border-border bg-bg flex flex-1 flex-col gap-1 rounded-sm border p-3">
                     <dt class="font-body text-text text-ui-base">{roleLabel(option)}</dt>
-                    <dd class="font-body text-text-muted text-ui-sm leading-snug">
+                    <dd class="font-body text-text-muted text-ui-sm leading-ui-snug">
                       {ROLE_COPY[option].summary}
                       {option === "helper" && helperNeedsGold()
                         ? " The run sheet comes with Gold."
@@ -1015,8 +1021,11 @@ export default function HostsPanel(props: HostsPanelProps) {
                     the organiser types. The manual type-and-submit path is
                     preserved — the dropdown is additive and never required. */}
                 <div class="relative min-w-48 flex-1">
+                  {/* `UsernameInput` hands `size` to its inner `Input`, so the
+                      form-field height reaches the box. */}
                   <UsernameInput
                     {...field}
+                    size="form"
                     name="osnHandle"
                     value={handle()}
                     maxLength={64}
@@ -1040,7 +1049,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                     disabled={adding()}
                   />
                   <Show when={open() && suggestions().length > 0}>
-                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-sm border shadow-lg">
+                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-md border shadow-(--elev-2)">
                       {/* Caption for the on-focus case only: with nothing typed the
                           list IS the organiser's connections, and saying so is what
                           makes an unprompted dropdown legible rather than startling. */}
@@ -1076,16 +1085,16 @@ export default function HostsPanel(props: HostsPanelProps) {
                               }}
                             >
                               <span class="flex flex-wrap items-center gap-2">
-                                <span class="font-body text-gold-dim text-ui-base">
+                                <span class="font-body text-gold-ink text-ui-base">
                                   @{s.handle}
                                 </span>
                                 {/* Only on the mixed list — when every row is a
                                     connection the caption already said so, and a
                                     badge on every row is noise. */}
                                 <Show when={s.connected && !browsingConnections()}>
-                                  <span class="border-gold/40 text-gold font-body text-ui-xs tracking-ui-widest rounded-sm border px-1.5 py-0.5 uppercase">
+                                  <Chip variant="outline" tone="accent">
                                     Connected
-                                  </span>
+                                  </Chip>
                                 </Show>
                               </span>
                               <Show when={s.displayName}>
@@ -1100,7 +1109,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                     </div>
                   </Show>
                 </div>
-                <Button type="submit" variant="primary" disabled={adding()}>
+                <Button type="submit" variant="primary" size="form" disabled={adding()}>
                   {adding() ? "Adding…" : canAddSecondOwner() ? "Add as owner" : "Add host"}
                 </Button>
               </div>
@@ -1109,175 +1118,182 @@ export default function HostsPanel(props: HostsPanelProps) {
         </form>
       </Show>
 
-      <Show when={loading()}>
-        <div class="flex flex-col gap-3">
-          <For each={[1, 2]}>{() => <div class="bg-surface h-13 animate-pulse rounded-sm" />}</For>
-        </div>
-      </Show>
+      {/* Busy while the first read is out: it holds the placeholders and what
+          replaces them, never a form or the heading. Hidden when empty, so it
+          adds no gap. */}
+      <div class="flex flex-col gap-8 empty:hidden" aria-busy={loading() ? "true" : undefined}>
+        <Show when={loading()}>
+          {/* Co-host rows at the height and spacing a loaded row draws
+            (DESIGN.md §4, Skeletons). */}
+          <div class="flex flex-col gap-2">
+            <For each={[1, 2]}>{() => <Skeleton class="h-17" />}</For>
+          </div>
+        </Show>
 
-      <Show when={error()}>
-        <Notice tone="danger" alert>
-          {error()}
-        </Notice>
-      </Show>
-
-      <Show when={!loading() && !error()}>
-        {/* Never let a truncated list look complete: a seat that isn't shown is
-            a seat the owner can't remove, and every seat can read the household
-            claim codes and the dietary export. */}
-        <Show when={truncated()}>
+        <Show when={error()}>
           <Notice tone="danger" alert>
-            Showing {hosts().length} of {total()} co-hosts. Contact support — some seats on this
-            wedding aren&apos;t listed here and can&apos;t be removed from this screen.
+            {error()}
           </Notice>
         </Show>
-        <Show when={hosts().length > 0}>
-          <ul class="flex flex-col gap-2">
-            <For each={hosts()}>
-              {(host) => (
-                // Wraps, so a helper's run-sheet line takes a line of its own
-                // under the name and the controls: at phone width there is no
-                // room beside them for a second select at its full width.
-                <li
-                  class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-sm border px-4 py-3"
-                  classList={{
-                    "border-gold/40 bg-gold/5": host.role === "owner",
-                    "border-border bg-surface/30": host.role !== "owner",
-                  }}
-                >
-                  <span class="font-body text-text text-ui-base flex flex-wrap items-center gap-3">
-                    {host.handle ? (
-                      <span class="text-gold-dim">@{host.handle}</span>
-                    ) : (
-                      <span
-                        class="text-text-muted text-ui-sm tracking-ui-wide font-mono"
-                        title="OSN profile id"
-                      >
-                        {host.osnProfileId}
-                      </span>
-                    )}
-                    <Show when={isMe(host)}>
-                      <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">you</span>
-                    </Show>
-                    {/* The badge is the read of the seat. An owner also gets the
+
+        <Show when={!loading() && !error()}>
+          {/* Never let a truncated list look complete: a seat that isn't shown is
+            a seat the owner can't remove, and every seat can read the household
+            claim codes and the dietary export. */}
+          <Show when={truncated()}>
+            <Notice tone="danger" alert>
+              Showing {hosts().length} of {total()} co-hosts. Contact support — some seats on this
+              wedding aren&apos;t listed here and can&apos;t be removed from this screen.
+            </Notice>
+          </Show>
+          <Show when={hosts().length > 0}>
+            <ul class="flex flex-col gap-2">
+              <For each={hosts()}>
+                {(host) => (
+                  // Wraps, so a helper's run-sheet line takes a line of its own
+                  // under the name and the controls: at phone width there is no
+                  // room beside them for a second select at its full width.
+                  <li
+                    class={HOST_ROW_CLASS}
+                    classList={{ "border-gold/40 bg-gold/5": host.role === "owner" }}
+                  >
+                    <span class="font-body text-text text-ui-base flex flex-wrap items-center gap-3">
+                      {host.handle ? (
+                        <span class="text-gold-ink">@{host.handle}</span>
+                      ) : (
+                        <span
+                          class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono"
+                          title="OSN profile id"
+                        >
+                          {host.osnProfileId}
+                        </span>
+                      )}
+                      <Show when={isMe(host)}>
+                        <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
+                          you
+                        </span>
+                      </Show>
+                      {/* The badge is the read of the seat. An owner also gets the
                         select below, which is the write — both name the role
                         from the same place, so they cannot disagree. */}
-                    <span
-                      class="text-gold font-body text-ui-xs tracking-ui-widest rounded-sm border px-2 py-0.5 uppercase"
-                      classList={{
-                        "border-gold": host.role === "owner",
-                        "border-gold/40": host.role !== "owner",
-                      }}
-                      title={ROLE_COPY[host.role].summary}
-                    >
-                      {ROLE_COPY[host.role].label}
-                    </span>
-                    {/* Who seated them. Shown only to owners, and only when the
+                      {/* Filled for the owner, outlined for every other role; the
+                        word names the role either way. One per row inside the
+                        module shell, so it explains itself through the shell's
+                        one panel (`TipNote`), never a `title`. */}
+                      <TipNote text={ROLE_COPY[host.role].summary}>
+                        <Chip variant={host.role === "owner" ? "filled" : "outline"} tone="accent">
+                          {ROLE_COPY[host.role].label}
+                        </Chip>
+                      </TipNote>
+                      {/* Who seated them. Shown only to owners, and only when the
                         seat names someone other than its holder — owners are
                         equals, so which of them seated someone is worth
                         surfacing. Absent on older API payloads. */}
-                    <Show
-                      when={
-                        canManage() &&
-                        host.addedByOsnProfileId &&
-                        host.addedByOsnProfileId !== host.osnProfileId &&
-                        (host.addedByHandle ?? host.addedByOsnProfileId)
-                      }
-                    >
-                      {(addedBy) => (
-                        <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
-                          added by {host.addedByHandle ? `@${host.addedByHandle}` : addedBy()}
-                        </span>
-                      )}
-                    </Show>
-                  </span>
-                  <Show when={canManage()}>
-                    <span class="flex items-center gap-3">
-                      {/* The value is the pending promotion's target while one
+                      <Show
+                        when={
+                          canManage() &&
+                          host.addedByOsnProfileId &&
+                          host.addedByOsnProfileId !== host.osnProfileId &&
+                          (host.addedByHandle ?? host.addedByOsnProfileId)
+                        }
+                      >
+                        {(addedBy) => (
+                          <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
+                            added by {host.addedByHandle ? `@${host.addedByHandle}` : addedBy()}
+                          </span>
+                        )}
+                      </Show>
+                    </span>
+                    <Show when={canManage()}>
+                      <span class="flex items-center gap-3">
+                        {/* The value is the pending promotion's target while one
                           is being confirmed, and the seat's own role otherwise.
                           That is what puts the select back when the dialog is
                           dismissed: the option changed in the DOM the moment it
                           was picked, and only a change to this expression can
                           undo it. */}
-                      <Select
-                        size="sm"
-                        value={pendingRoleFor(host) ?? host.role}
-                        disabled={roleBusyId() === host.osnProfileId}
-                        aria-label={
-                          isMe(host) ? "Your role on this wedding" : `Role for ${nameOf(host)}`
-                        }
-                        onChange={(e) => selectRole(host, e.currentTarget.value as AssignableRole)}
-                      >
-                        <For each={grantable()}>
-                          {(option) => <option value={option}>{roleLabel(option)}</option>}
-                        </For>
-                      </Select>
-                      {/* No remove on your own row: stepping down is the select
-                          above, and it keeps the wedding's last owner in place. */}
-                      <Show when={!isMe(host)}>
-                        <Button
-                          variant="subtle"
-                          size="sm"
-                          type="button"
-                          onClick={() => void remove(host)}
-                          aria-label={`Remove ${host.handle ? `@${host.handle}` : "host"}`}
+                        <Select
+                          size="form-compact"
+                          value={pendingRoleFor(host) ?? host.role}
+                          disabled={roleBusyId() === host.osnProfileId}
+                          aria-label={
+                            isMe(host) ? "Your role on this wedding" : `Role for ${nameOf(host)}`
+                          }
+                          onChange={(e) =>
+                            selectRole(host, e.currentTarget.value as AssignableRole)
+                          }
                         >
-                          Remove
-                        </Button>
-                      </Show>
-                    </span>
-                  </Show>
-                  {/* How far into the run sheet a helper sees: a helper's
+                          <For each={grantable()}>
+                            {(option) => <option value={option}>{roleLabel(option)}</option>}
+                          </For>
+                        </Select>
+                        {/* No remove on your own row: stepping down is the select
+                          above, and it keeps the wedding's last owner in place. */}
+                        <Show when={!isMe(host)}>
+                          <Button
+                            variant="subtle"
+                            size="sm"
+                            type="button"
+                            onClick={() => void remove(host)}
+                            aria-label={`Remove ${host.handle ? `@${host.handle}` : "host"}`}
+                          >
+                            Remove
+                          </Button>
+                        </Show>
+                      </span>
+                    </Show>
+                    {/* How far into the run sheet a helper sees: a helper's
                       setting alone, so no other row names one. An owner sets
                       it here; everyone else reads it. A line of its own. */}
-                  <Show when={host.role === "helper"}>
-                    <Show
-                      when={canManage()}
-                      fallback={
-                        <span class="font-body text-text-muted text-ui-xs tracking-ui-wide basis-full">
-                          Sees: {RUN_SHEET_SCOPE_COPY[scopeOf(host)].phrase}
-                        </span>
-                      }
-                    >
-                      <label class="font-body text-text-muted text-ui-xs tracking-ui-wide flex basis-full items-center gap-2">
-                        Sees:
-                        {/* `w-auto`: on a line of its own the control box's full
+                    <Show when={host.role === "helper"}>
+                      <Show
+                        when={canManage()}
+                        fallback={
+                          <span class="font-body text-text-muted text-ui-xs tracking-ui-wide basis-full">
+                            Sees: {RUN_SHEET_SCOPE_COPY[scopeOf(host)].phrase}
+                          </span>
+                        }
+                      >
+                        <label class="font-body text-text-muted text-ui-xs tracking-ui-wide flex basis-full items-center gap-2">
+                          Sees:
+                          {/* `w-auto`: on a line of its own the control box's full
                             width would run the select across the whole row.
                             `aria-busy`, never `disabled`, while its write is
                             out: see `selectScope`. */}
-                        <Select
-                          size="sm"
-                          class="w-auto"
-                          value={scopeShownFor(host)}
-                          aria-busy={scopeWrites().has(host.osnProfileId) ? "true" : undefined}
-                          aria-label={`What ${nameOf(host)} sees on the run sheet`}
-                          onChange={(e) => selectScope(host, e.currentTarget)}
-                        >
-                          <For each={RUN_SHEET_SCOPES}>
-                            {(scope) => (
-                              <option value={scope}>{RUN_SHEET_SCOPE_COPY[scope].option}</option>
-                            )}
-                          </For>
-                        </Select>
-                      </label>
+                          <Select
+                            size="form-compact"
+                            class="w-auto"
+                            value={scopeShownFor(host)}
+                            aria-busy={scopeWrites().has(host.osnProfileId) ? "true" : undefined}
+                            aria-label={`What ${nameOf(host)} sees on the run sheet`}
+                            onChange={(e) => selectScope(host, e.currentTarget)}
+                          >
+                            <For each={RUN_SHEET_SCOPES}>
+                              {(scope) => (
+                                <option value={scope}>{RUN_SHEET_SCOPE_COPY[scope].option}</option>
+                              )}
+                            </For>
+                          </Select>
+                        </label>
+                      </Show>
                     </Show>
-                  </Show>
-                </li>
-              )}
-            </For>
-          </ul>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+          <Show when={!hasCohosts()}>
+            <EmptyState
+              title="No co-hosts yet"
+              description={
+                canManage()
+                  ? "Add one above to share this wedding."
+                  : "Only the owners manage this wedding for now."
+              }
+            />
+          </Show>
         </Show>
-        <Show when={!hasCohosts()}>
-          <EmptyState
-            title="No co-hosts yet"
-            description={
-              canManage()
-                ? "Add one above to share this wedding."
-                : "Only the owners manage this wedding for now."
-            }
-          />
-        </Show>
-      </Show>
+      </div>
 
       <Show when={props.canLeave}>
         <LeaveWedding weddingId={props.weddingId} onLeft={props.onLeft} />
@@ -1307,7 +1323,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                       Make {nameOf(promotion().host)} {anArticleFor(promotion().to)}{" "}
                       {ROLE_COPY[promotion().to].label.toLowerCase()}?
                     </p>
-                    <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                    <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                       {ROLE_COPY[promotion().to].summary} You can change it back at any time.
                     </p>
                   </>
@@ -1316,7 +1332,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 <p class="font-display text-text text-ui-md font-light">
                   Step down to {ROLE_COPY[promotion().to].label.toLowerCase()}?
                 </p>
-                <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                   You will stop being an owner of this wedding. {ROLE_COPY[promotion().to].summary}{" "}
                   Only another owner can make you an owner again.
                 </p>
@@ -1361,7 +1377,7 @@ export default function HostsPanel(props: HostsPanelProps) {
               <p class="font-display text-text text-ui-md font-light">
                 Show {nameOf(helper())} the whole run sheet?
               </p>
-              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+              <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                 They will see every task for the day and who is doing each one, not only their own.
                 They still won't see the guest list, the budget or the replies. You can change it
                 back at any time.
@@ -1400,7 +1416,7 @@ export default function HostsPanel(props: HostsPanelProps) {
           {(name) => (
             <div class="flex flex-col gap-4">
               <p class="font-display text-text text-ui-md font-light">Add @{name()} as an owner?</p>
-              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+              <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                 {ROLE_COPY.owner.summary} You can change it back at any time.
               </p>
               <div class="flex flex-wrap justify-end gap-2">

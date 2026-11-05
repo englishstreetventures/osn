@@ -1,16 +1,18 @@
 ---
 import { Font } from 'astro:assets'
 
+import { WordmarkPlaceholder } from '@cire/ui/wordmark'
+
 import '../styles/global.css'
 import OrganiserApp from '../components/OrganiserApp'
-import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
+import { THEME_BOOT_SCRIPT } from '../lib/preference-keys'
 ---
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Host Dashboard — Cire</title>
+    <title>Host portal — Cire</title>
     <!-- Before the stylesheet, before first paint, before anything can be seen:
          resolve the host's theme onto `data-theme`. `is:inline` keeps Astro from
          bundling it into a deferred module, which would be a frame too late. -->
@@ -48,13 +50,10 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
       <header
         id="boot-chrome"
         aria-hidden="true"
-        class="chrome-scope border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md"
+        class="chrome-scope border-border bg-bg/95 sticky top-0 z-30 border-b backdrop-blur-md"
       >
         <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
-          <span class="flex shrink-0 items-center gap-2 px-1.5 py-1.5">
-            <span class="text-gold text-ui-sm leading-none">✦</span>
-            <span class="font-display text-text text-ui-md leading-none font-light tracking-ui-wide">Cire</span>
-          </span>
+          <WordmarkPlaceholder />
         </div>
       </header>
       <OrganiserApp client:only="solid-js" />

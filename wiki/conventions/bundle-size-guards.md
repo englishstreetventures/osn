@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-05
 ---
 
 # Guards with a threshold
@@ -226,8 +226,8 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 337953 B | 349653 B *(re-baselined, englishstreetventures/osn#1803 — see below)* |
-| cire/vendor | static | 77305 B | 81644 B |
+| cire/host | static | 366482 B | 378182 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
+| cire/vendor | static | 99379 B | 103718 B *(re-baselined, englishstreetventures/osn#1850 — see below)* |
 | cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
@@ -369,6 +369,77 @@ on a fresh checkout of 5f42aafa1, reading the total the guard prints. Chunk and 
 gzip level 9 with no timestamp, summed over `OrganiserApp`'s chunk and every
 chunk it imports statically; the Kobalte modules read from the `use…Context`
 names in that set of files.*
+
+### `cire/vendor` re-baselined for the corner roles and the checkbox rule
+
+The portal's shape work (corner roles, the checkbox and radio base rule, and the
+`transition-ui-colors` utility; englishstreetventures/osn#1821) took the bundle
+from **77305 B**, the figure the row held, to **81803 B** across the same 10
+files, past the 81644 B threshold. Part of that gap grew on `main` before this
+work and the `# measured` comment had not moved with it. The threshold moved to
+measured + 4339 B, **86142 B**. The headroom stays at vendor's ~4.3 KB rather
+than the ~11.7 KB default: it is well under the 21261 B cost of a motion-class
+library, so one such mistake still trips the warning, and a raise never loosens
+it. No dependency was added.
+
+*Measured 2026-11-05 — `rm -rf cire/vendor/dist && CLAUDECODE= bun run --cwd
+cire/vendor build` on `feat/cire-soft-shapes` at `f480df718`, rebased onto
+`origin/main` `7d2ad85d1`, reading the total the guard prints; a second clean
+build printed the same.*
+
+### `cire/host` and `cire/vendor` re-baselined for the shared menus and glass strips
+
+Every portal menu became the shared `DropdownMenu` on its accent look, and every
+segmented control `@cire/ui`'s glass `SegmentedTabs`, in place of five
+hand-built menus and five hand-built strips (englishstreetventures/osn#1844,
+englishstreetventures/osn#1845). The owner chose to move both rows rather than
+cut elsewhere (2026-11-04). No dependency is added: the shared menu's chunk
+holds Kobalte's menu, already shipped for the household menu, and the
+wrapper's rows and accent classes.
+
+| App | Row held | Measured | Threshold |
+|---|---:|---:|---:|
+| cire/host | 349653 B (# measured 337953) | **358408 B**, 83 files | **370108 B** (+11700) |
+| cire/vendor | 86142 B (# measured 81803) | **88664 B**, 10 files | **93003 B** (+4339) |
+
+Vendor keeps its ~4.3 KB headroom, host the ~11.7 KB default. The host figure
+includes `main`'s own host code since the branch's first measurement (353457
+B): the rebase onto `origin/main` `7d2ad85d1` brought it under this build, and
+the row it holds, `main`'s, was not re-measured with it.
+
+*Measured 2026-11-05 — `rm -rf cire/<app>/dist && CLAUDECODE= bun run --cwd
+cire/<app> build`, each app alone, reading the total the guard prints, on
+`feat/cire-nav` at `acdfa44e5`, rebased onto `origin/main` `7d2ad85d1`.*
+
+### `cire/host` and `cire/vendor` re-baselined for the shared enquiry thread
+
+Both portals render one enquiry thread and use the theme, haptics and auto-size
+helpers from `@cire/ui` (englishstreetventures/osn#1850). The thread brings segment
+times, tap-to-reveal, keyboard movement and an info menu in place of two
+hand-rolled lists. No dependency is added.
+
+| App | Row held | Measured | Threshold |
+|---|---:|---:|---:|
+| cire/host | 370108 B (# measured 358408) | **366482 B**, 86 files | **378182 B** (+11700) |
+| cire/vendor | 93003 B (# measured 88664) | **99379 B**, 15 files | **103718 B** (+4339) |
+
+The host thread sits in the lazy `EnquiriesView` chunk, so the host's first load
+does not grow. The vendor portal loads `VendorEnquiryThread` with `lazy()` and
+warms the chunk when the enquiries view shows. That split costs total bytes: the
+same source built with the thread eager measures **96822 B** across 14 files,
+so splitting adds **2557 B**, as a new shared chunk (`preload-helper`, 4566 B)
+holds what the island and the thread both use, and separate files compress less
+well than one. It takes about 3.6 KB off the bytes that block the island's first
+frame: `VendorApp` 19405 B plus `message-time` 834 B eager, against `VendorApp`
+12085 B plus the shared chunk 4566 B lazy. The guard counts every chunk, eager
+or lazy, so a split never lowers its total. Vendor keeps its ~4.3 KB headroom.
+
+*Measured 2026-11-05 — `rm -rf cire/<app>/dist && CLAUDECODE= bun run --cwd
+cire/<app> build`, each app alone, then `bash scripts/guard-bundle-size.sh
+cire/<app>`, on `feat/cire-guest` at `2305bcb13`, rebased onto `origin/main`
+`7d2ad85d1`. The eager vendor figure is the same build with `VendorApp.tsx`
+from the commit before `66e039e35`, the one that loads the thread with `lazy()`.
+Chunk sizes are `gzip -9 -n` per file.*
 
 ### `cire/invites` re-baselined after the zod override
 

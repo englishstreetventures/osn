@@ -1,7 +1,10 @@
+import { avatarTriggerClass } from "@cire/ui/avatar-trigger-class";
+import PersonAvatar from "@cire/ui/person-avatar";
+import Wordmark from "@cire/ui/wordmark";
 import type { RpSession } from "@shared/rp-auth";
 import { createSignal, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
 
-import AccountAvatar, { AVATAR_TRIGGER_CLASS } from "./AccountAvatar";
+import { accountName } from "../lib/account-name";
 import ViewTabs, { type VendorView } from "./ViewTabs";
 
 /**
@@ -89,15 +92,15 @@ export default function TopBar(props: {
    * case where the idle warm has not fired. A click asks for it *and* opens it,
    * so a press that lands first is never swallowed.
    */
-  // A bare `<button>`, not `@cire/ui`'s: this is a menu trigger wrapping an
-  // avatar, so it must contribute no border, no padding and no background of
-  // its own — `AVATAR_TRIGGER_CLASS` is the whole of its appearance.
+  // A bare `<button>`, not `@cire/ui`'s `Button`: a menu trigger wrapping an
+  // avatar, so `avatarTriggerClass` is the whole of its appearance and the
+  // avatar inside draws the circle.
   const AccountPlaceholder = () => (
     <button
       type="button"
       aria-label="Account menu"
       aria-haspopup="menu"
-      class={AVATAR_TRIGGER_CLASS}
+      class={avatarTriggerClass}
       onPointerEnter={() => setWantMenu(true)}
       onFocus={() => setWantMenu(true)}
       onClick={() => {
@@ -105,36 +108,21 @@ export default function TopBar(props: {
         setWantMenu(true);
       }}
     >
-      <AccountAvatar session={props.session} />
+      <PersonAvatar
+        fallback="initial"
+        name={accountName(props.session)}
+        url={props.session?.avatarUrl}
+        class="size-full"
+      />
     </button>
   );
 
   return (
-    <header class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md">
+    <header class="border-border bg-bg/95 sticky top-0 z-30 border-b backdrop-blur-md">
       <div class="page-frame flex h-14 items-center gap-2 @2xl/frame:h-16">
-        {/* The wordmark, which is a way home rather than an action — so it
-            takes no button chrome. `@cire/ui`'s `Button` would give it a
-            border and uppercase tracking, and a bordered wordmark reads as a
-            control somebody has to decide about. */}
-        <button
-          type="button"
-          aria-label="Cire — your listings"
-          onClick={() => props.onHome()}
-          class="group hover:bg-surface/60 -mx-1 flex shrink-0 items-center gap-2 rounded-sm px-1.5 py-1.5 transition-colors duration-(--dur-fast) ease-(--ease-out)"
-        >
-          <span
-            aria-hidden="true"
-            class="text-gold group-hover:text-gold-ink text-ui-sm leading-none transition-colors duration-(--dur-fast)"
-          >
-            ✦
-          </span>
-          <span
-            aria-hidden="true"
-            class="font-display text-text text-ui-md tracking-ui-wide leading-none font-light"
-          >
-            Cire
-          </span>
-        </button>
+        {/* The wordmark, which is a way home rather than an action, so it
+            takes no button chrome: a hover wash and no frame. */}
+        <Wordmark label="Cire — your listings" onClick={() => props.onHome()} />
 
         {/* Hidden below the strip's own breakpoint: at phone width the divider
             and the tabs together overflow the row, and the tabs are the half
@@ -146,7 +134,7 @@ export default function TopBar(props: {
         <div class="ml-auto flex shrink-0 items-center gap-2">
           {/*
             The placeholder wears the same class and the same contents as the
-            real trigger (`AccountAvatar`), so the swap moves nothing and there
+            real trigger (`PersonAvatar` in `avatarTriggerClass`), so the swap moves nothing and there
             is no flash to see. It is a real button with the real accessible
             name — not a decorative circle — because it is reachable by keyboard
             during the window it is up, and a focusable thing that announces

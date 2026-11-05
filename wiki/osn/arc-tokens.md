@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-04
 ---
 # ARC Tokens (S2S Auth)
 
@@ -244,7 +244,7 @@ to each downstream — otherwise the first `/internal/account-deleted` POST is
 
 ### Key revocation
 
-`DELETE /graph/internal/service-keys/:keyId` (also protected by `INTERNAL_SERVICE_SECRET`) sets `revoked_at` in the DB AND evicts the in-process public key cache entry immediately — revocation takes effect on the next request with no wait for the 5-minute cache TTL.
+`DELETE /graph/internal/service-keys/:keyId` (also protected by `INTERNAL_SERVICE_SECRET`) sets `revoked_at` in the DB and evicts this process's public key cache entry, so this process rejects the key on its next request; other processes follow when their cached entry expires (below). It answers 404 for a `kid` that matches no key, and `{ ok: true, alreadyRevoked: true }` for a key already revoked, whose `revoked_at` keeps its first value. `POST /graph/internal/register-service` refuses a revoked `kid` with 409 `kid_revoked`: a service brings a new key under a new `kid`.
 
 `/register-service` validates requested `allowedScopes` against a server-side allowlist (`PERMITTED_SCOPES`). Any unknown scope returns 400 — a service cannot self-promote its scope set.
 

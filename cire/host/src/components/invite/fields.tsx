@@ -14,11 +14,15 @@
 
 import type { SectionState } from "@cire/theme";
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Chip } from "@shared/ui/ui/chip";
 import { Input } from "@shared/ui/ui/input";
 import { Select } from "@shared/ui/ui/select";
 import { Textarea } from "@shared/ui/ui/textarea";
 import EyeOff from "lucide-solid/icons/eye-off";
 import { createUniqueId, For, type JSX, Show } from "solid-js";
+
 const LABEL_CLASS = "font-body text-text-muted text-ui-sm";
 
 /**
@@ -66,6 +70,7 @@ export function TextField(props: {
         </Show>
       </span>
       <Input
+        size="form"
         id={id}
         placeholder={props.placeholder}
         value={props.value}
@@ -127,7 +132,11 @@ export function ChoiceField(props: {
   return (
     <label class="flex flex-col gap-1.5">
       <span class={LABEL_CLASS}>{props.label}</span>
-      <Select value={props.value} onChange={(e) => props.onChange(e.currentTarget.value)}>
+      <Select
+        size="form"
+        value={props.value}
+        onChange={(e) => props.onChange(e.currentTarget.value)}
+      >
         <For each={props.options}>{(opt) => <option value={opt.value}>{opt.label}</option>}</For>
       </Select>
     </label>
@@ -155,7 +164,7 @@ export function SliderField(props: {
     <label class="flex flex-col gap-1.5">
       <span class="flex items-baseline justify-between gap-2">
         <span class={LABEL_CLASS}>{props.label}</span>
-        <span class="font-body text-gold text-ui-xs tabular-nums">{props.value}</span>
+        <span class="font-body text-gold-ink text-ui-xs tabular-nums">{props.value}</span>
       </span>
       <input
         type="range"
@@ -188,53 +197,20 @@ export function isHiddenState(state: SectionState | undefined): boolean {
   return state === "empty" || state === "off";
 }
 
-/**
- * The ink of a hidden section's label in the section nav, beside
- * {@link HiddenSectionIcon}. One look for both reasons a section is hidden; the
- * reason is in words (the tab's `sr-only` clause, the menu trigger's
- * `aria-label`, the section's badge).
- *
- * `text-faint` paints 3.3–3.4:1, under the 4.5:1 WCAG 1.4.3 asks of text this
- * small — a trade the owner chose over a strike-through. It is not a gap in
- * what the organiser can tell: the eye-off icon is the cue that is not colour
- * (WCAG 1.4.1) and the accessible name carries the state in words. No fade can
- * both hold 4.5:1 and be seen, since the idle tab's `text-muted` paints only
- * 5.6–6.0:1. `text-faint`, not `opacity` on `text-muted`: both ink tokens are
- * already translucent, so an opacity multiplies the two and lands below every
- * token on the ramp. The 3:1 floor, which the icon needs as a graphic (WCAG
- * 1.4.11), is pinned by `InviteBuilder.tabs.browser.test.tsx`.
- */
-export const FADED_LABEL = "text-text-faint";
-
-/**
- * A section tab's colours. The gold wash and the gold hue say "selected"; the
- * fade (with the icon) says "hidden", so hidden never reads as merely not
- * selected:
- *
- *  - selected, shown:      wash + `gold-ink`
- *  - selected, hidden:     wash + `gold-ink` at 80% — the hue stays, the ink fades
- *  - not selected, shown:  `text-muted`, brightening on hover
- *  - not selected, hidden: {@link FADED_LABEL}, brightening to `text-muted` on
- *    hover, so it still answers the pointer but never looks shown
- *
- * `gold-ink`, not `gold`: gold is metal and carries no contrast contract (2.2:1
- * on this wash in the light theme), so a faded gold would read stronger than a
- * shown one there. Whole class strings, because Tailwind finds a utility by
- * scanning source text and a built-up class name emits no CSS.
- */
-export function sectionTabTone(selected: boolean, hidden: boolean): string {
-  if (selected) return hidden ? "bg-gold/12 text-gold-ink/80" : "bg-gold/12 text-gold-ink";
-  return hidden
-    ? "text-text-faint hover:text-text-muted hover:bg-surface/60"
-    : "text-text-muted hover:text-text hover:bg-surface/60";
-}
-
-/** The eye-off mark beside a hidden section's label in the section nav. Drawn
- *  in the label's own ink (`currentColor`), and hidden from assistive tech: the
- *  accessible name already says the section is hidden, and why. */
-export function HiddenSectionIcon() {
+/** The eye-off mark beside a hidden section's label: on its glass tab, in the
+ *  phone's pill and in its menu row. Drawn in the label's own ink
+ *  (`currentColor`), and hidden from assistive tech: the accessible name
+ *  already says the section is hidden, and why. The label keeps the idle ink,
+ *  so it reads at 4.5:1; the icon is the cue that is not colour. Takes the
+ *  glass tab's icon props, so it is the strip's icon too. */
+export function HiddenSectionIcon(props: { class?: string; strokeWidth?: number }) {
   return (
-    <EyeOff data-hidden-icon aria-hidden="true" strokeWidth={1.75} class="size-3.5 shrink-0" />
+    <EyeOff
+      data-hidden-icon
+      aria-hidden="true"
+      strokeWidth={props.strokeWidth ?? 1.75}
+      class={props.class ?? "size-3.5 shrink-0"}
+    />
   );
 }
 
@@ -250,24 +226,22 @@ export function HiddenSectionIcon() {
 export function SegmentBadge(props: { state: SectionState }) {
   const shown = () => props.state === "shown";
   return (
-    <span
+    <Chip
+      variant="outline"
+      tone={shown() ? "accent" : "neutral"}
       data-segment-badge
       data-shown={shown() ? "true" : "false"}
       data-state={props.state}
       role="status"
-      class="font-body text-ui-xs tracking-ui-wider inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 uppercase"
-      classList={{
-        "border-gold/40 text-gold bg-gold/5": shown(),
-        "border-border text-text-muted bg-bg/40": !shown(),
-      }}
+      class="w-fit"
     >
       <span
-        aria-hidden
+        aria-hidden="true"
         class="inline-block h-1.5 w-1.5 rounded-full"
         classList={{ "bg-gold": shown(), "bg-text-muted/60": !shown() }}
       />
       {SECTION_STATE_LABELS[props.state]}
-    </span>
+    </Chip>
   );
 }
 
@@ -314,11 +288,7 @@ function VisibilityReason(props: { visibility: SectionVisibility }) {
  *  bar (image upload/remove/crop, design selection) — the one visual cue that
  *  separates the two persistence models the builder mixes. */
 export function InstantBadge() {
-  return (
-    <span class="font-body border-border text-text-muted text-ui-xs tracking-ui-wider rounded-full border px-2 py-0.5 uppercase">
-      Applies immediately
-    </span>
-  );
+  return <Chip variant="outline">Applies immediately</Chip>;
 }
 
 /**
@@ -340,23 +310,31 @@ export function SectionCard(props: {
   /** Present ⇒ render a "Reset section" action that reverts the section's
    *  saveable fields to their defaults (a draft change — nothing is saved). */
   onReset?: () => void;
-  /** The builder shows one section at a time (a tab, not a scroll) — the
+  /** The builder shows one card at a time (a tab, not a scroll) — the
    *  inactive cards stay MOUNTED (their draft state, dirty tracking and inline
    *  previews all live regardless of visibility) and are hidden with the
    *  native `hidden` attribute rather than unmounted. */
   hidden?: boolean;
+  /** A tab on Content's section strip names this card (`${id}-tab`): it is
+   *  that tab's panel. The other views' cards sit in the module's own panel,
+   *  named by their legend. */
+  tabPanel?: boolean;
   children: JSX.Element;
 }) {
   return (
     <fieldset
       id={props.id}
       hidden={props.hidden}
-      role="tabpanel"
-      aria-labelledby={`${props.id}-tab`}
+      role={props.tabPanel ? "tabpanel" : undefined}
+      aria-labelledby={props.tabPanel ? `${props.id}-tab` : undefined}
       class="border-border flex flex-col gap-4 rounded-sm border p-4"
     >
-      <legend class="font-body text-gold-dim text-ui-xs tracking-ui-wider px-2 uppercase">
-        {props.legend}
+      {/* The legend's side padding opens the gap in the fieldset's border; the
+          label inside it is the eyebrow. */}
+      <legend class="px-2">
+        <Eyebrow as="span" tone="muted">
+          {props.legend}
+        </Eyebrow>
       </legend>
       <Show when={props.visibility !== undefined || props.onReset}>
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -364,19 +342,13 @@ export function SectionCard(props: {
             {(visibility) => (
               <span class="flex flex-wrap items-center gap-4">
                 <SegmentBadge state={visibility().state} />
-                {/* A native checkbox, as elsewhere in the portal: the input
-                  itself takes keyboard focus and shows the dashboard's
-                  `:focus-visible` ring. */}
-                <label class="font-body text-text text-ui-sm flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    data-visibility-switch
-                    class="accent-gold h-4 w-4 shrink-0 cursor-pointer"
-                    checked={visibility().visible}
-                    onChange={(e) => visibility().onChange(e.currentTarget.checked)}
-                  />
-                  Show on the invite
-                </label>
+                <Checkbox
+                  box="native"
+                  size="sm"
+                  checked={visibility().visible}
+                  onChange={(next) => visibility().onChange(next)}
+                  label="Show on the invite"
+                />
               </span>
             )}
           </Show>
@@ -395,24 +367,5 @@ export function SectionCard(props: {
       </Show>
       {props.children}
     </fieldset>
-  );
-}
-
-/**
- * A native-`details` progressive disclosure for secondary controls (the hero
- * display sliders, the fine typography options) — the happy path stays light
- * and the knobs remain one click away. Free keyboard + SR semantics.
- */
-export function Disclosure(props: { summary: string; hint?: string; children: JSX.Element }) {
-  return (
-    <details class="border-border rounded-sm border">
-      <summary class="font-body text-text-muted hover:text-text text-ui-sm tracking-ui-wide cursor-pointer px-3 py-2 uppercase select-none">
-        {props.summary}
-        <Show when={props.hint}>
-          <span class="text-text-muted/70 ml-2 normal-case italic">{props.hint}</span>
-        </Show>
-      </summary>
-      <div class="flex flex-col gap-4 px-3 pt-1 pb-3">{props.children}</div>
-    </details>
   );
 }

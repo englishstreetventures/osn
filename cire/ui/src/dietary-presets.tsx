@@ -98,9 +98,15 @@ export interface DietaryPresetsProps<K extends string = DietaryPreset> {
  * the scroller off and give the track, bands and rows `wrap`'s shape.
  */
 const LAYOUT = {
+  // A scrolling track clips, so it keeps 4px of room all round inside a
+  // matching margin: room for a ticked pill's 2px ring and the focus outline
+  // 2px off its edge, which it would otherwise cut at its top and ends. Each
+  // band's start is a snap point as well as each pill's, so the track opens
+  // at its start, its first band's label in view, rather than snapping past
+  // it to the first pill.
   scroll: {
-    track: "gap-4 snap-x snap-proximity overflow-x-auto pb-1",
-    band: "shrink-0 items-center",
+    track: "gap-4 snap-x snap-proximity overflow-x-auto -m-1 p-1 scroll-px-1",
+    band: "shrink-0 snap-start items-center",
     row: "shrink-0",
   },
   wrap: {
@@ -110,8 +116,8 @@ const LAYOUT = {
   },
   md: {
     track:
-      "gap-4 snap-x snap-proximity overflow-x-auto pb-1 md:snap-none md:overflow-x-visible md:pb-0 md:flex-col",
-    band: "shrink-0 items-center md:flex-col md:items-start",
+      "gap-4 snap-x snap-proximity overflow-x-auto -m-1 p-1 scroll-px-1 md:snap-none md:overflow-x-visible md:m-0 md:p-0 md:flex-col",
+    band: "shrink-0 snap-start items-center md:flex-col md:items-start",
     row: "shrink-0 md:flex-wrap",
   },
 } as const;
@@ -133,6 +139,30 @@ function toggle<K extends string>(
   return result;
 }
 
+/**
+ * A pill: one dietary answer, a real checkbox inside a label.
+ *
+ * Ticked, it wears `Button`'s `choice` look — a gold edge, the readable gold
+ * word and a 2px ring at 60% — so a ticked pill is marked by more than colour
+ * and reads as the answer pair beside it does; no wash. Under the pointer an
+ * unticked one goes halfway: an edge and a word between rest and ticked and a
+ * 1px ring at 30%, so a hover never looks like a tick. The house's one motion
+ * rule: a hover on `--dur-fast` with `--ease-out`, a tick on `--dur-base` with
+ * `--ease-in-out`; only the colours and the ring fade, so the focus outline —
+ * the house's 2px at 2px, drawn from the checkbox's own `:focus-visible` —
+ * lands at once.
+ */
+const PILL =
+  "font-body border-ui-hairline text-ui-ink text-ui-sm relative flex shrink-0 cursor-pointer snap-start items-center gap-2 rounded-full border px-3 py-1.5 whitespace-nowrap select-none " +
+  "transition-[color,background-color,border-color,box-shadow] duration-(--dur-fast,100ms) ease-[var(--ease-out,var(--ui-ease-out))] " +
+  "has-[:checked]:duration-(--dur-base,150ms) has-[:checked]:ease-[var(--ease-in-out,var(--ui-ease-in-out))] " +
+  "has-[:checked]:border-ui-accent has-[:checked]:text-ui-accent-ink has-[:checked]:ring-2 has-[:checked]:ring-ui-accent/60 " +
+  "not-has-[:checked]:not-has-[:disabled]:hover:border-[color:color-mix(in_oklab,var(--ui-hairline),var(--ui-accent))] " +
+  "not-has-[:checked]:not-has-[:disabled]:hover:text-[color:color-mix(in_oklab,var(--ui-ink),var(--ui-accent-ink))] " +
+  "not-has-[:checked]:not-has-[:disabled]:hover:ring-1 not-has-[:checked]:not-has-[:disabled]:hover:ring-ui-accent/30 " +
+  "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ui-focus " +
+  "has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50";
+
 function PresetCheckbox(props: {
   preset: string;
   checked: boolean;
@@ -152,7 +182,7 @@ function PresetCheckbox(props: {
     // It also makes each pill paint above non-positioned in-flow boxes, which
     // is why the sheets that hold this give their close chip an explicit
     // z-index. See wiki/shared/frontend-patterns.md.
-    <label class="font-body border-ui-hairline text-ui-ink has-[:checked]:border-ui-accent has-[:checked]:bg-ui-accent-wash has-[:focus-visible]:ring-ui-focus text-ui-sm relative flex shrink-0 cursor-pointer snap-start items-center gap-2 rounded-full border px-3 py-1.5 whitespace-nowrap transition-colors duration-200 select-none has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 has-[:focus-visible]:ring-2">
+    <label class={PILL}>
       {/* A real checkbox, visually hidden rather than replaced: the checked
           state, the space key, the screen-reader announcement and the label
           association all come from the platform. `sr-only` keeps it focusable,
@@ -246,7 +276,7 @@ export default function DietaryPresets<K extends string = DietaryPreset>(
           {(group) => (
             <div class={`flex gap-2 ${layout().band}`}>
               <Show when={BAND_LABEL[group.band] !== ""}>
-                <p class="font-body text-ui-ink-muted tracking-ui-wider text-ui-xs shrink-0 uppercase">
+                <p class="font-body text-ui-ink-secondary tracking-ui-wider text-ui-xs shrink-0 uppercase">
                   {BAND_LABEL[group.band]}
                 </p>
               </Show>

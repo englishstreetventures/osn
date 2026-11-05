@@ -380,6 +380,15 @@ describe("EventTable events CSV export", () => {
     await waitFor(() => screen.getByText("Reception"));
     expect(screen.queryByRole("button", { name: /Download events/i })).toBeNull();
   });
+
+  // The download waits, unseen, while the events load; a wedding with no
+  // events has nothing to export, so it never arrives.
+  it("offers an owner no events download while the wedding has no events", async () => {
+    authFetchMock.mockResolvedValueOnce(json([]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" canManage />);
+    await waitFor(() => screen.getByText("No events yet"));
+    expect(screen.queryByRole("button", { name: /Download events/i })).toBeNull();
+  });
 });
 
 describe("EventTable open-ended events (endAt '')", () => {
@@ -434,4 +443,48 @@ describe("EventTable open-ended events (endAt '')", () => {
     expect(body).not.toContain(EVENT.startAt);
     expect(body).not.toContain("2026-09-19 18:00 –");
   });
+});
+
+describe("EventTable — an event's places", () => {
+  afterEach(() => {
+    cleanup();
+    __resetEventsCache();
+    resetOrganiserMocks();
+  });
+
+  it.each([
+    [
+      "a map and a moodboard",
+      "https://maps.example/x",
+      "https://pinterest.example/y",
+      ["Maps", "Pinterest"],
+    ],
+    ["a map alone", "https://maps.example/x", null, ["Maps"]],
+    ["a moodboard alone", null, "https://pinterest.example/y", ["Pinterest"]],
+  ])(
+    "links %s as pills that open a new tab and say so",
+    async (_l, mapsUrl, pinterestUrl, words) => {
+      authFetchMock.mockResolvedValueOnce(json([{ ...EVENT, mapsUrl, pinterestUrl }]));
+      render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+      await waitFor(() => screen.getByText("Reception"));
+      const href = { Maps: "https://maps.example/x", Pinterest: "https://pinterest.example/y" };
+      const links = screen
+        .queryAllByRole("link")
+        .filter((a) => /^(Maps|Pinterest)/.test(a.textContent ?? ""));
+      expect(links.map((a) => a.getAttribute("href"))).toEqual(
+        words.map((w) => href[w as keyof typeof href]),
+      );
+      for (const [i, word] of words.entries()) {
+        // The event's name follows the word, heard and never shown, so a
+        // wedding with several events does not read "Maps" once per event
+        // with nothing to tell them apart.
+        expect(
+          screen.getByRole("link", { name: `${word} for Reception (opens in a new tab)` }),
+        ).toBe(links[i]);
+        expect(links[i]!.getAttribute("target")).toBe("_blank");
+        // The mark is decoration: the word names the link.
+        expect(links[i]!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      }
+    },
+  );
 });

@@ -1,8 +1,8 @@
 import { context, type Context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { Elysia } from "elysia";
 
-import { redact } from "../logger/redact";
-import { httpServerActiveRequests, recordHttpRequest } from "../metrics/http";
+import type { HttpMethod } from "../metrics/attrs";
+import { httpServerActiveRequests, recordHttpRequest, toHttpMethod } from "../metrics/http";
 import { extractTraceContext } from "../tracing/propagation";
 
 /**
@@ -36,7 +36,7 @@ type RequestState = {
    */
   ctx: Context;
   route: string;
-  method: string;
+  method: HttpMethod;
   requestId: string;
 };
 
@@ -66,7 +66,7 @@ const genRequestId = (): string => {
 };
 
 /**
- * Strict format for client-supplied `x-request-id` (S-H3).
+ * Strict format for client-supplied `x-request-id`.
  * Accepts 1–64 ASCII alphanumerics plus `_-.`. Rejects CRLF,
  * whitespace, control chars, ANSI escapes, and anything that could
  * inject into log lines or terminal output for operators tailing logs.
@@ -79,18 +79,17 @@ const sanitizeInboundRequestId = (raw: string | null): string | null => {
 };
 
 /**
- * Decide whether to honour an inbound W3C `traceparent` (S-H2).
+ * Decide whether to honour an inbound W3C `traceparent`.
  *
  * For public-facing HTTP, trusting upstream trace context is a privilege
  * escalation — external callers could force 100% sampling (financial
  * DoS on trace ingest), inject chosen trace IDs to muddle incident
  * response, or link their requests to internal traces in dashboards.
  *
- * Rule: only honour `traceparent` when the caller presents an
- * `Authorization: ARC ...` header (first-party S2S). All other
- * requests start a fresh root span. ARC-authenticated requests
- * carry an already-trusted identity, so propagating their trace
- * context is safe and gives us end-to-end distributed traces.
+ * Rule: honour `traceparent` only when the request presents an
+ * `Authorization: ARC ...` header, the scheme first-party
+ * service-to-service calls use. Every other request starts a fresh
+ * root span.
  */
 const shouldHonourInboundTraceparent = (headers: Headers): boolean => {
   const auth = headers.get("authorization");
@@ -100,12 +99,16 @@ const shouldHonourInboundTraceparent = (headers: Headers): boolean => {
 export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
   const tracer = trace.getTracer("@shared/observability");
 
+  // `.as("global")` at the end lifts every hook to the app that mounts the
+  // plugin. Elysia keeps a plugin's hooks local by default, and this
+  // instance has no routes of its own, so without it only `onRequest` runs.
   return new Elysia({ name: "@shared/observability/plugin" })
     .onRequest(({ request, set }) => {
-      const method = request.method.toUpperCase();
+      // A closed set, so a made-up method cannot mint metric series.
+      const method = toHttpMethod(request.method);
       const url = new URL(request.url);
 
-      // S-H3: never echo a client-controlled id back untouched.
+      // Never echo a client-controlled id back untouched.
       const inboundRequestId = sanitizeInboundRequestId(request.headers.get("x-request-id"));
       const requestId = inboundRequestId ?? genRequestId();
 
@@ -117,8 +120,8 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       // Increment in-flight gauge.
       httpServerActiveRequests.inc({ "http.request.method": method });
 
-      // S-H2: only extract inbound trace context from ARC-authenticated
-      // callers. Anonymous/public requests start a fresh root span.
+      // Only extract inbound trace context when the request presents an
+      // `Authorization: ARC ...` header; any other starts a fresh root span.
       const inboundCtx = shouldHonourInboundTraceparent(request.headers)
         ? extractTraceContext(request.headers)
         : undefined;
@@ -128,9 +131,9 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
           kind: SpanKind.SERVER,
           attributes: {
             "http.request.method": method,
-            // S-H4: `url.path` only (no query) — query strings frequently
-            // carry OAuth codes, magic-link tokens, presigned sigs, etc.
-            "url.path": url.pathname,
+            // No `url.path` or query: paths hold handles and profile ids,
+            // and queries carry OAuth codes and magic-link tokens. The span
+            // names the matched route template (`http.route`) instead.
             "url.scheme": url.protocol.replace(":", ""),
             "server.address": url.hostname,
             "service.name": options.serviceName,
@@ -143,8 +146,7 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       // Build an OTel Context carrying the request span as active, and
       // stash it on the request state. We deliberately do NOT try to
       // `context.with(ctx, () => {})` here — that callback would
-      // immediately tear the context back down, so it was a no-op in
-      // the previous version of this plugin (see P-W1). Elysia's hook
+      // immediately tear the context back down. Elysia's hook
       // lifecycle (onRequest → handler → onAfterResponse are separate
       // invocations, not a single enclosing scope) means there is no
       // way to make an OTel `context.with(...)` span the whole
@@ -168,7 +170,7 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
         start: process.hrtime.bigint(),
         span,
         ctx,
-        // IMPORTANT (S-C1): default to the fixed sentinel `"unmatched"`,
+        // IMPORTANT: default to the fixed sentinel `"unmatched"`,
         // NOT `url.pathname`. Any request that short-circuits before
         // onAfterHandle (404, body validation failure, etc.) MUST record
         // as `unmatched` — otherwise attacker-controlled paths become
@@ -190,30 +192,15 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
     .onError(({ request, error, code }) => {
       const state = REQUEST_STATE.get(request);
       if (!state) return;
-      // S-M3: `span.recordException(error)` iterates the error's
-      // enumerable own properties and writes them to a span event. Effect
-      // tagged errors frequently embed `email`, `handle`, `cause` etc.
-      // as own props, which would land in trace storage unredacted.
-      // Instead, build a scrubbed shape and record that.
-      const safeError =
-        error instanceof Error
-          ? (() => {
-              const r = redact(error) as { name?: string; message?: string };
-              return Object.assign(new Error(typeof r.message === "string" ? r.message : ""), {
-                name: typeof r.name === "string" ? r.name : "Error",
-              });
-            })()
-          : new Error(String(code));
-      state.span.recordException(safeError);
-      state.span.setStatus({
-        code: SpanStatusCode.ERROR,
-        // The `message` field of setStatus is preserved verbatim in
-        // span storage — route it through redact() first.
-        message:
-          error instanceof Error
-            ? (redact({ message: error.message }) as { message: string }).message
-            : String(code),
+      // Span storage gets the error's name and Elysia's error code, never
+      // the error's message or stack: a message is free text that
+      // `redact()`, which scrubs object keys, cannot clean, and Elysia's
+      // validation errors put the rejected input in theirs.
+      state.span.recordException({
+        name: error instanceof Error ? error.name : "Error",
+        message: String(code),
       });
+      state.span.setStatus({ code: SpanStatusCode.ERROR, message: String(code) });
     })
     .onAfterResponse(({ request, set }) => {
       const state = REQUEST_STATE.get(request);
@@ -238,5 +225,6 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       httpServerActiveRequests.dec({ "http.request.method": state.method });
 
       REQUEST_STATE.delete(request);
-    });
+    })
+    .as("global");
 };

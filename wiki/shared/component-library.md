@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-04
 ---
 
 # Component Library (Zaidan)
@@ -44,7 +44,7 @@ product layer, and which one a component belongs in is decided by
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Loading`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Skeleton`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
 _why_ the line falls there, and is not re-argued here. The short version is that
@@ -82,27 +82,32 @@ shared/ui/src/
     ├── badge.tsx           ← Badge (variant-based)
     ├── button.tsx          ← Button + buttonVariants (CVA)
     ├── card.tsx            ← Card, CardHeader, CardTitle, …
-    ├── checkbox.tsx        ← Checkbox (Kobalte)
+    ├── checkbox.tsx        ← Checkbox — a box ticked to say yes, saved with a form (native)
+    ├── choice.ts           ← the box, label and note slot Checkbox and RadioGroupItem share
     ├── chip.tsx            ← Chip
-    ├── control.ts          ← controlClass / ControlSize — the box Input, Textarea and Select share
+    ├── control.ts          ← controlClass, sizes, fills, faces, heights — the box Input, Textarea and Select share
     ├── dialog.tsx          ← Dialog, DialogContent, … (Kobalte)
-    ├── dropdown-menu.tsx   ← DropdownMenu, DropdownMenuItem, … (Kobalte)
+    ├── dropdown-menu.tsx   ← DropdownMenu, its items, checkbox, radio and link rows, DropdownMenuHandle (Kobalte)
     ├── empty-state.tsx     ← EmptyState
     ├── field.tsx           ← Field, Fieldset
     ├── info-popover.tsx    ← InfoPopover (circled glyph beside a form label)
     ├── input.tsx           ← Input
     ├── label.tsx           ← Label
+    ├── menu-classes.ts     ← the menu's panel, row, label and separator classes — no Kobalte
+    ├── menu-touch-classes.ts ← MENU_TOUCH, the guest site's 44px link-menu rows — no Kobalte
     ├── meter.tsx           ← Meter
     ├── modal.tsx           ← Modal — the platform <dialog>, top layer
     ├── notice.tsx          ← Notice
     ├── otp-input.tsx       ← OtpInput (6-digit code verification)
     ├── popover.tsx         ← Popover, PopoverTrigger, … (Kobalte)
+    ├── portal-mount.ts     ← where a popover's or a menu's panel portals: the open modal dialog, else <body>
     ├── props.ts            ← SafeProps — element props minus innerHTML/innerText/textContent
     ├── qr-code.tsx         ← QrCode
-    ├── radio-group.tsx     ← RadioGroup, RadioGroupItem (Kobalte)
+    ├── radio-group.tsx     ← RadioGroup, RadioGroupItem (native)
     ├── select.tsx          ← Select (native <select>, Input's box)
     ├── stat.tsx            ← Stat
     ├── switch.tsx          ← Switch — an on/off change that takes effect at once (native)
+    ├── switch-classes.ts   ← the switch's track and thumb classes, which the menu's switch row draws too
     ├── table.tsx           ← Table and its parts
     ├── tabs.tsx            ← Tabs, TabsList, TabsTrigger (Kobalte)
     ├── textarea.tsx        ← Textarea
@@ -120,10 +125,31 @@ osn/auth-ui/src/
 └── ProfileOnboarding.tsx   ProfileSwitcher.tsx  SecurityEventsBanner.tsx  TurnstileWidget.tsx
 
 cire/ui/src/
-├── button.tsx  card.tsx  loading.tsx
+├── button.tsx  card.tsx  disclosure.tsx  eyebrow.tsx  loading.tsx  note.tsx
+├── file-input.tsx          ← a file input whose button is the quiet pill (FILE_BUTTON)
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
-└── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
+├── message-thread.tsx      ← MessageThread: an enquiry's messages in timed segments, and the reply box
+├── message-bubble.tsx      message-composer.tsx  message-info-menu.tsx  ← its parts, not exported
+├── lib/message-time.ts     ← the thread's order, segments and time words
+├── person-avatar.tsx       ← PersonAvatar: a photo, the empty avatar or an initial
+├── avatar-trigger-class.ts ← avatarTriggerClass: the round button an account menu opens from
+├── segmented-tabs.tsx      ← SegmentedTabs: a glass track of choices with one sliding highlight
+├── sign-in-panel.tsx       ← SignInPanel: the portals' one button to musubi and its error lines
+├── sign-in-card-class.ts   ← signInCardClass: the sign-in card's opaque fill and lit edge
+├── sign-in-card.astro      ← SignInCard: the sign-in page's label, heading and card around the panel
+├── site-footer.astro       ← SiteFooter: both guest-facing sites' footer — sign-off, rule, links, version
+├── legal-layout.astro      ← LegalLayout: the legal pages' document, its four slots and the .legal type
+├── sign-in-press.ts        ← createSignInPress: what a "Continue with musubi" button does once pressed
+├── skeleton.tsx            ← Skeleton: a loading placeholder, in the corner and fill of what it stands in for
+├── lib/pulse.ts            ← PULSE: the loaders' pulse on the motion tokens, for Loading and Skeleton; not exported
+├── lib/sliding-pill.ts     ← createSlidingPill: one highlight that moves between items
+├── lib/auto-size.ts        ← createAutoSize: a box animated between two content heights
+├── lib/theme.ts            ← createPreferences: a portal's theme and haptics switch, under its own keys
+├── lib/theme-boot.ts       ← themeBootScript: the inline script that sets the theme before first paint
+├── lib/haptics.ts          ← createHaptics: touch feedback by event name, limited to a portal's names
+├── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
+└── wordmark.tsx            ← Wordmark: the portals' "✦ Cire" way home; WordmarkPlaceholder, its still copy
 ```
 
 ### `SafeProps` — why the primitives do not accept `innerHTML`
@@ -131,12 +157,13 @@ cire/ui/src/
 Solid's `HTMLAttributes` includes `innerHTML`, `innerText` and `textContent`,
 and dom-expressions assigns `innerHTML` as markup, unescaped. A primitive that
 spreads its rest props onto an element therefore type-checks
-`<Notice innerHTML={vendorName} />`, which reads at the call site like ordinary
+`<Td innerHTML={vendorName} />`, which reads at the call site like ordinary
 prop passing and is a script tag. `shared/ui/src/ui/props.ts` omits the three,
 so the mistake is a compile error. Anything that genuinely needs to write markup
 reaches for a bare element and says why. The menu's parts and `PopoverContent`
-are typed with it, and `shared/ui/tests/ui/markup-props.test.tsx` fails the
-type check if one of them takes markup again.
+are typed with it; `Notice` and `Chip` go further and take an allow-list of
+props. `shared/ui/tests/ui/markup-props.test.tsx` fails the type check if any
+of them takes markup again.
 
 ### `InfoPopover` — the form-field explainer
 
@@ -166,6 +193,76 @@ hold that guarantee rather than trusting it.
 > `setTimeout` then `requestAnimationFrame`, so a check made immediately passes
 > while the panel is in fact hidden. `shared/ui/tests/ui/info-popover.test.tsx`
 > holds the guarantee, rendering the popover inside a real `Dialog`.
+
+### `Notice` — five tones, three sizes, a mark that is a shape
+
+`<Notice tone size fill alert>` says something went wrong, went right, or is worth
+knowing. Five tones: `danger`, `warn` and `success` each lead with a circled
+icon of a different shape (a cross, an exclamation mark, a tick), drawn inline
+in [notice.tsx](../../shared/ui/src/ui/notice.tsx) in the tone's ink, sized in
+`em` from the text step, `aria-hidden`, with a word read in its place
+("Error:", "Warning:", "Success:"). `info` and `accent` carry no mark: they
+are standing notes. `accent` paints `--ui-accent-ink`, never `--ui-accent`.
+
+| Size | What it draws | For |
+| --- | --- | --- |
+| `md`, the default | the box every app drew before the others: `p-4`, `text-ui-base`, the `sm` corner | a block on a page or in a modal |
+| `sm` | the same box, compact: `px-3 py-2`, `text-ui-sm` | a note beside a control or in a sidebar |
+| `inline` | no border, fill, padding or corner — the mark, the word and the text, in the tone's ink | the error line under a field |
+
+A box takes `fill`: `tint`, the default, or `none`, which keeps the border and
+the ink and drops the tint, so the words sit on the ground beneath — for a note
+whose ink must clear its contrast floor on that ground alone. The inline line
+has no box, and the type refuses `fill` beside `size="inline"`.
+
+All three render a `<div>`, so none sits inside a `<p>` or a `<label>`: a call
+site there moves the line out of the paragraph. An inline line about a field
+takes an `id` the field names in `aria-describedby`. A notice takes an
+allow-list rather than a `<div>`'s props — `id`, `aria-describedby`, `data-*`
+and a layout `class` — and the role follows `alert`: nothing else reaches the
+element, typed or spread, so no call site can pass markup or a handler, hide
+"Error", rename the words or turn an alert into a status. A call site that needs
+a status region wraps the notice in one. `mark` draws an app's own icon
+and read word in the same slot, for a part built on a tone that has none —
+`@cire/ui`'s `Note`, the accent tone led by a ✦. With
+no `size` and no `tone`, `Notice` renders the classes it rendered before it had
+either: `shared/ui/tests/ui/notice.test.tsx` pins that string and an unfilled
+box's as the same less its one fill class, and `primitives.browser.test.tsx`
+holds the inline line boxless, an unfilled box's ground transparent, `accent`
+off `info`, the icon on the first line and sized from the text step.
+
+### `Chip` — a state in a pill: two variants, two treatments
+
+`<Chip tone variant treatment>` names a state in a pill, in one of five
+tones — `neutral`, `success`, `pending`, `accent`, `danger` — named for their
+role, never a domain word. In [chip.tsx](../../shared/ui/src/ui/chip.tsx):
+
+| Option | Values | What each draws |
+| --- | --- | --- |
+| `variant` | `filled`, the default; `outline` | a tinted ground and no border; a 1px border at 40% of the tone (the hairline for `neutral`) and no ground, at the filled chip's height |
+| `treatment` | `caps`, the default; `tag` | a status word in small caps, held to one line; a label as written — sentence case, normal spacing, `px-2` — free to wrap |
+
+The filled tints are light on purpose: `success`, `pending` and `accent` at 8%,
+`danger` at 10%, `neutral` the surface at 60%. A chip's word is small text,
+held to 4.5:1 on what it sits on, and a stronger wash darkens the ground under a
+coloured word on a pale theme. `cire/host/tests/styles/chip-contrast.browser.test.tsx`
+holds every tone, variant and treatment to 4.5:1 on cire's page and a card's
+wash, and the flags' tones on the run sheet's coming-up row, in both themes;
+filled `danger` reads 4.65:1 on cire's light page.
+
+*Measured 2026-10-30 — the composite `cire/host/tests/styles/chip-contrast.browser.test.tsx` paints, read for a filled `danger` tag on the light page (headless Chromium)*
+
+An outline or a tag may lead with a mark — a dot, an icon — held 6px from its
+word; a filled small-caps chip holds its word alone. A `danger` chip with no
+`variant` is outlined.
+
+A chip is a label, and its word is the state, so it takes an allow-list rather
+than a span's props: an `id`, `aria-describedby`, `data-*` attributes, a layout
+`class` (appended last), and `role="status"` for a chip whose word changes under
+the reader. Nothing else reaches the `<span>`, typed or spread — no handler, no
+markup, no `aria-hidden`, `hidden` or `aria-label`, and no `title`: a badge that
+needs explaining sits in `Tooltip` (below). A chip that has to be pressed is a
+`Button`.
 
 ### `Tooltip` — a label that explains itself on hover
 
@@ -233,6 +330,99 @@ tree once and never as a description, with the panel closed and open.
 `shared/ui/tests/tooltip.browser.test.tsx` holds the two a caller's page can
 hide: the hidden copy as written inside an `uppercase` run, and no animation
 for a reader who asked for reduced motion.
+
+### `DropdownMenu` — two looks, and rows that are checked, chosen or followed
+
+`DropdownMenuContent` takes `variant`, set once on the panel and read by every
+row, label and separator inside it, so one menu cannot mix two looks:
+
+- **`default`** — the shared look musubi's account menu, pulse's header and
+  explore menus, and the lab draw. Its classes are frozen:
+  `shared/ui/tests/dropdown-menu-default.browser.test.tsx` reads them back as
+  literal strings and checks what they paint, and imports only what the menu
+  exported before the accent variant, so it runs on either side of a change.
+  A focused row is marked by its sunk fill and a `pill` trigger by its ring,
+  both of which a contrast theme (forced colours) drops, so each hides its
+  outline only while focused and the theme paints it there. A hidden outline
+  at rest would ring every row in that theme.
+- **`accent`** — cire's portal menus: the raised surface at the `md` corner
+  with `--elev-2` (an app's own, else `--ui-elev-2`), 6px of padding; rows at
+  the small type step in full ink, `px-3 py-2` at the `sm` corner; a
+  highlighted row a 10% accent wash with the readable accent ink; a 2px focus
+  ring inset by 2px for the keyboard, because Kobalte scrolls a row flush to
+  the edge of a scrolling panel and the panel would clip a ring drawn outside
+  it. The panel pops from its trigger's side — a 0.96 scale and a fade on the
+  app's `--dur-fast` and `--ease-out`, under `motion-safe:` — and has no exit:
+  a menu held mounted for an exit animation keeps focus inside it, and focus
+  then falls to `<body>` instead of going back to the trigger. The colour fade
+  names its properties, so the ring never fades in.
+
+The rows:
+
+- `DropdownMenuItem` — one choice. With `as="a"` it is a real anchor taking
+  `href`, `target`, `rel` and `download`. It keeps only an address a menu may
+  lead to — a web page, a path or fragment on the site, `mailto:` or `tel:` —
+  and drops any other (`javascript:`, `data:`), whatever its caller checked.
+  Opening another tab or window (any `target` but `_self`, `_parent`, `_top`),
+  it adds `noopener noreferrer` to the caller's `rel` and drops an `opener`.
+  The browser follows the link, never script:
+  the menu stays open through Kobalte's select and closes a task after the
+  link's own click, because an anchor taken out of the document during its
+  click goes nowhere, and a tap's click can arrive after Kobalte's own
+  close-on-select would have removed it. Space clicks it, as Enter does.
+  Disabled, it keeps no `href`.
+- `DropdownMenuCheckboxItem` — on or off (`checked`, `onChange`), open after
+  choosing unless `closeOnSelect`. `indicator="check"` (the default) shows a
+  trailing check while on; `indicator="switch"` draws `Switch`'s own track and
+  thumb (`switch-classes.ts`), hidden from assistive technology — the row
+  carries `menuitemcheckbox` and `aria-checked`.
+- `DropdownMenuRadioGroup` (`value`, `onChange`) and `DropdownMenuRadioItem`
+  (`value`) — one of several; the chosen row shows the trailing check, so the
+  choice never rests on colour alone.
+- `DropdownMenuLabel` — `heading`, `identity`, or `eyebrow`: small caps at the
+  widest tracking in the secondary ink, for a group label. In a menu the
+  accent marks state — the highlighted row, the check, a switch that is on —
+  so a label that cannot be chosen does not wear it.
+
+The trailing check and the switch take the readable accent ink and the accent.
+
+**Where cire draws it.** Every portal menu is the accent look: host's account
+menu, wedding switcher, a guest's seat menu (radio rows, each table's count in
+the secondary ink), the narrow household list's one menu (§One popup for a
+list) and the invite builder's phone menu; the vendor portal's account menu,
+its account row a link row. A trigger with a look of its own — an avatar, a
+wedding's name, a seat's "Seat", the builder's place pill — is a plain button
+the trigger renders as (`as`), as it would a `Button`: `shadcn/no-restyle`
+lets a `DropdownMenuTrigger` take layout classes only. The guest site's
+`LinkMenu` draws no Kobalte menu and takes `MENU_TOUCH` (below).
+
+**Inside a `Modal`** the panel portals into the open dialog and carries
+`data-kb-top-layer` (`portal-mount.ts`, shared with `PopoverContent`), so a
+click on a row lands. With no modal open it portals to `<body>` with no such
+mark: Kobalte reads the mark outside modals too, and a press inside a marked
+panel never counts as outside another open layer. In a dialog the panel is
+clipped by the dialog's own scroll box and by a `frame` modal, as a popover is
+(englishstreetventures/osn#1089).
+
+**`menu-classes.ts`** holds every class the menu renders. **`menu-touch-classes.ts`**
+holds `MENU_TOUCH`, the rows of a menu drawn without Kobalte: the guest site's
+link menu, which paints in the top layer inside the guest sheet and cannot
+afford Kobalte's menu. Its panel is `min-w-56`, `p-2` with a 4px gap, on
+`shadow-lg`; its rows are 44px, a guest's touch floor, in the secondary ink,
+filled with the accent under the pointer, for the keyboard (`focus-visible`)
+and while pressed — never on focus alone, since a tap focuses the link it
+lands on and a filled row then reads as chosen. Its outline is hidden, not
+removed, so a contrast theme, which drops the fill, paints the outline
+instead. Neither file imports
+anything, and they are two files so a stylesheet can leave out the menu it
+does not draw: `cire/invites` excludes `dropdown-menu.tsx` and
+`menu-classes.ts` with `@source not`, and `cire/landing` all three. A page
+there that starts drawing a menu needs its line gone, or the menu renders
+unstyled.
+
+`shared/ui/tests/dropdown-menu.browser.test.tsx` holds the rows' keys and
+pointer, the link rules, the modal mount, the accent look's focus ring,
+motion and its contrast on cire's two ramps, the touch row and the handle.
 
 ### Table and its pinned cells
 
@@ -331,11 +521,13 @@ RSVP table ([[cire-rsvp-table]]) and household tables, in page mode.
 
 Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
-exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its six
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its sixteen
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`loading`, `reveal` — are **default** exports, while `username-input` is named, and
-`card` carries named `CardEyebrow` / `CardCta` / `CardCtaButton` beside its
-default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
+`disclosure`, `eyebrow`, `file-input`, `loading`, `message-thread`, `note`, `person-avatar`, `reveal`, `segmented-tabs`, `sign-in-panel`, `skeleton`, `wordmark` — are **default** exports, while `username-input`, `sign-in-card-class`, `sign-in-press` and `avatar-trigger-class` are named,
+`card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
+default, `message-thread` the `MessageThreadItem` and `MessageThreadReply` types, `eyebrow` a named `eyebrowClass`, `lib/glass` a named `GLASS_FILL`,
+`sign-in-panel` the `SignInAuth` type, `skeleton` the `SkeletonStandIn` type, `sign-in-press` `createSignInPress` and `SIGN_IN_PENDING_RESET_MS`, and
+`wordmark` a named `WordmarkPlaceholder`. `sign-in-card.astro`, `site-footer.astro` and `legal-layout.astro` are Astro components, imported by default. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
 ```typescript
 import { Button } from "@shared/ui/ui/button";
@@ -351,7 +543,7 @@ import CireButton from "@cire/ui/button";
 
 | Package                    | Role                                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------------------- |
-| `@kobalte/core`            | Headless UI primitives (Dialog, Popover, Tooltip, Tabs, RadioGroup, Checkbox, DropdownMenu) |
+| `@kobalte/core`            | Headless UI primitives (Dialog, Popover, Tooltip, Tabs, DropdownMenu)                       |
 | `class-variance-authority` | Type-safe variant definitions for Button, Badge                                             |
 | `clsx`                     | Conditional class string joining                                                            |
 
@@ -444,10 +636,11 @@ list — a tooltip on each household's four icons, a menu on each household's
 controls as plain buttons and mount the popup once:
 
 - **A menu**: one `DropdownMenu` with no `DropdownMenuTrigger`, placed with
-  `getAnchorRect` against whichever button was pressed. A child of the root
-  reads Kobalte's `useMenuContext()` (`@kobalte/core/menu`) and the buttons call
+  `getAnchorRect` against whichever button was pressed. `DropdownMenuHandle`,
+  a child of the root, hands the root's menu to a `ref`, and the buttons call
   its `open("first")` from the keyboard, `open(true)` from a click, as Kobalte's
-  own trigger does, so focus lands where a keyboard user expects.
+  own trigger does, so focus lands where a keyboard user expects. The handle is
+  Kobalte's `useMenuContext()`, so a call site imports nothing from Kobalte.
   `DropdownMenuContent` takes `onCloseAutoFocus` to give focus back to that
   button, and an `aria-label` to name the menu. The household list's "⋯"
   (`cire/host/src/components/GuestTable.tsx`).
@@ -541,7 +734,7 @@ import { buttonVariants } from "@shared/ui/ui/button";
 </A>;
 ```
 
-### Kobalte components (Dialog, Popover, Tooltip, Tabs, RadioGroup, Checkbox)
+### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 
 These wrap Kobalte primitives with styling. They provide proper accessibility by default:
 
@@ -567,16 +760,46 @@ Key behaviours you get by default:
 
 - **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped
 - **Popover** — portaled, auto-positioned, outside click/Escape dismisses
+- **DropdownMenu** — portaled, roving focus by arrow keys, typeahead; §`DropdownMenu` above for its looks and rows
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation
 - **Tooltip** — hover only, panel hidden from assistive technology; §`Tooltip` above says why
-- **RadioGroup** — grouped `role="radiogroup"`, single selection, keyboard navigation
-- **Checkbox** — `role="checkbox"`, indeterminate support
-- **Focus on Checkbox and RadioGroup** — Kobalte keeps a real `<input>`, clipped to 1px, for focus and semantics, and paints a sibling `<div>` as the box or circle. Keyboard focus lands on the input, never on the `<div>`, so a ring keyed to the `<div>`'s own `:focus-visible` never draws. The input carries a plain `peer` marker and the `<div>` draws `peer-focus-visible:ring-2 ring-ui-focus`, the shape `Switch` uses; there is no ring offset, so nothing paints a ground-coloured halo on another surface. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` tab to each and measure the ring
 - **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
+
+### Checkbox and RadioGroup — native, in two boxes
+
+`Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.
+
+| Prop | Values | What it does |
+|---|---|---|
+| `box` | `drawn` (default), `native` | `drawn` hides the input and paints a 16px box beside it: small corner, ground fill, accent and a tick (a dot for a radio) when chosen, `ring-2` from the input's `:focus-visible`. Pulse draws this. `native` shows the browser's own input: ticked, the platform's blue and tick; unticked, no fill, a 1px `--ui-hairline-strong` edge, a 2px corner (a radio round), `--ui-ink-secondary` under the pointer, 40% when disabled, only the edge fading. Both states 13px, so ticking moves nothing; the house focus outline (2px, 2px off, `--ui-focus`). Cire draws every box this way |
+| `size` | `md` (default), `sm` | The label's step: `text-ui-base` or `text-ui-sm`. On `RadioGroup` for every item |
+| `align` | `center` (default), `start` | `start` centres the box on the label's first line, for a label that wraps. A drawn label sets leading 1 beside a centred box, pulse's look, and prose leading at `start`, so its second line reads and its first line holds the 16px box |
+| `orientation` (`RadioGroup`) | `horizontal` (default), `vertical` | Native: 16px between radios in a row, 8px in a column. Drawn: 8px either way. Layout only, so no `aria-orientation` |
+| `label` | JSX | Inside the `<label>`, so a link or a second line is the caller's. Native labels are body ink (`--ui-ink`) at prose leading, 8px from the box |
+| `description` (`Checkbox`) | JSX | Inside the label under the words, `text-ui-sm` secondary ink. The box is then named by `label` alone (`aria-labelledby`) and described by this |
+| `note` (`Checkbox`) | JSX | Under the row, outside the label, indented by the box and its gap so its first word sits under the label's. A click on it ticks nothing; the box is described by it. A note that resolves to nothing draws nothing and is not referenced |
+
+The outer element of a `Checkbox` is a `<div>` holding the label and the note, each at its own width, so a note that comes and goes never remounts the input, and only the box and its words answer a click. A cire app also draws every bare native box with the same values in a base-layer rule (`cire/host/DESIGN.md` §4, Checkboxes and radios), for the native inputs that sit outside the parts.
+
+Two guarantees hold beyond a plain client render, for `Switch` too. A page the browser restores (a reload, a back navigation the cache missed) can tick an input before it hydrates, and hydration writes no property, so each part puts the caller's value back once mounted: a box never shows a state the caller does not hold, which matters most for a consent box. And a Windows contrast theme drops `box-shadow` and repaints backgrounds, so the drawn box, circle and switch track draw keyboard focus as an outline there, and the chosen dot and the switch's thumb keep the text colour. `tests/choice-restore.browser.test.tsx` holds both.
+
+The drawn box keeps the DOM shape Kobalte's parts had — a clipped input, then the painted box — so pulse's forms read it unchanged. The vendor portal's listing editor draws the native box (`box="native"`), and its soft-shapes test reads the 13px box with a 2px corner. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` hold both boxes in Chromium.
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)
 
-Thin wrappers that apply consistent base styling and accept a `class` prop for overrides. `Input`, `Textarea` and `Select` share one box, defined once in `shared/ui/src/ui/control.ts` with two sizes — `md` for a form, `sm` for a control inside a table row — so a date and a currency line up in a column:
+Thin wrappers that apply consistent base styling and accept a `class` prop for overrides. `Input`, `Textarea` and `Select` share one box, defined once in `shared/ui/src/ui/control.ts`, so a date and a currency line up in a column:
+
+| Prop | Values | What it does |
+|---|---|---|
+| `size` | `md` (default, 36px), `sm` (28px), `form` and `form-compact` (34px), `touch` | `md` is a form, `sm` a table row or a filter bar. `form` (12px sides, the base type step) and `form-compact` (8px sides, the small step) are cire's portal fields. `touch` is a guest's field: 46px with 16px type below 640px, 44px from there, so iOS never zooms and the tap target never drops under 44px. Heights are rem, so on the guest site's 17px desktop root a touch field is 46.75px. `Input` and `Select` take a fixed height at every size, so no field's height comes from the platform's font; `Textarea` takes the size's sides and type and grows with its rows |
+| `fill` | `ground` (default), `ink` | `ink` draws the edge and fill from the text colour at 55% and 4.5%, for a field on a surface the page does not choose (a guest site's section in the couple's colour): focus turns the edge to the accent and draws the 2px `--ui-focus` outline 2px off, with no ring offset to paint a halo; 16px type below 640px; normal letter-spacing, whatever the label above sets. The placeholder is the secondary ink taken 15% toward the text colour, because the well alone takes the secondary ink under 4.5:1 on a light palette such as garden's |
+| `face` (`Input`) | `text` (default), `code`, `claim`, `amount` | `code`: mono with wide tracking, for an identifier. `claim`: an invitation's code, centred capitals at `tracking-ui-wider`, 1rem at every width, 16px sides, with the browser's spelling help off and a phone's keyboard in capitals. `amount`: centred |
+
+`controlClass` picks one padding, one type size and at most one letter-spacing for each size, face and fill, because two zero-specificity `base:` classes on one property are decided by the stylesheet's order. With no fill, every string it returns for `sm` and `md` is the one it returned before the fills existed, and `tests/ui/control.test.tsx` pins them with the rendered classes of `Input` and `Textarea`.
+
+`Select` draws its own chevron: the browser's arrow is off (`appearance: none`) and a 10×6 chevron in the secondary ink sits 12px in from the right on the wide boxes and 10px on the narrow ones, with right padding that keeps a long value clear of it; the select has no top or bottom padding, so the engine centres the value. The select and the chevron share the one cell of a grid, so the caller's `class` (with `classList`, `style` and `hidden`) lands on that box: it places, sizes and shows the field — `w-40`, `w-auto`, `h-8.5` — and cannot restyle it. Every other prop goes on the `<select>`. `tests/control.browser.test.tsx` measures the heights under a 2em line, the touch switch, the ink edge at 3:1 over three guest palettes, the chevron's inset and a content-sized select in a squeezed row.
+
+A file picker in cire is `@cire/ui`'s `FileInput`, whose button is cire's `quiet` pill; `Input type="file"` keeps `@shared/ui`'s plain `file:` base for the other apps.
 
 ```tsx
 import { Input } from "@shared/ui/ui/input";
@@ -861,42 +1084,292 @@ own variants and names them in the diagnostic — `Use a variant: default,
 destructive, outline, secondary, ghost, link` — so the fix arrives with the
 error rather than needing a trip to the source.
 
+### cire's `SegmentedTabs` — one glass track, three meanings
+
+The portals' segmented controls are one part (`cire/ui/src/segmented-tabs.tsx`,
+owner's choice on englishstreetventures/osn#1845): a 28px track — a 1px hairline
+on the surface at 30%, 2px inside — and 22px choices in sentence case at the
+extra-small step, the secondary ink at normal weight at rest and the readable
+accent ink at medium weight when chosen. The weight is the cue that is not
+colour, since the glass and the inks alone read under 3:1 between the chosen
+choice and the rest; a hidden copy of each word at medium weight holds its
+width, so a choice moving shifts nothing, and each choice names itself with
+`aria-label` so that copy is never read. The chosen one sits on glass: the raised surface at
+55% under the accent at 14% (composited into one colour, so a test can read
+what the label sits on), an inner lip, a light inner edge (`--glass-edge`, an
+app token; white at 10% when unset), a hairline ring, the first lift and a
+12px frosted backdrop. The glass slides on the house spring
+(`--ease-spring`, falling back to the app's ease-out) at `--dur-base`, inside
+its own layer clipped to the track's shape, so an overshoot is cut by the
+track and no focus ring is. Under the pointer an unchosen choice goes halfway:
+half the tint, an ink between the two. A hover's colours come and go on
+`--dur-fast` with `--ease-out`; a choice being made arrives on `--dur-base`
+with `--ease-in-out` (the one motion rule, host `DESIGN.md` §4; a browser takes
+a transition from the state it moves to, so the choice giving the mark up runs
+on the fast clock). Colours fade on named properties, so
+the 2px ring at 2px never fades in; a reader who turned motion down gets no
+slide and no fade. The frosted backdrop is filtered again on every frame of a
+slide: a cost on low-end phones that the owner's frosted look accepts. In a
+contrast theme the chosen choice keeps a 1px outline in the theme's text
+colour, since the theme drops the glass.
+
+`semantics` keeps each strip's meaning: `tabs` (a named tablist, one tab stop,
+arrows, Home and End moving focus, Enter or a click choosing), `radio` (a
+named radiogroup with one tab stop, the checked radio; the arrows move to the
+next or previous radio, wrapping, and ask to choose it, as the ARIA radio group
+does; a refused choice is never shown as made) and `current` (a named group of
+buttons, the chosen one `aria-current="page"`). Items are keyed by `value`, so a
+call site may rebuild them on every keystroke; `icon`, `name` (a fuller
+accessible name), `describedBy`, `after` (a count, a mark) and `iconOnly` are
+read as they change. `iconOnly` on the strip hides every label for assistive
+technology alone and hands each to `tipAttribute`, the attribute the app's
+tooltip layer reads (`data-tip` in the host portal); on an item it does the same
+for that item alone, so some choices can show as their marks beside a word that
+stays. `scroll` keeps the strip
+on one row and scrolls it sideways inside its box, the chosen choice and one
+the arrows reach kept in view without moving the page. `class` sets the
+strip's place in its row only.
+
+`GLASS_FILL` (`@cire/ui/lib/glass`) is the glass's look without its place, for
+a lone glass pill that is no strip's choice: the invite builder's place on a
+phone. A contrast theme drops its fill, so such a pill draws its own edge
+there. The guest site and the marketing site leave `lib/glass.ts` out of their
+Tailwind scan beside `segmented-tabs.tsx`, so no glass rule reaches their CSS.
+
+Where the portals draw it: a module's views (`ModuleShell`, `tabs`, icon-only
+below 36rem with `data-tip`), the Edit modes (`EditWorkspace`, `radio`), the
+RSVP page's events (`RsvpView`, `tabs` with `scroll`, a count and "New" after
+each word) and its reply filter (`radio` with `scroll`, each reply's dot before
+its word and its count after it, the replies icon-only on a phone beside an
+"All" that keeps its word), the invite builder's sections under Content (`tabs`, `scroll`) and
+the vendor portal's two views (`current`). Host `DESIGN.md` §7 has the look and
+§A tab strip inside a view, §The invite builder's two tiers the layouts.
+
+`createSlidingPill` (`cire/ui/src/lib/sliding-pill.ts`) is the highlight under
+it, and the module rail's marker: `ease: "out"` (the default) or `"spring"`.
+`cire/ui/tests/segmented-tabs.test.tsx` holds the roles and keys,
+`segmented-tabs.browser.test.tsx` where the glass lands, the 28px and 22px
+heights, each label's 4.5:1 on both ramps, the ring and the scrolling strip.
+
+### cire's `Wordmark` — the way home, and its still copy
+
+Both portals' top bars open with the same mark (`cire/ui/src/wordmark.tsx`):
+a readable-gold ✦ and "Cire" in the display face at the `md` step, wide
+tracking and light weight, in a 6px box (`rounded-ui-sm`, `px-1.5 py-1.5`)
+that takes the surface at 60% under the pointer — the nav-row highlight the
+portal menus and the module rail draw. It is a button named by `label` alone
+("Cire — all weddings", "Cire — your listings"), which its type holds to open
+with "Cire — ", the word on screen, so a voice user who says "click Cire"
+reaches it (WCAG 2.5.3); the star and the word are `aria-hidden`. The star stays readable gold under the pointer, so the hover
+changes only the wash, and that fade names its one property on `--dur-fast`
+and `--ease-out`. The focus ring is `Button`'s own, 2px at a 2px offset from
+`--ui-focus`, because a library part cannot count on its app's blanket
+`:focus-visible` rule. The box pulls 4px left (`-ml-1`) and never right: with
+a pull on both sides the ring lands on the divider (or vendor's tabs) 8px
+along the bar's `gap-2` row, and left only it clears them by 4px. It takes no
+`class`, `size` or `variant`.
+
+`WordmarkPlaceholder` is the same box and glyphs with no role, no tab stop, no
+hover and `aria-hidden`, for the static bar a portal's `index.astro` paints
+until the island mounts, rendered to HTML with no client directive. The two share one box string and one glyphs component, so the swap
+moves nothing. `cire/ui/tests/wordmark.test.tsx` holds the name, the click, the
+form, the placeholder's inertness, the readable star, the left-only pull and
+the ring's classes; `wordmark.browser.test.tsx` the star and the word at
+4.5:1 on the bar and on the wash in both ramps, the ring and its gap to the
+divider, and the copy's glyphs landing where the button's do.
+
+### cire's `SignInPanel` and `SignInCard` — one sign-in for both portals
+
+The host and vendor portals sign in through the same page. `SignInCard`
+(`cire/ui/src/sign-in-card.astro`, props `portal` and `apiBase`) is its body:
+a 30rem measure through the portal's `page-frame`, set at the top (`py-24`) so
+the header never moves while the card below it grows; an `Eyebrow` naming the
+product and the portal ("Cire · Host portal", "Cire · Vendor portal"); a roman
+"Sign in" in the display face, sized from the page's container
+(`text-[clamp(1.9rem,5cqi,2.6rem)]`, so the page's `<body>` carries
+`@container/frame`); and the card, `signInCardClass` — the opaque card at the
+largest padding with its top edge lit by the app's `--inner-lip`, kept in
+its own module (`sign-in-card-class.ts`) so the island ships no card code —
+holding the panel as a `client:only` island. The card, the measure and the
+labels are the owner's choices.
+
+`SignInPanel` (`cire/ui/src/sign-in-panel.tsx`, props `apiBase` and an
+optional `auth`) is the island: copy at the small step, one large primary
+pill, "Continue with musubi", and a danger `Notice` read out as an alert when
+the address carries `?auth_error=` — a line each for `sign_in_declined`,
+`sign_in_failed` and `sign_in_unavailable`, the failed line for any other —
+after which the marker is wiped from the address. It never leaves on its
+own: it asks `resumeSession`, behind the page, whether this browser is
+signed in already. Both that and the button return to `?returnTo` only when
+it is a same-origin path with no `//`, no backslash and not `/login`, else to
+`/`. After the press the label reads "Connecting to musubi…" at full
+strength and a hidden status line says the same; a second press does
+nothing; a `pageshow` from the back-forward cache, or ten seconds
+(`SIGN_IN_PENDING_RESET_MS`) with the browser still on the page, puts the
+button back. That press is `createSignInPress` (`sign-in-press.ts`), which
+holds no markup, so any other "Continue with musubi" — the vendor's claim
+page's — shares it and renders its own status line. `auth` is the four `@shared/rp-auth` calls, so a story or a test
+can show every state without navigating; the portals pass nothing.
+
+`cire/ui/tests/sign-in-panel.test.tsx` holds the flow, each marker, the
+`returnTo` refusals and the pending state's three ways back;
+`sign-in-card.test.ts` reads the template for the island, the labels, the
+roman heading and the top-set measure; `sign-in-panel.browser.test.tsx` the
+copy, the button and the notice at 4.5:1 on the opaque card in both ramps,
+and a press that keeps the 284px button's box at a phone's width.
+
+### cire's `PersonAvatar` — a face, or an account's circle
+
+One part draws a person's photo everywhere cire shows one
+(`cire/ui/src/person-avatar.tsx`): a face on a task, the portals' account
+triggers and the guest site's account card. It is built on `@shared/ui`
+`Avatar` and `AvatarImage`, which take layout classes only, so its frame, ring
+and colours sit on its own root span. The photo is drawn only from an absolute
+`https:` URL, with `referrerpolicy="no-referrer"` and `alt=""`; the whole part
+is `aria-hidden`, and the caller names the person in text. A URL that fails to
+load joins one set for the page: the face that failed falls back at once, and
+no face that has not drawn that URL asks for it again, so vendor's placeholder
+trigger and the real one agree. One that already drew it keeps it, and a new
+URL gets its own try.
+
+`fallback` picks the stand-in, by what the face is for:
+
+- **`blank`**, a face in a stack or a list: the empty avatar, a figure in the
+  page's colour cut from a disc of faint ink (`--ui-ink-tertiary`) laid over
+  the page's colour, so it is opaque where faces overlap. Never initials. No
+  frame.
+- **`initial`**, an account's circle (it needs `name`): a hairline circle with
+  no fill of its own, round the photo too, and the name's first grapheme in
+  readable gold in the display face at weight 600, at half the circle's inside
+  width (`50cqi`, with `@container` on the root: 17px in a 36px circle, 19px in
+  a 40px one), upper-cased only when that keeps it one letter. The letter's
+  size and weight are the owner's choices.
+
+`ring` draws the stack's 2px band in the page's colour outside the circle, a
+box-shadow on the root, so the photo keeps its size; `Avatar`'s
+`ring="surface"` paints a border inside the circle instead. `class` is required
+and sets the size and the place: the root measures its letter from its own
+width, so it takes none from its contents.
+
+`avatarTriggerClass` (`avatar-trigger-class.ts`, a module of its own so the guest
+site, which draws no trigger, leaves its classes out) is the 36px round button an
+account menu opens from: the
+portals' pill ground (`--pill-ground`, the surface at 30%) and `Button`'s ring; the `initial` avatar inside it
+(`class="size-full"`) draws the hairline, and its edge turns `--ui-accent-soft`
+under the trigger's pointer (`group/avatar-trigger`). The fill is the
+trigger's, not the avatar's, because the guest site lays no ground of its own
+under a gold word. Neither imports Kobalte,
+so a trigger can draw before a menu's code has loaded.
+
+`cire/ui/tests/person-avatar.test.tsx` holds the URL guards, the failed-URL
+set, both stand-ins and the initial's graphemes, the ring classes and the
+trigger's ring; `person-avatar-source.test.ts` that neither file imports a menu
+library; `person-avatar.browser.test.tsx` the initial at 4.5:1 on its disc in
+both ramps, the letter's size and weight, the ring outside the photo, the
+opaque blank disc, the trigger's edge and ring, and the edge's fade.
+
 ### cire's `Button`, as a vocabulary
 
-`@cire/ui`'s `Button` is the house style rather than the shadcn set — uppercase,
-tracked, a sharp 4px corner, a gold primary — and on a cire surface it is where a
-call site's colour, shape and padding have to come from. Sixteen variants,
-grouped by the job rather than by the look:
+`@cire/ui`'s `Button` is the house style rather than the shadcn set — pill
+actions, sentence-case labels at normal tracking in a medium weight, a gold
+primary — and on a cire surface it is where a call site's colour, shape and
+padding have to come from. Nineteen variants, grouped by the job rather than
+by the look:
 
 | Group          | Variants                              | What each is for                                                                                                                                                                                                                              |
 | -------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Commit         | `primary`, `cta`                      | The one thing to do on the screen. `cta` is the guest site's: outlined at rest and filled on hover, because an invite is restrained enough that a gold fill at rest would be the loudest thing on a page whose job is a photograph and a date |
-| Secondary      | `outline`, `quiet`, `dashed`          | A gold wash, a neutral action, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_                                                                                                      |
+| Secondary      | `outline`, `quiet`, `bar`, `dashed`   | A gold edge, a neutral action, the portals' bar icon button, and the empty slot — a dashed box promises that something _appears_, a solid one that something _happens_. `outline`'s 40% edge turns full gold under the pointer and nothing fills, so its gold word keeps its rest contrast wherever it sits (`cire/ui/tests/outline.browser.test.tsx`). `quiet` holds its hover look (gold edge, readable gold) while what it opens is open (`aria-expanded`); at `icon` it is a portal row's icon action. `bar` rests as `quiet` does; under the pointer its ground lifts to the surface at 60% with the body ink and a gold edge, and while what it opens is open (`aria-expanded`) it stands on the raised surface in the body ink and its hairline, which the pointer does not move — the hover is gated on `not-aria-expanded` (`cire/ui/tests/portal-pills.browser.test.tsx`) |
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
-| Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
+| Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one. A link set inside a sentence is not a `Button` at all: it takes `proseLinkClass`, below |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
-| Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: sentence case, an input's padding, transparent like the inputs around it |
-| Chrome         | `chip`                                | A control in a sheet's own chrome rather than its content — the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button. A pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere |
-| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
+| Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: an input's padding and weight, the text field's corner, transparent like the inputs around it |
+| Chrome         | `chip`, `round`                       | A control in a sheet's own chrome rather than its content. `chip`: the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button — a pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere. `round`: a glyph on that same opaque disc with no edge — the sheet's close × — muted ink that brightens on hover while the fill stays |
+| State and fill | `choice`, `glass`, `tile`             | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same — an accent edge, accent ink and a 2px 60% ring; and the control that _is_ a block — a card, a row — where a hairline stops describing the target. Under the pointer an unchosen `choice` goes halfway to chosen (edge and ink a `color-mix` of rest and chosen, a 1px 30% ring, so chosen and hovered differ by the ring's width and not by gold alone), its hover on `--dur-fast` with the arriving curve and its choosing on `--dur-base` with `ease-in-out`. Locked with `aria-disabled` while its answer saves, a `choice` keeps its look and only stops answering the pointer; every other variant fades to 40%, and `disabled` fades a `choice` too. `glass` is the portals' one of several (a scheme preset, the preview's Desktop and Phone, a crop's shape): the glass track's look at rest, a strip choice's halfway hover, and chosen the strip's glass in readable gold at medium weight, the rest at normal — the cue that is not colour, as a strip's, with each word's width held by an unseen medium copy drawn as generated content (`GLASS_WORD`, the strip's own) and the pill named by its word — on the same two clocks; its classes are `GLASS_CHOICE` in `lib/glass.ts`, held to the strip's by `cire/ui/tests/glass.test.ts`, and the guest site keeps `choice`, as does a swatch whose own fill is what is chosen |
 
-Five sizes, and they are not one scale:
+Six sizes, and they are not one scale:
 
 | Size             | What it gives                                     | For                                                                                                              |
 | ---------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `sm`, `md`, `lg` | three steps of label padding and type             | An ordinary control                                                                                              |
+| `sm`, `md`, `lg` | three steps of label padding and type; `sm` takes `--pill-sm-height` where an app sets it (the portals: 28px) and its padding's own 31px elsewhere | An ordinary control                                       |
+| `form`           | md's sides and type at the 34px form-field height (`field`: its own padding and type at 34px) | A button beside a portal form field                                  |
 | `swatch`         | one hairline of padding, no type at all           | A control whose content is the thing itself — a colour swatch, a product thumbnail. The picture is what sizes it |
-| `icon`           | square, sized to the glyph rather than to a label | A single glyph                                                                                                   |
+| `icon`           | square, sized to the glyph rather than to a label; boxed, a 28px circle | A single glyph                                                                                     |
 
-Four sizing tables, picked by the variant. The borderless ones take the type
-step and none of the box padding, because `px-4 py-2` around a text link is a
-word floating in a gap. `tile` takes square block padding, because its interior
-is a small layout — a numbered marker beside two lines of text — rather than a
-word. `field` takes an input's padding and sentence case. Everything else takes
-the ordinary one.
+**The portals' two tokens.** `Button` reads two app tokens the host and vendor
+portals set and the guest site and the marketing site leave unset:
+`--pill-ground`, the ground every non-primary boxed pill sits on (`cta`,
+`outline`, `quiet`, `bar`, `quietDanger`, `dashed`, `danger`, `choice`, `glass`; in
+the portals the surface at 30%, the glass track's ground; unset, transparent),
+and `--pill-sm-height` (above). `avatarTriggerClass` and `FileInput`'s button
+read the ground too. `cire/ui/tests/portal-pills.browser.test.tsx` measures
+both with the portals' values and without.
+
+Five sizing tables, picked by the variant. The borderless ones take the type
+step and none of the box padding or weight, because `px-5 py-2` around a text
+link is a word floating in a gap. `tile` takes square block padding, because its
+interior is a small layout — a numbered marker beside two lines of text — rather
+than a word. `field` takes an input's padding and weight. `round` takes a square per step — 28px at `sm`, 32px at
+`md`, `icon` and `swatch`, 34px at `form`, 44px at `lg` (the close ×, the guest site's touch floor) — its glyph on the
+`base` text step, and the close × on `lg`. A `round` button, and any `Button` at the `icon` size, holds one glyph hidden
+from assistive tech, so its type requires `aria-label` or `aria-labelledby`
+when the variant or size is written as a literal. Everything else takes
+the ordinary one, whose side padding is a step wider than a rectangle's because
+a pill's round ends eat into the room beside the label.
+
+The corner is not in the sizing tables. Each class string carries exactly one,
+`base:`-prefixed, from a contract role rather than a size step, so each cire app
+sets how round its buttons are once, in its stylesheet ([[design-tokens]]):
+
+| Variant or size                         | Corner                 |
+| --------------------------------------- | ---------------------- |
+| size `swatch`, whatever the variant      | `base:rounded-ui-field` |
+| variant `tile` or `field`               | `base:rounded-ui-field` |
+| variant `chip`                          | `base:rounded-ui-pill` |
+| variant `round`, at every size           | `base:rounded-ui-pill` |
+| every other variant and size             | `base:rounded-ui-control` |
+
+A tile is a block, a field holds a value and a swatch frames a picture, so a
+pill would read as a lozenge around each. `chip` and `round` take the `pill` step rather
+than the `control` role: it sits beside a round close button and stays round
+whatever an app maps `control` to. The borderless variants take `control` too;
+with no border and no fill, only their focus ring shows it.
+Because no default corner is a plain utility, a caller's plain `rounded-*` in
+`class` wins rather than tying with it (§Class composition above).
+
+`choice`'s hover is gated on the option being neither chosen nor locked, and the
+gate is written inside `base:` — `not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:…` —
+because Tailwind applies stacked variants left to right: `base:hover:x` compiles to
+`:where(.x):hover`, which keeps the hover's own pseudo-class weight, and a gate
+of three `:not()` before `base:` would outrank a caller's plain `hover:` class.
+Written the other way the whole selector sits in `:where()` and a caller still
+wins (`cire/ui/tests/choice.browser.test.tsx`).
 
 `cire/ui/src/button.tsx` carries the reason for each in its own doc comment, and
 that is the bar for adding one: a variant is a design concept somebody can name,
 not a colour somebody wanted. `custom`, `alt` and `variant2` are not names.
+
+**A link inside a sentence is not a `Button`.** Every `buttonClass` output
+starts `inline-flex … whitespace-nowrap`, which holds a long link to one line.
+`proseLinkClass({ tone })`, from the same file, gives an `<a>` set in running
+text its classes instead: inline, so it wraps with its sentence; underlined at
+rest at a 2px offset, so colour is not the only thing marking it (WCAG 1.4.1);
+no type size and no weight, so it takes the sentence's. Two tones: `accent`
+(the default), readable gold, unchanged on hover; `muted`, the secondary ink,
+brightening to the body ink on hover as `touchLink` does. A link inside a
+tinted `Notice` takes `accent` too, not the notice's ink (owner,
+englishstreetventures/osn#1838). It draws `Button`'s focus ring itself, since
+`@cire/landing` has no blanket `:focus-visible` rule, and its transition names
+its colours only. It is for an `<a href>` that goes somewhere: a `<button>`
+lays out as an inline block even at `display: inline`, so its words never wrap
+with the sentence. A way to another screen written into a sentence is still a
+link with a real address, whose click handler may take over the plain click to
+do the navigating and leaves a modifier or middle click to the browser; an
+action that goes nowhere stays a `<button>`, outside the sentence. A link that stands alone is not this either: it is a pill,
+`buttonClass({ variant: "outline" })`. The organiser portal draws its pills through `LinkPill`
+(`cire/host/src/components/LinkPill.tsx`): `sm` at 28px, a destination's 14px mark before the word, and a 28px circle
+with the word in its name and its title in a row under 14rem (`cire/host/DESIGN.md` §7). The guest site's pills are `md` at its 44px
+floor.
 
 ## Adding a new component
 
@@ -933,7 +1406,11 @@ own, under the feature that uses it: [[stacked-prs#Frontend: one component per p
 `tests/**/*.test.tsx` is the `unit` project on happy-dom, and
 `tests/**/*.browser.test.tsx` is the `browser` project on real Chromium. Every
 file lands in exactly one. `bun run --cwd shared/ui test:run` runs the first,
-`test:browser` the second; `@osn/auth-ui` and `@cire/ui` have a unit tier only.
+`test:browser` the second. `@cire/ui` splits the same way, and its browser
+project loads `cire/ui/tests/test-support/tailwind.css`, which maps cire's own
+two ramps (the literals the lab's `cire-mapping.ts` resolves) rather than a
+synthetic palette, so a contrast assertion there is a claim about cire's
+colours. `@osn/auth-ui` has a unit tier only.
 
 The split exists because the unit project parses no stylesheet and computes no
 layout: it can assert a class list and a DOM shape, but not that a class emitted

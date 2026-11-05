@@ -2,7 +2,7 @@
 import '../styles/global.css'
 import { VineCanvas } from '../components/VineCanvas'
 import SiteNav from '../components/SiteNav.astro'
-import SiteFooter from '../components/SiteFooter.astro'
+import MarketingFooter from '../components/MarketingFooter.astro'
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from '../lib/site'
 import { Font } from 'astro:assets'
 
@@ -44,7 +44,9 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    <meta name="theme-color" content="#0d1f17" />
+    {/* `--color-bg` as hex, since a meta reads no CSS variable: the browser's
+        chrome takes the page's own ground. */}
+    <meta name="theme-color" content="#0b1a0d" />
 
     <noscript>
       {/* No JS ⇒ the scroll-reveal observer never runs, so reveal everything up
@@ -66,7 +68,7 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
       <VineCanvas client:load />
       <SiteNav />
       <slot />
-      {footer && <SiteFooter />}
+      {footer && <MarketingFooter />}
     </div>
 
     {/* Scroll-reveal: add `data-revealed` to any `[data-reveal]` as it enters the

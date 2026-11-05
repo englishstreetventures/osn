@@ -1,4 +1,5 @@
 import { buttonClass } from "@cire/ui/button";
+import { MENU_TOUCH } from "@shared/ui/ui/menu-touch-classes";
 import { createSignal, createUniqueId, Index, onCleanup, Show } from "solid-js";
 
 import { Z_CLASS } from "../lib/z-index";
@@ -40,9 +41,10 @@ const TRIGGER_CLASS = `${buttonClass({ variant: "touchLink", size: "md" })} min-
  * Each item a 44px row, filled gold under the pointer, while keyboard focus is
  * on it, and while a finger presses it. Not on focus alone: a tap focuses the
  * link it lands on, and an item filled for a pointer's focus reads as chosen.
+ * The shared menu's touch row (`@shared/ui` `MENU_TOUCH`), so the guest
+ * site's one menu and the portals' menus take their rows from one place.
  */
-const ITEM_CLASS =
-  "font-body text-text-muted hover:bg-gold hover:text-on-gold focus-visible:bg-gold focus-visible:text-on-gold active:bg-gold active:text-on-gold text-ui-sm tracking-ui-wider flex min-h-11 items-center rounded-sm px-3 uppercase transition-colors duration-200 focus-visible:outline-none";
+const ITEM_CLASS = MENU_TOUCH.row;
 
 /** The menu's `min-w-56`, for placing it before it has been measured. */
 const MENU_WIDTH = 224;
@@ -334,7 +336,7 @@ export function LinkMenu(props: LinkMenuProps) {
           // (`inset: 0; margin: auto`), which would otherwise fight the
           // measured `top`/`left` below and stretch the box across the
           // viewport.
-          class={`border-border bg-surface-raised fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 flex max-w-[calc(100vw-1rem)] min-w-56 flex-col gap-1 rounded-sm border p-2 shadow-lg`}
+          class={`${MENU_TOUCH.panel} fixed ${Z_CLASS.MODAL_POPOVER} inset-auto m-0 max-w-[calc(100vw-1rem)]`}
           style={{ top: `${position().top}px`, left: `${position().left}px` }}
         >
           <Index each={props.items}>

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -115,7 +115,18 @@ describe("PerHeadPanel", () => {
 
   it("sends the ticked events in the wedding's order", () => {
     const { onSave } = panel(line());
+    // The radio group shows the line's scope: every event, until another is chosen.
+    expect(screen.getByLabelText("Every event")).toBeChecked();
+    expect(screen.getByLabelText("Only these events")).not.toBeChecked();
     fireEvent.click(screen.getByLabelText("Only these events"));
+    expect(screen.getByLabelText("Only these events")).toBeChecked();
+    // The event boxes are a named group of their own, not loose boxes.
+    const group = screen.getByRole("group", { name: "Events to count" });
+    expect(
+      within(group)
+        .getAllByRole("checkbox")
+        .map((b) => b.getAttribute("aria-label") ?? b.closest("label")?.textContent),
+    ).toEqual(["Ceremony", "Reception"]);
     fireEvent.click(screen.getByLabelText("Reception"));
     fireEvent.click(screen.getByLabelText("Ceremony"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -127,7 +138,9 @@ describe("PerHeadPanel", () => {
 
   it("sends null to count every event again", () => {
     const { onSave } = panel(line({ eventIds: ["evt_ceremony"] }));
+    expect(screen.getByLabelText("Only these events")).toBeChecked();
     fireEvent.click(screen.getByLabelText("Every event"));
+    expect(screen.getByLabelText("Every event")).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onSave).toHaveBeenCalledWith({ unitPriceMinor: 5_000, eventIds: null });
   });
@@ -142,6 +155,27 @@ describe("PerHeadPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Tick at least one event");
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  // The line sits below the event choice, so the price box names it while it
+  // is the price's; the event choice's refusal is not the price's.
+  it("names the price box by its refusal, and only by its own", () => {
+    panel(line({ unitPriceMinor: null, headcount: null }));
+    const price = screen.getByLabelText(/Price per head/);
+    expect(price).not.toHaveAttribute("aria-describedby");
+    expect(price).not.toHaveAttribute("aria-invalid");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a price per head");
+    expect(price).toHaveAccessibleDescription(/Enter a price per head of zero or more\./);
+    expect(price).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.input(price, { target: { value: "10" } });
+    fireEvent.click(screen.getByLabelText("Only these events"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Tick at least one event");
+    expect(price).not.toHaveAttribute("aria-describedby");
+    expect(price).not.toHaveAttribute("aria-invalid");
   });
 
   it("refuses a price that rounds to zero cents, and keeps a price of 0", () => {

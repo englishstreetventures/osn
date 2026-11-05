@@ -1,3 +1,6 @@
+import { buttonClass } from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
+
 import { OSN_ACCOUNT_URL } from "../lib/osn";
 
 /**
@@ -21,8 +24,10 @@ export default function SecurityPanel() {
   return (
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Security</p>
-        <h2 class="font-display text-ui-lg">Your devices &amp; passkeys</h2>
+        <Eyebrow>Security</Eyebrow>
+        <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">
+          Your devices &amp; passkeys
+        </h2>
         <p class="font-body text-text-muted text-ui-base">
           Passkeys and recovery codes belong to your musubi account, not to Cire. Manage them there
           and the change applies everywhere you sign in with it.
@@ -33,7 +38,7 @@ export default function SecurityPanel() {
         href={settingsUrl}
         target="_blank"
         rel="noreferrer"
-        class="border-gold font-body text-gold hover:bg-gold hover:text-bg text-ui-sm tracking-ui-wider self-start rounded-sm border px-5 py-2.5 uppercase transition-colors duration-(--dur-fast) ease-(--ease-out)"
+        class={`${buttonClass({ variant: "outline" })} self-start`}
       >
         Manage on musubi
       </a>

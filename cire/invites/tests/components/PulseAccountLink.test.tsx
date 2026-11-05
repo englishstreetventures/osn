@@ -114,12 +114,54 @@ describe("PulseAccountLink", () => {
   });
 
   it("falls back to the account's initial when the picture will not load", async () => {
-    const { view } = renderBox({ signedIn: true, linkedGuestIds: [], account: ACCOUNT });
+    // A URL of its own: a picture that fails is not asked for again anywhere
+    // on the page, this file's later tests included.
+    const avatarUrl = "https://avatars.example/ada-gone.png";
+    const { view } = renderBox({
+      signedIn: true,
+      linkedGuestIds: [],
+      account: { ...ACCOUNT, avatarUrl },
+    });
     const img = view.container.querySelector("img");
-    expect(img?.getAttribute("src")).toBe(ACCOUNT.avatarUrl);
+    expect(img?.getAttribute("src")).toBe(avatarUrl);
     await fireEvent.error(img!);
     expect(view.container.querySelector("img")).toBeNull();
     expect(screen.getByText("A")).toBeTruthy();
+  });
+
+  it.each([
+    ["an http: URL", "http://avatars.example/ada.png"],
+    ["a javascript: URL", "javascript:alert(1)"],
+    ["a relative URL", "/avatars/ada.png"],
+    ["a malformed URL", "https://"],
+  ])("draws the initial, not a picture, for %s", (_name, avatarUrl) => {
+    const { view } = renderBox({
+      signedIn: true,
+      linkedGuestIds: [],
+      account: { ...ACCOUNT, avatarUrl },
+    });
+    expect(view.container.querySelector("img")).toBeNull();
+    expect(screen.getByText("A")).toBeTruthy();
+  });
+
+  it.each([
+    ["the handle when there is no display name", { displayName: null, handle: "ada" }, "A"],
+    ["a question mark when there is neither", { displayName: null, handle: null }, "?"],
+  ])("takes the initial from %s", (_name, names, initial) => {
+    const { view } = renderBox({
+      signedIn: true,
+      linkedGuestIds: [],
+      account: { ...ACCOUNT, ...names, avatarUrl: null },
+    });
+    expect(view.container.querySelector("img")).toBeNull();
+    expect(view.container.querySelector("[aria-hidden='true']")?.textContent).toBe(initial);
+  });
+
+  it("draws the picture for an https: URL, with that src", () => {
+    const { view } = renderBox({ signedIn: true, linkedGuestIds: [], account: ACCOUNT });
+    expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
+      "https://avatars.example/ada.png",
+    );
   });
 
   it("treats a 409 already_linked as linked", async () => {

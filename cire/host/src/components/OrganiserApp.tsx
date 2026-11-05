@@ -1,3 +1,4 @@
+import Loading from "@cire/ui/loading";
 import { LEGAL_ENTITY } from "@shared/legal";
 import type { SignalKind } from "@shared/realtime";
 import type { SignalEvent } from "@shared/realtime/client";
@@ -20,7 +21,7 @@ import {
   untrack,
 } from "solid-js";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { apiUrl, isAuthExpired, redirectToLogin, signOutToLogin } from "../lib/api";
 import { reloadOnRestore } from "../lib/bfcache";
 import { createCommandShortcut } from "../lib/command-shortcut";
 import {
@@ -39,11 +40,11 @@ import { invalidateHosts } from "../lib/hosts-store";
 import { MembersChangedContext } from "../lib/members-changed";
 import { moduleDef } from "../lib/module-nav";
 import { CIRE_API_URL } from "../lib/osn";
+import { initTheme } from "../lib/preferences";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { markRunSheetStale } from "../lib/run-sheet-store";
 import { TasksChangedContext } from "../lib/tasks-changed";
 import { markTasksStale } from "../lib/tasks-store";
-import { initTheme } from "../lib/theme";
 import { TIER_LABEL, tierOf } from "../lib/tiers";
 import type { PaidTier } from "../lib/tiers";
 import { confirmNavigation } from "../lib/unsaved-guard";
@@ -120,14 +121,6 @@ const withKnownRole = (wedding: WeddingSummary): WeddingSummary => ({
   ...wedding,
   role: normaliseWeddingRole(wedding.role),
 });
-
-function Loading(props: { label: string }) {
-  return (
-    <p class="font-body text-text-muted text-ui-base tracking-ui-wider animate-pulse uppercase">
-      {props.label}
-    </p>
-  );
-}
 
 /**
  * Gate: session() is undefined while the SDK restores the session, null
@@ -279,7 +272,7 @@ function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLef
             reads as the same page an owner opens. */}
         <header class="flex flex-col gap-4">
           <div class="flex min-w-0 flex-col gap-1">
-            <h2 class="font-display text-text text-ui-lg leading-none font-light">
+            <h2 class="font-display text-text text-ui-lg leading-ui-none font-light">
               {moduleDef("run-sheet").label}
             </h2>
             <p class="font-body text-text-muted text-ui-sm">{moduleDef("run-sheet").hint}</p>
@@ -529,9 +522,9 @@ function Dashboard() {
   function setRoute(next: DashboardRoute, mode: "push" | "replace" = "replace") {
     // A mounted write surface with unsaved edits (the invite builder) gets to
     // veto in-app navigation — switching module/sub/view unmounts it and would
-    // silently discard the draft. Browser Back/Forward bypasses this (see
+    // silently discard the draft — unless it stays mounted on `next`. Browser Back/Forward bypasses this (see
     // lib/unsaved-guard); beforeunload covers tab close/reload.
-    if (serializeRoute(next) !== serializeRoute(route()) && !confirmNavigation()) return;
+    if (serializeRoute(next) !== serializeRoute(route()) && !confirmNavigation({ next })) return;
     setRouteSignal(next);
     if (typeof window === "undefined") return;
     const hash = serializeRoute(next);
@@ -974,8 +967,7 @@ function Dashboard() {
   }
 
   async function signOut() {
-    await logout();
-    redirectToLogin();
+    await signOutToLogin(logout);
   }
 
   /** What the top bar names when no wedding is open. With one open, the

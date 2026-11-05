@@ -61,9 +61,10 @@ describe("design-token contract", () => {
   });
 
   it("names the control boundary rather than leaving it written out", () => {
-    // `border-text/55` appears at every form control on the guest site — the
-    // claim-code box, the three gift-registry fields. That is a token by any
-    // other measure, and the contract needs it by name to hold it to 3:1.
+    // The ink at 55% is every form control's edge on the guest site — the
+    // shared ink fill's `border-ui-ink/55` on the claim-code box, the gift and
+    // RSVP fields. That is a token by any other measure, and the contract
+    // needs it by name to hold it to 3:1.
     expect(CSS).toMatch(/--color-border-strong:/);
     expect(CSS).toMatch(/--ui-hairline-strong:\s*var\(--color-border-strong\)/);
   });

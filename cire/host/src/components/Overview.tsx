@@ -1,4 +1,6 @@
-import Card, { CardCtaButton, CardEyebrow, cardClass } from "@cire/ui/card";
+import Card, { CardCtaButton, cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
+import Skeleton from "@cire/ui/skeleton";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
 import { Stat } from "@shared/ui/ui/stat";
@@ -411,11 +413,11 @@ export default function Overview(props: {
 
   const WhatsNext = () => (
     <Card>
-      <CardEyebrow>What&rsquo;s next</CardEyebrow>
+      <Eyebrow>What&rsquo;s next</Eyebrow>
       <Show
         when={agenda().length > 0}
         fallback={
-          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             Nothing scheduled yet — add events, payment due dates, or task deadlines.
           </p>
         }
@@ -429,23 +431,24 @@ export default function Overview(props: {
           <For each={agenda()}>
             {(item) => (
               <li class="border-border/40 border-t">
+                {/* Raw: a whole list row is the control, ruled rather than boxed. */}
                 <button
                   type="button"
                   onClick={() => props.onNavigate(AGENDA_MODULE[item.kind])}
-                  class="hover:bg-surface/40 flex w-full items-center gap-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out)"
+                  class="hover:bg-surface/40 transition-ui-colors flex w-full items-center gap-3 py-2 text-left duration-(--dur-fast) ease-(--ease-out)"
                 >
-                  <span class="text-text-muted text-ui-sm w-14 shrink-0 font-mono tabular-nums">
+                  <span class="text-text-muted text-ui-sm font-ui-mono w-14 shrink-0 tabular-nums">
                     {fmtAgendaDate(item.date)}
                   </span>
                   <ModuleIcon icon={moduleDef(AGENDA_MODULE[item.kind]).icon} />
                   <span class="text-text text-ui-base grow truncate">{item.label}</span>
                   <Show when={item.overdue}>
-                    <span class="font-body text-error text-ui-xs shrink-0 tracking-wide uppercase">
+                    <span class="font-body text-error text-ui-xs tracking-ui-wide shrink-0 uppercase">
                       overdue
                     </span>
                   </Show>
                   <Show when={item.detail}>
-                    <span class="text-text-muted text-ui-sm shrink-0 font-mono tabular-nums">
+                    <span class="text-text-muted text-ui-sm font-ui-mono shrink-0 tabular-nums">
                       {item.detail}
                     </span>
                   </Show>
@@ -461,16 +464,17 @@ export default function Overview(props: {
   // No section header of its own: the module shell prints the panel header —
   // the module's label and its one-line hint — directly above this.
   return (
-    <div class="flex flex-col gap-8">
+    // Busy while the first read is out: the placeholders are all it holds then.
+    <div class="flex flex-col gap-8" aria-busy={data.loading ? "true" : undefined}>
       <Show when={data.loading}>
+        {/* The agenda band and the snapshot cards at the heights they draw
+            for a wedding the size weddings reach (DESIGN.md §4, Skeletons). */}
         <div class="flex flex-col gap-4">
-          <div class="bg-surface h-30 animate-pulse rounded-sm" />
+          <Skeleton class="h-47" />
           {/* Same intrinsic grid as the real cards, so the skeleton has the
               same column count at every width. */}
           <div class="auto-grid [--auto-grid-min:15rem]">
-            <For each={[1, 2, 3]}>
-              {() => <div class="bg-surface h-32.5 animate-pulse rounded-sm" />}
-            </For>
+            <For each={[1, 2, 3]}>{() => <Skeleton class="h-86" />}</For>
           </div>
         </div>
       </Show>
@@ -486,7 +490,7 @@ export default function Overview(props: {
               // onto the module shell.
               if (tab === "events") props.onNavigate("events");
               else if (tab === "guests") props.onNavigate("guests", "list");
-              else if (tab === "invite") props.onNavigate("invite", "design");
+              else if (tab === "invite") props.onNavigate("invite", "template");
             }}
           />
         </Show>
@@ -506,12 +510,12 @@ export default function Overview(props: {
             <div class="auto-grid [--auto-grid-min:15rem]">
               {/* ── Countdown ─────────────────────────────────────────────── */}
               <Card tone="accent">
-                <CardEyebrow>Countdown</CardEyebrow>
+                <Eyebrow>Countdown</Eyebrow>
                 <Show
                   when={weddingDate()}
                   fallback={
                     <>
-                      <p class="font-display text-text text-ui-lg leading-tight font-light">
+                      <p class="font-display text-text text-ui-lg leading-ui-tight font-light">
                         No date yet
                       </p>
                       <CardCtaButton onClick={() => props.onNavigate("settings", "wedding")}>
@@ -525,7 +529,7 @@ export default function Overview(props: {
                       <Show
                         when={countdown() !== null}
                         fallback={
-                          <p class="font-display text-text text-ui-lg leading-tight font-light">
+                          <p class="font-display text-text text-ui-lg leading-ui-tight font-light">
                             {formatWeddingDate(iso())}
                           </p>
                         }
@@ -538,14 +542,14 @@ export default function Overview(props: {
                           // dates read as words with no redundant numeral above them.
                           if (days === 0) {
                             return (
-                              <p class="font-display text-gold text-ui-xl leading-none font-light">
+                              <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
                                 Today!
                               </p>
                             );
                           }
                           if (days === 1) {
                             return (
-                              <p class="font-display text-gold text-ui-xl leading-none font-light">
+                              <p class="font-display text-gold-ink text-ui-xl leading-ui-none font-light">
                                 Tomorrow!
                               </p>
                             );
@@ -565,11 +569,11 @@ export default function Overview(props: {
 
               {/* ── RSVP totals ───────────────────────────────────────────── */}
               <Card>
-                <CardEyebrow>RSVPs</CardEyebrow>
+                <Eyebrow>RSVPs</Eyebrow>
                 <Show
                   when={data()?.rsvps && data()!.rsvps!.eventCount > 0}
                   fallback={
-                    <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                    <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                       Replies will roll up here once you have events and guests.
                     </p>
                   }
@@ -579,7 +583,7 @@ export default function Overview(props: {
                     return (
                       <>
                         <div class="flex items-baseline gap-2">
-                          <span class="font-display text-gold text-ui-xl leading-none tabular-nums">
+                          <span class="font-display text-gold-ink text-ui-xl leading-ui-none tabular-nums">
                             {r.attending}
                           </span>
                           <span class="font-body text-text-muted text-ui-sm">
@@ -591,19 +595,19 @@ export default function Overview(props: {
                         <dl class="font-body text-text-muted text-ui-sm grid grid-cols-2 gap-x-4 gap-y-1">
                           <div class="flex justify-between gap-2">
                             <dt>Declined</dt>
-                            <dd class="text-text font-mono">{r.declined}</dd>
+                            <dd class="text-text font-ui-mono">{r.declined}</dd>
                           </div>
                           <div class="flex justify-between gap-2">
                             <dt>Maybe</dt>
-                            <dd class="text-text font-mono">{r.maybe}</dd>
+                            <dd class="text-text font-ui-mono">{r.maybe}</dd>
                           </div>
                           <div class="flex justify-between gap-2">
                             <dt>No reply</dt>
-                            <dd class="text-text font-mono">{r.noResponse}</dd>
+                            <dd class="text-text font-ui-mono">{r.noResponse}</dd>
                           </div>
                           <div class="flex justify-between gap-2">
                             <dt>Invited</dt>
-                            <dd class="text-text font-mono">{r.invited}</dd>
+                            <dd class="text-text font-ui-mono">{r.invited}</dd>
                           </div>
                         </dl>
                         <Show when={data()!.rsvpEvents.length > 0}>
@@ -612,7 +616,7 @@ export default function Overview(props: {
                               {(e) => (
                                 <li class="flex justify-between gap-2">
                                   <span class="truncate">{e.name}</span>
-                                  <span class="text-text font-mono tabular-nums">
+                                  <span class="text-text font-ui-mono tabular-nums">
                                     {e.attending} attending
                                   </span>
                                 </li>
@@ -646,20 +650,20 @@ export default function Overview(props: {
 
               {/* ── Guests + events snapshot ─────────────────────────────── */}
               <Card>
-                <CardEyebrow>Guests &amp; events</CardEyebrow>
+                <Eyebrow>Guests &amp; events</Eyebrow>
                 <dl class="font-body text-text-muted text-ui-sm flex flex-col gap-1.5">
                   <div class="flex justify-between gap-2">
                     <dt>Households</dt>
-                    <dd class="text-text font-mono">{householdCount()}</dd>
+                    <dd class="text-text font-ui-mono">{householdCount()}</dd>
                   </div>
                   <div class="flex justify-between gap-2">
                     <dt>Events</dt>
-                    <dd class="text-text font-mono">{eventCount()}</dd>
+                    <dd class="text-text font-ui-mono">{eventCount()}</dd>
                   </div>
                   <Show when={data()?.profile?.guestCountEstimate != null}>
                     <div class="flex justify-between gap-2">
                       <dt>Guest estimate</dt>
-                      <dd class="text-text font-mono">{data()!.profile!.guestCountEstimate}</dd>
+                      <dd class="text-text font-ui-mono">{data()!.profile!.guestCountEstimate}</dd>
                     </div>
                   </Show>
                 </dl>
@@ -676,7 +680,7 @@ export default function Overview(props: {
                   onClick={() => props.onNavigate("checklist")}
                   class={cardLinkClass}
                 >
-                  <CardEyebrow>Checklist</CardEyebrow>
+                  <Eyebrow>Checklist</Eyebrow>
                   <Show
                     when={taskCounts(props.weddingId)}
                     fallback={<p class="text-text-muted text-ui-sm">Loading your tasks…</p>}
@@ -689,8 +693,8 @@ export default function Overview(props: {
                         }
                       >
                         <p class="text-text text-ui-base">
-                          <span class="text-gold text-ui-lg font-semibold">{tc().open}</span> open{" "}
-                          {tc().open === 1 ? "task" : "tasks"}
+                          <span class="text-gold-ink text-ui-lg font-semibold">{tc().open}</span>{" "}
+                          open {tc().open === 1 ? "task" : "tasks"}
                         </p>
                         <p class="text-text-muted text-ui-sm">
                           {tc().done} of {tc().total} done
@@ -713,7 +717,7 @@ export default function Overview(props: {
                   onClick={() => props.onNavigate("vendors")}
                   class={cardLinkClass}
                 >
-                  <CardEyebrow>Vendors</CardEyebrow>
+                  <Eyebrow>Vendors</Eyebrow>
                   <Show
                     when={vendorCountValue() !== null}
                     fallback={<p class="text-text-muted text-ui-sm">Loading your vendors…</p>}
@@ -725,7 +729,9 @@ export default function Overview(props: {
                       }
                     >
                       <p class="text-text text-ui-base">
-                        <span class="text-gold text-ui-lg font-semibold">{vendorCountValue()}</span>{" "}
+                        <span class="text-gold-ink text-ui-lg font-semibold">
+                          {vendorCountValue()}
+                        </span>{" "}
                         {vendorCountValue() === 1 ? "vendor" : "vendors"} tracked
                       </p>
                     </Show>
@@ -741,7 +747,7 @@ export default function Overview(props: {
                   onClick={() => props.onNavigate("budget")}
                   class={cardLinkClass}
                 >
-                  <CardEyebrow>Budget</CardEyebrow>
+                  <Eyebrow>Budget</Eyebrow>
                   <Show
                     when={spentSoFarMemo() !== null}
                     fallback={<p class="text-text-muted text-ui-sm">Loading your budget…</p>}
@@ -760,7 +766,7 @@ export default function Overview(props: {
                       }
                     >
                       <p class="text-text text-ui-base">
-                        <span class="text-gold text-ui-lg font-semibold">
+                        <span class="text-gold-ink text-ui-lg font-semibold">
                           {formatMinor(spentSoFarMemo() ?? 0, budgetCurrency())}
                         </span>{" "}
                         <span class="text-text-muted">

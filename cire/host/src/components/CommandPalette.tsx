@@ -1,3 +1,4 @@
+import { eyebrowClass } from "@cire/ui/eyebrow";
 import { Dialog } from "@kobalte/core/dialog";
 import type { LucideIcon } from "lucide-solid";
 import Heart from "lucide-solid/icons/heart";
@@ -9,10 +10,10 @@ import Sun from "lucide-solid/icons/sun";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
-import { haptic } from "../lib/haptics";
 import { isModuleLocked, MODULE_NAV } from "../lib/module-nav";
-import { setThemePreference, theme } from "../lib/theme";
+import { setThemePreference, theme } from "../lib/preferences";
 import { tierOf } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import { normaliseWeddingRole, surfacesFor } from "../lib/wedding-roles";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleIcon from "./ModuleIcon";
@@ -238,7 +239,7 @@ export default function CommandPalette(props: {
       <Dialog.Portal>
         <Dialog.Overlay class="sheet-scrim bg-bg/70 backdrop-blur-scrim fixed inset-0 z-40" />
         <div class="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
-          <Dialog.Content class="sheet-panel border-border bg-surface flex w-full max-w-lg flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none">
+          <Dialog.Content class="sheet-panel border-border bg-surface-raised rounded-ui-lg flex w-full max-w-lg flex-col overflow-hidden border shadow-(--elev-2) outline-none">
             <Dialog.Title class="sr-only">Command palette</Dialog.Title>
 
             <div class="border-border flex items-center gap-3 border-b px-4">
@@ -262,9 +263,9 @@ export default function CommandPalette(props: {
                   setActive(0);
                 }}
                 onKeyDown={onKeyDown}
-                class="font-body text-text placeholder:text-text-faint text-ui-base min-w-0 flex-1 bg-transparent py-3.5 outline-none"
+                class="font-body text-text placeholder:text-text-muted text-ui-base min-w-0 flex-1 bg-transparent py-3.5 outline-none"
               />
-              <kbd class="font-body text-text-faint border-border text-ui-xs tracking-ui-wider hidden shrink-0 rounded-sm border px-1.5 py-0.5 uppercase sm:block">
+              <kbd class="font-body text-text-muted border-border text-ui-xs tracking-ui-wider hidden shrink-0 rounded-sm border px-1.5 py-0.5 uppercase sm:block">
                 Esc
               </kbd>
             </div>
@@ -283,7 +284,7 @@ export default function CommandPalette(props: {
                       {(group) => (
                         <li
                           role="presentation"
-                          class="font-body text-text-faint text-ui-xs tracking-ui-widest px-3 pt-2.5 pb-1.5 uppercase"
+                          class={`${eyebrowClass({ tone: "muted" })} px-3 pt-2.5 pb-1.5`}
                         >
                           {group()}
                         </li>
@@ -295,15 +296,15 @@ export default function CommandPalette(props: {
                       aria-selected={active() === index()}
                       onPointerMove={() => setActive(index())}
                       onClick={() => run(index())}
-                      class={`font-body flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ${
-                        active() === index() ? "bg-gold/10 text-gold" : "text-text-muted"
+                      class={`font-body transition-ui-colors flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out) ${
+                        active() === index() ? "bg-gold/10 text-gold-ink" : "text-text-muted"
                       }`}
                     >
                       <ModuleIcon icon={command.icon} />
                       <span class="text-ui-sm min-w-0 flex-1 truncate">{command.label}</span>
                       <Show when={command.hint}>
                         {(hint) => (
-                          <span class="text-text-faint text-ui-xs hidden max-w-9/20 shrink-0 truncate sm:block">
+                          <span class="text-text-muted text-ui-xs hidden max-w-9/20 shrink-0 truncate sm:block">
                             {hint()}
                           </span>
                         )}

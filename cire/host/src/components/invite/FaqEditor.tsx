@@ -40,7 +40,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
-import { haptic } from "../../lib/haptics";
+import { haptic } from "../../lib/touch-feedback";
 import ReorderControls from "../ReorderControls";
 import { InstantBadge, TextAreaField, TextField } from "./fields";
 import { FAQ_CAPS, type FaqEntry } from "./model";
@@ -437,9 +437,9 @@ export default function FaqEditor(props: FaqEditorProps) {
                         style={maybeTransformStyle(sortable.transform())}
                         class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
                         classList={{
-                          "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                          "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                             sortable.isActiveDraggable(),
-                          "transition-transform":
+                          "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                             dndState.dragging() && !sortable.isActiveDraggable(),
                         }}
                       >

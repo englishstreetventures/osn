@@ -34,10 +34,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   PAGES_PROJECTS,
+  productionHost,
   SITE_BUILDS,
   type SiteSurface,
 } from "../../shared/infra/src/production-sites";
@@ -161,8 +162,8 @@ const DEV_HOST_OUTPUT: Readonly<Record<SurfaceKey, string>> = {
 /**
  * Each stack job's site builds, in order, with exactly the values each dev
  * build sets. A host is always the dev-hosts step's output; Turnstile and Maps
- * keys are dev Environment variables; the guest site's footer prints the
- * commit (PUBLIC_BUILD_SHA); ASTRO_KEY fixes the guest site's server build so
+ * keys are dev Environment variables; the guest and marketing sites' footers
+ * and the portals' account menus print the commit (PUBLIC_BUILD_SHA); ASTRO_KEY fixes the guest site's server build so
  * two builds of one commit are byte-identical; OSN_DEPLOY_TIER marks each
  * build of a site that retargets its CSP as a deploy. Pulse landing gets no
  * PUBLIC_APP_URL: the Pulse app has no dev deploy.
@@ -207,6 +208,7 @@ const DEV_BUILDS: Readonly<
         PUBLIC_OSN_ACCOUNT_URL: hostOutput("musubi_social_origin"),
         PUBLIC_CIRE_WEB_URL: hostOutput("cire_invites_origin"),
         PUBLIC_MARKETING_URL: hostOutput("cire_landing_origin"),
+        PUBLIC_BUILD_SHA: "${{ github.sha }}",
         OSN_DEPLOY_TIER: "dev",
       },
     },
@@ -215,6 +217,7 @@ const DEV_BUILDS: Readonly<
       env: {
         PUBLIC_CIRE_API_URL: hostOutput("cire_api_origin"),
         PUBLIC_OSN_ACCOUNT_URL: hostOutput("musubi_social_origin"),
+        PUBLIC_BUILD_SHA: "${{ github.sha }}",
         OSN_DEPLOY_TIER: "dev",
       },
     },
@@ -223,6 +226,7 @@ const DEV_BUILDS: Readonly<
       env: {
         PUBLIC_ORGANISER_URL: hostOutput("cire_host_origin"),
         SITE: hostOutput("cire_landing_origin"),
+        PUBLIC_BUILD_SHA: "${{ github.sha }}",
       },
     },
   ],
@@ -1181,16 +1185,19 @@ const PRODUCTION_BUILDS: Readonly<Partial<Record<SiteSurface, Record<string, str
     PUBLIC_OSN_ACCOUNT_URL: "https://musubi.social",
     PUBLIC_CIRE_WEB_URL: "https://invite.cireweddings.com",
     PUBLIC_MARKETING_URL: "https://cireweddings.com",
+    PUBLIC_BUILD_SHA: "${{ github.sha }}",
     OSN_DEPLOY_TIER: "production",
   },
   cire_vendor: {
     PUBLIC_CIRE_API_URL: "https://api.cireweddings.com",
     PUBLIC_OSN_ACCOUNT_URL: "https://musubi.social",
+    PUBLIC_BUILD_SHA: "${{ github.sha }}",
     OSN_DEPLOY_TIER: "production",
   },
   cire_landing: {
     PUBLIC_ORGANISER_URL: "https://host.cireweddings.com",
     SITE: "https://cireweddings.com",
+    PUBLIC_BUILD_SHA: "${{ github.sha }}",
   },
   osn_social: {
     VITE_OSN_ISSUER_URL: "https://id.musubi.social",
@@ -1513,6 +1520,7 @@ describe("PW1: one production job per stack with a production deploy", () => {
         "guard",
         "deploy",
         "deployments",
+        "budgets",
         ...sites.map((site) => `smoke_${site}`),
       ].map((id) => stepIndex(job, id));
       expect(order.every((index) => index > -1)).toBe(true);
@@ -1533,10 +1541,13 @@ describe("PW1: one production job per stack with a production deploy", () => {
         expect(smoke?.run).toBe(`bun run scripts/smoke-check.ts ${site} production`);
         expect(smoke?.if).toBe(ON_DEPLOY);
         expect(smoke?.["continue-on-error"]).toBe(true);
-        expect(smoke?.["timeout-minutes"]).toBe(5);
+        // Room for the longest budget, the rollback and its re-check
+        // (scripts/tests/smoke-check.test.ts, SB4).
+        expect(smoke?.["timeout-minutes"]).toBe(7);
         expect(smoke?.env).toEqual({
           SMOKE_ORIGIN: `\${{ steps.hosts.outputs.${site}_origin }}`,
           SMOKE_DEPLOYMENT: `\${{ steps.deployments.outputs.${site}_deployment }}`,
+          SMOKE_BUDGET_MS: `\${{ steps.budgets.outputs.${site}_budget_ms }}`,
           ...PRODUCTION_CREDENTIALS,
         });
         expect(productionSiteTarget(site)).toBeDefined();
@@ -1560,6 +1571,124 @@ describe("PW1: one production job per stack with a production deploy", () => {
       });
     },
   );
+});
+
+describe("PW13: a site's smoke check waits longer only when the approved plan gives it a host that is not a production host", () => {
+  /**
+   * Runs a stack job's budgets step as written, with real bun from the
+   * repository root, over `domains` as the approved plan's domain changes;
+   * returns what each site's smoke step passes as SMOKE_BUDGET_MS once
+   * GitHub expands it ("" for an output nobody wrote).
+   */
+  const budgetsFor = (key: StackKey, domains: readonly unknown[]): Record<string, string> => {
+    const job = productionStackJob(key);
+    const dir = mkdtempSync(join(tmpdir(), "smoke-budgets-step-"));
+    mkdirSync(join(dir, "approved"));
+    const record = { stack: key, plan: "changes", counts: { update: 1 }, resources: [] };
+    writeFileSync(
+      join(dir, "approved", `${key}.json`),
+      JSON.stringify({ ...record, bindings: [], flip: null, domains, unflip: null }, null, 2),
+    );
+    const output = join(dir, "github-output");
+    writeFileSync(output, "");
+    const result = Bun.spawnSync(
+      ["bash", "--noprofile", "--norc", "-e", "-c", stepById(job, "budgets")?.run ?? "exit 9"],
+      {
+        cwd: root,
+        env: {
+          PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+          RUNNER_TEMP: dir,
+          GITHUB_OUTPUT: output,
+        },
+      },
+    );
+    expect(result.stderr.toString()).toBe("");
+    expect(result.exitCode).toBe(0);
+    const written = new Map(
+      readFileSync(output, "utf8")
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+    );
+    return Object.fromEntries(
+      productionSitesOf(key).map((site) => {
+        const read = stepById(job, `smoke_${site}`)?.env?.SMOKE_BUDGET_MS ?? "";
+        const name = /^\$\{\{ steps\.budgets\.outputs\.([a-z_]+) \}\}$/.exec(read)?.[1];
+        return [site, name === undefined ? `unreadable: ${read}` : (written.get(name) ?? "")];
+      }),
+    );
+  };
+  const newHost = (site: SiteSurface) => `next-${site.replace("_", "-")}.example.test`;
+  const each = (key: StackKey, value: (site: SiteSurface) => string) =>
+    Object.fromEntries(productionSitesOf(key).map((site) => [site, value(site)]));
+
+  test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
+    "%s: the step reads its own stack's approved plan after the deploy, and never fails the job or blocks the deploy",
+    (key) => {
+      const job = productionStackJob(key);
+      const step = stepById(job, "budgets");
+      expect(step?.run).toBe(
+        `bun run scripts/smoke-budgets.ts "$RUNNER_TEMP/approved/${key}.json"`,
+      );
+      expect(step?.if).toBe(ON_DEPLOY);
+      expect(step?.["continue-on-error"]).toBe(true);
+      expect(step?.env).toBeUndefined();
+      expect(step?.["working-directory"]).toBeUndefined();
+      expect(stepIndex(job, "budgets")).toBeGreaterThan(stepIndex(job, "deploy"));
+      expect(stepIndex(job, "budgets")).toBeLessThan(
+        Math.min(...productionSitesOf(key).map((site) => stepIndex(job, `smoke_${site}`))),
+      );
+    },
+  );
+
+  test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
+    "%s: 240 s for the one site given a new spare host, whichever it is; none for a host given up, a flip's production host, or no change",
+    (key) => {
+      const sites = productionSitesOf(key);
+      expect(sites.length).toBeGreaterThan(1);
+      for (const site of sites) {
+        const domains = sites.map((other) =>
+          other === site
+            ? { site, added: [newHost(site)], removed: [`old.${newHost(site)}`] }
+            : { site: other, added: [], removed: [newHost(other)] },
+        );
+        expect(budgetsFor(key, domains)).toEqual(
+          each(key, (other) => (other === site ? "240000" : "")),
+        );
+      }
+      // A flip attaches the production host, which the zone's own
+      // certificate covers: its check keeps the minute.
+      const flipped = sites.map((site) => ({
+        site,
+        added: [productionHost(site)],
+        removed: [newHost(site)],
+      }));
+      expect(budgetsFor(key, flipped)).toEqual(each(key, () => ""));
+      expect(budgetsFor(key, [])).toEqual(each(key, () => ""));
+    },
+  );
+
+  test("no other smoke check, in any workflow, is given a budget", () => {
+    const directory = join(root, ".github", "workflows");
+    const named: string[] = [];
+    for (const file of readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))) {
+      const workflow = load(join(".github", "workflows", file));
+      if (workflow.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file}`);
+      for (const [id, job] of Object.entries(workflow.jobs ?? {})) {
+        if (job.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file} ${id}`);
+        for (const step of stepsOf(job)) {
+          if (step.env?.SMOKE_BUDGET_MS !== undefined) named.push(`${file} ${id} ${step.id}`);
+        }
+      }
+    }
+    expect(named.toSorted()).toEqual(
+      PRODUCTION_STACKS.flatMap((s) =>
+        productionSitesOf(s.key).map(
+          (site) => `production-release.yml ${s.production.id} smoke_${site}`,
+        ),
+      ).toSorted(),
+    );
+  });
 });
 
 /**

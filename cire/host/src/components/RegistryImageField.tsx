@@ -36,13 +36,14 @@
  */
 
 import Button from "@cire/ui/button";
+import FileInput from "@cire/ui/file-input";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { haptic } from "../lib/haptics";
+import { haptic } from "../lib/touch-feedback";
 /** Mirrors `MAX_IMAGE_BYTES` in `cire/api/src/services/invite-assets.ts`. Checked
  *  here only to spare the organiser a five-megabyte upload that ends in a 413 —
  *  the cap that counts is the server's. */
@@ -413,7 +414,7 @@ export default function RegistryImageField(props: {
               <img
                 src={src()}
                 alt=""
-                class="border-border h-20 w-20 rounded-sm border object-cover"
+                class="border-border rounded-ui-field h-20 w-20 border object-cover"
               />
             )}
           </Show>
@@ -462,8 +463,7 @@ export default function RegistryImageField(props: {
       </div>
 
       <Show when={mode() === "upload"}>
-        <input
-          type="file"
+        <FileInput
           accept={ACCEPT}
           aria-label="Photo to upload"
           disabled={props.disabled || busy() !== null}
@@ -472,7 +472,6 @@ export default function RegistryImageField(props: {
             if (file) void upload(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
         />
       </Show>
 
@@ -484,7 +483,7 @@ export default function RegistryImageField(props: {
             </label>
             <Input
               id={`${props.idPrefix}-shop-link`}
-              size="sm"
+              size="form-compact"
               type="url"
               class="min-w-64 flex-1"
               placeholder="https://…"
@@ -493,7 +492,7 @@ export default function RegistryImageField(props: {
               onInput={(e) => setUrl(e.currentTarget.value)}
             />
             <Button
-              size="sm"
+              size="form"
               variant="outline"
               disabled={props.disabled || busy() !== null || url().trim() === ""}
               onClick={() => void findImages()}
@@ -566,7 +565,9 @@ export default function RegistryImageField(props: {
                             decoding="async"
                             width={80}
                             height={80}
-                            class="h-20 w-20 object-cover"
+                            // The frame's 14px less its border and padding, to the
+                            // nearest step, so the picture's corner runs parallel.
+                            class="h-20 w-20 rounded-md object-cover"
                           />
                         )}
                       </Show>

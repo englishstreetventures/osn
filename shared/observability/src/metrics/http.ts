@@ -9,6 +9,7 @@
  * Spec: https://opentelemetry.io/docs/specs/semconv/http/http-metrics/
  */
 
+import { HTTP_METHOD_VALUES, type HttpMethod } from "./attrs";
 import {
   createCounter,
   createHistogram,
@@ -16,9 +17,15 @@ import {
   LATENCY_BUCKETS_SECONDS,
 } from "./factory";
 
+/** Map a request method onto {@link HttpMethod}: upper-cased, `_OTHER` if unknown. */
+export const toHttpMethod = (raw: string): HttpMethod => {
+  const upper = raw.toUpperCase();
+  return HTTP_METHOD_VALUES.find((m) => m === upper) ?? "_OTHER";
+};
+
 export type HttpAttrs = {
-  /** HTTP method, uppercase. e.g. "GET", "POST". */
-  "http.request.method": string;
+  /** HTTP method from a closed set, `_OTHER` for any other. e.g. "GET". */
+  "http.request.method": HttpMethod;
   /** Elysia path template, NOT the actual URL. e.g. "/events/:id". */
   "http.route": string;
   /** Response status code as a string. e.g. "200", "404". */
@@ -26,7 +33,7 @@ export type HttpAttrs = {
 };
 
 export type HttpInFlightAttrs = {
-  "http.request.method": string;
+  "http.request.method": HttpMethod;
 };
 
 export const httpServerRequests = createCounter<HttpAttrs>({
@@ -55,13 +62,13 @@ export const httpServerActiveRequests = createUpDownCounter<HttpInFlightAttrs>({
  * Route handlers must not invoke it.
  */
 export const recordHttpRequest = (params: {
-  method: string;
+  method: HttpMethod;
   route: string;
   status: number;
   durationSeconds: number;
 }): void => {
   const attrs: HttpAttrs = {
-    "http.request.method": params.method.toUpperCase(),
+    "http.request.method": params.method,
     "http.route": params.route,
     "http.response.status_code": String(params.status),
   };

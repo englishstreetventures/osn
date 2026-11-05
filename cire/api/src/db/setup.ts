@@ -534,6 +534,7 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   shipping_address TEXT,
   shipping_visible_from TEXT,
   stripe_account_id TEXT,
+  stripe_connected_by_osn_profile_id TEXT,
   stripe_charges_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_payouts_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_account_updated_at INTEGER,
@@ -755,6 +756,16 @@ WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS (
 )
 BEGIN
   SELECT RAISE(ABORT, 'seating table plan is not a plan of its event');
+END;
+CREATE TRIGGER IF NOT EXISTS vendors_status_stage BEFORE INSERT ON vendors
+WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'declined')
+BEGIN
+  SELECT RAISE(ABORT, 'vendor status is not a pipeline stage');
+END;
+CREATE TRIGGER IF NOT EXISTS vendors_status_stage_update BEFORE UPDATE OF status ON vendors
+WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'declined')
+BEGIN
+  SELECT RAISE(ABORT, 'vendor status is not a pipeline stage');
 END;
 `;
 
@@ -1144,7 +1155,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * - `wed_e2e_money`: money gifts on, a connected Stripe account that can charge
  *   and settles in the wedding's currency, one cash fund and nothing to
  *   reserve, unpublished. For the portal on a site that cannot take a money
- *   gift: the stack's cire-api holds a Stripe key and no webhook secret.
+ *   gift: the stack's cire-api holds a Stripe key and no webhook secret. Its
+ *   second owner, Kit (`usr_e2e_kit`), connected the account, so the dev
+ *   profile is an owner who sees the account's status and cannot open its
+ *   onboarding links.
  * - `wed_e2e_emails`: one household, Tanaka, of Gus with no address and Hana
  *   with an address she gave herself on the invite, for adding an address in
  *   the guest editor under the organiser's attestation.
@@ -1453,12 +1467,24 @@ export function seedE2eOrganiser(db: TestDb): void {
 
   wedding("wed_e2e_money", "money-wedding", "Money Wedding");
   seatDevOwner(db, "wed_e2e_money", "whost_e2e_money_owner", now);
+  // The wedding's other owner, who connected its Stripe account.
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_kit",
+      weddingId: "wed_e2e_money",
+      osnProfileId: "usr_e2e_kit",
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "owner",
+      createdAt: now,
+    })
+    .run();
   db.insert(schema.registrySettings)
     .values({
       weddingId: "wed_e2e_money",
       published: false,
       cashGiftsEnabled: true,
       stripeAccountId: "acct_e2e_money",
+      stripeConnectedByOsnProfileId: "usr_e2e_kit",
       stripeChargesEnabled: true,
       stripePayoutsEnabled: true,
       stripeDefaultCurrency: "AUD",

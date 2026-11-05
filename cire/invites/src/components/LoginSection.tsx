@@ -1,8 +1,12 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
 import {
   createEffect,
   createMemo,
   createSignal,
+  createUniqueId,
   For,
   lazy,
   onCleanup,
@@ -113,6 +117,20 @@ interface LayoutClasses {
   form: string;
   /** Width and centring for the preview chip, the RSVP-by line and the account link. */
   measure: string;
+  /**
+   * The row an error line sits in. On the band a one-line error centres its
+   * icon and words together, as the centred text it replaces sat; a longer one
+   * runs from the form's start, its words beside the icon, as wide as the
+   * field above it. In the panel the line keeps to the start.
+   */
+  line: string;
+  /**
+   * The corner of the household's own boxes: the plus-one prompt, the email
+   * box and the account link. On the band they sit on the page, so they take
+   * a card's corner. Inside the panel's card they take the small step, since
+   * an inner corner is the outer one less the room between them.
+   */
+  box: string;
 }
 
 const LAYOUTS = {
@@ -124,17 +142,21 @@ const LAYOUTS = {
     greeting: "text-gold",
     form: "max-w-column-2xs mx-auto",
     measure: "max-w-column-sm mx-auto",
+    line: "flex justify-center text-left",
+    box: "rounded-ui-lg",
   },
   panel: {
     section: "px-6 py-16 md:px-10 md:py-20",
     // The page's widest container, so the card's `md:mx-0` lands on the same
     // left edge as the events column below it.
     column: "max-w-column-4xl mx-auto",
-    card: "border-border max-w-column-xs mx-auto rounded-sm border px-7 py-10 md:mx-0",
+    card: "border-border rounded-ui-lg max-w-column-xs mx-auto border px-7 py-10 md:mx-0",
     headingSize: "text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))]",
     greeting: "text-gold-ink",
     form: "",
     measure: "",
+    line: "",
+    box: "rounded-sm",
   },
 } satisfies Record<LoginSectionLayout, LayoutClasses>;
 
@@ -235,6 +257,7 @@ const DEFAULT_WELCOME_MESSAGE = "We are delighted to invite you to celebrate wit
 export function LoginSection(props: LoginSectionProps) {
   const layout = () => LAYOUTS[props.layout ?? "band"];
 
+  const claimErrorId = createUniqueId();
   const claim = createClaimCode({
     apiUrl: props.apiUrl,
     result: () => props.result,
@@ -496,10 +519,8 @@ export function LoginSection(props: LoginSectionProps) {
         }}
         style={{ display: showWelcome() ? "none" : "" }}
       >
-        <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-          Your Invitation
-        </p>
-        <h2 class={`${HEADING} text-text mb-5 ${layout().headingSize}`}>Enter Your Code</h2>
+        <Eyebrow class="mb-3">Your Invitation</Eyebrow>
+        <h2 class={`${HEADING} text-text mb-5 ${layout().headingSize}`}>Enter your code</h2>
         <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
           Enter the code from your invitation to see your events.
         </p>
@@ -508,34 +529,21 @@ export function LoginSection(props: LoginSectionProps) {
               "-" + longest word(10) + "-" + secure hash "XXXXX-XXXXX"(11) = 39
               chars, so a long code like THENGUYENFAMILY-BANISTER-DM65HQ (31) is
               never truncated. The server still validates the code. */}
-          <input
+          <Input
+            // The shared ink fill draws the edge and fill from the scheme's
+            // ink, so the field reads on whichever surface the organiser puts
+            // this section on (`welcome_tone`): `--color-text` at 0.55 is the
+            // lowest edge that clears the 3:1 a control's boundary needs on
+            // the worst preset and tone pair, garden on its ground at 3.23:1,
+            // measured over every `PALETTE_PRESETS` entry × all three tones in
+            // a real browser. The claim face sets the code in centred capitals
+            // at 1rem on every width, and turns spelling help off.
+            fill="ink"
+            size="touch"
+            face="claim"
+            class="h-13.5"
             type="text"
             ref={codeInputRef}
-            // A border tint alone is too quiet to mark focus on the page's
-            // one input; the ring keeps keyboard users oriented. Text cursor
-            // on a text field — the pointer belongs on buttons only.
-            //
-            // The fill and the border are both drawn from `--color-text` (the
-            // scheme's ink) at alpha rather than from a surface token, because
-            // the organiser picks which surface this section sits on
-            // (`welcome_tone`: ground / card / raised). A fixed token would be
-            // invisible on the tone that happens to match it; ink-at-alpha is
-            // one step away from WHATEVER is behind it on every palette, and
-            // in the right direction — it darkens a light scheme and lightens
-            // a dark one.
-            //
-            // `border-border` — the same ink at 0.12 — measured 1.27:1 against
-            // this section on the live invite, so the field read as flat page
-            // (and as a twin of the outlined submit button below it). WCAG 2.1
-            // SC 1.4.11 asks **3:1** of the visual boundary that identifies a
-            // control, and this is the guest site's only input, so under the
-            // bar is not an option. 0.55 is the lowest alpha that clears it on
-            // the WORST preset/tone pair — garden/ground at 3.23:1, measured
-            // by compositing over every `PALETTE_PRESETS` entry × all three
-            // tones in a real browser. The fill stays deliberately faint
-            // (~1.09:1): it only has to read as a well, the border is what the
-            // standard governs.
-            class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold tracking-ui-wider placeholder:tracking-ui-wide w-full cursor-text rounded-sm border px-4 py-3.5 text-center text-base uppercase transition-colors duration-200 placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
             // A placeholder is not an accessible name — it is not exposed as
             // one, and it disappears the moment the guest types. Without this
             // the only control on the page is an unnamed edit field to a
@@ -544,20 +552,24 @@ export function LoginSection(props: LoginSectionProps) {
             placeholder="e.g. PATEL-JOY-RK97"
             value={claim.code()}
             onInput={(e) => claim.setCode(e.currentTarget.value)}
-            autocapitalize="characters"
-            autocorrect="off"
-            spellcheck={false}
             disabled={claim.loading()}
             maxLength={48}
             // NB: the hyphen must be escaped — Chrome compiles `pattern` with
             // the `v` flag, where a trailing unescaped `-` is a syntax error
             // that voids the whole pattern.
             pattern="[A-Za-z0-9\-]+"
+            // Named by the line below only while it says the code was
+            // refused; an unsolved challenge, a server error or a lost
+            // connection is not the field's.
+            aria-describedby={claim.codeRefused() ? claimErrorId : undefined}
+            aria-invalid={claim.codeRefused() ? "true" : undefined}
           />
           <Show when={claim.error()}>
-            <p class="font-body text-error text-ui-sm py-2" role="alert">
-              {claim.error()}
-            </p>
+            <div class={`my-2 ${layout().line}`}>
+              <Notice id={claimErrorId} size="inline" tone="danger" alert>
+                {claim.error()}
+              </Notice>
+            </div>
           </Show>
           {/* Turnstile challenge — renders only when a sitekey is configured;
               otherwise this is nothing and the form is unchanged. */}
@@ -577,7 +589,7 @@ export function LoginSection(props: LoginSectionProps) {
               (turnstileEnabled() && !claim.turnstileToken())
             }
           >
-            {claim.loading() ? "Checking…" : "Open Invitation"}
+            {claim.loading() ? "Checking…" : "Open invitation"}
           </Button>
         </form>
       </div>
@@ -586,12 +598,11 @@ export function LoginSection(props: LoginSectionProps) {
           (a display swap, not a second panel). */}
       <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
         <Show when={props.result?.preview}>
-          <p
-            class={`border-gold/40 bg-gold/5 text-gold-ink text-ui-sm tracking-ui-wider mb-6 rounded-sm border px-4 py-3 uppercase ${layout().measure}`}
-            role="status"
-          >
-            Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
-          </p>
+          <div class={`mb-6 ${layout().measure}`} role="status">
+            <Notice size="sm" tone="accent" fill="none">
+              Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
+            </Notice>
+          </div>
         </Show>
         <Show
           when={isIndividual()}
@@ -666,7 +677,7 @@ export function LoginSection(props: LoginSectionProps) {
                 rsvps={props.result?.rsvps ?? []}
                 closed={props.rsvpDeadlineState === "closed"}
                 onChange={onChange()}
-                class={`mb-8 ${layout().measure}`}
+                class={`mb-8 ${layout().measure} ${layout().box}`}
               />
             </Suspense>
           )}
@@ -679,7 +690,7 @@ export function LoginSection(props: LoginSectionProps) {
             when={chosen()}
             fallback={
               <fieldset class={`mb-8 border-0 p-0 ${layout().measure}`}>
-                <legend class="font-display text-gold-ink text-ui-lg mx-auto mb-3 leading-tight font-light italic">
+                <legend class="font-display text-gold-ink text-ui-lg leading-ui-tight mx-auto mb-3 font-light italic">
                   Who are you?
                 </legend>
                 <div class="flex flex-wrap justify-center gap-2">
@@ -697,33 +708,41 @@ export function LoginSection(props: LoginSectionProps) {
                   </For>
                 </div>
                 <Show when={memberError()}>
-                  <p class="text-error text-ui-sm mt-3" role="alert">
-                    {memberError()}
-                  </p>
+                  <div class={`mt-3 ${layout().line}`}>
+                    <Notice size="inline" tone="danger" alert>
+                      {memberError()}
+                    </Notice>
+                  </div>
                 </Show>
               </fieldset>
             }
           >
             {(m) => (
-              <p class={`text-text text-ui-sm mb-6 font-light ${layout().measure}`}>
-                Answering as {m().firstName}
-                <Show when={invited().length >= 2 || accountLink()?.signedIn}>
-                  {" · "}
-                  <Button
-                    variant="touchLink"
-                    type="button"
-                    disabled={clearing()}
-                    onClick={() => void handleNotYou()}
-                  >
-                    Not you?
-                  </Button>
-                </Show>
+              // The error line is a block of its own, so it sits under the
+              // paragraph rather than inside it.
+              <div class={`mb-6 ${layout().measure}`}>
+                <p class="text-text text-ui-sm font-light">
+                  Answering as {m().firstName}
+                  <Show when={invited().length >= 2 || accountLink()?.signedIn}>
+                    {" · "}
+                    <Button
+                      variant="touchLink"
+                      type="button"
+                      disabled={clearing()}
+                      onClick={() => void handleNotYou()}
+                    >
+                      Not you?
+                    </Button>
+                  </Show>
+                </p>
                 <Show when={notYouError()}>
-                  <span class="text-error mt-2 block" role="alert">
-                    {notYouError()}
-                  </span>
+                  <div class={`mt-2 ${layout().line}`}>
+                    <Notice size="inline" tone="danger" alert>
+                      {notYouError()}
+                    </Notice>
+                  </div>
                 </Show>
-              </p>
+              </div>
             )}
           </Show>
         </Show>
@@ -738,7 +757,7 @@ export function LoginSection(props: LoginSectionProps) {
                 email={props.result ? readMemberEmail(props.result) : null}
                 onChange={(email) => updateResult((result) => withMemberEmail(result, email))}
                 onMemberRequired={() => updateResult((result) => ({ ...result, member: null }))}
-                class={`mb-8 ${layout().measure}`}
+                class={`mb-8 ${layout().measure} ${layout().box}`}
               />
             </Suspense>
           )}
@@ -755,7 +774,7 @@ export function LoginSection(props: LoginSectionProps) {
                     onLinked={(id) => setLinked(id, true)}
                     onUnlinked={(id) => setLinked(id, false)}
                     onNotYou={() => void handleNotYou()}
-                    class={`mb-8 ${layout().measure}`}
+                    class={`mb-8 ${layout().measure} ${layout().box}`}
                   />
                 </Suspense>
               )}

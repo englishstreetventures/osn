@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -7,6 +8,8 @@ import { createSignal, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
 import { deleteWedding } from "../lib/wedding-lifecycle";
+
+const DANGER_ZONE_CLASS = cardClass({ tone: "danger", fill: "none" });
 
 /**
  * The danger zone at the foot of Settings: an owner deletes the wedding.
@@ -67,14 +70,11 @@ export default function DeleteWeddingDialog(props: {
   }
 
   return (
-    <section
-      aria-labelledby="danger-zone-title"
-      class="border-ui-danger/30 flex flex-col gap-3 rounded-sm border p-5"
-    >
+    <section aria-labelledby="danger-zone-title" class={DANGER_ZONE_CLASS}>
       <h3 id="danger-zone-title" class="font-display text-text text-ui-md font-light">
         Delete this wedding
       </h3>
-      <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+      <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
         Guests lose the invite straight away. You or any other owner can restore it from your
         wedding list for 7 days; after that it is deleted for good, with its guests, replies and
         gifts.
@@ -92,7 +92,7 @@ export default function DeleteWeddingDialog(props: {
           }}
         >
           <p class="font-display text-text text-ui-md font-light">Delete this wedding?</p>
-          <ul class="font-body text-text-muted text-ui-sm flex list-disc flex-col gap-1 pl-5 leading-relaxed">
+          <ul class="font-body text-text-muted text-ui-sm leading-ui-normal flex list-disc flex-col gap-1 pl-5">
             <li>Every guest&apos;s invite link and code stop working at once.</li>
             <li>
               You or any other owner can restore it from your wedding list for 7 days, exactly as it
@@ -117,6 +117,7 @@ export default function DeleteWeddingDialog(props: {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 value={typed()}
                 autocomplete="off"

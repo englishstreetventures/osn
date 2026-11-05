@@ -1,0 +1,25 @@
+---
+// The marketing site's legal pages (the privacy notices, terms and refunds):
+// `@cire/ui`'s legal layout under this site's stylesheet, with a line back to
+// the home page and the marketing footer.
+import '../styles/global.css'
+import LegalLayout from '@cire/ui/legal-layout.astro'
+import MarketingFooter from '../components/MarketingFooter.astro'
+import { Font } from 'astro:assets'
+
+interface Props {
+  title: string
+}
+
+const { title } = Astro.props
+---
+<LegalLayout title={title} siteName="Cire" back={{ href: '/', label: '← Back to Cire' }}>
+  {/* Both faces are above the fold — the page's heading is Cormorant, the copy
+      under it is Lato — so both preload. A bare `preload` ignores each face's
+      `unicode-range` and fetches every subset unconditionally — naming the
+      subset keeps the preload to what the page can actually use. */}
+  <Font slot="head" cssVariable="--font-cormorant" preload={[{ subset: "latin" }]} />
+  <Font slot="head" cssVariable="--font-lato" preload={[{ subset: "latin" }]} />
+  <slot />
+  <MarketingFooter slot="footer" />
+</LegalLayout>

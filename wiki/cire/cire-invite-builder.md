@@ -11,7 +11,7 @@ related:
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 # Cire invite builder
 
@@ -183,22 +183,21 @@ guests, so they read as a matched pair — and the builder gains no extra knob f
 a section whose whole job is a sentence and an image. `THEME_SECTIONS` holds four
 lanes, none of them the closing section's.
 
-**It is NOT part of `SiteFooter`.** Two different things live at the bottom of
+**It is NOT part of the footer.** Two different things live at the bottom of
 an invite and the distinction is load-bearing:
 
-| | `InviteClosing.astro` | `SiteFooter.astro` |
+| | `InviteClosing.tsx` | `GuestFooter.astro` (`@cire/ui`'s `site-footer.astro`) |
 |---|---|---|
-| What | Invite content — the couple's closing image + note | Site chrome — couple's title + Privacy/Terms/Privacy-choices + the build's version ([[#The footer's version]]) |
-| Where | Only the invite, immediately above the footer | Every document (invite, `/privacy`, `/terms`, 404) |
+| What | Invite content — the couple's closing image + note | Site chrome — the couple's names over "Wedding stamped with Cire", then Privacy notice / Terms / Privacy choices and the build's version ([[#The footer's version]]) |
+| Where | Only the invite, immediately above the footer | Every document (invite, gift page, `/privacy`, `/terms`, 404) |
 | When | Conditional — nothing set ⇒ **renders nothing at all** | Always (a compliance requirement) |
 | Themed | Yes — reuses the **welcome** tone, no setting of its own | No — inherits the root palette |
 | Gated | Yes — only after the guest claims their code | No — always |
 
-The first implementation put the note and image *inside* `SiteFooter`. That was
-wrong in three ways: it would have rendered invite content on the legal pages,
-it left the couple's words stranded in a legal-links block instead of a section
-of their own, and — because `SiteFooter` is outside the island — it exposed the
-note to anyone with the URL, before any code was entered.
+The note and image never go *inside* the footer: that would render invite
+content on the legal pages, strand the couple's words in a legal-links block
+instead of a section of their own, and — because the footer is outside the
+island — expose the note to anyone with the URL, before any code is entered.
 
 **Naming.** Storage and the wire say `footer_*` / `footer` (the image slot's R2
 namespace and public URL segment too); the builder says "Closing Section". The
@@ -1161,7 +1160,7 @@ design pack's islands call:
     default 0) sets how solid the panel behind the title block is, and
     `.blur` (0–20, default 0) a frosted-glass `backdrop-filter`. Opacity 0 ⇒ **no
     panel**, just the radial scrim (the original look); above 0 the title block
-    gets a translucent rounded panel painted
+    gets a translucent panel at the 16px card corner (`rounded-ui-lg`) painted
     `color-mix(in oklab, var(--invite-panel) <opacity>%, transparent)`, so the
     organiser's own scheme carries it. Both values are re-clamped in the island
     (`clampNum`) against a stale or malformed payload. (Future: auto
@@ -1204,7 +1203,8 @@ its animations are untouched.
 
 ### The footer's version
 
-The footer ([`SiteFooter.astro`](../../cire/invites/src/components/SiteFooter.astro))
+The footer ([`GuestFooter.astro`](../../cire/invites/src/components/GuestFooter.astro),
+filling `@cire/ui`'s `site-footer.astro`)
 prints the build's version on its own line under the legal row — "Version"
 and the first seven characters of the commit the guest site was built from —
 so a report from a guest's phone, or the owner's, names the build it came
@@ -1213,7 +1213,7 @@ fourth item in the row, because the three legal links already fill a 320px
 phone.
 
 - **Where it comes from.** `PUBLIC_BUILD_SHA`, set to `github.sha` on the
-  build step of `deploy-cire-invites-dev` (`deploy.yml`) and
+  build step of `stack-cire-dev` (`deploy.yml`) and
   `deploy-cire-invites` (`production-release.yml`), and typed in
   `cire/invites/env.d.ts`. Astro inlines it like `PUBLIC_API_URL`, into the
   SSR Worker and the prerendered legal pages alike.
@@ -1226,6 +1226,11 @@ phone.
   the release that last deployed it, not `main`'s head.
 - **Without it** — a local build, the end-to-end suite's `astro dev` — the
   line reads "Version local", which the `cire-rsvp` flow checks.
+- **The marketing site** prints its own the same way, from the same variable
+  on its own build step (`MarketingFooter.astro`, [[cire-landing]]).
+- **The host and vendor portals** print theirs as the last line of the account
+  menu (`ProfileMenu.tsx` in each), from the same variable on each portal's
+  build step in both workflows, typed in each portal's `src/env.d.ts`.
 
 ### Organiser links
 
@@ -1327,45 +1332,54 @@ endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 
 | File | Owns |
 | --- | --- |
-| `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout, section tab state |
+| `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout, the view's cards, Content's section strip and the phone's place menu |
 | `invite/model.ts` | Wire types, closed option sets, `COPY_CAPS` (client mirror of `InviteTextBody`), the `InviteDraft` shape + pure `textPayload`/`themePayload` builders |
 | `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`, three states) / `SectionCard` (`hidden` prop; `visibility` prop renders the badge, the "Show on the invite" switch and the reason line) / `Disclosure` / `InstantBadge` |
 | `invite/previews.tsx` | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle` |
 | `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
-| `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button beside the section tabs |
+| `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button in the module's view bar |
 | `invite/DesignPicker.tsx` | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails |
 | `invite/EnvelopePicker.tsx` | Envelope radiogroup ("None", then the `@cire/envelope` catalog) under the design cards: the same card layout and roving tabindex, the premium lock, a stored choice shown switched off, and the notes on why guests would not see it |
 | `invite/design-layout.ts` | Per-pack structural signature the previews render (hero anchoring, copy alignment, code-entry panel, events rule) — drift-guarded against the catalog |
 | `invite/ImageField.tsx` | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder |
 | `invite/FaqEditor.tsx` | The FAQ list: add/edit/delete (each an immediate API call), drag and keyboard reorder through `@shared/sortable`, the coalesced order save, the pending flag for the unsaved guard |
-| `invite/InviteMessageCopy.tsx` | The Message section's copy action: its own `GET /households` read, the household picker, the composed-message preview, the copy and the owner's mark-sent |
+| `invite/InviteMessageCopy.tsx` | The invite message's copy action, in Codes: its own `GET /households` read, the household picker, the composed-message preview, the copy and the owner's mark-sent |
 | `lib/mark-shared.ts` | `markHouseholdShared` — the mark-sent POST both copy actions share, and the patch to the cached guest rows |
-| `lib/unsaved-guard.ts` | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation |
+| `lib/unsaved-guard.ts` | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation, unless the guard `keeps` the next route (the builder keeps every Invite view of its wedding) |
 
-**Structure: one card per guest-page section, in the order guests scroll
-them, each owning everything about its section — shown ONE AT A TIME, tabbed,
-not stacked.** **Design** first, then a global **Look** fieldset (two font
+**Structure: four views, one builder.** The Invite module's views are
+**Template** (the design picker), **Style** (a global fieldset: two font
 `<select>`s and the colour scheme visible; the five typography-option
-`<select>`s — heading size/weight/style, body weight/style, all closed
-mirrors of the `@cire/theme` enums — behind a "Fine-tune typography"
-disclosure), then **Hero** (preview at the TOP of the card so the sliders
+`<select>`s — heading size/weight/style, body weight/style, all closed mirrors
+of the `@cire/theme` enums — behind a "Fine-tune typography" disclosure),
+**Content** and **Codes**. Content holds one card per guest-page section, in
+the order guests scroll them, each owning everything about its section and
+shown ONE AT A TIME: **Hero** (preview at the TOP of the card so the sliders
 below act on something visible; image + two crops, title/subtitle, tone, and
 the three hero-display sliders behind a "Hero display" disclosure), **Our
-Story**, **Code Entry & Welcome**, **Events Section**, **FAQ**, **Closing
-Section**, and finally the copyable **Invite message** (explicitly flagged as
-not part of the guest page).
+story**, **Welcome**, **Events**, **FAQ** and **Closing**. Codes holds the
+copyable **Invite message** (not part of the guest page), with the owner's
+code-style re-mint (`RemintPanel`) above it. Codes draws no guest-page preview, since
+nothing there edits the page. `ModuleShell` mounts ONE builder
+while the module is Invite and hands it `view`; a move between views is a
+route change the builder's unsaved guard keeps, so the draft survives with no
+prompt. All four views are an editor's (owners and editors); only the re-mint
+is the owner's.
 
-**The Message section copies a household's message.** Under the first-line
+**The invite message copies a household's message.** Under the first-line
 field sit a household picker, a preview of the composed message and a copy
 button (`InviteMessageCopy`), so an organiser can send the message without
 leaving the Invite module:
 
-- **Which households.** Read fresh from `GET /households` the first time the
-  section is shown in a builder mount, not from the households cache: a
-  re-mint in Codes or a deactivation in Guests changes the codes, and the
-  builder unmounts for both. Only a household with a guest and a live code is
+- **Which households.** Read fresh from `GET /households` the first time Codes
+  is shown in a builder mount, not from the households cache: a deactivation in
+  Guests changes them, and the builder unmounts for it. The owner's re-mint sits
+  above the message on Codes, where the builder stays mounted, so a re-mint
+  reads them again (`RemintPanel`'s `onReminted` bumps `codesRevision`), and
+  the rows are reconciled by household, so the pick and its option stay with
+  the code updated. Only a household with a guest and a live code is
   offered. The block stays mounted after that first visit, so the pick survives
-  a trip to another section.
+  a trip to another view.
 - **No household chosen** (the default): the preview and the copy carry
   `[household code]` in place of the code, the button reads "Copy template",
   and nothing is marked sent. A first tap never marks a household the organiser
@@ -1380,185 +1394,68 @@ leaving the Invite module:
   owner's copy marks the household sent. Selecting the preview selects the whole
   message, which is the way to copy it by hand when the clipboard refuses.
 
-**The Message section points at the other two places the message comes
-from.** A household's message has three parts, set in three places: its first
-line here, with a copy action beside it; the code on its last line, whose style
-is chosen when the wedding is created and changed by the owner in Invite →
-Codes; and the household list in Guests → Households, with a copy action on
-every row. Each of the three carries one line naming the other two
-(`InviteMessageLinks.tsx`), which `ModuleShell` renders into a slot on
-`InviteBuilder`, `RemintPanel` and `GuestTable`. A place the reader's role
-cannot open — Codes for a co-host, the builder for a viewer — is named as text
-with the role that can. The links are buttons that call the shell's route
-callbacks, not `#/w/…` anchors: a hash change reaches `OrganiserApp` through
-`onHashChange`, which skips the unsaved-changes check. A link that crosses
-modules passes its sub with the module (`onModule(module, sub)`), so the move is
-one route write and never mounts the module's default view on the way. A link
-to the message editor opens the builder on its Message section: the shell hands
-the builder an `initialSection`, read once as it mounts and cleared as soon as
-the view leaves Invite → Design, so a later visit opens on the first section.
-Focus moves to the new view's heading, since the link that was clicked
-unmounts with the view it sat in.
+**The message points at the other place it comes from.** A household's
+message has two homes: Invite → Codes, where its first line is written beside
+a copy action and the code style that ends it (changed there by an owner, by
+re-minting every code); and Guests → Households, with a copy action on every
+row. Each carries one line naming the other (`InviteMessageLinks.tsx`), which
+`ModuleShell` renders into a slot on `InviteBuilder` and `GuestTable`. A place
+the reader's role cannot open — Codes for a viewer — is named as text with the
+roles that can. Each place is an `<a href>` to its route, which `ModuleShell`
+builds with `serializeRoute`, set in the sentence with `proseLinkClass`. A
+plain left click calls `preventDefault` and goes through the shell's route
+callback instead, because a hash change reaches `OrganiserApp` through
+`onHashChange`, which skips the unsaved-changes check. A click with a modifier
+key, or a middle click, is left to the browser: it opens the place in a new
+tab, where there is no draft to guard. A link that crosses modules passes its
+sub with the module (`onModule(module, sub)`), so the move is one route write
+and never mounts the module's default view on the way. Focus moves to the new
+view's heading, since the link that was clicked unmounts with the view it sat
+in.
 
-**The section nav is a real tab switcher (2026-07-30), not a scroll-jump
-list.** The builder used to stack every card in one long vertical page
-with a sticky pill row that called `scrollIntoView` on click (`#hash` anchors
-were never an option — the dashboard routes on `location.hash`, so a real
-`#invite-hero` link would clobber it). That made the builder page longer than
-it needed to be on every screen, and pinned the composed preview to a fixed
-scroll position an organiser had to scroll back up to see. Now `activeSection`
-(a signal in `InviteBuilder.tsx`) tracks which ONE section is showing; the nav
-pills set it instead of scrolling.
+**The way between places is two glass strips in the module's view bar.** The
+module's own strip (`SegmentedTabs` in `ModuleShell`) holds the four views with
+their icons; under Content, the builder lends the bar (`ViewBar`) a second
+strip of the six sections — `SegmentedTabs`, `semantics="tabs"`, label
+"Invite sections", each tab `${id}-tab` controlling its section's card. Like
+every strip it is manual activation: the arrows, Home and End move focus and
+Enter, Space or a click chooses. It shares the views' row from a 58rem panel
+and takes the bar's second row below that (`SAME_ROW_REM`). On the views' row
+it stays mounted and `hidden` off Content, and fades and slides 6px as it comes
+and goes (`section-track` in `global.css`: `@starting-style` and `display`
+`allow-discrete`, on `--dur-base` and `--ease-out`); on the second row it mounts
+under Content alone and the bar's height animation carries it. The Preview button
+joins the bar's row, at 28px, while the composed pane cannot show
+(`previewLayer() !== "wide"`, read in JS because the bar is outside
+`@container/builder`). The builder's own sticky section bar is gone: the view
+bar is already stuck under the top bar.
 
-**A hidden section's label is faded and marked with an eye-off icon; the nav
-has no dots.** Together they mean "guests will not see this section", for
-either reason — switched on but empty, or switched off. The reason is in words:
-each tab's `sr-only` clause ("(hidden — empty)" or "(hidden — switched off)"),
-the menu trigger's accessible name, and the section's own badge and reason line.
-A tab with no clause is one whose section is on the invite. The colours come
-from `sectionTabTone` and `FADED_LABEL` in `fields.tsx`; the icon is
-`HiddenSectionIcon`, lucide's `eye-off` at `size-3.5`, drawn in the label's ink
-and `aria-hidden`:
+*Measured 2026-11-04 in Chromium — four labelled views 348px, six sections
+471px, Preview 78px, 922px with the bar's gaps
+(`cire/host/tests/components/GuestsStack.browser.test.tsx`, the tiers block, at
+1280 and 1024).*
 
-| | Shown, or no switch | Hidden |
-|---|---|---|
-| Selected | `bg-gold/12` wash, `text-gold-ink` | wash, `text-gold-ink/80`, icon |
-| Not selected | `text-text-muted` | `text-text-faint`, icon |
+**On a phone, one pill.** Below a 30rem panel (`PHONE_REM`) both strips give
+way to one button in the bar: a glass pill naming the place (a view, or under
+Content the section) in the chosen choice's glass (`GLASS_FILL`) and
+readable gold, beside a round glass chevron. It opens the shared accent menu
+(`DropdownMenu`) with the strips' two tiers as two radio groups: the four
+views (named "Views" for a screen reader), then Content's six sections under
+the "Sections" eyebrow. On Content both carry a check; choosing a section moves
+to Content on it, and Content comes back to the section left on. The
+module's strip hides — `hidden`, kept in the document, so the panel's
+`aria-labelledby` still resolves — only while the pill is mounted
+(`ViewBar.replaceTabs`); the pill mounts with the loaded invite, so a builder
+still loading, or one that failed, leaves the module's strip to leave by.
 
-The wash and the gold hue say "selected"; the fade and the icon say "hidden", so
-a hidden tab never reads as merely not selected. The selected ink is `gold-ink`,
-not `gold`: gold is metal with no contrast contract, 2.2:1 on the wash in the
-light theme, where a faded gold would read stronger than a shown one.
-
-**The fade sits under 4.5:1 by the owner's choice.** WCAG 1.4.3 asks 4.5:1 of
-text this small, and no fade can meet it and still be seen: the idle
-`text-muted` paints only 5.6–6.0:1, so an ink that keeps 4.5:1 is at most
-1.25–1.32 times dimmer, and the selected tab's `gold-ink` (4.68:1 in the light
-theme) has no room at all. The owner chose the fade with an icon over a
-strike-through in full ink: the icon is the cue that is not colour (WCAG 1.4.1),
-and the accessible name carries the state, so the faded ink is not the only
-thing that says a section is hidden. The floor that choice rests on is 3:1 —
-what the icon, drawn in the same ink, needs as a graphic (WCAG 1.4.11).
-`InviteBuilder.tabs.browser.test.tsx` pins it in real Chromium, in both themes,
-on the tab row, the menu's panel, the gold wash and the trigger, and checks the
-icon paints at a real size.
-
-| Painted, dark / light | Ratio |
-|---|---|
-| Faded tab, not selected (tab row) | 3.39 / 3.28 |
-| Faded tab, not selected (menu panel) | 3.40 / 3.29 |
-| Faded tab, selected (on the wash) | 6.70 / 3.26 |
-| Faded tab, selected (wash over the menu panel) | 6.70 / 3.27 |
-| Faded menu-trigger label | 3.43 / 3.36 |
-| Idle tab | 5.96 / 5.62 |
-| Selected tab, shown | 9.74 / 4.68 |
-
-*Measured 2026-09-27 — `bun run --cwd cire/host test:browser`, the floors in `InviteBuilder.tabs.browser.test.tsx` raised to 99 so each assertion prints its ratio*
-
-**The ARIA tabs contract is complete, not just the roles.** The first cut
-declared `role="tablist"`/`role="tab"`/`aria-selected` on the nav but left the
-panel side of the relationship unwired — no `aria-controls`, no
-`role="tabpanel"`, no `aria-labelledby`, and every tab sat in the normal `Tab`
-sequence instead of a roving tabindex, which is worse than not using the role
-at all: assistive tech is told "this is a tabs widget" and then doesn't get
-tabs-widget behaviour. Fixed to
-the full [WAI-ARIA APG tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/),
-hand-wired rather than migrated to Kobalte's `Tabs` primitive (a bigger,
-riskier change to the `SectionCard`/`hidden`-attribute mount-persistence this
-PR relies on, for a widget this codebase already hand-rolls elsewhere — see
-`DesignPicker`'s roving-tabindex radiogroup, the pattern this mirrors):
-
-- Each tab: `id={`${item.id}-tab`}`, `aria-controls={item.id}` (the panel's
-  DOM id — already the fieldset's `id` prop), `tabIndex={active() ? 0 : -1}`.
-- Each panel (`SectionCard`'s `<fieldset>`): `role="tabpanel"`,
-  `aria-labelledby={`${props.id}-tab`}` — unconditional, since `SectionCard`
-  has exactly one consumer (the tab sections), so there's no case where
-  the tabpanel semantics would be wrong.
-- Keyboard: `ArrowRight`/`ArrowLeft` step (wrapping), `Home`/`End` jump to the
-  first/last tab — the APG "automatic activation" model, where moving focus
-  ALSO activates the section (same model `DesignPicker`'s arrows use for
-  selection). `sectionTabRefs` (a `Map<string, HTMLButtonElement>`) is the
-  imperative-focus mechanism, since Solid has no roving-tabindex primitive.
-
-**The tabs collapse into a menu on phones (2026-07-30).** The nine tabs cannot
-share a line below `@3xl/builder` (48rem), and the first cut let the row scroll
-horizontally: Closing and Message sat off the right edge with nothing to say so
-— the exact failure `ModuleSidebar` had already fixed for the module strip, on
-the surface where an organiser is least likely to go hunting. Below that
-threshold the tabs now collapse behind a **trigger naming the current section**
-— its label, its `n/9` position, and, while the section is hidden, the faded
-label and eye-off icon the tabs use, so the menu only has to be opened to MOVE, never to orient — which opens them as a **two-column
-grid**: every tab on screen at once, 44px touch targets, absolutely positioned
-against the sticky bar so opening it overlays the form rather than shoving it
-down. From `@3xl/builder` up the trigger is `display: none` and the tabs are
-the static row they have always been, with `flex-wrap`, so a row that no longer
-fits wraps rather than scrolls.
-
-*Unverified for nine tabs. Measured with eight (four rows, no FAQ tab): the open
-grid was ≈206px tall on a 390px phone, and at the crossover the eight pills plus
-"Preview" fitted one line with room to spare. The FAQ tab adds a fifth grid row
-and one short pill; neither number has been re-measured.*
-
-**One tablist, two presentations — not two tablists.** The narrow surface
-re-lays-out the SAME `role="tablist"` rather than rendering a second copy of the
-tabs inside a dialog (the shape `ModuleSidebar` uses, which is fine for a nav of
-plain buttons and wrong here): each panel's `aria-labelledby` points at
-`${id}-tab`, so a duplicate would give every panel two candidate labels and
-assistive tech two tabs widgets for one set of panels. Collapsed, the tablist is
-`display: none` — the panels' names still resolve, because accname follows
-`aria-labelledby` into hidden subtrees. The container-query swap needs no
-`ResizeObserver`; the only JS state is the open/closed signal, which is inert
-above the threshold since the wide row ignores it (`@3xl/builder:flex` beats
-both the `hidden` and `grid` toggles in the cascade — variants are emitted after
-base utilities).
-
-**Four dismiss paths, and one of them is a WCAG requirement.** Selecting a
-section closes the menu **and hands focus back to the trigger** (collapsing takes
-the focused tab to `display: none` and focus with it — a click with the menu
-already closed, i.e. the wide row, leaves focus exactly where it was); `Escape`
-closes and restores focus; an outside `pointerdown` closes it via a
-capture-phase listener that exists only while open; and **focus leaving the nav
-closes it** (`onFocusOut`, `relatedTarget` outside `sectionNav`). That last one
-is not tidiness — without it, tabbing forward instead of selecting walks focus
-into the first form control of the active section, which sits *behind* the
-opaque overlay the open menu paints across the top of that section, with Escape
-bound to the tabs and the trigger rather than to the field. WCAG 2.2 SC 2.4.11
-*Focus Not Obscured*, and the "reveal without advancing focus" exception does
-not apply.
-
-A fifth closer is not a dismissal at all: the `ResizeObserver` that already
-picks the preview layer also collapses the menu once the container crosses
-`SECTION_MENU_REM` (48rem), because the trigger is the signal's only other
-writer — left alone, a menu opened narrow stays "open" for the rest of the
-session after a rotate or resize, and `selectSection` then focuses a
-`display: none` trigger on every wide tab click.
-
-**Arrow keys follow the geometry, not the DOM order.** `ArrowLeft`/`ArrowRight`
-step one, always. `ArrowDown`/`ArrowUp` are handled **only while the menu is
-open** — on the wide single-line row APG reserves them for the browser, and
-handling them there swallowed page scroll from a focused tab — and
-open, they step by `SECTION_MENU_COLUMNS`, not by one: in a row-major two-column
-grid the next item is to the right and the one below is two along, so aliasing
-Down to Right would make the arrows disagree with what the organiser can see. At the ends they wrap **within the column** (`stepSectionRow`):
-with nine tabs the last row is a single cell, and a plain modulo step would carry
-Down from Closing (right column) to Design (left). Two columns are kept deliberately over a spatially-simpler single
-column, which at ≈396px would overflow the `max-h-[60vh]` cap on a landscape
-phone and re-introduce the very scrolling this replaced.
-
-`SECTION_MENU_COLUMNS` is **exported**, and a test asserts the tablist's class
-contains `grid-cols-${SECTION_MENU_COLUMNS}`. The class cannot be built from the
-constant — Tailwind extracts utilities by scanning source **text**, so
-`grid-cols-${…}` emits no CSS at all — so the literal and the constant are a
-hand-maintained pair, and the drift guard is the checkable half. Same treatment
-`auto-grid` / `page-frame` got.
-
-The trigger's accessible name carries the section state as a clause
-("…, 3 of 9, hidden — empty. Choose a section", or "hidden — switched off")
-rather than leaving it to the fade and the icon. The icon is `aria-hidden`, a fade
-says nothing to a screen reader, and an `aria-label` overrides subtree content, so
-the `sr-only` span the tabs themselves use would be dropped here — without the
-clause the collapsed trigger tells a sighted organiser three things and a
-screen-reader one only two, which is exactly the claim the design rests on.
+**A hidden section says so with an icon and words, not a fade.** Its tab, the
+pill and its menu row lead with `HiddenSectionIcon` (lucide's `eye-off`,
+`aria-hidden`, in the label's ink), and its name carries the badge's words
+("Hero (hidden — empty)", "(hidden — switched off)"). The label keeps the idle
+ink, so it reads at 4.5:1 (`@cire/ui` `segmented-tabs.browser.test.tsx`).
+Only Content's six cards are tab panels (`SectionCard`'s `tabPanel`), and only
+while the section strip is drawn: on a phone, with no strip, they are fieldsets
+named by their legend, as the other views' cards always are.
 
 **Sections stay MOUNTED — only visually hidden.** `SectionCard` (`fields.tsx`)
 takes a `hidden` prop and applies it as the native HTML `hidden` attribute on
@@ -1571,9 +1468,8 @@ which tab is active, so switching tabs never shows stale content; and it keeps
 several sections in one flow — `getByLabelText`/`getByText` don't filter on
 the `hidden` attribute, so those pass untouched. `getByRole` DOES exclude
 hidden elements from the accessibility tree, so tests reaching for a hidden
-section's button/role now switch tabs first (`openSection("Hero")` test
-helper) — the one place this change touched the test file beyond the section
-itself.
+card's button/role move to it first (the `openSection("Hero")` test helper,
+which picks the view and, under Content, the section).
 
 **Two preview layers, one markup source — plus a third presentation of the
 composed one.** Inline per-section previews (`SectionPreview`/`HeroPreview`)
@@ -1637,9 +1533,9 @@ glitch instead of the design changing.
 
 **Mobile preview modal (2026-07-30).** Below `@4xl/builder` there is no room
 for the sticky side pane, and the inline per-section previews only ever show
-the ACTIVE section. A "Preview" button next to the section tabs (hidden once
-the sticky pane can show instead — the same `@4xl/builder` CSS threshold, so
-the two never both offer a way in) opens `invite/PreviewModal.tsx`: the exact
+the ACTIVE section. A "Preview" button in the module's view bar (hidden once
+the sticky pane can show instead — the same 56rem threshold, measured by the
+builder's `ResizeObserver`, so the two never both offer a way in) opens `invite/PreviewModal.tsx`: the exact
 same `PreviewPane` in a `<Portal>` dialog, so there is still only one composed
 markup source, just two presentations of it. `InviteBuilder.tsx` shares the
 `hero`/`story`/`welcome`/`events`/`closing` slot values between the sticky

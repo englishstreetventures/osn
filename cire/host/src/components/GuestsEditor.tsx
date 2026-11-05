@@ -1,6 +1,9 @@
 import Button from "@cire/ui/button";
+import Skeleton from "@cire/ui/skeleton";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Chip } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
@@ -50,13 +53,13 @@ import {
   invalidateGuests,
   type OrganiserGuestRow,
 } from "../lib/guests-store";
-import { haptic } from "../lib/haptics";
 import {
   ensureHouseholdsLoaded,
   householdsAccessor,
   invalidateHouseholds,
   type OrganiserHouseholdRow,
 } from "../lib/households-store";
+import { haptic } from "../lib/touch-feedback";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import { IconButton } from "./ActionTip";
 import ChangePreview, {
@@ -473,7 +476,9 @@ export default function GuestsEditor(props: {
       <SectionIntro eyebrow="Guest list" title="Edit households & guests" />
 
       {/* Add household, in the view bar beside the mode switch, so it is to
-          hand however far down the list the host is. */}
+          hand however far down the list the host is. 28px, the height of the
+          search box the Households tab puts in the same place: a bar's action
+          is the height of its filters (DESIGN.md §4, "One form-field height"). */}
       <Show when={store.loaded()}>
         <ViewBar slot="end">
           <Show
@@ -485,7 +490,7 @@ export default function GuestsEditor(props: {
               </Button>
             }
           >
-            <IconButton variant="outline" size="icon" label="Add household" onClick={addHousehold}>
+            <IconButton variant="bar" size="icon" label="Add household" onClick={addHousehold}>
               <Plus aria-hidden="true" strokeWidth={1.75} class="size-4" />
             </IconButton>
           </Show>
@@ -507,52 +512,60 @@ export default function GuestsEditor(props: {
         </Notice>
       </Show>
 
-      <Show when={!store.loaded() && !loadError()}>
-        <div class="flex flex-col gap-3">
-          <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-20 animate-pulse rounded-sm" />}
-          </For>
-        </div>
-      </Show>
-
-      <Show when={store.loaded()}>
-        <Show
-          when={store.draft.families.length > 0}
-          fallback={
-            <EmptyState
-              title="No households yet"
-              description="Add a household to start building your guest list."
-              action={
-                <Button variant="outline" size="sm" onClick={addHousehold}>
-                  Add household
-                </Button>
-              }
-            />
-          }
-        >
+      {/* Busy while the first read is out: it holds the placeholders and what
+          replaces them, never a form or the heading. Hidden when empty, so it
+          adds no gap. */}
+      <div
+        class="flex flex-col gap-8 empty:hidden"
+        aria-busy={!store.loaded() && !loadError() ? "true" : undefined}
+      >
+        <Show when={!store.loaded() && !loadError()}>
+          {/* Household cards at the height and spacing a loaded card draws
+            (DESIGN.md §4, Skeletons). */}
           <div class="flex flex-col gap-6">
-            <For each={store.draft.families}>
-              {(family, index) => (
-                <FamilyCard
-                  family={family}
-                  events={eventColumns()}
-                  errorsByKey={errorsByKey()}
-                  store={store}
-                  compact={compact}
-                  clipped={clipped}
-                  onHead={toggleHead}
-                  isOpenHead={isOpenHead}
-                  nameRef={(el) => {
-                    nameFields.set(family.key, el);
-                    onCleanup(() => nameFields.delete(family.key));
-                    if (index() === 0) queueMicrotask(measureHeads);
-                  }}
-                />
-              )}
-            </For>
+            <For each={[1, 2, 3]}>{() => <Skeleton class="h-58" />}</For>
           </div>
         </Show>
-      </Show>
+
+        <Show when={store.loaded()}>
+          <Show
+            when={store.draft.families.length > 0}
+            fallback={
+              <EmptyState
+                title="No households yet"
+                description="Add a household to start building your guest list."
+                action={
+                  <Button variant="outline" size="sm" onClick={addHousehold}>
+                    Add household
+                  </Button>
+                }
+              />
+            }
+          >
+            <div class="flex flex-col gap-6">
+              <For each={store.draft.families}>
+                {(family, index) => (
+                  <FamilyCard
+                    family={family}
+                    events={eventColumns()}
+                    errorsByKey={errorsByKey()}
+                    store={store}
+                    compact={compact}
+                    clipped={clipped}
+                    onHead={toggleHead}
+                    isOpenHead={isOpenHead}
+                    nameRef={(el) => {
+                      nameFields.set(family.key, el);
+                      onCleanup(() => nameFields.delete(family.key));
+                      if (index() === 0) queueMicrotask(measureHeads);
+                    }}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </div>
 
       {/* The cut-short heads' one popover, at whichever head was pressed. It
           goes when that head does — a card removed, or its column grown to
@@ -792,13 +805,13 @@ function FamilyCard(props: {
     <Show
       when={props.family.publicId}
       fallback={
-        <span class="font-body text-gold/70 border-gold/30 text-ui-xs tracking-ui-widest shrink-0 rounded-sm border px-1.5 py-0.5 uppercase not-italic">
+        <Chip variant="outline" tone="accent">
           New — code minted on save
-        </span>
+        </Chip>
       }
     >
       <span
-        class="text-text-muted text-ui-xs shrink-0 font-mono"
+        class="text-text-muted text-ui-xs font-ui-mono shrink-0"
         title="This household's claim code — deleting the household disables it."
       >
         {props.family.publicId}
@@ -813,7 +826,7 @@ function FamilyCard(props: {
   const remove = () => (
     <Button
       variant="quiet"
-      size="sm"
+      size="form"
       class="shrink-0"
       onClick={() => props.store.removeFamily(props.family.key)}
       title="Delete this household. Its claim code is disabled and any RSVPs are discarded — you'll confirm the impact before it's applied."
@@ -824,8 +837,9 @@ function FamilyCard(props: {
 
   return (
     <div
+      // Drawn by hand, not `cardClass`: the stuck head sits flush with the top edge, and no padding step leaves the top at 0.
       data-edit-card
-      class="border-border bg-surface/30 flex flex-col rounded-sm border px-4 pb-4"
+      class="border-border bg-surface/30 rounded-ui-lg flex flex-col overflow-clip border px-4 pb-4"
       style={{ "--edit-table-w": width() }}
     >
       <div
@@ -846,7 +860,7 @@ function FamilyCard(props: {
           </Show>
           <Input
             ref={props.nameRef}
-            size="sm"
+            size="form-compact"
             value={props.family.familyName}
             aria-label="Household name"
             placeholder="Household name"
@@ -979,7 +993,7 @@ function FamilyCard(props: {
 
       <Button
         variant="outline"
-        size="sm"
+        size="form"
         class="mt-4 self-start"
         onClick={() => props.store.addGuest(props.family.key)}
       >
@@ -1012,7 +1026,7 @@ function GuestEmailCell(props: {
         when={guestsOwn()}
         fallback={
           <Input
-            size="sm"
+            size="form-compact"
             type="email"
             autocomplete="off"
             value={props.guest.email ?? ""}
@@ -1081,7 +1095,7 @@ function GuestRow(props: {
               visible label per cell would repeat it 200 times down the page.
               `aria-label` carries the name instead. */}
           <Input
-            size="sm"
+            size="form-compact"
             value={props.guest.firstName}
             aria-label="First name"
             aria-invalid={props.errors.length > 0}
@@ -1092,7 +1106,7 @@ function GuestRow(props: {
         </Td>
         <Td>
           <Input
-            size="sm"
+            size="form-compact"
             value={props.guest.lastName}
             aria-label="Last name"
             onInput={(e) =>
@@ -1106,7 +1120,7 @@ function GuestRow(props: {
               stylesheet order rather than by class order. The em-dash
               placeholder already says the field is optional. */}
           <Input
-            size="sm"
+            size="form-compact"
             value={props.guest.nickname ?? ""}
             aria-label="Nickname"
             placeholder="—"
@@ -1128,12 +1142,13 @@ function GuestRow(props: {
         <For each={props.events}>
           {(evt) => (
             <Td align="center">
-              <input
-                type="checkbox"
+              <Checkbox
+                box="native"
+                size="sm"
+                class="items-center"
                 checked={props.guest.eventKeys.includes(evt.key)}
                 aria-label={`${props.guest.firstName || "Guest"} attends ${evt.name || "event"}`}
                 onChange={() => props.store.toggleAttendance(props.guest.key, evt.key)}
-                class="accent-gold h-4 w-4 cursor-pointer"
               />
             </Td>
           )}

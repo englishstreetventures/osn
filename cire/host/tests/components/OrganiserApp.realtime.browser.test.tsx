@@ -51,6 +51,7 @@ vi.mock("../../src/lib/api", async () => {
     apiUrl: (path: string) => `https://api.test${path}`,
     isAuthExpired: () => false,
     redirectToLogin: () => {},
+    signOutToLogin: async () => {},
   };
 });
 // Point the dashboard's topic at the command-held server instead of cire-api.

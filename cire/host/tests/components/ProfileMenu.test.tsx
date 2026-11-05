@@ -50,6 +50,20 @@ describe("ProfileMenu", () => {
     expect(img.src).toBe("https://cdn.test/alex.png");
   });
 
+  it("asks for the avatar image without saying which page asked", () => {
+    // The image's host learns the organiser's address from the request, and
+    // nothing more: no Referer names the wedding page it was drawn on.
+    render(() => (
+      <ProfileMenu
+        session={{ ...SESSION, avatarUrl: "https://cdn.test/referrer.png" }}
+        onSecurity={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
+    const img = screen.getByRole("button", { name: /account menu/i }).querySelector("img");
+    expect(img?.getAttribute("referrerpolicy")).toBe("no-referrer");
+  });
+
   it("falls back to the initial when the avatar image fails to load", () => {
     // A dead link, or a response that is not an image, fires `error` — the
     // circle shows the initial rather than nothing.
@@ -98,6 +112,54 @@ describe("ProfileMenu", () => {
       expect(trigger.querySelector("img")).toBeNull();
       expect(trigger.textContent).toBe("A");
       unmount();
+    }
+  });
+
+  it("ends the open menu on the build's version, which the keyboard passes by", async () => {
+    vi.stubEnv("PUBLIC_BUILD_SHA", "0123456789abcdef0123456789abcdef01234567");
+    try {
+      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      openMenu();
+      const line = await screen.findByText("Version 0123456");
+      expect(line.getAttribute("translate")).toBe("no");
+      expect(line.closest("[role='menuitem']")).toBeNull();
+      expect(line.hasAttribute("tabindex")).toBe(false);
+      // The menu's focus-trap sentinels are not part of what it draws.
+      const drawn = [...screen.getByRole("menu").children].filter(
+        (el) => !el.hasAttribute("data-focus-trap"),
+      );
+      expect(drawn.at(-1)).toBe(line);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reads a commit with spaces around it, and spaces alone as no commit", async () => {
+    try {
+      vi.stubEnv("PUBLIC_BUILD_SHA", "  0123456789abcdef  ");
+      const first = render(() => (
+        <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />
+      ));
+      openMenu();
+      expect(await screen.findByText("Version 0123456")).toBeTruthy();
+      first.unmount();
+      vi.stubEnv("PUBLIC_BUILD_SHA", "   ");
+      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      openMenu();
+      expect(await screen.findByText("Version local")).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("says a build made from no commit is local", async () => {
+    vi.stubEnv("PUBLIC_BUILD_SHA", "");
+    try {
+      render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+      openMenu();
+      expect(await screen.findByText("Version local")).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 
@@ -175,5 +237,21 @@ describe("ProfileMenu", () => {
     openMenu();
     fireEvent.pointerUp(await screen.findByText(/Sign out/i), { button: 0 });
     expect(onSignOut).toHaveBeenCalledOnce();
+  });
+
+  it("chooses the theme from its radio rows, and stays open to compare", async () => {
+    const { themePreference, setThemePreference } = await import("../../src/lib/preferences");
+    setThemePreference("system");
+    render(() => <ProfileMenu session={SESSION} onSecurity={() => {}} onSignOut={() => {}} />);
+    openMenu();
+    const dark = await screen.findByRole("menuitemradio", { name: "Dark" });
+    expect(screen.getByRole("menuitemradio", { name: "System" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    fireEvent.pointerUp(dark, { button: 0 });
+    expect(themePreference()).toBe("dark");
+    expect(dark.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("menu")).toBeTruthy();
+    setThemePreference("system");
   });
 });

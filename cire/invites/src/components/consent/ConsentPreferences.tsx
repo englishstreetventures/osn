@@ -1,5 +1,7 @@
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { CATEGORY_LIST, type ConsentCategory } from "@cire/ui/consent-categories";
 import { gatedVendorsInCategory } from "@cire/ui/consent-vendors";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 
@@ -55,10 +57,10 @@ export function ConsentPreferences() {
       surface="ground"
       class="max-w-lg"
     >
-      <h2 id={titleId} class="font-display text-text text-ui-lg leading-tight font-light">
+      <h2 id={titleId} class="font-display text-text text-ui-lg leading-ui-tight font-light">
         Your privacy choices
       </h2>
-      <p id={descriptionId} class="font-body text-text-muted text-ui-sm mt-2 leading-relaxed">
+      <p id={descriptionId} class="font-body text-text-muted text-ui-sm leading-ui-normal mt-2">
         Choose which of these the invite may load. You can change this at any time from the link in
         the footer of any page.
       </p>
@@ -71,7 +73,7 @@ export function ConsentPreferences() {
           when there is something the removal could not stop. Neither the
           removal nor the reload takes back what the company already received
           or stored; `/privacy` states that in full. */}
-      <p class="font-body text-text-muted/80 text-ui-sm mt-1.5 leading-relaxed">
+      <p class="font-body text-text-muted/80 text-ui-sm leading-ui-normal mt-1.5">
         Turning something off takes effect at once; the page may reload. Data already sent to that
         company can't be recalled.
       </p>
@@ -91,13 +93,11 @@ export function ConsentPreferences() {
       </div>
 
       <div class="border-border/70 mt-6 flex justify-end border-t pt-5">
-        <button
-          type="button"
-          onClick={() => saveConsent(draft())}
-          class="border-gold bg-gold text-on-gold font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
-        >
+        {/* The sheet's one commit, so the filled `primary` rather than the
+            outlined `cta` the prompt's three equal choices take. */}
+        <Button variant="primary" size="sm" onClick={() => saveConsent(draft())}>
           Save choices
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -110,41 +110,34 @@ function SwitchRow(props: {
   checked: boolean;
   onChange: (next: boolean) => void;
 }): JSX.Element {
-  const inputId = createUniqueId();
   const vendor = () => gatedVendorsInCategory(props.id)[0];
 
+  // The title and the summary are the label, so a tap anywhere on either ticks
+  // the box; the box is named by the title and described by the summary. The
+  // vendor's line holds a link, so it is the box's note, outside the label.
   return (
-    <div class="border-border/60 bg-surface-raised/40 rounded-md border px-4 py-3.5">
-      <div class="flex items-start gap-3">
-        <input
-          id={inputId}
-          type="checkbox"
-          checked={props.checked}
-          onChange={(event) => props.onChange(event.currentTarget.checked)}
-          class="accent-gold mt-0.5 h-4 w-4 shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <label for={inputId} class="font-body text-text text-ui-base font-normal">
-            {props.title}
-          </label>
-          <p class="font-body text-text-muted text-ui-sm mt-1 leading-relaxed">{props.summary}</p>
+    <div class="border-border/60 bg-surface-raised/40 rounded-sm border px-4 py-3.5">
+      <Checkbox
+        box="native"
+        align="start"
+        checked={props.checked}
+        onChange={props.onChange}
+        label={props.title}
+        description={props.summary}
+        note={
           <Show when={vendor()?.privacyUrl}>
             {(url) => (
-              <p class="font-body text-text-muted text-ui-xs mt-1.5 leading-snug">
+              <p class="font-body text-text-muted text-ui-xs leading-ui-snug">
                 <Show when={vendor()?.transfer}>{(transfer) => <>{transfer()} · </>}</Show>
-                <a
-                  href={url()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-gold-ink underline underline-offset-2"
-                >
-                  privacy policy ↗
+                <a href={url()} target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
+                  privacy policy <span aria-hidden="true">↗</span>
+                  <span class="sr-only"> (opens in a new tab)</span>
                 </a>
               </p>
             )}
           </Show>
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }

@@ -1,0 +1,44 @@
+---
+/*
+ * The sign-in page's body, the same on both portals but for the portal's
+ * name: a label, a roman "Sign in", and the card holding `SignInPanel`.
+ *
+ * The header and the card are static HTML painted before any script runs;
+ * the panel inside is a `client:only` island, so the card is empty on first
+ * paint and grows when it mounts, and again when a notice appears. The page
+ * therefore sits at the top (`py-24`), not centred, so the header never moves
+ * while the card grows below it, at a 30rem
+ * measure through the portal's `page-frame`. The heading's size reads the
+ * page's container, so the page's `<body>` carries `@container/frame`.
+ *
+ * Neither login page shows the wordmark, so the label carries the product's
+ * name with the portal's, and the two pages differ only in that name.
+ */
+import { eyebrowClass } from './eyebrow'
+import { signInCardClass } from './sign-in-card-class'
+import SignInPanel from './sign-in-panel'
+
+interface Props {
+  portal: 'host' | 'vendor'
+  /** cire/api's origin, which `@cire/ui` cannot read from either app's env. */
+  apiBase: string
+}
+
+const { portal, apiBase } = Astro.props
+
+const LABEL = {
+  host: "Cire · Host portal",
+  vendor: "Cire · Vendor portal",
+} as const satisfies Record<Props['portal'], string>
+---
+<main class="page-frame py-24 [--page-max:30rem]">
+  <header class="mb-8 flex flex-col gap-1.5 text-center">
+    <p class={eyebrowClass()}>{LABEL[portal]}</p>
+    <h1 class="font-ui-display text-ui-ink text-[clamp(1.9rem,5cqi,2.6rem)] leading-ui-none font-light">
+      Sign in
+    </h1>
+  </header>
+  <div class={signInCardClass}>
+    <SignInPanel client:only="solid-js" apiBase={apiBase} />
+  </div>
+</main>

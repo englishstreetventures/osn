@@ -316,6 +316,26 @@ describe("GuestTable", () => {
     expect(screen.getByRole("button", { name: /Download RSVPs \(CSV\)/i })).toBeTruthy();
   });
 
+  // The downloads wait, unseen, while the list loads; a wedding with no
+  // households has nothing to export, so they never arrive.
+  it("offers an owner no CSV downloads while the wedding has no households", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json(EVENTS))
+      .mockResolvedValueOnce(json({ inviteMessage: null }));
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("No guests yet")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Download guests \(CSV\)/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Download RSVPs \(CSV\)/i })).toBeNull();
+  });
+
   it("uses the host's custom message as the first line when one is set", async () => {
     withClipboard();
     primeLoad("Come celebrate with us in Goa!");

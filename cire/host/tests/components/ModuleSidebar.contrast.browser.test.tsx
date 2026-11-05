@@ -16,7 +16,7 @@ import "../../src/styles/global.css";
  * Same canvas-compositing method as `ImportPanel.browser.test.tsx`.
  */
 
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic: () => {} }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch: vi.fn() }) }));
 
 import ModuleSidebar from "../../src/components/ModuleSidebar";

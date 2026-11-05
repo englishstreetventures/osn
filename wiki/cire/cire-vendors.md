@@ -6,13 +6,13 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-04
 ---
 # Vendors — directory, CRM, and email-verification claim
 
 > **Tier gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`), the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) and the couple's enquiry routes (`/api/organiser/weddings/:weddingId/enquiries/*`) all require the wedding to be on the **Crimson** plan tier (`weddingTier(db, "crimson")`). Requests from a wedding below it receive `402 { "error": "payment_required", "tier": "crimson" }`. The gate sits after the role check — see [[cire-entitlements]]. A host can buy Crimson from the portal, at an upgrade-from-Gold price when the wedding is on Gold; see [[cire-upgrades]].
 
-The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/production-release.yml` (dev: `deploy.yml`), and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist. Until that domain moves to a Worker, the cire stack also deploys the same production build to the staged `cire-vendor` Worker on `next-vendor.cireweddings.com` ([[infrastructure-as-code#Production sites]]).
+The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/production-release.yml` (dev: `deploy.yml`), and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist. Until that domain moves to a Worker, the cire stack also deploys the same production build to the staged `cire-vendor` Worker on `next.vendor.cireweddings.com` ([[infrastructure-as-code#Production sites]]).
 
 ---
 
@@ -54,7 +54,7 @@ Wedding-scoped vendor CRM rows. Each is an organiser's record of a vendor they a
 | `directory_vendor_id` | Nullable, no FK. At most one row per `(wedding_id, directory_vendor_id)` — the partial unique index `vendors_wedding_directory_uniq` |
 | `name` | Organiser's label (may differ from the directory name) |
 | `category` | Service category |
-| `status` | `researching`, `contacted`, `quoted`, `booked` or `declined` (`VENDOR_STATUSES` in `cire/api/src/schemas/vendors.ts`) |
+| `status` | `researching`, `contacted`, `quoted`, `booked` or `declined` (`VENDOR_STATUSES` in `cire/db/src/schema.ts`). The triggers `vendors_status_stage` and `vendors_status_stage_update` refuse any other value on insert and update |
 | `contact_name`, `email`, `phone` | Contact details (sole-trader PII) |
 | `notes` | Organiser free text |
 | `quoted_minor` | The vendor's quote, in minor units |
@@ -232,7 +232,7 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 
 | Screen | Path | Description |
 |---|---|---|
-| Sign-in | `/` (unauthenticated) | One button. `SignInPanel` calls `startSignIn` from `@shared/rp-auth` — a top-level navigation to cire-api's `/api/auth/oidc/start` — and the passkey ceremony happens on musubi's own origin. A second "Create account with musubi" button (`startCreateAccount`, the same call plus `prompt=create`) was removed 2026-08-06: only the issuer knows whether this person already has an account, its sign-in screen carries its own "No account yet? Create one", and asking here just made cire guess. On mount the panel also calls `resumeSession`, which asks `GET /api/auth/session` behind the rendered page and sends a vendor who still holds a cire session to the dashboard — the button shows either way |
+| Sign-in | `/login` | `@cire/ui`'s `SignInCard`, the host portal's page but for the portal's name ("Cire · Vendor portal"). One button. `SignInPanel` calls `startSignIn` from `@shared/rp-auth` — a top-level navigation to cire-api's `/api/auth/oidc/start` — and the passkey ceremony happens on musubi's own origin. A second "Create account with musubi" button (`startCreateAccount`, the same call plus `prompt=create`) was removed 2026-08-06: only the issuer knows whether this person already has an account, its sign-in screen carries its own "No account yet? Create one", and asking here just made cire guess. On mount the panel also calls `resumeSession`, which asks `GET /api/auth/session` behind the rendered page and sends a vendor who still holds a cire session to the page they were bounced off (`?returnTo`, a same-origin path) or the dashboard — the button shows either way. After the press it reads "Connecting to musubi…", and a declined or failed sign-in comes back to this page with its notice |
 | Org picker | `/` (authenticated, no listing) | `OrgPicker` island — lists the vendor's existing OSN orgs; on pick, transitions to the listing editor. **The portal does NOT create organisations** — an org is an OSN account-level entity created in the OSN app. A vendor with no org sees an `EmptyState` and must create one in musubi first. _Follow-up closed 2026-08-06:_ the empty state is now a **link** to `PUBLIC_OSN_ACCOUNT_URL`/settings/organisations, not two paragraphs of instructions with nothing to click. |
 | Listing editor | `/` (authenticated, listing found) | `ListingEditor` island — loads the vendor's directory listing via `GET /api/vendor/listing` and lets them update name, description, category, website URL; saves via `PUT /api/vendor/listing` |
 | Claim landing | `/claim` | `ClaimApp` island — renders a claim preview (listing name + organiser) from `GET /api/vendor/claim/preview?token=<raw>`; on "Accept" calls `POST /api/vendor/claim` with the raw token + selected org id; strips the token from the URL via `history.replaceState` immediately on mount (**token-strip**) |

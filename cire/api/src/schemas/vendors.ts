@@ -1,15 +1,9 @@
+import { VENDOR_STATUSES } from "@cire/db";
 import { Schema } from "effect";
 
 import { SERVICE_CATEGORIES } from "../lib/service-categories";
 
-/** Vendor CRM lifecycle statuses, display order. */
-export const VENDOR_STATUSES = [
-  "researching",
-  "contacted",
-  "quoted",
-  "booked",
-  "declined",
-] as const;
+export { VENDOR_STATUSES };
 
 const CategoryKey = Schema.Literals(SERVICE_CATEGORIES.map((c) => c.key));
 const Status = Schema.Literals(VENDOR_STATUSES);

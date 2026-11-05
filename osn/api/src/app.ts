@@ -41,8 +41,8 @@ export interface AppDeps {
    * on every request (start timestamp + duration), which is not available on
    * workerd without `nodejs_compat`, and even then it is a polyfill we'd rather
    * not depend on for request hot-path timing. Its transitive imports are
-   * otherwise workerd-safe (only `@opentelemetry/api`'s no-op tracer/meter +
-   * the effect-only `redact`), so omitting it loses only the auto-emitted
+   * otherwise workerd-safe (only `@opentelemetry/api`'s no-op tracer/meter),
+   * so omitting it loses only the auto-emitted
    * server span/metrics — the redacting logger (the load-bearing PII guard) and
    * `healthRoutes` stay on both paths.
    */

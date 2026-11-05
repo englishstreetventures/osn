@@ -295,7 +295,7 @@ describe("redact", () => {
       expect(out.cause).toBe(CIRCULAR_PLACEHOLDER);
     });
 
-    it("keeps the primitive fast path allocation-free (P-I1)", () => {
+    it("keeps the primitive fast path allocation-free", () => {
       // A scalar must not reach the WeakSet-allocating walk at all. Identity
       // on the way out is the observable proxy for that.
       const s = "not-an-object";

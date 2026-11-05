@@ -15,6 +15,7 @@ import {
   type RegistrySnapshot,
   setCachedRegistry,
 } from "../../src/lib/registry-store";
+import { chipLook } from "../test-support/chip-look";
 import { toastError, toastSuccess } from "../test-support/mocks";
 
 const authFetch = vi.fn();
@@ -94,6 +95,7 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
     shippingVisibleFrom: null,
     stripeConnected: false,
     stripeChargesEnabled: false,
+    stripeConnectedByOsnProfileId: null,
     // What the server says for no Stripe account.
     moneyGiftsBlockedBy: "stripe_not_ready",
     updatedAt: null,
@@ -184,11 +186,14 @@ describe("RegistryView — the gift list", () => {
     );
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
     await screen.findByText("Copper pan");
-    // Named by what it opens, not by "Link" — a screen-reader user hitting a
-    // list of them otherwise hears the same word once per row.
-    const links = screen.getAllByRole("link", { name: /^Open the shop page for/ });
+    // Named by what it opens as well as "Link" — a screen-reader user hitting a
+    // list of them otherwise hears the same word once per row — with the
+    // visible word first, so "click Link" works by voice.
+    const links = screen.getAllByRole("link", { name: /^Link to the shop page for/ });
     expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAccessibleName("Open the shop page for Copper pan");
+    expect(links[0]).toHaveAccessibleName(
+      "Link to the shop page for Copper pan (opens in a new tab)",
+    );
     expect(links[0]).toHaveAttribute("href", "https://shop.example/pan");
     expect(links[0]).toHaveAttribute("rel", "noopener noreferrer");
   });
@@ -956,6 +961,20 @@ describe("RegistryView — gifts received", () => {
     for (const raw of ["reserved", "purchased", "released", "pending", "succeeded"]) {
       expect(screen.queryByText(raw)).not.toBeInTheDocument();
     }
+    // A gift that is no longer coming is a danger tag, outlined; one still
+    // under way or in hand is a plain filled tag.
+    expect(chipLook(screen.getByText("No longer coming"))).toEqual({
+      tone: "danger",
+      variant: "outline",
+      treatment: "tag",
+    });
+    for (const kept of ["Promised", "Bought", "Not cleared yet", "Received"]) {
+      expect(chipLook(screen.getByText(kept))).toEqual({
+        tone: "neutral",
+        variant: "filled",
+        treatment: "tag",
+      });
+    }
   });
 
   it("says a refunded gift went back and is out of the total", async () => {
@@ -1390,7 +1409,12 @@ describe("RegistryView — cash funds", () => {
     );
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
 
+    // Back and forth between the two kinds: each shows its own fields.
     fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.click(screen.getByRole("radio", { name: "A gift to reserve" }));
+    expect(screen.queryByLabelText("Fund")).toBeNull();
+    expect(screen.getByRole("radio", { name: "A gift to reserve" })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: "A cash fund" }));
     fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon in Kyoto" } });
     fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "50000" } });
     fireEvent.input(screen.getByLabelText("What it’s for (optional)"), {

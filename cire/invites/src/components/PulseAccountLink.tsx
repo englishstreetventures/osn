@@ -1,5 +1,7 @@
 import Button from "@cire/ui/button";
+import PersonAvatar from "@cire/ui/person-avatar";
 import { createAuthFetch, isAuthExpired, startSignIn } from "@shared/rp-auth";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, Match, Show, Switch } from "solid-js";
 
 import type { AccountLinkState, FamilyMember, SignedInAccount } from "./types";
@@ -51,40 +53,26 @@ interface PulseAccountLinkProps {
   /** "Not you?" — clear the member and end the musubi sign-in. */
   onNotYou: () => void;
   /**
-   * Placement on the panel that hosts it — width, centring and spacing. The
+   * Placement on the panel that hosts it — width, centring, spacing and the
+   * corner, which depends on whether that panel is itself a card. The
    * component owns only its own surface.
    */
   class?: string;
 }
 
-/** The account's picture, or its initial when there is none or it will not load. */
+/**
+ * The account's picture, or its initial on the account circle when there is
+ * none, it is not an absolute https URL, or it will not load: `@cire/ui`'s
+ * `PersonAvatar`, which keeps those guards for every cire surface.
+ */
 function AccountPicture(props: { account: SignedInAccount }) {
-  const [failed, setFailed] = createSignal(false);
-  const initial = () =>
-    (props.account.displayName ?? props.account.handle ?? "?").trim().charAt(0).toUpperCase() ||
-    "?";
   return (
-    <Show
-      when={props.account.avatarUrl !== null && !failed()}
-      fallback={
-        <span
-          class="bg-gold/15 text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
-          aria-hidden="true"
-        >
-          {initial()}
-        </span>
-      }
-    >
-      <img
-        src={props.account.avatarUrl ?? undefined}
-        alt=""
-        width="40"
-        height="40"
-        referrerpolicy="no-referrer"
-        class="size-10 shrink-0 rounded-full object-cover"
-        onError={() => setFailed(true)}
-      />
-    </Show>
+    <PersonAvatar
+      fallback="initial"
+      name={props.account.displayName ?? props.account.handle ?? ""}
+      url={props.account.avatarUrl}
+      class="size-10"
+    />
   );
 }
 
@@ -198,12 +186,12 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby="pulse-link-heading"
     >
       <h3
         id="pulse-link-heading"
-        class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic"
+        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic"
       >
         Link your musubi account
       </h3>
@@ -281,9 +269,9 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
       </Switch>
 
       <Show when={error()}>
-        <p class="text-error text-ui-sm mt-3" role="alert">
+        <Notice size="inline" tone="danger" alert class="mt-3">
           {error()}
-        </p>
+        </Notice>
       </Show>
     </section>
   );

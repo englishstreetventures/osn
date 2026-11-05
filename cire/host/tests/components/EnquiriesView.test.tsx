@@ -421,9 +421,10 @@ describe("EnquiriesView", () => {
 
     const reply = await screen.findByText("Wonderful, please send a quote.");
     const earlierMessage = screen.getByText("We have your date free.");
-    // Newest first, as the API lists a thread.
+    // The store keeps the thread newest first, as the API lists it; the
+    // thread reads oldest first, so the reply lands under the earlier message.
     expect(
-      reply.compareDocumentPosition(earlierMessage) & Node.DOCUMENT_POSITION_FOLLOWING,
+      earlierMessage.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     const threadReads = authFetch.mock.calls.filter(
       ([url, init]: unknown[]) =>

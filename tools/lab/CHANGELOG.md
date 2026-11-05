@@ -1,5 +1,87 @@
 # @tools/lab
 
+## 0.3.35
+
+### Patch Changes
+
+- 29b6067: The `cire/ui/Button` stories show the `glass` and `bar` variants and the `form` size, and a new "the portals' pills" story sets the portals' two pill tokens beside a panel without them; the corner captions read the 28px icon circle. The portals' pills story draws `bar` at rest, open and at `sm`, beside an open `quiet` row action.
+- 40ded7d: A `cire/ui/DietaryPresets` story group: the wrapped pills with two ticked, the phone's scrolling track and nothing ticked, in cire's light and dark mapping.
+- 122bc70: `cire/ui/Skeleton`'s in-place story draws the host portal's own sizes: the RSVP table's legend room, head row and 56px rows a hairline apart, and the overview's band over its 344px cards. The row story and the playground's heights are the host's too.
+
+## 0.3.34
+
+### Patch Changes
+
+- 9d3a9a1: The lab gains `cire/ui/Skeleton`: each stand-in in cire's dark and light mapping, captioned with its painted corner and fill; the shapes in place on the RSVP page's view bar and table and in a grid of cards; and a playground with what it stands in for, a height and the pulse's pace.
+- 9d2302b: The lab shows `cire/ui/MessageThread`: a thread on the host's page and in the vendor's card, long messages, a tapped time, the info menu, an undelivered message, the empty, loading and failed states, and the reply box, in cire's light and dark mappings.
+- Updated dependencies [5be7d49]
+  - @shared/ui@0.10.1
+
+## 0.3.33
+
+### Patch Changes
+
+- 7693c74: Add `cire/ui/PersonAvatar` stories: a photo from a drawn fixture, each stand-in, a ringed stack and the account trigger, on both of cire's ramps.
+- d32340d: Add `cire/ui/SignInPanel` stories: idle, connecting, each sign-in error line and an unknown marker, each in its card on both of cire's ramps.
+- d7f132f: Add `cire/ui/Wordmark` stories: at rest in a mock top bar, live hover and focus with the ring's gap to the divider, and the boot bar's copy laid over the real mark.
+
+## 0.3.32
+
+### Patch Changes
+
+- 770d7c8: `shared/ui/forms` shows every control size, with a disabled select; `InkFields` shows the ink fill on three guest palettes with each face and a textarea; `SelectChevron` shows the chevron at every size, beside a long value and sized to its content.
+- a20eead: `cire/ui/FileInput` shows the picker in one story per state — `Empty`, `FileChosen`, `Focused` (rendered with keyboard focus, one theme at a time) and `Disabled` — in cire's light and dark mapping.
+- 3507ec6: The overlays stories show one menu holding every kind of row — radio, check, switch, link and disabled — open on load, in the shared default look and in the `accent` variant under cire's mapping, dark and light.
+- cb3db28: A `cire/ui/SegmentedTabs` story for each meaning of the glass strip, in cire's dark and light mapping, with icons, icon-only labels, a refused choice, a scrolling strip of counts, and a reply filter whose replies show as their dots beside "All".
+- Updated dependencies [770d7c8]
+- Updated dependencies [3507ec6]
+  - @shared/ui@0.10.0
+
+## 0.3.31
+
+### Patch Changes
+
+- 10289c8: The `cire/ui/Button` States story shows the answer pair unchosen, chosen and chosen while locked, and says the chosen one wears a 2px ring; the Variants story says how an `outline` answers the pointer.
+- 9536104: A `cire/ui/Prose link` story: `proseLinkClass` in each tone inside a sentence, wrapping in a narrow paragraph, inside a warn and an accent `Notice`, and its focus ring.
+- b88d319: The `cire/ui/Button` stories gain `round`: in the variant grid under Chrome, a Round story at its three sides, disabled at each side, and its pill corner at swatch size.
+- d158559: `shared/ui/forms` gains `CheckboxBoxes` and `RadioBoxes`: every state of each part — checked, unchecked, disabled, named only by `aria-label`, a two-line label holding a link, a description and a note, a row and a column of radios — drawn under the lab's mapping and native under cire's, light and dark.
+- Updated dependencies [d158559]
+  - @shared/ui@0.9.0
+
+## 0.3.30
+
+### Patch Changes
+
+- f0bb687: `cire/ui/Note` lab stories show the note at each size, and a playground, in cire's light and dark mapping.
+- 466b521: The cire Card stories lead their cards with `Eyebrow`, the label every cire app now uses.
+- db781eb: The feedback stories show every `Chip` tone outlined, the tag treatment, a chip leading with a mark and every combination under cire's two ramps; the playground gains the variant, the treatment and the danger tone.
+- f6a7516: The feedback stories show every `Notice` tone at every size, the inline line under a field, the accent tone, the same set under cire's two ramps, and every tone's box with no fill; the playground gains a size control.
+- 7dc0fd8: `Chip`'s note on why `danger` is outlined by default gives the reason that still holds and cire's measured figure. The lab's cire mapping draws cire's darker light-theme error red.
+- Updated dependencies [7dc0fd8]
+- Updated dependencies [db781eb]
+- Updated dependencies [f6a7516]
+  - @shared/ui@0.8.0
+
+## 0.3.29
+
+### Patch Changes
+
+- 91cdded: The `cire/ui/Card` lab stories show each padding step, each fill and each tone in cire's light and dark mapping, captioned with what the browser painted.
+- 18ab625: A `cire/ui/Card` lab story shows the plain, accent, eyebrow and interactive cards in cire's light and dark mapping.
+- 80da778: `cire/ui/Disclosure` lab stories show each tone closed and open, a card disclosure holding rows, and a closed disclosure nested in an open one, in cire's light and dark mapping, each captioned with the turn the browser painted on its marker.
+- 3b4d071: `cire/ui/Eyebrow` lab stories show both tones and every element the label renders as, in cire's light and dark mapping, captioned with the painted letter-spacing and colour.
+- 951b8a1: The lab defines the cire apps' `transition-ui-colors` utility, so a cire app component's story fades its hover colours as the app does.
+
+## 0.3.28
+
+### Patch Changes
+
+- 1b05223: A `cire/ui/Button` story group: every variant at every size inside cire's light and dark mapping, the `disabled`, `aria-disabled` and chosen states, and the corner claims measured from the painted button — the 32px icon circle, the 14px field corner, a caller's corner winning. cire's `--ui-*` mapping moves into `stories/cire-ui/cire-mapping.ts`, which the theming story now reads too.
+- 94a7824: The design-system stories show the new `field` radius role: the radius gallery lists it, the role section labels the input `rounded-ui-field`, and the theming story maps cire's soft-shapes radii (pill buttons, 14px fields, 16px cards). The lab depends on `@cire/ui`, so its stories can render cire's components.
+- Updated dependencies [94a7824]
+  - @shared/design-tokens@0.3.9
+  - @shared/ui@0.7.5
+
 ## 0.3.27
 
 ### Patch Changes

@@ -21,6 +21,8 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
+import { buttonClass } from "@cire/ui/button";
+
 import GettingStarted from "../../src/components/GettingStarted";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
@@ -131,7 +133,10 @@ describe("GettingStarted", () => {
 
     // Dismiss via the X — the checklist collapses to the "Show" link, and the
     // dismissal is persisted for this wedding.
-    fireEvent.click(screen.getByRole("button", { name: /Dismiss getting started/i }));
+    // The guide's own corner button is the bar's icon button.
+    const dismiss = screen.getByRole("button", { name: /Dismiss getting started/i });
+    expect(dismiss.className).toContain(buttonClass({ variant: "bar", size: "icon" }));
+    fireEvent.click(dismiss);
     expect(screen.queryByText("0 / 4 done")).toBeNull();
     expect(screen.getByRole("button", { name: /Show getting started/i })).toBeTruthy();
     expect(localStorage.getItem("cire:getting-started-dismissed:wed_1")).toBe("1");

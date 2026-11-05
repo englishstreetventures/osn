@@ -1,14 +1,17 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { batch, createMemo, createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { haptic } from "../lib/haptics";
 import {
   claimStripeCheck,
   ensureRegistryLoaded,
@@ -19,7 +22,11 @@ import {
   type RegistrySettings,
   type RegistrySnapshot,
 } from "../lib/registry-store";
+import { haptic } from "../lib/touch-feedback";
 import SectionIntro from "./SectionIntro";
+
+const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-6`;
+
 /**
  * THE REGISTRY'S SETTINGS — the four decisions the guest surface has been
  * reading all along with nowhere for a couple to make them: whether the list is
@@ -36,6 +43,14 @@ import SectionIntro from "./SectionIntro";
  * ordinary help. An editor still SEES that panel, disabled, with the reason:
  * a co-host who wonders why money gifts are off deserves an answer rather than
  * a missing section.
+ *
+ * ONE OWNER'S ACCOUNT. Whoever connects the account puts their own identity and
+ * bank on it, so once it is connected the API hands its onboarding link to that
+ * owner alone (`stripeConnectedByOsnProfileId`) and answers any other 403
+ * `stripe_connector_only`. This panel mirrors that: another owner sees the
+ * account's status, the same disabled button with the reason, and can still
+ * "Check again", which only reads the status. A connected account with nobody on
+ * record is no owner's to continue.
  *
  * INTENT AND CAPABILITY ARE DIFFERENT THINGS. "Let guests give money" is the
  * couple's intent (`cash_gifts_enabled`); whether Stripe can take a charge
@@ -65,7 +80,8 @@ interface RegistrySettingsViewProps {
   weddingId: string;
   /** Owner or editor. A read-only viewer never reaches this sub-tab. */
   canEdit?: boolean;
-  /** Owner only — the one control that names where money lands. */
+  /** Owner only — the one control that names where money lands. Once an
+   *  account is connected, only the owner who connected it may continue it. */
   canManage?: boolean;
 }
 
@@ -136,6 +152,11 @@ function fundsDontCountWords(reason: MoneyGiftsBlock | null | undefined, currenc
   }
 }
 
+/** Why an owner who did not connect the account cannot continue it. Names no
+ *  one: the settings carry the connector's profile id, not their name. */
+const CONNECTOR_ONLY =
+  "Only the person who connected this Stripe account can continue its setup or change it.";
+
 /** What a press of "Check again" found: the toast, and whether it is good news. */
 interface StripeCheckWords {
   ready: boolean;
@@ -176,7 +197,7 @@ function stripeCheckWords(
 }
 
 export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
-  const { authFetch } = useAuth();
+  const { authFetch, activeProfileId } = useAuth();
   const snapshot = registryAccessor(props.weddingId);
 
   const [loading, setLoading] = createSignal(true);
@@ -238,6 +259,23 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     if (!s?.stripeConnected) return "none";
     return s.stripeChargesEnabled ? "ready" : "incomplete";
   });
+
+  /**
+   * Whether this organiser may open Stripe's onboarding — the API's rule: an
+   * owner, and once an account is connected, the owner who connected it. A
+   * session still loading, or an account with nobody on record, matches no one.
+   */
+  const canOpenStripe = () => {
+    if (!props.canManage) return false;
+    if (stripeState() === "none") return true;
+    const me = activeProfileId();
+    return me !== null && settings()?.stripeConnectedByOsnProfileId === me;
+  };
+  /** An owner looking at an account they did not connect, or nobody's on record.
+   *  (An owner can always open a wedding with no account, so none is included.) */
+  const accountIsAnotherOwners = () => props.canManage === true && !canOpenStripe();
+  /** The reason the onboarding button is not this organiser's, by its id. */
+  const stripeReasonId = () => (props.canManage ? "stripe-connector-only" : "stripe-owner-only");
 
   /**
    * Fill the form from a settings row and make that row the new base, in one
@@ -464,7 +502,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
   /** Start (or resume) Stripe onboarding, then hand the couple to Stripe. */
   async function connectStripe(): Promise<void> {
-    if (connecting() || !props.canManage) return;
+    if (connecting() || !canOpenStripe()) return;
     setConnecting(true);
     try {
       const res = await authFetch(stripeUrl("session"), { method: "POST" });
@@ -479,11 +517,26 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
       }
       if (!res.ok) {
         haptic("reject");
-        toast.error(
+        // Two 403s: the role gate's, and the account being another owner's —
+        // which this page, loaded before someone else connected it, did not know.
+        const refusal =
           res.status === 403
-            ? "Only the wedding’s owner can connect the account gifts are paid into."
-            : "Couldn’t reach Stripe just now. Try again in a moment.",
+            ? ((await res.json().catch(() => null)) as { error?: unknown } | null)
+            : null;
+        toast.error(
+          refusal?.error === "stripe_connector_only"
+            ? CONNECTOR_ONLY
+            : res.status === 403
+              ? "Only the wedding’s owner can connect the account gifts are paid into."
+              : "Couldn’t reach Stripe just now. Try again in a moment.",
         );
+        // The wedding has an account and it is not this owner's, whatever the
+        // page loaded with. Say so until the next read names who connected it,
+        // rather than offer the button again.
+        const current = settings();
+        if (refusal?.error === "stripe_connector_only" && current) {
+          patchCache({ ...current, stripeConnected: true, stripeConnectedByOsnProfileId: null });
+        }
         return;
       }
       const body = (await res.json()) as { url?: string };
@@ -563,10 +616,10 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     }
   }
 
-  const hintClass = "font-body text-text-muted text-ui-sm leading-relaxed";
+  const hintClass = "font-body text-text-muted text-ui-sm leading-ui-normal";
 
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-6 rounded-sm border p-6">
+    <div class={PANEL_CLASS}>
       <SectionIntro
         eyebrow="Registry"
         title="Gift list settings"
@@ -588,21 +641,19 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
         <form class="flex flex-col gap-8" noValidate onSubmit={(event) => void save(event)}>
           {/* ── Visibility ─────────────────────────────────────────────── */}
-          {/* The description hangs off the FIELDSET, not off the blocked radio.
-              A `disabled` radio is out of the tab order and skipped by a screen
-              reader in forms mode, so a description on it would be unreachable
-              by the one person who needs it; a group description is announced
-              on entering the group, and the Draft radio beside it is always
-              reachable. Making the radio `aria-disabled` instead would let a
-              click flip the DOM's checked state while the signal stayed put. */}
-          <fieldset
-            class="flex flex-col gap-3 border-0 p-0"
-            disabled={!props.canEdit}
-            aria-describedby={canPublish() ? undefined : "registry-publish-blocked"}
-          >
-            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
+          {/* The description hangs off the RADIO GROUP, not off the blocked
+              radio. A `disabled` radio is out of the tab order and skipped by a
+              screen reader in forms mode, so a description on it would be
+              unreachable by the one person who needs it; a group description
+              is announced on entering the group, and the Draft radio beside it
+              is always reachable. Making the radio `aria-disabled` instead
+              would let a click flip the DOM's checked state while the signal
+              stayed put. The fieldset only disables every control at once: it
+              takes no role, so the group's name, the legend, is said once. */}
+          <fieldset role="none" class="flex flex-col gap-3 border-0 p-0" disabled={!props.canEdit}>
+            <Eyebrow as="legend" id="registry-visibility-label" class="mb-1">
               Visibility
-            </legend>
+            </Eyebrow>
 
             <Show when={!canPublish()}>
               <Notice id="registry-publish-blocked" tone="warn">
@@ -613,41 +664,35 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               </Notice>
             </Show>
 
-            <div class="flex flex-wrap gap-4">
-              <label class="font-body text-text text-ui-base flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-visibility"
-                  checked={!published()}
-                  onChange={() => setPublished(false)}
-                />
-                Draft — only you can see it
-              </label>
-              <label class="font-body text-text text-ui-base flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-visibility"
-                  data-testid="registry-publish"
-                  checked={published()}
-                  disabled={!canPublish() && !published()}
-                  onChange={() => setPublished(true)}
-                />
-                Published — guests with a code can see it
-              </label>
-            </div>
+            <RadioGroup
+              box="native"
+              name="registry-visibility"
+              value={published() ? "published" : "draft"}
+              onChange={(value) => setPublished(value === "published")}
+              aria-labelledby="registry-visibility-label"
+              aria-describedby={canPublish() ? undefined : "registry-publish-blocked"}
+            >
+              <RadioGroupItem value="draft" label="Draft — only you can see it" />
+              <RadioGroupItem
+                value="published"
+                label="Published — guests with a code can see it"
+                disabled={!canPublish() && !published()}
+              />
+            </RadioGroup>
           </fieldset>
 
           {/* ── The couple's own words ─────────────────────────────────── */}
           <fieldset class="flex flex-col gap-4 border-0 p-0" disabled={!props.canEdit}>
-            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
+            <Eyebrow as="legend" class="mb-1">
               What it says
-            </legend>
+            </Eyebrow>
             <Field
               label="Heading"
               hint="Leave it empty to use “Gift Registry”. The invite’s own heading, if you set one there, wins over this."
             >
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   value={headline()}
                   maxLength={120}
@@ -674,9 +719,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
           {/* ── Where parcels go ───────────────────────────────────────── */}
           <fieldset class="flex flex-col gap-4 border-0 p-0" disabled={!props.canEdit}>
-            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
+            <Eyebrow as="legend" class="mb-1">
               Where to send things
-            </legend>
+            </Eyebrow>
             <Field
               label="Address"
               hint="Shown only to a household that has reserved something — never to anyone browsing."
@@ -697,6 +742,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             >
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   type="date"
                   value={shippingVisibleFrom()}
@@ -708,9 +754,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
           {/* ── Money ──────────────────────────────────────────────────── */}
           <fieldset class="flex flex-col gap-3 border-0 p-0">
-            <legend class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-1 uppercase">
+            <Eyebrow as="legend" class="mb-1">
               Money gifts
-            </legend>
+            </Eyebrow>
 
             {/* The site, not the couple or Stripe: the API cannot record a gift
                 here, so guests are offered none whatever is set below. A
@@ -742,27 +788,34 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               </Notice>
             </Show>
 
+            {/* An owner who did not connect the account is not told it is
+                theirs: it carries the identity and bank of whoever connected it. */}
             <p class={hintClass} data-testid="stripe-status">
               {stripeState() === "ready"
-                ? "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
+                ? accountIsAnotherOwners()
+                  ? "Stripe is connected and can take payments. Gifts go straight to the account of the person who connected it — we never hold the money."
+                  : "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
                 : stripeState() === "incomplete"
-                  ? "Stripe has your account but still wants something before it can take payments."
+                  ? accountIsAnotherOwners()
+                    ? "Stripe has the account but still wants something from the person who connected it before it can take payments."
+                    : "Stripe has your account but still wants something before it can take payments."
                   : "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money."}
             </p>
 
             <div class="flex flex-wrap items-center gap-3">
-              {/* Not `disabled` for an editor: the whole point of showing this
-                  panel to a co-host is that they read WHY it is not theirs, and
-                  a disabled button takes its description out of reach. It stays
-                  focusable and `connectStripe` refuses on `canManage`, as does
-                  the owner-only route behind it. `connecting()` is a passing
-                  state with nothing to explain, so that one stays `disabled`. */}
+              {/* Not `disabled` for an editor, or for an owner who did not
+                  connect the account: the whole point of showing this panel to
+                  them is that they read WHY it is not theirs, and a disabled
+                  button takes its description out of reach. It stays focusable
+                  and `connectStripe` refuses on `canOpenStripe`, as does the
+                  route behind it. `connecting()` is a passing state with
+                  nothing to explain, so that one stays `disabled`. */}
               <Button
                 type="button"
                 variant="outline"
                 disabled={connecting()}
-                aria-disabled={props.canManage ? undefined : "true"}
-                aria-describedby={props.canManage ? undefined : "stripe-owner-only"}
+                aria-disabled={canOpenStripe() ? undefined : "true"}
+                aria-describedby={canOpenStripe() ? undefined : stripeReasonId()}
                 onClick={() => void connectStripe()}
               >
                 {connecting()
@@ -794,25 +847,26 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 Only the wedding’s owner can connect the account gifts are paid into.
               </p>
             </Show>
+            <Show when={props.canManage && !canOpenStripe()}>
+              <p id="stripe-connector-only" class={hintClass} data-testid="stripe-connector-only">
+                {CONNECTOR_ONLY}
+              </p>
+            </Show>
 
-            <label class="font-body text-text text-ui-base mt-1 flex items-start gap-2">
-              <input
-                type="checkbox"
-                data-testid="cash-gifts"
-                class="mt-1"
-                checked={cashGifts()}
-                disabled={cashGiftsLocked()}
-                onChange={(event) => setCashGifts(event.currentTarget.checked)}
-              />
-              <span>
-                Let guests give money
+            <Checkbox
+              box="native"
+              align="start"
+              class="mt-1"
+              checked={cashGifts()}
+              disabled={cashGiftsLocked()}
+              onChange={setCashGifts}
+              label="Let guests give money"
+              description={
                 <Show when={stripeState() !== "ready"}>
-                  <span class="text-text-muted text-ui-sm block">
-                    Available once Stripe can take payments.
-                  </span>
+                  Available once Stripe can take payments.
                 </Show>
-              </span>
-            </label>
+              }
+            />
           </fieldset>
 
           <Show when={props.canEdit}>

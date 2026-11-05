@@ -7,10 +7,10 @@
  */
 
 import Button from "@cire/ui/button";
+import FileInput from "@cire/ui/file-input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, lazy, Show, Suspense } from "solid-js";
 
-import { haptic } from "../../lib/haptics";
 import {
   CROP_ASPECT,
   cropAspectRatio,
@@ -19,6 +19,7 @@ import {
   type ImageCrop,
 } from "../../lib/image-crop";
 import { inviteImageSrc } from "../../lib/invite-image";
+import { haptic } from "../../lib/touch-feedback";
 import { InstantBadge } from "./fields";
 
 const ImageCropModal = lazy(() => import("../ImageCropModal"));
@@ -77,7 +78,7 @@ export default function ImageField(props: {
                 <img
                   src={url()}
                   alt=""
-                  class="border-border h-32 w-full max-w-xs rounded-sm border object-cover"
+                  class="border-border rounded-ui-field h-32 w-full max-w-xs border object-cover"
                 />
               }
             >
@@ -88,7 +89,7 @@ export default function ImageField(props: {
                   // WYSIWYG with the guest render: the box adopts the crop's true
                   // pixel aspect, and the region scales uniformly inside it — what the
                   // organiser sees here is exactly what guests get (no stretch).
-                  class="border-border w-full max-w-xs overflow-hidden rounded-sm border"
+                  class="border-border rounded-ui-field w-full max-w-xs overflow-hidden border"
                   style={{
                     ...style(),
                     "aspect-ratio": String(cropAspectRatio(props.crop, CROP_ASPECT[props.slot])),
@@ -105,7 +106,7 @@ export default function ImageField(props: {
               aria-label={`${props.label} (phone crop)`}
               // Same WYSIWYG contract as the main thumbnail, at a phone-ish
               // height: the tall region guests see below the desktop breakpoint.
-              class="border-border h-32 overflow-hidden rounded-sm border"
+              class="border-border rounded-ui-field h-32 overflow-hidden border"
               style={{
                 ...style(),
                 "aspect-ratio": String(
@@ -117,28 +118,30 @@ export default function ImageField(props: {
         </Show>
       </div>
       <div class="flex flex-wrap items-center gap-3">
-        <input
-          type="file"
+        <FileInput
           accept="image/jpeg,image/png,image/webp"
+          // The visible label is a sibling span, not a `<label>`, so the
+          // picker is named here.
+          aria-label={`${props.label}: choose a picture`}
           onChange={(e) => {
             const file = e.currentTarget.files?.[0];
             if (file) props.onSelect(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
         />
         <Show when={props.url}>
-          <Button variant="outline" size="sm" onClick={() => setCropping("desktop")}>
+          {/* At the picker's 34px, so the row lines up. */}
+          <Button variant="outline" size="form" onClick={() => setCropping("desktop")}>
             Crop
           </Button>
           <Show when={hasMobileCrop()}>
-            <Button variant="outline" size="sm" onClick={() => setCropping("mobile")}>
+            <Button variant="outline" size="form" onClick={() => setCropping("mobile")}>
               Phone crop
             </Button>
           </Show>
           {/* Danger, not quiet: removing the photo takes effect on the live
               invite straight away — there is no save bar to change your mind at. */}
-          <Button variant="danger" size="sm" onClick={() => props.onRemove()}>
+          <Button variant="danger" size="form" onClick={() => props.onRemove()}>
             Remove
           </Button>
         </Show>

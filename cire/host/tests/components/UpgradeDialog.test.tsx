@@ -30,7 +30,7 @@ vi.mock("../../src/lib/api", async () => {
     navigateTo,
   };
 });
-vi.mock("../../src/lib/haptics", () => ({ haptic: vi.fn() }));
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic: vi.fn() }));
 
 import UpgradeDialog from "../../src/components/UpgradeDialog";
 import { __resetUpgradeStore } from "../../src/lib/upgrade-store";

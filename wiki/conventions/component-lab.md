@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-04
 ---
 
 # Component Lab
@@ -41,10 +41,10 @@ carry the variants and states, and all seven stories live together in
 | `shared/ui` | `overview.story.tsx` | Everything, one state each |
 | `shared/ui/Button` | `button.story.tsx` | All variants, all sizes, live playground |
 | `shared/ui/display` | `display.story.tsx` | Badge, Avatar, Card |
-| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
+| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field, Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
-| `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs |
+| `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu (the default look; `MenuItems` and `MenuItemsCireDark`/`MenuItemsCireLight` open on load with every row kind — radio, check, switch, link, disabled — in the default and the accent variant under cire's mapping), Popover, InfoPopover, Tooltip, Tabs |
 
 A second group, `design-system/*`, is the token contract ([[design-tokens]]) as
 something to look at. Five files in `tools/lab/src/stories/design-system/`, plus
@@ -56,7 +56,7 @@ three helpers beside them that the registry ignores because they are not
 | `design-system/colour` | `colour.story.tsx` | Every colour role in use, with the rule from `tokens.css` beside it; the same tokens by contrast obligation |
 | `design-system/contrast` | `contrast.story.tsx` | Every pair `contrastPairs()` hands the conformance harness, measured from the painted cell |
 | `design-system/type` | `type.story.tsx` | The type, tracking, leading and measure scales, stacked; contract value beside painted value |
-| `design-system/shape-motion` | `shape.story.tsx` | Radius and the `control` role, elevation, the focus ring, durations × easings |
+| `design-system/shape-motion` | `shape.story.tsx` | Radius and its three roles (`control`, `field`, `sheet`), elevation, the focus ring, durations × easings |
 | `design-system/theming` | `theming.story.tsx` | The same `@shared/ui` components under three mappings — musubi's, cire's, none |
 
 Three decisions carry the group. **The lists are derived, not typed**: every
@@ -77,6 +77,22 @@ The sidebar title comes from each file's `meta.title`, not from its path, so
 moving a story does not move its row. The other two component layers —
 `@osn/auth-ui` and `@cire/ui`, see [[component-library]] — get stories as each
 component is added or changed, under [[#Stories for auth and cire components]].
+So far, in `tools/lab/src/stories/cire-ui/`:
+
+| Sidebar title | File | Covers |
+| --- | --- | --- |
+| `cire/ui/Button` | `button.story.tsx` | Every variant at every size; `disabled`, `aria-disabled` and the chosen `choice`; each shape claim measured from the painted button (the 32px icon circle, the 14px field corner, `round`'s pill at swatch size, a caller's corner winning); `round` at its three sides and disabled at each, captioned with its painted box and fill; the answer pair unchosen, chosen and chosen while locked (`aria-disabled`), where pointing at an unchosen answer shows the halfway hover; live playground |
+| `cire/ui/Card` | `card.story.tsx` | The plain, accent, eyebrow and interactive cards; each padding step, each fill and each tone, captioned with the padding, fill or border colour the browser painted |
+| `cire/ui/Disclosure` | `disclosure.story.tsx` | Each tone closed beside open, a card disclosure holding rows, and a closed `nested` disclosure inside an open one, each captioned with the turn the browser painted on its marker |
+| `cire/ui/Eyebrow` | `eyebrow.story.tsx` | Both tones in a card and over a heading, captioned with the painted letter-spacing and colour; the label as each element `as` renders |
+| `cire/ui/MessageThread` | `message-thread.story.tsx` | One story per state, with the portals' motion tokens on the panel: `Thread` (the couple's side on the page: segments across a week, runs on each side, the reply box), `InCard` (the vendor's side in a card), `LongMessages` (typed line breaks and a long link), `TimeShown` (the newest message tapped), `InfoMenu` (a message right-clicked, with cire's mapping lent to `<body>` because the menu portals there), `Undelivered`, `Empty`, `LoadingAndError`, `Reply` (type to bring the send button in; a failed send's error) |
+| `cire/ui/FileInput` | `file-input.story.tsx` | One story per state: `Empty`, `FileChosen`, `Focused` (rendered focused, one theme at a time) and `Disabled`, in cire's light and dark mapping |
+| `cire/ui/SegmentedTabs` | `segmented-tabs.story.tsx` | Each meaning in cire's dark and light mapping, with the host portal's spring, lip, lift and glass edge set on the panel: `TwoItems` (`current`, the vendor's views), `FiveItems` (`tabs`, a hidden section's eye), `Icons` (with icons, and icon-only), `Radio` (one choice refused), `Counts` (counts and a "New" mark, scrolling sideways in a narrow box), `Marks` (an RSVP reply filter as radios with counts, then as a phone draws it: the replies as their dots, "All" keeping its word); each strip works, so the glass can be watched sliding |
+| `cire/ui/PersonAvatar` | `person-avatar.story.tsx` | `Photo` (a drawn fixture in `tools/lab/public/fixtures/`, shown when the lab is served over https), `FailedBlank`, `FailedInitial` (captioned with each letter's painted size and weight), `Ring` (three faces and a count), `Trigger` (live: point at it and Tab to it), each in cire's dark and light mapping |
+| `cire/ui/Prose link` | `prose-link.story.tsx` | `proseLinkClass` in each tone inside a sentence, captioned with the painted colour and underline; each tone wrapping in a 10rem paragraph; the accent tone inside a warn and an accent `Notice`; the focus ring by Tab |
+| `cire/ui/SignInPanel` | `sign-in-panel.story.tsx` | The sign-in page's body in its card on both ramps, with a stub sign-in that never leaves the page: `Idle`, `Connecting` (press it to see "Connecting to musubi…" hold), `Declined`, `Failed`, `Unavailable` and `UnknownMarker` |
+| `cire/ui/Skeleton` | `skeleton.story.tsx` | `Card`, `Row`, `Field` and `Pill`, each in cire's dark and light mapping with the apps' `--motion-scale` and `--ease-in-out` on the panel, captioned with the painted corner and fill; `InPlace`, the RSVP page's view bar (divider, then the pill), its filter row and its rows, and a grid of cards; `Playground` (`standsFor`, a height from a fixed list of `h-*` classes, the pulse at 1× or 4× slower) |
+| `cire/ui/Wordmark` | `wordmark.story.tsx` | `AtRest` in a mock top bar, captioned with the star's painted ink and the corner; `States`, live: point at it for the wash and Tab to it for the ring, captioned with the ring's gap to the divider; `Placeholder`, the boot bar's still copy laid over the real mark in red, captioned with both left edges |
 
 `shared/toast` and `shared/sortable` are benches rather than catalogues: they
 exist for the behaviour no test tier can reach. Their unit suites assert the
@@ -127,11 +143,14 @@ every file under a cire package's `src/`, never sees them.
   more. Add each workspace package a story imports with
   `bun add <package>@workspace:* --cwd tools/lab`, `@osn/client` included for a
   fixture.
-- **cire's colours.** Wrap the component in an element that sets the `--ui-*`
-  contract inline, one wrapper per ramp, as `design-system/theming.story.tsx`
-  does. That gives the `ui-*` utilities cire's light and dark values. Anything
-  outside the contract, such as cire's `font-body`, renders in the lab's
-  defaults: judge it in the app.
+- **cire's colours.** Wrap the component in an element whose `style` is
+  `cireStyle("dark")` or `cireStyle("light")`, from
+  `tools/lab/src/stories/cire-ui/cire-mapping.ts`: one wrapper per ramp. That
+  gives the `ui-*` utilities cire's light and dark colours, type steps,
+  tracking, leading and radius roles. `design-system/theming.story.tsx` reads
+  the same file, so the mapping is written once. Anything outside the contract,
+  such as cire's `font-body`, renders in the lab's defaults: judge it in the
+  app.
 - **A session.** Pass stub client objects as props where the component takes
   them: objects in the story file that return fixed data, never a real client.
   Every token a fixture carries is an obvious placeholder, such as
@@ -190,7 +209,10 @@ sets global CSS affects the chrome, and Dialog, DropdownMenu and Popover content
 portals into `document.body`, so an open one covers the whole lab window.
 `?bare` is the escape hatch, and is also what a screenshot tool should be
 pointed at; `?theme=dark` forces a theme, since a screenshot tool cannot click
-the toggle.
+the toggle. Even bare, a story scrolls inside the lab's own box, so a
+full-page shot stops at the window: grow the window to the story's scroll
+height before the shot. A story file created while the dev server runs gets
+no CSS for classes no other file uses until the server restarts.
 
 **Solid is deduped in the lab's Vite config.** Bun installs `solid-js` into each
 workspace's own `node_modules` rather than hoisting it, so a story imported from

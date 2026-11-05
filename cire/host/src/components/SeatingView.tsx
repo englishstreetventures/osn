@@ -1,5 +1,7 @@
-import Button from "@cire/ui/button";
-import { DropdownMenu } from "@kobalte/core/dropdown-menu";
+import Button, { buttonClass } from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Disclosure from "@cire/ui/disclosure";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -12,16 +14,24 @@ import {
   maybeTransformStyle,
   SortableProvider,
 } from "@shared/sortable";
+import { Chip, type ChipTone } from "@shared/ui/ui/chip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@shared/ui/ui/dropdown-menu";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Select } from "@shared/ui/ui/select";
 import {
   createEffect,
   createMemo,
   createSignal,
   createUniqueId,
   For,
+  type JSX,
   on,
   onCleanup,
   onMount,
@@ -32,7 +42,6 @@ import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { haptic } from "../lib/haptics";
 import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
 import {
   guestName,
@@ -47,18 +56,22 @@ import {
   seatingApi,
 } from "../lib/seating-api";
 import { sameButOrder } from "../lib/sortable-rows";
+import { haptic } from "../lib/touch-feedback";
+import { FilterSelect } from "./FilterField";
 import ReorderControls from "./ReorderControls";
+
+const PLACE_CLASS = `${cardClass({ padding: "sm" })} transition-ui-colors duration-(--dur-fast) ease-(--ease-out)`;
 
 /** The drop zone that unseats a guest dropped on it. Table ids are `stb_…`. */
 const NOT_SEATED = "not-seated";
 
 /** A word on every badge, so the colour never carries the meaning alone. */
-const BADGE_CLASS = {
-  Declined: "border-error/40 text-error",
-  "Invite withdrawn": "border-error/40 text-error",
-  Maybe: "border-gold/40 text-gold-ink",
-  "No reply": "border-border text-text-muted",
-} as const satisfies Record<RsvpBadge, string>;
+const BADGE_TONE = {
+  Declined: "danger",
+  "Invite withdrawn": "danger",
+  Maybe: "accent",
+  "No reply": "neutral",
+} as const satisfies Record<RsvpBadge, ChipTone>;
 
 interface SeatingViewProps {
   weddingId: string;
@@ -393,7 +406,7 @@ export default function SeatingView(props: SeatingViewProps) {
         <div class="flex flex-wrap items-end justify-between gap-4">
           <Field label="Event">
             {(field) => (
-              <Select
+              <FilterSelect
                 {...field}
                 onChange={(e) => setEventId(e.currentTarget.value)}
                 class="min-w-56"
@@ -408,9 +421,12 @@ export default function SeatingView(props: SeatingViewProps) {
                     </option>
                   )}
                 </For>
-              </Select>
+              </FilterSelect>
             )}
           </Field>
+          {/* The event picker is a filter — which chart to show — so it is a 28px
+              pill, and the bar's actions beside it are its height (DESIGN.md
+              §4, "One form-field height"). */}
           <div class="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => window.print()}>
               Print
@@ -453,6 +469,7 @@ export default function SeatingView(props: SeatingViewProps) {
                   <Field label="Table name">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
                         value={newName()}
                         placeholder={`Table ${tables().length + 1}`}
@@ -465,6 +482,7 @@ export default function SeatingView(props: SeatingViewProps) {
                   <Field label="Seats">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
                         type="number"
                         min="1"
@@ -475,20 +493,17 @@ export default function SeatingView(props: SeatingViewProps) {
                       />
                     )}
                   </Field>
-                  <Button type="submit" variant="primary" size="sm">
+                  <Button type="submit" variant="primary" size="form">
                     Add table
                   </Button>
                 </form>
 
                 <Show when={tables().length > 1}>
-                  <details class="border-border rounded-sm border px-4 py-3">
-                    <summary class="font-body text-text text-ui-sm cursor-pointer">
-                      Arrange tables
-                    </summary>
+                  <Disclosure summary="Arrange tables">
                     <DragDropProvider {...arrange.dragHandlers} collisionDetector={closestCenter}>
                       <DragDropSensors />
                       <p {...arrange.hintProps()}>{arrange.hintText}</p>
-                      <ol class="mt-3 flex flex-col gap-1">
+                      <ol class="flex flex-col gap-1">
                         <SortableProvider ids={tableIds()}>
                           <For each={tableIds()}>
                             {(id, index) => (
@@ -506,7 +521,7 @@ export default function SeatingView(props: SeatingViewProps) {
                       </ol>
                       <p {...arrange.liveRegionProps()}>{arrange.announcement()}</p>
                     </DragDropProvider>
-                  </details>
+                  </Disclosure>
                 </Show>
               </Show>
 
@@ -593,7 +608,7 @@ function ArrangeRow(props: {
       ref={sortable.ref}
       style={maybeTransformStyle(sortable.transform())}
       class="bg-surface/30 flex items-center gap-2 rounded-sm px-2 py-1"
-      classList={{ "relative z-30 shadow-lg": sortable.isActiveDraggable() }}
+      classList={{ "relative z-30 shadow-(--elev-2)": sortable.isActiveDraggable() }}
     >
       <ReorderControls sortable={sortable} item={props.item} />
       <span class="font-body text-text text-ui-sm">{props.table.name}</span>
@@ -643,7 +658,7 @@ function Place(props: {
       aria-label={editing() ? props.title : undefined}
       data-table-id={props.table?.id}
       data-over={zone.isOver() ? "true" : "false"}
-      class={`border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-4 transition-colors duration-(--dur-fast) ${props.class ?? ""}`}
+      class={`${PLACE_CLASS} ${props.class ?? ""}`}
       classList={{ "border-gold bg-gold/10": zone.isOver() }}
     >
       <Show
@@ -651,6 +666,7 @@ function Place(props: {
         fallback={
           <form class="flex flex-wrap items-end gap-2" onSubmit={(e) => void save(e)}>
             <Input
+              size="form"
               aria-label={`Name of ${props.title}`}
               value={name()}
               maxLength={80}
@@ -658,6 +674,7 @@ function Place(props: {
               class="w-44"
             />
             <Input
+              size="form"
               aria-label={`Seats at ${props.title}`}
               type="number"
               min="1"
@@ -666,19 +683,19 @@ function Place(props: {
               onInput={(e) => setCapacity(e.currentTarget.value)}
               class="w-20"
             />
-            <Button type="submit" variant="primary" size="sm">
+            <Button type="submit" variant="primary" size="form">
               Save
             </Button>
-            <Button variant="quiet" size="sm" onClick={() => setEditing(false)}>
+            <Button variant="quiet" size="form" onClick={() => setEditing(false)}>
               Cancel
             </Button>
           </form>
         }
       >
         <header class="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 id={headingId} class="font-body text-text text-ui-base font-medium">
+          <Eyebrow as="h3" id={headingId} tone="muted">
             {props.title}
-          </h3>
+          </Eyebrow>
           <div class="flex items-center gap-2">
             <Show when={props.table}>
               {(table) => (
@@ -711,7 +728,7 @@ function Place(props: {
       <Show
         when={props.guests.length > 0}
         fallback={
-          <p class="font-body text-text-faint text-ui-sm">
+          <p class="font-body text-text-muted text-ui-sm">
             {props.table
               ? props.canEdit
                 ? "Drop guests here."
@@ -738,20 +755,21 @@ function Place(props: {
   );
 }
 
-const menuTriggerClass =
-  "font-body text-text-muted hover:text-gold-ink text-ui-xs tracking-ui-wider shrink-0 rounded-sm px-2 py-1 uppercase";
+/** A guest's "Seat" or "Move": a word that opens a menu, so `subtle`'s text
+ *  action, with padding kept so the word is a 24px target. */
+const menuTriggerClass = `${buttonClass({ variant: "subtle", size: "sm" })} shrink-0 px-2 py-1`;
+
+/** The seat menu's trigger, with the plain button's look it replaces: the
+ *  menu's trigger renders as it (`as`), as it would a `Button`. */
+function SeatButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" {...props} class={menuTriggerClass} />;
+}
 
 /** The keys a menu button opens on, as Kobalte's trigger takes them. */
 const MENU_OPEN_KEYS = new Set(["Enter", " ", "ArrowDown", "ArrowUp"]);
 
 /** Hands the event that opened a guest's menu to the menu's own trigger. */
 type MenuOpener = (trigger: HTMLElement) => void;
-
-const menuItemClass =
-  "font-body text-text-muted text-ui-sm flex w-full cursor-pointer items-center justify-between gap-4 " +
-  "rounded-sm px-3 py-2 outline-none transition-colors duration-(--dur-fast) " +
-  "data-[highlighted]:bg-gold/10 data-[highlighted]:text-text " +
-  "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50";
 
 function GuestRow(props: {
   guest: SeatingGuest;
@@ -768,7 +786,7 @@ function GuestRow(props: {
       ref={item.ref}
       style={maybeTransformStyle(item.transform())}
       class="bg-surface flex items-center gap-2 rounded-sm px-2 py-1.5"
-      classList={{ "relative z-30 shadow-lg": item.isActiveDraggable() }}
+      classList={{ "relative z-30 shadow-(--elev-2)": item.isActiveDraggable() }}
     >
       <Show when={props.canEdit && !props.guest.withdrawn}>
         {/* Pointer only. The menu beside it is the keyboard path, so the
@@ -787,12 +805,9 @@ function GuestRow(props: {
       <span class="font-body text-text text-ui-sm min-w-0 flex-1 truncate">{name()}</span>
       <Show when={badge()}>
         {(word) => (
-          <span
-            data-rsvp-badge
-            class={`font-body text-ui-xs tracking-ui-wide shrink-0 rounded-sm border px-1.5 py-0.5 uppercase ${BADGE_CLASS[word()]}`}
-          >
+          <Chip variant="outline" tone={BADGE_TONE[word()]} data-rsvp-badge>
             {word()}
-          </span>
+          </Chip>
         )}
       </Show>
       <Show when={props.canEdit}>
@@ -873,51 +888,44 @@ function GuestMenu(props: {
         onMount(() => open()(trigger));
         return (
           <DropdownMenu placement="bottom-end" gutter={4}>
-            <DropdownMenu.Trigger
+            <DropdownMenuTrigger
+              as={SeatButton}
               ref={trigger}
               aria-label={label()}
-              class={menuTriggerClass}
               onClick={(e: MouseEvent & { currentTarget: HTMLButtonElement }) => {
                 // A click no press came before opens the menu, as a tap's does.
                 if (e.detail === 0) e.currentTarget.dataset.pointerType = "touch";
               }}
             >
               {action()}
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-sm border p-1.5 shadow-lg outline-none">
-                <DropdownMenu.RadioGroup
-                  value={props.guest.tableId ?? NOT_SEATED}
-                  onChange={(value) =>
-                    void props.onSeat(props.guest, value === NOT_SEATED ? null : value)
-                  }
-                >
-                  <DropdownMenu.RadioItem value={NOT_SEATED} class={menuItemClass}>
-                    Not seated
-                  </DropdownMenu.RadioItem>
-                  <For each={choices()}>
-                    {(table) => {
-                      const seated = () => props.seatedCount(table.id);
-                      const full = () =>
-                        seated() >= table.capacity && props.guest.tableId !== table.id;
-                      return (
-                        <DropdownMenu.RadioItem
-                          value={table.id}
-                          disabled={full()}
-                          class={menuItemClass}
-                        >
-                          <span>{table.name}</span>
-                          <span class="sr-only">, </span>
-                          <span class="text-text-faint" data-numeric>
-                            {`${seated()} of ${table.capacity}`}
-                          </span>
-                        </DropdownMenu.RadioItem>
-                      );
-                    }}
-                  </For>
-                </DropdownMenu.RadioGroup>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent variant="accent" class="max-h-80 min-w-56 overflow-y-auto">
+              <DropdownMenuRadioGroup
+                value={props.guest.tableId ?? NOT_SEATED}
+                onChange={(value) =>
+                  void props.onSeat(props.guest, value === NOT_SEATED ? null : value)
+                }
+              >
+                <DropdownMenuRadioItem value={NOT_SEATED}>Not seated</DropdownMenuRadioItem>
+                <For each={choices()}>
+                  {(table) => {
+                    const seated = () => props.seatedCount(table.id);
+                    const full = () =>
+                      seated() >= table.capacity && props.guest.tableId !== table.id;
+                    return (
+                      <DropdownMenuRadioItem value={table.id} disabled={full()}>
+                        <span class="min-w-0 flex-1 truncate">{table.name}</span>
+                        <span class="sr-only">, </span>
+                        {/* The secondary ink: `--text-faint` reads under 4.5:1. */}
+                        <span class="text-text-muted" data-numeric>
+                          {`${seated()} of ${table.capacity}`}
+                        </span>
+                      </DropdownMenuRadioItem>
+                    );
+                  }}
+                </For>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
           </DropdownMenu>
         );
       }}

@@ -11,7 +11,7 @@ related:
   - "[[cire-auth]]"
   - "[[d1-limits]]"
   - "[[realtime]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-04
 ---
 # Checklist / Tasks
 
@@ -44,7 +44,7 @@ run-time columns and `tasks_event_idx`, again in place ([[cire-run-sheet]]).
 | `status` | `text` NOT NULL | `'open'` (default) or `'done'` |
 | `sort_order` | `integer` NOT NULL | default 0; controls display order within a bucket |
 | `created_at` | `integer` NOT NULL | unix seconds; the API answers ms-epoch |
-| `completed_at` | `integer` | nullable unix seconds; set when `status` flips to `'done'`, cleared on reopen |
+| `completed_at` | `integer` | nullable unix seconds; set when `status` flips to `'done'` and kept when a done task is marked done again, cleared on reopen |
 | `template_id` | `text` | the template that seeded the task (`'starter'`); NULL on a task the couple typed |
 | `template_item` | `text` | the item's stable key in that template; NULL on a typed task |
 | `due_offset_days` | `integer` | days from the wedding date the item was seeded with, negative before the day; NULL on a typed task |
@@ -339,7 +339,7 @@ of faces (`TaskHolders.tsx`): the reader's own seat first when they hold it, the
 everyone in the order they were put on it — three faces, then a "+N" bubble for
 the rest. A face is the person's OSN photo, or the empty avatar — a person's
 outline in the page's colour on a disc of faint ink, never initials — when they
-have none or it will not load (`PersonAvatar.tsx`; the portal's CSP admits no
+have none or it will not load (`@cire/ui`'s `PersonAvatar`, `fallback="blank"`; the portal's CSP admits no
 avatar host until englishstreetventures/osn#1207, so today every photo fails and
 falls back). The faces are pictures only: the row says "Held by Sam Lee and @jo"
 in screen-reader text for every role, and each face shows its name on hover.

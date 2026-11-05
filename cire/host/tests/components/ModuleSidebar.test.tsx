@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { buttonClass } from "@cire/ui/button";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -118,6 +119,27 @@ describe("ModuleSidebar", () => {
     expect(selected[0]!.classList.contains("text-gold-ink")).toBe(true);
     expect(selected[0]!.classList.contains("text-gold")).toBe(false);
     expect(selected[0]!.querySelector("svg")!.classList.contains("text-gold")).toBe(true);
+  });
+
+  it("draws the sheet's own × as the frame's close, not as one of the page's pills", async () => {
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        weddingSlug="test-wedding"
+        canManage={false}
+        active="guests"
+        tier={TOP}
+        onSelect={vi.fn()}
+      />
+    ));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Open wedding navigation, currently Guests/ }),
+    );
+    const sheet = await screen.findByRole("dialog", { name: /Wedding modules/i });
+    // A drawer's own × belongs to the frame it closes (DESIGN.md §4, One pill
+    // language): `bare`, so no hairline circle reads as one more of its actions.
+    const close = within(sheet).getByRole("button", { name: "Close modules" });
+    expect(close.className).toContain(buttonClass({ variant: "bare", size: "icon" }));
   });
 
   it("marks the active module with aria-current and no others", () => {

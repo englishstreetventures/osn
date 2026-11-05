@@ -1,5 +1,7 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -7,9 +9,10 @@ import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { haptic } from "../lib/haptics";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
+import { haptic } from "../lib/touch-feedback";
 import {
   ensureVendorsLoaded,
   invalidateVendors,
@@ -263,13 +266,11 @@ export default function VendorsView(props: VendorsViewProps) {
 
       {/* Add vendor (editor). */}
       <Show when={props.canEdit}>
-        <form
-          onSubmit={addVendor}
-          class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
-        >
+        <form onSubmit={addVendor} class={FIELD_BAR_CLASS}>
           <Field label="Vendor name" class="min-w-48 flex-1">
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 value={newName()}
                 onInput={(e) => setNewName(e.currentTarget.value)}
@@ -280,6 +281,7 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Category">
             {(field) => (
               <Select
+                size="form"
                 {...field}
                 value={newCategory()}
                 onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
@@ -293,6 +295,7 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Status">
             {(field) => (
               <Select
+                size="form"
                 {...field}
                 value={newStatus()}
                 onChange={(e) => setNewStatus(e.currentTarget.value as VendorStatus)}
@@ -304,6 +307,7 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Contact" class="w-36">
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 value={newContact()}
                 onInput={(e) => setNewContact(e.currentTarget.value)}
@@ -314,6 +318,7 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Email" class="w-44">
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 type="email"
                 value={newEmail()}
@@ -325,6 +330,7 @@ export default function VendorsView(props: VendorsViewProps) {
           <Field label="Quote (optional)" class="w-28">
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 type="number"
                 min="0"
@@ -335,7 +341,7 @@ export default function VendorsView(props: VendorsViewProps) {
               />
             )}
           </Field>
-          <Button type="submit" variant="primary">
+          <Button type="submit" variant="primary" size="form">
             Add vendor
           </Button>
         </form>
@@ -348,9 +354,9 @@ export default function VendorsView(props: VendorsViewProps) {
         <For each={grouped()}>
           {(group) => (
             <section class="flex flex-col gap-2">
-              <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+              <Eyebrow as="h3" tone="muted">
                 {group.status.label}
-              </h3>
+              </Eyebrow>
               <ul class="flex flex-col gap-1">
                 <For each={group.vendors}>
                   {(v) => (
@@ -360,9 +366,7 @@ export default function VendorsView(props: VendorsViewProps) {
                           {v.name}
                         </span>
                         {/* Category chip */}
-                        <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                          {categoryLabel(v.category)}
-                        </span>
+                        <Chip treatment="tag">{categoryLabel(v.category)}</Chip>
                         <Show when={v.contactName ?? v.email ?? v.phone}>
                           <span class="text-text-muted text-ui-sm">
                             {v.contactName}
@@ -382,7 +386,7 @@ export default function VendorsView(props: VendorsViewProps) {
                           <div class="flex items-center gap-2">
                             {/* Status picker */}
                             <Select
-                              size="sm"
+                              size="form-compact"
                               aria-label={`Status for ${v.name}`}
                               value={v.status}
                               onChange={(e) =>
@@ -440,7 +444,7 @@ export default function VendorsView(props: VendorsViewProps) {
                                   {(field) => (
                                     <Input
                                       {...field}
-                                      size="sm"
+                                      size="form-compact"
                                       type="email"
                                       value={listEmail()}
                                       onInput={(e) => setListEmail(e.currentTarget.value)}
@@ -452,12 +456,12 @@ export default function VendorsView(props: VendorsViewProps) {
                                   <Button
                                     type="submit"
                                     variant="primary"
-                                    size="sm"
+                                    size="form"
                                     disabled={listingLoading()}
                                   >
                                     {listingLoading() ? "Listing…" : "List + invite"}
                                   </Button>
-                                  <Button variant="quiet" size="sm" onClick={closeListing}>
+                                  <Button variant="quiet" size="form" onClick={closeListing}>
                                     Cancel
                                   </Button>
                                 </div>

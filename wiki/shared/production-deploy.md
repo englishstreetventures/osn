@@ -534,7 +534,7 @@ build outside CI, export these before `bun run --cwd <site> build`.
 |---|---|---|---|---|
 | `PUBLIC_API_URL` | cire/invites | **Yes** | `https://api.cireweddings.com` | cire-api prod origin, read server-side (`[slug].astro` / `index.astro` via `src/lib/invite.ts`) **and** by the islands (dev default `http://localhost:8787`). |
 | `PUBLIC_SITE_URL` | cire/invites | Recommended | `https://invite.cireweddings.com` | Guest site canonical URL. The apex serves the marketing landing site since the 2026-07-16 reshuffle. |
-| `PUBLIC_BUILD_SHA` | cire/invites | Optional | `${{ github.sha }}` | The commit the build is made from; the footer prints its first seven characters as "Version …", or "Version local" when unset ([[cire-invite-builder#The footer's version]]). Set on the build step of `deploy-cire-invites` and `deploy-cire-invites-dev`; nothing to configure. |
+| `PUBLIC_BUILD_SHA` | cire/invites, cire/landing, cire/host, cire/vendor | Optional | `${{ github.sha }}` | The commit the build is made from; each site's footer, and each portal's account menu, prints its first seven characters as "Version …", or "Version local" when unset ([[cire-invite-builder#The footer's version]]). Set on the guest site's build step in `deploy-cire-invites` and on the marketing site's and both portals' in `sites` (`production-release.yml`), and on all four in `stack-cire-dev` (`deploy.yml`); nothing to configure. |
 | `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/invites | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the venue row of the event details renders a real Maps Embed iframe once the guest allows Google Maps (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/invites/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
 | `PUBLIC_CIRE_API_URL` | cire/host | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/host/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
 | `PUBLIC_OSN_ACCOUNT_URL` | cire/host **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
@@ -887,7 +887,8 @@ what holds it.
    so nothing in the job ever ran. Re-run the failed jobs; there is nothing to fix
    here. (Seen 2026-08-06, taking out four jobs across two consecutive runs.)
 7. **A red `Smoke check, rolling back on failure` step** means the Worker deployed but
-   did not answer as a working one does for a minute (§7). Its annotations name each
+   did not answer as a working one does for a minute, or for the longer budget a stack
+   job gives a site its release attaches a new host to (§7). Its annotations name each
    probe and what it got, and their titles say which of four things happened:
    - **The Worker answered wrongly and was rolled back** (`Smoke check failed: … rolling
      the Worker back`, then no `Rollback refused` or `Rollback failed`). The step
@@ -1183,15 +1184,30 @@ automatically once you attach them.
    ([[infrastructure-as-code#Production sites]]).
 3. **Site Worker custom domains (Alchemy, verify only).** The production stacks attach
    each site Worker's domain on deploy: `www.musubi.social` for musubi landing, and while a
-   site is staged its spare host (`next-host.cireweddings.com`,
-   `next-vendor.cireweddings.com`, `next.cireweddings.com`, `next.musubi.social`). No
-   dashboard step; before the first release run `bun run scripts/pages-domain.ts check`
-   with `CLOUDFLARE_PAGES_DNS_TOKEN` for each to confirm no Pages project or DNS record
-   holds it. The token must reach the production account and exactly `cireweddings.com`
-   and `musubi.social`, and be able to list its account: `pages-domain.ts` refuses it
-   otherwise, before any other request, and `alchemy-plan`'s precheck then fails every
-   release that ships the musubi stack. A site turned on in another zone (pulse landing
-   on `pulse.events`) needs the token minted again with that zone, the same day.
+   site is staged its spare host (`next.host.cireweddings.com`,
+   `next.vendor.cireweddings.com`, `next.cireweddings.com`, `next.musubi.social`). No
+   dashboard step. Before a release first attaches one, confirm nothing holds it: for
+   `www.musubi.social` run `bun run scripts/pages-domain.ts check musubi_landing` with
+   `CLOUDFLARE_PAGES_DNS_TOKEN`; that command reads production hosts only, so for each
+   spare host check that `dig +short <host> A`, `AAAA` and `CNAME` answer nothing and
+   that no Pages project lists it. The token must reach the production account and
+   exactly `cireweddings.com` and `musubi.social`, and be able to list its account:
+   `pages-domain.ts` refuses it otherwise, before any other request, and
+   `alchemy-plan`'s precheck then fails every release that ships the musubi stack. A
+   site turned on in another zone (pulse landing on `pulse.events`) needs the token
+   minted again with that zone, the same day.
+   A spare host two labels below its zone gets its own certificate about two minutes
+   after the deploy that attaches it ([[dev-environment#1. Tier map]]), longer than the
+   smoke check's usual minute. So the stack job gives a site whose approved plan
+   attaches a host other than a production host up to 240 s
+   ([[#The automatic check]]), and the release that moves a staged site to a new spare
+   host, or first attaches one, goes green in one run. A certificate slower than that
+   fails the check without rolling back ("did not answer as a working Worker does
+   within 240 s, but the Worker never answered wrongly — not rolling back"). Then check
+   that each new host answers 200 with HTML (`curl -sI https://<host>/`), and once it
+   does, dispatch **Production release** again: the stack job left no successful
+   record, so that release ships the stack again, with no domain change, and its smoke
+   check passes.
 4. **Re-check the allowlists** once the domains resolve: the live guest, organiser,
    vendor and identity origins must exactly match cire-api `WEB_ORIGIN` and osn-api
    `OSN_CORS_ORIGIN`. `OSN_ORIGIN` is a shorter list on purpose — only `https://musubi.social`,
@@ -1599,7 +1615,9 @@ curl -X POST "$OSN_ISSUER_URL/graph/internal/register-service" \
 ```
 
 (`POST /graph/internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is
-unset, 401 on a bad bearer — `routes/graph-internal.ts:203-214`.)
+unset, 401 on a bad bearer, and 409 when the `kid` belongs to another service
+(`kid_serviceid_mismatch`) or has been revoked (`kid_revoked`) — a revoked key is
+replaced under a new `kid`; `osn/api/src/routes/graph-internal.ts`.)
 
 cire-api requests four scopes, the `ARC_*_SCOPE` constants of
 `cire/api/src/services/osn-bridge.ts`: `graph:read`, `graph:resolve-account`,
@@ -1674,6 +1692,19 @@ How it decides:
   probe passes in two rounds in a row. No answer names the version that gave it, so a
   pass straight after the deploy can come from the version before; the second pass
   narrows that window, it does not close it.
+- **A site its release gives a new host gets up to 240 s.** A Workers custom domain's
+  first certificate takes about two minutes ([[dev-environment#1. Tier map]]). So in
+  each production stack job a step runs
+  [`scripts/smoke-budgets.ts`](../../scripts/smoke-budgets.ts) over the plan approved at
+  `alchemy-plan`, and each site whose plan attaches a host other than a production
+  host passes `SMOKE_BUDGET_MS=240000` to its check, which still asks every 10 seconds
+  and passes on the first two good rounds. A flip attaches the production host, which
+  the zone's own certificate covers, so a flip keeps the minute, and so does every
+  other check, the Wrangler Workers' and dev's included. The check refuses a value
+  outside 60 to 240 s before any request. Each stack smoke step has seven minutes:
+  with every request at its timeout, a 240 s check, its rollback and the re-check take
+  366 s (SB4 in `scripts/tests/smoke-check.test.ts`). When the budget step fails,
+  every check reads no budget and asks for a minute.
 - **The Worker answered wrongly** when time runs out: it restores the version that
   served before this deploy, with the message `Smoke check failed: <run URL>`, then
   asks once more and says whether the restored version answers. It reads the Worker's
@@ -1706,7 +1737,8 @@ How it decides:
   429 counts here because Cloudflare answers every Worker on the account with one once
   the daily request cap is spent, and anyone can spend it from the public hosts. The
   one probed route with a limit of its own, osn-api's `/health/coordination`, allows
-  10 calls a minute per IP, and a check asks it at most 8 times.
+  10 calls a minute per IP, and a check asks it at most 8 times: osn-api's check is
+  never given a longer budget.
 - **osn-api refused the bearer**: `/health/coordination` answered 401, so the
   `INTERNAL_SERVICE_SECRET` the job holds is not the Worker's. No rollback: new code
   cannot fix a secret. Set the Environment's value to the Worker's (`gh secret set

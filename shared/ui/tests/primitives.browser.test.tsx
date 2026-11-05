@@ -14,11 +14,12 @@
  */
 
 import { render } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
 import { describe, expect, it } from "vitest";
 
-import { Chip } from "../src/ui/chip";
+import { Chip, type ChipTone, type ChipTreatment, type ChipVariant } from "../src/ui/chip";
 import { EmptyState } from "../src/ui/empty-state";
-import { Notice } from "../src/ui/notice";
+import { Notice, type NoticeSize, type NoticeTone } from "../src/ui/notice";
 import { Stat } from "../src/ui/stat";
 import { Table, Td } from "../src/ui/table";
 
@@ -44,34 +45,34 @@ describe("Notice", () => {
     }
   });
 
-  it("gives each tone a different colour, or the tones are decoration", () => {
-    const colours = (["danger", "warn", "success", "info"] as const).map((tone) => {
-      const { container, unmount } = render(() => <Notice tone={tone}>body</Notice>);
-      const c = painted(container.firstElementChild!, "color");
-      unmount();
-      return c;
-    });
-    expect(new Set(colours).size).toBe(colours.length);
-  });
-
-  it("carries tone as a glyph shape as well as a hue", () => {
+  it("carries tone as a mark's shape as well as a hue", () => {
     // The accessibility claim in the docblock, made falsifiable. `danger` and
     // `warn` are the closest pair in most palettes and the pair red-green
-    // colour blindness collapses; if the glyphs ever became the same character
-    // in two colours, this is what notices.
-    const glyphs = (["danger", "warn", "success"] as const).map((tone) => {
+    // colour blindness collapses; if the icons ever became the same shape in
+    // two colours, this is what notices. The shared circle is the frame; the
+    // mark inside it is what differs.
+    const shapes = (["danger", "warn", "success"] as const).map((tone) => {
       const { container, unmount } = render(() => <Notice tone={tone}>body</Notice>);
-      const glyph = container.querySelector("[aria-hidden='true']")?.textContent ?? "";
+      const shape = container.querySelector("[aria-hidden='true'] svg")?.innerHTML ?? "";
       unmount();
-      return glyph;
+      return shape;
     });
-    expect(new Set(glyphs).size).toBe(3);
+    expect(shapes).not.toContain("");
+    for (const shape of shapes) expect(shape).toContain("<circle");
+    expect(new Set(shapes).size).toBe(3);
   });
 
-  it("reads a word in place of the glyph, because '✕' is not a thing to hear", () => {
-    const { container } = render(() => <Notice tone="danger">Could not save</Notice>);
-    expect(container.textContent).toContain("Error:");
-  });
+  it.each([
+    ["danger", "Error:"],
+    ["warn", "Warning:"],
+    ["success", "Success:"],
+  ] as const)(
+    "reads %s's word in place of its icon, because a drawn mark is not a thing to hear",
+    (tone, word) => {
+      const { container } = render(() => <Notice tone={tone}>body</Notice>);
+      expect(container.querySelector(".base\\:sr-only")?.textContent).toBe(`${word} `);
+    },
+  );
 
   it("gives `info` no mark at all — nothing has happened", () => {
     const { container } = render(() => <Notice tone="info">standing note</Notice>);
@@ -90,10 +91,366 @@ describe("Notice", () => {
   });
 });
 
+/** Every computed property a box's look is made of. */
+const LOOK = [
+  "paddingTop",
+  "paddingLeft",
+  "borderTopWidth",
+  "borderTopColor",
+  "borderTopLeftRadius",
+  "backgroundColor",
+  "color",
+  "fontSize",
+  "lineHeight",
+  "columnGap",
+] as const;
+
+type Look = Record<(typeof LOOK)[number], string>;
+
+function look(el: Element): Look {
+  const style = getComputedStyle(el);
+  return Object.fromEntries(LOOK.map((p) => [p, style[p]])) as Look;
+}
+
+/** What `var(--<token>)` resolves to as a colour here, measured on a probe. */
+function tokenColour(token: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = `var(${token})`;
+  document.body.append(probe);
+  const c = getComputedStyle(probe).color;
+  probe.remove();
+  return c;
+}
+
+const EVERY_TONE = ["danger", "warn", "success", "info", "accent"] as const;
+
+describe("Notice sizes and the accent tone", () => {
+  it("draws the same box with no size and tone as it always has", () => {
+    // `@shared/ui` must not move under musubi or pulse: the default is today's
+    // box, property for property. The numbers are the contract's fallbacks,
+    // since the test stylesheet maps no type or radius step: 16px padding, a
+    // 1px border, `--ui-text-base` at 0.9rem, `--ui-radius-sm` at 4px, a 10px
+    // gap between the mark and the words.
+    const plain = render(() => <Notice>standing note</Notice>);
+    const before = look(plain.container.firstElementChild!);
+    plain.unmount();
+
+    const explicit = render(() => (
+      <Notice size="md" tone="info">
+        standing note
+      </Notice>
+    ));
+    expect(look(explicit.container.firstElementChild!)).toEqual(before);
+    explicit.unmount();
+
+    expect(before.paddingTop).toBe("16px");
+    expect(before.paddingLeft).toBe("16px");
+    expect(before.borderTopWidth).toBe("1px");
+    expect(before.fontSize).toBe("14.4px");
+    expect(before.borderTopLeftRadius).toBe("4px");
+    expect(before.columnGap).toBe("10px");
+  });
+
+  it.each(EVERY_TONE)(
+    "draws the %s inline line with no border, no fill and no padding, in its ink",
+    (tone) => {
+      const { container } = render(() => (
+        <Notice size="inline" tone={tone}>
+          Enter a valid email address.
+        </Notice>
+      ));
+      const line = look(container.firstElementChild!);
+      const boxed = render(() => <Notice tone={tone}>body</Notice>);
+      expect(line.color).toBe(look(boxed.container.firstElementChild!).color);
+      boxed.unmount();
+      expect(line.borderTopWidth).toBe("0px");
+      expect(line.backgroundColor).toBe(TRANSPARENT);
+      expect(line.paddingTop).toBe("0px");
+      expect(line.paddingLeft).toBe("0px");
+    },
+  );
+
+  it.each(EVERY_TONE)("draws the %s box at sm and md, and sm is the smaller", (tone) => {
+    const sm = render(() => (
+      <Notice size="sm" tone={tone}>
+        body
+      </Notice>
+    ));
+    const small = look(sm.container.firstElementChild!);
+    sm.unmount();
+    const md = render(() => (
+      <Notice size="md" tone={tone}>
+        body
+      </Notice>
+    ));
+    const medium = look(md.container.firstElementChild!);
+    md.unmount();
+
+    for (const box of [small, medium]) {
+      expect(box.borderTopWidth).toBe("1px");
+      expect(box.backgroundColor).not.toBe(TRANSPARENT);
+    }
+    expect(parseFloat(small.paddingTop)).toBeLessThan(parseFloat(medium.paddingTop));
+    expect(parseFloat(small.fontSize)).toBeLessThan(parseFloat(medium.fontSize));
+  });
+
+  it("paints accent in the readable accent ink, never falling back to info", () => {
+    const accent = render(() => <Notice tone="accent">Preview: nothing is saved.</Notice>);
+    const gold = look(accent.container.firstElementChild!);
+    accent.unmount();
+    const info = render(() => <Notice tone="info">Preview: nothing is saved.</Notice>);
+    const grey = look(info.container.firstElementChild!);
+    info.unmount();
+
+    expect(gold.color).toBe(tokenColour("--ui-accent-ink"));
+    expect(gold.color).not.toBe(tokenColour("--ui-accent"));
+    expect(gold.color).not.toBe(grey.color);
+    expect(gold.backgroundColor).not.toBe(grey.backgroundColor);
+    expect(gold.borderTopColor).not.toBe(grey.borderTopColor);
+  });
+
+  it.each(EVERY_TONE)(
+    "draws the %s box with no fill: the same border and ink on whatever ground it sits",
+    (tone) => {
+      for (const size of ["sm", "md"] as const) {
+        const tinted = render(() => (
+          <Notice size={size} tone={tone}>
+            body
+          </Notice>
+        ));
+        const withFill = look(tinted.container.firstElementChild!);
+        tinted.unmount();
+        const bare = render(() => (
+          <Notice size={size} tone={tone} fill="none">
+            body
+          </Notice>
+        ));
+        const without = look(bare.container.firstElementChild!);
+        bare.unmount();
+
+        expect(withFill.backgroundColor).not.toBe(TRANSPARENT);
+        expect(without.backgroundColor).toBe(TRANSPARENT);
+        expect({ ...without, backgroundColor: withFill.backgroundColor }).toEqual(withFill);
+      }
+    },
+  );
+
+  it("gives every one of the five tones its own ink", () => {
+    const inks = EVERY_TONE.map((tone) => {
+      const { container, unmount } = render(() => <Notice tone={tone}>body</Notice>);
+      const c = painted(container.firstElementChild!, "color");
+      unmount();
+      return c;
+    });
+    expect(new Set(inks).size).toBe(inks.length);
+  });
+
+  it("gives `accent` no mark of its own — a standing note, like `info`", () => {
+    const { container } = render(() => <Notice tone="accent">Preview: nothing is saved.</Notice>);
+    expect(container.querySelector("[aria-hidden='true']")).toBeNull();
+  });
+
+  it.each(["inline", "sm", "md"] as const)("strokes the %s icon in the tone's ink", (size) => {
+    const { container } = render(() => (
+      <Notice size={size} tone="danger">
+        Could not save
+      </Notice>
+    ));
+    const box = container.firstElementChild!;
+    expect(getComputedStyle(box.querySelector("svg")!).stroke).toBe(getComputedStyle(box).color);
+  });
+
+  it("sizes the icon from the text step, the same share of it at every size", () => {
+    const ratios = (["inline", "sm", "md"] as const).map((size) => {
+      const { container, unmount } = render(() => (
+        <Notice size={size} tone="danger">
+          Could not save
+        </Notice>
+      ));
+      const box = container.firstElementChild!;
+      const width = box.querySelector("svg")!.getBoundingClientRect().width;
+      const ratio = width / parseFloat(getComputedStyle(box).fontSize);
+      unmount();
+      return ratio;
+    });
+    expect(ratios[0]).toBeGreaterThan(1);
+    for (const r of ratios) expect(r).toBeCloseTo(ratios[0]!, 2);
+  });
+
+  it("sets the icon on the first line of a wrapped message, not beside its middle", () => {
+    const { container } = render(() => (
+      <div style={{ width: "160px" }}>
+        <Notice size="sm" tone="warn">
+          Three guests have no email address, so they will not be invited to anything.
+        </Notice>
+      </div>
+    ));
+    const box = container.firstElementChild!.firstElementChild!;
+    const icon = box.querySelector("svg")!.getBoundingClientRect();
+    const words = box.lastElementChild!.getBoundingClientRect();
+    const line = parseFloat(getComputedStyle(box).lineHeight);
+    expect(words.height).toBeGreaterThan(line * 1.5);
+    // Centred on the first line, not hung from its top.
+    expect(Math.abs((icon.top + icon.bottom) / 2 - (words.top + line / 2))).toBeLessThan(1);
+  });
+
+  it("centres its words in a centred column, as the text it stands in for did", () => {
+    // A one-line message in a `text-center` column: the words' box fills the
+    // row, so the inherited alignment centres them instead of leaving them
+    // hugging the start.
+    const { container } = render(() => (
+      <div style={{ width: "400px", "text-align": "center" }}>
+        <Notice size="sm" tone="accent">
+          <span data-testid="words">Preview</span>
+        </Notice>
+      </div>
+    ));
+    const box = container.firstElementChild!.firstElementChild!.getBoundingClientRect();
+    const words = container.querySelector("[data-testid='words']")!.getBoundingClientRect();
+    const middle = (r: DOMRect) => (r.left + r.right) / 2;
+    expect(Math.abs(middle(words) - middle(box))).toBeLessThan(2);
+  });
+
+  it("reads the word in place of the icon at the inline size too", () => {
+    const { container } = render(() => (
+      <Notice size="inline" tone="danger">
+        Enter a valid email address.
+      </Notice>
+    ));
+    expect(container.querySelector("[aria-hidden='true'] svg")).not.toBeNull();
+    expect(container.textContent).toContain("Error:");
+  });
+
+  it("draws an app's own mark in the icon slot and reads its word", () => {
+    const { container } = render(() => (
+      <Notice
+        tone="accent"
+        mark={{
+          icon: (
+            <svg viewBox="0 0 24 24" data-testid="own-mark">
+              <path d="M12 2 14 10 22 12 14 14 12 22 10 14 2 12 10 10Z" />
+            </svg>
+          ),
+          word: "Note",
+        }}
+      >
+        Preview: nothing is saved.
+      </Notice>
+    ));
+    const slot = container.querySelector("[aria-hidden='true']");
+    expect(slot?.querySelector("[data-testid='own-mark']")).not.toBeNull();
+    expect(container.textContent).toContain("Note:");
+  });
+
+  it("keeps a tone's own mark when an app passes one", () => {
+    const { container } = render(() => (
+      <Notice
+        tone="danger"
+        mark={{ icon: <svg viewBox="0 0 24 24" data-testid="own-mark" />, word: "Note" }}
+      >
+        Could not save
+      </Notice>
+    ));
+    expect(container.querySelector("[data-testid='own-mark']")).toBeNull();
+    expect(container.querySelector("[aria-hidden='true'] svg circle")).not.toBeNull();
+    expect(container.textContent).toContain("Error:");
+    expect(container.textContent).not.toContain("Note:");
+  });
+
+  it("draws info at md for a tone or size outside the named sets, rather than failing", () => {
+    // A value cast from data can be any string, `__proto__` included, which a
+    // plain lookup would answer with a function to call.
+    for (const bad of ["__proto__", "constructor", "loud"]) {
+      const odd = render(() => (
+        <Notice tone={bad as NoticeTone} size={bad as NoticeSize}>
+          body
+        </Notice>
+      ));
+      const got = look(odd.container.firstElementChild!);
+      expect(odd.container.textContent).toBe("body");
+      odd.unmount();
+      const info = render(() => <Notice>body</Notice>);
+      expect(got).toEqual(look(info.container.firstElementChild!));
+      info.unmount();
+    }
+  });
+
+  it("lets nothing past its allow-list reach the element, however it is spread", () => {
+    // A spread skips the type check, so the allow-list is held at run time:
+    // markup, a handler, and anything that would hide, rename or repeat the
+    // words, or turn an alert into a status, stay off the element.
+    const spread: Record<string, unknown> = {
+      role: "status",
+      "aria-hidden": "true",
+      "aria-live": "off",
+      "aria-label": "Fine",
+      "aria-busy": "true",
+      hidden: "",
+      inert: true,
+      popover: "auto",
+      title: "Could not save",
+      tabIndex: 0,
+      onClick: () => undefined,
+      innerHTML: "<img src=x>",
+      "prop:innerHTML": "<img src=x>",
+      "attr:aria-hidden": "true",
+      "bool:hidden": true,
+      id: "save-error",
+      "aria-describedby": "save-hint",
+      "data-testid": "save-error",
+    };
+    const { container } = render(() => (
+      <Notice tone="danger" alert {...spread}>
+        Could not save
+      </Notice>
+    ));
+    const box = container.firstElementChild!;
+    expect(box.getAttribute("role")).toBe("alert");
+    for (const name of [
+      "aria-hidden",
+      "aria-live",
+      "aria-label",
+      "aria-busy",
+      "hidden",
+      "inert",
+      "popover",
+      "title",
+      "tabindex",
+      "onclick",
+    ]) {
+      expect(box.hasAttribute(name)).toBe(false);
+    }
+    expect(box.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("Error:");
+    expect(box.id).toBe("save-error");
+    expect(box.getAttribute("aria-describedby")).toBe("save-hint");
+    expect(box.getAttribute("data-testid")).toBe("save-error");
+  });
+
+  it("makes the icon slot inert, and draws no mark whose word is empty", () => {
+    const marked = render(() => <Notice tone="warn">Check this</Notice>);
+    expect(marked.container.querySelector("[aria-hidden='true']")?.hasAttribute("inert")).toBe(
+      true,
+    );
+    marked.unmount();
+
+    const wordless = render(() => (
+      <Notice tone="info" mark={{ icon: <svg viewBox="0 0 24 24" />, word: " " }}>
+        Preview: nothing is saved.
+      </Notice>
+    ));
+    expect(wordless.container.querySelector("[aria-hidden='true']")).toBeNull();
+  });
+});
+
 describe("Chip", () => {
   it("paints a distinct ground for every tone", () => {
-    const grounds = (["neutral", "success", "pending", "accent"] as const).map((tone) => {
-      const { container, unmount } = render(() => <Chip tone={tone}>state</Chip>);
+    const grounds = (["neutral", "success", "pending", "accent", "danger"] as const).map((tone) => {
+      const { container, unmount } = render(() => (
+        <Chip tone={tone} variant="filled">
+          state
+        </Chip>
+      ));
       const bg = painted(container.firstElementChild!, "backgroundColor");
       expect(bg).not.toBe(TRANSPARENT);
       unmount();
@@ -105,6 +462,237 @@ describe("Chip", () => {
   it("always carries its state as text, so the hue is never the only carrier", () => {
     const { container } = render(() => <Chip tone="success">live</Chip>);
     expect(container.textContent?.trim()).toBe("live");
+  });
+});
+
+/** Every computed property a chip's look is made of. */
+const CHIP_LOOK = [
+  "paddingTop",
+  "paddingLeft",
+  "borderTopWidth",
+  "borderTopColor",
+  "borderTopLeftRadius",
+  "backgroundColor",
+  "color",
+  "fontSize",
+  "letterSpacing",
+  "textTransform",
+  "whiteSpace",
+  "flexShrink",
+  "height",
+] as const;
+
+function chipLook(el: Element): Record<(typeof CHIP_LOOK)[number], string> {
+  const style = getComputedStyle(el);
+  return Object.fromEntries(CHIP_LOOK.map((p) => [p, style[p]])) as Record<
+    (typeof CHIP_LOOK)[number],
+    string
+  >;
+}
+
+/** Renders inside a flex row, as every chip and tag in the apps sits. */
+function inRow(node: () => JSX.Element): { el: Element; unmount: () => void } {
+  const { container, unmount } = render(() => <div class="flex items-start">{node()}</div>);
+  return { el: container.firstElementChild!.firstElementChild!, unmount };
+}
+
+/** The apps' hand-written sentence-case tags, in the contract's names. */
+const TAG_TODAY = {
+  neutral:
+    "base:bg-ui-surface/60 base:text-ui-ink-secondary base:text-ui-xs base:rounded-ui-pill base:px-2 base:py-0.5",
+  danger:
+    "base:bg-ui-danger/10 base:text-ui-danger base:text-ui-xs base:rounded-ui-pill base:px-2 base:py-0.5",
+} as const;
+
+const CHIP_TONES = ["neutral", "success", "pending", "accent", "danger"] as const;
+
+describe("Chip variants, treatments and the danger tone", () => {
+  it.each(["neutral", "danger"] as const)(
+    "draws the %s tag as the apps' hand-written tags drew it",
+    (tone) => {
+      const tag = inRow(() => (
+        <Chip tone={tone} variant="filled" treatment="tag">
+          Hair and makeup
+        </Chip>
+      ));
+      const now = chipLook(tag.el);
+      tag.unmount();
+      const today = inRow(() => <span class={TAG_TODAY[tone]}>Hair and makeup</span>);
+      expect(now).toEqual(chipLook(today.el));
+      today.unmount();
+    },
+  );
+
+  it.each(CHIP_TONES.flatMap((tone) => (["caps", "tag"] as const).map((t) => [tone, t] as const)))(
+    "outlines the %s %s chip: a 1px border of its own, no fill, otherwise the filled chip",
+    (tone, treatment) => {
+      const outline = inRow(() => (
+        <Chip tone={tone} variant="outline" treatment={treatment}>
+          Connected
+        </Chip>
+      ));
+      const o = chipLook(outline.el);
+      outline.unmount();
+      const filled = inRow(() => (
+        <Chip tone={tone} variant="filled" treatment={treatment}>
+          Connected
+        </Chip>
+      ));
+      const f = chipLook(filled.el);
+      filled.unmount();
+
+      expect(o.borderTopWidth).toBe("1px");
+      expect(o.backgroundColor).toBe(TRANSPARENT);
+      // A border with no colour of its own falls back to the ink, which is
+      // exactly what an unemitted utility looks like.
+      expect(o.borderTopColor).not.toBe(o.color);
+      // The border takes a pixel of padding, and nothing else differs.
+      expect(parseFloat(o.paddingTop)).toBe(parseFloat(f.paddingTop) - 1);
+      const same = (l: Record<string, string>) => {
+        const {
+          borderTopWidth: _w,
+          borderTopColor: _c,
+          backgroundColor: _b,
+          paddingTop: _p,
+          ...rest
+        } = l;
+        return rest;
+      };
+      expect(same(o)).toEqual(same(f));
+    },
+  );
+
+  it("outlines the neutral chip in the hairline", () => {
+    const { container } = render(() => <Chip variant="outline">No reply</Chip>);
+    expect(painted(container.firstElementChild!, "borderTopColor")).toBe(
+      tokenColour("--ui-hairline"),
+    );
+  });
+
+  it("paints danger in an ink of its own, apart from pending and accent", () => {
+    const inks = (["danger", "pending", "accent"] as const).map((tone) => {
+      const { container, unmount } = render(() => <Chip tone={tone}>state</Chip>);
+      const c = painted(container.firstElementChild!, "color");
+      unmount();
+      return c;
+    });
+    expect(new Set(inks).size).toBe(3);
+  });
+
+  it.each([
+    ["outline", "caps"],
+    ["filled", "tag"],
+    ["outline", "tag"],
+  ] as const)("spaces a mark from its word on a %s %s chip", (variant, treatment) => {
+    const { container } = render(() => (
+      <Chip variant={variant} treatment={treatment} tone="accent">
+        <span data-testid="dot" style={{ display: "inline-block", width: "6px", height: "6px" }} />
+        <span data-testid="word">Shown</span>
+      </Chip>
+    ));
+    const dot = container.querySelector("[data-testid='dot']")!.getBoundingClientRect();
+    const word = container.querySelector("[data-testid='word']")!.getBoundingClientRect();
+    expect(word.left - dot.right).toBeCloseTo(6, 0);
+  });
+
+  it("keeps a small-caps chip on one line and lets a tag wrap, in a narrow row", () => {
+    const { container } = render(() => (
+      <div style={{ display: "flex", width: "90px", "align-items": "flex-start" }}>
+        <Chip>awaiting confirmation</Chip>
+        <Chip treatment="tag">Hair and makeup artists</Chip>
+      </div>
+    ));
+    const [caps, tag] = [...container.firstElementChild!.children] as HTMLElement[];
+    const one =
+      parseFloat(getComputedStyle(caps!).lineHeight) || caps!.getBoundingClientRect().height;
+    expect(caps!.scrollWidth).toBeLessThanOrEqual(caps!.getBoundingClientRect().width + 0.5);
+    expect(caps!.getBoundingClientRect().height).toBeLessThan(one * 2);
+    expect(tag!.getBoundingClientRect().height).toBeGreaterThan(
+      caps!.getBoundingClientRect().height,
+    );
+  });
+
+  it("passes a role, data attributes, an id and a layout class through", () => {
+    const { container } = render(() => (
+      <Chip
+        tone="accent"
+        variant="outline"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- status is the one role a chip takes; this checks it reaches the span.
+        role="status"
+        id="section-state"
+        data-segment-badge=""
+        data-state="shown"
+        class="w-fit"
+      >
+        Shown
+      </Chip>
+    ));
+    const chip = container.firstElementChild!;
+    expect(chip.getAttribute("role")).toBe("status");
+    expect(chip.id).toBe("section-state");
+    expect(chip.hasAttribute("data-segment-badge")).toBe(true);
+    expect(chip.getAttribute("data-state")).toBe("shown");
+    expect(chip.classList.contains("w-fit")).toBe(true);
+  });
+
+  it("lets nothing past its allow-list reach the element, however it is spread", () => {
+    // A spread skips the type check, so the allow-list is held at run time:
+    // markup, an inline handler, a title, and anything that would hide or
+    // replace the word for assistive technology stay off the span.
+    const spread: Record<string, unknown> = {
+      innerHTML: "<img src=x>",
+      "attr:onclick": "alert(1)",
+      "prop:outerHTML": "<b>x</b>",
+      onClick: () => undefined,
+      title: "Owners can change anything",
+      "aria-hidden": "true",
+      "aria-label": "Editor",
+      hidden: true,
+      tabIndex: 0,
+      role: "button",
+      "data-state": "owner",
+    };
+    const { container } = render(() => (
+      <Chip tone="accent" {...spread}>
+        Owner
+      </Chip>
+    ));
+    const chip = container.firstElementChild!;
+    expect(chip.textContent).toBe("Owner");
+    expect(chip.querySelector("img, b")).toBeNull();
+    for (const name of [
+      "onclick",
+      "title",
+      "aria-hidden",
+      "aria-label",
+      "hidden",
+      "tabindex",
+      "role",
+    ]) {
+      expect(chip.hasAttribute(name)).toBe(false);
+    }
+    expect(chip.getAttribute("data-state")).toBe("owner");
+  });
+
+  it("outlines a danger chip when no variant is asked for", () => {
+    const { container } = render(() => <Chip tone="danger">Declined</Chip>);
+    const chip = container.firstElementChild!;
+    expect(painted(chip, "backgroundColor")).toBe(TRANSPARENT);
+    expect(getComputedStyle(chip).borderTopWidth).toBe("1px");
+  });
+
+  it("draws the default chip for a tone, variant or treatment outside the named sets", () => {
+    const bad = "__proto__";
+    const odd = inRow(() => (
+      <Chip tone={bad as ChipTone} variant={bad as ChipVariant} treatment={bad as ChipTreatment}>
+        state
+      </Chip>
+    ));
+    const got = chipLook(odd.el);
+    odd.unmount();
+    const plain = inRow(() => <Chip>state</Chip>);
+    expect(got).toEqual(chipLook(plain.el));
+    plain.unmount();
   });
 });
 

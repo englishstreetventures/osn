@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SeatingView from "../../src/components/SeatingView";
 import { __resetEventsCache, type EventRow, setCachedEvents } from "../../src/lib/events-store";
 import type { SeatingChart } from "../../src/lib/seating-api";
+import { type ChipLook, chipLook } from "../test-support/chip-look";
 import { redirectSpy } from "../test-support/mocks";
 
 // The seating chart's behaviour against a fake organiser API that keeps the
@@ -17,8 +18,8 @@ const authFetch = vi.fn();
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 // The touch feedback each outcome plays: what a host on a phone feels.
 const hapticSpy = vi.hoisted(() => vi.fn());
-vi.mock("../../src/lib/haptics", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/haptics")>()),
+vi.mock("../../src/lib/touch-feedback", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/touch-feedback")>()),
   haptic: (name: string) => hapticSpy(name),
 }));
 vi.mock("../../src/lib/api", async () => {
@@ -451,6 +452,24 @@ describe("SeatingView — what a host sees", () => {
     expect(within(table("Table 1")).getByText("2 of 2")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Seat Ada Alpha" }).textContent).toBe("Seat");
     expect(screen.getByRole("button", { name: "Move Bo Alpha" }).textContent).toBe("Move");
+  });
+
+  it("outlines every reply badge, in the tone its word takes", async () => {
+    fakeApi();
+    await renderView();
+    const lookOf = (name: string) =>
+      chipLook(screen.getByText(name).closest("li")!.querySelector("[data-rsvp-badge]")!);
+    const outlined = (tone: ChipLook["tone"]): ChipLook => ({
+      tone,
+      variant: "outline",
+      treatment: "caps",
+    });
+    // A guest gone from the day reads in danger; one who may come in the
+    // accent; one still to answer in plain ink.
+    expect(lookOf("Bo Alpha")).toEqual(outlined("danger"));
+    expect(lookOf("Gwen Gone")).toEqual(outlined("danger"));
+    expect(lookOf("Cy Charlie")).toEqual(outlined("accent"));
+    expect(lookOf("Dot Delta")).toEqual(outlined("neutral"));
   });
 
   it("sums up who is seated, who declined and who to chase, and keeps the sum current", async () => {

@@ -1,5 +1,8 @@
 import { GUEST_EMAIL_CONSENT, parseGuestEmail } from "@cire/guest-email";
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, Show } from "solid-js";
 
 import type { FamilyMember, MemberEmail } from "./types";
@@ -39,12 +42,12 @@ interface GuestEmailBoxProps {
   onChange: (email: MemberEmail | null) => void;
   /** The server holds no member, or another one: ask "Who are you?" again. */
   onMemberRequired: () => void;
-  /** Placement on the panel that hosts it. The box owns only its own surface. */
+  /**
+   * Placement and corner from the panel that hosts it. The box owns only its
+   * own surface; its corner depends on whether that panel is itself a card.
+   */
   class?: string;
 }
-
-const INPUT =
-  "border-text/55 bg-text/[0.045] font-body text-text focus:border-gold sm:text-ui-base mt-1.5 block w-full cursor-text rounded-sm border px-3 py-2.5 text-base transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50";
 
 const INVALID_ADDRESS = "That doesn’t look like one email address. Please check it.";
 /** After removing an address the hosts added: the API records the opt-out. */
@@ -79,6 +82,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   const inputId = createUniqueId();
   const invalidId = createUniqueId();
   const reasonId = createUniqueId();
+  const errorId = createUniqueId();
   const [editing, setEditing] = createSignal(props.email === null);
   const [draft, setDraft] = createSignal("");
   const [consent, setConsent] = createSignal(false);
@@ -97,6 +101,13 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
     draft().trim() === "" ? "empty" : parseGuestEmail(draft()) === null ? "invalid" : "valid";
   const blocked = () => blockedReason(address(), consent());
   const showInvalid = () => touched() && address() === "invalid";
+  // The server refused an address the browser had passed: the line under the
+  // box says so, and it is the field's to fix.
+  const refused = () => error() === INVALID_ADDRESS;
+  const describedBy = () =>
+    [showInvalid() ? invalidId : undefined, refused() ? errorId : undefined]
+      .filter(Boolean)
+      .join(" ") || undefined;
   let heading: HTMLHeadingElement | undefined;
   let input: HTMLInputElement | undefined;
   // Each view replaces the button that was pressed, so focus moves on with
@@ -196,14 +207,14 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby={headingId}
     >
       <h3
         id={headingId}
         ref={heading}
         tabIndex={-1}
-        class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic focus:outline-none"
+        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic focus:outline-none"
       >
         Wedding emails
       </h3>
@@ -229,11 +240,13 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
               <label for={inputId} class="font-body text-text-muted text-ui-sm block">
                 Your email, {props.member.firstName}
               </label>
-              <input
+              <Input
+                fill="ink"
+                size="touch"
+                class="mt-1.5"
                 id={inputId}
                 ref={input}
                 type="email"
-                class={INPUT}
                 value={draft()}
                 onInput={(e) => {
                   setDraft(e.currentTarget.value);
@@ -244,8 +257,8 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 autocomplete="email"
                 spellcheck={false}
                 disabled={busy()}
-                aria-invalid={showInvalid() ? "true" : undefined}
-                aria-describedby={showInvalid() ? invalidId : undefined}
+                aria-invalid={showInvalid() || refused() ? "true" : undefined}
+                aria-describedby={describedBy()}
               />
               <Show when={showInvalid()}>
                 <p id={invalidId} class="text-error text-ui-sm mt-1.5">
@@ -253,27 +266,29 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 </p>
               </Show>
             </div>
-            <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
-              <input
-                type="checkbox"
-                class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-                checked={consent()}
-                onChange={(e) => setConsent(e.currentTarget.checked)}
-                disabled={busy()}
-              />
-              <span>
-                {GUEST_EMAIL_CONSENT.text} See our{" "}
-                <a
-                  href="/privacy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-gold-ink underline underline-offset-2"
-                >
-                  privacy notice
-                </a>
-                .
-              </span>
-            </label>
+            <Checkbox
+              box="native"
+              size="sm"
+              align="start"
+              checked={consent()}
+              onChange={setConsent}
+              disabled={busy()}
+              label={
+                <>
+                  {GUEST_EMAIL_CONSENT.text} See our{" "}
+                  <a
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class={proseLinkClass()}
+                  >
+                    privacy notice
+                    <span class="sr-only"> (opens in a new tab)</span>
+                  </a>
+                  .
+                </>
+              }
+            />
             <span
               class="flex flex-wrap items-center gap-2"
               onClick={(e) => {
@@ -354,9 +369,9 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         )}
       </Show>
       <Show when={error()}>
-        <p class="text-error text-ui-sm mt-3" role="alert">
+        <Notice id={errorId} size="inline" tone="danger" alert class="mt-3">
           {error()}
-        </p>
+        </Notice>
       </Show>
     </section>
   );

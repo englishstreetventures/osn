@@ -11,6 +11,12 @@ interface ImportMetaEnv {
   readonly PUBLIC_CIRE_API_URL?: string;
   /** Legacy name for the cire/api origin; still honoured as a fallback. */
   readonly PUBLIC_API_URL?: string;
+  /**
+   * The commit this build is made from; the account menu prints its first
+   * seven characters as the version. Set by CI on deploy builds; unset, the
+   * menu says "local".
+   */
+  readonly PUBLIC_BUILD_SHA?: string;
 }
 
 interface ImportMeta {

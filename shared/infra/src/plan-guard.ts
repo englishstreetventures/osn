@@ -3,12 +3,15 @@ import { dirname } from "node:path";
 
 import {
   PRODUCTION_ADOPTIONS,
+  PRODUCTION_HOSTS,
   PRODUCTION_SITE_MODES,
   PRODUCTION_STAGING_HOSTS,
+  RETIRED_STAGING_HOSTS,
   SITE_SURFACES,
   siteDomain,
   type SiteMode,
   type SiteSurface,
+  type SomeSites,
 } from "./production-sites";
 
 /**
@@ -323,20 +326,34 @@ export function domainChanges(input: {
 }
 
 /**
- * A Worker may give up its site's spare host, as a flip does; any other host
- * it holds (the production host, or one PRODUCTION_HOSTS no longer names)
- * leaves only in a release dispatched with `unflip` naming the site, so
- * taking a site off the internet is a named act, as moving it on is.
+ * A Worker may give up its site's spare host, as a flip does, or one of its
+ * own site's `retired` spare hosts that is neither a production host nor any
+ * site's current spare host. Any other host it holds (the production host,
+ * another site's host, or one PRODUCTION_HOSTS no longer names) leaves only
+ * in a release dispatched with `unflip` naming the site, so taking a site off
+ * the internet is a named act, as moving it on is.
  */
-export function domainRefusals(changes: readonly DomainChange[], unflip?: SiteSurface): string[] {
-  return changes.flatMap(({ site, removed }) =>
-    removed
-      .filter((host) => host !== PRODUCTION_STAGING_HOSTS[site] && site !== unflip)
+export function domainRefusals(
+  changes: readonly DomainChange[],
+  unflip?: SiteSurface,
+  retired: SomeSites<readonly string[]> = RETIRED_STAGING_HOSTS,
+): string[] {
+  const inUse = new Set<string>([
+    ...Object.values(PRODUCTION_HOSTS),
+    ...SITE_SURFACES.flatMap((site) => PRODUCTION_STAGING_HOSTS[site] ?? []),
+  ]);
+  return changes.flatMap(({ site, removed }) => {
+    const ownRetired = new Set((retired[site] ?? []).filter((host) => !inUse.has(host)));
+    return removed
+      .filter(
+        (host) =>
+          host !== PRODUCTION_STAGING_HOSTS[site] && !ownRetired.has(host) && site !== unflip,
+      )
       .map(
         (host) =>
           `${site}'s Worker would give up ${host}; only a release dispatched with unflip: ${site} takes a production host off its Worker`,
-      ),
-  );
+      );
+  });
 }
 
 /** The kinds of a stack's production sites: each staged or worker site is a Worker holding a domain. */

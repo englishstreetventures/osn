@@ -1,5 +1,9 @@
-import Button from "@cire/ui/button";
+import { buttonClass } from "@cire/ui/button";
+import Wordmark from "@cire/ui/wordmark";
 import type { RpSession } from "@shared/rp-auth";
+import { Chip } from "@shared/ui/ui/chip";
+import { Tooltip } from "@shared/ui/ui/tooltip";
+import Search from "lucide-solid/icons/search";
 import { onMount, Show } from "solid-js";
 
 import { normaliseWeddingRole, ROLE_COPY, surfacesFor } from "../lib/wedding-roles";
@@ -64,28 +68,10 @@ export default function TopBar(props: {
   };
 
   return (
-    <header class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md">
+    <header class="border-border bg-bg/95 sticky top-0 z-30 border-b backdrop-blur-md">
       <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
         {/* ── Identity + place ─────────────────────────────────────────────── */}
-        <button
-          type="button"
-          aria-label="Cire — all weddings"
-          onClick={() => props.onAll()}
-          class="group hover:bg-surface/60 -mx-1 flex shrink-0 items-center gap-2 rounded-sm px-1.5 py-1.5 transition-colors duration-(--dur-fast) ease-(--ease-out)"
-        >
-          <span
-            aria-hidden="true"
-            class="text-gold group-hover:text-gold-ink text-ui-sm leading-none transition-colors duration-(--dur-fast)"
-          >
-            ✦
-          </span>
-          <span
-            aria-hidden="true"
-            class="font-display text-text text-ui-md tracking-ui-wide leading-none font-light"
-          >
-            Cire
-          </span>
-        </button>
+        <Wordmark label="Cire — all weddings" onClick={() => props.onAll()} />
 
         <span aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
 
@@ -107,11 +93,15 @@ export default function TopBar(props: {
               />
               <Show when={role()}>
                 {(known) => (
-                  <span
-                    class="border-gold-dim text-gold-ink font-body text-ui-xs tracking-ui-widest hidden shrink-0 rounded-full border px-2 py-0.5 uppercase @2xl/frame:inline"
-                    title={ROLE_COPY[known()].badgeTitle}
-                  >
-                    {ROLE_COPY[known()].label}
+                  // A badge explains itself in a Tooltip, never a `title`; the
+                  // wrapper carries the narrow frame's hiding, so a hidden badge
+                  // takes its explanation with it.
+                  <span data-badge-tip class="hidden shrink-0 @2xl/frame:inline-flex">
+                    <Tooltip text={ROLE_COPY[known()].badgeTitle}>
+                      <Chip variant="outline" tone="accent">
+                        {ROLE_COPY[known()].label}
+                      </Chip>
+                    </Tooltip>
                   </span>
                 )}
               </Show>
@@ -121,24 +111,29 @@ export default function TopBar(props: {
 
         {/* ── Actions ──────────────────────────────────────────────────────── */}
         <div class="ml-auto flex shrink-0 items-center gap-2">
-          <Button
-            variant="tile"
+          {/* A pill, the top bar's 36px, as a search box reads (DESIGN.md §4,
+              One pill language): `bar`'s pill ground and hairline, its
+              ground lifting under the pointer, a 16px magnifier and the
+              shortcut, 12px in from each end; on a narrow bar the magnifier
+              alone, in a 36px circle. */}
+          {/* `buttonClass` on a native button rather than `Button`, because the
+              pill sets its own sides at each width and `Button` owns its
+              padding. */}
+          <button
             type="button"
             aria-label="Search and jump to"
             aria-keyshortcuts="Meta+K Control+K"
             onClick={() => props.onOpenPalette()}
-            class="flex h-9 items-center"
+            class={`${buttonClass({ variant: "bar", size: "sm" })} h-9 w-9 px-0 @2xl/frame:w-auto @2xl/frame:px-3`}
           >
-            <span aria-hidden="true" class="text-ui-sm leading-none">
-              ⌕
-            </span>
+            <Search aria-hidden="true" strokeWidth={1.75} class="size-4 shrink-0" />
             <span
               aria-hidden="true"
               class="font-body text-ui-xs tracking-ui-wider hidden @2xl/frame:inline"
             >
               ⌘K
             </span>
-          </Button>
+          </button>
 
           {/* Rendered at every width. The button collapses to its glyph on a
               narrow bar (see `PreviewInviteButton`) rather than being hidden

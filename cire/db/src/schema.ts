@@ -824,6 +824,16 @@ export const directoryVendorCategories = sqliteTable(
   (t) => [primaryKey({ columns: [t.directoryVendorId, t.category] })],
 );
 
+/** Vendor CRM pipeline stages, in display order. */
+export const VENDOR_STATUSES = [
+  "researching",
+  "contacted",
+  "quoted",
+  "booked",
+  "declined",
+] as const;
+export type VendorStatus = (typeof VENDOR_STATUSES)[number];
+
 // vendors: the wedding-scoped CRM row (organiser-private).
 export const vendors = sqliteTable(
   "vendors",
@@ -835,7 +845,11 @@ export const vendors = sqliteTable(
     directoryVendorId: text("directory_vendor_id"),
     name: text("name").notNull(),
     category: text("category").notNull(),
-    status: text("status").notNull().default("researching"),
+    // A pipeline stage. The triggers `vendors_status_stage` and
+    // `…_stage_update` refuse any other value, since SQLite cannot add a CHECK
+    // to the table without a copy-and-swap that would cascade into
+    // `vendor_enquiries`.
+    status: text("status", { enum: VENDOR_STATUSES }).notNull().default("researching"),
     contactName: text("contact_name"),
     email: text("email"),
     phone: text("phone"),
@@ -995,6 +1009,14 @@ export const registrySettings = sqliteTable("registry_settings", {
   // the merchant of record (direct charges) — cire never holds gift funds, which
   // is what keeps the platform out of money transmission.
   stripeAccountId: text("stripe_account_id"),
+  // The OSN profile of the owner who connected that account: whoever runs
+  // onboarding puts their own identity and bank account on it, so only they may
+  // open its onboarding links again; every other owner sees its status. Written
+  // in the statement that fills a NULL `stripe_account_id`, kept while the id is
+  // kept, and cleared with it. NULL beside an account means nobody is recorded,
+  // and then no owner may open links. No cross-DB FK, like
+  // `wedding_hosts.osn_profile_id`.
+  stripeConnectedByOsnProfileId: text("stripe_connected_by_osn_profile_id"),
   // Cached from the `account.updated` webhook so the portal can show onboarding
   // state without a live Stripe call on every page load.
   stripeChargesEnabled: integer("stripe_charges_enabled", { mode: "boolean" })

@@ -112,6 +112,9 @@ const helpDisclosure = () =>
     /csv format/i.test(d.querySelector("summary")?.textContent ?? ""),
   )!;
 
+/** The wrapper that carries the guide's glow: the part takes no treatment of the portal's own. */
+const helpGlow = () => helpDisclosure().parentElement!;
+
 beforeEach(() => {
   resetImportHelpSeen();
 });
@@ -188,7 +191,7 @@ describe("ImportPanel — the first-run glow, as animated", () => {
     // The animation lives on the `::after` ring, not the box — see the
     // compositor note in `global.css`. `getComputedStyle(el, "::after")` is the
     // only way to see it, and it is a thing happy-dom cannot report at all.
-    const ring = getComputedStyle(helpDisclosure(), "::after");
+    const ring = getComputedStyle(helpGlow(), "::after");
 
     // The name proves `@utility attention-glow` emitted CSS and matched — a
     // renamed utility leaves the class in the DOM and the animation absent.
@@ -212,7 +215,7 @@ describe("ImportPanel — the first-run glow, as animated", () => {
 
     // And the ring itself must be out of the layout and untouchable, or it would
     // shift the guide and eat its clicks.
-    const ring = getComputedStyle(helpDisclosure(), "::after");
+    const ring = getComputedStyle(helpGlow(), "::after");
     expect(ring.position).toBe("absolute");
     expect(ring.pointerEvents).toBe("none");
   });
@@ -221,13 +224,15 @@ describe("ImportPanel — the first-run glow, as animated", () => {
     // Load-bearing choice: a box-shadow can't fight the element's own border
     // utility, doesn't move anything, and leaves the focus ring's space free.
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
-    expect(getComputedStyle(helpDisclosure()).outlineStyle).toBe("none");
-    const ring = getComputedStyle(helpDisclosure(), "::after");
+    expect(getComputedStyle(helpGlow()).outlineStyle).toBe("none");
+    const ring = getComputedStyle(helpGlow(), "::after");
     expect(ring.boxShadow).not.toBe("none");
     // Zero WIDTH, not `border-style: none` — Tailwind's preflight sets
     // `border-style: solid` on `*, ::before, ::after` and zeroes the width, so
     // the style alone says nothing about whether a border is drawn.
     expect(Number.parseFloat(ring.borderTopWidth)).toBe(0);
+    // The ring inherits its corner, so the wrapper carries the guide's 16px.
+    expect(ring.borderTopLeftRadius).toBe("16px");
   });
 
   it("is silenced by prefers-reduced-motion", async () => {
@@ -235,7 +240,7 @@ describe("ImportPanel — the first-run glow, as animated", () => {
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     // The clamp targets `*::after` as well as `*`, which is exactly why the ring
     // could be moved into a pseudo-element without losing it.
-    const ring = getComputedStyle(helpDisclosure(), "::after");
+    const ring = getComputedStyle(helpGlow(), "::after");
 
     // The global clamp in `global.css` — one iteration, effectively zero
     // duration. The guide is still expanded, which is the actual affordance.
@@ -250,7 +255,7 @@ describe("ImportPanel — the first-run glow, as animated", () => {
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     // No `attention-glow` class ⇒ no `::after` rule ⇒ no ring at all, rather
     // than a ring sitting at opacity 0 waiting to be revealed by a stray style.
-    const ring = getComputedStyle(helpDisclosure(), "::after");
+    const ring = getComputedStyle(helpGlow(), "::after");
     expect(ring.animationName).toBe("none");
     expect(ring.content).toBe("none");
   });

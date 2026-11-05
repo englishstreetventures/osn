@@ -143,21 +143,33 @@
   /* `control` is a role, not a size — the same way `focus` is its own colour
    * rather than an alias of the accent. How round a BUTTON is turns out to be
    * an app-level decision independent of how round a card is: musubi's house
-   * style is pill CTAs, cire's is a sharp 4px, and pulse sits between them. A
-   * shared control that picked one of the sized steps instead would be
-   * overridden at every call site in at least one of those apps, which is
-   * exactly what `<Button class="rounded-pill">` x16 in musubi was.
+   * style is pill CTAs, and pulse's buttons take its own mid radius. A shared
+   * control that picked one of the sized steps instead would be overridden at
+   * every call site in at least one app, which is exactly what
+   * `<Button class="rounded-pill">` x16 in musubi was. Each app's mapping is
+   * listed in wiki/shared/design-tokens.md.
    *
    * It defaults to `md` rather than to a literal, so an app that has no opinion
    * gets its own mid radius and not this package's. */
   --radius-ui-control: var(--ui-radius-control, var(--ui-radius-md, 6px));
 
-  /* `sheet` is the other role radius: how round the TOP corners of a bottom
+  /* `field` is the text-input role: the corner `Input`, `Textarea` and
+   * `Select` share. It is apart from `control` because an app can want pill
+   * buttons without pill text fields, and a pill text field reads as a search
+   * box.
+   *
+   * It falls back to `control`, then to `md`. An app that maps only `control`
+   * keeps its fields and its buttons alike, and so does a subtree that scopes
+   * only `control` — skipping it would drop that app's fields to `md`. */
+  --radius-ui-field: var(--ui-radius-field, var(--ui-radius-control, var(--ui-radius-md, 6px)));
+
+  /* `sheet` is the third role radius: how round the TOP corners of a bottom
    * sheet are, once it is anchored to the bottom edge and its own bottom
    * corners are square. It is independent of `lg` because a sheet's grip
    * scales with the edge it is pulled from rather than with a card's corner —
-   * cire's guest site wants a pronounced 28px there while its cards stay at
-   * 10px, and reading `lg` would have forced one of the two to be wrong.
+   * cire's guest site wants a pronounced 28px there while its cards keep a
+   * smaller corner, and reading `lg` would have forced one of the two to be
+   * wrong.
    *
    * It defaults to `lg`, so an app with no opinion gets its own large radius
    * rather than a number from this package. */

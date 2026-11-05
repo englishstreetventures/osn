@@ -18,6 +18,8 @@
  * and shows a few of the gifts on it. How many are left, and who took them, are
  * the couple's.
  */
+import { buttonClass } from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { createMemo, For, Show } from "solid-js";
 
 import {
@@ -84,9 +86,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
       }}
     >
       <div class="md:max-w-ui-xl max-w-column-lg mx-auto text-center">
-        <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-          {eyebrow()}
-        </p>
+        <Eyebrow class="mb-3">{eyebrow()}</Eyebrow>
         <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
           {heading()}
         </h2>
@@ -129,7 +129,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
                     alt=""
                     loading="lazy"
                     decoding="async"
-                    class="border-border aspect-4/3 w-full rounded-sm border object-cover"
+                    class="border-border rounded-ui-field aspect-4/3 w-full border object-cover"
                   />
                 </li>
               )}
@@ -140,7 +140,7 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
         <a
           data-gift-teaser-link
           href={giftRegistryPath(props.slug)}
-          class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+          class={buttonClass({ variant: "cta", size: "lg" })}
         >
           See the gift list
         </a>

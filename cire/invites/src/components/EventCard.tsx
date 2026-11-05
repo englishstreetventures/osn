@@ -7,6 +7,7 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 // no source dimensions (a legacy crop), so the box keeps today's fixed shape.
 const EVENT_DEFAULT_ASPECT = 4 / 3;
 import Button from "@cire/ui/button";
+import { Chip } from "@shared/ui/ui/chip";
 
 import { formatEventDay, venueLine, venueName } from "./event-details";
 import { TOTAL_DURATION_MS } from "./rsvp-responded";
@@ -36,10 +37,10 @@ interface EventCardProps {
    *   can look back at their answer, and the sheet itself refuses an edit;
    * - no reply at all removes the button. There is nothing to answer and
    *   nothing to look at, and an inert button would only be one more thing to
-   *   press. "Event Details" stays.
+   *   press. "Event details" stays.
    *
    * The button can unmount while it holds focus (the deadline passes on a live
-   * timer), so focus moves to "Event Details" rather than falling to `<body>`.
+   * timer), so focus moves to "Event details" rather than falling to `<body>`.
    */
   rsvpClosed?: boolean;
   /**
@@ -198,7 +199,7 @@ export function EventCard(props: EventCardProps) {
   const label = () => (confirmed() || (props.rsvpClosed && answered()) ? "RSVP given" : "Respond");
 
   // The answer button can unmount while it holds focus, and the browser then
-  // drops focus to `<body>`. Two ways in, both rescued to "Event Details":
+  // drops focus to `<body>`. Two ways in, both rescued to "Event details":
   //
   // - the deadline passes with the button focused;
   // - the deadline passes while the sheet is open over this card. The dialog
@@ -229,7 +230,7 @@ export function EventCard(props: EventCardProps) {
   );
 
   return (
-    <article class="border-border bg-surface-raised rounded-sm border px-6 py-7">
+    <article class="border-border bg-surface-raised rounded-ui-lg border px-6 py-7">
       {/*
         Two-column on laptop/desktop ONLY when this event has an image — mirrors
         the "Our Story" split in InviteHeader. The image wrapper is `hidden`
@@ -252,14 +253,12 @@ export function EventCard(props: EventCardProps) {
               would rename the heading for anyone moving through the page by
               headings. A plain span with no live region — the events-section
               notice is already `role="status"` and says the same thing once.
-              It wears the closed notice's own treatment (`RsvpDeadlineNotice`):
-              a hairline and muted ink, no tint. */}
+              An outlined neutral `Chip`: a hairline and muted ink, no tint, as
+              the closed notice (`RsvpDeadlineNotice`) wears. */}
           <div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h3 class="font-display text-text text-2xl font-normal">{props.event.name}</h3>
             <Show when={props.rsvpClosed}>
-              <span class="font-body text-text-muted text-ui-xs tracking-ui-wider border-border rounded-sm border px-2 py-0.5 whitespace-nowrap uppercase">
-                RSVPs closed
-              </span>
+              <Chip variant="outline">RSVPs closed</Chip>
             </Show>
           </div>
           {/* A date, set as a date — not as an uppercase micro-label. One of
@@ -285,9 +284,9 @@ export function EventCard(props: EventCardProps) {
             {props.event.description}
           </p>
           {/* One act matters on this page: answering. So "Respond" is the only
-              filled button, and "Event Details" stays quiet — a real button,
+              filled button, and "Event details" stays quiet — a real button,
               but not the one the eye lands on. Emphasis alone carries that:
-              "Event Details" is the one read first, and the fill is what tells
+              "Event details" is the one read first, and the fill is what tells
               the two apart. Two equal outlines made the guest choose between
               them; now the choice is made for them. */}
           <div class="flex flex-wrap gap-3">
@@ -297,9 +296,14 @@ export function EventCard(props: EventCardProps) {
               ref={details}
               onClick={() => props.onDetails(props.event)}
             >
-              Event Details
+              Event details
             </Button>
-            {/* `overflow-clip`, not `overflow-hidden`. Both clip the fill layer
+            {/* A raw button rather than `Button`: no variant draws the
+                confirmation fill layer below, or flips its label ink with it.
+                It takes the `control` pill and a boxed label's weight, so it
+                reads as one pair with "Event details" beside it.
+
+                `overflow-clip`, not `overflow-hidden`. Both clip the fill layer
                 below to this button's rounded box, which is the whole reason
                 either is here — but `hidden` also makes the button a scroll
                 container, and a scroll container's automatic minimum size is
@@ -314,7 +318,7 @@ export function EventCard(props: EventCardProps) {
                 neither pair was measured against. */}
             <Show when={rsvpShown()}>
               <button
-                class="font-body text-ui-sm tracking-ui-wider bg-gold relative min-h-11 flex-1 overflow-clip rounded-sm border border-transparent px-5 py-3 uppercase underline-offset-4 transition-colors duration-200 hover:underline sm:flex-none sm:py-2.5"
+                class="font-body text-ui-sm tracking-ui-normal bg-gold rounded-ui-control transition-ui-colors relative min-h-11 flex-1 overflow-clip border border-transparent px-5 py-3 font-medium underline-offset-4 duration-(--dur-base) ease-(--ease-out) hover:underline sm:flex-none sm:py-2.5"
                 classList={{ "text-bg": confirmed(), "text-on-gold": !confirmed() }}
                 onClick={() => props.onRespond(props.event)}
                 aria-describedby={props.rsvpClosed ? props.rsvpClosedNoticeId : undefined}
@@ -404,7 +408,7 @@ export function EventCard(props: EventCardProps) {
                     sizes="(min-width: 768px) 480px, 100vw"
                     alt={`${props.event.name} event`}
                     loading="lazy"
-                    class="border-border max-h-80 w-full rounded-sm border object-cover"
+                    class="border-border rounded-ui-field max-h-80 w-full border object-cover"
                     classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
                   />
                 }
@@ -417,7 +421,7 @@ export function EventCard(props: EventCardProps) {
                     // source dims), so the uniformly-scaled region fills it with no
                     // distortion and no empty bars. A legacy crop (no dims) falls
                     // back to the card's default 4∶3 shape.
-                    class="border-border max-h-80 w-full overflow-hidden rounded-sm border"
+                    class="border-border rounded-ui-field max-h-80 w-full overflow-hidden border"
                     classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
                     style={{
                       ...style(),

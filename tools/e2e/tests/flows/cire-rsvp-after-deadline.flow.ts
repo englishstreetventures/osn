@@ -62,7 +62,7 @@ test("cire-rsvp-after-deadline", async ({ page, context, flow }) => {
 
   await flow.step("enter the family code", async () => {
     await page.getByLabel("Invitation code").fill(CIRE_LATE_GUEST.code);
-    await page.getByRole("button", { name: "Open Invitation" }).click();
+    await page.getByRole("button", { name: "Open invitation" }).click();
     await expect(page.getByText(CIRE_LATE_GUEST.guestName).first()).toBeVisible();
   });
 
@@ -124,7 +124,7 @@ test("cire-rsvp-after-deadline", async ({ page, context, flow }) => {
       await expect(catholic.getByText("RSVPs closed", { exact: true })).toBeVisible();
       await expect(hindu.getByText("RSVPs closed", { exact: true })).toBeVisible();
       await expect(catholic.getByRole("button", { name: "RSVP given" })).toBeVisible();
-      await expect(hindu.getByRole("button", { name: "Event Details" })).toBeVisible();
+      await expect(hindu.getByRole("button", { name: "Event details" })).toBeVisible();
     },
   );
 

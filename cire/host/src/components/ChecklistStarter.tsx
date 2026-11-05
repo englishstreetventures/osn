@@ -1,15 +1,20 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
-import { haptic } from "../lib/haptics";
 import { toLocalDateKey } from "../lib/overview-agenda";
 import { readTaskRow, setFreshTasks, type TaskWire } from "../lib/tasks-store";
+import { haptic } from "../lib/touch-feedback";
+
+const STARTER_CLASS = `${cardClass({ padding: "sm" })} items-start`;
 
 /** One template item as `GET …/tasks/templates/:id` previews it. */
 interface PreviewItem {
@@ -148,26 +153,26 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
   }
 
   const row = (item: PreviewItem) => (
-    <li>
-      <label class="text-ui-base text-text flex cursor-pointer items-start gap-3 py-1">
-        <input
-          type="checkbox"
-          class="mt-1"
-          checked={picked().has(item.key)}
-          onChange={() => toggle(item.key)}
-        />
-        <span class="flex flex-1 flex-col">
-          <span>{item.title}</span>
-          <Show when={item.dueAt}>
-            {(due) => (
-              <span class="text-text-muted text-ui-xs" data-numeric>
-                due {due()}
-                {isPast(item) ? " · date passed" : ""}
-              </span>
-            )}
-          </Show>
-        </span>
-      </label>
+    <li class="py-1">
+      <Checkbox
+        box="native"
+        align="start"
+        checked={picked().has(item.key)}
+        onChange={() => toggle(item.key)}
+        label={
+          <span class="flex flex-col">
+            <span>{item.title}</span>
+            <Show when={item.dueAt}>
+              {(due) => (
+                <span class="text-text-muted text-ui-xs" data-numeric>
+                  due {due()}
+                  {isPast(item) ? " · date passed" : ""}
+                </span>
+              )}
+            </Show>
+          </span>
+        }
+      />
     </li>
   );
 
@@ -182,11 +187,11 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
             </Button>
           }
         >
-          <section class="border-border bg-surface/20 flex flex-col items-start gap-3 rounded-sm border p-4">
+          <section class={STARTER_CLASS}>
             <h3 class="font-display text-text text-ui-md font-light">
               Start from a suggested checklist
             </h3>
-            <p class="text-text-muted text-ui-sm max-w-prose leading-snug">
+            <p class="text-text-muted text-ui-sm leading-ui-snug max-w-prose">
               About twenty common planning tasks, each due a set time before your wedding. Pick the
               ones that fit; they become ordinary tasks you can change or delete.
             </p>
@@ -204,7 +209,7 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
           <h2 id={TITLE_ID} class="font-display text-text text-ui-md font-light">
             Starter checklist
           </h2>
-          <p class="text-text-muted text-ui-sm leading-snug">
+          <p class="text-text-muted text-ui-sm leading-ui-snug">
             Each task is due a set time before your wedding date. Untick what does not fit; you can
             change or delete any task later.
           </p>
@@ -242,9 +247,9 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
                   <For each={groups()}>
                     {(group) => (
                       <section class="flex flex-col gap-1">
-                        <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                        <Eyebrow as="h3" tone="muted">
                           {group.label}
-                        </h3>
+                        </Eyebrow>
                         <ul class="flex flex-col">
                           <For each={group.items}>{row}</For>
                         </ul>
@@ -254,9 +259,9 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
                 </Show>
                 <Show when={removed().length > 0}>
                   <section class="flex flex-col gap-1">
-                    <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                    <Eyebrow as="h3" tone="muted">
                       You removed these earlier
-                    </h3>
+                    </Eyebrow>
                     <ul class="flex flex-col">
                       <For each={removed()}>{row}</For>
                     </ul>

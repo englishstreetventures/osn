@@ -19,36 +19,40 @@ import type { EventSummary } from "../../src/components/types";
  * Two widths, because a flex row has two shapes and only one of them is the
  * obvious one:
  *
- * - **One line.** The row lays out left to right, so "Event Details" must be the
+ * - **One line.** The row lays out left to right, so "Event details" must be the
  *   left-hand button.
- * - **Wrapped.** The row breaks onto two lines, so "Event Details" must be the
- *   line ABOVE. Two different widths reach that shape. The DESKTOP card does at
- *   `min-width: 1024px`, where the root font-size steps 16px → 17px
- *   (`src/styles/global.css`), every rem grows at once, and the two buttons stop
- *   fitting the two-column card's text half. A 320px phone does too: below `sm`
- *   both buttons are `flex-1`, and each keeps the automatic minimum size of its
- *   own label, so the row breaks rather than squeezing either one.
+ * - **Wrapped.** The row breaks onto two lines, so "Event details" must be the
+ *   line ABOVE. A 320px phone with a reply on file reaches that shape, its
+ *   answer button reading "RSVP given" beside the tick: below `sm` both buttons
+ *   are `flex-1`, and each keeps the automatic minimum size of its own label, so
+ *   the row breaks rather than squeezing either one. "Respond" alone is short
+ *   enough to share the 320px row. The desktop card's two-column text half
+ *   holds "Event details" and "Respond" on one line at every width, past the
+ *   1024px root-size step included.
  *
- * The third case below measures that phone, because the Respond button clips its
- * own label the moment it is allowed to shrink past the word.
+ * The Reflow cases below measure that phone as well, because the Respond button
+ * clips its own label the moment it is allowed to shrink past the word.
  *
  * Every case renders into the events section's own `px-6` and `mx-auto
  * max-w-column-xl`, which is the **classic** pack's events-column cap
- * (`designs/classic/InvitePage.tsx`). That token is 640 real pixels, and it has
- * to be: the wrapped case below lives past the 1024px root-size step, so a cap
- * on the rem-based spacing scale would be 680px there and the row would stop
- * wrapping. Gala caps its column at `max-w-column-2xl`, leaving its text half
- * roughly half as full again as it needs, so gala has no wrapped case to
- * measure; its DOM order is covered in
+ * (`designs/classic/InvitePage.tsx`). Gala's DOM order is covered in
  * `tests/designs/gala/InvitePage.test.tsx`.
  */
 
 /** The tester iframe's own default, restored after every test that changes it. */
 const DEFAULT: readonly [number, number] = [414, 896];
-/** Single-column card, well clear of a wrap: a 590px row against a 271px need. */
+/**
+ * Single-column card, well clear of a wrap: a 590px row against a 220px need
+ * (the two buttons' own widths, 115.9px and 92.2px, and the 12px gap).
+ */
 const ONE_LINE: readonly [number, number] = [700, 900];
-/** Two-column card past the 1024px root-size step: a 272px row against a 286px need. */
-const WRAPPED: readonly [number, number] = [1280, 900];
+/**
+ * A phone at the Reflow floor, with a reply on file: a 222px row against a 260px
+ * need ("Event details" 115.9px, "RSVP given" and its tick 131.7px, the gap).
+ */
+const WRAPPED: readonly [number, number] = [320, 900];
+/** Two-column card: a 272px text-half row against a 233px need (123.1 + 97.8 + 12 gap). */
+const DESKTOP: readonly [number, number] = [1280, 900];
 /** WCAG 2.2 Reflow's floor (1.4.10), and the width an iPhone SE reports. */
 const REFLOW: readonly [number, number] = [320, 900];
 
@@ -85,8 +89,8 @@ function renderCard(withImage: boolean, rsvpClosed = false, responded = false) {
   return render(() => (
     // `px-6` is the events section's own mobile padding
     // (`designs/classic/InvitePage.tsx`), which is what decides how much width
-    // the card has at 320px. Harmless at the two wider cases, where the column
-    // cap binds first.
+    // the card has at 320px. Harmless at 700px, where the column cap binds
+    // first.
     <div class="px-6">
       <div class="max-w-column-xl mx-auto">
         <EventCard
@@ -108,7 +112,7 @@ function renderCard(withImage: boolean, rsvpClosed = false, responded = false) {
 /** The two action buttons and the row that holds them, as painted. */
 function actions(container: HTMLElement) {
   const buttons = [...container.querySelectorAll("button")];
-  const details = buttons.find((b) => b.textContent === "Event Details")!;
+  const details = buttons.find((b) => b.textContent === "Event details")!;
   // By elimination rather than by label: the answer button reads "Respond"
   // before a reply and "RSVP given" after one, and both are measured here.
   const respond = buttons.find((b) => b !== details)!;
@@ -136,7 +140,7 @@ afterEach(async () => {
 });
 
 describe("the event card's two actions, as painted", () => {
-  it("puts Event Details on the left when they share a line", async () => {
+  it("puts Event details on the left when they share a line", async () => {
     await page.viewport(...ONE_LINE);
     const { container } = renderCard(false);
     // The invite's faces are self-hosted, and a width taken against fallback
@@ -152,9 +156,21 @@ describe("the event card's two actions, as painted", () => {
     expect(details.right).toBeLessThanOrEqual(respond.left);
   });
 
-  it("puts Event Details on the line above when the row wraps", async () => {
-    await page.viewport(...WRAPPED);
+  it("puts Event details on the left when they share a line, in the two-column desktop card", async () => {
+    await page.viewport(...DESKTOP);
     const { container } = renderCard(true);
+    await document.fonts.ready;
+
+    const { details, respond, rowWidth } = actions(container);
+    expect(details.top, `the row wrapped at ${rowWidth}px — this case wants one line`).toBe(
+      respond.top,
+    );
+    expect(details.right).toBeLessThanOrEqual(respond.left);
+  });
+
+  it("puts Event details on the line above when the row wraps", async () => {
+    await page.viewport(...WRAPPED);
+    const { container } = renderCard(false, false, true);
     await document.fonts.ready;
 
     const { details, respond, rowWidth } = actions(container);
@@ -172,7 +188,7 @@ describe("the event card's two actions, as painted", () => {
  * The narrowest width the invite promises, MEASURED.
  *
  * The answer button clips: it carries a clipping `overflow` for the confirmation
- * fill that sweeps across it, and "Event Details" carries `whitespace-nowrap`,
+ * fill that sweeps across it, and "Event details" carries `whitespace-nowrap`,
  * so whichever way the free space is short the answer button is the one that
  * absorbs it. Its own automatic minimum size is the only thing standing between
  * the guest and a half-word — and a scroll container's automatic minimum size is

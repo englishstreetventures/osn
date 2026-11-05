@@ -1,3 +1,4 @@
+import Eyebrow from "@cire/ui/eyebrow";
 import { createEffect, Show } from "solid-js";
 
 import { createHeroBackdrop } from "../../components/hero-backdrop";
@@ -287,7 +288,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
             <div
               class="flex max-w-2xl flex-col items-start gap-5 text-left"
               classList={{
-                "rounded-2xl px-[clamp(1.5rem,6vw,4rem)] py-[clamp(1.25rem,5vw,3rem)]":
+                "rounded-ui-lg px-[clamp(1.5rem,6vw,4rem)] py-[clamp(1.25rem,5vw,3rem)]":
                   showTitleBackdrop(),
               }}
               style={
@@ -412,7 +413,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                         // first paint even though, unlike classic, it IS laid out.
                         loading="lazy"
                         decoding="async"
-                        class="border-border w-full max-w-full rounded-sm border object-cover md:col-span-5 md:mt-12"
+                        class="border-border rounded-ui-field w-full max-w-full border object-cover md:col-span-5 md:mt-12"
                         style={{ "aspect-ratio": String(STORY_DEFAULT_ASPECT) }}
                       />
                     }
@@ -425,7 +426,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                         // it with no distortion and no empty bars. A legacy crop (no
                         // dims) falls back to the story default 4∶3. Visible at every
                         // width — never `hidden` below md.
-                        class="border-border w-full max-w-full overflow-hidden rounded-sm border md:col-span-5 md:mt-12"
+                        class="border-border rounded-ui-field w-full max-w-full overflow-hidden border md:col-span-5 md:mt-12"
                         style={{
                           ...style(),
                           "aspect-ratio": String(
@@ -439,9 +440,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
               }}
             </Show>
             <div class="md:col-span-12 md:self-center group-data-[has-image=true]/story:md:col-span-6 group-data-[has-image=true]/story:md:col-start-7">
-              <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-                {story()?.eyebrow ?? "Our Story"}
-              </p>
+              <Eyebrow class="mb-3">{story()?.eyebrow ?? "Our Story"}</Eyebrow>
               <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {story()?.heading ?? "How It All Began"}
               </h2>

@@ -282,7 +282,13 @@ describe("the layout the caller asks for", () => {
     expect(track).not.toContain("flex-col");
     // From it: the `wrap` layout, with the scroller switched off.
     expect(track).toEqual(
-      expect.arrayContaining(["md:flex-col", "md:overflow-x-visible", "md:snap-none", "md:pb-0"]),
+      expect.arrayContaining([
+        "md:flex-col",
+        "md:overflow-x-visible",
+        "md:snap-none",
+        "md:m-0",
+        "md:p-0",
+      ]),
     );
     for (const band of bands) {
       expect(band).toEqual(expect.arrayContaining(["md:flex-col", "md:items-start"]));
@@ -310,5 +316,28 @@ describe("the pill's containing block", () => {
     // contain the word and neither makes the pill a containing block at the
     // moment the input is focused.
     for (const label of labels) expect(label.className.split(/\s+/)).toContain("relative");
+  });
+});
+
+describe("the pill's motion", () => {
+  it("fades its colours and ring on the app's two clocks, never the outline", () => {
+    // The house's one motion rule: a hover on --dur-fast with the house's
+    // arriving curve, a tick on --dur-base with its in-out curve. A literal
+    // duration ignores the app's ladder, which is shorter under a fine
+    // pointer; the fallback is for a page that declares no ladder.
+    const { container } = render(() => <DietaryPresets value={[]} onChange={() => {}} />);
+    const labels = [...container.querySelectorAll("label")];
+    expect(labels.length).toBeGreaterThan(0);
+    const wrong = labels.filter((label) => {
+      const timing = label.className
+        .split(/\s+/)
+        .filter((c) => c.includes("transition") || c.includes("duration-") || /(^|:)ease-/.test(c));
+      return (
+        timing.join(" ") !==
+        "transition-[color,background-color,border-color,box-shadow] duration-(--dur-fast,100ms) ease-[var(--ease-out,var(--ui-ease-out))] " +
+          "has-[:checked]:duration-(--dur-base,150ms) has-[:checked]:ease-[var(--ease-in-out,var(--ui-ease-in-out))]"
+      );
+    });
+    expect(wrong).toEqual([]);
   });
 });

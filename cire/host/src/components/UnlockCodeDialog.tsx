@@ -80,13 +80,14 @@ export default function UnlockCodeDialog(props: {
           }}
         >
           <p class="font-display text-text text-ui-md font-light">Have a code?</p>
-          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             If someone gave you a code for Gold or Crimson, enter it here. It moves this wedding to
             that plan, with nothing to pay.
           </p>
           <Field label="Code" errors={errors()}>
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 name="unlockCode"
                 value={code()}

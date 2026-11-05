@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { proseLinkClass } from "@cire/ui/button";
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import type { JSX } from "solid-js";
@@ -129,10 +130,11 @@ describe("ClaimApp", () => {
     await waitFor(() =>
       expect(screen.getByText(/already has a directory listing/i)).toBeInTheDocument(),
     );
-    expect(screen.getByRole("link", { name: /edit test org's listing/i })).toHaveAttribute(
-      "href",
-      "/#/orgs/org1",
-    );
+    const edit = screen.getByRole("link", { name: /edit test org's listing/i });
+    expect(edit).toHaveAttribute("href", "/#/orgs/org1");
+    // The readable-gold prose link `notice-link.browser.test.tsx` holds at
+    // 4.5:1 on the warning's tint, not the warning's own ink.
+    expect(edit.className).toBe(proseLinkClass());
     // Not the dead-link message, and the token is still parked for a retry.
     expect(screen.queryByText(/no longer valid/i)).not.toBeInTheDocument();
     expect(sessionStorage.getItem("cire.vendor.claim-token")).toBe("valid-token");
@@ -196,6 +198,31 @@ describe("ClaimApp", () => {
     // Sign-in is a full-page redirect; the return-to brings them back to /claim,
     // where the parked token is picked up again.
     expect(signInMock).toHaveBeenCalledWith(`${window.location.origin}/claim`);
+  });
+
+  it("presses 'Continue with musubi' as the sign-in page does: once, then connecting", async () => {
+    // The press is `@cire/ui`'s `createSignInPress`, whose own tests hold its
+    // timer; these hold that the claim page wires the label, the status line,
+    // the ignored second press and the back-forward restore to it.
+    mockSession = null;
+    renderClaim("valid-token");
+    const button = await waitFor(() =>
+      screen.getByRole("button", { name: "Continue with musubi" }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("");
+
+    button.click();
+    expect(button).toHaveTextContent("Connecting to musubi…");
+    expect(screen.getByRole("status")).toHaveTextContent("Connecting to musubi…");
+    button.click();
+    expect(signInMock).toHaveBeenCalledTimes(1);
+
+    const restore = new Event("pageshow") as PageTransitionEvent;
+    Object.defineProperty(restore, "persisted", { value: true });
+    window.dispatchEvent(restore);
+    expect(button).toHaveTextContent("Continue with musubi");
+    button.click();
+    expect(signInMock).toHaveBeenCalledTimes(2);
   });
 
   it("parks the token in sessionStorage so it survives the sign-in redirect", async () => {

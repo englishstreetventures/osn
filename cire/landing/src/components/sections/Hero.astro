@@ -13,6 +13,8 @@
 // Every word and both calls to action are server-rendered. The phones are
 // hidden from assistive technology; the figure's caption says, in words, what
 // the chosen screen shows.
+import { eyebrowClass } from '@cire/ui/eyebrow'
+
 import InviteScreen from '../mock/InviteScreen.astro'
 import PhoneFrame from '../mock/PhoneFrame.astro'
 import { DEMO_ANCHOR, DEMO_INVITE_URL, ORGANISER_URL } from '../../lib/site'
@@ -46,7 +48,7 @@ const STATES = [
 ---
 <section id="hero" class="hero" aria-labelledby="hero-heading">
   <div class="hero__copy">
-    <p class="eyebrow mb-5">Digital wedding invitations</p>
+    <p class:list={[eyebrowClass(), 'mb-5']}>Digital wedding invitations</p>
     <h1 id="hero-heading" class="display hero__title">Invitations worthy of the moment</h1>
     <p class="hero__lede">
       A real invitation your guests open, answer and keep, with every reply counted for you.
@@ -406,7 +408,7 @@ const STATES = [
     margin-top: 1.75rem;
     padding: 0.25rem;
     border: 1px solid var(--color-border);
-    border-radius: 999px;
+    border-radius: var(--ui-radius-pill);
     background: color-mix(in oklch, var(--color-bg) 80%, transparent);
   }
 
@@ -415,18 +417,19 @@ const STATES = [
     align-items: center;
     min-height: 2.75rem;
     padding: 0 0.7rem;
-    border-radius: 999px;
+    border-radius: var(--ui-radius-pill);
     color: var(--color-text-muted);
     font-family: var(--font-body);
     font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    /* A choice on a segmented strip, so its word shows as written: sentence
+       case at normal tracking, as `SegmentedTabs` draws its choices. */
+    letter-spacing: var(--ui-tracking-normal);
     white-space: nowrap;
     cursor: pointer;
     transition:
-      color 0.2s var(--ease-out),
-      background-color 0.2s var(--ease-out),
-      box-shadow 0.2s var(--ease-out);
+      color var(--dur-fast) var(--ease-out),
+      background-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
   }
 
   .chip:hover {
@@ -437,7 +440,6 @@ const STATES = [
     .chip {
       padding: 0 1.15rem;
       font-size: 0.74rem;
-      letter-spacing: 0.12em;
     }
   }
 

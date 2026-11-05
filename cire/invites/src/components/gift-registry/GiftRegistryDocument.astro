@@ -17,6 +17,8 @@
 // host-scoped to the API origin, which the browser therefore never sends to this
 // Worker. There is no household for the server to be, so the list is the
 // island's to fetch — see `GiftRegistryPage`.
+import { eyebrowClass } from '@cire/ui/eyebrow'
+
 import '../../styles/global.css'
 import { apiPreconnectHref } from '../../lib/api-origin'
 import { giftPageTitle } from '../../lib/gift-registry'
@@ -28,7 +30,7 @@ import { HERO_BG_VARIANT, variantSrc } from '../invite-images'
 import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../invite-theme'
 import type { InviteCustomisation } from '../../designs/types'
 import { GiftRegistryPage } from './GiftRegistryPage'
-import SiteFooter from '../SiteFooter.astro'
+import GuestFooter from '../GuestFooter.astro'
 import { ConsentBanner } from '../consent/ConsentBanner'
 
 interface Props {
@@ -81,7 +83,7 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
+    {/* Keep the ?code= preview credential out of cross-origin Referer headers. */}
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{pageTitle}</title>
     {/* Credentialed pool only (no `crossorigin`): the gift pictures and the
@@ -106,10 +108,10 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
       aria-label="Invitation"
       class={`border-border bg-bg/85 sticky top-0 border-b backdrop-blur-sm ${Z_CLASS.STICKY_RAIL}`}
     >
-      <div class="mx-auto flex max-w-[64rem] items-center px-6 py-3 md:px-8">
+      <div class="mx-auto flex max-w-ui-2xl items-center px-6 py-3 md:px-8">
         <a
           href={inviteHref}
-          class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 inline-flex items-center gap-2 rounded-sm text-ui-xs tracking-ui-widest uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          class="font-body text-text-muted hover:text-gold-ink rounded-ui-control text-ui-sm inline-flex items-center gap-2 transition-ui-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus"
         >
           <span aria-hidden="true">&larr;</span>
           Back to the invitation
@@ -152,7 +154,7 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
         />
       )}
       <div class="relative flex min-h-[34vh] flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-6 py-14 text-center md:py-16">
-        <p class="font-body text-gold-ink mb-3 text-ui-xs tracking-ui-widest uppercase">
+        <p class:list={[eyebrowClass(), 'mb-3']}>
           {eyebrow}
         </p>
         {/* leading-ui-none + pb, never leading-none: a descender in the couple's
@@ -178,7 +180,7 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
 
     {/* Site-wide chrome: the couple's name over the legal links, exactly as on
         the invitation this page belongs to. */}
-    <SiteFooter closing={invite?.hero.title ?? null} />
+    <GuestFooter closing={invite?.hero.title ?? null} />
     {/* Site-wide consent surface. `client:idle` so it never competes with the
         page's first paint — nothing third-party can load before it hydrates
         anyway, since every ConsentGate defaults to denied until then. */}

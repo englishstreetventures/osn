@@ -34,17 +34,25 @@ describe("flow sources", () => {
   // fails in CI, in a flow nobody touched. Counted here, so the commit that
   // adds it goes red.
   //
-  // A flow claims by pressing "Open Invitation", or by opening the invitation
+  // A flow claims by pressing "Open invitation", or by opening the invitation
   // at a `code=` link, which claims on load (the organiser's "Preview invite").
   // A flow that calls `claimFromOrganiserAddress` sends its claims from the
   // organiser's own address and counts in that window instead. It may claim
   // only through a link: a press in a second, unrouted context would spend the
   // guests' window while being counted in the organiser's.
+  //
+  // The press is counted in any letter case: Playwright matches a role's name
+  // without regard to case, so `name: "Open Invitation"` presses the same
+  // button and spends the same claim.
   test("the flows claim no more invitation codes than cire-api allows in a minute, per address", () => {
-    const dir = join(import.meta.dirname, "flows");
-    const sources = readdirSync(dir).map((file) => readFileSync(join(dir, file), "utf8"));
+    // The support modules too: a flow's checks there run in its session.
+    const sources = dirs.flatMap((dir) =>
+      readdirSync(dir)
+        .filter((file) => file.endsWith(".ts"))
+        .map((file) => readFileSync(join(dir, file), "utf8")),
+    );
     const count = (source: string, pattern: RegExp) => source.match(pattern)?.length ?? 0;
-    const press = /name: "Open Invitation" \}\)\.click\(/g;
+    const press = /name: "Open invitation" \}\)\.click\(/gi;
     const link = /[?&]code=/g;
     const fromOrganiser = (source: string) => source.includes("claimFromOrganiserAddress(");
 
@@ -65,20 +73,26 @@ describe("flow sources", () => {
   // spends two of cire-api's OIDC redirect legs (15 a minute per address,
   // `defaultOidcStartLimiter` in cire/api/src/app.ts), one osn-api `/dev/login`
   // (10 a minute, osn/api/src/routes/auth/dev-login.ts) and one osn-api
-  // `/authorize` (20 a minute, shared with the Pulse flow's two sign-ins). All
-  // of it from the suite's one address, in fixed windows, so a sign-in past the
-  // budget fails only on a fast machine. Six keeps every window with room:
-  // 12 of the 15 redirect legs, 6 of the 10 dev logins, 8 of the 20 authorizes.
+  // `/authorize` (20 a minute, `oidcAuthorize` in
+  // osn/api/src/routes/auth/limiters.ts). A Pulse sign-in, `signInToPulse`,
+  // spends one `/authorize` too. All of it from the suite's one address, in
+  // fixed windows, so a sign-in past the budget fails only on a fast machine.
+  // Seven organiser sign-ins and two Pulse ones keep every window with room:
+  // 14 of the 15 redirect legs, 7 of the 10 dev logins, 9 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
-    const dir = join(import.meta.dirname, "flows");
-    const signIns = readdirSync(dir)
-      .map((file) => readFileSync(join(dir, file), "utf8"))
-      .reduce(
-        (sum, source) => sum + (source.match(/signInToCireHost\(|\/dev\/login\?/g)?.length ?? 0),
-        0,
-      );
+    // The support modules too, less the helpers' own definitions.
+    const sources = dirs.flatMap((dir) =>
+      readdirSync(dir)
+        .filter((file) => file.endsWith(".ts"))
+        .map((file) => readFileSync(join(dir, file), "utf8")),
+    );
+    const count = (pattern: RegExp) =>
+      sources.reduce((sum, source) => sum + (source.match(pattern)?.length ?? 0), 0);
+    const signIns = count(/(?<!function )signInToCireHost\(|\/dev\/login\?/g);
+    const pulseSignIns = count(/(?<!function )signInToPulse\(/g);
     expect(signIns).toBeGreaterThan(0);
-    expect(signIns).toBeLessThanOrEqual(6);
+    expect(signIns).toBeLessThanOrEqual(7);
+    expect(signIns + pulseSignIns).toBeLessThanOrEqual(9);
   });
 
   // osn-api allows 5 sign-up begins a minute per client address

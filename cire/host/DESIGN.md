@@ -5,9 +5,11 @@ is implemented in `src/styles/global.css`; this file records the decisions and
 the contracts, so a change to a colour can be checked against what the colour was
 for.
 
-The guest site (`@cire/invites`) and the marketing site (`@cire/landing`) have their
-own look and do not share this one. **The invite is a printed thing; the portal is
-the desk it was made on.**
+The guest site (`@cire/invites`) and the marketing site (`@cire/landing`) have
+their own type and colour and do not share this look. **The invite is a printed
+thing; the portal is the desk it was made on.** All four cire apps — those two,
+this portal and the vendor portal — share one corner scale and one motion ladder
+(§4).
 
 ---
 
@@ -54,7 +56,7 @@ hue. The same moves in sRGB hex shift hue, and the greens drift blue.
 properties existing:
 
 - the invite preview — `previews.tsx` and `PaletteField.tsx` write
-  `style={{ color: "var(--color-gold)" }}` and rely on the *nearest* scope
+  `style={{ color: "var(--color-gold)" }}` and rely on the _nearest_ scope
   defining it (the invite's own palette inside a preview, the portal's ramp
   outside one);
 - anything reading a token from JavaScript through `getComputedStyle`.
@@ -70,33 +72,35 @@ be used as a class somewhere too, which means the invite preview works by luck;
 
 ### The tokens
 
-| Token | Role |
-|---|---|
-| `--bg` | the page |
-| `--bg-deep` | what the page recedes to behind a sticky bar or under a scrim |
-| `--surface` | a card |
-| `--surface-raised` | a menu or popover above a card |
-| `--surface-sunk` | a well — an input, a code block |
-| `--border` | a hairline; decoration only, **no contrast contract** |
-| `--border-strong` | the visible boundary of an unfilled control; **≥ 3:1** |
-| `--text` | body ink; **≥ 4.5:1** |
-| `--text-muted` | secondary ink; **≥ 4.5:1** |
-| `--text-faint` | large text, ornament, disabled; **≥ 3:1** |
-| `--brand` | a *fill* — a primary button's ground, an active row's wash |
-| `--brand-hi` | the hover fill |
-| `--brand-ink` | the brand as readable ink on a ground |
-| `--brand-wash` | the brand at low alpha behind an active row |
-| `--on-brand` | what sits on top of a brand fill |
-| `--gold` | metal — rules, ornament, the seal |
-| `--gold-dim` | the same metal, fading out |
-| `--gold-ink` | gold as readable ink; **≥ 4.5:1** |
-| `--success` / `--warn` / `--error` | status; separate from the accent, as status colour always should be |
-| `--status-yes`, `--status-no`, `--status-maybe` | the fills of a status mark's circle (§Status marks); opaque |
-| `--status-no-ink`, `--status-maybe-ink` | the glyph on the red and tint circles; **≥ 4.5:1** on its circle |
-| `--focus` | the focus ring |
-| `--inner-lip`, `--elev-1`, `--elev-2` | depth |
+| Token                                           | Role                                                                |
+| ----------------------------------------------- | ------------------------------------------------------------------- |
+| `--bg`                                          | the page                                                            |
+| `--bg-deep`                                     | what the page recedes to behind a sticky bar or under a scrim       |
+| `--surface`                                     | a card                                                              |
+| `--surface-raised`                              | a menu or popover above a card                                      |
+| `--surface-sunk`                                | a well — an input, a code block                                     |
+| `--border`                                      | a hairline; decoration only, **no contrast contract**               |
+| `--border-strong`                               | the visible boundary of an unfilled control; **≥ 3:1**              |
+| `--text`                                        | body ink; **≥ 4.5:1**                                               |
+| `--text-muted`                                  | secondary ink; **≥ 4.5:1**                                          |
+| `--text-faint`                                  | large text, ornament, disabled; **≥ 3:1**                           |
+| `--brand`                                       | a _fill_ — a task holder's tick when on                             |
+| `--brand-hi`                                    | the hover fill                                                      |
+| `--brand-ink`                                   | the brand as readable ink on a ground; the reader's row bar         |
+| `--brand-wash`                                  | the brand at low alpha behind an active row                         |
+| `--on-brand`                                    | what sits on top of a brand fill                                    |
+| `--gold`                                        | metal — rules, ornament, the seal                                   |
+| `--gold-dim`                                    | the same metal, fading out                                          |
+| `--gold-ink`                                    | gold as readable ink; **≥ 4.5:1**                                   |
+| `--success` / `--warn` / `--error`              | status; separate from the accent, as status colour always should be |
+| `--status-yes`, `--status-no`, `--status-maybe` | the fills of a status mark's circle (§Status marks); opaque         |
+| `--status-no-ink`, `--status-maybe-ink`         | the glyph on the red and tint circles; **≥ 4.5:1** on its circle    |
+| `--focus`                                       | the focus ring                                                      |
+| `--inner-lip`, `--elev-1`, `--elev-2`           | depth                                                               |
+| `--pill-ground`                                 | the ground a non-primary pill sits on: the surface at 30%, the glass track's own (§4, One pill language) |
+| `--pill-sm-height`                              | a small pill's height, 28px (§4, One form-field height)             |
 
-Three of these are worth stating outright, because they are the ones that get
+Four of these are worth stating outright, because they are the ones that get
 misused:
 
 **Only two border tokens.** `--border` is a hairline and is held to no contrast
@@ -113,6 +117,12 @@ about 2.4:1. Anything a host has to read that wants to be gold uses `--gold-ink`
 light ground and a focus indicator has a 3:1 floor. So focus is gold in dark and
 brand green in light.
 
+**The light red is set by its worst ground.** `--error` in light is L 46%, the
+lightest half step that keeps a `danger` `Notice` at 4.6:1 in a card's well, its
+worst ground, with its 5% box under the words (4.63:1).
+`tests/styles/notice-contrast.browser.test.tsx` holds it at 4.5:1 on every ground
+a notice sits on. The dark red is not tied to it.
+
 ### The contrast contract
 
 `tests/styles/tokens.test.ts` parses the stylesheet — not a duplicated table — and
@@ -128,6 +138,18 @@ asserts every pair. It does two things a naive check does not:
 It also asserts the two light blocks — the media-query copy and the attribute
 copy — have not drifted apart, since they are hand-duplicated.
 
+Tokens with a contract are only half of it: a word drawn in a token without
+one breaks the contract as surely. `tests/styles/readable-ink.test.ts` keeps
+every word and number in both portals and `@cire/ui` off `--gold`,
+`--gold-dim`, `--gold-hi` and `--text-faint` (and their `ui-*` names), under
+any variant, hover included: each line still naming one is listed there with
+the ornament it paints — a hidden glyph, an icon beside its words, a graphic
+held to 3:1. `tests/styles/readable-gold.browser.test.tsx` measures the words
+the 2026-11-04 consistency audit found at 2.4:1 and under — the RSVP tally's
+"Attending", a design card's "Current", the overview's figures, the guide's
+count and step numbers, the palette's group label and Esc, a locked module's
+name — at 4.5:1 on what they sit on, in both themes.
+
 ### Why these colours
 
 The brief asked for `#2F4B26` as the dark green. Measured, that is L38% — nearly
@@ -140,7 +162,15 @@ accent's hue, so it reads warm rather than grey, and so an unintended light mode
 at night is not a flashbang.
 
 `#63585E` is the light mode's muted ink and its border hue — a secondary role.
-Green carries buttons and active states in both themes.
+
+**The primary button is gold, not green.** `Button`'s `primary` fills with
+`--ui-accent`, which this portal maps to `--gold`, and writes its label in
+`--ui-on-accent`, `--on-gold` (8.54:1 dark, 4.87:1 light); the focus ring is
+`--focus`. Gold is the commit in both portals and on the guest site, so a
+pressed answer, a chosen glass pill and the button that saves them share one
+accent (the owner's choice). Green stays a
+second, quieter mark: a task holder's tick when on (`--brand` under
+`--on-brand`) and the reader's row bar (`--brand-ink`).
 
 ---
 
@@ -152,12 +182,12 @@ a DNS lookup, a TLS handshake and a render-blocking round trip to a third party
 before a signed-in dashboard could paint — and told Google about every host who
 opened it.
 
-| Family | Variable | Tailwind | Used for |
-|---|---|---|---|
-| Schibsted Grotesk | `--font-ui` | `font-body` | everything |
-| Cormorant Garamond | `--font-flair` | `font-display` | the wordmark, a wedding's name, the invite preview |
+| Family             | Variable       | Tailwind       | Used for                                           |
+| ------------------ | -------------- | -------------- | -------------------------------------------------- |
+| Schibsted Grotesk  | `--font-ui`    | `font-body`    | everything                                         |
+| Cormorant Garamond | `--font-flair` | `font-display` | the wordmark, a wedding's name, an account's initial, the invite preview |
 
-Cormorant is **rationed to three things**. A portal is read as data — guest
+Cormorant is **rationed to four things**. A portal is read as data — guest
 tables, budget columns, RSVP counts — so the working face is a grotesque with real
 tabular numerals, not the invite's stationery serif.
 
@@ -173,27 +203,339 @@ Two rules in `@layer base`:
   clips descenders at the leading these headings use. Emphasis is carried by
   weight, gold and rules instead.
 
+**An account's initial** (`PersonAvatar`'s `initial`, the account trigger and
+the guest site's account card) is the one display line not set on a step: the
+semibold display face at half the circle's inside width (`text-[50cqi]` on a
+root that is its own container), so 17px in the 36px trigger and 19px in a
+40px circle, in readable gold inside a hairline, on the trigger's pill ground.
+Semibold because Cormorant's
+thin strokes go faint at that size on the light ramp.
+
+**The steps.** Size, tracking and line height come from the contract's steps —
+`text-ui-*`, `tracking-ui-*` and `leading-ui-*`, set in `global.css` — never
+from Tailwind's own. A paragraph of prose takes `leading-ui-normal` (1.6) and a
+hint or a tight stack of lines `leading-ui-snug` (1.4); `leading-ui-relaxed`
+(1.75) is the `md` `Notice` body's (its `sm` box takes 1.6, its `inline` line
+1.4). Words or figures in Cormorant are never set at a
+line height of 1, because its descenders need the room. A display line that
+keeps to one line — the wordmark, a module's heading, the wedding switcher's
+name, the overview's countdown and counts — takes `leading-ui-none` (1.1); a
+title that can wrap — a section heading, a popover's title, a wedding's name in
+the list — takes `leading-ui-tight` (1.2). Where a display line is clipped, as
+the switcher's name is by `truncate`, 1.1 is still short of Cormorant's g, j, p
+and y, so the line keeps 2px of padding inside the clip. Tailwind's
+`leading-none` stays only on a glyph or a short label — a ✦, an avatar's
+initial, a status word, a run sheet flag — which is where
+`@shared/design-tokens` keeps it. The invite preview is the exception: it draws
+the guest site's lines at the guest site's own line heights. Text in a code face
+— an id or a claim code, a file name, the counts in the overview's and the RSVP
+page's summaries — takes `font-ui-mono`, the platform's monospace; the portal
+loads no mono family.
+
+**A line earns its place.** A heading, an eyebrow or a label names a control, a
+region a reader moves to, or data; a line that only decorates is not drawn
+(the owner's choice). The RSVPs view draws no
+intro: the chosen sub-tab says "RSVPs" on screen, and a hidden `<h2>` gives a
+reader moving by headings the name the visible intros of Households and Edit
+give theirs. Its download is the bar's icon button after the reply key (§4,
+One pill language).
+
 ---
 
 ## 4. Shape, depth, motion
 
-**Radius.** One scale, sharp end of the range: `hair` 2px, `sm` 4px, `md` 6px,
-`pill` 999px. The house look is stationery, not app-store chrome — nothing
-rounder than 6px except pills.
+**Radius.** Soft shapes, by the owner's choice (2026-10-28): smoother and less
+rigid, with pills for actions, 14px for fields and tiles and 16px for cards. A
+part paints a _role_, not a size, so the stylesheet decides once how round each
+role is. Two sets of names carry it:
+
+- the steps in `@theme` that the app's own `rounded-*` utilities read —
+  `--radius-hair`, `--radius-sm`, `--radius-md`, `--radius-pill`;
+- the contract's `--ui-radius-*` roles, which the `rounded-ui-*` utilities and
+  every `@shared/ui` and `@cire/ui` part read. `field` and `lg` exist only as
+  roles, so `rounded-ui-field` and `rounded-ui-lg` are the one way to paint them.
+
+| Role      | Written as                        | Value              | Paints                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------- | --------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `control` | `rounded-ui-control`              | 999px, a pill      | every action `Button` (§7); a file input's button (`@cire/ui`'s `FileInput`); the invite preview's mock Respond and Event details                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `field`   | `rounded-ui-field`                | 14px               | `Input`, `Select` and `Textarea`; `Button`'s `tile` and `field` variants and its `swatch` size; a trigger shaped like a field (the date and colour pickers); a read-only value box and the copyable invite message; a framed picture or crop box; a block pressed to choose (the code-style and remint radio cards, an enquiry inbox row)                                                                                                                                                                                                                         |
+| `lg`      | `rounded-ui-lg`                   | 16px               | `Card` and `cardClass`; the centred `Modal`; any bordered, padded block set on the page rather than inside another box — a form, a filter bar, a summary band, a panel, a list card with `py-3` or more, the guest editor's household card, the import's diff preview, the danger zone, the getting-started guide, a disclosure on the page (`Disclosure`'s card tone — change history, the import guide, "Arrange tables"), a message bubble, the login card, the command palette; and the invite preview's hero title panel, gala code card and mock event card |
+| `md`      | `rounded-md`                      | 10px               | popovers, menus, tooltips and toasts: every Kobalte popover and dropdown menu, the rail tooltip and `ActionTip`'s panel, the module card, the co-host suggestion list, the two droplet popovers; `--toast-radius`                                                                                                                                                                                                                                                                                                         |
+| `sm`      | `rounded-sm`                      | 6px                | the small steps, below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `hair`    | `rounded-hair`                    | 2px                | colour swatch dots, an inline code mark, the run sheet's event diamond, the import guide's sample table                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `pill`    | `rounded-full`, `rounded-ui-pill` | a pill or a circle | every `Chip` — status words, outlined badges (the top bar's and a co-host's role, "Connected", "New" on an unsaved event or household, a seated guest's reply, an invite section's state), tags (a vendor's or a gift's category) and the run sheet's flags — and a task's time; `Button`'s `chip` variant; `Meter`'s track; and the round marks — avatars, status circles, the dotted + circle, switches                                                                                                                                                         |
+
+**The small steps.** A box keeps a small corner where a soft one would make it
+read as something else: a 14px checkbox looks like a mistake. (A checkbox or
+radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
+`sm`, 6px, paints:
+
+- notices (`Notice`'s `md` and `sm` boxes — its `inline` line draws no box)
+  and empty states (`EmptyState` and a hand-written empty panel);
+- a badge with text that is not a pill — a dress code, a key hint (`kbd`);
+- a bordered box nested in a card, a modal or a frame — the change preview
+  inside the centred `Modal`, the RSVP reply editor in its table cell or phone
+  row, the colour area in its popover, a step card inside the import guide, a
+  `Disclosure` set inside another box (`nested`);
+- a compact row (`px-3 py-2`) of text and glyphs — a budget line, a checklist
+  task, a registry item, a seat, a vendor, an FAQ entry — and the run sheet's
+  bands and rows, whose coming-up wash is a table highlight;
+- a menu row's or a nav row's highlight — the command palette, every portal
+  menu's rows (the shared menu's accent look, `@shared/ui` `menu-classes.ts`),
+  the holders list, the module rail's rows, its sliding pill and its collapse
+  toggle, the top bar's wordmark wash (`Wordmark`, whose box pulls 4px left
+  and none right, so its focus ring clears the divider beside it by 4px), a
+  date picker's day cell, a sortable column head;
+- table frames, to match `Table`'s own frame (`base:rounded-ui-sm` in
+  `shared/ui/src/ui/table.tsx`): the guest list, the RSVP table, the phone's
+  stacked reply list and their skeletons. A 16px frame would need a corner role
+  for `Table`, since the shared `Table` also draws musubi's and pulse's tables;
+- the invite preview's frames (`PaletteField`, `PreviewPane`, `previews.tsx`).
+
+**Where the table does not decide a corner:**
+
+- **Nested boxes.** A box set inside another takes the outer corner less the
+  padding between them, to the nearest step. So a box in a 16px card or modal
+  is 6px, and the registry swatch's picture is `rounded-md` inside its 14px
+  frame with `p-1`.
+- **Skeletons** are `@cire/ui`'s `Skeleton` (§7), in the corner and fill of
+  what they stand in for (the owner's choice): a card or a list card at 16px and a
+  table's rows at 6px, both at the full surface; a filter field at 14px and a
+  chip strip or a tab track as a pill, both at 60% of it; no edge on any. Each
+  takes the height of the item it stands for and the spacing of its list,
+  measured in the browser tier at 1280px for a wedding the size weddings reach
+  — the first item's, where the items differ — and a table's rows stand a
+  hairline apart (`gap-px`), as the frame's rows are. The two views that draw
+  another layout on a phone, the households and the RSVP replies, take the
+  phone's there; the others keep their 1280px heights. A count or legend line
+  over a list is held as empty room of its height, and a section intro's
+  actions, which arrive with the list, keep their room unseen while it loads
+  (`SectionIntro`'s `holdActions`), so the first placeholder stands where the
+  first item lands, at 1280px and at 390px.
+  `tests/components/skeletons.browser.test.tsx` holds each to 2px.
+  `tests/styles/skeleton.test.ts` fails on a hand-drawn `animate-pulse`.
+  Pending the owner's answer on englishstreetventures/osn#1944: whether a phone
+  matches every view's heights (the overview, the event cards and the guest
+  editor); whether a count or legend line is held empty or drawn as a line;
+  whether the RSVP event strip's placeholder takes the glass track's 30%
+  surface and hairline or keeps the pill's edgeless 60%; and whether an
+  intro's actions keep empty room or show disabled while the list loads
+  (englishstreetventures/osn#1943).
+- **The invite preview** gives an element it mirrors the guest element's corner.
+- **A card holding a stuck head** clips with `overflow-clip`, never
+  `overflow-hidden` — the guest editor's household card. `hidden` makes the card
+  a scroll container, so its head would stick inside the card and scroll away
+  with it; `clip` cuts the corners and leaves the page as the scroller.
+  `GuestsStack.browser.test.tsx` fails "card header holds" with `hidden`.
+- **Fields** take the 14px field corner at one of two heights, below (One
+  form-field height).
+- **The event drawer** (`Modal presentation="drawer"`) and the module nav's
+  sheet are square: each runs to the window's edge.
+- Tailwind's other default steps (`rounded-xs`, `rounded-lg`, `rounded-xl`,
+  `rounded-2xl`) still generate and belong to no role. None is written in
+  `src/`; a corner that wants one takes a role utility instead.
+
+The scale is the same in all four cire apps, and so is `--toast-radius`
+(`md`, in the three that load `@shared/toast`). `cire/vendor`'s
+`tests/styles/tokens.test.ts` reads all four stylesheets and fails if a role or
+a step differs. The guest site and the marketing site add one role, `sheet`, at
+1.75rem, for their bottom sheets; the portals draw none. They give the steps the
+same kinds as here, and two more: a small panel the size of a notice at 6px (the
+gift page's "Send gifts to" box) and a legal page's inline placeholder at 2px.
+Their pages list every corner they paint
+([cire-invite-designs](../../wiki/cire/cire-invite-designs.md) §Corners, labels
+and motion; [cire-landing](../../wiki/cire/cire-landing.md) §Corners, labels and
+motion).
+
+**One form-field height: a form field is 34px, a filter is a 28px pill.** Two
+heights, chosen by what the field does (the owner's choice):
+
+- **A form field is 34px** — any `Input` or `Select` that enters or edits a
+  value takes `@shared/ui`'s `size="form"` (12px sides, the base type step),
+  or `size="form-compact"` (8px sides, the small step) in a narrow cell or an
+  inline editor — so the 14px corner leaves a straight side. That is
+  every field in a form or a modal, the guest editor's household name and cells,
+  the budget's add form, money cells, payment form and price per head, the
+  registry's add form and inline editor, a co-host's handle, role and run-sheet
+  scope, a vendor's status and listing email, the event drawer, the run-time
+  popover and the colour picker's hex value. The compact box is the guest
+  editor's household name and cells, the registry's inline editor, the
+  budget's payment fields and price per head, the colour's hex value, a
+  co-host's role and run-sheet scope selects, a vendor's status select and the
+  registry picture's shop link. `UsernameInput` hands its `size` to its inner
+  `Input`. The date picker's read-only box and the invite link's are a
+  `readOnly` `Input` at `form`, in full ink; the date picker's trigger takes
+  `controlClass("form", …)` and `CONTROL_HEIGHT.form`, so its edge, fill and
+  focus are a form field's. The dietary picker's trigger is `Button`'s
+  `field` at `form`, 34px. A
+  `Textarea` takes the size's sides and type, and no height: `base:min-h-15`
+  holds it at its rows. `tests/styles/form-field.test.ts` reads every `Input`
+  and `Select` in `src/` and fails on one without a form size but the two
+  filter parts, a filter not on one, or a field carrying a height class.
+- **A boxed button in a row with a form field is 34px too** —
+  `Button`'s `form` size, with md's type — so the row lines up: Add item, Add
+  payment and the budget total's Save and Cancel, Add task, Add table and a
+  table's Save and Cancel, Add vendor, List + invite and its Cancel, Add host,
+  Find pictures, and on a household card Delete household (beside the name,
+  or under it on a narrow panel) and Add guest at the card's foot. A
+  borderless button (`link`, `subtle`, `bare`) draws no box and keeps its
+  size; so does a button stacked under the fields rather than beside them.
+- **A filter is 28px** — `FilterSearch` or `FilterSelect`
+  (`src/components/FilterField.tsx`), the shared `sm` field, 28px of its own —
+  so the 14px corner is half its height and rounds its ends: the guest-list
+  and RSVP search boxes, the RSVP sort select, the vendor directory's
+  Category, Keyword and Location, and the seating chart's Event select (which
+  chart to show). At rest a filter takes the glass track's look beside it,
+  the hairline on the pill ground, so it is not the heaviest thing in its
+  bar; what says "a field" at 3:1 (WCAG 1.4.11) is its glyph in the secondary
+  ink — a 14px magnifier leading a search box (Location's too), a select's own
+  chevron at its end. Under the pointer and with focus its edge turns to
+  `--border-strong`, on `--dur-fast`, and the focus ring is the field's own
+  (the owner's choice). The strips and the reply
+  key beside them are 28px too. A bar's action is the same
+  height: `Button`'s `sm` is 28px in the portals (`--pill-sm-height`), so
+  Add household, Clear filters, Print and Download seating CSV need no
+  height class, and its `icon` is a 28px circle.
+
+Why: a pill reads as a search box. That is right for a filter, which is one,
+and wrong for a field that holds a value, which should look like the form field
+it is; one height for every form field keeps a form's rows level wherever it
+sits. The owner chose from the heights side by side.
+
+The rule is the portals' — this one and `cire/vendor`. The guest site is not a
+portal: its fields are `@shared/ui`'s ink fill at the `touch` size, 46px on a
+phone and 44px from 640px (46.75px on its 17px desk root), so a guest's tap
+target never drops under 44px (the owner's choice). The dietary picker's trigger in the reply editor,
+`@cire/ui`'s `field`-variant button, is 34px too. Not on the rule, and why: the
+command palette's and the task holders' search boxes draw no box of their own.
+
+**Checkboxes and radios: the checked box is the browser's, the unchecked one
+sits on its surface.** A checked or indeterminate native box keeps the
+browser's own fill and tick on purpose: it reads as a form control. An
+unchecked one is drawn, in `global.css`'s base layer, with no fill and a 1px
+`--ui-hairline-strong` edge (`--ui-ink-secondary` on hover), at the native
+box's 13px and 2px corner (a radio round), so ticking moves nothing; disabled,
+it fades to 0.4. Only the edge fades, on `--dur-fast`. Why: the browser's white
+unchecked box stood out from every ground, and the browser's blue fill makes a
+ticked one look like a form (the owner's choice). So no checkbox or radio carries
+an `accent-*` class: every ticked box is the browser's blue.
+
+Every checkbox and radio but the code-style and remint radio cards is
+`@shared/ui`'s `Checkbox` or `RadioGroup` with `box="native"`, which draws this
+box (by default the parts draw pulse's own). Its label is body ink — a consent
+statement too, which reads more easily than the secondary ink did — at
+`text-ui-sm`, or `text-ui-base` where the row is a form's own line (the
+checklist starter, the gift list's visibility and "Let guests give money"),
+8px from the box, at prose leading; a label that wraps takes `align="start"`,
+the box on its first line. Radios sit 16px apart in a row, so each reads with
+its own word, and 8px apart in a column (the owner's choice). A line under a
+box that says what ticking does is the box's `description`, inside the label
+in the secondary ink; a line about the box that holds a link — the notice an
+attestation asks the organiser to pass on — is its `note`, outside the label,
+indented to the label's words, and it describes the box. A radio group is
+named by the label over it (`aria-labelledby`) or by `aria-label`.
+`tests/styles/checkboxes.browser.test.tsx` holds the unchecked look, the
+checked box's `appearance: auto`, the same size both ways and a tick that
+moves nothing, in light and dark, and that the part draws exactly what the
+rule draws on a bare input, and its label, description and note at 4.5:1 on
+the page and a card; `tests/styles/checkbox-accent.test.ts` reads every
+native box in `src/` and fails on an `accent-*` class, and every part in the
+four cire apps and fails on one without `box="native"`.
+
+`soft-shapes.browser.test.tsx` renders the RSVP page, the budget, the registry,
+the co-host form, the vendor directory and the seating chart in Chromium at 390
+and 1280px, and measures the computed shapes: the search box, and on a phone the
+sort select, 28px with round ends; the directory's three filters and the
+seating chart's Event select 28px pills, with Clear filters, Print and Download
+seating CSV 28px; every filter 28px again under a font with a 2em line, so no
+filter's height comes from the platform's font;
+the reply editor's status select 34px, and it and the textarea at 14px and
+short of a pill; the editor, nested in the list's frame, at 6px; "Save reply" a
+pill; the budget's total, add form, money cell, payment fields and price per
+head, the registry's add form, inline editor and shop link, and the co-host
+handle 34px at 14px, short of a pill; and Add item, Add payment, the total's
+Save and Cancel, Find pictures and Add host 34px.
+
+**One pill language**, the owner's choice. Every pill in the two portals is
+drawn from one set of looks, so a bar of strips, filters and actions reads as
+one row:
+
+- **Heights.** 28px for a bar's pills — a strip, a filter, `Button`'s `sm`
+  (`--pill-sm-height`) and an icon button (`icon`); 34px beside a form field
+  (`Button`'s `form`); 36px in the top bar; 38px for a free-standing `md`
+  action. A call site writes no height class on a `Button`.
+- **Ground.** Every pill but the filled `primary` sits on the glass track's
+  ground, the surface at 30% (`--pill-ground`): `cta`, `outline`, `quiet`,
+  `bar`, `quietDanger`, `dashed`, `danger`, `choice`, `glass`, `FileInput`'s
+  button and the account trigger. The guest site and the marketing site set no
+  ground, so an invite's outlined pills stay clear.
+- **One of several** is glass: a strip's choice, or `Button`'s `glass` for a
+  loose pill (a scheme preset, the preview's Desktop and Phone, a crop's
+  shape), its chosen word at medium weight and the rest at normal, as a
+  strip's are. A swatch whose own fill is what is chosen — a section's tone, a
+  registry picture — keeps `choice`'s gold edge and ring, which the glass
+  would hide.
+- **A bar's icon button** is `bar` at `icon`: a 28px circle on the ground in
+  a hairline. Under the pointer the ground lifts to the surface at 60% and
+  the ink turns the body ink, with a gold edge; while what it opens is open it
+  stands on the raised surface in the body ink and its hairline, whatever the
+  pointer does (the owner's choice). It is an icon button that
+  stands alone in a page's chrome — the reply key, the guest list's and the
+  RSVP page's Downloads, Add household on a narrow panel and the
+  getting-started guide's Dismiss. A row's icon action, repeated once per
+  row — a household's four actions and its "⋯" — is `quiet` at `icon`: the
+  same circle, its hover a gold edge and readable gold, held while what it
+  opens is open. `round` stays the guest sheet's ×. A dialog's or a drawer's
+  own × — the event drawer's Close, the module drawer's Close modules —
+  stays `bare`: it belongs to the frame it closes, not to a bar of the page's pills, and a
+  hairline circle in a panel's head would read as one more of its actions.
+- **A block pressed to choose** — the code-style and re-mint radio cards
+  (14px), a design card (16px) — is marked as `choice` marks an answer, at
+  its own corner: a gold edge and a 2px ring at 60%, no wash; under the
+  pointer an unchosen one goes halfway (`src/lib/chosen-block.ts`). A row —
+  the module rail, a menu — keeps its 10% gold wash.
+- **A secondary action** is `outline`: the top bar's Preview invite and the
+  builder's Preview, the same job, and Security's "Manage on musubi". `cta`
+  is the guest site's call to action, not a portal's.
+- **The top bar's ⌘K** is a 36px `bar` pill — the pill ground and hairline
+  at rest, the bar's lift under the pointer — with a 16px magnifier and the
+  shortcut, 12px in from each end; on a narrow bar the magnifier alone in a
+  36px circle, so it reads as the search it opens, between the Preview pill
+  and the account circle.
+- **The empty slot** in the wedding list is `dashed` drawn as a tile: the
+  14px field corner, in the grid's next cell at a wedding tile's size (every
+  row the tallest tile's height), a plus over "Create a wedding" in the
+  secondary ink, readable gold with the edge under the pointer.
+
+`@cire/ui`'s `tests/portal-pills.browser.test.tsx` measures each with the
+portals' tokens and without them.
 
 **Depth.** `--inner-lip` is a single inner highlight along the top edge of a
 raised surface. It is the one trick that makes a flat card read as a lit object
 rather than a rectangle. `--elev-1` and `--elev-2` are the two drop shadows.
+`--elev-2` is what floats over the page, and it carries the inner lip with its
+shadow (`var(--inner-lip), 0 12px 32px -8px …`), so **every floating panel is
+one depth**: the raised surface, lit by the lip, on the floating shadow, at the
+10px corner (the owner's choice). That is every
+popover the portal draws on Kobalte directly (the date and colour pickers, the
+module card, the droplet popovers, the reply key's panel), every portal menu (the shared menu's accent
+look reads `--elev-2`), the co-host suggestion list and a row lifted by a
+drag;
+the command palette takes the same raised surface and depth at its 16px modal
+corner. A tooltip — `ActionTip`'s panel and the rail's tips — keeps
+`shadow-md`, the shadow `@shared/ui`'s `Tooltip` paints, so a tooltip here
+matches the shared one beside it. A pill stays flat but for the glass's own
+lift. Nothing else writes Tailwind's other shadow steps.
 
 **Motion.** Three durations and three easings, and **no animation library in
 this package by design**.
 
 ```css
---dur-fast: calc(120ms * var(--motion-scale));   /* a hover, a press */
---dur-base: calc(200ms * var(--motion-scale));   /* a panel swap, a pill slide */
---dur-slow: calc(320ms * var(--motion-scale));   /* a sheet, a modal */
---ease-out:    cubic-bezier(0.22, 1, 0.36, 1);   /* something arriving */
---ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);   /* something moving between two places */
+--dur-fast: calc(120ms * var(--motion-scale)); /* a hover, a press */
+--dur-base: calc(200ms * var(--motion-scale)); /* a panel swap, a pill slide */
+--dur-slow: calc(320ms * var(--motion-scale)); /* a sheet, a modal */
+--ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* something arriving */
+--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* something moving between two places */
 --ease-spring: linear(0, 0.055, …, 1.083, …, 1); /* something landing with a little give */
 ```
 
@@ -209,12 +551,39 @@ should not bounce.
 or a trackpad, at a desk — an organiser waits on every popover and panel before
 the next click, so `@media (pointer: fine)` shortens the ladder to 90 / 150 /
 200ms. On touch the ladder above stays: a phone is held, not worked at. The
-query reads the *primary* pointer, so a touch laptop driven by its trackpad
+query reads the _primary_ pointer, so a touch laptop driven by its trackpad
 gets the desk pace. `Modal` (`@shared/ui`) takes its two durations from the same
 ladder through `--ui-modal-enter` and `--ui-modal-exit`, set under the same
 query. A new motion reaches for a `--dur-*` token, never a literal or
 Tailwind's bare 150ms `transition`, so it follows the input with everything
-else.
+else. The one kind written as its own duration is a pulse far longer than
+`--dur-slow`, and there are two: the attention glow,
+`calc(2.6s * var(--motion-scale))`, and the loaders' pulse, which `Loading`
+and `Skeleton` share (`@cire/ui`'s `lib/pulse.ts`): Tailwind's `pulse`
+keyframes over `calc(2s * var(--motion-scale))` on `--ease-in-out`.
+
+**One motion rule: choosing on base, hovering on fast** (the owner's
+choice). A choice being made — a strip's choice, a reply
+filter's — moves its colours on `--dur-base` with `--ease-in-out`, the glass's
+own step; a hover comes and goes on `--dur-fast` with `--ease-out`, halfway
+hovers included. A browser takes a transition from the state an element moves
+to, so the choice giving the mark up runs on the rest state's clock, the fast
+one: no marker is kept on the old choice for it. So the owner's "a chosen or
+unchosen change runs on base" holds only for the choice arriving; whether the
+one leaving should hold the base clock too is the owner's call (#1959). The
+glass still slides on the spring.
+
+**One ladder in all four cire apps.** The vendor portal, the guest site and the
+marketing site carry this ladder, its `pointer: fine` block and the two easings
+`--ease-out` and `--ease-in-out`; `cire/vendor`'s `tests/styles/tokens.test.ts`
+fails if any copy differs. The spring is the two portals' alone, because only
+their animations read it — the glass strips slide on it in both, the droplet
+in host: the guest site and the marketing site declare neither the token nor
+the `@supports` block, and the test fails if one gains a copy. The vendor portal
+renders no `Modal`, so it alone
+sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
+own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
+scroll reveal, a hero fade.
 
 Every duration is scaled by `--motion-scale`, so a reference behaviour can be
 slowed to 0.1× and judged frame by frame. Nothing in the app itself writes it.
@@ -224,19 +593,23 @@ per-component branch. It sets `transition-duration` and `animation-duration` wit
 `!important`, which beats an inline style — so a hook that writes a duration
 inline still stops, and no hook needs a `matchMedia` check of its own.
 
-Two hooks carry the design law of §1, both in `src/lib/`:
+Two hooks carry the design law of §1, both from `@cire/ui` and shared with the
+vendor portal:
 
-- **`createAutoSize`** — animates a frame between its own heights, then hands the
+- **`createAutoSize`** (`@cire/ui/lib/auto-size`) — animates a frame between its own heights, then hands the
   height back to the content. It holds **nothing at rest**: no pixel height
   survives the transition, so a resized window, a changed font size or a late
   image never fights a stale number. The measured wrapper is a `flow-root`, so a
   child's top margin cannot escape it and change the answer depending on whether
   the frame was clipped at the time.
-- **`createSlidingPill`** — moves one highlight between tabs instead of
-  cross-fading one highlight per tab. That is what makes a strip read as a single
-  control rather than a row of them. The pill's row must be `relative`: an
-  absolutely positioned element paints above non-positioned siblings in the same
-  stacking context, and without it the underlay covers its own labels.
+- **`createSlidingPill`** (`@cire/ui/sliding-pill`, shared with the vendor
+  portal) — moves one highlight between tabs instead of cross-fading one
+  highlight per tab. That is what makes a strip read as a single control rather
+  than a row of them. `SegmentedTabs` (§7) moves its glass with it on
+  `--ease-spring`; the module rail's marker keeps `--ease-out`. The pill's row
+  must be `relative`: an absolutely positioned element paints above
+  non-positioned siblings in the same stacking context, and without it the
+  underlay covers its own labels.
 
 The sheet variant of the module nav deliberately gets no pill. A pill measures a
 strip the eye can see all of at once, and a sheet is a list.
@@ -244,8 +617,9 @@ strip the eye can see all of at once, and a sheet is a list.
 **The droplet.** A checklist row's popovers — the assign popover and the
 time editor — grow out of the control that opened them (`droplet-popover`,
 `droplet-popover-body`): a small round drop at the trigger springs out to the
-panel (`droplet-grow`, `--ease-spring`) while its corners square off
-(`droplet-round`, `--ease-out`), and the contents fade in once there is room.
+panel (`droplet-grow`, `--ease-spring`) while its corners settle from round to
+the popover's 10px (`droplet-round`, `--ease-out`), and the contents fade in
+once there is room.
 `transform-origin` is Kobalte's `--kb-popover-content-transform-origin`, the
 panel's corner at the trigger whichever side it opened on. The fade is timed by
 keyframe percentage, never by `animation-delay`: the reduced-motion switch zeroes
@@ -256,25 +630,31 @@ trigger, and the filter would blur its border and shadow. The exit is a quick
 shrink and fade, as keyframes, because Kobalte keeps a closing popover mounted
 until its animation ends.
 
-**Every other menu and picker pops.** The profile menu, the wedding switcher,
-the date and colour pickers, the seat menu and the module card carry
-`menu-pop`: a short scale-and-fade from the side of the trigger they opened on
-(`--kb-popper-content-transform-origin`, which Kobalte sets for popovers and
-menus alike), with no overshoot. It has no exit: these menus are worked from
-the keyboard, and a closing menu held mounted for an exit animation keeps
-focus inside it, so Kobalte's hand-back to the trigger falls to `<body>`. A new
-Kobalte popover or menu takes `menu-pop` unless it belongs to a checklist row.
+**Every other menu and picker pops.** Every portal menu — the account menu,
+the wedding switcher, the seat menu, the household menu, the invite builder's
+phone menu — is the shared `DropdownMenu` on its accent look, whose panel pops
+at this file's `--dur-fast` and `--ease-out`; the date and colour pickers,
+the module card and the reply key's panel carry `menu-pop`, the same short scale-and-fade from the side
+of the trigger they opened on (`--kb-popper-content-transform-origin`, which
+Kobalte sets for popovers and menus alike), with no overshoot. Neither has an
+exit: these menus are worked from the keyboard, and a closing menu held mounted
+for an exit animation keeps focus inside it, so Kobalte's hand-back to the
+trigger falls to `<body>`. A new menu is the shared `DropdownMenu` on its accent
+look; a new Kobalte popover takes `menu-pop` unless it belongs to a checklist
+row.
 
 **A disclosure fades open and closes at once.** A `<details>` body drops 4px and
 fades in on `::details-content`; it closes instantly, because a fading body
 leaves its controls focusable in a box that is going away. The fade sits inside
 `prefers-reduced-motion: no-preference`: the global switch selects `*`, which
-reaches no pseudo-element.
+reaches no pseudo-element. `Disclosure` (§7) carries it as a transition declared
+only on the open state, so closing has none to run and a disclosure that is
+open when it first paints does not fade. Every `<details>` in the portal is
+`Disclosure`, so the stylesheet keeps no fade of its own.
 
 **A toggled box that is not in the top layer fades out in CSS alone.**
 `transition-behavior: allow-discrete` holds `display` until an opacity fade has
-run, and `@starting-style` gives the opening its from-state — the invite
-builder's section menu (`section-menu`) is the pattern. A dialog or popover in
+run, and `@starting-style` gives the opening its from-state. A dialog or popover in
 the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 `overlay`, which is Chrome only, so `Modal` defers `close()` in script instead.
 
@@ -282,7 +662,11 @@ the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 never animated, never removed — the shell is keyboard-driven. It deliberately
 sets no `border-radius`: the outline already follows whatever radius the element
 has, and setting one would square off pill-shaped controls for as long as they
-hold focus.
+hold focus. A colour hover on anything that takes focus takes
+`transition-ui-colors`, which names `color`, `background-color`, `border-color`
+and `text-decoration-color` and is defined in each cire app's stylesheet, never
+`transition-colors`: that one also fades `outline-color`, so the ring would
+arrive over the hover's duration.
 
 ---
 
@@ -290,13 +674,13 @@ hold focus.
 
 The portal has two jobs to do with width, and they want different tools.
 
-**Container queries** decide *shape* — rail or sheet, one column or two, agenda
+**Container queries** decide _shape_ — rail or sheet, one column or two, agenda
 above the stats or beside them. Named containers: `@container/frame`, `/page`,
 `/shell`, `/panel`, `/builder`, `/card`, `/enquiries`, `/run-sheet`. There are **no viewport
 media queries in the shell**. Each surface measures the box it was actually
 given, so a 600px-wide panel behaves like a phone even on a 2560px monitor.
 
-**Intrinsic values** decide *scale*, through two utilities:
+**Intrinsic values** decide _scale_, through two utilities:
 
 - `page-frame` — the page's own width. Gutters grow with the frame's inline size;
   the measure runs to `--page-max` (default 100rem). The top bar and everything
@@ -347,7 +731,8 @@ Each choice, and what it was weighed against:
   active one is `--gold-ink`, since `--gold` has no contrast contract (§2) and
   falls short of 3:1 on the pill's wash in the light theme. A locked icon stays
   in `--text-faint`, which clears 3:1 at full strength and still reads dimmer
-  than an idle one.
+  than an idle one; a locked row's name, a word on a control that opens the
+  module's offer, is `--text-muted` at 4.5:1.
 - **Every row keeps its place.** A collapsed label stays in the row's flow at
   no width, with the gap before it gone. `sr-only` would take the label's line
   box, which is taller than the icon, out of the row, and every row below would
@@ -374,7 +759,7 @@ Each choice, and what it was weighed against:
 - **Labels move into a tooltip.** On the collapsed rail a row shows a Kobalte
   tooltip 8px to the right of the rail: the label, then the module's hint in
   `--text-muted`, or for a locked row "Included with <Tier>" in `--gold-ink`.
-  It is `--surface-raised` with a `--border` hairline, radius `sm`,
+  It is `--surface-raised` with a `--border` hairline, radius `md`,
   `shadow-md`, and `z-50`: Kobalte copies the content's `z-index` onto the
   element it positions, and without one the tooltip paints under the top bar.
   It opens after 300ms of hover, so a pointer crossing the rail opens nothing,
@@ -406,7 +791,8 @@ Each choice, and what it was weighed against:
   Over a 300-guest RSVP table, the slide each way takes 24–25 frames, the
   longest 9.4–21.9ms and the median 8.3ms.
 
-  *Measured 2026-10-28 — `VITE_RAIL_SLIDE_BENCH=1 bunx --bun vitest run --project browser tests/components/ModuleSidebar.collapse.browser.test.tsx -t "frame by frame" --reporter=verbose` in `cire/host`, headless Chromium on a 120Hz Mac, two runs*
+  _Measured 2026-10-28 — `VITE_RAIL_SLIDE_BENCH=1 bunx --bun vitest run --project browser tests/components/ModuleSidebar.collapse.browser.test.tsx -t "frame by frame" --reporter=verbose` in `cire/host`, headless Chromium on a 120Hz Mac, two runs_
+
 - **Remembered per browser.** `localStorage` key `cire.host.rail`, value
   `collapsed` (`src/lib/rail-preference.ts`); expanding removes the key. It is
   read as the sidebar is created, so a collapsed page paints collapsed and never
@@ -432,17 +818,21 @@ sticking below the real top bar.
 
 ## 6. Theme preference
 
-Three states, not two: `system`, `dark`, `light` (`src/lib/theme.ts`).
+Three states, not two: `system`, `dark`, `light` (`@cire/ui/lib/theme`'s
+`createPreferences`, made once under this portal's keys in
+`src/lib/preferences.ts`).
 
 Collapsing "system" into "dark" would silently convert a host who follows their
 OS into a host pinned to dark, the moment they opened the menu to look at it.
 
-`src/lib/theme-boot.ts` holds a zero-import boot script, inlined in `<head>`
-before the stylesheet on every page. It has to run before first paint — a host
+`src/lib/preference-keys.ts` holds the storage keys and the boot script
+(`@cire/ui/lib/theme-boot`'s `themeBootScript`, over `cire.host.theme`),
+inlined in `<head>` before the stylesheet on every page. It has to run before first paint — a host
 who chose light and gets one frame of dark has been flashbanged in the other
 direction, which is the whole thing the light ramp was tuned to avoid. It is its
-own module with no imports so that `.astro` frontmatter can import it without
-dragging SolidJS and a module-scope signal graph into Astro's server bundle.
+own module, importing only the import-free `theme-boot`, so that `.astro`
+frontmatter can import it without dragging SolidJS and a module-scope signal
+graph into Astro's server bundle.
 
 Every failure in it resolves to a theme rather than an exception: `localStorage`
 throws outright in some private-browsing modes, and a browser with no `matchMedia`
@@ -452,30 +842,127 @@ is given the house dark.
 
 ## 7. Components
 
-The parts every module is built from come from `@shared/ui`
-(`shared/ui/src/ui/`), with `Button` and `Card` from `@cire/ui`. They are
-class-mapping components: they own a look and its variants, and almost no
-behaviour. A part that grows real behaviour takes its own file with it.
+The parts every module is built from come from two packages: `@shared/ui`
+(`shared/ui/src/ui/`) and, for `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInCard`, `SignInPanel`, `Skeleton` and `Wordmark`, `@cire/ui`
+(`cire/ui/src/`).
+This package holds no copy of either. They are class-mapping components: they
+own a look and its variants, and almost no behaviour. A part that grows real
+behaviour takes its own file with it.
 
-There is no `clsx`, no `tailwind-merge` and no `cva` in this package. Classes are
-plain template literals, because Tailwind's scanner reads source as text and a
-class that is computed at runtime emits no CSS at all — silently. Composition is
-by variant map, and the caller's own `class` is appended last.
+There is no `clsx`, no `tailwind-merge` and no `cva` in this package or in
+`@cire/ui`. Classes are plain template literals, because Tailwind's scanner reads
+source as text and a class that is computed at runtime emits no CSS at all —
+silently. Composition is by variant map, and the caller's own `class` is
+appended last. A part's own classes are `base:`-prefixed, which gives them no
+specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-*`
+— wins over the part's.
 
-| Part | What it is |
-| --- | --- |
-| `Button` | Four variants — `primary`, `outline`, `quiet`, `danger` — and three sizes, `sm`, `md`, `icon`. `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so. |
-| `Card`, `cardClass`, `CardEyebrow`, `CardCta` | The raised surface, plus its two furnishings. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. |
-| `Notice` | Four tones. Error, warn and success each carry a distinct glyph plus an `sr-only` word; `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
-| `EmptyState` | A title, an optional line of prose, and the one thing to do about it. |
-| `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
-| `Stat` | A figure, then what it is, then an optional hint. |
-| `Table`, `Th`, `Td` | Every table in the portal as one set of parts. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy. |
+| Part                                                            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button`, `buttonClass`, `proseLinkClass`                       | Nineteen variants in four groups. **Boxed actions**, ten: `primary` (filled — the commit, gold: `--ui-accent` with `--on-gold`), `cta` (outlined, filled on hover — the guest site's call to action), `outline` (a gold word in a 40% gold edge; under the pointer the edge turns full gold and nothing fills, so the word keeps its 4.5:1 on the page and every card — `@cire/ui` `tests/outline.browser.test.tsx`), `quiet` (a hairline and the secondary ink; it holds its hover look while what it opens is open, `aria-expanded`; at `icon`, a row's icon action), `bar` (the portals' bar icon button and the top bar's ⌘K: `quiet`'s rest; under the pointer the ground lifts to the surface at 60%, the body ink and a gold edge; open, `aria-expanded`, the raised surface in the body ink and its hairline, which the pointer does not move; hover and open on `--dur-fast` with `ease-out`, the outline never transitioned; §4 One pill language), `quietDanger` (red only on hover), `choice` (one of several, marked by `aria-pressed` or `aria-checked` with an accent edge, accent ink and a 2px 60% accent ring, so the mark is more than colour; under the pointer an unchosen one goes halfway, its edge and ink a mix of rest and chosen and a 1px 30% ring, so chosen and hovered differ by the ring's width and not by gold alone; its hover moves on `--dur-fast` and its choosing on `--dur-base`, §4 One motion rule; locked with `aria-disabled` it keeps its look and stops answering the pointer, while `disabled` still fades it; the guest site's one of several, and a swatch's in the portals — a section's tone, a registry picture — whose own fill is what is chosen), `glass` (the portals' one of several: the glass track's look at rest, a strip choice's halfway hover, chosen the strip's glass in readable gold at medium weight, the rest at normal weight with each word's width held at medium (`GLASS_WORD`, the strip's own) — the cue that is not colour, as a strip's; on `choice`'s two clocks; `lib/glass.ts`'s `GLASS_CHOICE`), `dashed` (an empty slot), `danger` (the confirm that destroys). **The ground:** every boxed pill but `primary` sits on `--pill-ground`, the glass track's ground (§4, One pill language). **Blocks**, two: `tile` (the whole block is the control) and `field` (a trigger shaped like the field it stands in for). **Sheet chrome**, two: `chip`, and `round`, a glyph on the opaque surface disc with no edge, muted ink brightening on hover, at 28px (`sm`), 32px (`md`, `icon`) or 44px (`lg`, its × on the `lg` text step). **Borderless**, five: `link`, `subtle`, `touchLink`, `bare`, `bareDanger`. Six sizes: `sm` (28px here, `--pill-sm-height`), `md` (38px), `lg`, `form` (34px, beside a form field, md's type), `swatch` (a frame round a picture) and `icon` (a 28px circle on a boxed variant, at least 24px square on a borderless one). **Corners:** the actions take `rounded-ui-control`, a pill; `tile`, `field` and the `swatch` size take `rounded-ui-field`, 14px; `chip` and `round` take the `pill` step, so they stay round side by side whatever `control` is. The borderless five take `control` as well, which only their focus ring shows. **Labels** show as written — sentence case, normal tracking, `font-medium` on a boxed size (below). `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so; `aria-disabled` swallows the click as well as announcing it. `buttonClass` gives an `<a>` or a Kobalte trigger the same classes. A `tile` that holds a sentence or a name rather than a label — a getting-started step, a wedding in the wedding list — adds `whitespace-normal`, and `justify-start` where it is a row, since the base holds a label to one centred line. **A link inside a sentence** is not a `Button`: `proseLinkClass({ tone })` gives its `<a>` an underline at rest at 2px, no type size or weight of its own (the sentence's), wrapping with the words round it, `Button`'s focus ring, and one of two inks — `accent`, readable gold, the default and the tone inside a tinted `Notice` too; `muted`, the secondary ink, brightening to the body ink on hover. A link that stands alone is a pill, not this (`wiki/shared/component-library.md` §cire's `Button`): in the portal it is `LinkPill` (`src/components/LinkPill.tsx`), `outline` at `sm`, 28px, the pill height of the actions and filters beside it. A destination a host knows by its mark — a vendor's Website and Instagram, an event's Maps and Pinterest — leads with that mark at 14px; in a row narrower than 14rem (`LINK_PILL_ROW`, a container query) its word becomes hidden text and the pill a 28px circle, so the name stays whole, and the word is the pill's `title`, so the circle names itself under the pointer too. "Link" and "Preview live" keep their words at every width. Every portal pill leads away from the portal — a vendor's site, a map, a shop, the live invite — so it opens a new tab and says so in hidden text, "(opens in a new tab)"; an address that is not `http:` or `https:` draws no pill at all. Hidden words after a visible word name what it leads to ("Link to the shop page for Napkins", "Maps for Reception"), so the name starts with the word on the pill and a page with several of one word tells them apart. The portal draws no `round`: its bar's icon buttons are `bar` at `icon` (§4, One pill language), the reply key among them (§A badge that explains itself). |
+| `Card`, `cardClass`, `cardBoxClass`, `CardCta`, `CardCtaButton` | The raised surface at the 16px card corner, plus its furnishings: the "go to the module" line at the foot, and that line as a button for a card that is not itself the control. A card's label is `Eyebrow`. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. `cardBoxClass` is the box alone — corner, border and fill, no padding or layout — for a part that pads its own pieces, as `Disclosure` does; its `nested` option takes the 6px step. Three options, each defaulting to the card every module drew before the others existed (`md`, `wash`, `default`): **`padding`** `sm` 16px (a filter bar, a small card in a list), `md` 20px, `lg` 24px (a panel that holds a whole form), `xl` 32px (the sign-in card); **`fill`** `wash` (the surface at 30%, so a grid of cards reads as one layer), `well` (the sunk surface, for a box holding something already on the page — on the guest and marketing sites the sunk surface is the page ground, so there a well shows its border alone), `opaque` (the surface, for a card nothing behind may show through) and `none` (for a card set on something that already has a ground); **`tone`**, the border alone: `default` the hairline, `accent` the gold rule, `danger` the red one, for the card that holds an action nobody can undo. The steps are `@shared/ui` `Card`'s plus `xl`, and its `muted` is the `well` here. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. It is `cardClass`'s alone, since `Card` is a `<div>`, and it goes only with the wash fill and a tone other than `danger`: the hover lifts the wash and turns the border gold, which no other fill has a step for, and a danger card holds a control rather than being one. The type refuses the rest, whether `interactive` is written `true` or passed as a `boolean`. **Every bordered, padded block on the page draws its box from these**, at a step: the full-width panels (settings, the gift-list settings, the code style, a new wedding, the invite builder) `lg`; the filter bars and add forms (`FIELD_BAR_CLASS` in `src/lib/form-field.ts`), the small cards in a list and the event rows `sm`; the import's diff preview `sm` on the `well`; a row with no ground of its own (a deleted wedding, a design to choose) `sm` on `none`; the getting-started guide `lg` with the `accent` tone; the danger zone the `danger` tone on `none`; the sign-in card `xl` on `opaque`. A state that recolours a card keeps its own plain class beside the card's — a design that is chosen, a co-host who owns the wedding, an event row in error or being dragged, a table a guest is dragged over — and wins over the card's `base:` default. One card is drawn by hand: the guest editor's household card, whose stuck head sits flush with its top edge, which no padding step leaves.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `Disclosure`                                                    | A native `<details>`: a summary row, a marker that turns as it opens, and the opening fade (§4). Two tones. **`card`**, the default: `cardBoxClass({ fill: "well" })` — Card's border, the 16px corner and the sunk fill — with the padding on the summary row (`px-4 py-3`, so the whole row is the click target) and the body (`px-4 pb-4`), not on the box; `nested` gives the 6px step for one set inside another box. Its summary is the body face at the `base` step, and its marker a leading `›` that turns 90°. **`rule`**: a hairline under the row, no fill and no corner, the summary in the display face at the `lg` step with `leading-ui-tight`, and a trailing `+` that turns 45° into ×; the body is `pb-5`. The owner chose the fill, both markers and their ink (englishstreetventures/osn#1834): the marker is `--ui-accent-ink` in both, `aria-hidden`, at the summary's own size, and turns on `--dur-fast` with the house easing, keyed to its own `<details>` (`details[open] > summary > marker`) so a closed disclosure inside an open one stays closed. The summary has no hover colour and no corner of its own; its focus ring is the square one. The body is a column with Card's 12px gap. `open` sets whether it starts open; `onToggle` reports every new state, a script's change and the mount included, so a count of whether the reader touched it listens to `onSummaryClick`. A caller's `class` places it and does not restyle it; a treatment one app owns, such as `attention-glow`, goes on a wrapper. An Astro page renders it to static HTML.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `Eyebrow`, `eyebrowClass`                                       | The small-caps label that leads a section, a card or a group of fields: one size (`xs`), one letter-spacing (`widest`, 0.16em) and two tones — `accent` in readable gold (`--ui-accent-ink`), the default, and `muted` in the secondary ink. The owner chose the spacing and both inks (englishstreetventures/osn#1833). It sets no weight, so on a guest's invite it follows the couple's body weight. `as` renders it as `p` (the default), `span`, `h2`, `h3`, `legend` or `dt`; `eyebrowClass` gives the same classes to anything else. A table head is not an eyebrow — it is `Th` — and the invite preview, which re-declares the couple's palette on a wrapper below the root, draws its own. Every label that leads a section, a card, a fieldset or a group of fields in the portal is `Eyebrow`, and an `.astro` page's (the sign-in page) is `eyebrowClass`. A quiet label — a budget figure's, a checklist bucket's, a command palette group's — takes `muted`, and so does a group's head inside a module: the run sheet's day (`as="h3"`) and each seating group, "Not seated" and every table (the owner's choice; a table's name a host typed shows in its small caps). A heading over a section is the display face light, `SectionIntro`'s, Security's included.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `FileInput`                                                     | A native file input whose button is `Button`'s `quiet` pill at `form`, the 34px form-field height, on the portals' pill ground (`FILE_BUTTON`, held to `quiet` and `form` by a test), the file name beside it in body ink at the small step, the house focus outline on the input and the whole picker at 40% when disabled. A picker with no visible label takes an `aria-label`. Its button's word is the browser's own ("Choose File" in Chromium). The portal's four pickers are `FileInput`: the guest-list spreadsheet, invite pictures (named by `aria-label`, its row's Crop, Phone crop and Remove at 34px), gift pictures and event pictures.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `Loading`                                                       | "This is on its way": one pulsing small-caps line with `role="status"`, for a list or a page still fetching. A lazy panel's fallback is `PanelLoading` instead, which holds the panel's height and does not pulse.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `Skeleton`                                                      | A loading placeholder: one `aria-hidden` block with no role and no words, pulsing with `Loading`. `standsFor` picks the corner and the fill (§4, Skeletons): `card`, the default, `row`, `field` or `pill`; the caller's `class` carries the height, the width and the place, and no other prop reaches it. The region that holds the placeholders and the content that replaces them carries `aria-busy` while it loads, never one that holds a heading, a form, a live region or a control, and is hidden when a failed read leaves it empty (`empty:hidden`), so it adds no gap. In the RSVP view bar, a divider stands before the event strip's placeholder, where the loaded strip's does. |
+| `MessageThread`                                                 | An enquiry thread, the same in both portals: the messages oldest first in segments, each opened by a centred time line, and the reply box under them (§An enquiry thread). Your words on a 20% gold wash, theirs on half the surface inside a hairline, both at the 16px corner, `px-4 py-2.5`, the base step in full ink, 3/4 of the column wide. |
+| `Note`                                                          | Cire's standing note: `Notice`'s `accent` tone led by a ✦, drawn as `Notice`'s circled icons are (inline, `aria-hidden`, in the tone's readable gold, sized from the text step) with "Note" read in its place; `sm` unless a size is asked for. **Placed only where the owner asks for one** (englishstreetventures/osn#1868: "I'll let you know when to use a cire note"); a standing note anywhere else is `Notice`'s unmarked `accent`. Not on the marketing site, whose readable gold is its metal gold, not inside the invite preview, which re-declares the couple's palette below the root, and not on `--bg-deep`, where its words read 4.35:1 in light; `tests/styles/notice-contrast.browser.test.tsx` holds it and every `Notice` tone at 4.5:1 on the page, the card's three fills, the raised surface and the run sheet's coming-up row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `SegmentedTabs`, `GLASS_FILL`                                   | Every segmented control in the portals: one 28px glass track (`h-7`, the surface at 30% inside a 1px hairline, 2px padding) holding 22px choices, and one frosted highlight — the raised surface at 55% under the accent at 14%, a lit inner edge (`--glass-edge`, white 10% dark and 70% light), `--inner-lip` and `--elev-1` — that slides to the chosen one on `--dur-base` and `--ease-spring` (`createSlidingPill`), and jumps for a reader who turned motion down. Labels in sentence case at normal tracking, `text-ui-xs`, idle in the secondary ink, chosen in the readable gold at medium weight (the cue that is not colour, the owner's choice on #1845); under the pointer an unchosen one goes halfway. A hover's colours move on `--dur-fast` with `--ease-out`, a choice being made on `--dur-base` with `--ease-in-out` (§4, One motion rule). A choice may lead with its icon, carry a count or a "New" after its word, and go icon-only below its call site's width, its label then its name and its `data-tip` — the whole strip, or one choice beside others that keep their words. Three meanings: `tabs` (a tablist, manual activation: the arrows, Home and End move focus and Enter or Space chooses), `radio` (a radiogroup with one tab stop, the checked radio, whose arrows move and choose, wrapping, and whose choice the call site may refuse) and `current` (buttons, `aria-current="page"`). `scroll` lets a strip scroll sideways inside 4px of room for the ring, revealing a choice without moving the page. Where the portal draws it: a module's views (`ModuleShell`), the Edit modes (`EditWorkspace`), the RSVP page's events (`RsvpView`, `scroll`) and its reply filter (`radio`, `scroll`, §Chips), the invite builder's sections under Content, and the vendor portal's two views. `GLASS_FILL` (`@cire/ui/lib/glass`) is the glass without its place, for a lone glass pill: the invite builder's place on a phone. |
+| `Wordmark`, `WordmarkPlaceholder`                               | The top bar's way home, "✦ Cire": a button named by its label alone ("Cire — all weddings"), the ✦ in readable gold at rest and under the pointer, "Cire" in the display face at `md`, light, wide tracking, in a 6px box that takes the surface at 60% under the pointer. `Button`'s own ring; the box pulls 4px left and none right, so the ring clears the divider by 4px. Only the wash fades, on `--dur-fast`. `WordmarkPlaceholder` is the same box and glyphs with nothing to press, which `index.astro`'s boot bar renders to HTML, so the island's swap moves nothing. |
+| `SignInCard`, `SignInPanel`, `signInCardClass`                 | The login page, the same on both portals but for the portal's name: "Cire · Host portal" over a roman "Sign in", and the opaque `xl` card with its top edge lit by `--inner-lip`, at a 30rem measure set at the top of the page so the header never moves while the island fills the card. The panel: copy at the small step, one large pill, a danger `Notice` for a declined, failed or unavailable sign-in; after the press "Connecting to musubi…" at full strength, a second press ignored and announced, and the button back after a back-forward restore or ten seconds. It resumes on `?returnTo` only when it is a same-origin path. The card, the measure, the type, the label and the pending state are the owner's choices. |
+| `PersonAvatar`, `avatarTriggerClass`                           | A person's photo, drawn only from an https URL with no `Referer`, with a page-wide set of URLs that failed. `blank`, a face in a stack or a list: the empty avatar (§Who holds a task), with `ring` for the stack's 2px band in the page's colour outside the circle. `initial`, an account's circle: a hairline with no fill of its own, photo or letter, the letter as §3 sets it. `avatarTriggerClass` is the 36px button the account menu opens from: the portals' pill ground (`--pill-ground`) and `Button`'s ring; the avatar's edge turns `--gold-dim` under its pointer. The fill is the trigger's because the guest site's account card lays no ground under a gold word. |
+| `Chip`                                                          | A state in a pill, in one of five tones — `neutral`, `success`, `pending`, `accent`, `danger`. Two variants: **`filled`**, a light tint (8% of the tone, 10% for `danger`, the surface at 60% for `neutral`) so a word clears 4.5:1 on the light ramp, and **`outline`**, a 1px border at 40% of the tone (the hairline for `neutral`) with no ground, at the filled chip's height (the owner's choice). Two treatments: **`caps`**, a status word in small caps at `tracking-ui-wider`, and **`tag`**, a label as written — sentence case, normal tracking, `px-2`. Every chip is a pill. An outline or a tag may lead with a dot or an icon, 6px from its word. It takes an `id`, `aria-describedby`, `data-*` and `role="status"` and nothing else: no handler, no `title` (a chip that needs explaining sits in `Tooltip`), nothing that hides its word. A `danger` chip with no `variant` is outlined, the owner's look for an ended state; filled, it reads 4.65:1 on the light page. `tests/styles/chip-contrast.browser.test.tsx` holds every tone and variant at 4.5:1 on the page and a card, and the flags' tones on the run sheet's coming-up row, in both themes. An enquiry's status wears the vendor portal's tones — open `pending`, quoted `accent`, closed `neutral` — so an enquiry reads alike from both ends. Where the portal draws it: outlined small caps for a badge — the top bar's role (in a `Tooltip`), a co-host's role (filled for the owner, outlined for the rest, in a `TipNote`), "Connected", "New" on an unsaved event or household, an invite section's state (`role="status"`, with a dot) and "Applies immediately", a seated guest's reply (Declined and Invite withdrawn `danger`, Maybe `accent`, No reply `neutral`); tags for a vendor's or a gift's category, "Cash fund" and a gift's status (one that has ended — "No longer coming", "Refunded", "Payment disputed", "Didn't go through" — outlined in `danger`); the run sheet's flags (§The run sheet).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `Notice`                                                        | Five tones at three sizes. `danger`, `warn` and `success` each lead with a circled icon of a different shape — a cross, an exclamation mark, a tick — in the tone's ink, sized from the text step and held to the first line, plus a hidden word ("Error", "Warning", "Success"); the owner chose the icons over text glyphs (englishstreetventures/osn#1835). `info` is unmarked, because nothing has happened; so is `accent`, the gold standing note (`Note` is the same note led by a ✦) — its border at 40% of the gold, a 5% tint, readable gold ink (`--gold-ink`). **`md`**, the default, is the box at the 6px step (`p-4`, `text-ui-base`); **`sm`** the same box compact (`px-3 py-2`, `text-ui-sm`), for a note beside a control or in a sidebar; **`inline`** no box at all — the icon, the word and the text at `text-ui-sm` in the tone's ink — for the error line under a field. A box takes `fill="none"` to keep its border and ink and drop its tint, so the words sit on the ground beneath; the inline line has no box and takes no `fill`. Every size is a `<div>`, so a notice never sits inside a `<p>` or a `<label>`, and an inline line about a field is named by the field's `aria-describedby`. It takes an `id`, `aria-describedby`, `data-*` and a layout `class` and nothing else, so no call site can hide its words or pass it a handler. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `EmptyState`                                                    | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `Field`, `Fieldset`, `Input`, `Select`, `Textarea`              | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner. An `Input` and a `Select` are 36px at `md` and 28px at `sm`; the shared control also has `form` and `form-compact` at 34px and `touch` for a guest's field, and a `Select` draws its own chevron, 12px in on a wide box and 10px on a narrow one. A form field is `form` or `form-compact`, 34px; a filter is `sm`, 28px (§4, One form-field height).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `Meter`, `meterPct`                                             | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `Stat`                                                          | A figure, then what it is, then an optional hint.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `Table`, `Th`, `Td`                                             | Every table in the portal as one set of parts, in a hairline frame at the 6px step. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `DropdownMenu` (`variant="accent"`)                             | Every portal menu: the account menu, the wedding switcher, a guest's seat menu, the narrow household list's one menu (`DropdownMenuHandle`) and the invite builder's phone menu. The panel on `--surface-raised` at the 10px corner, `p-1.5`, `--elev-2`, popping open from the trigger's side at `--dur-fast` with no exit; rows `px-3 py-2 text-ui-sm` at the 6px corner in full ink, the highlighted one a 10% gold wash with readable gold; a 2px inset keyboard ring (inset because a scrolling panel clips one drawn outside); a group's label an eyebrow in the secondary ink (gold marks state only); a chosen radio or a checked row a trailing check in readable gold; the haptics row the shared `Switch`'s track and thumb (`indicator="switch"`); a link row a real `<a>` (`as="a"`) that adds `noopener noreferrer` to a new tab; the account menu ends on the build's version ("Version 0123456", or "Version local"), a line, not a row, in the secondary ink at the `xs` step, under a rule. A trigger with a look of its own — the avatar, the wedding's name, a seat's "Seat" or "Move", the phone's place pill — is a plain button the trigger renders as (`as`), since the trigger takes layout classes only. The guest site's `LinkMenu` draws no Kobalte menu and takes its panel and 44px rows from `MENU_TOUCH`. |
+
+**Labels.** A button's or a link's label is written in sentence case in the
+source — "Preview invite", "Save reply", "Open the guest list" — and shows as
+written: no `uppercase`, normal tracking, `font-medium` on a boxed `Button` and
+regular weight on a borderless one. A label that is a name keeps its capitals.
+Small caps, `uppercase` with wide tracking, stay on what is not a button or link
+label: eyebrows (`Eyebrow`), field labels and legends, table heads, badges,
+status words, key hints, and the module rail's rows. A segmented control's
+choices are labels on a control, so they show as written (`SegmentedTabs`,
+sentence case). The eyebrows share a
+part, and so do the badges, which are `Chip` in small caps (the `Chip` row above). The others keep their own small caps, because each is another
+kind with its own size and ink: the table heads (`Th`, and the guest editor's
+`STRIP_HEAD`), the "New" reply mark
+(§A badge that explains itself), the status words ("Current" and "Locked" on
+a design, the RSVP tally's terms) and the getting-started count.
+
+**Checkboxes and radios** are `@shared/ui`'s `Checkbox` and `RadioGroup` with
+`box="native"` (§4): native inputs inside their labels, named by the label or
+by `aria-label`, with `disabled`, the `aria-*` wiring and a JSX label on the
+input. The code-style and remint radio cards stay bare native inputs, a block
+pressed to choose, drawn by the same base rule.
+
+### An enquiry thread
+
+`MessageThread` (`cire/ui/src/message-thread.tsx`) is the thread between a
+couple and a vendor, and both portals draw it the same way (the owner's
+choice):
+
+- **Order and segments.** Oldest first, whatever order the list arrives in. No
+  message carries its own time. A new segment opens when more than an hour has
+  passed since the message before it, or the date has changed, and one centred
+  line opens it in the secondary ink at the `xs` step: "Today 10:05 am",
+  "Yesterday 6:20 pm", the weekday from two to six days back ("Tue 11:30 am"),
+  then the date ("Wed 14 Oct, 9:12 am", the year added for another year). Days
+  are counted on the calendar, so a day the clocks change on is still one day.
+- **Runs.** One sender's messages in a row sit 4px apart; a change of sender
+  adds 12px; the first message sits 8px under its time line; segments are 20px
+  apart.
+- **The bubble.** Your own words on a 20% gold wash with a transparent edge,
+  theirs on the surface at 50% inside a hairline, so each reads on the bare page
+  and inside a card; both at the 16px corner, `px-4 py-2.5`, the base step in
+  full ink, no wider than 3/4 of the column, line breaks kept and a long link
+  broken anywhere. A screen reader hears "You wrote at 10:12 am:" or "They wrote
+  at …:" before the words; a message still waiting for the vendor's account
+  adds "not delivered yet".
+- **A tap on a phone** shows "Sent 10:12 am" under the message through
+  `Reveal` (`--dur-base`); a second tap, or a tap on another, hides it. A mouse
+  click shows nothing.
+- **A right-click** opens the message's info in the shared menu's `accent`
+  look: "You sent" or "They sent" over the whole date and time, a rule, "Copy
+  text". When the clipboard refuses, the words are selected instead. Words that
+  were already selected keep the browser's own menu, and a finger never opens
+  it, so a long press keeps the phone's text callout. The menu's code loads the
+  first time a pointer or focus enters the thread.
+- **The keyboard.** The messages are one tab stop, the newest by default; the
+  arrow keys, Home and End move between them, Enter or Space shows the time,
+  Escape hides it, Shift+F10 or the menu key opens the info at the message.
+  The focused message wears the 2px focus ring, 2px off, at its 16px corner.
+- **No messages.** "No messages yet" at the `sm` step and the side's next step
+  under it at `xs` ("Your reply will start the thread."), centred in the
+  secondary ink, the voice of the time lines. Loading is `Loading`; a failed
+  read is a `Notice` alert.
+- **The reply box.** One 34px line with the 14px field corner, the shared
+  control's look at the `form` size, growing with the words to five lines and
+  then scrolling. There is no send button while the box is empty; the round
+  `primary` send button (34px, an arrow) springs in once there is something to
+  send, and the box gives way from its right edge: width, left margin and scale
+  on `--dur-slow` and `--ease-spring`, opacity on `--dur-base`, never the focus
+  ring. The button is clipped only while hidden; shown, its clip sits 4px
+  outside it, so the focus ring shows whole. A failed send keeps the words; a
+  caller's error shows under the box.
+- **The reply box stays a 34px field, and the pill is one line away.** The
+  owner kept §4's form-field height for the box and its button (2026-11-04),
+  over the round-three demo's 36px pill. `message-composer.tsx` holds both
+  looks: `COMPOSER_SIZE = "field"` is what both portals draw, and setting it
+  to `"pill"` moves both to 36px with the box a pill at one line (an 18px
+  corner it keeps as it grows). `tests/message-thread.browser.test.tsx` holds
+  each look's height, corner, growth and whole focus ring.
 
 ### Who holds a task: faces, not names
 
 A checklist row shows its holders as an overlapping stack of faces
-(`TaskHolders.tsx`, `PersonAvatar.tsx`). The decisions it settles, for any
+(`TaskHolders.tsx`, `@cire/ui`'s `PersonAvatar`). The decisions it settles, for any
 later stack of people:
 
 - **Faces are 28px on a row and 32px in a list**, overlapping by 8px, each with
@@ -493,7 +980,8 @@ later stack of people:
 - **The reader comes first** when they are among the people shown.
 - **A person with no photo, or one that will not load, gets the empty avatar** —
   their outline in `--bg`, cut out of a disc of `--text-faint` laid over `--bg`
-  so it is opaque (the `blank-avatar` utility). A light figure on a mid disc in
+  so it is opaque (`@cire/ui`'s `PersonAvatar`, `fallback="blank"`, from the
+  contract's `--ui-ink-tertiary` and `--ui-ground`). A light figure on a mid disc in
   light, a dark one in dark: nobody's photo in either ramp. **Never initials**:
   on a stack, letters read as a list of codes. The photo itself is drawn only
   from an https URL, checked at the `<img>`.
@@ -601,9 +1089,12 @@ It is read-only for every role. The decisions it settles:
   untimed tasks last under "Any time on the day". A day in one zone says so
   once beside its heading ("Times in AEST"); a day that mixes zones says "Each
   time on its own clock" and puts the zone under every time.
-- **Day headings** are `h3`s in `--gold-ink`, body face, sentence case. Not
-  Cormorant (rationed, §3), and not the checklist's tracked capitals: a date
-  is several words, and Chrome hands a screen reader the transform.
+- **Day headings** are `h3`s drawn as muted eyebrows (`Eyebrow as="h3"
+  tone="muted"`), the small caps every group's head in a module takes (the
+  owner's choice). Not Cormorant (rationed, §3).
+  The words are written in sentence case and only drawn in capitals, so the
+  text a screen reader is given is the date as written in the source; Chrome
+  hands it the transform as well, which the owner's answer accepts.
 - **The thread.** A day hangs on one vertical hairline of `--gold-dim` — metal,
   a rule, no contrast floor — down the middle of the gap between the time
   column and the words. Every row is a grid on three lengths (`--rs-pad`,
@@ -627,13 +1118,14 @@ It is read-only for every role. The decisions it settles:
   event's start on its own clock, an item earlier on the clock than the start
   last and marked "(after midnight)" in muted ink. Each time is the item's own
   `HH:MM` as the organiser wrote it, on the event's clock, never converted.
-- **Flags are a word and a shape.** Sentence-case pills, never colour alone:
-  "You" on a `--brand` fill, "Coming up" on a gold fill (`--on-gold` ink),
-  "Done" in a `--border-strong` outline with a tick, "Event removed" in a
-  `--warn` outline with a broken link, explained on hover by `Tooltip`. The
-  two that are about the reader and about now are filled; the two that are
-  states are outlined — "Coming up" and "Event removed" are both warm in the
-  dark ramp, and the fill is what tells them apart at a glance.
+- **Flags are a word and a shape.** `Chip` tags, sentence case, never colour
+  alone (the owner's choice): "You" filled in the accent,
+  "Coming up" filled in `pending`, "Done" a neutral outline with a tick, "Event
+  removed" a `pending` outline with a broken link, explained on hover by
+  `Tooltip`. The two that are about the reader and about now are filled; the two
+  that are states are outlined — "Coming up" and "Event removed" are both warm,
+  and the fill is what tells them apart at a glance. Each word clears 4.5:1 on a
+  coming-up row's wash in both ramps (`RunSheetView.browser.test.tsx`).
 - **The reader's rows** also carry a 3px `--brand-ink` bar at the row's
   inline start (3:1 or more on the row in both ramps), and `data-own`.
 - **A coming-up row** sits on a `bg-gold/8` wash. **A done row** stays in its
@@ -733,9 +1225,11 @@ instead: the same hidden text, and the shell's one panel on hover, so a list of
 A badge stays out of the tab order, so a host on a phone or at the keyboard
 cannot hover it. Where the badges are icons with nothing written beside them —
 the RSVP meta line's provenance — one button in the view bar opens a key that
-names every one, with what it says: "What the reply icons mean", a quiet 28px
-`info` circle at the end of the bar's second row (on a phone, the search row),
-its panel the marks' own words. One stop for the page, not one per row.
+names every one, with what it says: "What the reply icons mean", a 28px
+`info` glyph on the bar's icon button (`bar` at `icon`), the last control in
+the bar's second row (on a phone, in the search row) but for the owner's
+download after it, on the raised surface while the key is open, its panel the marks' own words on the floating depth (§4,
+Depth). One stop for the page, not one per row.
 
 On a guest's meta line (§Names and meta lines) a provenance badge is an icon
 with nothing written beside it, at `--text-muted`, 14px, stroke 1.75: its name
@@ -751,29 +1245,34 @@ circle with a glyph, then its word in tiny caps — `text-ui-xs`, medium,
 `tracking-ui-wider` — with no outline, no box and no border round the word
 (`StatusMark.tsx`). The four tones:
 
-| Tone | Circle | Glyph | Word | Used for |
-|---|---|---|---|---|
-| `yes` | solid `--status-yes` (gold) | `--on-gold` | `--gold-ink` | Attending; a household's Opened (`eye`) |
-| `no` | deep muted red `--status-no` | `--status-no-ink` | `--error` | Declined (`x`); Deactivated (`ban`) |
-| `maybe` | gold tint `--status-maybe` | `--status-maybe-ink` | `--text-muted` | Maybe (`?`); a household's Sent (`send`) |
-| `none` | an empty 2px ring in `--text-faint` | — | `--text-muted` | No reply |
+| Tone    | Circle                              | Glyph                | Word           | Used for                                 |
+| ------- | ----------------------------------- | -------------------- | -------------- | ---------------------------------------- |
+| `yes`   | solid `--status-yes` (gold)         | `--on-gold`          | `--gold-ink`   | Attending; a household's Opened (`eye`)  |
+| `no`    | deep muted red `--status-no`        | `--status-no-ink`    | `--error`      | Declined (`x`); Deactivated (`ban`)      |
+| `maybe` | gold tint `--status-maybe`          | `--status-maybe-ink` | `--text-muted` | Maybe (`?`); a household's Sent (`send`) |
+| `none`  | an empty 2px ring in `--text-faint` | —                    | `--text-muted` | No reply                                 |
 
 Contrast, measured from the ramps (`GuestsMarks.browser.test.tsx` holds each
 glyph at 4.5:1 on its painted circle, in both themes, though a glyph owes 3:1;
 the words are contract inks):
 
-| Pair | Dark | Light |
-|---|---|---|
-| `--on-gold` on `--status-yes` | 8.54:1 | 4.87:1 |
-| `--status-no-ink` on `--status-no` | 8.33:1 | 6.71:1 |
-| `--status-maybe-ink` on `--status-maybe` | 6.66:1 | 5.86:1 |
+| Pair                                        | Dark    | Light  |
+| ------------------------------------------- | ------- | ------ |
+| `--on-gold` on `--status-yes`               | 8.54:1  | 4.87:1 |
+| `--status-no-ink` on `--status-no`          | 8.33:1  | 6.71:1 |
+| `--status-maybe-ink` on `--status-maybe`    | 6.66:1  | 5.86:1 |
 | `--gold-ink` on `--bg` (the Attending word) | 11.66:1 | 5.14:1 |
-| `--error` on `--bg` (the Declined word) | 6.22:1 | 4.60:1 |
+| `--error` on `--bg` (the Declined word)     | 6.22:1  | 5.47:1 |
 
-*Computed 2026-10-28 with `contrastOklch` (`@cire/theme`) from the values in `src/styles/global.css`; `GuestsMarks.browser.test.tsx` checks the painted words and glyphs in both themes.*
+_Computed 2026-10-30 with `contrastOklch` (`@cire/theme`) from the values in `src/styles/global.css`; `GuestsMarks.browser.test.tsx` checks the painted words and glyphs in both themes._
 
 The circle is 16px beside its word in a table cell, and 20px over it
-(`stacked`) in the fixed column that starts a phone row. Declined is never a red
+(`stacked`) in the fixed column that starts a phone row. Each glyph sits in the
+middle of its circle as painted, not by its box: the question mark's ink is
+heavy at its hook and light at its point, so it is drawn 1.4 units lower in its
+24-unit box. `StatusMark.browser.test.tsx` paints each reply at its three sizes
+at four sub-pixel places, screenshots it and finds the glyph's centre within
+0.3px of the circle's (the owner's choice). Declined is never a red
 border: at 1px a red edge on either ground was the poorest contrast on the page.
 The circle alone (`StatusDot`, 14px) stands for its word on a chip that names
 it.
@@ -802,30 +1301,26 @@ row of boxes.
 
 ### Chips
 
-A chip is a pill at the small search box's height (`h-7`), `text-ui-sm`, on
-`--surface` with no border, its count in the mono face in `--text-muted` beside
-its name. Chosen, it fills in the brand green (`--brand`, `--on-brand` on it,
-8.66:1): Wise's filter chips. A row of chips never wraps; it scrolls sideways
-(Wise). Pills, so they never read as part of a segmented control. Focused from
-the keyboard a chip wears the dashboard's one focus ring, never `outline-none`;
-the row keeps 4px of padding inside a matching negative margin, so its sideways
-scroll, which clips both ways, never cuts the ring.
-
-- **Event chips** pick the event on the RSVP page. They follow the module's
-  segmented sub-tabs on the view bar's first row after a hairline divider
-  (`data-bar-divider`), so the bar holds two groups that look like two: a
-  boxed segmented control, then free pills.
-- **Reply chips** filter the RSVP list and are its legend and counter at once
-  (Partiful): each carries its reply's `StatusDot` and its count. The chosen
-  one shows ⊗ (`circle-x`), and a second press clears it back to All. On a phone
-  they keep their dots and counts, their words hidden text, on a row of their
-  own under the search and the sort.
+The RSVP page's reply filter is not a row of chips but one more glass strip
+(`SegmentedTabs`, `semantics="radio"`), the owner's choice of the three looks
+rendered on 2026-11-04 over loose chips that toggle: one 28px track of radios —
+All, then each reply — with the strips' type, inks, hover, glass and slide. A
+choice reads as its reply's `StatusDot`, its word and its count in the mono
+face after it, muted at rest and in the readable gold on the glass; its name
+says the count ("No reply, 4 guests"). So the strip is filter, legend and
+counter at once (Partiful). A reply stays chosen until All or another reply is:
+a second press changes nothing, and All is what clears. One tab stop, the
+checked radio; the arrows move and choose, as in any radio group. The strip
+never wraps; it scrolls sideways (Wise), inside 4px of room for the ring. On a
+phone it takes a row of its own under the search and the sort, and each reply
+shows as its dot and count, its word hidden text, its name and its `data-tip`;
+All keeps its word.
 
 **Grouping.** The RSVP list is not grouped under status headings (Apple
 Invites). The host sorts it by guest or household and searches it; a heading
 per status would split a household's replies across the page and fight the
-sort, and would be one more stuck layer. The reply chips already answer "who
-still owes a reply" in one tap, with the count on the chip, and the column of
+sort, and would be one more stuck layer. The reply filter already answers "who
+still owes a reply" in one tap, with the count on the choice, and the column of
 marks scans down the page.
 
 ### A choice the plan does not include
@@ -852,24 +1347,52 @@ radiogroup:
 
 ### A tab strip inside a view
 
-A view that shows one of several things at a time — the RSVP page's events —
-picks it from a row of event chips (§Chips), a `tablist` with the keys of the
-module sub-tabs: the arrows, Home and End move focus and Enter or Space
-chooses, because a panel that draws hundreds of rows is not instant, and
-choosing what you only passed over would draw it anyway.
+A view that shows one of several things at a time — the RSVP page's events,
+the invite builder's sections under Content — picks it from a glass strip
+(`SegmentedTabs`, `tabs`) with the keys of the module's views: the arrows,
+Home and End move focus and Enter or Space chooses, because a panel that draws
+hundreds of rows is not instant, and choosing what you only passed over would
+draw it anyway.
 
-The row scrolls sideways rather than wrapping, and brings a chip into view by
-scrolling itself, never the page. Anything a chip needs to say about what it
-holds — the RSVP page's "New" — is a word, never a dot: colour does not carry a
-meaning alone. A chip whose name is a phrase (the event and its count) gets an
-`aria-label` in sentence case
+The strip scrolls sideways rather than wrapping (`scroll`), and brings a choice
+into view by scrolling itself, never the page. Anything a choice needs to say
+about what it holds — the RSVP page's "New", a hidden section's eye-off — is a
+word or an icon its name spells out, never a dot: colour does not carry a
+meaning alone. A choice whose name is a phrase (the event and its count, the
+section and its state) gets an `aria-label` in sentence case
 ([frontend-patterns](../../wiki/shared/frontend-patterns.md) §Chrome exposes a
 `title` as a description).
 
-A view lends its chips to the module's view bar (§The stuck stack), after a
-divider beside the module's own sub-tabs, outside the module's tab panel. Ids
-carry a per-view prefix, so they never meet the shell's `subtab-*` and
-`subpanel-*`, and the chips keep `aria-controls` on the view's own panel.
+A view lends its strip to the module's view bar (§The stuck stack), after a
+divider beside the module's own views, outside the module's tab panel. The RSVP
+page's ids carry a per-view prefix, so they never meet the shell's `subtab-*`
+and `subpanel-*`, and its tabs keep `aria-controls` on the view's own panel;
+the builder's section tabs are `${section}-tab` and control their section's
+card.
+
+### The invite builder's two tiers
+
+Template, Style, Content and Codes are the Invite module's views, in the
+module's own strip with their icons (`palette`, `type`, `rows-3`,
+`key-round`). One builder stays mounted across the four, so a move between
+them keeps the draft and its unsaved-changes guard lets the move through
+(`registerUnsavedGuard`'s `keeps`). Content's six sections — Hero, Our story,
+Welcome, Events, FAQ, Closing — are a second strip in the bar: on the views'
+row from a 58rem panel (measured: four labelled views, six sections and the
+Preview button), where they fade and slide 6px in and out on `--dur-base` and
+`--ease-out` (`section-track`); on a row of their own below it, which the bar's
+height animation brings in. Below a 30rem panel both
+strips give way to one glass pill naming the place, in the chosen choice's
+glass and readable gold, with the eye-off on a hidden section, beside a round
+glass chevron: one button, which opens the accent menu of every place, in the
+strips' two tiers — the four views, then Content's sections under their
+eyebrow, each tier one radio group. The module's
+strip hides, kept in the page, only once the pill has mounted
+(`ViewBar.replaceTabs`), so a builder still loading can always be left. Below
+the composed pane's width the Preview button joins the bar at the pill height.
+Codes holds the invite message and no guest-page preview, since nothing there
+edits the page; an owner sees the code style's re-mint above it, an editor the
+message alone.
 
 ### The stuck stack
 
@@ -879,12 +1402,19 @@ top of the window, each one's top at the foot of the one above. On a laptop
 the whole stack, top bar included, is at most 220px; on a phone, 200px (both
 asserted in `GuestsStack.browser.test.tsx`).
 
-| Layer | `top` | z | Ground |
-|---|---|---|---|
-| 0 Top bar | 0 | 30 | `--bg` at 85%, blurred |
-| 1 View bar | `var(--chrome-h)` | 20 | `--bg`, hairline below |
-| 2 Column heads, or a card's header | `+ var(--bar-h, 0px)` | 10 | `--bg`; a card header paints the card's ground opaque |
-| 3 Household bar | `+ var(--heads-h, 0px)` | 5 | `--surface`, hairline below |
+| Layer                              | `top`                   | z   | Ground                                                |
+| ---------------------------------- | ----------------------- | --- | ----------------------------------------------------- |
+| 0 Top bar                          | 0                       | 30  | `--bg` at 95%, blurred                                |
+| 1 View bar                         | `var(--chrome-h)`       | 20  | `--bg`, hairline below                                |
+| 2 Column heads, or a card's header | `+ var(--bar-h, 0px)`   | 10  | `--bg`; a card header paints the card's ground opaque |
+| 3 Household bar                    | `+ var(--heads-h, 0px)` | 5   | `--surface`, hairline below                           |
+
+The top bar stops at 95% because every word in it must read 4.5:1 (ornament in
+`--text-faint`, 3:1) over the darkest and the lightest thing that can scroll
+beneath it: at 85% the readable-gold star and words read 3.70:1 on the light
+ramp over black. `TopBar.contrast.browser.test.tsx` composites each word over
+black and white in both themes, the glass under a chosen tab included; the
+vendor's bar takes the same ground, held by its `TopBar.browser.test.tsx`.
 
 Every offset is a sum of heights the page already knows, never a guess:
 
@@ -929,11 +1459,13 @@ view fills it (`slot="row2"`). Below a 36rem panel the sub-tabs show their
 icons alone, their label each one's name and tooltip. The bar's height moves
 with the panel's, through `createAutoSize` on its own frame, so a change of
 view that adds or drops a row never jumps; a view that loads holds its rows'
-height with a placeholder the size of each. A module with one view has no bar.
+height with a placeholder the size of each (§4, Skeletons), so the bar is the
+same height while the RSVP replies load as after, at both widths. A module
+with one view has no bar.
 
-**What each Guests tab lends it.** RSVPs: a divider and the event chips in the
-first row; the slim search and the reply chips in the second; on a phone the
-search and the sort select in the second and the reply chips in a third.
+**What each Guests tab lends it.** RSVPs: a divider and the event strip in the
+first row; the slim search and the reply filter in the second; on a phone the
+search and the sort select in the second and the reply filter in a third.
 Households: the count and the search in the first row, and on a phone the
 search alone. Edit: a divider, the mode switch and Add household, icons alone
 below 36rem. "Showing n of m" and the tallies stay in the panel, under the bar.

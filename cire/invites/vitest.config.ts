@@ -3,7 +3,7 @@ import { playwright } from "@vitest/browser-playwright";
 import solidPlugin from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
-import { emulateMedia } from "./tests/test-support/browser-commands.ts";
+import { emulateMedia, renderGuestFooter } from "./tests/test-support/browser-commands.ts";
 
 /** Shared by both projects — same compiler, and the same Tailwind build the app ships. */
 const plugins = () => [solidPlugin(), tailwindcss()];
@@ -121,7 +121,7 @@ export default defineConfig({
             instances: [{ browser: "chromium" }],
             // Lets a test flip `prefers-reduced-motion` for itself instead of
             // running the whole suite twice under a second browser instance.
-            commands: { emulateMedia },
+            commands: { emulateMedia, renderGuestFooter },
           },
         },
       },

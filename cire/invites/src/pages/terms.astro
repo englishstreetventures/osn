@@ -9,7 +9,7 @@
 // wedding belongs on the invite itself, which is per-tenant; this page is the
 // operator's terms and stays general.
 export const prerender = true
-import LegalLayout from '../layouts/LegalLayout.astro'
+import LegalPage from '../layouts/LegalPage.astro'
 import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 
 // Highlight a detail only while THAT detail is still a placeholder. A page-wide
@@ -21,7 +21,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 // is still a token.
 const draft = draftPending(LEGAL_ENTITY.governingLaw)
 ---
-<LegalLayout title="Terms of Use">
+<LegalPage title="Terms of Use">
   {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this notice is not final. Some details of the operator are
@@ -92,4 +92,4 @@ const draft = draftPending(LEGAL_ENTITY.governingLaw)
     This does not take away the protections you have under the consumer laws of the
     place where you live.
   </p>
-</LegalLayout>
+</LegalPage>

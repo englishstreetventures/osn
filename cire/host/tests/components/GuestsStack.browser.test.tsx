@@ -1,3 +1,4 @@
+import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
 import { cleanup, screen, within } from "@solidjs/testing-library";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cdp, commands, page, userEvent } from "vitest/browser";
@@ -50,7 +51,10 @@ import "../../src/styles/global.css";
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
+vi.mock("../../src/lib/touch-feedback", () => ({
+  haptic: () => {},
+  hapticsAvailable: () => false,
+}));
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -83,6 +87,7 @@ import {
   routeFetch,
   topBar,
 } from "../test-support/organiser-page";
+import { backdrop, over } from "../test-support/painted";
 
 const SIZES = [
   [1280, 800],
@@ -558,6 +563,46 @@ describe("one popup for the page, not one per control", () => {
 });
 
 // ── Searches and view changes ────────────────────────────────────────────────
+describe("the Guests views' bar icon buttons", () => {
+  /** `button`'s fill, edge and ink, each as one comparable paint. */
+  const look = (button: Element) => {
+    const style = getComputedStyle(button);
+    return [style.backgroundColor, style.borderTopColor, style.color].map((c) => over(c, "#000"));
+  };
+  /** The bar's hover, as the portal paints it, read off a probe. */
+  function lifted() {
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "background-color:color-mix(in oklab, var(--surface) 60%, transparent);border:1px solid var(--gold);color:var(--text)";
+    document.body.append(probe);
+    const want = look(probe);
+    probe.remove();
+    return want;
+  }
+
+  const CASES = [
+    { width: 1280, sub: "list", names: ["Download guests (CSV)", "Download RSVPs (CSV)"] },
+    { width: 390, sub: "edit", names: ["Add household"] },
+  ] as const;
+  for (const { width, sub, names } of CASES) {
+    it(`at ${width}: lifts ${names.join(" and ")}'s ground under the pointer, in the body ink with a gold edge`, async () => {
+      await page.viewport(width, 844);
+      render({ module: "guests", sub });
+      await loaded(sub);
+      for (const name of names) {
+        const button = screen.getByRole("button", { name });
+        await userEvent.hover(button);
+        expectPass(
+          `bar ${width}: ${name} lifts under the pointer`,
+          JSON.stringify(look(button)) === JSON.stringify(lifted()),
+          JSON.stringify(look(button)),
+        );
+        await userEvent.unhover(button);
+      }
+    });
+  }
+});
+
 describe("moving within the stack", () => {
   const searchbox = () => within(viewBar()).getByRole("searchbox");
 
@@ -612,7 +657,7 @@ describe("moving within the stack", () => {
   // The search is not the only thing that redraws the list: a reply filter, a
   // sort and another event do too, and each is pressed deep in the list.
   const TRIGGERS = [
-    ["the No reply chip", () => within(viewBar()).getByRole("button", { name: /^No reply/ })],
+    ["the No reply filter", () => within(viewBar()).getByRole("radio", { name: /^No reply/ })],
     [
       "the Guest head's sort",
       () =>
@@ -745,7 +790,7 @@ describe("moving within the stack", () => {
     await page.viewport(1280, 400);
     render({ module: "guests", sub: "list" }, { ...FULL, customisation: EMPTY_CUSTOMISATION });
     await loaded("list");
-    const link = screen.getByRole("button", { name: "Invite, Design, Message" });
+    const link = screen.getByRole("link", { name: "Invite, Codes" });
     // The links just under the view bar: the module's heading has gone under
     // the top bar.
     window.scrollTo(0, scrollY + rect(link).top - rect(viewBar()).bottom - 4);
@@ -1083,45 +1128,217 @@ describe("each view goes narrow at its own line", () => {
 });
 
 // ── Other modules ────────────────────────────────────────────────────────────
-describe("the invite builder under the stack", () => {
-  const sectionTabs = () =>
-    screen.getByRole("navigation", { name: "Invite sections" }).parentElement!;
+describe("the invite builder's two tiers in the view bar", () => {
+  const views = () => screen.getByRole("tablist", { name: "Views", hidden: true });
+  const sections = () => screen.getByRole("tablist", { name: "Invite sections" });
 
-  // A short window: an empty builder is not much taller than a laptop's.
-  it("holds its section tabs under the view bar, never behind it", async () => {
-    await page.viewport(1280, 400);
-    render({ module: "invite", sub: "design" }, { customisation: EMPTY_CUSTOMISATION });
+  async function openInvite(width: number, sub: string, height = 800) {
+    await page.viewport(width, height);
+    render({ module: "invite", sub }, { customisation: EMPTY_CUSTOMISATION });
     await vi.waitFor(() => screen.getByText("Save invite"), { timeout: 10_000 });
     await frames();
-    window.scrollTo(0, 2000);
-    await frames();
+  }
+
+  async function shoot(name: string) {
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.dataset.theme = theme;
+      await frames();
+      await screenshotWindow(`${name}-${theme}`);
+    }
+    delete document.documentElement.dataset.theme;
+  }
+
+  it("draws the sections only under Content", async () => {
+    await openInvite(1280, "template");
     expectPass(
-      "invite: the bar holds under the top bar",
-      Math.abs(rect(viewBar()).top - rect(topBar()).bottom) <= 1,
+      "tiers: no section strip on Template",
+      screen.queryByRole("tablist", { name: "Invite sections" }) === null,
     );
-    expectPass(
-      "invite: the section tabs hold under the bar",
-      Math.abs(rect(sectionTabs()).top - rect(viewBar()).bottom) <= 1,
-    );
-    expectPass("invite: the section tabs are painted", onTop(sectionTabs().querySelector("nav")!));
-    await screenshotWindow("invite-1280-scrolled");
+    await userEvent.click(within(views()).getByRole("tab", { name: "Content" }));
+    await vi.waitFor(() => sections());
+    expectPass("tiers: the section strip is in the view bar", viewBar().contains(sections()));
   });
 
-  it("holds them under the top bar where a co-host's module has no bar", async () => {
-    await page.viewport(1280, 400);
-    // An editor co-host sees Design alone, so the module draws no bar.
-    render(
-      { module: "invite", sub: "design", canManage: false },
-      { customisation: EMPTY_CUSTOMISATION },
+  it("fades the sections in and out on the views' row, as Content is chosen and left", async () => {
+    await openInvite(1280, "template");
+    // This block's measurements run with no transitions; this one watches
+    // them, slowed tenfold so a frame lands mid-way whatever the machine.
+    const still = document.querySelector("style[data-no-transitions]")!;
+    still.remove();
+    document.documentElement.style.setProperty("--motion-scale", "10");
+    try {
+      const track = () => document.querySelector<HTMLElement>("[data-section-track]")!;
+      const moving = () =>
+        track()
+          .getAnimations()
+          .map((a) => (a as CSSTransition).transitionProperty)
+          .toSorted()
+          .join(",");
+      // A transition that another replaces rejects its `finished`, so this
+      // waits for none to be left rather than for each to finish.
+      const settle = async () => {
+        await vi.waitFor(() => expect(track().getAnimations()).toHaveLength(0), {
+          timeout: 10_000,
+        });
+        await frames();
+      };
+      expectPass(
+        "tiers motion: kept off Content, drawing nothing",
+        track() !== null && track().hidden && rect(track()).width === 0,
+      );
+      await userEvent.click(within(views()).getByRole("tab", { name: "Content" }));
+      await frames(1);
+      expectPass(
+        "tiers motion: the sections fade and slide in",
+        moving().includes("opacity") && moving().includes("translate"),
+        moving(),
+      );
+      expectPass(
+        "tiers motion: from below full opacity",
+        parseFloat(getComputedStyle(track()).opacity) < 1,
+      );
+      await settle();
+      expectPass(
+        "tiers motion: in, and at rest",
+        getComputedStyle(track()).opacity === "1" &&
+          getComputedStyle(track()).translate === "none" &&
+          onTop(sections()),
+      );
+      await userEvent.click(within(views()).getByRole("tab", { name: "Style" }));
+      await frames(1);
+      expectPass(
+        "tiers motion: still drawn while they fade out",
+        rect(track()).width > 0 && moving().includes("opacity"),
+        moving(),
+      );
+      await settle();
+      expectPass(
+        "tiers motion: gone once faded",
+        rect(track()).width === 0 &&
+          screen.queryByRole("tablist", { name: "Invite sections" }) === null,
+      );
+    } finally {
+      document.documentElement.style.removeProperty("--motion-scale");
+      document.head.append(still);
+    }
+  });
+
+  it("puts the sections on the views' row at 1280, held under the top bar as the page scrolls", async () => {
+    await openInvite(1280, "content", 400);
+    expectPass(
+      "tiers 1280: one row",
+      Math.abs(rect(sections()).top - rect(views()).top) <= 1,
+      `${rect(sections()).top} vs ${rect(views()).top}`,
     );
-    await vi.waitFor(() => screen.getByText("Save invite"), { timeout: 10_000 });
-    await frames();
-    expectPass("invite co-host: no view bar", document.querySelector("[data-view-bar]") === null);
+    for (const strip of [views(), sections()]) {
+      expectPass("tiers 1280: each strip is 28px", Math.abs(rect(strip).height - 28) <= 0.5);
+    }
     window.scrollTo(0, 2000);
     await frames();
     expectPass(
-      "invite co-host: the section tabs hold under the top bar",
-      Math.abs(rect(sectionTabs()).top - rect(topBar()).bottom) <= 1,
+      "tiers 1280: the bar holds under the top bar",
+      Math.abs(rect(viewBar()).top - rect(topBar()).bottom) <= 1,
+    );
+    expectPass("tiers 1280: the sections are painted", onTop(sections()));
+    // With no sticky section bar over the cards, a closed dialog that lays
+    // itself out would show: the preview's dialog draws nothing while shut.
+    const preview = document.querySelector<HTMLDialogElement>(
+      'dialog[aria-label="Invite preview modal"]',
+    )!;
+    expectPass(
+      "tiers 1280: the closed preview dialog draws nothing",
+      !preview.open && getComputedStyle(preview).display === "none",
+    );
+    await shoot("invite-tiers-1280");
+  });
+
+  it("gives the sections a row of their own on a narrower panel", async () => {
+    await openInvite(1024, "content");
+    expectPass(
+      "tiers 1024: the sections sit below the views",
+      rect(sections()).top >= rect(views()).bottom - 0.5,
+    );
+    expectPass("tiers 1024: the sections are in the bar", viewBar().contains(sections()));
+  });
+
+  it("draws one pill and its menu on a phone, in place of both strips", async () => {
+    await openInvite(390, "content");
+    expectPass("tiers 390: the views strip is hidden", rect(views()).width === 0);
+    expectPass(
+      "tiers 390: no section strip",
+      screen.queryByRole("tablist", { name: "Invite sections" }) === null,
+    );
+    const place = screen.getByRole("button", { name: /Choose a view or section/ });
+    expectPass("tiers 390: the pill is in the bar", viewBar().contains(place));
+    expectPass("tiers 390: the pill is 28px", Math.abs(rect(place).height - 28) <= 0.5);
+    // Its word and its chevron each on their own glass, which is translucent:
+    // what they sit on is the glass over the bar's ground. The chevron turns
+    // gold under the pointer, so it is read at rest and hovered.
+    const [word, chevron] = [...place.children] as HTMLElement[];
+    const reads = (el: HTMLElement) => {
+      const ground = backdrop(el);
+      return contrastRatio(over(getComputedStyle(el).color, ground), ground)!;
+    };
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.dataset.theme = theme;
+      await frames();
+      expectPass(
+        `tiers 390: the pill's word reads on its glass, ${theme}`,
+        reads(word!) >= WCAG_TEXT_MIN,
+        `${reads(word!)}`,
+      );
+      expectPass(
+        `tiers 390: the chevron reads on its glass, ${theme}`,
+        reads(chevron!) >= WCAG_TEXT_MIN,
+        `${reads(chevron!)}`,
+      );
+      await userEvent.hover(place);
+      await frames();
+      expectPass(
+        `tiers 390: the hovered chevron reads on its glass, ${theme}`,
+        reads(chevron!) >= WCAG_TEXT_MIN,
+        `${reads(chevron!)}`,
+      );
+      await userEvent.unhover(place);
+    }
+    delete document.documentElement.dataset.theme;
+    await shoot("invite-phone-390");
+
+    await userEvent.click(place);
+    const welcome = await vi.waitFor(() => screen.getByRole("menuitemradio", { name: "Welcome" }));
+    await shoot("invite-phone-menu-390");
+    await userEvent.click(welcome);
+    await vi.waitFor(() =>
+      expectPass(
+        "tiers 390: the chosen section shows",
+        document.getElementById("invite-welcome")?.hidden === false,
+      ),
+    );
+    expectPass(
+      "tiers 390: the pill names it",
+      place.isConnected &&
+        place.getAttribute("aria-label") === "Invite: Welcome. Choose a view or section",
+    );
+  });
+
+  it("keeps the module's strip on a phone while the invite loads, and when its read fails", async () => {
+    await page.viewport(390, 844);
+    let finish: (response: Response) => void = () => {};
+    const pending = new Promise<Response>((resolve) => (finish = resolve));
+    render({ module: "invite", sub: "content" }, { customisation: () => pending });
+    await frames();
+    const place = () => screen.queryByRole("button", { name: /Choose a view or section/ });
+    expectPass("tiers loading: the views strip shows", rect(views()).width > 0);
+    expectPass("tiers loading: no pill yet", place() === null);
+    finish(new Response("{}", { status: 500 }));
+    await wait(300);
+    await frames();
+    expectPass("tiers failed: the views strip still shows", rect(views()).width > 0);
+    expectPass("tiers failed: no pill", place() === null);
+    // The builder says its read failed, rather than loading for ever.
+    expectPass(
+      "tiers failed: the builder says so",
+      screen.queryByRole("alert")?.textContent?.includes("Could not load the invite") === true,
     );
   });
 
@@ -1137,23 +1354,16 @@ describe("the invite builder under the stack", () => {
       "bar-h gone: set while Guests has its bar",
       shell.style.getPropertyValue("--bar-h") !== "",
     );
-    view.setModule("invite");
-    view.setSub("design");
-    await vi.waitFor(() => screen.getByText("Save invite"), { timeout: 10_000 });
+    view.setModule("checklist");
+    view.setSub("index");
     await frames();
     expectPass(
-      "bar-h gone: Invite draws no bar",
+      "bar-h gone: Checklist draws no bar",
       document.querySelector("[data-view-bar]") === null,
     );
     expectPass(
       "bar-h gone: the property is removed",
       shell.style.getPropertyValue("--bar-h") === "",
-    );
-    window.scrollTo(0, 2000);
-    await frames();
-    expectPass(
-      "bar-h gone: the section tabs hold at the top bar's foot",
-      Math.abs(rect(sectionTabs()).top - rect(topBar()).bottom) <= 1,
     );
   });
 });

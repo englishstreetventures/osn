@@ -1,13 +1,17 @@
 import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets";
 import Reveal from "@cire/ui/reveal";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
 import {
   batch,
   createEffect,
   createMemo,
   createSignal,
+  createUniqueId,
   onCleanup,
   Show,
   For,
@@ -20,6 +24,22 @@ import { hasHouseholdResponded } from "./rsvp-responded";
 import { savedDwellMs } from "./rsvp-saved";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 import { formatNames, isValidRsvpSaveResponse } from "./utils";
+
+/**
+ * The Attending / Not attending row. Side by side while the pair fits its own
+ * box, stacked below 16rem: two halves wide enough for "Not attending" in Lato
+ * at the body step, with `Button` `md`'s padding, plus the 8px gap, come to
+ * 15.75rem (measured in Chromium, 2026-10-30). In rem, so a guest who enlarges
+ * the text stacks sooner. A 360px phone keeps the pair side by side; a 320px
+ * one stacks it (`RsvpPanel.browser.test.tsx`).
+ */
+const ANSWER_PAIR_CLASS = "flex gap-2 @max-[16rem]:flex-col";
+/**
+ * Each answer fills its half, at the guest site's 44px touch floor: 2.75rem,
+ * 46.75px on the 17px desk root. The sheet's Cancel and Save take it too, so
+ * every control a guest presses in the sheet stands at one height.
+ */
+const ANSWER_CLASS = "min-h-11 flex-1";
 
 export interface RsvpPanelProps {
   event: EventSummary;
@@ -147,6 +167,9 @@ async function failureCode(res: Response): Promise<string | undefined> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   return typeof body?.error === "string" ? body.error : undefined;
 }
+
+/** The sheet's two consent boxes; see `createConsentBox`. */
+type ConsentBoxName = "consent" | "attestation";
 
 /**
  * One consent checkbox: its state, and the rule for when it may open ticked.
@@ -342,7 +365,17 @@ export function RsvpPanel(props: RsvpPanelProps) {
     return inviter ? `${inviter.firstName}'s guest` : "Guest";
   };
 
-  const [error, setError] = createSignal<string | null>(null);
+  const [error, setErrorText] = createSignal<string | null>(null);
+  // The consent box the error line refuses, when it refuses one: that box is
+  // named by the line and marked wrong until the line next changes.
+  const [refusedBox, setRefusedBox] = createSignal<ConsentBoxName>();
+  const setError = (text: string | null, box?: ConsentBoxName) =>
+    batch(() => {
+      setErrorText(text);
+      setRefusedBox(box);
+    });
+  const errorId = createUniqueId();
+  const refuses = (box: ConsentBoxName) => refusedBox() === box;
   const [loading, setLoading] = createSignal(false);
   // Terminal success state: the reply is recorded, the Save button is filling
   // gold behind a drawn tick, and the sheet is counting down to closing itself.
@@ -543,12 +576,15 @@ export function RsvpPanel(props: RsvpPanelProps) {
     // enforces this with a 422 — see
     // `wiki/compliance/dpia/cire-guest-data.md`.)
     if (ownWithDietaryData().length > 0 && !consent.checked()) {
-      setError("Please tick the box to let us store your dietary requirements.");
+      setError("Please tick the box to let us store your dietary requirements.", "consent");
       return;
     }
     if (plusOnesWithDietaryData().length > 0 && !attestation.checked()) {
       const names = formatNames(plusOnesWithDietaryData().map((m) => m.firstName));
-      setError(`Please confirm that ${names} agreed to their dietary requirements being stored.`);
+      setError(
+        `Please confirm that ${names} agreed to their dietary requirements being stored.`,
+        "attestation",
+      );
       return;
     }
 
@@ -710,25 +746,29 @@ export function RsvpPanel(props: RsvpPanelProps) {
   return (
     <>
       <Show when={props.closed}>
-        <p
-          class="border-border bg-surface-raised text-text-muted text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+        <div
+          class="mb-6"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
-          {props.closedOn ? `RSVPs closed on ${props.closedOn}.` : "RSVPs have closed."} This is
-          your household&apos;s reply as it stands — please contact the couple directly if anything
-          needs to change.
-        </p>
+          <Notice size="sm" tone="info">
+            {props.closedOn ? `RSVPs closed on ${props.closedOn}.` : "RSVPs have closed."} This is
+            your household&apos;s reply as it stands — please contact the couple directly if
+            anything needs to change.
+          </Notice>
+        </div>
       </Show>
 
       <Show when={props.preview}>
-        <p
-          class="border-gold/40 bg-gold/5 text-gold-ink text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+        <div
+          class="mb-6"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
-          Preview — try the RSVP as a guest would. Nothing you send here is saved.
-        </p>
+          <Notice size="sm" tone="accent" fill="none">
+            Preview — try the RSVP as a guest would. Nothing you send here is saved.
+          </Notice>
+        </div>
       </Show>
 
       <form class="flex grow flex-col gap-5" onSubmit={handleSubmit}>
@@ -776,46 +816,48 @@ export function RsvpPanel(props: RsvpPanelProps) {
                     of the answer — colour alone, and nothing at all for a
                     stored "maybe", which the binary pair cannot show. The
                     answer on file is written out instead, in the box the pair
-                    would fill. */}
+                    would fill: a value rather than an action, so it takes a
+                    field's corner, not the pair's pill. */}
                 <Show
                   when={!props.closed}
                   fallback={
-                    <p class="font-body text-ui-sm tracking-ui-wide border-border text-text rounded-sm border px-3 py-2.5 text-center uppercase">
+                    <p class="font-body text-ui-sm border-border text-text rounded-ui-field border px-3 py-2.5 text-center">
                       {answerOnFile(guestId)}
                     </p>
                   }
                 >
-                  <div class="flex gap-2">
-                    <button
-                      type="button"
-                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
-                      classList={{
-                        "border-gold text-gold-ink bg-gold/8":
-                          responses()[guestId]?.attending === "attending",
-                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                          responses()[guestId]?.attending !== "attending",
-                      }}
-                      aria-pressed={responses()[guestId]?.attending === "attending"}
-                      onClick={() => setAttending(guestId, "attending")}
-                      disabled={locked()}
-                    >
-                      Attending
-                    </button>
-                    <button
-                      type="button"
-                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
-                      classList={{
-                        "border-gold text-gold-ink bg-gold/8":
-                          responses()[guestId]?.attending === "declined",
-                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                          responses()[guestId]?.attending !== "declined",
-                      }}
-                      aria-pressed={responses()[guestId]?.attending === "declined"}
-                      onClick={() => setAttending(guestId, "declined")}
-                      disabled={locked()}
-                    >
-                      Not attending
-                    </button>
+                  {/* `Button` `choice`: the chosen answer wears the accent
+                      edge and ring, and while the reply saves and through the
+                      "Saved" pause the pair is locked with `aria-disabled`,
+                      which keeps the answer just given at full strength
+                      (`disabled` would fade it). The pair sits side by side
+                      while it fits its own box and stacks below that — a
+                      container query on the pair, so it follows the sheet's
+                      width rather than the window's, and a label never
+                      wraps. */}
+                  <div class="@container">
+                    <div class={ANSWER_PAIR_CLASS}>
+                      <Button
+                        variant="choice"
+                        size="md"
+                        class={ANSWER_CLASS}
+                        aria-pressed={responses()[guestId]?.attending === "attending"}
+                        aria-disabled={locked() || undefined}
+                        onClick={() => setAttending(guestId, "attending")}
+                      >
+                        Attending
+                      </Button>
+                      <Button
+                        variant="choice"
+                        size="md"
+                        class={ANSWER_CLASS}
+                        aria-pressed={responses()[guestId]?.attending === "declined"}
+                        aria-disabled={locked() || undefined}
+                        onClick={() => setAttending(guestId, "declined")}
+                      >
+                        Not attending
+                      </Button>
+                    </div>
                   </div>
                 </Show>
 
@@ -854,15 +896,15 @@ export function RsvpPanel(props: RsvpPanelProps) {
                       (responses()[guestId]?.dietary.trim().length ?? 0) > 0
                     }
                   >
-                    <label class="font-body text-text-muted text-ui-sm tracking-ui-wide mt-3 block uppercase">
-                      Anything else
-                      <input
+                    <label class="font-body text-text-muted text-ui-sm mt-3 block">
+                      {/* The small caps are the words' alone: a field inherits
+                          a label's case and tracking. */}
+                      <span class="tracking-ui-wide uppercase">Anything else</span>
+                      <Input
+                        fill="ink"
+                        size="touch"
+                        class="mt-1.5"
                         type="text"
-                        // No `focus:outline-none` here: it sits in Tailwind's
-                        // utilities layer and would beat the base-layer
-                        // `:focus-visible` ring, leaving a border tint as the
-                        // only focus cue on the invite's main data-entry field.
-                        class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200"
                         placeholder="e.g. no onion or garlic"
                         value={responses()[guestId]?.dietary ?? ""}
                         onInput={(e) => setDietary(guestId, e.currentTarget.value)}
@@ -893,43 +935,43 @@ export function RsvpPanel(props: RsvpPanelProps) {
             that is stored would misstate it. The line below says what is
             stored instead. */}
         <Show when={props.closed && dietaryOnFile()}>
-          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             Dietary requirements on file are shared with the caterers for this wedding. See our{" "}
-            <a
-              href="/privacy"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-gold-ink underline underline-offset-2"
-            >
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
               privacy notice
+              <span class="sr-only"> (opens in a new tab)</span>
             </a>
             .
           </p>
         </Show>
         <Show when={!props.closed && ownWithDietaryData().length > 0}>
-          <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
-            <input
-              type="checkbox"
-              class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-              checked={consent.checked()}
-              onChange={(e) => consent.setChecked(e.currentTarget.checked)}
-              disabled={locked()}
-            />
-            <span>
-              I agree to the dietary requirements above — for{" "}
-              {formatNames(ownWithDietaryData().map((m) => m.firstName))} — being stored and shared
-              with the caterers for this wedding. See our{" "}
-              <a
-                href="/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-gold-ink underline underline-offset-2"
-              >
-                privacy notice
-              </a>
-              .
-            </span>
-          </label>
+          <Checkbox
+            box="native"
+            size="sm"
+            align="start"
+            checked={consent.checked()}
+            onChange={consent.setChecked}
+            disabled={locked()}
+            aria-describedby={refuses("consent") ? errorId : undefined}
+            aria-invalid={refuses("consent") ? "true" : undefined}
+            label={
+              <>
+                I agree to the dietary requirements above — for{" "}
+                {formatNames(ownWithDietaryData().map((m) => m.firstName))} — being stored and
+                shared with the caterers for this wedding. See our{" "}
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={proseLinkClass()}
+                >
+                  privacy notice
+                  <span class="sr-only"> (opens in a new tab)</span>
+                </a>
+                .
+              </>
+            }
+          />
         </Show>
 
         {/* The household's attestation for its plus-ones: a separate box,
@@ -937,36 +979,40 @@ export function RsvpPanel(props: RsvpPanelProps) {
             agreed" — and is stored under its own version. Same rules as the
             box above, over its own people. */}
         <Show when={!props.closed && plusOnesWithDietaryData().length > 0}>
-          <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
-            <input
-              type="checkbox"
-              class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-              checked={attestation.checked()}
-              onChange={(e) => attestation.setChecked(e.currentTarget.checked)}
-              disabled={locked()}
-            />
-            <span>
-              {PLUS_ONE_DIETARY_ATTESTATION.text(
-                formatNames(plusOnesWithDietaryData().map((m) => m.firstName)),
-              )}{" "}
-              See our{" "}
-              <a
-                href="/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-gold-ink underline underline-offset-2"
-              >
-                privacy notice
-              </a>
-              .
-            </span>
-          </label>
+          <Checkbox
+            box="native"
+            size="sm"
+            align="start"
+            checked={attestation.checked()}
+            onChange={attestation.setChecked}
+            disabled={locked()}
+            aria-describedby={refuses("attestation") ? errorId : undefined}
+            aria-invalid={refuses("attestation") ? "true" : undefined}
+            label={
+              <>
+                {PLUS_ONE_DIETARY_ATTESTATION.text(
+                  formatNames(plusOnesWithDietaryData().map((m) => m.firstName)),
+                )}{" "}
+                See our{" "}
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={proseLinkClass()}
+                >
+                  privacy notice
+                  <span class="sr-only"> (opens in a new tab)</span>
+                </a>
+                .
+              </>
+            }
+          />
         </Show>
 
         <Show when={error()}>
-          <p class="font-body text-error text-ui-sm py-1" role="alert">
+          <Notice id={errorId} size="inline" tone="danger" alert class="my-1">
             {error()}
-          </p>
+          </Notice>
         </Show>
 
         {/* The confirmation, spoken. The visible cue is a label swap on a
@@ -1004,7 +1050,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
           <Button
             variant="quiet"
             type="button"
-            class="flex-1"
+            class={ANSWER_CLASS}
             ref={dismissRef}
             onClick={() => props.onClose()}
             // Nothing left to cancel once the reply is in and the sheet is
@@ -1031,13 +1077,12 @@ export function RsvpPanel(props: RsvpPanelProps) {
           {/* No submit button once RSVPs are closed: a disabled Save invites a
               guest to keep clicking at a door that won't open. */}
           <Show when={!props.closed}>
-            {/* The animated confirmation — a fill sweep and a drawn tick —
-                used to live on this button. It moved to the events section's
+            {/* The fill sweep and drawn tick live on the events section's
                 Respond button (`onConfirmed` above, choreography in
                 `rsvp-responded.ts`), which is still on screen once this sheet
-                closes and this one is not. What stays here is the label swap
-                and the lock, so the sheet still visibly holds its result for
-                the dwell (`savedDwellMs`) rather than just vanishing. */}
+                closes and this one is not. This button keeps the label swap
+                and the lock, so the sheet visibly holds its result for the
+                dwell (`savedDwellMs`) rather than just vanishing. */}
             {/* Deliberately not `@cire/ui`'s `Button`.
                 That component fades anything carrying `aria-disabled`, on the
                 reading that the attribute marks a control someone cannot press
@@ -1047,7 +1092,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 keyed on `loading()` instead, which is the state that earns it. */}
             <button
               type="submit"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-wider flex-1 rounded-sm border bg-transparent px-4 py-3 uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              class={`border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-normal rounded-ui-control transition-ui-colors border bg-transparent px-5 py-2 font-medium duration-(--dur-fast) ease-(--ease-out) disabled:cursor-not-allowed disabled:hover:bg-transparent ${ANSWER_CLASS}`}
               classList={{
                 "opacity-40": loading() || blockedByMember(),
                 "cursor-pointer": !saved(),

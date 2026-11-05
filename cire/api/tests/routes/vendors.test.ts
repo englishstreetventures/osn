@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingHosts } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, VENDOR_STATUSES, weddingHosts } from "@cire/db";
 import { EmailError, EmailService, makeLogEmailLive, type LogEmailTransport } from "@shared/email";
 import { Effect, Layer } from "effect";
 
@@ -155,6 +155,20 @@ describe("vendor CRM routes", () => {
     const listAfter = await req(app, "GET", base, VIEWER);
     const { vendors: remaining } = (await listAfter.json()) as { vendors: VendorDto[] };
     expect(remaining.length).toBe(0);
+  });
+
+  it("every pipeline stage is accepted on create and on update", async () => {
+    const app = buildApp();
+    for (const status of VENDOR_STATUSES) {
+      const created = await req(app, "POST", base, EDITOR, { ...VENDOR, status });
+      expect(created.status).toBe(200);
+      const { vendor } = (await created.json()) as { vendor: VendorDto };
+      expect(vendor.status).toBe(status);
+
+      const patched = await req(app, "PATCH", `${base}/${vendor.id}`, EDITOR, { status });
+      expect(patched.status).toBe(200);
+      expect(((await patched.json()) as { vendor: VendorDto }).vendor.status).toBe(status);
+    }
   });
 
   it("400 on unknown category", async () => {

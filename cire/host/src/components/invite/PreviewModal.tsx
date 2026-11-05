@@ -20,6 +20,7 @@
  */
 
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Modal } from "@shared/ui/ui/modal";
 
 import PreviewPane, { type PreviewPaneProps } from "./PreviewPane";
@@ -37,10 +38,12 @@ export default function PreviewModal(
       open={props.open}
       onClose={props.onClose}
       label="Invite preview modal"
-      class="flex max-w-sm flex-col gap-4"
+      // `open:flex`, not `flex`: a plain display would beat the browser's own
+      // `display: none` on a shut dialog, and the empty box would show.
+      class="max-w-sm flex-col gap-4 open:flex"
     >
       <div class="flex items-center justify-between gap-2">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Live preview</p>
+        <Eyebrow>Live preview</Eyebrow>
         <Button variant="bare" type="button" onClick={props.onClose}>
           Close
         </Button>

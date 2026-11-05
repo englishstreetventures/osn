@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
-import Card, { CardEyebrow } from "@cire/ui/card";
+import Card from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
@@ -13,8 +14,8 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { friendlyError } from "../lib/api";
-import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
+import { haptic } from "../lib/touch-feedback";
 import { fetchListing, putListing, takeSeededListing } from "../lib/vendor-store";
 // ── Price-band options ─────────────────────────────────────────────────────
 const PRICE_BANDS = [
@@ -29,7 +30,7 @@ const PRICE_BANDS = [
 function Required() {
   return (
     <>
-      <span aria-hidden="true" class="text-gold">
+      <span aria-hidden="true" class="text-gold-ink">
         {" *"}
       </span>
       <span class="sr-only"> (required)</span>
@@ -172,8 +173,8 @@ export default function ListingEditor(props: ListingEditorProps) {
       {/* Header row: title + listed badge */}
       <div class="flex items-start justify-between gap-4">
         <div class="flex min-w-0 flex-col gap-0.5">
-          <CardEyebrow>Directory listing</CardEyebrow>
-          <h2 class="font-display text-text text-ui-lg leading-tight font-light">
+          <Eyebrow>Directory listing</Eyebrow>
+          <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">
             {props.orgName}
           </h2>
         </div>
@@ -220,6 +221,7 @@ export default function ListingEditor(props: ListingEditorProps) {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 value={name()}
                 onInput={(e) => setName(e.currentTarget.value)}
@@ -247,6 +249,7 @@ export default function ListingEditor(props: ListingEditorProps) {
               <For each={SERVICE_CATEGORIES}>
                 {(cat) => (
                   <Checkbox
+                    box="native"
                     checked={checked()[cat.key] ?? false}
                     onChange={(next) => toggleCategory(cat.key, next)}
                     label={categoryLabel(cat.key)}
@@ -278,6 +281,7 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Email">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   type="email"
                   value={email()}
@@ -290,6 +294,7 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Phone">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   type="tel"
                   value={phone()}
@@ -302,6 +307,7 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Website">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   type="url"
                   value={website()}
@@ -314,6 +320,7 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Instagram">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   value={instagram()}
                   onInput={(e) => setInstagram(e.currentTarget.value)}
@@ -327,6 +334,7 @@ export default function ListingEditor(props: ListingEditorProps) {
           <Field label="Location">
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 value={locationText()}
                 onInput={(e) => setLocationText(e.currentTarget.value)}
@@ -340,6 +348,7 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Price band">
               {(field) => (
                 <Select
+                  size="form"
                   {...field}
                   value={priceBand()}
                   onChange={(e) => setPriceBand(e.currentTarget.value)}
@@ -354,6 +363,7 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Price min ($)">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   type="number"
                   min="0"
@@ -368,6 +378,7 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Price max ($)">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
                   type="number"
                   min="0"

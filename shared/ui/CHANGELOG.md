@@ -1,5 +1,48 @@
 # @shared/ui
 
+## 0.10.1
+
+### Patch Changes
+
+- 5be7d49: `Textarea`'s note on the resize prop names `@cire/ui/lib/auto-size` as the auto-sized frame it guards against. A comment only; nothing renders differently.
+
+## 0.10.0
+
+### Minor Changes
+
+- 770d7c8: `Input`, `Textarea` and `Select` gain three sizes and a fill. `form` and `form-compact` are 34px, with `md`'s and `sm`'s sides and type; `touch` is a guest's field, 46px with 16px type on a phone and 44px from 640px. `fill="ink"` draws the edge and fill from the text colour at 55% and 4.5%, its placeholder in the secondary ink taken 15% toward the text colour so it holds 4.5:1 inside the well, focuses with the house outline and keeps 16px type below 640px, for a field on a surface the page does not choose. `Input` gains the `claim` face (an invitation's code: centred capitals, with the browser's spelling help off and a phone's keyboard in capitals) and the `amount` face (centred). The `code` face sets no attribute, so musubi's profile-ID field keeps its markup.
+
+  `Input` and `Select` take a fixed height at every size, so no field's height comes from the platform's font: a `Select` is now 28px at `sm` and 36px at `md`. `Select` draws its own chevron, 12px or 10px in from the right edge, with the value clear of it; its `class`, `classList`, `style` and `hidden` go on a box round it that places and sizes the field. With no fill, every class string at `sm` and `md` is unchanged.
+
+- 3507ec6: `DropdownMenu` gains checkbox, radio and link rows and an `accent` look. `DropdownMenuCheckboxItem` (a trailing check, or `Switch`'s own track and thumb with `indicator="switch"`), `DropdownMenuRadioGroup` and `DropdownMenuRadioItem` (a check on the chosen row), and `DropdownMenuItem as="a"`, a real anchor that the browser follows on a click, a tap, Enter or Space, closes its menu after its own click, keeps only a web, path, `mailto:` or `tel:` address, and adds `noopener noreferrer` to its caller's `rel` whenever it opens another tab or window. `DropdownMenuTrigger` and `DropdownMenuGroup` refuse `innerHTML`, `innerText` and `textContent`, as the other parts do. `DropdownMenuContent` takes `variant="accent"`, cire's portal menu: the raised panel with the floating shadow, rows in full ink, a 10% accent wash in readable accent ink when highlighted, an inset keyboard ring, and a pop open at the app's own `--dur-fast` and `--ease-out`, with no exit. `DropdownMenuLabel` takes `tone="eyebrow"`. `DropdownMenuHandle` hands a list the menu its root holds, so the one-menu-for-a-list pattern imports nothing from Kobalte. With a modal dialog open, the panel portals into it, as `PopoverContent` does. The default look, and where it portals with no modal open, are unchanged, except in a contrast theme (forced colours): there a focused default row and a focused `treatment="pill"` trigger now draw an outline, so focus stays visible in that theme. Two new subpaths with no Kobalte in them: `@shared/ui/ui/menu-classes` holds every class the menu renders, and `@shared/ui/ui/menu-touch-classes` holds `MENU_TOUCH`, the 44px rows a surface without Kobalte's menu draws.
+
+## 0.9.0
+
+### Minor Changes
+
+- d158559: `Checkbox`, `RadioGroup` and `RadioGroupItem` are native inputs inside their labels, with nothing from Kobalte. `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input, and a label is JSX, so it can hold a link or a second line. Both stay controlled: a change the caller refuses never shows as made, and a `RadioGroup`'s `value` is now required (`""` for none chosen).
+
+  New props: `box` (`drawn`, the default and pulse's look, unchanged; or `native`, the browser's own box when ticked and a hairline edge when not, at 13px either way), `size` (`md` or `sm` label), `align` (`start` centres the box on a wrapped label's first line, and a drawn label there takes prose leading), and on `RadioGroup` `orientation` (`native` puts 16px between radios in a row, 8px in a column). `Checkbox` gains `description`, inside the label, and `note`, under the row and outside the label. A disabled drawn box fades to 50%; pulse passes `disabled` nowhere today, so nothing it draws moves.
+
+  `Checkbox`, `RadioGroup` and `Switch` put the caller's value back once mounted, so a form state the browser restored before hydration never shows; and in a Windows contrast theme their drawn box, circle and track draw keyboard focus as an outline, and a chosen drawn radio keeps its dot and a switch its thumb, so pulse's forms read in a contrast theme where they did not.
+
+## 0.8.0
+
+### Minor Changes
+
+- db781eb: `Chip` gains `variant="outline"` (a 1px border at 40% of the tone, no ground, at the filled chip's height), `treatment="tag"` (a label in sentence case at normal spacing, drawn as cire's hand-written tags were) and a `danger` tone. Filled `success`, `pending` and `accent` chips now tint at 8%, so their words clear 4.5:1 on a pale theme; the neutral chip renders the classes it did before. `Chip` spreads the rest of a span's safe props and takes a layout class, and drops a `title`.
+- f6a7516: `Notice` gains a `size` — `md`, the default box; `sm`, the same box compact; `inline`, no box at all, for the error line under a field — and an `accent` tone, a standing note in the accent's readable ink. `danger`, `warn` and `success` now lead with a circled icon (a cross, an exclamation mark, a tick) drawn inline in the tone's ink and sized from the text step, in place of a text glyph; the read words are unchanged. A new `mark` prop draws an app's own icon and read word in the same slot. A new `fill` prop lets an `sm` or `md` box drop its tint (`fill="none"`) and keep its border and ink; the type refuses `fill` on the `inline` line, which has no box. With no `size` and no `tone`, a notice renders the classes it did before.
+
+### Patch Changes
+
+- 7dc0fd8: `Chip`'s note on why `danger` is outlined by default gives the reason that still holds and cire's measured figure. The lab's cire mapping draws cire's darker light-theme error red.
+
+## 0.7.5
+
+### Patch Changes
+
+- 94a7824: The token contract gains a `field` radius role for text inputs: `rounded-ui-field`, mapped through `--ui-radius-field`. `Input`, `Textarea` and `Select` take their corner from it rather than from `control`, so an app can give its buttons pill ends without making its fields pills. It falls back to `--ui-radius-control`, then `--ui-radius-md`, so an app that maps no field radius renders as before.
+
 ## 0.7.4
 
 ### Patch Changes

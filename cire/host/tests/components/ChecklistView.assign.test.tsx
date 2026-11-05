@@ -22,7 +22,7 @@ vi.mock("../../src/lib/api", async () => {
 });
 
 const { haptic } = vi.hoisted(() => ({ haptic: vi.fn() }));
-vi.mock("../../src/lib/haptics", () => ({ haptic }));
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic }));
 
 import ChecklistView from "../../src/components/ChecklistView";
 import {

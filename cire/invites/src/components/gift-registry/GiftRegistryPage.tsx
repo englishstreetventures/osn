@@ -1,4 +1,7 @@
+import { buttonClass, proseLinkClass } from "@cire/ui/button";
+import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import { Toaster } from "@shared/toast";
+import { Notice } from "@shared/ui/ui/notice";
 import {
   createMemo,
   createSignal,
@@ -39,6 +42,21 @@ import {
 import { Z_CLASS } from "../../lib/z-index";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { GiftRegistryItemCard } from "./GiftRegistryItemCard";
+
+/**
+ * A shelf's label, drawn once per shelf: the eyebrow's classes on a plain
+ * heading, without `Eyebrow`'s run-time choice of tag.
+ */
+const SHELF_LABEL_CLASS = eyebrowClass();
+
+/**
+ * Where a note above the list sits: centred in the page's column, at the
+ * intro's measure. Each note is `Notice`'s accent note with no fill, so its
+ * readable gold sits on the page's own ground — the ground the palette holds
+ * that gold to 4.5:1 against — rather than on a tint nothing measures. The
+ * notice takes layout and no type, so the centring is set here and inherited.
+ */
+const NOTE_PLACE = "max-w-ui-md mx-auto mb-8 text-center";
 
 /**
  * The money panel is a whole second surface — its own amount field, its own
@@ -388,10 +406,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 This gift list is for the couple’s guests. Enter your invite code on the invitation
                 and it opens here.
               </p>
-              <a
-                href={props.inviteHref}
-                class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
-              >
+              <a href={props.inviteHref} class={buttonClass({ variant: "cta", size: "lg" })}>
                 Open the invitation
               </a>
             </div>
@@ -408,7 +423,9 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               </p>
               <a
                 href={props.inviteHref}
-                class="font-body text-gold-ink focus-visible:ring-gold/60 text-ui-sm rounded-sm underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+                // A link standing alone is a pill, at the guest site's 44px
+                // touch floor.
+                class={`${buttonClass({ variant: "outline", size: "md" })} min-h-11`}
               >
                 Back to the invitation
               </a>
@@ -434,14 +451,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 asserting on the page that money moved. */}
             <Show when={payment()}>
               {(arrival) => (
-                <p
-                  data-gift-payment={arrival()}
-                  class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
-                >
-                  {arrival() === "thanks"
-                    ? "Thank you. If your payment went through, it’s on its way to them — the couple will see it in their gift list."
-                    : "Nothing was charged. The list is still here whenever you want it."}
-                </p>
+                <div class={NOTE_PLACE}>
+                  <Notice size="sm" tone="accent" fill="none" data-gift-payment={arrival()}>
+                    {arrival() === "thanks"
+                      ? "Thank you. If your payment went through, it’s on its way to them — the couple will see it in their gift list."
+                      : "Nothing was charged. The list is still here whenever you want it."}
+                  </Notice>
+                </div>
               )}
             </Show>
 
@@ -458,19 +474,15 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 between the two, or on a later re-read — which is why the
                 reserve controls are gone. */}
             <Show when={!signedIn()}>
-              <p
-                data-gift-signed-out
-                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
-              >
-                Your invite session has ended. Enter your invite code again on{" "}
-                <a
-                  href={props.inviteHref}
-                  class="focus-visible:ring-gold/60 rounded-sm underline underline-offset-4 focus:outline-none focus-visible:ring-2"
-                >
-                  the invitation
-                </a>{" "}
-                to reserve a gift.
-              </p>
+              <div class={NOTE_PLACE}>
+                <Notice size="sm" tone="accent" fill="none" data-gift-signed-out>
+                  Your invite session has ended. Enter your invite code again on{" "}
+                  <a href={props.inviteHref} class={proseLinkClass()}>
+                    the invitation
+                  </a>{" "}
+                  to reserve a gift.
+                </Notice>
+              </div>
             </Show>
 
             {/* The organiser's preview. Same opening words as the invite's own
@@ -478,14 +490,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 when the list offers it: where the couple, Stripe or this site
                 cannot take a money gift, guests are offered none. */}
             <Show when={preview()}>
-              <p
-                data-gift-preview
-                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
-              >
-                {registry()?.cashGiftsEnabled
-                  ? "Preview mode. Guests reserve gifts and give money here; nothing can be reserved or given from a preview."
-                  : "Preview mode. Guests reserve gifts here; nothing can be reserved from a preview."}
-              </p>
+              <div class={NOTE_PLACE}>
+                <Notice size="sm" tone="accent" fill="none" data-gift-preview>
+                  {registry()?.cashGiftsEnabled
+                    ? "Preview mode. Guests reserve gifts and give money here; nothing can be reserved or given from a preview."
+                    : "Preview mode. Guests reserve gifts here; nothing can be reserved from a preview."}
+                </Notice>
+              </div>
             </Show>
 
             <Show when={shippingAddress()}>
@@ -494,9 +505,9 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   data-gift-shipping
                   class="border-border max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
                 >
-                  <p class="font-body text-text-muted text-ui-xs tracking-ui-widest mb-1 uppercase">
+                  <Eyebrow tone="muted" class="mb-1">
                     Send gifts to
-                  </p>
+                  </Eyebrow>
                   <p class="font-body text-text text-ui-base leading-ui-normal break-words whitespace-pre-line">
                     {address()}
                   </p>
@@ -590,10 +601,10 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                             where their grouping starts. Absent when they grouped
                             nothing, since one unlabelled shelf is just a list. */}
                         <Show when={showShelfLabels()}>
-                          <h2 class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-6 flex items-center gap-4 uppercase">
-                            <span>{group().category ?? "More gifts"}</span>
+                          <div class="mb-6 flex items-center gap-4">
+                            <h2 class={SHELF_LABEL_CLASS}>{group().category ?? "More gifts"}</h2>
                             <span class="border-border h-px flex-1 border-t" aria-hidden="true" />
-                          </h2>
+                          </div>
                         </Show>
                         {/* `items-start`, so a card is its own height. Stretching the row
                             instead would hand a gift with no picture the height of

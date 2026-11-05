@@ -41,7 +41,7 @@ import "../../src/styles/global.css";
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic: () => {} }));
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -88,7 +88,7 @@ function renderPage(guests = 12, tier: Tier = "gold") {
       <div class="chrome-scope contents">
         <header
           data-top-bar
-          class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md"
+          class="border-border bg-bg/95 sticky top-0 z-30 border-b backdrop-blur-md"
         >
           <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
             <span class="font-display text-text text-ui-md leading-none font-light">Cire</span>

@@ -1,0 +1,190 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 1947,
+    "branch": "chore/observability-comment-refs",
+    "base_sha": "38a9696c6b76e68edbf47b06a12d362967285050",
+    "head_sha": "18b9405421bf2e3bf41ce511e59fe7c16a45ce21",
+    "generated_at": "2026-11-04T03:39:53.820Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed",
+    "issues": 3
+  },
+  "window": {
+    "sessions": 6,
+    "first_ts": "2026-11-04T02:55:45.268Z",
+    "last_ts": "2026-11-04T03:39:48.437Z",
+    "span_seconds": 2643,
+    "active_seconds": 2710,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 22.93709519999999,
+    "tokens": {
+      "input": 606,
+      "output": 233414,
+      "thinking": 115002,
+      "cache_write_5m": 976306,
+      "cache_write_1h": 0,
+      "cache_read": 35595384
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 532,
+          "output": 212610,
+          "thinking": 111163,
+          "cache_write_5m": 860386,
+          "cache_write_1h": 0,
+          "cache_read": 33818862
+        },
+        "usd_equivalent": 22.083802799999994,
+        "messages": 254
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 74,
+          "output": 20804,
+          "thinking": 3839,
+          "cache_write_5m": 115920,
+          "cache_write_1h": 0,
+          "cache_read": 1776522
+        },
+        "usd_equivalent": 0.8532924000000001,
+        "messages": 37
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 20,
+          "output": 4410,
+          "thinking": 2790,
+          "cache_write_5m": 68671,
+          "cache_write_1h": 0,
+          "cache_read": 94054
+        },
+        "usd_equivalent": 0.4692566,
+        "messages": 10
+      },
+      "subagent": {
+        "tokens": {
+          "input": 586,
+          "output": 229004,
+          "thinking": 112212,
+          "cache_write_5m": 907635,
+          "cache_write_1h": 0,
+          "cache_read": 35501330
+        },
+        "usd_equivalent": 22.46783859999999,
+        "messages": 281
+      }
+    },
+    "effort": {
+      "medium": 47,
+      "high": 43,
+      "xhigh": 201
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 3,
+      "docs": 3,
+      "config": 0,
+      "source": 6
+    },
+    "loc": {
+      "generated": {
+        "added": 6,
+        "deleted": 0
+      },
+      "test": {
+        "added": 272,
+        "deleted": 69
+      },
+      "docs": {
+        "added": 10,
+        "deleted": 4
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 74,
+        "deleted": 61
+      }
+    },
+    "packages": [
+      "osn/api",
+      "shared/observability"
+    ],
+    "touches_migration": false,
+    "commits": 7
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 247,
+      "Read": 15,
+      "Edit": 11,
+      "Skill": 9,
+      "SubagentHandback": 5,
+      "StructuredOutput": 5,
+      "Agent": 4,
+      "ToolSearch": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 7
+    },
+    "skills": {
+      "prep-pr": 1,
+      "review-tests": 1,
+      "write-pr": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "write-issue": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "reviewer": 3,
+      "mechanic": 1
+    },
+    "requests": {
+      "main": 10,
+      "subagent": 281,
+      "with_tools": 286,
+      "with_one_tool": 275,
+      "context_median": 97665,
+      "context_p90": 267678
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 5,
+    "located": 5,
+    "acted_on": 5,
+    "paired": 5,
+    "acted_on_paired": 5,
+    "control_changed": 3,
+    "acted_on_by_test": 1,
+    "acted_on_paired_by_test": 1
+  }
+}

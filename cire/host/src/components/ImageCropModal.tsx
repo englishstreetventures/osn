@@ -1,11 +1,11 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Cropper } from "cropperjs";
 import type { CropperImage, CropperSelection } from "cropperjs";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
-import { haptic } from "../lib/haptics";
 import {
   ASPECT_PRESETS,
   type AspectPresetId,
@@ -17,6 +17,7 @@ import {
   presetAspectRatio,
   presetForCrop,
 } from "../lib/image-crop";
+import { haptic } from "../lib/touch-feedback";
 /**
  * Drag/resize/zoom crop editor over an uploaded invite image, wrapping the
  * battle-tested vanilla Cropper.js (per the repo's "prefer existing libraries"
@@ -397,7 +398,7 @@ export default function ImageCropModal(props: ImageCropModalProps) {
       class="flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 overflow-auto"
     >
       <header class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Crop</p>
+        <Eyebrow>Crop</Eyebrow>
         <h3 class="font-display text-text text-ui-lg font-light">Choose what guests see</h3>
         <p class="font-body text-text-muted text-ui-sm">
           Drag to pan, drag a corner to zoom. Pick a shape below — guests see exactly this frame,
@@ -411,27 +412,24 @@ export default function ImageCropModal(props: ImageCropModalProps) {
         </Notice>
       </Show>
 
-      {/* Aspect-ratio presets — a segmented control. The active shape is filled
-            gold; the rest are quiet outlines. Selecting one re-locks the crop box. */}
+      {/* Aspect-ratio presets — one choice among several, so `glass` pills:
+            the active shape wears the strip's glass. Selecting one re-locks
+            the crop box. */}
       <div class="flex flex-col gap-1.5">
         <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">Shape</span>
         <div role="group" aria-label="Crop aspect ratio" class="flex flex-wrap gap-1.5">
           <For each={ASPECT_PRESETS}>
             {(p) => (
-              <button
+              <Button
+                variant="glass"
+                size="sm"
                 type="button"
                 aria-pressed={preset() === p.id}
                 disabled={busy()}
                 onClick={() => choosePreset(p.id)}
-                class="font-body text-ui-xs tracking-ui-wider rounded-sm border px-3 py-1.5 uppercase transition duration-(--dur-fast) ease-(--ease-out) disabled:opacity-40"
-                classList={{
-                  "border-gold bg-gold text-bg": preset() === p.id,
-                  "border-border text-text-muted hover:border-gold hover:text-gold bg-transparent":
-                    preset() !== p.id,
-                }}
               >
                 {p.label}
-              </button>
+              </Button>
             )}
           </For>
         </div>
@@ -451,7 +449,7 @@ export default function ImageCropModal(props: ImageCropModalProps) {
             load also sends no cookie, and the closing image is linked at the
             organiser image route, which answers 401 without the organiser
             session. */}
-      <div class="bg-surface h-[55vh] overflow-hidden rounded-sm">
+      <div class="bg-surface rounded-ui-field h-[55vh] overflow-hidden">
         <img
           ref={imgEl}
           src={props.imageUrl}

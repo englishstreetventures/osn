@@ -1,3 +1,4 @@
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 
 /**
@@ -202,9 +203,9 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
           Human verification challenge
         </span>
         <Show when={failed()}>
-          <p class="font-body text-error text-ui-sm mt-2" role="alert">
+          <Notice size="inline" tone="danger" alert class="mt-2">
             Couldn&apos;t load the verification challenge. Refresh and try again.
-          </p>
+          </Notice>
         </Show>
       </div>
     </Show>

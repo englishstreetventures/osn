@@ -1,20 +1,24 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Fieldset } from "@shared/ui/ui/field";
-import { createSignal, For, type JSX, onMount, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { BLOCK_CHOSEN, BLOCK_IDLE } from "../lib/chosen-block";
 import { invalidateGuests } from "../lib/guests-store";
-import { haptic } from "../lib/haptics";
 import { invalidateHouseholds } from "../lib/households-store";
+import { haptic } from "../lib/touch-feedback";
 import type { CodeStyle } from "./CreateWeddingForm";
 import SectionIntro from "./SectionIntro";
+
+const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-5`;
+
 interface RemintPanelProps {
   weddingId: string;
-  /** The line pointing at the other places that shape the invite message, shown
-   *  under the panel's introduction. */
-  inviteMessageLinks?: JSX.Element;
+  /** Every code changed: the message beside the panel reads them again. */
+  onReminted?: () => void;
 }
 
 interface GuestRow {
@@ -107,6 +111,7 @@ export default function RemintPanel(props: RemintPanelProps) {
       setConfirming(false);
       // The new codes start un-shared.
       setSharedCount(0);
+      props.onReminted?.();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       haptic("reject");
@@ -117,23 +122,20 @@ export default function RemintPanel(props: RemintPanelProps) {
   }
 
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-5 rounded-sm border p-6">
+    <div class={PANEL_CLASS}>
       <SectionIntro
         eyebrow="Guest codes"
         title="Change the code style"
         description="Each household has a private code they enter to open your invite and RSVP. If you'd rather they were shorter and friendlier — or longer and harder to guess — switch the style here. Re-minting replaces every code, so any code you've already shared will stop working."
       />
-      {props.inviteMessageLinks}
 
       <Fieldset legend="New code style">
         <div class="flex flex-col gap-2 @lg/panel:flex-row">
           <For each={STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-                  targetStyle() === option.value
-                    ? "border-gold bg-gold/5"
-                    : "border-border bg-bg hover:border-gold/50"
+                class={`rounded-ui-field bg-bg flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-[color,background-color,border-color,box-shadow] ${
+                  targetStyle() === option.value ? BLOCK_CHOSEN : BLOCK_IDLE
                 } ${busy() ? "opacity-40" : ""}`}
               >
                 <span class="flex items-center gap-2">
@@ -144,11 +146,10 @@ export default function RemintPanel(props: RemintPanelProps) {
                     checked={targetStyle() === option.value}
                     disabled={busy()}
                     onChange={() => setTargetStyle(option.value)}
-                    class="accent-gold"
                   />
                   <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
-                <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
+                <span class="font-body text-text-muted text-ui-sm leading-ui-snug pl-6">
                   {option.hint}
                 </span>
               </label>
@@ -171,7 +172,7 @@ export default function RemintPanel(props: RemintPanelProps) {
       <Show when={confirming()}>
         <div class="border-error/30 bg-error/5 flex flex-col gap-3 rounded-sm border p-4">
           <Show when={sharedCount() > 0}>
-            <p class="font-body text-error text-ui-base leading-relaxed">
+            <p class="font-body text-error text-ui-base leading-ui-normal">
               {sharedCount() === 1
                 ? "1 family has already been sent their code."
                 : `${sharedCount()} families have already been sent their codes.`}{" "}
@@ -181,7 +182,7 @@ export default function RemintPanel(props: RemintPanelProps) {
           </Show>
           <p class="font-body text-text text-ui-base">
             Re-mint all {familyCount()} family codes in the{" "}
-            <span class="text-gold">{targetStyle()}</span> style? This can&apos;t be undone.
+            <span class="text-gold-ink">{targetStyle()}</span> style? This can&apos;t be undone.
           </p>
           <div class="flex flex-wrap items-center gap-3">
             <Button variant="danger" onClick={() => void remint()} disabled={busy()}>

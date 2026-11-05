@@ -1,16 +1,18 @@
 ---
 import { Font } from 'astro:assets'
 
+import SignInCard from '@cire/ui/sign-in-card.astro'
+
 import '../styles/global.css'
-import SignInPanel from '../components/SignInPanel'
-import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
+import { CIRE_API_URL } from '../lib/osn'
+import { THEME_BOOT_SCRIPT } from '../lib/preference-keys'
 ---
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sign in — Host Dashboard — Cire</title>
+    <title>Sign in — Host portal — Cire</title>
     <!-- Same boot script as the dashboard, for the same reason: sign-in is the
          first page a host sees, and it is the one most likely to be opened at
          night. It must not paint a frame of the wrong theme. -->
@@ -21,21 +23,10 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
     <Font cssVariable="--font-ui" preload={[{ subset: "latin" }]} />
     <Font cssVariable="--font-flair" preload={[{ subset: "latin" }]} />
   </head>
-  <body>
-    <!-- Same `page-frame` gutters as the dashboard, with its own measure: a
-         sign-in card has one job and doesn't grow with the screen. -->
-    <main class="page-frame py-24 [--page-max:30rem]">
-      <header class="mb-8 flex flex-col gap-2 text-center">
-        <p class="font-body text-ui-xs uppercase tracking-ui-widest text-gold">
-          Cire · Host Dashboard
-        </p>
-        <h1 class="font-display text-[clamp(1.8rem,4vw,2.5rem)] font-light italic leading-ui-none text-text">
-          Sign in
-        </h1>
-      </header>
-      <div class="rounded-sm border border-border bg-surface p-8">
-        <SignInPanel client:only="solid-js" />
-      </div>
-    </main>
+  <!-- The page's body is `@cire/ui`'s `SignInCard`, the same as the vendor
+       portal's but for the portal's name. Its heading is sized from the page's
+       container, so the body carries `@container/frame`. -->
+  <body class="@container/frame">
+    <SignInCard portal="host" apiBase={CIRE_API_URL} />
   </body>
 </html>

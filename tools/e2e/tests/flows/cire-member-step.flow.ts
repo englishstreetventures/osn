@@ -57,12 +57,12 @@ test("cire-member-step", async ({ page, context, flow }) => {
 
   const claimed = await flow.step("enter the family code", async () => {
     await page.getByLabel("Invitation code").fill(CIRE_HOUSEHOLD.code);
-    await expect(page.getByRole("button", { name: "Open Invitation" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Open invitation" })).toBeEnabled();
     // Exactly the claim: `/api/claim/member` and `/api/claim/session` share the prefix.
     const response = page.waitForResponse(
       (r) => r.url() === `${ORIGINS.cireApi}/api/claim` && r.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "Open Invitation" }).click();
+    await page.getByRole("button", { name: "Open invitation" }).click();
     return (await (await response).json()) as MemberStepBody;
   });
   flow.check("claim names no member yet", true, claimed.member === null);
@@ -409,8 +409,9 @@ test("cire-member-step", async ({ page, context, flow }) => {
     await page.route(emailUrl, handler);
     try {
       await emailBox.getByRole("button", { name: "Remove email" }).click();
+      // An alert, so a screen reader hears the refusal the moment it appears.
       await expect(
-        emailBox.getByText("Couldn’t remove your email", { exact: false }),
+        emailBox.getByRole("alert").filter({ hasText: "Couldn’t remove your email" }),
       ).toBeVisible();
       await expect(emailBox.getByText(CIRE_HOUSEHOLD.email)).toBeVisible();
     } finally {

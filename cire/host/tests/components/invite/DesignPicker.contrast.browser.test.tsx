@@ -71,7 +71,8 @@ describe("DesignPicker small text, as painted", () => {
           currentId="classic"
           saving={false}
           onSelect={() => {}}
-          previewHref={(id) => `/preview?design=${id}`}
+          // A link pill draws only an absolute http(s) address.
+          previewHref={(id) => `https://invites.example/preview?design=${id}`}
         />
       ));
       const targets: [string, Element][] = [

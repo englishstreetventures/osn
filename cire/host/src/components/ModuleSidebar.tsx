@@ -1,4 +1,6 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
+import { createSlidingPill } from "@cire/ui/sliding-pill";
 import { Dialog } from "@kobalte/core/dialog";
 import { Popover } from "@kobalte/core/popover";
 import { Tooltip } from "@kobalte/core/tooltip";
@@ -21,13 +23,12 @@ import {
 import { Portal } from "solid-js/web";
 
 import type { Module } from "../lib/dashboard-route";
-import { haptic } from "../lib/haptics";
 import { type LockedExport as LockedExportSpec, lockedExportFor } from "../lib/locked-exports";
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
 import { createPointerDwell } from "../lib/pointer-dwell";
 import { readRailCollapsed, writeRailCollapsed } from "../lib/rail-preference";
-import { createSlidingPill } from "../lib/sliding-pill";
 import { type Tier, TIER_LABEL } from "../lib/tiers";
+import { haptic } from "../lib/touch-feedback";
 import LockedExport from "./LockedExport";
 import ModuleIcon from "./ModuleIcon";
 import UpgradeDialog from "./UpgradeDialog";
@@ -37,7 +38,7 @@ import UpgradeDialog from "./UpgradeDialog";
  *  between icon and label is each surface's own: the collapsed rail has none. */
 const rowBase =
   "font-body flex w-full items-center rounded-sm text-left tracking-ui-wider uppercase " +
-  "transition-colors duration-(--dur-fast) ease-(--ease-out)";
+  "transition-ui-colors duration-(--dur-fast) ease-(--ease-out)";
 
 const rowIdle = "text-text-muted hover:text-text hover:bg-surface/50";
 
@@ -61,14 +62,12 @@ const railActive = "text-gold-ink";
  * A locked row: dimmer than an idle one, and it changes nothing on hover
  * because it does not navigate.
  *
- * `text-faint` rather than `text-muted` with an `opacity` on top. Both text
- * tokens are already translucent (see the ink ramp in `styles/global.css`), so
- * stacking `opacity-50` on `text-muted` multiplies the two and lands the label
- * under every token on the ramp. One token is the whole fade, and the ramp's
- * own comment says what it buys: `text-faint` clears 3:1, not the 4.5:1 that
- * normal-size text wants. That is a deliberate trade for a control whose
- * purpose is to be de-emphasised, and the lock is carried in the row's
- * accessible name rather than by its colour, so nothing depends on reading it.
+ * The row's ink is `text-faint`, which its icon takes: a graphic, held to the
+ * 3:1 that token clears. The row is still a control — it opens the module's
+ * offer — so its name is a word a host reads and takes `text-muted`, 4.5:1,
+ * where the row's `Body` sets it. The lock is carried in the row's accessible
+ * name rather than by its colour. No `opacity` on top: both text tokens are
+ * already translucent, and stacking one would multiply the two.
  */
 const rowLocked = "text-text-faint cursor-default";
 
@@ -134,7 +133,7 @@ function RailTip(props: {
         <Tooltip.Content
           aria-hidden="true"
           data-rail-tip=""
-          class="rail-tip border-border bg-surface-raised z-50 flex max-w-64 flex-col gap-0.5 rounded-sm border px-3 py-2 shadow-md"
+          class="rail-tip border-border bg-surface-raised z-50 flex max-w-64 flex-col gap-0.5 rounded-md border px-3 py-2 shadow-md"
         >
           <span class="font-body text-text text-ui-xs tracking-ui-wider uppercase">
             {props.label}
@@ -308,11 +307,7 @@ function LockedRow(props: {
       <RailTip
         enabled={props.tip ?? false}
         label={props.mod.label}
-        detail={
-          <span class="font-body text-gold-ink text-ui-xs tracking-ui-wider uppercase">
-            Included with {TIER_LABEL[lock().tier]}
-          </span>
-        }
+        detail={<Eyebrow as="span">Included with {TIER_LABEL[lock().tier]}</Eyebrow>}
       >
         <Tooltip.Trigger
           as={LockedTrigger}
@@ -360,19 +355,20 @@ function LockedRow(props: {
             if (props.dwell) dwell.leave(event);
           }}
           onKeyDown={onCardKeyDown}
-          class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-2 rounded-sm border p-3 shadow-lg outline-none"
+          class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-2 rounded-md border p-3 shadow-(--elev-2) outline-none"
         >
           {/* `gold-ink`, not `gold`: this is small text that has to be read,
               and gold has no contrast contract (`styles/global.css`). */}
-          <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest uppercase">
-            Included with {TIER_LABEL[lock().tier]}
-          </p>
+          <Eyebrow>Included with {TIER_LABEL[lock().tier]}</Eyebrow>
           {/* Title and description name the card's `role="dialog"`; `as="p"`
               keeps a heading out of the end of `<body>`. */}
-          <Popover.Title as="p" class="font-display text-text text-ui-md leading-tight font-light">
+          <Popover.Title
+            as="p"
+            class="font-display text-text text-ui-md leading-ui-tight font-light"
+          >
             {lock().title}
           </Popover.Title>
-          <Popover.Description as="p" class="text-text-muted text-ui-sm leading-snug">
+          <Popover.Description as="p" class="text-text-muted text-ui-sm leading-ui-snug">
             {lock().blurb}
           </Popover.Description>
           <Button
@@ -588,7 +584,7 @@ export default function ModuleSidebar(props: {
               aria-expanded={!collapsed()}
               aria-controls={navId}
               onClick={toggleRail}
-              class={`${rowIdle} flex w-fit items-center rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out)`}
+              class={`${rowIdle} transition-ui-colors flex w-fit items-center rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out)`}
             >
               <ModuleIcon icon={collapsed() ? PanelLeftOpen : PanelLeftClose} class="opacity-80" />
             </Tooltip.Trigger>
@@ -639,7 +635,7 @@ export default function ModuleSidebar(props: {
                     class={
                       collapsed()
                         ? "w-0 overflow-hidden whitespace-nowrap"
-                        : `min-w-0 truncate ${moved() ? "rail-label" : ""}`
+                        : `min-w-0 truncate ${moved() ? "rail-label" : ""} ${locked() ? "text-text-muted" : ""}`
                     }
                   >
                     {mod.label}
@@ -661,7 +657,7 @@ export default function ModuleSidebar(props: {
                       enabled={railTips()}
                       label={mod.label}
                       detail={
-                        <span class="font-body text-text-muted text-ui-xs leading-snug">
+                        <span class="font-body text-text-muted text-ui-xs leading-ui-snug">
                           {mod.hint}
                         </span>
                       }
@@ -746,12 +742,12 @@ export default function ModuleSidebar(props: {
                 of its own. The name belongs on the element that owns the role. */}
             <Dialog.Content class="sheet-panel border-border bg-surface fixed inset-y-0 left-0 z-50 flex w-[min(19rem,86vw)] flex-col border-r">
               <div class="border-border flex items-center justify-between gap-4 border-b px-5 py-4">
-                <Dialog.Title class="font-display text-text text-ui-md leading-none font-light">
+                <Dialog.Title class="font-display text-text text-ui-md leading-ui-none font-light">
                   Wedding modules
                 </Dialog.Title>
                 <Dialog.CloseButton
                   aria-label="Close modules"
-                  class="text-text-muted hover:text-gold hover:border-gold-dim border-border text-ui-base flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border transition-colors duration-(--dur-fast)"
+                  class={buttonClass({ variant: "bare", size: "icon" })}
                 >
                   <span aria-hidden="true">✕</span>
                 </Dialog.CloseButton>
@@ -772,8 +768,10 @@ export default function ModuleSidebar(props: {
                           class={isActive() ? "text-gold" : "text-gold-dim"}
                         />
                         <span class="flex min-w-0 flex-col gap-1">
-                          <span class="truncate">{mod.label}</span>
-                          <span class="text-text-muted text-ui-xs leading-snug tracking-normal normal-case">
+                          <span class={locked() ? "text-text-muted truncate" : "truncate"}>
+                            {mod.label}
+                          </span>
+                          <span class="text-text-muted text-ui-xs leading-ui-snug tracking-ui-normal normal-case">
                             {mod.hint}
                           </span>
                         </span>

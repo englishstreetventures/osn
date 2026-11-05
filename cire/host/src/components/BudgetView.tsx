@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -10,6 +12,7 @@ import {
   SortableProvider,
   useDragDropContext,
 } from "@shared/sortable";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -30,12 +33,16 @@ import {
   revalidateBudget,
   setCachedBudget,
 } from "../lib/budget-store";
-import { haptic } from "../lib/haptics";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { sameButOrder } from "../lib/sortable-rows";
+import { haptic } from "../lib/touch-feedback";
 import { type PerHeadChange, PerHeadPanel, PerHeadSummary } from "./BudgetPerHead";
 import ReorderControls from "./ReorderControls";
+
+const SUMMARY_CLASS = `${cardClass({ padding: "sm" })} flex-row flex-wrap items-center justify-between gap-4`;
+
 interface BudgetViewProps {
   weddingId: string;
   /** Owner/editor may add/edit items + payments and reorder. */
@@ -489,11 +496,11 @@ export default function BudgetView(props: BudgetViewProps) {
       </Show>
 
       {/* Summary — spent vs cap, owner cap editor. */}
-      <div class="border-border bg-surface/20 flex flex-wrap items-center justify-between gap-4 rounded-sm border p-4">
+      <div class={SUMMARY_CLASS}>
         <div class="flex flex-col gap-1">
-          <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+          <Eyebrow as="span" tone="muted">
             Spent so far
-          </span>
+          </Eyebrow>
           <span class="text-text text-ui-lg font-semibold">
             {fmtMinor(spent(), currency())}
             <Show when={snapshot()?.budgetTotalMinor != null}>
@@ -534,6 +541,7 @@ export default function BudgetView(props: BudgetViewProps) {
               <Field label={`Total budget (${currency()})`} class="w-32">
                 {(field) => (
                   <Input
+                    size="form"
                     {...field}
                     type="number"
                     min="0"
@@ -543,10 +551,10 @@ export default function BudgetView(props: BudgetViewProps) {
                   />
                 )}
               </Field>
-              <Button variant="primary" onClick={saveCap}>
+              <Button variant="primary" size="form" onClick={saveCap}>
                 Save
               </Button>
-              <Button variant="quiet" onClick={() => setCapDraft(null)}>
+              <Button variant="quiet" size="form" onClick={() => setCapDraft(null)}>
                 Cancel
               </Button>
             </div>
@@ -556,13 +564,11 @@ export default function BudgetView(props: BudgetViewProps) {
 
       {/* Add item (editor). */}
       <Show when={props.canEdit}>
-        <form
-          onSubmit={addItem}
-          class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
-        >
+        <form onSubmit={addItem} class={FIELD_BAR_CLASS}>
           <Field label="Category">
             {(field) => (
               <Select
+                size="form"
                 {...field}
                 value={newCategory()}
                 onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
@@ -576,6 +582,7 @@ export default function BudgetView(props: BudgetViewProps) {
           <Field label="Item" class="min-w-48 flex-1">
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 value={newName()}
                 onInput={(e) => setNewName(e.currentTarget.value)}
@@ -584,14 +591,14 @@ export default function BudgetView(props: BudgetViewProps) {
             )}
           </Field>
           <Show when={perHeadSupported()}>
-            <label class="text-text text-ui-sm flex items-center gap-2 self-center">
-              <input
-                type="checkbox"
-                checked={newPerHead()}
-                onChange={(e) => setNewPerHead(e.currentTarget.checked)}
-              />
-              Priced per head
-            </label>
+            <Checkbox
+              box="native"
+              size="sm"
+              class="self-center"
+              checked={newPerHead()}
+              onChange={setNewPerHead}
+              label="Priced per head"
+            />
           </Show>
           <Field
             label={newPerHead() && perHeadSupported() ? "Price per head" : "Estimate (optional)"}
@@ -599,6 +606,7 @@ export default function BudgetView(props: BudgetViewProps) {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
                 type="number"
                 min="0"
@@ -608,7 +616,7 @@ export default function BudgetView(props: BudgetViewProps) {
               />
             )}
           </Field>
-          <Button type="submit" variant="primary">
+          <Button type="submit" variant="primary" size="form">
             Add item
           </Button>
         </form>
@@ -655,9 +663,9 @@ export default function BudgetView(props: BudgetViewProps) {
                 <Show when={categoryItems().length > 0}>
                   <section class="flex flex-col gap-2">
                     <div class="flex items-baseline justify-between">
-                      <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                      <Eyebrow as="h3" tone="muted">
                         {categoryLabel(category.key)}
-                      </h3>
+                      </Eyebrow>
                       <span class="text-text-muted text-ui-sm">
                         est {fmtMinor(subtotalEst(), currency())} · spent{" "}
                         {fmtMinor(subtotalActual(), currency())}
@@ -689,9 +697,9 @@ export default function BudgetView(props: BudgetViewProps) {
                                         style={maybeTransformStyle(sortable.transform())}
                                         class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
                                         classList={{
-                                          "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                          "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                             sortable.isActiveDraggable(),
-                                          "transition-transform":
+                                          "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                             dndState.dragging() && !sortable.isActiveDraggable(),
                                         }}
                                       >
@@ -832,9 +840,9 @@ function MoneyCell(props: {
 }) {
   return (
     <label class="flex w-24 flex-col gap-0.5">
-      <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+      <Eyebrow as="span" tone="muted">
         {props.label}
-      </span>
+      </Eyebrow>
       <Show
         when={props.canEdit}
         fallback={
@@ -844,7 +852,7 @@ function MoneyCell(props: {
         }
       >
         <Input
-          size="sm"
+          size="form-compact"
           type="number"
           min="0"
           step={MONEY_STEP}
@@ -882,8 +890,9 @@ function PaymentPanel(props: {
       <For each={props.payments}>
         {(p) => (
           <div class="text-ui-sm flex flex-wrap items-center gap-2">
-            <input
-              type="checkbox"
+            <Checkbox
+              box="native"
+              size="sm"
               aria-label={`${p.label} paid`}
               checked={p.paidAt != null}
               disabled={!props.canEdit}
@@ -895,7 +904,7 @@ function PaymentPanel(props: {
                 <span class="text-text-muted"> · due {p.dueAt}</span>
               </Show>
               <Show when={p.paidAt != null}>
-                <span class="text-gold-dim"> · paid</span>
+                <span class="text-gold-ink"> · paid</span>
               </Show>
             </span>
             <Show when={props.canEdit}>
@@ -917,7 +926,7 @@ function PaymentPanel(props: {
             {(field) => (
               <Input
                 {...field}
-                size="sm"
+                size="form-compact"
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}
                 placeholder="Deposit"
@@ -928,7 +937,7 @@ function PaymentPanel(props: {
             {(field) => (
               <Input
                 {...field}
-                size="sm"
+                size="form-compact"
                 type="number"
                 min="0"
                 step={MONEY_STEP}
@@ -942,14 +951,14 @@ function PaymentPanel(props: {
             {(field) => (
               <Input
                 {...field}
-                size="sm"
+                size="form-compact"
                 type="date"
                 value={due()}
                 onInput={(e) => setDue(e.currentTarget.value)}
               />
             )}
           </Field>
-          <Button type="submit" variant="outline" size="sm">
+          <Button type="submit" variant="outline" size="form">
             Add payment
           </Button>
         </form>

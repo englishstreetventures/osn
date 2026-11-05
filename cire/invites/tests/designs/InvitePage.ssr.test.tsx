@@ -41,7 +41,7 @@ describe.each(packs)("%s InvitePage, rendered on the server", (_pack, InvitePage
       />
     ));
 
-    expect(html).toContain("Enter Your Code");
+    expect(html).toContain("Enter your code");
     expect(html).toContain("--invite-section-bg:var(--color-surface)");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -54,7 +54,7 @@ describe.each(packs)("%s InvitePage, rendered on the server", (_pack, InvitePage
       <InvitePage apiUrl="https://api.test" slug="anita-and-ben" inviteMissing />
     ));
 
-    expect(html).toContain("Enter Your Code");
+    expect(html).toContain("Enter your code");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

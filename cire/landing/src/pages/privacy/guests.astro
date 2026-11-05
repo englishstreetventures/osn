@@ -4,7 +4,7 @@
 // renders as its own `/privacy`. Here it has no privacy-choices button: those
 // choices are stored on the guest site's origin.
 import GuestPrivacyNotice from '@cire/ui/guest-privacy-notice.astro'
-import LegalLayout from '../../layouts/LegalLayout.astro'
+import LegalPage from '../../layouts/LegalPage.astro'
 import PrivacyNav from '../../components/PrivacyNav.astro'
 import { LEGAL_ENTITY, draftPending } from '@shared/legal'
 
@@ -13,7 +13,7 @@ import { LEGAL_ENTITY, draftPending } from '@shared/legal'
 // can go while that field is still a token.
 const draft = draftPending(LEGAL_ENTITY.regulator)
 ---
-<LegalLayout title="Privacy Notice for Guests">
+<LegalPage title="Privacy Notice for Guests">
   {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this notice is not final. Some details of the operator are
@@ -25,4 +25,4 @@ const draft = draftPending(LEGAL_ENTITY.regulator)
   <PrivacyNav current="guests" />
 
   <GuestPrivacyNotice />
-</LegalLayout>
+</LegalPage>

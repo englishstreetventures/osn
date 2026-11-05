@@ -1,11 +1,22 @@
 import type { DietaryPreset } from "@cire/dietary";
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import DietaryPresets from "@cire/ui/dietary-presets";
+import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import Reveal from "@cire/ui/reveal";
+import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing } from "@shared/ui/ui/modal";
+import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
 
 import { DemoModal } from "./DemoModal";
+
+/** An event's date, drawn once per event: the eyebrow's classes on a plain line. */
+const EVENT_DATE_CLASS = `${eyebrowClass()} mb-1`;
+
+/** An event in the demo, the guest site's event card in miniature. Its rows
+ *  space themselves with their own margins, as the guest card's do. */
+const EVENT_CARD_CLASS = `${cardClass({ fill: "opaque" })} gap-0`;
 
 // A self-contained, no-backend preview of a Cire invitation. Everything is
 // interactive — you can pick events, toggle attendance, type a dietary note and
@@ -62,18 +73,16 @@ export function DemoRsvp() {
   const [rsvpEvent, setRsvpEvent] = createSignal<DemoEvent | null>(null);
 
   return (
-    <div class="border-border bg-surface-raised mx-auto max-w-160 overflow-hidden rounded-lg border shadow-2xl">
+    <div class="border-border bg-surface-raised rounded-ui-lg mx-auto max-w-160 overflow-hidden border shadow-2xl">
       {/* An honest frame header — a plain label, not imitation browser chrome. */}
       <div class="border-border flex items-center justify-center border-b px-4 py-3">
-        <span class="font-body text-text-muted text-ui-xs tracking-ui-widest uppercase">
+        <Eyebrow as="span" tone="muted">
           A live Cire invitation
-        </span>
+        </Eyebrow>
       </div>
 
       <div class="px-6 py-10 text-center md:px-10">
-        <p class="font-body text-gold text-ui-xs tracking-ui-ultra mb-3 uppercase">
-          Together with their families
-        </p>
+        <Eyebrow class="mb-3">Together with their families</Eyebrow>
         <h3 class="font-display text-text leading-ui-none mb-2 text-[clamp(2rem,6vw,2.75rem)] font-light italic">
           Amara &amp; Sam
         </h3>
@@ -84,16 +93,18 @@ export function DemoRsvp() {
         <div class="flex flex-col gap-4 text-left">
           <For each={DEMO_EVENTS}>
             {(event) => (
-              <article class="border-border bg-surface rounded-sm border px-5 py-5">
+              <article class={EVENT_CARD_CLASS}>
                 <h4 class="font-display text-text mb-1 text-xl font-normal italic">{event.name}</h4>
-                <p class="font-body text-gold text-ui-xs tracking-ui-wider mb-1 uppercase">
-                  {event.date}
-                </p>
+                <p class={EVENT_DATE_CLASS}>{event.date}</p>
                 <p class="font-body text-text-muted text-ui-sm mb-2">{event.location}</p>
                 <p class="font-body text-text-muted text-ui-sm leading-ui-normal mb-4 font-light">
                   {event.description}
                 </p>
-                <Button variant="cta" class="min-h-11" onClick={() => setRsvpEvent(event)}>
+                <Button
+                  variant="cta"
+                  class="min-h-11 self-start"
+                  onClick={() => setRsvpEvent(event)}
+                >
                   Respond
                 </Button>
               </article>
@@ -204,7 +215,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
         when={!submitted()}
         fallback={
           <div class="py-6 text-center">
-            <p class="font-body text-gold text-ui-xs tracking-ui-widest mb-3 uppercase">Preview</p>
+            <Eyebrow class="mb-3">Preview</Eyebrow>
             <h3 class="font-display text-text text-ui-xl mb-4 font-light italic">
               That&rsquo;s the feeling.
             </h3>
@@ -218,52 +229,58 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
           </div>
         }
       >
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest mb-3 uppercase">Respond</p>
+        <Eyebrow class="mb-3">Respond</Eyebrow>
         <h3 id={titleId} class="font-display text-text text-ui-xl mb-2 font-light italic">
           {shownEvent()?.name}
         </h3>
-        <output class="border-gold/40 bg-gold/5 text-gold text-ui-xs mb-6 block rounded-sm border px-3.5 py-2.5 leading-relaxed">
-          Interactive preview. Your reply won&rsquo;t be saved.
-        </output>
+        <div
+          class="mb-6"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: a Notice is a `<div>`, which `<output>` (phrasing content) may not hold, and this note is about the demo, not the result of anything the visitor did.
+          role="status"
+        >
+          <Notice size="sm" tone="accent">
+            Interactive preview. Your reply won&rsquo;t be saved.
+          </Notice>
+        </div>
 
         <form class="flex flex-col gap-5" onSubmit={handleSubmit}>
           <For each={eventMembers()}>
             {(member) => {
               const guestId = member.guestId;
               return (
-                <fieldset class="border-border m-0 rounded-sm border p-5">
+                // `min-w-0` overrides a `<fieldset>`'s default `min-width:
+                // min-content`, as on the guest sheet. Without it the dietary
+                // picker's scrolling track sets the fieldset's width, and on a
+                // phone the answer pair stretches off the dialog's edge.
+                <fieldset class="border-border m-0 min-w-0 rounded-sm border p-5">
                   <legend class="font-display text-text text-ui-md mb-3 font-normal italic">
                     {member.firstName} {member.lastName}
                   </legend>
-                  <div class="flex gap-2">
-                    <button
-                      type="button"
-                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
-                      classList={{
-                        "border-gold text-gold bg-gold/8":
-                          responses()[guestId]?.attending === "attending",
-                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                          responses()[guestId]?.attending !== "attending",
-                      }}
-                      aria-pressed={responses()[guestId]?.attending === "attending"}
-                      onClick={() => setAttending(guestId, "attending")}
-                    >
-                      Attending
-                    </button>
-                    <button
-                      type="button"
-                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
-                      classList={{
-                        "border-gold text-gold bg-gold/8":
-                          responses()[guestId]?.attending === "declined",
-                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                          responses()[guestId]?.attending !== "declined",
-                      }}
-                      aria-pressed={responses()[guestId]?.attending === "declined"}
-                      onClick={() => setAttending(guestId, "declined")}
-                    >
-                      Not attending
-                    </button>
+                  {/* The guest sheet's pair (`RsvpPanel`): `Button` `choice`,
+                      side by side while it fits its own box and stacked below
+                      16rem, each at the 44px touch floor. The demo saves
+                      nothing, so the pair never locks. */}
+                  <div class="@container">
+                    <div class="flex gap-2 @max-[16rem]:flex-col">
+                      <Button
+                        variant="choice"
+                        size="md"
+                        class="min-h-11 flex-1"
+                        aria-pressed={responses()[guestId]?.attending === "attending"}
+                        onClick={() => setAttending(guestId, "attending")}
+                      >
+                        Attending
+                      </Button>
+                      <Button
+                        variant="choice"
+                        size="md"
+                        class="min-h-11 flex-1"
+                        aria-pressed={responses()[guestId]?.attending === "declined"}
+                        onClick={() => setAttending(guestId, "declined")}
+                      >
+                        Not attending
+                      </Button>
+                    </div>
                   </div>
                   <Show when={responses()[guestId]?.attending === "attending"}>
                     <div class="mt-3">
@@ -280,11 +297,13 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                     {/* Same reveal as the real sheet — this demo is what a
                         visitor judges the real one by. */}
                     <Reveal when={responses()[guestId]?.dietaryPresets.includes("other") ?? false}>
-                      <label class="font-body text-text-muted text-ui-sm tracking-ui-wide mt-3 block uppercase">
-                        Anything else
-                        <input
+                      <label class="font-body text-text-muted text-ui-sm mt-3 block">
+                        <span class="tracking-ui-wide uppercase">Anything else</span>
+                        <Input
+                          fill="ink"
+                          size="touch"
+                          class="mt-1.5"
                           type="text"
-                          class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200 focus:outline-none"
                           placeholder="e.g. no onion or garlic"
                           value={responses()[guestId]?.dietary ?? ""}
                           onInput={(e) => setDietary(guestId, e.currentTarget.value)}
@@ -298,19 +317,22 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
             }}
           </For>
 
-          <Show when={error()}>
-            <p class="font-body text-error text-ui-sm py-1" role="alert">
-              {error()}
-            </p>
-          </Show>
-
-          <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-[max(2.5rem,env(safe-area-inset-bottom))] flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mb-10 md:pb-4">
-            <Button variant="quiet" class="flex-1" onClick={() => props.onClose()}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="cta" class="flex-1">
-              Send RSVP
-            </Button>
+          {/* The error line rides in the sticky bar, over the buttons it is
+              about: a line before the bar would sit under it on a short sheet. */}
+          <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-[max(2.5rem,env(safe-area-inset-bottom))] flex flex-col gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mb-10 md:pb-4">
+            <Show when={error()}>
+              <Notice size="inline" tone="danger" alert>
+                {error()}
+              </Notice>
+            </Show>
+            <div class="flex gap-3">
+              <Button variant="quiet" class="flex-1" onClick={() => props.onClose()}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="cta" class="flex-1">
+                Send RSVP
+              </Button>
+            </div>
           </div>
         </form>
       </Show>

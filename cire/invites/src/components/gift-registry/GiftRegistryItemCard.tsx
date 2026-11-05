@@ -1,4 +1,7 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
+import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createSignal, createUniqueId, Show } from "solid-js";
 
 import {
@@ -203,7 +206,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
       // once, so skipping layout and paint for the off-screen ones is the
       // difference on a phone. Focus and find-in-page still force-render a
       // contained subtree, so an open claim form is unaffected.
-      class="border-border bg-surface-raised flex w-full flex-col overflow-hidden rounded-sm border text-left [content-visibility:auto]"
+      class="border-border bg-surface-raised rounded-ui-lg flex w-full flex-col overflow-hidden border text-left [content-visibility:auto]"
       // Reserve roughly a card while it is skipped, so scrolling into a long
       // list doesn't jump.
       style={{ "contain-intrinsic-size": "auto 22rem" }}
@@ -229,7 +232,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
       </Show>
 
       <div class="flex flex-1 flex-col gap-3 p-5">
-        <h3 class="font-display text-text text-ui-md leading-snug font-light">
+        <h3 class="font-display text-text text-ui-md leading-ui-snug font-light">
           {props.item.title}
         </h3>
 
@@ -254,24 +257,29 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
               // handle back to this page.
               target="_blank"
               rel="noopener noreferrer"
-              class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 text-ui-sm self-start rounded-sm underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+              // Not inside a sentence, so the card's own type step comes with
+              // it: the link class brings no size.
+              class={`${proseLinkClass({ tone: "muted" })} font-body text-ui-sm self-start`}
             >
               View this gift
+              <span class="sr-only"> (opens in a new tab)</span>
             </a>
           )}
         </Show>
 
         {/* This household's own reservation, echoed back. The only place a name
-            may appear — and it is their own, which they typed. */}
+            may appear — and it is their own, which they typed, up to 120
+            characters in one word if they like: the wrapper lets it break
+            rather than run out of the card. `Notice`'s accent note with no fill,
+            so its readable gold sits on the card itself. */}
         <Show when={props.claim}>
           {(claim) => (
-            <p
-              data-gift-mine
-              class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm rounded-sm border px-3 py-2"
-            >
-              You reserved {claim().quantity === 1 ? "this" : `${claim().quantity} of these`}
-              <Show when={claim().displayName}>{(name) => <> as {name()}</>}</Show>.
-            </p>
+            <div class="break-words">
+              <Notice size="sm" tone="accent" fill="none" data-gift-mine>
+                You reserved {claim().quantity === 1 ? "this" : `${claim().quantity} of these`}
+                <Show when={claim().displayName}>{(name) => <> as {name()}</>}</Show>.
+              </Notice>
+            </div>
           )}
         </Show>
 
@@ -326,9 +334,13 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
         <Show when={open() && props.canClaim}>
           <form class="flex flex-col gap-3 pt-1" onSubmit={submit}>
             <div class="flex flex-col gap-1">
-              <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
-                How many
-                <input
+              <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+                {/* The small caps are the words' alone: a field inherits a
+                    label's case and tracking. */}
+                <span class="tracking-ui-widest uppercase">How many</span>
+                <Input
+                  fill="ink"
+                  size="touch"
                   type="number"
                   min="1"
                   max={maxQuantity()}
@@ -338,7 +350,6 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                   // naming an id that is not in the DOM describes nothing.
                   aria-describedby={quantityHint() ? quantityHintId : undefined}
                   onInput={(e) => setQuantityText(e.currentTarget.value)}
-                  class="border-text/55 bg-text/[0.045] font-body text-text focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 tracking-normal normal-case transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
                 />
               </label>
               {/* OUTSIDE the label. The input is labelled by wrapping, so the
@@ -353,26 +364,28 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
               </Show>
             </div>
 
-            <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
-              From (optional)
-              <input
+            <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+              <span class="tracking-ui-widest uppercase">From (optional)</span>
+              <Input
+                fill="ink"
+                size="touch"
                 type="text"
                 maxlength="80"
                 value={displayName()}
                 onInput={(e) => setDisplayName(e.currentTarget.value)}
                 placeholder="The Ashworths"
-                class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 tracking-normal normal-case transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
               />
             </label>
 
-            <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
-              Note for the couple (optional)
-              <textarea
+            <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+              <span class="tracking-ui-widest uppercase">Note for the couple (optional)</span>
+              <Textarea
+                fill="ink"
+                size="touch"
                 rows="2"
                 maxlength="500"
                 value={note()}
                 onInput={(e) => setNote(e.currentTarget.value)}
-                class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base w-full resize-y rounded-sm border px-3 py-2 tracking-normal normal-case transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
               />
             </label>
 

@@ -10,7 +10,7 @@ import { createApp } from "../src/app";
 import type { AppOptions } from "../src/app";
 import { createDb, seedDb } from "../src/db/setup";
 import type { StripeClient } from "../src/services/stripe";
-import { appRequest, jsonBody, recordStatements } from "./test-helpers";
+import { appRequest, jsonBody, recordStatements, TEST_CF_IP } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 import { seedOrganiserSession } from "./test-helpers/organiser-session";
 import { makeOsnTestAuth } from "./test-helpers/osn-token";
@@ -366,11 +366,13 @@ describe("X-Content-Type-Options on every response the app builds", () => {
   });
 });
 
-// The owner's rule for every route with a per-IP limiter: the limiter answers
-// first, so a refused request costs no organiser session lookup, no OSN token
-// verify (and so no JWKS fetch), no role-gate query and no guest session
-// lookup. Each row builds the real app with only that route's limiter refusing
-// and sends the credential that would otherwise cost the most: a live
+// The owner's rule for every route with a per-IP limiter but one: the limiter
+// answers first, so a refused request costs no organiser session lookup, no
+// OSN token verify (and so no JWKS fetch), no role-gate query and no guest
+// session lookup. The one exception, the registry contribute route, checks the
+// session first and is pinned at the end of this block. Each row builds the
+// real app with only that route's limiter refusing and sends the credential
+// that would otherwise cost the most: a live
 // `cire_org_session` for the wedding's owner, whose lookup and gate query both
 // show as statements, or a bearer token checked against a JWKS URL of the
 // row's own, whose fetch the module's key cache cannot hide. The controls let
@@ -572,11 +574,7 @@ describe("a refused request does no credential work", () => {
     });
   }
 
-  type GuestLimiterOption =
-    | "rsvpLimiter"
-    | "claimSessionLimiter"
-    | "plusOneLimiter"
-    | "registryContributeLimiter";
+  type GuestLimiterOption = "rsvpLimiter" | "claimSessionLimiter" | "plusOneLimiter";
 
   const guestRoutes: {
     name: string;
@@ -626,29 +624,25 @@ describe("a refused request does no credential work", () => {
       path: "/api/plus-one/gst_probe",
       limiter: "plusOneLimiter",
     },
-    {
-      name: "POST /api/invite/:slug/registry/contribute",
-      method: "POST",
-      path: "/api/invite/cire-wedding/registry/contribute",
-      limiter: "registryContributeLimiter",
-      body: { amountMinor: 5000 },
-    },
   ];
 
-  /** A claimed guest's request to `route`, with only that route's limiter set. */
-  async function guestRequest(route: (typeof guestRoutes)[number], allowed: boolean) {
+  /**
+   * An app on a fresh seeded database with Stripe mounted, and a claimed
+   * guest's `cire_session` cookie for it. Both halves of Stripe, or the
+   * contribute route is not mounted; `unreachedStripe` makes any call to it a
+   * 500, so a 401 or 429 also says Stripe was never asked.
+   */
+  async function claimedGuestApp(limiters: Partial<AppOptions>) {
     const guestDb = createDb(":memory:");
     seedDb(guestDb);
-    const options: AppOptions = {
-      // Both halves of Stripe, or the contribute route is not mounted.
+    const guestApp = createApp(guestDb, {
       stripe: unreachedStripe,
       stripeWebhookSecret: "whsec_test_connect",
       // Its own claim budget, so the cookie below never meets a limit another
       // suite spent.
       claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
-    };
-    options[route.limiter] = allowed ? allowing : refusing;
-    const guestApp = createApp(guestDb, options);
+      ...limiters,
+    });
     const claim = await appRequest(guestApp, "/api/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -656,8 +650,15 @@ describe("a refused request does no credential work", () => {
     });
     const token = /cire_session=([^;]+)/.exec(claim.headers.get("set-cookie") ?? "")?.[1];
     expect(token).toBeTruthy();
+    return { guestApp, guestDb, cookie: `cire_session=${token}` };
+  }
+
+  /** A claimed guest's request to `route`, with only that route's limiter set. */
+  async function guestRequest(route: (typeof guestRoutes)[number], allowed: boolean) {
+    const { guestApp, guestDb, cookie } = await claimedGuestApp({
+      [route.limiter]: allowed ? allowing : refusing,
+    });
     const statements = recordStatements(guestDb);
-    const cookie = `cire_session=${token}`;
     const res = await appRequest(guestApp, route.path, {
       method: route.method,
       headers:
@@ -682,4 +683,71 @@ describe("a refused request does no credential work", () => {
       });
     });
   }
+
+  // The one exception to the rule. Every call this route admits is an outbound
+  // Stripe request, and a venue's wifi is one address for the whole room, so
+  // the session is checked before the per-IP limiter: a caller with no claimed
+  // session is answered 401 and spends none of the room's budget, and a
+  // refused claimed guest costs the session lookup and nothing after it.
+  describe("POST /api/invite/:slug/registry/contribute checks the session before its limiter", () => {
+    const CONTRIBUTE = "/api/invite/cire-wedding/registry/contribute";
+
+    /** An app whose contribute limiter refuses every key and keeps the keys it was asked. */
+    async function contributeApp() {
+      const asked: string[] = [];
+      const registryContributeLimiter = {
+        check: (key: string) => {
+          asked.push(key);
+          return false;
+        },
+      };
+      return { asked, ...(await claimedGuestApp({ registryContributeLimiter })) };
+    }
+
+    const contribute = (guestApp: ReturnType<typeof createApp>, headers: Record<string, string>) =>
+      appRequest(guestApp, CONTRIBUTE, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ amountMinor: 5000 }),
+      });
+
+    it("answers a caller with no cookie 401 without asking the limiter", async () => {
+      const { guestApp, guestDb, asked } = await contributeApp();
+      const statements = recordStatements(guestDb);
+      const res = await contribute(guestApp, {});
+      expect(res.status).toBe(401);
+      expect(await jsonBody(res)).toEqual({ error: "Unauthorized" });
+      expect(asked).toEqual([]);
+      expect(statements).toEqual([]);
+    });
+
+    it("answers a cookie that names no session 401 after its lookup, without asking the limiter", async () => {
+      const { guestApp, guestDb, asked } = await contributeApp();
+      const statements = recordStatements(guestDb);
+      const res = await contribute(guestApp, { cookie: "cire_session=no-such-session" });
+      expect(res.status).toBe(401);
+      expect(await jsonBody(res)).toEqual({ error: "Unauthorized" });
+      expect(asked).toEqual([]);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]?.sql).toMatch(/from "sessions"/);
+    });
+
+    it("refuses a claimed guest 429 after the session lookup, with nothing read after it", async () => {
+      const { guestApp, guestDb, cookie, asked } = await contributeApp();
+      const statements = recordStatements(guestDb);
+      const res = await contribute(guestApp, { cookie });
+      expect(res.status).toBe(429);
+      expect(res.headers.get("retry-after")).toBe("60");
+      expect(asked).toEqual([TEST_CF_IP]);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]?.sql).toMatch(/from "sessions"/);
+    });
+
+    it("refuses a claimed guest with no resolvable address 429, without asking the limiter", async () => {
+      const { guestApp, cookie, asked } = await contributeApp();
+      const res = await contribute(guestApp, { cookie, "cf-connecting-ip": "not-an-ip" });
+      expect(res.status).toBe(429);
+      expect(asked).toEqual([]);
+    });
+  });
 });

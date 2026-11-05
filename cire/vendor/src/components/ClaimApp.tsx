@@ -1,13 +1,15 @@
-import Button from "@cire/ui/button";
-import Card, { CardEyebrow } from "@cire/ui/card";
+import Button, { proseLinkClass } from "@cire/ui/button";
+import Card from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
+import { createSignInPress } from "@cire/ui/sign-in-press";
 import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 
-import { haptic } from "../lib/haptics";
 import { CIRE_API_URL } from "../lib/osn";
-import { initTheme } from "../lib/theme";
+import { initTheme } from "../lib/preferences";
+import { haptic } from "../lib/touch-feedback";
 import {
   consumeClaim,
   fetchClaimPreview,
@@ -21,6 +23,12 @@ const CLAIM_TOKEN_KEY = "cire.vendor.claim-token";
 
 function ClaimContent() {
   const { session, authFetch, signIn } = useAuth();
+  // The same press as the sign-in page's: "Connecting to musubi…" once
+  // pressed, a second press ignored and announced, and the button back after
+  // a back-forward restore or a navigation that never completes.
+  const press = createSignInPress(() =>
+    signIn(new URL("/claim", window.location.origin).toString()),
+  );
 
   // Step 1: Read token from URL and immediately strip it from the visible URL.
   // Guard typeof window — this component is only used client:only but be safe.
@@ -98,8 +106,8 @@ function ClaimContent() {
       {/* Valid preview — show invite banner */}
       <Show when={preview.state === "ready" && preview() !== null && !invalidLink()}>
         <Card tone="accent">
-          <CardEyebrow>You've been invited to claim</CardEyebrow>
-          <p class="font-display text-text text-ui-xl leading-tight font-light">
+          <Eyebrow>You've been invited to claim</Eyebrow>
+          <p class="font-display text-text text-ui-xl leading-ui-tight font-light">
             {preview()?.name}
           </p>
         </Card>
@@ -109,29 +117,24 @@ function ClaimContent() {
           when={session() !== null && session() !== undefined}
           fallback={
             <div class="flex flex-col gap-4">
-              <p class="font-body text-text-muted text-ui-base leading-relaxed">
+              <p class="font-body text-text-muted text-ui-base leading-ui-normal">
                 Sign in with your musubi account to continue. We'll bring you straight back here.
               </p>
-              <Button
-                variant="primary"
-                onClick={() => signIn(new URL("/claim", window.location.origin).toString())}
-                class="self-start"
-              >
-                Continue with musubi
+              <Button variant="primary" onClick={() => press.press()} class="self-start">
+                {press.label()}
               </Button>
+              <output class="sr-only">{press.status()}</output>
             </div>
           }
         >
           <div class="flex flex-col gap-4">
-            <h2 class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-              Choose the organisation that owns this listing
-            </h2>
+            <Eyebrow as="h2">Choose the organisation that owns this listing</Eyebrow>
             <Show when={ownedBy()}>
               {(org) => (
                 <Notice tone="warn" alert>
                   {org().name} already has a directory listing, and an organisation can have only
                   one. Pick another organisation, or{" "}
-                  <a class="underline" href={`/#/orgs/${encodeURIComponent(org().id)}`}>
+                  <a class={proseLinkClass()} href={`/#/orgs/${encodeURIComponent(org().id)}`}>
                     edit {org().name}'s listing
                   </a>
                   .

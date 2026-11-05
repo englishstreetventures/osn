@@ -6,7 +6,7 @@ related:
   - "[[review-findings]]"
   - "[[contributing]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-11-04
 ---
 
 # Code Comments
@@ -133,7 +133,7 @@ When line 1 must hold something else — a `// @vitest-environment` pragma, a
 `#!` shebang — put the module block directly under it, still above the first
 `import`. The rule never reads the comments in front of an import, so the block
 passes there and the first declaration keeps one block of its own
-(`cire/host/tests/lib/haptics.test.ts` has this shape). With no import between
+(`cire/ui/tests/lib/haptics.test.ts` has this shape). With no import between
 them, a module block on line 2 counts against the first declaration and the rule
 reports the pair.
 

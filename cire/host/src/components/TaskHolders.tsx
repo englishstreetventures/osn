@@ -1,3 +1,4 @@
+import PersonAvatar from "@cire/ui/person-avatar";
 import { Popover } from "@kobalte/core/popover";
 import { Notice } from "@shared/ui/ui/notice";
 import {
@@ -12,7 +13,6 @@ import {
 
 import { type HostSeat, type SeatFace, seatName } from "../lib/hosts-store";
 import { ROLE_COPY } from "../lib/wedding-roles";
-import PersonAvatar from "./PersonAvatar";
 
 /** One holder of a task, in stack order. `seat` is absent while the wedding's
  *  seats have not loaded, and there is no name or photo to give yet. A face
@@ -110,7 +110,7 @@ export default function TaskHolders(props: TaskHoldersProps) {
           const holder = () => holderById().get(hostId);
           return (
             <span data-holder={hostId} title={nameOf(holder())} class="rounded-full">
-              <PersonAvatar url={holder()?.seat?.avatarUrl} class="ring-bg size-7 ring-2" />
+              <PersonAvatar fallback="blank" ring url={holder()?.seat?.avatarUrl} class="size-7" />
             </span>
           );
         }}
@@ -185,7 +185,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
         <span
           data-assign-plus
           aria-hidden="true"
-          class="border-border-strong bg-bg text-text-muted group-hover:border-gold group-hover:text-text group-data-[expanded]:border-gold group-data-[expanded]:text-gold-ink ring-bg relative flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted ring-2 transition-colors duration-(--dur-fast)"
+          class="border-border-strong bg-bg text-text-muted group-hover:border-gold group-hover:text-text group-data-[expanded]:border-gold group-data-[expanded]:text-gold-ink ring-bg transition-ui-colors relative flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted ring-2 duration-(--dur-fast) ease-(--ease-out)"
         >
           <svg
             viewBox="0 0 16 16"
@@ -205,7 +205,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
             panel opens at the page's top left and is put beside its trigger
             a frame later, and a scrolling focus would jump the page there. */}
         <Popover.Content
-          class="droplet-popover border-border bg-surface-raised lip z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
+          class="droplet-popover border-border bg-surface-raised z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border shadow-(--elev-2) outline-none"
           onKeyDown={(e: KeyboardEvent) => {
             // Tab would carry the focus out of a popover portalled to the end
             // of the page, past everything; it closes it instead, and the
@@ -353,7 +353,7 @@ function PeopleList(props: TaskHoldersProps) {
         </div>
       </Show>
       <Show when={searchable()}>
-        <div class="border-border focus-within:border-focus focus-within:ring-focus mx-3 mb-1 flex items-center gap-2 rounded-sm border px-2.5 focus-within:ring-1">
+        <div class="border-border focus-within:border-focus focus-within:ring-focus rounded-ui-field mx-3 mb-1 flex items-center gap-2 border px-2.5 focus-within:ring-1">
           <svg
             aria-hidden="true"
             viewBox="0 0 16 16"
@@ -385,7 +385,7 @@ function PeopleList(props: TaskHoldersProps) {
               setActive(0);
             }}
             onKeyDown={(e) => onKeyDown(e, false)}
-            class="font-body text-text placeholder:text-text-faint text-ui-sm min-w-0 flex-1 bg-transparent py-2 outline-none"
+            class="font-body text-text placeholder:text-text-muted text-ui-sm min-w-0 flex-1 bg-transparent py-2 outline-none"
           />
         </div>
       </Show>
@@ -430,14 +430,14 @@ function PeopleList(props: TaskHoldersProps) {
                 // The house ring stays on the search or the list and never
                 // reaches a person: a bar in the ring's colour marks the
                 // highlighted one instead, with gold ink on the name.
-                class="font-body relative flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) before:absolute before:inset-y-2 before:start-0 before:w-0.75 before:rounded-full"
+                class="font-body transition-ui-colors relative flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out) before:absolute before:inset-y-2 before:start-0 before:w-0.75 before:rounded-full"
                 classList={{ "bg-gold/10 before:bg-focus": lit() }}
               >
                 <span
                   data-toggle
                   data-on={on() || undefined}
                   aria-hidden="true"
-                  class="flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-(--dur-fast)"
+                  class="transition-ui-colors flex size-5 shrink-0 items-center justify-center rounded-full border-2 duration-(--dur-fast) ease-(--ease-out)"
                   classList={{
                     "border-border-strong": !on(),
                     "border-brand bg-brand text-on-brand": on(),
@@ -458,7 +458,7 @@ function PeopleList(props: TaskHoldersProps) {
                     </svg>
                   </Show>
                 </span>
-                <PersonAvatar url={seat().avatarUrl} class="size-8" />
+                <PersonAvatar fallback="blank" url={seat().avatarUrl} class="size-8" />
                 <span class="flex min-w-0 flex-1 flex-col">
                   <span
                     data-name

@@ -1,6 +1,9 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import { eyebrowClass } from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
+import Plus from "lucide-solid/icons/plus";
 import { createSignal, For, onMount, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
@@ -11,6 +14,14 @@ import CreateWeddingForm, {
   MAX_DISPLAY_NAME,
   type WeddingSummary,
 } from "./CreateWeddingForm";
+
+/**
+ * A row's label, drawn once per row: the eyebrow's classes on a plain element,
+ * without `Eyebrow`'s run-time choice of tag.
+ */
+const ROW_LABEL_CLASS = eyebrowClass();
+
+const DELETED_ROW_CLASS = `${cardClass({ padding: "sm", fill: "none" })} flex-row flex-wrap items-center justify-between`;
 
 /**
  * Landing view for the organiser portal: lists every wedding the signed-in
@@ -70,45 +81,58 @@ export default function WeddingList(props: {
         {/* Intrinsic columns rather than a `@lg/page` step: an organiser with
             six weddings gets three or four per row on a widescreen, and one on
             a phone, with no breakpoint list to keep in sync. */}
-        <ul class="auto-grid [--auto-grid-min:20rem]">
-          <For each={props.weddings}>
-            {(wedding) => (
-              <li class="flex">
-                <Button
-                  variant="tile"
-                  size="lg"
-                  type="button"
-                  onClick={() => props.onSelect(wedding)}
-                  class="group relative flex w-full flex-col overflow-hidden text-left"
-                >
-                  {/* A gold rule that draws down the left edge on hover — the
-                      same marker vocabulary the module rail uses for "you are
-                      here", reused here for "this is the one you're reaching
-                      for". Scale, so it costs no layout. */}
-                  <span
-                    aria-hidden="true"
-                    class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
-                  />
-                  <span class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">
-                    {wedding.slug}
-                  </span>
-                  <span class="font-display text-text text-ui-lg leading-tight font-light">
-                    {wedding.displayName}
-                  </span>
-                  <span class="font-body text-text-muted group-hover:text-gold text-ui-xs tracking-ui-widest mt-2 flex items-center gap-2 uppercase transition-colors duration-(--dur-base)">
-                    Open dashboard
+        <div class="auto-grid auto-rows-fr [--auto-grid-min:20rem]">
+          {/* The list's box steps aside so its items are the grid's cells,
+              and the empty slot after it is the next cell without being
+              counted as a wedding. */}
+          <ul class="contents">
+            <For each={props.weddings}>
+              {(wedding) => (
+                <li class="flex">
+                  <Button
+                    variant="tile"
+                    size="lg"
+                    type="button"
+                    onClick={() => props.onSelect(wedding)}
+                    // A long wedding name wraps inside the tile rather than
+                    // being cut off: `Button` holds a label to one line.
+                    class="group relative flex w-full flex-col overflow-hidden text-left whitespace-normal"
+                  >
+                    {/* A gold rule that draws down the left edge on hover — the
+                        same marker vocabulary the module rail uses for "you are
+                        here", reused here for "this is the one you're reaching
+                        for". Scale, so it costs no layout. */}
                     <span
                       aria-hidden="true"
-                      class="transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:translate-x-1"
-                    >
-                      →
+                      class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
+                    />
+                    <span class={ROW_LABEL_CLASS}>{wedding.slug}</span>
+                    <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
+                      {wedding.displayName}
                     </span>
-                  </span>
-                </Button>
-              </li>
-            )}
-          </For>
-        </ul>
+                    <span class="font-body text-text-muted group-hover:text-gold-ink text-ui-sm transition-ui-colors mt-2 flex items-center gap-2 duration-(--dur-base) ease-(--ease-out)">
+                      Open dashboard
+                      <span
+                        aria-hidden="true"
+                        class="transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:translate-x-1"
+                      >
+                        →
+                      </span>
+                    </span>
+                  </Button>
+                </li>
+              )}
+            </For>
+          </ul>
+          {/* The empty slot stands in the grid's next cell, a tile the size of
+              a wedding's (every row the height of the tallest), dashed because
+              something appears there. */}
+          <Show when={!creating()}>
+            <div class="flex">
+              <CreateAffordance onClick={() => setCreating(true)} />
+            </div>
+          </Show>
+        </div>
       </Show>
 
       <Show when={(props.deleted ?? []).length > 0}>
@@ -119,10 +143,7 @@ export default function WeddingList(props: {
         />
       </Show>
 
-      <Show
-        when={creating() || isEmpty()}
-        fallback={<CreateAffordance onClick={() => setCreating(true)} />}
-      >
+      <Show when={creating() || isEmpty()}>
         <CreateWeddingForm
           onCreated={handleCreated}
           onCancel={isEmpty() ? undefined : closeForm}
@@ -187,7 +208,7 @@ function RecentlyDeleted(props: {
       <ul class="flex flex-col gap-2">
         <For each={props.deleted}>
           {(wedding) => (
-            <li class="border-border flex flex-wrap items-center justify-between gap-3 rounded-sm border px-4 py-3">
+            <li class={DELETED_ROW_CLASS}>
               <span class="flex flex-col">
                 <span class="font-display text-text text-ui-md font-light">
                   {wedding.displayName}
@@ -212,10 +233,23 @@ function RecentlyDeleted(props: {
   );
 }
 
+/**
+ * The empty slot: `dashed` drawn as a tile, the 14px field corner and a
+ * wedding tile's size, its plus over its words in the secondary ink, which
+ * turn readable gold under the pointer with the edge (DESIGN.md §4, One pill
+ * language).
+ */
 function CreateAffordance(props: { onClick: () => void }) {
+  // `buttonClass` on a native button rather than `Button`, because the tile
+  // sets its own corner and room and `Button` owns both.
   return (
-    <Button variant="dashed" type="button" onClick={props.onClick} class="self-start">
-      + Create a wedding
-    </Button>
+    <button
+      type="button"
+      onClick={() => props.onClick()}
+      class={`${buttonClass({ variant: "dashed", size: "lg" })} rounded-ui-field w-full flex-col gap-2 py-6`}
+    >
+      <Plus aria-hidden="true" strokeWidth={1.75} class="size-4.5" />
+      Create a wedding
+    </button>
   );
 }

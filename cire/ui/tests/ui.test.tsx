@@ -2,10 +2,24 @@ import { Field } from "@shared/ui/ui/field";
 import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import Button from "../src/button";
-import { cardClass } from "../src/card";
+import Button, {
+  type ButtonVariant,
+  buttonClass,
+  type ProseLinkTone,
+  proseLinkClass,
+} from "../src/button";
+import Card, {
+  CardCta,
+  type CardFill,
+  type CardPadding,
+  type CardTone,
+  cardBoxClass,
+  cardClass,
+} from "../src/card";
+import { PULSE } from "../src/lib/pulse";
 import Loading from "../src/loading";
 import { UsernameInput } from "../src/username-input";
 
@@ -15,6 +29,20 @@ import { UsernameInput } from "../src/username-input";
  * answer, not the contract. So what is checked here is what a call site can
  * rely on: that the variants differ from each other, that props reach the DOM,
  * and that the accessibility wiring is there.
+ *
+ * A test reads a class only where the class is the contract:
+ *
+ * - **The corner.** Each component carries exactly one `base:`-prefixed corner,
+ *   from the role the design spec gives it, so an app sets that role once and a
+ *   caller's plain `rounded-*` still wins.
+ * - **One of each step.** A card carries exactly one padding and one border
+ *   colour. Two classes for one property tie at zero specificity, and the
+ *   stylesheet's order would choose between them.
+ * - **Timing.** A transition names only what its hover changes, on the app's
+ *   `--dur-*` token, so the focus ring lands at once and the ladder follows the
+ *   input.
+ * - **The card with no options.** Every card drawn before the steps existed
+ *   calls it, so its string is pinned: a change to it moves every one of them.
  *
  * They came from `cire/host` and `cire/vendor`, which each had a copy. The
  * components they cover are the ones that stayed cire's — everything else the
@@ -56,7 +84,9 @@ describe("Button", () => {
       <>
         <Button size="sm">Small</Button>
         <Button size="md">Medium</Button>
-        <Button size="icon">✕</Button>
+        <Button size="icon" aria-label="Remove">
+          ✕
+        </Button>
       </>
     ));
     const classes = ["Small", "Medium", "✕"].map((label) => getByText(label).className);
@@ -92,18 +122,6 @@ describe("Button — the borderless variants", () => {
     expect(boxed).toEqual([]);
   });
 
-  it("does not shout, where a bordered button does", () => {
-    // Uppercase is the bordered house style. A text link reads as a sentence
-    // fragment — "Cancel", "View listing" — and shouting it makes it a button
-    // wearing a link's clothes.
-    const bordered = render(() => <Button variant="primary">Save</Button>);
-    expect(bordered.getByRole("button").className).toContain("uppercase");
-    bordered.unmount();
-
-    const link = render(() => <Button variant="link">View listing</Button>);
-    expect(link.getByRole("button").className).not.toContain("uppercase");
-  });
-
   it("underlines a link but never a glyph", () => {
     // `bare` is an arrow or a cross. There is no word to underline.
     const link = render(() => <Button variant="subtle">Cancel</Button>);
@@ -124,6 +142,170 @@ describe("Button — the borderless variants", () => {
     expect(cls).toContain("text-ui-ink-secondary");
     expect(cls).toContain("hover:text-ui-danger");
     expect(cls).not.toMatch(/base:text-ui-danger\b/);
+  });
+});
+
+/** Every class in the string that sets a corner. */
+function corners(cls: string): string[] {
+  return cls.split(/\s+/).filter((c) => c.includes("rounded-"));
+}
+
+describe("Button — corners and case", () => {
+  it("every action variant takes the control role, and chip the pill step", () => {
+    // One corner class, from the `control` role, so an app decides how round
+    // its buttons are once in its stylesheet. A second corner class would tie
+    // with the first at zero specificity and leave the stylesheet's order to
+    // pick between them. `chip` takes the `pill` step instead: it sits beside a
+    // round close button and stays round whatever `control` is.
+    const actions: readonly { variant: ButtonVariant; corner: string }[] = [
+      { variant: "primary", corner: "base:rounded-ui-control" },
+      { variant: "cta", corner: "base:rounded-ui-control" },
+      { variant: "outline", corner: "base:rounded-ui-control" },
+      { variant: "quiet", corner: "base:rounded-ui-control" },
+      { variant: "bar", corner: "base:rounded-ui-control" },
+      { variant: "quietDanger", corner: "base:rounded-ui-control" },
+      { variant: "danger", corner: "base:rounded-ui-control" },
+      { variant: "choice", corner: "base:rounded-ui-control" },
+      { variant: "dashed", corner: "base:rounded-ui-control" },
+      { variant: "chip", corner: "base:rounded-ui-pill" },
+    ];
+    const wrong = actions
+      .map(({ variant, corner }) => ({ variant, corner, found: corners(buttonClass({ variant })) }))
+      .filter(({ corner, found }) => found.length !== 1 || found[0] !== corner);
+    expect(wrong).toEqual([]);
+  });
+
+  it("tile, field and swatch take the field corner", () => {
+    // A block, a value and a framed picture are not actions: a pill tile reads
+    // as a lozenge, and a pill thumbnail crops its own picture.
+    const cases = [
+      { id: "tile", cls: buttonClass({ variant: "tile" }) },
+      { id: "field", cls: buttonClass({ variant: "field" }) },
+      { id: "choice/swatch", cls: buttonClass({ variant: "choice", size: "swatch" }) },
+    ];
+    const wrong = cases
+      .map(({ id, cls }) => ({ id, found: corners(cls) }))
+      .filter(({ found }) => found.length !== 1 || found[0] !== "base:rounded-ui-field");
+    expect(wrong).toEqual([]);
+  });
+
+  it("labels are sentence case", () => {
+    // The label is written in sentence case at the call site ("Event details")
+    // and the button shows it as written: no transform and no wide tracking,
+    // boxed or not. A boxed label takes a medium weight instead, which is what
+    // tells it from the body text around it.
+    const shouting = (["primary", "tile"] as const).flatMap((variant) =>
+      (["sm", "md", "lg", "icon"] as const)
+        .filter((size) => {
+          const cls = buttonClass({ variant, size });
+          return cls.includes("uppercase") || cls.includes("tracking-ui-wider");
+        })
+        .map((size) => `${variant}/${size}`),
+    );
+    expect(shouting).toEqual([]);
+
+    // Tracking is set, not inherited: a button inside a tracked eyebrow would
+    // otherwise spread its label to match.
+    const unset = (["primary", "tile"] as const).flatMap((variant) =>
+      (["sm", "md", "lg"] as const)
+        .filter((size) => {
+          const cls = buttonClass({ variant, size });
+          return !cls.includes("base:font-medium") || !cls.includes("base:tracking-ui-normal");
+        })
+        .map((size) => `${variant}/${size}`),
+    );
+    expect(unset).toEqual([]);
+
+    const link = render(() => <Button variant="link">View listing</Button>);
+    expect(link.getByRole("button").className).not.toContain("uppercase");
+  });
+
+  it("a caller's corner still wins", () => {
+    // `class` is appended with no merge step, so a caller's plain utility beats
+    // the variant's only because every default corner is a zero-specificity
+    // `base:` one. A plain default corner would tie with it instead.
+    const { getByRole } = render(() => (
+      <Button variant="chip" class="rounded-none">
+        x
+      </Button>
+    ));
+    const plain = corners(getByRole("button").className).filter(
+      (c) => c !== "rounded-none" && !c.startsWith("base:"),
+    );
+    expect(plain).toEqual([]);
+  });
+});
+
+describe("Button — round", () => {
+  const SIZES = ["sm", "md", "lg", "icon", "swatch"] as const;
+
+  it("is a circle at every size: the pill step, even where a swatch takes the field corner", () => {
+    // It sits beside `chip` in the event sheet's bar and must stay round
+    // whatever an app maps `control` to.
+    const wrong = SIZES.filter((size) => {
+      const found = corners(buttonClass({ variant: "round", size }));
+      return found.length !== 1 || found[0] !== "base:rounded-ui-pill";
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("takes one square size per step: 28, 32 and 44px", () => {
+    const sizes = (size: (typeof SIZES)[number]) =>
+      buttonClass({ variant: "round", size })
+        .split(/\s+/)
+        .filter((c) => /^base:(size|h|w|min-h|min-w|p|px|py)-/.test(c));
+    expect(sizes("sm")).toEqual(["base:size-7", "base:p-0"]);
+    expect(sizes("md")).toEqual(["base:h-8", "base:w-8", "base:p-0"]);
+    expect(sizes("icon")).toEqual(["base:h-8", "base:w-8", "base:p-0"]);
+    expect(sizes("swatch")).toEqual(["base:h-8", "base:w-8", "base:p-0"]);
+    expect(sizes("lg")).toEqual(["base:size-11", "base:p-0"]);
+  });
+
+  it("sets the glyph on the base step, and the close × on the large one", () => {
+    const type = (size: (typeof SIZES)[number]) =>
+      buttonClass({ variant: "round", size })
+        .split(/\s+/)
+        .filter((c) => /^base:text-ui-(xs|sm|base|md|lg|xl)$/.test(c));
+    expect(type("sm")).toEqual(["base:text-ui-base"]);
+    expect(type("md")).toEqual(["base:text-ui-base"]);
+    expect(type("lg")).toEqual(["base:text-ui-lg"]);
+  });
+
+  it("is an opaque disc with no edge, whose glyph alone answers the pointer", () => {
+    const cls = buttonClass({ variant: "round" }).split(/\s+/);
+    expect(cls).toEqual(
+      expect.arrayContaining([
+        "base:border-transparent",
+        "base:bg-ui-surface",
+        "base:text-ui-ink-secondary",
+        "base:hover:text-ui-ink",
+      ]),
+    );
+    expect(cls.filter((c) => c.includes("hover:bg-"))).toEqual([]);
+  });
+
+  it("refuses a round or icon-size button with no name", () => {
+    // Its glyph is hidden from assistive tech, so the name is all there is.
+    // These lines are checked by the type-check, not by this run.
+    const named = render(() => (
+      <Button variant="round" aria-label="Close">
+        <span aria-hidden="true">×</span>
+      </Button>
+    ));
+    expect(named.getByRole("button", { name: "Close" })).toBeTruthy();
+    named.unmount();
+    const labelled = () => (
+      <Button variant="round" aria-labelledby="sheet-close">
+        ×
+      </Button>
+    );
+    expect(labelled).toBeTypeOf("function");
+    // @ts-expect-error — a round button must be named
+    const unnamed = () => <Button variant="round">×</Button>;
+    expect(unnamed).toBeTypeOf("function");
+    // @ts-expect-error — so must any button at the icon size
+    const unnamedIcon = () => <Button size="icon">+</Button>;
+    expect(unnamedIcon).toBeTypeOf("function");
   });
 });
 
@@ -162,15 +344,510 @@ describe("Button — the variants that carry state or fill", () => {
   });
 });
 
+/** The variants that mark one of several as chosen, on the two-clock motion. */
+const CHOOSERS: readonly ButtonVariant[] = ["choice", "glass"];
+
+/** Every variant, as a record so a variant added to the type and not here fails to compile. */
+const EVERY_VARIANT = Object.keys({
+  primary: true,
+  cta: true,
+  outline: true,
+  quiet: true,
+  bar: true,
+  quietDanger: true,
+  choice: true,
+  glass: true,
+  tile: true,
+  dashed: true,
+  field: true,
+  danger: true,
+  chip: true,
+  link: true,
+  subtle: true,
+  touchLink: true,
+  bare: true,
+  bareDanger: true,
+  round: true,
+} satisfies Record<ButtonVariant, true>) as ButtonVariant[];
+
+describe("Button — outline", () => {
+  // Its browser tier (`outline.browser.test.tsx`) proves the painted result;
+  // this reads the class string, which is what mutation testing sees.
+  it("is a gold edge and a gold word whose edge goes full gold under the pointer, with no wash", () => {
+    const cls = buttonClass({ variant: "outline" }).split(/\s+/);
+    expect(cls).toEqual(
+      expect.arrayContaining([
+        "base:border-ui-accent/40",
+        "base:text-ui-accent-ink",
+        "base:hover:border-ui-accent",
+      ]),
+    );
+    expect(cls.filter((c) => /hover:bg-/.test(c))).toEqual([]);
+  });
+});
+
+describe("Button — bar", () => {
+  // Its browser tier (`portal-pills.browser.test.tsx`) proves the painted
+  // result; this reads the class string, which is what mutation testing sees.
+  const cls = () => buttonClass({ variant: "bar", size: "icon" }).split(/\s+/);
+  const GATE = "not-aria-expanded:hover:base:";
+
+  it("rests as `quiet` does: a hairline on the portals' ground, the secondary ink", () => {
+    expect(cls()).toEqual(
+      expect.arrayContaining([
+        "base:border-ui-hairline",
+        "base:bg-[color:var(--pill-ground,transparent)]",
+        "base:text-ui-ink-secondary",
+      ]),
+    );
+  });
+
+  it("lifts the ground to the surface at 60%, in the body ink and a gold edge, only while closed", () => {
+    expect(cls().filter((c) => c.includes("hover:"))).toEqual([
+      `${GATE}border-ui-accent`,
+      `${GATE}bg-ui-surface/60`,
+      `${GATE}text-ui-ink`,
+    ]);
+  });
+
+  it("stands on the raised surface in the body ink while what it opens is open", () => {
+    expect(cls().filter((c) => c.includes("aria-expanded:") && !c.startsWith("not-"))).toEqual([
+      "base:aria-expanded:bg-ui-surface-raised",
+      "base:aria-expanded:text-ui-ink",
+    ]);
+  });
+});
+
+describe("Button — motion", () => {
+  it("fades only what a hover changes, so the focus ring shows at once", () => {
+    // Tailwind's `transition-colors` includes `outline-color`, which would fade
+    // the focus ring in over the hover's duration. The ring must show the
+    // moment focus lands, so the transition names its properties instead.
+    // `choice` names its own list, with the ring's `box-shadow` (below).
+    const wrong = EVERY_VARIANT.filter((variant) => !CHOOSERS.includes(variant)).filter(
+      (variant) => {
+        const cls = buttonClass({ variant }).split(/\s+/);
+        return (
+          cls.includes("base:transition-colors") ||
+          !cls.includes(
+            "base:transition-[color,background-color,border-color,text-decoration-color]",
+          )
+        );
+      },
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it("takes its hover duration from the app's motion token", () => {
+    // A literal duration ignores the app's ladder, which is shorter under a
+    // fine pointer. The fallback is for an app that declares no ladder.
+    const wrong = EVERY_VARIANT.filter((variant) => !CHOOSERS.includes(variant)).filter(
+      (variant) => {
+        const durations = buttonClass({ variant })
+          .split(/\s+/)
+          .filter((c) => c.includes("duration-"));
+        return durations.length !== 1 || durations[0] !== "base:duration-(--dur-fast,100ms)";
+      },
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it("moves a choice's hover on the fast step and its choosing on the base step", () => {
+    // The one motion rule (cire/host DESIGN.md §4): a hover comes and goes on
+    // --dur-fast with the arriving curve; a choice being made, marked by
+    // `aria-pressed` or `aria-checked`, arrives on --dur-base with in-out.
+    for (const variant of CHOOSERS) {
+      const cls = buttonClass({ variant }).split(/\s+/);
+      expect(cls.filter((c) => c.includes("transition"))).toEqual([
+        "base:transition-[color,background-color,border-color,box-shadow]",
+      ]);
+      const timing = cls.filter((c) => c.includes("duration-") || /:ease-/.test(c));
+      const expected = [
+        "base:duration-(--dur-fast,100ms)",
+        "base:ease-out",
+        "base:aria-pressed:duration-(--dur-base,150ms)",
+        "base:aria-pressed:ease-in-out",
+        "base:aria-checked:duration-(--dur-base,150ms)",
+        "base:aria-checked:ease-in-out",
+      ];
+      expect(timing).toHaveLength(expected.length);
+      expect(timing).toEqual(expect.arrayContaining(expected));
+    }
+  });
+});
+
+/**
+ * The link inside a sentence. Its browser tier (`prose-link.browser.test.tsx`)
+ * proves the painted result; these read the classes where the class is the
+ * contract, which is also what lets mutation testing see them, since Stryker
+ * runs this project alone.
+ */
+describe("proseLinkClass", () => {
+  const TONES = ["accent", "muted"] as const satisfies readonly ProseLinkTone[];
+  const classes = (tone?: ProseLinkTone) => proseLinkClass(tone ? { tone } : {}).split(/\s+/);
+
+  it("stays inline and lets its sentence wrap it", () => {
+    // Every `buttonClass` starts `inline-flex … whitespace-nowrap`, which holds
+    // a long link to one line. A link in running text must break with it.
+    const wrong = TONES.filter((tone) =>
+      classes(tone).some((c) => /inline-flex|whitespace-nowrap|^base:flex$/.test(c)),
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it("is underlined at rest at a 2px offset, in every tone", () => {
+    for (const tone of TONES) {
+      expect(classes(tone)).toEqual(
+        expect.arrayContaining(["base:underline", "base:underline-offset-2"]),
+      );
+      expect(classes(tone).some((c) => c.includes("hover:underline"))).toBe(false);
+    }
+  });
+
+  it("brings no type size and no weight of its own", () => {
+    const wrong = TONES.filter((tone) =>
+      classes(tone).some((c) => /text-ui-(xs|sm|base|md|lg|xl)|font-/.test(c)),
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it("takes one corner, the control role, which only its focus ring shows", () => {
+    for (const tone of TONES) {
+      expect(corners(proseLinkClass({ tone }))).toEqual(["base:rounded-ui-control"]);
+    }
+  });
+
+  it("fades only its colours, on the app's motion token, never the ring", () => {
+    for (const tone of TONES) {
+      const cls = classes(tone);
+      expect(cls).toEqual(
+        expect.arrayContaining([
+          "base:transition-[color,text-decoration-color]",
+          "base:duration-(--dur-fast,100ms)",
+          "base:ease-out",
+        ]),
+      );
+      expect(cls.filter((c) => c.includes("transition"))).toHaveLength(1);
+    }
+  });
+
+  it("draws its own focus ring from the contract's focus token", () => {
+    // `@cire/landing` declares no blanket `:focus-visible` rule.
+    for (const tone of TONES) {
+      expect(classes(tone)).toEqual(
+        expect.arrayContaining([
+          "base:focus-visible:outline-2",
+          "base:focus-visible:outline-offset-2",
+          "base:focus-visible:outline-ui-focus",
+        ]),
+      );
+    }
+  });
+
+  it("paints accent in readable gold, and muted in the secondary ink that brightens on hover", () => {
+    expect(classes("accent")).toContain("base:text-ui-accent-ink");
+    expect(classes("accent").some((c) => c.includes("hover:text-"))).toBe(false);
+    expect(classes("muted")).toEqual(
+      expect.arrayContaining(["base:text-ui-ink-secondary", "base:hover:text-ui-ink"]),
+    );
+    expect(classes("muted")).not.toContain("base:text-ui-accent-ink");
+  });
+
+  it("is the accent tone when no tone is named", () => {
+    expect(proseLinkClass()).toBe(proseLinkClass({ tone: "accent" }));
+  });
+});
+
+describe("Button — choice, halfway and locked", () => {
+  const classes = (variant: ButtonVariant) => buttonClass({ variant }).split(/\s+/);
+  const GATE = "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:";
+
+  it("keeps a locked choice at full strength, and fades every other locked variant", () => {
+    // The answer a guest just gave is locked while it saves; faded, it would be
+    // the hardest thing on the sheet to read.
+    expect(classes("choice").filter((c) => c.includes("aria-disabled:opacity"))).toEqual([]);
+    const unfaded = EVERY_VARIANT.filter((v) => v !== "choice").filter(
+      (variant) => !classes(variant).includes("base:aria-disabled:opacity-40"),
+    );
+    expect(unfaded).toEqual([]);
+    // `disabled` still fades it, which the host's busy pictures rely on.
+    expect(classes("choice")).toContain("base:disabled:opacity-40");
+    // Locked, every variant says so to the pointer, `choice` included.
+    const silent = EVERY_VARIANT.filter(
+      (variant) => !classes(variant).includes("base:aria-disabled:cursor-not-allowed"),
+    );
+    expect(silent).toEqual([]);
+  });
+
+  it("rests on the hairline in the secondary ink, as `quiet` does", () => {
+    expect(classes("choice")).toEqual(
+      expect.arrayContaining(["base:border-ui-hairline", "base:text-ui-ink-secondary"]),
+    );
+  });
+
+  it("rings the chosen option at 2px, wider than the hover's 1px", () => {
+    // The width is what tells chosen from hovered without telling golds apart.
+    expect(classes("choice").filter((c) => /^base:aria-(pressed|checked):ring-\d/.test(c))).toEqual(
+      ["base:aria-pressed:ring-2", "base:aria-checked:ring-2"],
+    );
+  });
+
+  it("answers the pointer only when neither chosen nor locked, at zero specificity", () => {
+    const hover = classes("choice").filter((c) => c.includes("hover:"));
+    expect(hover).toEqual([
+      `${GATE}border-[color:color-mix(in_oklab,var(--ui-hairline),var(--ui-accent))]`,
+      `${GATE}text-[color:color-mix(in_oklab,var(--ui-ink-secondary),var(--ui-accent-ink))]`,
+      `${GATE}ring-1`,
+      `${GATE}ring-ui-accent/30`,
+    ]);
+  });
+});
+
+const EVERY_PADDING = Object.keys({
+  sm: true,
+  md: true,
+  lg: true,
+  xl: true,
+} satisfies Record<CardPadding, true>) as CardPadding[];
+
+const EVERY_FILL = Object.keys({
+  wash: true,
+  well: true,
+  opaque: true,
+  none: true,
+} satisfies Record<CardFill, true>) as CardFill[];
+
+const EVERY_TONE = Object.keys({
+  default: true,
+  accent: true,
+  danger: true,
+} satisfies Record<CardTone, true>) as CardTone[];
+
+/** Every card `cardClass` can draw: each padding × fill × tone, plus the interactive ones. */
+function everyCard(): string[] {
+  const cards: string[] = [];
+  for (const padding of EVERY_PADDING) {
+    for (const fill of EVERY_FILL) {
+      for (const tone of EVERY_TONE) cards.push(cardClass({ padding, fill, tone }));
+    }
+    for (const tone of ["default", "accent"] as const) {
+      cards.push(cardClass({ padding, tone, interactive: true }));
+    }
+  }
+  return cards;
+}
+
+/** Every class in the string that sets a padding. */
+function paddings(cls: string): string[] {
+  return cls.split(/\s+/).filter((c) => /^base:p[xytrbl]?-/.test(c));
+}
+
+/** Every class in the string that colours the border at rest. */
+function borderColours(cls: string): string[] {
+  return cls.split(/\s+/).filter((c) => c.startsWith("base:border-ui-"));
+}
+
 describe("Card", () => {
-  it("marks the accented card out from the ordinary one", () => {
-    expect(cardClass({ tone: "accent" })).not.toBe(cardClass());
+  it("a card takes the large corner", () => {
+    const wrong = everyCard().filter((cls) => {
+      const found = corners(cls);
+      return found.length !== 1 || found[0] !== "base:rounded-ui-lg";
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("a card with no options is the card every existing call site draws", () => {
+    // Pinned on purpose: the cards on the host's Overview, the vendor's inbox
+    // and the rest call `cardClass()` or `<Card>` with no options, and adding
+    // the steps must not move one of them.
+    expect(cardClass()).toBe(
+      "base:flex base:flex-col base:gap-3 base:rounded-ui-lg base:border base:p-5 " +
+        "base:border-ui-hairline base:bg-ui-surface/30",
+    );
+    expect(cardClass({ padding: "md", fill: "wash", tone: "default" })).toBe(cardClass());
+  });
+
+  it("each padding step is its own, and every card has exactly one", () => {
+    // One padding class, so a step never ties with a second one at zero
+    // specificity and leaves the stylesheet's order to choose.
+    expect(new Set(EVERY_PADDING.map((padding) => cardClass({ padding }))).size).toBe(4);
+    expect(EVERY_PADDING.filter((padding) => cardClass({ padding }) === cardClass())).toEqual([
+      "md",
+    ]);
+    expect(everyCard().filter((cls) => paddings(cls).length !== 1)).toEqual([]);
+  });
+
+  it("each fill is its own", () => {
+    expect(new Set(EVERY_FILL.map((fill) => cardClass({ fill }))).size).toBe(4);
+    expect(EVERY_FILL.filter((fill) => cardClass({ fill }) === cardClass())).toEqual(["wash"]);
+  });
+
+  it("a card with no fill is the ordinary card without its ground", () => {
+    // `none` is for a card set on something that already has a ground — a row
+    // in a list, a box inside a panel. It keeps the border, corner and padding.
+    expect(cardClass({ fill: "none" }).split(" ")).toEqual(
+      cardClass()
+        .split(" ")
+        .filter((c) => !c.includes("bg-")),
+    );
+  });
+
+  it("each tone is its own, and every card has exactly one border colour", () => {
+    expect(new Set(EVERY_TONE.map((tone) => cardClass({ tone }))).size).toBe(3);
+    expect(everyCard().filter((cls) => borderColours(cls).length !== 1)).toEqual([]);
   });
 
   it("adds nothing for a card that is not a control", () => {
     // The hover treatment is a promise that the whole rectangle is clickable.
     expect(cardClass()).not.toContain("hover:");
     expect(cardClass({ interactive: true })).toContain("hover:");
+  });
+
+  it("refuses a hover on a card whose fill or tone has none", () => {
+    // The interactive hover lifts the wash and turns the border gold: no other
+    // fill has a lifted step, and a danger card is never the control itself.
+    // These lines are checked by the type-check, not by this run.
+    expect(cardClass({ fill: "wash", tone: "accent", interactive: true })).toContain("hover:");
+    // @ts-expect-error — no hover for the well fill
+    cardClass({ fill: "well", interactive: true });
+    // @ts-expect-error — no hover for the opaque fill
+    cardClass({ fill: "opaque", interactive: true });
+    // @ts-expect-error — no hover for a card with no fill
+    cardClass({ fill: "none", interactive: true });
+    // @ts-expect-error — a danger card is never the control
+    cardClass({ tone: "danger", interactive: true });
+    // A flag decided at run time is held to the same pairs.
+    const washed = (clickable: boolean) => cardClass({ fill: "wash", interactive: clickable });
+    expect(washed(true)).toContain("hover:");
+    expect(washed(false)).not.toContain("hover:");
+    const opaque = (clickable: boolean) =>
+      // @ts-expect-error — no hover for the opaque fill, however the flag is written
+      cardClass({ fill: "opaque", interactive: clickable });
+    expect(opaque).toBeTypeOf("function");
+  });
+
+  it("keeps the hover off `Card`, which is a `<div>`", () => {
+    // A `<div>` with the interactive hover promises a click nothing answers; a
+    // card that is the control is a `<button>` or `<a>` wearing `cardClass`.
+    // The line below is checked by the type-check, not by this run.
+    const { container } = render(() => (
+      // @ts-expect-error — `Card` takes no `interactive`
+      <Card interactive>x</Card>
+    ));
+    expect((container.firstElementChild as HTMLElement).className).toBe(cardClass());
+  });
+});
+
+describe("cardBoxClass", () => {
+  /** Every box it can draw: each fill × tone. */
+  function everyBox(): { fill: CardFill; tone: CardTone; cls: string }[] {
+    return EVERY_FILL.flatMap((fill) =>
+      EVERY_TONE.map((tone) => ({ fill, tone, cls: cardBoxClass({ fill, tone }) })),
+    );
+  }
+
+  it("is a card's box: the large corner, one border colour and the card's own fill", () => {
+    // A disclosure pads its summary and body itself, so it takes the box alone.
+    const wrong = everyBox().filter(({ fill, tone, cls }) => {
+      const ground = (c: string) => c.split(/\s+/).filter((x) => x.includes("bg-"));
+      return (
+        corners(cls).join() !== "base:rounded-ui-lg" ||
+        !cls.split(/\s+/).includes("base:border") ||
+        borderColours(cls).join() !== borderColours(cardClass({ tone })).join() ||
+        ground(cls).join() !== ground(cardClass({ fill })).join()
+      );
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("brings no padding and no layout of its own", () => {
+    const leaks = everyBox().filter(
+      ({ cls }) => paddings(cls).length > 0 || /(^|:)(flex|gap-)/.test(cls.replace(/\s+/g, " ")),
+    );
+    expect(leaks).toEqual([]);
+  });
+
+  it("takes the small corner when nested, and changes nothing else", () => {
+    // A bordered box set inside a card, a modal or a frame.
+    const wrong = everyBox().filter(({ fill, tone, cls }) => {
+      const nested = cardBoxClass({ fill, tone, nested: true });
+      return (
+        corners(nested).join() !== "base:rounded-ui-sm" ||
+        nested.replace("base:rounded-ui-sm", "base:rounded-ui-lg") !== cls
+      );
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("with no options is the ordinary card's box", () => {
+    expect(cardBoxClass()).toBe(cardBoxClass({ fill: "wash", tone: "default" }));
+  });
+});
+
+describe("Card — the component", () => {
+  it("draws the same card `cardClass` does, for every option it takes", () => {
+    // A prop the component forgets to pass on draws the default card instead.
+    const wrong: string[] = [];
+    const check = (name: string, card: () => JSX.Element, expected: string) => {
+      const { container, unmount } = render(card);
+      if ((container.firstElementChild as HTMLElement).className !== expected) wrong.push(name);
+      unmount();
+    };
+    for (const padding of EVERY_PADDING) {
+      check(`padding ${padding}`, () => <Card padding={padding}>x</Card>, cardClass({ padding }));
+    }
+    for (const fill of EVERY_FILL) {
+      check(`fill ${fill}`, () => <Card fill={fill}>x</Card>, cardClass({ fill }));
+    }
+    for (const tone of EVERY_TONE) {
+      check(`tone ${tone}`, () => <Card tone={tone}>x</Card>, cardClass({ tone }));
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("keeps the caller's own classes after its own", () => {
+    const { container } = render(() => (
+      <Card padding="lg" class="gap-6">
+        x
+      </Card>
+    ));
+    expect((container.firstElementChild as HTMLElement).className).toBe(
+      `${cardClass({ padding: "lg" })} gap-6`,
+    );
+  });
+});
+
+/** The classes that time a transition, for every element in a rendered tree. */
+function timings(root: Element): string[][] {
+  return [root, ...root.querySelectorAll("*")].map((el) =>
+    [...el.classList].filter((c) => c.includes("transition") || c.includes("duration-")),
+  );
+}
+
+describe("Card — motion", () => {
+  it("an interactive card fades only what its hover changes, on the app's token", () => {
+    // An interactive card is drawn on a `<button>`, and Tailwind's
+    // `transition-colors` would fade its focus ring in along with the hover.
+    for (const tone of ["default", "accent"] as const) {
+      const cls = cardClass({ tone, interactive: true }).split(/\s+/);
+      expect(cls.filter((c) => c.includes("transition") || c.includes("duration-"))).toEqual([
+        "base:transition-[color,background-color,border-color,text-decoration-color]",
+        "base:duration-(--dur-fast,100ms)",
+      ]);
+    }
+  });
+
+  it("the card's call to action takes its durations from the app's tokens", () => {
+    // The label's colour is a hover; the arrow's nudge is a short slide.
+    const { container } = render(() => <CardCta>Open guests</CardCta>);
+    const timed = timings(container.firstElementChild as Element).filter((t) => t.length > 0);
+    expect(timed).toEqual([
+      [
+        "base:transition-[color,background-color,border-color,text-decoration-color]",
+        "base:duration-(--dur-fast,100ms)",
+      ],
+      ["base:transition-transform", "base:duration-(--dur-base,200ms)"],
+    ]);
   });
 });
 
@@ -202,5 +879,13 @@ describe("Loading", () => {
     expect(el).toHaveTextContent("Loading enquiries…");
     // `status`, not `alert`: something starting to load is not urgent.
     expect(el).not.toHaveAttribute("role", "alert");
+  });
+
+  it("pulses on the same pulse as Skeleton, and no other", () => {
+    // Two loaders on one screen pulse in step; the pulse reads the motion
+    // tokens (`lib/pulse.ts`), never Tailwind's fixed `animate-pulse`.
+    render(() => <Loading label="Loading enquiries…" />);
+    const cls = screen.getByRole("status").className.split(/\s+/);
+    expect(cls.filter((c) => c.includes("animate"))).toEqual([PULSE]);
   });
 });

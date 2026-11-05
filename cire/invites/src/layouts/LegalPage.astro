@@ -1,0 +1,25 @@
+---
+// The guest site's legal pages (`/privacy`, `/terms`): `@cire/ui`'s legal
+// layout under this site's stylesheet, ending on the guest footer.
+import '../styles/global.css'
+import LegalLayout from '@cire/ui/legal-layout.astro'
+import GuestFooter from '../components/GuestFooter.astro'
+import { ConsentBanner } from '../components/consent/ConsentBanner'
+
+interface Props {
+  title: string
+}
+
+const { title } = Astro.props
+---
+<LegalLayout title={title}>
+  <slot />
+  <GuestFooter slot="footer" />
+  {/* Site-wide consent surface. `client:idle` so it never competes with the
+      page's first paint — nothing third-party can load before it hydrates
+      anyway, since every ConsentGate defaults to denied until then.
+      `prompt="banner"`: elsewhere the prompt is a dialog the guest must
+      answer, but the prompt links here, and a dialog on this page would stand
+      between the guest and the notice they came to read before deciding. */}
+  <ConsentBanner slot="after" client:idle prompt="banner" />
+</LegalLayout>

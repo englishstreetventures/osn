@@ -1,7 +1,11 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { createSignal, For, Show } from "solid-js";
+import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
+import { createSignal, createUniqueId, For, Show } from "solid-js";
 
 import type { BudgetEvent, BudgetItemRow } from "../lib/budget-store";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
@@ -92,8 +96,13 @@ export function PerHeadPanel(props: {
   const [everyEvent, setEveryEvent] = createSignal(props.item.eventIds == null);
   const [picked, setPicked] = createSignal<ReadonlySet<string>>(new Set(props.item.eventIds ?? []));
   const [eventsChanged, setEventsChanged] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  // What the line under the form says, and whether it is about the price: the
+  // price box is named by the line and marked wrong only then.
+  const [error, setError] = createSignal<{ text: string; price: boolean } | null>(null);
+  const errorId = createUniqueId();
+  const priceRefused = () => error()?.price === true;
   const scopeName = `per-head-scope-${props.item.id}`;
+  const legendId = createUniqueId();
 
   const chooseEvery = (every: boolean) => {
     setEveryEvent(every);
@@ -111,10 +120,12 @@ export function PerHeadPanel(props: {
     e.preventDefault();
     const unitPriceMinor = parseMinor(price(), props.currency);
     if (unitPriceMinor === null) {
-      setError(
-        belowSmallestUnitError(price(), props.currency) ??
+      setError({
+        text:
+          belowSmallestUnitError(price(), props.currency) ??
           "Enter a price per head of zero or more.",
-      );
+        price: true,
+      });
       return;
     }
     const change: PerHeadChange = { unitPriceMinor };
@@ -124,7 +135,7 @@ export function PerHeadPanel(props: {
         // In the wedding's own order, and only events that still exist.
         const ids = props.events.filter((ev) => picked().has(ev.id)).map((ev) => ev.id);
         if (ids.length === 0) {
-          setError("Tick at least one event, or count every event.");
+          setError({ text: "Tick at least one event, or count every event.", price: false });
           return;
         }
         change.eventIds = ids;
@@ -144,7 +155,12 @@ export function PerHeadPanel(props: {
         {(field) => (
           <Input
             {...field}
-            size="sm"
+            // Named by the line under the form while it is the price's. An
+            // `undefined` after the spread keeps the field's own value, so
+            // otherwise the field's wiring stands.
+            aria-describedby={priceRefused() ? errorId : undefined}
+            aria-invalid={priceRefused() ? "true" : undefined}
+            size="form-compact"
             type="number"
             min="0"
             step="any"
@@ -153,53 +169,59 @@ export function PerHeadPanel(props: {
           />
         )}
       </Field>
-      <fieldset class="flex flex-col gap-1 border-0 p-0">
-        <legend class="text-gold-dim font-body text-ui-xs tracking-ui-widest mb-1 uppercase">
+      {/* The radio group is the group, named by the label over it; the event
+          boxes that follow "Only these events" are its answer, not more
+          choices in it. */}
+      <div class="flex flex-col gap-2">
+        <Eyebrow id={legendId} tone="muted" class="mb-1">
           Count guests at
-        </legend>
-        <label class="text-text text-ui-sm flex items-center gap-2">
-          <input
-            type="radio"
-            name={scopeName}
-            checked={everyEvent()}
-            onChange={() => chooseEvery(true)}
-          />
-          Every event
-        </label>
-        <label class="text-text text-ui-sm flex items-center gap-2">
-          <input
-            type="radio"
-            name={scopeName}
-            checked={!everyEvent()}
+        </Eyebrow>
+        <RadioGroup
+          box="native"
+          size="sm"
+          orientation="vertical"
+          name={scopeName}
+          value={everyEvent() ? "every" : "these"}
+          onChange={(value) => chooseEvery(value === "every")}
+          aria-labelledby={legendId}
+        >
+          <RadioGroupItem value="every" label="Every event" />
+          <RadioGroupItem
+            value="these"
+            label="Only these events"
             disabled={props.events.length === 0}
-            onChange={() => chooseEvery(false)}
           />
-          Only these events
-        </label>
+        </RadioGroup>
         <Show when={!everyEvent()}>
-          <For each={props.events}>
-            {(ev) => (
-              <label class="text-text text-ui-sm ml-6 flex items-center gap-2">
-                <input
-                  type="checkbox"
+          {/* The boxes answer "Only these events", so they are a group of
+              their own, named for it, as the indent shows on screen. */}
+          <fieldset class="m-0 ml-6 flex flex-col gap-2 border-0 p-0">
+            <legend class="sr-only">Events to count</legend>
+            <For each={props.events}>
+              {(ev) => (
+                <Checkbox
+                  box="native"
+                  size="sm"
                   checked={picked().has(ev.id)}
-                  onChange={(e) => toggle(ev.id, e.currentTarget.checked)}
+                  onChange={(next) => toggle(ev.id, next)}
+                  label={ev.name}
                 />
-                {ev.name}
-              </label>
-            )}
-          </For>
+              )}
+            </For>
+          </fieldset>
         </Show>
-      </fieldset>
+      </div>
       <p class="text-text-muted text-ui-xs max-w-prose">
         Until RSVPs close this counts every invited guest who has not declined, then only those who
         said yes. A guest at more than one of these events counts once. Withdrawn invites and your
         preview household are not counted.
       </p>
       <Show when={error()}>
-        <p class="text-error text-ui-sm" role="alert">
-          {error()}
-        </p>
+        {(line) => (
+          <Notice id={errorId} size="inline" tone="danger" alert>
+            {line().text}
+          </Notice>
+        )}
       </Show>
       <div class="flex flex-wrap gap-2">
         <Button type="submit" variant="primary" size="sm">

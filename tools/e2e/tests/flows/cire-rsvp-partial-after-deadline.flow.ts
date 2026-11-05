@@ -65,7 +65,7 @@ test("cire-rsvp-partial-after-deadline", async ({ page, flow }) => {
 
   await flow.step("enter the family code", async () => {
     await page.getByLabel("Invitation code").fill(CIRE_PART_GUEST.code);
-    await page.getByRole("button", { name: "Open Invitation" }).click();
+    await page.getByRole("button", { name: "Open invitation" }).click();
     await expect(hindu).toBeVisible();
   });
 
@@ -115,8 +115,8 @@ test("cire-rsvp-partial-after-deadline", async ({ page, flow }) => {
   );
   flow.check("part reply shows no tick", 0, await given.locator("svg").count());
 
-  await flow.step("Event Details offers the reply", async () => {
-    await hindu.getByRole("button", { name: "Event Details" }).click();
+  await flow.step("Event details offers the reply", async () => {
+    await hindu.getByRole("button", { name: "Event details" }).click();
     await expect(sheet.getByRole("button", { name: "View your RSVP" })).toBeVisible();
   });
   flow.check(

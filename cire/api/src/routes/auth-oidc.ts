@@ -33,25 +33,81 @@ const redirect = (location: string, cookies: string[]): Response => {
 };
 
 /**
+ * Whether a portal page is worth resuming on, by the rule the portals'
+ * sign-in panel applies again: a path (a URL's always is) that is not
+ * protocol-relative, holds no backslash, and is neither the root nor `/login`. The
+ * allowlist checked `return_to`'s origin only; its path is whoever started the
+ * sign-in.
+ */
+const isResumable = (pathname: string, page: string): boolean =>
+  page !== "/" &&
+  !page.startsWith("//") &&
+  !page.includes("\\") &&
+  pathname.replace(/\/+$/, "") !== "/login";
+
+/**
  * Terminal sign-in failure on a top-level browser navigation. Rather than
  * render raw JSON the user would see in the address bar, bounce to a page the
- * SPA controls — the organiser's `return_to` when we still trust one, else the
- * login page — with `?auth_error=<code>` for it to turn into a friendly
- * message. `loginFallbackUrl` is a server-configured, allowlisted origin, so
- * this is never an open redirect even when the transaction cookie (the usual
- * source of `returnTo`) is missing, expired, or forged.
+ * SPA controls, with `?auth_error=<code>` for it to turn into a friendly
+ * message:
+ *
+ * - a trusted `return_to` on a portal (the host or vendor origin) lands on
+ *   that portal's own `/login`, carrying the page as `returnTo`, so the sign-in
+ *   panel shows the message and the next sign-in resumes there;
+ * - any other trusted `return_to` (the guest site) gets the marker itself;
+ * - with none — the transaction cookie missing, expired or forged — the
+ *   organiser login page, `loginFallbackUrl`.
+ *
+ * `return_to` is trusted only once `readReturnTo`/`completeLogin` have checked
+ * it against the allowlist, and `loginFallbackUrl` is server-configured, so
+ * this is never an open redirect. The panel checks `returnTo` again before
+ * following it.
  */
-const errorRedirect = (
+const failureLanding = (
   returnTo: string | null,
+  portalOrigins: readonly string[],
   loginFallbackUrl: string,
   reason: string,
-  secure: boolean,
-): Response => {
-  const clear = clearOidcTxCookie({ secure });
-  const url = new URL(returnTo ?? loginFallbackUrl);
-  url.searchParams.set("auth_error", reason);
-  return redirect(url.toString(), [clear]);
+): string => {
+  if (returnTo) {
+    const back = new URL(returnTo);
+    if (portalOrigins.includes(back.origin)) {
+      const login = new URL("/login", back.origin);
+      const page = back.pathname + back.search + back.hash;
+      if (isResumable(back.pathname, page)) login.searchParams.set("returnTo", page);
+      login.searchParams.set("auth_error", reason);
+      return login.toString();
+    }
+    back.searchParams.set("auth_error", reason);
+    return back.toString();
+  }
+  const fallback = new URL(loginFallbackUrl);
+  fallback.searchParams.set("auth_error", reason);
+  return fallback.toString();
 };
+
+/**
+ * The portal sign-in page an unavailable sign-in lands on. The start leg's
+ * `return_to` is unchecked when the tier has no OIDC config, so it only picks
+ * between the two portal origins this server already knows; it is never the
+ * redirect target and none of it is carried.
+ */
+const portalLoginFor = (
+  rawReturnTo: unknown,
+  portalOrigins: readonly string[],
+  loginFallbackUrl: string,
+): string => {
+  try {
+    const origin = new URL(String(rawReturnTo)).origin;
+    if (portalOrigins.includes(origin)) return new URL("/login", origin).toString();
+  } catch {
+    // Not a URL: the organiser login page.
+  }
+  return loginFallbackUrl;
+};
+
+const errorRedirect = (location: string, secure: boolean): Response =>
+  redirect(location, [clearOidcTxCookie({ secure })]);
 
 export interface AuthOidcRouteOptions {
   /** Fully-built RP config; `null` ⇒ the tier has no OIDC credentials. */
@@ -64,6 +120,11 @@ export interface AuthOidcRouteOptions {
    * `?auth_error` marker instead of rendering JSON to the browser.
    */
   loginFallbackUrl: string;
+  /**
+   * The host and vendor portals' origins. A failed sign-in whose trusted
+   * `return_to` is on one of them lands on that portal's `/login`.
+   */
+  portalOrigins: readonly string[];
   /**
    * Tight per-IP limiter for the pre-auth redirect legs (`/oidc/start`,
    * `/oidc/callback`). Fail-closed on an unresolved IP (429), like every other
@@ -99,7 +160,14 @@ export interface AuthOidcRouteOptions {
  */
 export const createAuthOidcRoutes = (
   db: Db,
-  { oidc, secureCookies, loginFallbackUrl, startLimiter, sessionLimiter }: AuthOidcRouteOptions,
+  {
+    oidc,
+    secureCookies,
+    loginFallbackUrl,
+    portalOrigins,
+    startLimiter,
+    sessionLimiter,
+  }: AuthOidcRouteOptions,
 ) => {
   // Two sibling instances under the same prefix, each carrying its own scoped
   // rate-limit middleware — the same isolation pattern the organiser read/write
@@ -131,7 +199,15 @@ export const createAuthOidcRoutes = (
         // to the login page with a marker, not a raw 503 JSON body it would
         // render in the address bar.
         metricOidcLogin("bad_request");
-        return errorRedirect(null, loginFallbackUrl, "sign_in_unavailable", secureCookies);
+        return errorRedirect(
+          failureLanding(
+            null,
+            portalOrigins,
+            portalLoginFor(query["return_to"], portalOrigins, loginFallbackUrl),
+            "sign_in_unavailable",
+          ),
+          secureCookies,
+        );
       }
       const returnTo = typeof query["return_to"] === "string" ? query["return_to"] : "";
       const started = await beginLogin(
@@ -166,7 +242,10 @@ export const createAuthOidcRoutes = (
     .get("/oidc/callback", async ({ query, request }) => {
       if (!oidc) {
         metricOidcLogin("bad_request");
-        return errorRedirect(null, loginFallbackUrl, "sign_in_unavailable", secureCookies);
+        return errorRedirect(
+          failureLanding(null, portalOrigins, loginFallbackUrl, "sign_in_unavailable"),
+          secureCookies,
+        );
       }
       const tx = parseOidcTxCookie(request.headers.get("cookie"));
 
@@ -177,9 +256,12 @@ export const createAuthOidcRoutes = (
       if (typeof query["error"] === "string") {
         metricOidcLogin("provider_error");
         return errorRedirect(
-          await readReturnTo(oidc, tx),
-          loginFallbackUrl,
-          "sign_in_declined",
+          failureLanding(
+            await readReturnTo(oidc, tx),
+            portalOrigins,
+            loginFallbackUrl,
+            "sign_in_declined",
+          ),
           secureCookies,
         );
       }
@@ -192,7 +274,10 @@ export const createAuthOidcRoutes = (
 
       if (!result.ok) {
         metricOidcLogin(result.reason);
-        return errorRedirect(result.returnTo, loginFallbackUrl, "sign_in_failed", secureCookies);
+        return errorRedirect(
+          failureLanding(result.returnTo, portalOrigins, loginFallbackUrl, "sign_in_failed"),
+          secureCookies,
+        );
       }
 
       const session = await runCire(
@@ -205,7 +290,10 @@ export const createAuthOidcRoutes = (
         // D1 refused the insert. Nothing to sign the user in with, and a retry
         // is a single click, so send them back with the same generic marker.
         metricOidcLogin("exchange_failed");
-        return errorRedirect(result.returnTo, loginFallbackUrl, "sign_in_failed", secureCookies);
+        return errorRedirect(
+          failureLanding(result.returnTo, portalOrigins, loginFallbackUrl, "sign_in_failed"),
+          secureCookies,
+        );
       }
 
       metricOidcLogin("callback_ok");

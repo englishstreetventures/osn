@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-04
 ---
 
 # DSAR Runbook
@@ -162,6 +162,23 @@ owners, each with an `owner` seat. Two consequences:
   every member. Guest data under the wedding is not the
   owner's personal data, so it is not part of this answer at all: an owner
   reads and exports it in the portal, as a joint controller.
+- **Who connected a wedding's Stripe account (migration
+  `20261104040827_registry_stripe_connected_by`).**
+  `registry_settings.stripe_connected_by_osn_profile_id` names the owner who
+  ran Stripe onboarding, and so the one owner cire hands the account's
+  onboarding links. An access answer includes it for each wedding where it
+  names the requester, found by profile id rather than by seat, so an owner
+  who has since left is answered too: `SELECT wedding_id FROM registry_settings
+  WHERE stripe_connected_by_osn_profile_id = ?`. Where it names someone else it
+  identifies a co-owner (Art. 15(4)), and the answer says only that the
+  wedding has a connected account. An erasure request from the connector sets
+  it to NULL in the same pass that removes their seats: `UPDATE
+  registry_settings SET stripe_connected_by_osn_profile_id = NULL WHERE
+  stripe_connected_by_osn_profile_id = ?`. NULL beside an account matches no
+  owner, so the account's links stay closed rather than opening to the other
+  owners; the account itself, with the requester's identity and bank details,
+  is Stripe's and theirs ([[retention]]), and an operator forwards the request
+  to Stripe as that row says.
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
   right is the responsibility of the wedding's owners as **joint
   controllers** (cire is their processor — see [[data-map]]). Route guest

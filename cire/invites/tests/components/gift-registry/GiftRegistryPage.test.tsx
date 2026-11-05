@@ -482,7 +482,12 @@ describe("the couple's shelves", () => {
       "",
     ]);
     expect(shelves[0]?.querySelectorAll("[data-gift-item]")).toHaveLength(2);
-    expect(container.textContent).toContain("More gifts");
+    // Each shelf leads with its own label; the ungrouped one with "More gifts".
+    expect(shelves.map((shelf) => shelf.querySelector("h2")?.textContent)).toEqual([
+      "Kitchen",
+      "Bedroom",
+      "More gifts",
+    ]);
   });
 
   it("labels nothing when the couple grouped nothing", async () => {
@@ -566,8 +571,8 @@ describe("a session that ends mid-visit", () => {
     // The list read had a session, so the page is not the locked one; the
     // controls are gone, and the reason is on the page instead.
     expect(container.querySelector("[data-gift-locked]")).toBeNull();
-    expect(container.querySelector("[data-gift-signed-out]")?.textContent).toContain(
-      "Your invite session has ended",
+    expect(container.querySelector("[data-gift-signed-out]")?.textContent).toBe(
+      "Your invite session has ended. Enter your invite code again on the invitation to reserve a gift.",
     );
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });

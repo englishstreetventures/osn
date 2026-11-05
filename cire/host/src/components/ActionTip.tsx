@@ -1,6 +1,5 @@
 import Button, { type ButtonProps } from "@cire/ui/button";
 import { Popper } from "@kobalte/core/popper";
-import type { SafeProps } from "@shared/ui/ui/props";
 import { createSignal, type JSX, onCleanup, onMount, Show, splitProps } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -25,7 +24,7 @@ import { Portal } from "solid-js/web";
  */
 
 const PANEL =
-  "bg-surface-raised text-text border-border z-50 max-w-xs rounded-md border px-2 py-1 text-ui-xs leading-snug shadow-md";
+  "bg-surface-raised text-text border-border z-50 max-w-xs rounded-md border px-2 py-1 text-ui-xs leading-ui-snug shadow-md";
 
 /** How long a mouse rests on a control before its panel opens. */
 const OPEN_DELAY_MS = 300;
@@ -47,18 +46,6 @@ export function IconButton(
       data-tip={own.tipDisabled ? undefined : own.label}
     />
   );
-}
-
-/**
- * A plain button with the same tooltip, for a control whose look is its own —
- * a sub-tab, a mode switch. Its name comes from its contents or its own
- * `aria-label`; `label` is what the panel shows.
- */
-export function TipTrigger(
-  props: Omit<SafeProps<"button">, "type"> & { label: string; tipDisabled?: boolean },
-) {
-  const [own, rest] = splitProps(props, ["label", "tipDisabled"]);
-  return <button type="button" {...rest} data-tip={own.tipDisabled ? undefined : own.label} />;
 }
 
 /**

@@ -27,10 +27,15 @@ view. For a component's full range of variants and states, open its own group:
 | `shared/ui`          | Everything, one state each                                                      |
 | `shared/ui/Button`   | All variants, all sizes, live playground                                        |
 | `shared/ui/display`  | Badge, Avatar, Card                                                             |
-| `shared/ui/forms`    | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
+| `shared/ui/forms`    | Input, Label, Textarea, Select (every size, the ink fill, the chevron), Field, Fieldset, Checkbox and RadioGroup (each state, drawn and native), UsernameInput, OtpInput |
 | `shared/ui/feedback` | Notice, Chip, EmptyState, Stat                                                  |
 | `shared/ui/data`     | Table, Meter                                                                    |
 | `shared/ui/overlays` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs                |
+| `cire/ui/Button`  | Every variant at every size in cire's light and dark mapping; states; each shape claim measured from the painted button; live playground |
+| `cire/ui/Card`    | The plain, accent, eyebrow and interactive cards in cire's light and dark mapping; each padding step, fill and tone, measured from the painted card |
+| `cire/ui/Disclosure` | Each tone closed and open, a card disclosure holding rows, and a nested one, in cire's light and dark mapping, captioned with the marker's painted turn |
+| `cire/ui/Eyebrow` | Both tones and every element it renders as, in cire's light and dark mapping, measured from the painted label |
+| `cire/ui/FileInput` | One story per state — `Empty`, `FileChosen`, `Focused` (one theme at a time) and `Disabled` — in cire's light and dark mapping |
 | `pulse/Icon`      | The Pulse glyph set, every icon at every size                                   |
 | `shared/toast`    | Tones, positions, stacking, actions/promises, overflow                          |
 | `shared/sortable` | Drag feel, the shift/settle animation, grip hover/focus, multi-container        |
@@ -236,8 +241,9 @@ in the app. A second copy would drift within a week.
 A story never imports an app stylesheet. The lab imports every story module to
 build its sidebar, so a global `:root` block in one lands on every story. A
 story with its own design language (a cire component, say) sets the `--ui-*`
-contract inline on a wrapper, as `src/stories/design-system/theming.story.tsx`
-does.
+contract inline on a wrapper; cire's mapping is `cireStyle()` in
+`src/stories/cire-ui/cire-mapping.ts`, which the cire stories and
+`src/stories/design-system/theming.story.tsx` share.
 
 ## Limits
 

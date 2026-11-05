@@ -72,7 +72,7 @@ const parseLogLevel = (value: string | undefined, env: DeploymentEnvironment): L
 };
 
 /**
- * S-M1: strict OTLP header parser.
+ * Strict OTLP header parser.
  *
  * These headers are passed straight to the OTLP HTTP exporter and
  * typically include the Grafana Cloud / Axiom / etc. Authorization
@@ -134,13 +134,12 @@ export const loadConfig = (overrides: ConfigOverrides = {}): ObservabilityConfig
     overrides.env ??
     parseDeploymentEnvironment(process.env.OSN_ENV ?? process.env.NODE_ENV ?? undefined);
 
-  // S-L3: if anything claims we're in production, require an explicit
-  // `OSN_ENV=production` — `NODE_ENV` alone is not sufficient because
-  // Bun leaves it empty by default and a missing env would silently
-  // classify as `local` (pretty logs + debug level + 100% trace sampling
-  // + any local-only code paths). Conversely, if the operator DID set
-  // `OSN_ENV=production` but an override tries to force it elsewhere,
-  // that's a bug we want to hear about.
+  // An explicit `OSN_ENV=production` cannot be overridden: an override
+  // that resolves the tier to anything else refuses to boot, rather than
+  // run production as `local` (pretty logs, debug level, 100% trace
+  // sampling, local-only code paths). `NODE_ENV` is read only when
+  // `OSN_ENV` is unset, and Bun leaves it empty by default, which
+  // resolves to `local`.
   if (process.env.OSN_ENV === "production" && env !== "production") {
     throw new Error(
       `loadConfig: OSN_ENV=production in the environment but resolved env is "${env}". Refusing to boot with a mismatched environment.`,

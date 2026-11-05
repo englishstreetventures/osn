@@ -17,7 +17,7 @@ import type {
   DeletionCompletedResult,
   DeletionCompletedSource,
 } from "@shared/observability/metrics";
-import { and, eq, inArray, lte, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import {
@@ -37,7 +37,7 @@ import {
  *      since cancellation is non-destructive within the 14-day window).
  *   3. `runHardDeleteSweep` — purges residual rows after the 7-day window.
  *   4. `runEventCancellationSweep` — hard-deletes events whose
- *      `hard_delete_at` (= cancelled_at + 14d) has passed.
+ *      `hard_delete_at` (14 days after the leave) has passed.
  *   5. `purgeAccount` — endpoint hit by osn-api's full-account-delete
  *      fan-out. Hard-deletes immediately (no grace), since OSN already
  *      enforced its own 7-day window before fanning out.
@@ -80,7 +80,8 @@ const recordCompletion = (result: DeletionCompletedResult, source: DeletionCompl
  *
  *   - flips hosted events to `cancelled_at = now`,
  *     `hard_delete_at = now + 14d`, `cancellation_reason = "host_left"`
- *     (this is reversible too — `cancelErasure` un-cancels them)
+ *     (this is reversible too — `cancelErasure` un-cancels them), and gives
+ *     the host's own cancelled events the same `hard_delete_at`
  *   - inserts the `pulse_deletion_jobs` row
  *
  * The 7-day hard-delete sweeper (`runHardDeleteSweep`) is what actually
@@ -124,18 +125,25 @@ export const requestErasure = (
       // transaction. Both statements are pure writes with no intermediate read.
       try: () =>
         commitBatch(db, [
-          // Cancel hosted events that aren't already finished or cancelled.
-          // The 14-day public-cancellation window starts now; the
-          // event-cancellation sweeper hard-deletes them when the window
-          // closes (or the user-restore path un-cancels them). Status is
-          // also flipped to "cancelled" so the status-aware UI surfaces
-          // the right copy without reading `cancelled_at` everywhere.
+          // One pass over the host's events that aren't finished:
+          //   - one not yet cancelled is cancelled because the host left;
+          //     `cancelledAt` is now and the reason `host_left`;
+          //   - one the host had already cancelled themselves keeps its
+          //     status, reason and `cancelledAt`;
+          //   - both get the 14-day hard-delete date. The event-cancellation
+          //     sweeper deletes them when it passes; `cancelErasure`
+          //     unschedules them before then.
+          // A cancelled event that already has a date is left alone. Status
+          // stays "cancelled" on every matched row, so the status-aware UI
+          // surfaces the right copy without reading `cancelled_at`. SQLite
+          // evaluates every SET expression against the row before the update,
+          // so each CASE sees the original status.
           db
             .update(events)
             .set({
-              cancelledAt: now,
+              cancelledAt: sql`CASE WHEN ${events.status} = 'cancelled' THEN ${events.cancelledAt} ELSE ${now} END`,
+              cancellationReason: sql`CASE WHEN ${events.status} = 'cancelled' THEN ${events.cancellationReason} ELSE 'host_left' END`,
               hardDeleteAt: eventCancelHardDeleteAt,
-              cancellationReason: "host_left",
               status: "cancelled",
               updatedAt: new Date(),
             })
@@ -143,7 +151,7 @@ export const requestErasure = (
               and(
                 eq(events.createdByProfileId, profileId),
                 ne(events.status, "finished"),
-                ne(events.status, "cancelled"),
+                or(ne(events.status, "cancelled"), isNull(events.hardDeleteAt)),
               ),
             ),
           db.insert(pulseDeletionJobs).values({
@@ -187,33 +195,30 @@ export const cancelErasure = (
     });
     if (!existing[0]) return { cancelled: false };
 
-    const nowSec = Math.floor(Date.now() / 1_000);
-
     yield* Effect.tryPromise({
       // Atomic batch (D1) / sequential (bun:sqlite) — pure writes, no read.
       try: () =>
         commitBatch(db, [
           db.delete(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, profileId)),
-          // Un-cancel events that haven't crossed their hard-delete deadline yet.
+          // Every hosted event the leave scheduled for hard delete is
+          // unscheduled, whatever its status: only the leave sets
+          // `hardDeleteAt`, and it is the column the sweeper deletes by. One
+          // the leave cancelled (`host_left`) is restored to `upcoming` — the
+          // next read derives its real status from its times. One the
+          // organiser cancelled, before the leave or since (a series cancel
+          // takes a host-left instance over), stays cancelled. SQLite
+          // evaluates every SET expression against the row before the update,
+          // so each CASE sees the original reason.
           db
             .update(events)
             .set({
-              cancelledAt: null,
+              status: sql`CASE WHEN ${events.cancellationReason} = 'host_left' THEN 'upcoming' ELSE ${events.status} END`,
+              cancelledAt: sql`CASE WHEN ${events.cancellationReason} = 'host_left' THEN NULL ELSE ${events.cancelledAt} END`,
+              cancellationReason: sql`CASE WHEN ${events.cancellationReason} = 'host_left' THEN NULL ELSE ${events.cancellationReason} END`,
               hardDeleteAt: null,
-              cancellationReason: null,
-              status: "upcoming",
               updatedAt: new Date(),
             })
-            .where(
-              and(
-                eq(events.createdByProfileId, profileId),
-                eq(events.cancellationReason, "host_left"),
-                lte(events.cancelledAt, nowSec),
-                // Defensive — only restore events whose hard-delete window
-                // hasn't already started purging (i.e. the sweeper hasn't
-                // yet hit them in a future cycle).
-              ),
-            ),
+            .where(and(eq(events.createdByProfileId, profileId), isNotNull(events.hardDeleteAt))),
         ]),
       catch: (cause) => new PulseErasureDbError({ cause }),
     });

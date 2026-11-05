@@ -5,12 +5,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import EnquiryThread from "../../src/components/EnquiryThread";
 import type { EnquiryListItem, EnquiryMessage } from "../../src/lib/enquiries-store";
+import { haptic } from "../../src/lib/touch-feedback";
+import { chipLook } from "../test-support/chip-look";
 
 // Stub the toast package so toast.error doesn't throw in tests.
 const toastError = vi.fn();
 vi.mock("@shared/toast", () => ({
   toast: { error: (m: string) => toastError(m) },
 }));
+
+vi.mock("../../src/lib/touch-feedback", () => ({ haptic: vi.fn() }));
 
 const enquiry = (o: Partial<EnquiryListItem> = {}): EnquiryListItem => ({
   id: "enq_1",
@@ -56,6 +60,7 @@ const base = {
 afterEach(() => {
   cleanup();
   toastError.mockReset();
+  vi.mocked(haptic).mockReset();
   vi.mocked(base.onSend).mockReset().mockResolvedValue(undefined);
   vi.mocked(base.onAddToBudget).mockReset().mockResolvedValue(undefined);
   vi.mocked(base.onBack).mockReset();
@@ -70,6 +75,31 @@ describe("EnquiryThread", () => {
     expect(theirsBubble).toHaveAttribute("data-mine", "false");
   });
 
+  it("marks the couple's waiting first message as not delivered, and no other", () => {
+    render(() => (
+      <EnquiryThread
+        {...base}
+        messages={[
+          msg({ id: "pending", body: "Are you free in March?" }),
+          msg({ id: "msg_sent", body: "Hello vendor" }),
+        ]}
+      />
+    ));
+    const waiting = screen.getByText("Are you free in March?").closest("[data-message-id]");
+    const sent = screen.getByText("Hello vendor").closest("[data-message-id]");
+    expect(waiting).toHaveTextContent(/not delivered yet/);
+    expect(sent).not.toHaveTextContent(/not delivered yet/);
+  });
+
+  it("tags the vendor's name with its category's name, in sentence case", () => {
+    render(() => <EnquiryThread {...base} />);
+    expect(chipLook(screen.getByText("Florals"))).toEqual({
+      tone: "neutral",
+      variant: "filled",
+      treatment: "tag",
+    });
+  });
+
   it("sends a reply and clears the box", async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
     render(() => <EnquiryThread {...base} onSend={onSend} />);
@@ -78,6 +108,8 @@ describe("EnquiryThread", () => {
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
     await waitFor(() => expect(onSend).toHaveBeenCalledWith("hello there"));
     await waitFor(() => expect(box.value).toBe(""));
+    expect(haptic).toHaveBeenCalledWith("commit");
+    expect(haptic).not.toHaveBeenCalledWith("reject");
   });
 
   it("shows a quote card with Add to budget when quotedMinor is set", () => {
@@ -120,10 +152,17 @@ describe("EnquiryThread", () => {
     expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
   });
 
-  it("send button is disabled when draft is empty", () => {
+  it("send button is disabled and hidden while the box is blank", () => {
     render(() => <EnquiryThread {...base} />);
-    const sendBtn = screen.getByRole("button", { name: /send/i });
+    expect(screen.queryByRole("button", { name: /^send$/i })).not.toBeInTheDocument();
+    // Out of the accessibility tree while blank, so found by its label, not its role.
+    const sendBtn = document.querySelector('button[aria-label="Send"]');
     expect(sendBtn).toBeDisabled();
+    expect(sendBtn).toHaveAttribute("aria-hidden", "true");
+    fireEvent.input(screen.getByPlaceholderText(/write a reply/i), { target: { value: "   " } });
+    expect(sendBtn).toBeDisabled();
+    fireEvent.input(screen.getByPlaceholderText(/write a reply/i), { target: { value: "Hi" } });
+    expect(screen.getByRole("button", { name: /^send$/i })).toBeEnabled();
   });
 
   it("keeps text and calls toast.error when onSend rejects", async () => {
@@ -132,7 +171,11 @@ describe("EnquiryThread", () => {
     const box = screen.getByPlaceholderText(/write a reply/i) as HTMLTextAreaElement;
     fireEvent.input(box, { target: { value: "test message" } });
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
-    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("Couldn't send your message. Please try again."),
+    );
     expect(box.value).toBe("test message");
+    expect(haptic).toHaveBeenCalledWith("reject");
+    expect(haptic).not.toHaveBeenCalledWith("commit");
   });
 });

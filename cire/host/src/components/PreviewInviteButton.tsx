@@ -89,12 +89,10 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
   // `not-sr-only`, never `hidden`), so the accessible name is always the
   // visible wording and never goes missing on the width where nothing is drawn.
   return (
-    // `cta`, which is the outline-at-rest, gold-on-hover shape this button was
-    // writing out by hand — the same one `InviteBuilder`'s Preview control
-    // already uses. The two sat side by side in the same portal with the same
-    // job and two hand-written class lists, and they had drifted: this one
-    // rested on `border-gold-dim` and `text-gold` where the variant uses the
-    // accent and its contrast-checked ink.
+    // `outline`, the portals' secondary action, as the invite builder's
+    // Preview in its view bar is: the same job, the same pill — a gold word in
+    // a 40% gold edge that turns full gold under the pointer, with nothing
+    // filling.
     //
     // The class is for what the variant does not decide: the top bar's own
     // height, and the cursor on a control that is busy rather than disabled.
@@ -102,7 +100,7 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
     // the same property instead of tying with it and being resolved by
     // stylesheet order.
     <Button
-      variant="cta"
+      variant="outline"
       size="sm"
       type="button"
       onClick={() => void preview()}

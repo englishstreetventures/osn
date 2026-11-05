@@ -9,7 +9,7 @@ related:
   - "[[metrics]]"
   - "[[arc-tokens]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-04
 ---
 # Tracing
 
@@ -66,6 +66,12 @@ Span names are **hierarchical** and **snake_case**. Dots separate layers; unders
 ## Route-level spans
 
 **Do not create spans at route level** -- the Elysia plugin already creates a span per request with `http.*` attributes. Creating a second span inside the handler is redundant; add service spans inside the Effect pipeline instead.
+
+**Mount the plugin before the routes.** It lifts its hooks to the app that mounts it (`.as("global")` in [plugin.ts](../../../shared/observability/src/elysia/plugin.ts)), and Elysia attaches a hook only to routes registered after it. A route registered before `.use(observabilityPlugin(...))` still runs `onRequest`, so its span starts and the in-flight gauge rises, but the span never ends and the gauge never falls.
+
+**The span names the matched route template (`http.route`), never the URL path or query**, since paths hold handles and profile ids and queries carry codes and tokens.
+
+**An error span carries the error's name and Elysia's error code, never its message or stack.** `onError` records an exception event whose type is the error's name and whose message is the code (`UNKNOWN`, `VALIDATION`, `NOT_FOUND`, or a thrown error's own `code`), and sets the span status to that code; a response of 500 or more then sets the status message to `HTTP <status>`. A message is free text that `redact()` cannot clean, since it scrubs object keys, and Elysia's validation errors carry the rejected input in theirs.
 
 ## Exporter: env-driven, true no-op when unset (PR #129)
 

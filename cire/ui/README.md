@@ -3,8 +3,8 @@
 cire's own component layer: the chrome `@shared/ui` should not carry, because it is
 this product's house style rather than anything a second product would want.
 
-Seven components: `Button`, `Card`, `Loading`, `DietaryPresets`,
-`DietaryPresetsPopover`, `Reveal`, and a combobox-shaped `UsernameInput`. Everything a cire surface needs that is not house style —
+Seventeen components: `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`,
+`SegmentedTabs`, `SignInPanel`, `Skeleton`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, and a combobox-shaped `UsernameInput`. Everything a cire surface needs that is not house style —
 `Field`, `Notice`, `EmptyState`, `Chip`, `Stat`, `Meter`, `Table`, `Modal`,
 `SafeProps` — is in `@shared/ui`, because none of it is cire-specific; it was
 only cire-_located_.
@@ -13,10 +13,22 @@ It also holds content two cire sites publish word for word, which belongs to
 neither app: the guest privacy notice (`src/guest-privacy-notice.astro`), which
 the guest site renders as its `/privacy` page and cireweddings.com as
 `/privacy/guests`, and the consent vendor registry the notice's cookie list is built
-from (`src/consent-categories.ts`, `src/consent-vendors.ts`). The notice is the
-one Astro component here; each app's Astro build compiles it, and its tests read
-its source (`tests/guest-privacy-notice.test.ts`). Any change under `src/`
-redeploys all four cire frontends.
+from (`src/consent-categories.ts`, `src/consent-vendors.ts`). The notice is one
+of four Astro components here, with the portals' sign-in page (`src/sign-in-card.astro`,
+which holds `SignInPanel` as an island), and the two guest-facing sites' footer
+(`src/site-footer.astro`) and legal pages' document (`src/legal-layout.astro`);
+each app's Astro build compiles them. The notice's and the sign-in page's tests read
+their source (`tests/guest-privacy-notice.test.ts`, `tests/sign-in-card.test.ts`);
+the footer's and the layout's render them with Astro's container API, in the
+`astro` test project (`vitest.astro.config.ts`, `tests/*.astro.test.ts`). Any
+change under `src/` redeploys all four cire frontends.
+
+`src/lib/` holds the helpers both portals use and neither renders:
+`createAutoSize` (a box animated between two content heights),
+`createPreferences` and `themeBootScript` (the theme and haptics switch, and
+the inline script that sets the theme before first paint, under each portal's
+own storage keys), and `createHaptics` (touch feedback by event name). The
+guest and marketing sites import none of them.
 
 `UsernameInput` is the one apparent duplicate, and the reason is the API rather
 than the styling: `@shared/ui`'s is controlled and renders its own debounced
@@ -31,18 +43,21 @@ Every class here is a `ui-*` utility, `base:`-prefixed. **"House-specific"
 describes which components live here, not a separate vocabulary** — a library
 that wrote `bg-gold` would be a library that only renders in the two apps that
 happen to declare `--gold`, which is exactly the bug this package exists to fix.
-The same trap catches motion: `--dur-fast` is declared in `cire/host` and
-`cire/vendor` and in neither `cire/invites` nor `cire/landing`, so a component
-here that spelled `duration-(--dur-fast)` would animate on two surfaces and sit
-untimed on the other two.
-
-The visible cost is that transitions here are plain Tailwind durations rather
-than cire's `--dur-*` scale, so they do not follow `--motion-scale`. Nothing in
-any app writes that property — it exists so a fixtures page can slow the whole
-portal to 0.1× and judge a reference behaviour frame by frame — so what is lost
-is a development affordance for these components, not a user-facing one.
-The reduced-motion kill switch is a global rule in each app's `global.css` and
-is unaffected.
+The same trap catches motion, so a duration here names its fallback:
+`duration-(--dur-fast,100ms)` takes the app's own `--dur-*` step, which all four
+cire apps declare and which follows their `--motion-scale` and pointer ladder,
+and the fallback only where no app declares one, as in the component lab. A
+bare `duration-(--dur-fast)` would sit untimed wherever the token is missing.
+The loaders' pulse (`src/lib/pulse.ts`, shared by `Loading` and `Skeleton`) is
+the same: 2s scaled by the app's `--motion-scale`, on its `--ease-in-out`,
+never Tailwind's fixed `animate-pulse`. The curve is the app's own, which all
+four cire apps declare: Tailwind's theme supplies an `--ease-in-out` of its
+own (a different curve) wherever an app declares none, so the contract's
+`--ui-ease-in-out` written behind it is never reached in a Tailwind app.
+The reduced-motion kill switch is a global rule in each app's `global.css`. It
+selects `*`, which reaches no pseudo-element, so a part that animates one —
+`Disclosure`'s fade on `::details-content` — carries its own `motion-safe:`
+gate.
 
 ## Adding an app
 
