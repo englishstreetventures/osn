@@ -1,5 +1,6 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import Plus from "lucide-solid/icons/plus";
@@ -184,12 +185,9 @@ function RecentlyDeleted(props: {
 
   return (
     <section aria-labelledby="recently-deleted-title" class="flex flex-col gap-3">
-      <h2
-        id="recently-deleted-title"
-        class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase"
-      >
+      <Eyebrow as="h2" id="recently-deleted-title" tone="muted">
         Recently deleted
-      </h2>
+      </Eyebrow>
       <Show when={error()}>
         {(message) => (
           <Notice tone="danger" alert>
