@@ -13,7 +13,8 @@
  *   the native D1 and `fetch` spans. `startSpan` returns a span that is never
  *   active, so the Effect tree's own nesting is not kept; timing still shows it.
  * - Attributes: string, number and boolean values only, and a key on the
- *   logger's deny-list (`../logger/redact.ts`) carries the placeholder.
+ *   logger's deny-list (`../logger/redact.ts`), whole or by its last dotted
+ *   segment, carries the placeholder.
  * - A failure sets `error.type` to the error's `_tag` (or an `Error`'s
  *   `name`) and the span's status to error. Never the message, which is free
  *   text the deny-list cannot clean, and never `recordException`, which also
@@ -78,7 +79,16 @@ const forwardable = (key: string, value: unknown): string | number | boolean | u
   if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
     return undefined;
   }
-  return REDACT_KEYS.has(key.toLowerCase()) ? REDACTION_PLACEHOLDER : value;
+  return deniedKey(key) ? REDACTION_PLACEHOLDER : value;
+};
+
+/**
+ * Whether a span attribute key is on the logger's deny-list: the whole key, or
+ * its last dotted segment, since span keys are namespaced (`user.email`).
+ */
+const deniedKey = (key: string): boolean => {
+  const lower = key.toLowerCase();
+  return REDACT_KEYS.has(lower) || REDACT_KEYS.has(lower.slice(lower.lastIndexOf(".") + 1));
 };
 
 const nameOf = (value: unknown): string => {

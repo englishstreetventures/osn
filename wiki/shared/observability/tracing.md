@@ -77,7 +77,8 @@ What a mirrored span carries, and what it does not:
   so the Effect tree's own nesting is not kept; the timeline still shows it.
 - **Attributes.** String, number and boolean values only; an object-valued
   attribute is dropped. A key on the logger's deny-list
-  ([[logging#Redaction]]) carries `[REDACTED]`.
+  ([[logging#Redaction]]), whole or by its last dotted segment (`user.email`),
+  carries `[REDACTED]`.
 - **Failure.** `error.type` set to the error's `_tag` (an `Error`'s `name` for a
   defect) and the span's status set to error. Never the message, which is free
   text the deny-list cannot clean. Never `recordException` either: on

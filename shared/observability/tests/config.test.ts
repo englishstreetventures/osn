@@ -61,6 +61,7 @@ describe("loadConfig", () => {
   });
 
   it("parses OTEL_EXPORTER_OTLP_HEADERS", () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.example.test/otlp";
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer xyz,x-tenant=acme";
     const cfg = loadConfig();
     expect(cfg.otlpHeaders).toEqual({
@@ -71,18 +72,31 @@ describe("loadConfig", () => {
 
   // Header values are parsed strictly, rejecting CRLF and control characters.
   it("rejects OTEL_EXPORTER_OTLP_HEADERS with CRLF in values", () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.example.test/otlp";
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer\r\nX-Evil: injected";
     expect(() => loadConfig()).toThrow(/invalid value/);
   });
 
   it("rejects OTEL_EXPORTER_OTLP_HEADERS with control chars in key", () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.example.test/otlp";
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "x-bad header=ok";
     expect(() => loadConfig()).toThrow(/invalid header name/);
   });
 
   it("rejects OTEL_EXPORTER_OTLP_HEADERS with a colon in the key", () => {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.example.test/otlp";
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "x-bad:key=ok";
     expect(() => loadConfig()).toThrow(/invalid header name/);
+  });
+
+  // The Workers set no endpoint and export nothing, so a stale or malformed
+  // header value there must not stop the logger (and every request and cron
+  // sweep that runs on it) from building.
+  it("ignores OTEL_EXPORTER_OTLP_HEADERS when no endpoint is set", () => {
+    process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer\r\nX-Evil: injected";
+    const cfg = loadConfig();
+    expect(cfg.otlpEndpoint).toBeUndefined();
+    expect(cfg.otlpHeaders).toEqual({});
   });
 
   // Rejects a mismatch between OSN_ENV=production and an explicit env override.

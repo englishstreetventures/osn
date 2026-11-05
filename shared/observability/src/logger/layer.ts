@@ -1,4 +1,4 @@
-import { Formatter, Layer, LogLevel, Logger, References, type Context } from "effect";
+import { Cause, Formatter, Layer, LogLevel, Logger, References, type Context } from "effect";
 
 import type { LogLevel as ConfigLogLevel, ObservabilityConfig } from "../config";
 import { redact } from "./redact";
@@ -51,6 +51,25 @@ const onWorkerd = (): boolean =>
   typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
 
 /**
+ * A log line's cause with every failure and defect scrubbed. `Cause.pretty`
+ * renders a failure that is not an `Error` as its whole object, and an `Error`
+ * with its own fields, so the deny-list runs on each before any logger renders
+ * the cause. Interruptions carry nothing and pass through.
+ */
+const redactCause = (cause: Cause.Cause<unknown>): Cause.Cause<unknown> =>
+  cause.reasons.length === 0
+    ? cause
+    : Cause.fromReasons(
+        cause.reasons.map((reason) =>
+          Cause.isFailReason(reason)
+            ? Cause.makeFailReason(redact(reason.error))
+            : Cause.isDieReason(reason)
+              ? Cause.makeDieReason(redact(reason.defect))
+              : reason,
+        ),
+      );
+
+/**
  * Redaction on the **input** side: wrap a logger so the entry it receives is
  * already scrubbed, and let it do everything else itself.
  *
@@ -80,8 +99,23 @@ const redactInput = (inner: Logger.Logger<unknown, void>): Logger.Logger<unknown
     const fiber = Object.create(options.fiber, {
       getRef: { value: getRef },
     }) as typeof options.fiber;
-    return inner.log({ ...options, message: redact(options.message), fiber });
+    return inner.log({
+      ...options,
+      message: redact(options.message),
+      cause: redactCause(options.cause),
+      fiber,
+    });
   });
+
+/**
+ * A logger's input with its cause scrubbed, for the loggers whose message and
+ * annotations {@link redactedEntry} scrubs on the output side: by then the
+ * cause is already rendered text, which key-based redaction cannot clean.
+ */
+const withRedactedCause = <Output>(
+  inner: Logger.Logger<unknown, Output>,
+): Logger.Logger<unknown, Output> =>
+  Logger.make((options) => inner.log({ ...options, cause: redactCause(options.cause) }));
 
 /**
  * The redacting pretty logger: `Logger.consolePretty()` with both of its inputs
@@ -95,7 +129,7 @@ const prettyRedactingLogger: Logger.Logger<unknown, void> = redactInput(Logger.c
  * running anywhere but workerd.
  */
 const jsonRedactingLogger: Logger.Logger<unknown, void> = Logger.withConsoleLog(
-  redactedEntry.pipe(Logger.map((entry) => Formatter.formatJson(entry))),
+  withRedactedCause(redactedEntry).pipe(Logger.map((entry) => Formatter.formatJson(entry))),
 );
 
 /**
@@ -106,7 +140,9 @@ const jsonRedactingLogger: Logger.Logger<unknown, void> = Logger.withConsoleLog(
  * The console method follows the entry's level (`console.info`, `console.warn`,
  * `console.error`), and Workers Logs records that method as the line's level.
  */
-const workersLogsLogger: Logger.Logger<unknown, void> = Logger.withLeveledConsole(redactedEntry);
+const workersLogsLogger: Logger.Logger<unknown, void> = Logger.withLeveledConsole(
+  withRedactedCause(redactedEntry),
+);
 
 /**
  * `Logger.tracerLogger` with its inputs scrubbed. The tracer logger copies each

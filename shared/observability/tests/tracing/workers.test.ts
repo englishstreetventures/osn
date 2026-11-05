@@ -94,16 +94,24 @@ describe("WorkersTracingLive", () => {
     await run(
       Effect.void.pipe(
         Effect.withSpan("probe.attrs", {
-          attributes: { email: PII, accessToken: "eyJ-secret", kind: "probe", count: 2 },
+          attributes: {
+            email: PII,
+            accessToken: "eyJ-secret",
+            "user.email": PII,
+            kind: "probe",
+            count: 2,
+          },
         }),
       ),
     );
 
-    // The match ignores case: `accessToken` is listed as `accesstoken`.
+    // The match ignores case (`accessToken` is listed as `accesstoken`), and
+    // a dotted key matches on its last segment, as OpenTelemetry's `user.email`.
     const attributes = fake.calls.filter((c) => c.op === "setAttribute").map((c) => c.args);
     expect(attributes).toEqual([
       ["email", "[REDACTED]"],
       ["accessToken", "[REDACTED]"],
+      ["user.email", "[REDACTED]"],
       ["kind", "probe"],
       ["count", 2],
     ]);

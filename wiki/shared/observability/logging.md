@@ -132,6 +132,10 @@ there by hand.
 | `email` | No | PII -- always redacted |
 | A wedding slug | No | It is the couple's names; log the slot or route kind instead |
 
+### A logged cause is scrubbed too
+
+`Cause.pretty` renders a failure that is not an `Error` as its whole object, and an `Error` with its own fields, so every logger here scrubs a line's cause before rendering it: each failure and defect passes `redact()` first ([layer.ts](../../../shared/observability/src/logger/layer.ts), `redactCause`). An error's message is still free text, which no key-based scrub can clean.
+
 ### Failed-query errors carry no bound values
 
 Redaction matches keys, so it cannot clean a value that is already inside an error's message — and many services log `reason: String(e)`. `drizzle-orm`'s `DrizzleQueryError` puts every bound parameter in its message, which on a failed write means guest names or answers. The repository patches it (`patches/drizzle-orm@1.0.0-rc.5.patch`, applied by `bun install`): the message is `Failed query: <sql>` only, and `params` stays on the error as a non-enumerable field, so no log line, `String(e)`, JSON form or span exception carries it. `cire/api/tests/db/query-error.test.ts` fails if the patch stops applying. A drizzle upgrade must carry the patch forward. See [[tracing]].

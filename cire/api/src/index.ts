@@ -267,8 +267,9 @@ const isDeployedTier = (env: Env): boolean =>
   "local";
 
 // The same tier signal without `loadConfig`, which can throw on a malformed
-// OTLP header value. The WEB_ORIGIN check runs in `scheduled` outside any
-// catch, so it must not be able to stop the sweeps that follow it.
+// tier or, with an OTLP endpoint set, a malformed OTLP header. The WEB_ORIGIN
+// check runs in `scheduled` outside any catch, so it must not be able to stop
+// the sweeps that follow it.
 const isDeployedEnv = (env: Env): boolean => parseDeploymentEnvironment(env.OSN_ENV) !== "local";
 
 const handler: ExportedHandler<Env> = {

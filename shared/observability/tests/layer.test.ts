@@ -168,6 +168,86 @@ describe("makeLoggerLayer output format", () => {
  * shadows those two and delegates to an untouched pretty logger, which is why
  * colour, spans and date formatting survive the scrub.
  */
+describe("a logged cause", () => {
+  // A failure that is not an `Error` renders as its whole object in the
+  // cause text, so the cause must be scrubbed before any sink renders it.
+  const failure = { _tag: "LookupFailed", email: "alice@example.com", reason: "no row" };
+  const logWithCause = (layer: typeof PrettyLoggerLive) =>
+    Effect.runPromise(
+      Effect.fail(failure).pipe(
+        Effect.tapCause((cause) => Effect.logError("lookup failed", cause)),
+        Effect.catchCause(() => Effect.void),
+        Effect.withSpan("probe.cause"),
+        Effect.provide(layer),
+      ),
+    );
+
+  const sinks = (): string[] => {
+    const lines: string[] = [];
+    const sink = (...args: unknown[]) => {
+      lines.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+    };
+    const c = globalThis.console;
+    const original = { log: c.log, error: c.error, group: c.group, groupEnd: c.groupEnd };
+    Object.assign(c, { log: sink, error: sink, group: () => undefined, groupEnd: () => undefined });
+    afterAllRestore = () => Object.assign(c, original);
+    return lines;
+  };
+  let afterAllRestore = () => {};
+
+  it("carries no deny-listed field to the JSON line, the Workers Logs object or the pretty logger", async () => {
+    for (const make of [
+      () => makeLoggerLayer(loadConfig({ serviceName: "test", env: "production" })),
+      () => {
+        vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" });
+        return makeLoggerLayer(loadConfig({ serviceName: "test", env: "production" }));
+      },
+      () => PrettyLoggerLive,
+    ]) {
+      const lines = sinks();
+      try {
+        await logWithCause(make());
+      } finally {
+        afterAllRestore();
+        vi.unstubAllGlobals();
+      }
+      const out = lines.join("\n");
+      expect(out).toContain("lookup failed");
+      expect(out).not.toContain("alice@example.com");
+      expect(out).toContain("[REDACTED]");
+    }
+  });
+
+  it("carries no deny-listed field to the span event the tracer logger writes", async () => {
+    const spans: Tracer.NativeSpan[] = [];
+    const recording = Tracer.make({
+      span: (options) => {
+        const span = new Tracer.NativeSpan(options);
+        spans.push(span);
+        return span;
+      },
+    });
+    sinks();
+    try {
+      await logWithCause(
+        Layer.merge(
+          makeLoggerLayer(loadConfig({ serviceName: "test", env: "production" })),
+          Layer.succeed(Tracer.Tracer)(recording),
+        ),
+      );
+    } finally {
+      afterAllRestore();
+    }
+    const events = spans.flatMap((span) => span.events);
+    expect(events).toHaveLength(1);
+    const text = JSON.stringify(events, (_key, value: unknown) =>
+      typeof value === "bigint" ? String(value) : value,
+    );
+    expect(text).toContain("LookupFailed");
+    expect(text).not.toContain("alice@example.com");
+  });
+});
+
 describe("PrettyLoggerLive", () => {
   /** Capture everything the pretty logger writes for one `Effect.log*` call. */
   const capture = async (run: () => Promise<unknown>): Promise<string> => {
