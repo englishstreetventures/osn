@@ -333,6 +333,13 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   first item lands, at 1280px and at 390px.
   `tests/components/skeletons.browser.test.tsx` holds each to 2px.
   `tests/styles/skeleton.test.ts` fails on a hand-drawn `animate-pulse`.
+  Pending the owner's answer on englishstreetventures/osn#1944: whether a phone
+  matches every view's heights (the overview, the event cards and the guest
+  editor); whether a count or legend line is held empty or drawn as a line;
+  whether the RSVP event strip's placeholder takes the glass track's 30%
+  surface and hairline or keeps the pill's edgeless 60%; and whether an
+  intro's actions keep empty room or show disabled while the list loads
+  (englishstreetventures/osn#1943).
 - **Hollow rows** are `@cire/ui`'s `SkeletonOutline` (§7): the view's own
   row rendered from a typed sample and drawn hollow, the owner's choice on
   englishstreetventures/osn#1955 (Q6 C, Q7 C). Each run of words or digits is
@@ -348,13 +355,6 @@ radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
   household bars, the hairlines and every ground stay as they are, and still.
   The 4px corner is a step of its own, not a radius role: it belongs to a bar
   of letters, about 11–16px tall, and to nothing else.
-  Pending the owner's answer on englishstreetventures/osn#1944: whether a phone
-  matches every view's heights (the overview, the event cards and the guest
-  editor); whether a count or legend line is held empty or drawn as a line;
-  whether the RSVP event strip's placeholder takes the glass track's 30%
-  surface and hairline or keeps the pill's edgeless 60%; and whether an
-  intro's actions keep empty room or show disabled while the list loads
-  (englishstreetventures/osn#1943).
 - **The invite preview** gives an element it mirrors the guest element's corner.
 - **A card holding a stuck head** clips with `overflow-clip`, never
   `overflow-hidden` — the guest editor's household card. `hidden` makes the card
