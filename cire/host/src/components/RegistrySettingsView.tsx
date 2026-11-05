@@ -262,6 +262,26 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const [offered, setOffered] = createSignal<ReusableAccount[] | null>(null);
   /** Their answer: a wedding to take the account from, `NEW_ACCOUNT`, or `""`. */
   const [chosen, setChosen] = createSignal("");
+  /**
+   * Where focus goes as the account question opens and closes: the question,
+   * when the button that opened it disappears; the Connect (or, once there is
+   * an account, Continue) button, when the question does.
+   */
+  let questionEl: HTMLDivElement | undefined;
+  let connectButtonEl: HTMLButtonElement | undefined;
+  /**
+   * Close the account question and give focus back to the panel's button,
+   * which a request still in flight leaves disabled and so unfocusable: the
+   * question is closed only once there is nothing left to wait for.
+   */
+  function closeQuestion(): void {
+    batch(() => {
+      setConnecting(false);
+      setOffered(null);
+      setChosen("");
+    });
+    connectButtonEl?.focus();
+  }
   const [checking, setChecking] = createSignal(false);
   /** `null` until the first snapshot lands; the form seeds from it once. */
   const [seeded, setSeeded] = createSignal(false);
@@ -589,6 +609,9 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
           setChosen("");
           setOffered(accounts);
         });
+        // The button that was pressed is gone; the question takes its focus,
+        // and a screen reader reads it out.
+        questionEl?.focus();
         asked = true;
       }
     } catch (err) {
@@ -636,11 +659,8 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
         settings?: RegistrySettings;
       } | null;
       if (res.ok && body?.settings) {
-        batch(() => {
-          patchCache(body.settings as RegistrySettings);
-          setOffered(null);
-          setChosen("");
-        });
+        patchCache(body.settings);
+        closeQuestion();
         haptic("commit");
         toast.success(`This wedding’s gifts now go to the account you use for ${names}.`);
         return;
@@ -650,7 +670,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
       if (body?.settings) patchCache(body.settings);
       switch (body?.error) {
         case "stripe_already_connected":
-          setOffered(null);
+          closeQuestion();
           toast.error(
             "This wedding already has a Stripe account — someone connected it while you were choosing. It’s showing now.",
           );
@@ -992,7 +1012,14 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 radio, whose words a screen reader in forms mode would skip. */}
             <Show when={stripeState() === "none" ? offered() : null}>
               {(accounts) => (
-                <div class="flex flex-col gap-3" data-testid="stripe-account-choice">
+                <div
+                  ref={questionEl}
+                  role="group"
+                  tabindex="-1"
+                  aria-labelledby="stripe-account-choice-label"
+                  class="flex flex-col gap-3 outline-none"
+                  data-testid="stripe-account-choice"
+                >
                   <p
                     id="stripe-account-choice-label"
                     class="font-body text-text text-ui-sm leading-ui-normal"
@@ -1062,7 +1089,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                       type="button"
                       variant="quiet"
                       disabled={connecting()}
-                      onClick={() => setOffered(null)}
+                      onClick={closeQuestion}
                     >
                       Cancel
                     </Button>
@@ -1087,6 +1114,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                   route behind it. `connecting()` is a passing state with
                   nothing to explain, so that one stays `disabled`. */}
                 <Button
+                  ref={connectButtonEl}
                   type="button"
                   variant="outline"
                   disabled={connecting()}

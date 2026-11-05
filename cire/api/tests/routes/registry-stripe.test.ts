@@ -359,6 +359,53 @@ describe("only the owner who connected the account may open its links", () => {
     expect(logs).toContain("acct_orphan");
   });
 
+  it.each([
+    ["is removed as an owner", "demoted"],
+    ["has the wedding deleted", "deleted"],
+  ] as const)(
+    "records nothing for an owner who %s while Stripe makes the account",
+    async (_label, change) => {
+      // The gate read the seat before the Stripe round trip; the write reads
+      // it again, so the account is not stored under someone who may no
+      // longer act for the wedding, and no link into it is handed out.
+      const box: { db?: Built["db"] } = {};
+      const stripe = stripeStub({
+        account: { ...ACCOUNT, id: "acct_unstored" },
+        duringCreate: () => {
+          if (change === "demoted") {
+            box
+              .db!.update(weddingHosts)
+              .set({ role: "editor" })
+              .where(eq(weddingHosts.osnProfileId, OWNER))
+              .run();
+          } else {
+            box
+              .db!.update(weddings)
+              .set({ deletedAt: new Date() })
+              .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+              .run();
+          }
+        },
+      });
+      const built = buildApp({ stripe: stripe.client });
+      box.db = built.db;
+
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await req(built.app, `${base}/session`, OWNER);
+      });
+
+      expect(res?.status).toBe(403);
+      expect(await jsonBody(res!)).toEqual({ error: "forbidden" });
+      expect(row(built.db)).toBeUndefined();
+      expect(stripe.calls).toEqual([`createAccount:${BOOTSTRAP_WEDDING_ID}:AU`]);
+      // The account exists at Stripe with nothing storing it: its id is the
+      // one record for the manual fix.
+      expect(logs).toContain("stripe account created but not stored");
+      expect(logs).toContain("acct_unstored");
+    },
+  );
+
   it("forgets who connected an account when Stripe takes it away", async () => {
     const stripe = stripeStub();
     const { app, db } = buildApp({ stripe: stripe.client });

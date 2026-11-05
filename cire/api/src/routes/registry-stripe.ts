@@ -176,8 +176,10 @@ export interface RegistryStripeDeps {
   /** Absent ⇒ these routes are never mounted. See the header. */
   readonly stripe: StripeClient;
   /**
-   * Per-organiser limiter. Every request here spends an outbound Stripe call,
-   * which is the shape the link-preview route already carries one for: an owner
+   * Per-organiser limiter. The onboarding and refresh requests each spend an
+   * outbound Stripe call (the account list and the reuse spend none, and share
+   * the budget because a Connect press runs one of them before the call it
+   * leads to), which is the shape the link-preview route already carries one for: an owner
    * holding the button, or a portal bug polling `refresh`, would otherwise burn
    * the PLATFORM's Stripe quota — a cross-tenant denial of service reached from
    * one tenant's credentials.
@@ -255,6 +257,20 @@ export const createRegistryStripeRoutes = (
                       ),
                     ),
                   );
+                // The caller stopped owning the wedding, or it was deleted,
+                // while Stripe was making the account: nothing was written,
+                // so the account exists at Stripe with nothing storing it.
+                // The same log line as a failed write, and the refusal the
+                // gate would now give.
+                if (!saved) {
+                  yield* Effect.logError("stripe account created but not stored").pipe(
+                    Effect.annotateLogs({ weddingId, stripeAccountId: created.id }),
+                  );
+                  return yield* Effect.sync(() => {
+                    set.status = 403;
+                    return { error: "forbidden" };
+                  });
+                }
                 // Another request attached an account first. When it is not
                 // the one this request created — Stripe's idempotency key
                 // lasts 24h — that one exists at Stripe with nothing storing

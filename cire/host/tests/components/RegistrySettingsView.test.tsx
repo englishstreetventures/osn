@@ -1729,6 +1729,11 @@ describe("asking which Stripe account takes the gifts", () => {
     await pressConnect();
 
     const choice = await screen.findByTestId("stripe-account-choice");
+    // The button pressed is gone, so the question takes focus, named by its
+    // own words for a screen reader.
+    await waitFor(() => expect(document.activeElement).toBe(choice));
+    expect(choice.getAttribute("role")).toBe("group");
+    expect(choice.getAttribute("aria-labelledby")).toBe("stripe-account-choice-label");
     const radios = screen.getAllByRole("radio", { name: /account/i }) as HTMLInputElement[];
     // Each account by the weddings it serves, with what Stripe can do with it.
     expect(radios.map((r) => r.closest("label")?.textContent ?? "")).toEqual([
@@ -1768,6 +1773,12 @@ describe("asking which Stripe account takes the gifts", () => {
     const use = await screen.findByRole("button", { name: "Use this account" });
     expect(use.getAttribute("aria-disabled")).toBeNull();
     expect(document.getElementById("stripe-account-choose")).toBeNull();
+
+    // Cancel closes the question and gives focus back to Connect.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const connect = await screen.findByRole("button", { name: /Connect an account/i });
+    expect(screen.queryByTestId("stripe-account-choice")).toBeNull();
+    expect(document.activeElement).toBe(connect);
   });
 
   it("goes on to Stripe for a new account", async () => {
@@ -1821,6 +1832,10 @@ describe("asking which Stripe account takes the gifts", () => {
     expect(screen.queryByTestId("stripe-account-choice")).toBeNull();
     expect(screen.getByTestId("stripe-status").textContent).toMatch(/straight to your account/i);
     expect(peekCachedRegistry("wed_1")?.settings.stripeConnectedByOsnProfileId).toBe(ME);
+    // Focus lands on the panel's button, which now continues the account.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: /Continue on Stripe/i }),
+    );
   });
 
   it("shows the account someone else connected meanwhile", async () => {

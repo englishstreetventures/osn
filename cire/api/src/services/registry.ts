@@ -41,7 +41,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/sqlite-core";
+import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery, outerColumn, unionColumn } from "../db";
@@ -1334,9 +1334,11 @@ const clamp = (n: number, min: number, max: number): number =>
   Number.isFinite(n) ? Math.min(max, Math.max(min, Math.trunc(n))) : min;
 
 /**
- * At most this many weddings are read when listing the accounts an owner may
- * reuse. A person owns a handful of weddings; the bound only stops a profile
- * seated on a great many from turning one read into a walk.
+ * At most this many source weddings are answered when listing the accounts an
+ * owner may reuse. It caps the response, not the rows read: the read still
+ * walks every seat the caller holds (through `wedding_hosts_profile_idx`) and
+ * sorts the matches by name before it cuts. A person owns a handful of
+ * weddings.
  */
 const REUSABLE_ACCOUNT_SOURCES = 50;
 
@@ -1398,6 +1400,15 @@ const ownsLiveWedding = (weddingId: string, osnProfileId: string): SQL =>
                 AND EXISTS (SELECT 1 FROM ${weddings} tw
                             WHERE tw.id = ${weddingId} AND tw.deleted_at IS NULL))`;
 
+/**
+ * A `registry_settings` row's values in the table's column order, which is the
+ * order an INSERT … SELECT names the columns in.
+ */
+const inColumnOrder = (values: Record<keyof typeof registrySettings.$inferSelect, SQL>): SQL[] =>
+  (Object.keys(getTableColumns(registrySettings)) as Array<keyof typeof values>).map(
+    (key) => values[key],
+  );
+
 /** One wedding whose account the caller may be offered, as the list reads it. */
 interface ReusableSourceRow {
   weddingId: string;
@@ -1407,15 +1418,6 @@ interface ReusableSourceRow {
   currencyKnown: number;
   currencyFits: number;
   ownersFit: number;
-}
-
-/** What the reuse's failure path reads to say why nothing was written. */
-interface AdoptVerdictRow {
-  targetConnected: number | null;
-  ownsTarget: number;
-  controls: number;
-  ownersFit: number;
-  currencyFits: number;
 }
 
 export const registryService = {
@@ -1872,6 +1874,11 @@ export const registryService = {
    * else attached first keeps its connector. The caller compares the returned
    * row's connector with its caller, which is what refuses the owner who lost a
    * race to connect.
+   *
+   * The write asks again that they own the wedding and that it is live
+   * ({@link ownsLiveWedding}): the route's gate read that in its own query,
+   * before a Stripe round trip an owner can be removed or the wedding deleted
+   * during. `null` means nothing was written, because they no longer may.
    */
   attachStripeAccount(
     weddingId: string,
@@ -1883,24 +1890,40 @@ export const registryService = {
       defaultCurrency?: string | null;
     },
     connectedByOsnProfileId: string,
-  ): Effect.Effect<RegistrySettingsRecord, never, DbService> {
+  ): Effect.Effect<RegistrySettingsRecord | null, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = new Date();
-      const [row] = yield* dbQuery(() =>
+      const stamp = toEpochSeconds(now);
+      // What a new row holds: the defaults, and the account Stripe just made.
+      const values = {
+        weddingId: sql`${weddingId}`,
+        published: sql`0`,
+        headline: sql`NULL`,
+        message: sql`NULL`,
+        cashGiftsEnabled: sql`0`,
+        shippingAddress: sql`NULL`,
+        shippingVisibleFrom: sql`NULL`,
+        stripeAccountId: sql`${account.id}`,
+        stripeConnectedByOsnProfileId: sql`${connectedByOsnProfileId}`,
+        stripeChargesEnabled: sql`${account.chargesEnabled ? 1 : 0}`,
+        stripePayoutsEnabled: sql`${account.payoutsEnabled ? 1 : 0}`,
+        stripeAccountUpdatedAt: sql`${stamp}`,
+        stripeDefaultCurrency: sql`${account.defaultCurrency ?? null}`,
+        stripeDeauthorizedAt: sql`NULL`,
+        stripeDeauthorizedAccountId: sql`NULL`,
+        giftSummaryJson: sql`NULL`,
+        giftSummaryAt: sql`NULL`,
+        createdAt: sql`${stamp}`,
+        updatedAt: sql`${stamp}`,
+      } satisfies Record<keyof typeof registrySettings.$inferSelect, SQL>;
+      const written = yield* dbQuery(() =>
         db
           .insert(registrySettings)
-          .values({
-            weddingId,
-            stripeAccountId: account.id,
-            stripeConnectedByOsnProfileId: connectedByOsnProfileId,
-            stripeChargesEnabled: account.chargesEnabled,
-            stripePayoutsEnabled: account.payoutsEnabled,
-            stripeDefaultCurrency: account.defaultCurrency ?? null,
-            stripeAccountUpdatedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          })
+          .select(
+            sql`SELECT ${sql.join(inColumnOrder(values), sql`, `)}
+                WHERE ${ownsLiveWedding(weddingId, connectedByOsnProfileId)}`,
+          )
           .onConflictDoUpdate({
             target: registrySettings.weddingId,
             set: {
@@ -1924,14 +1947,15 @@ export const registryService = {
               // this row alone would put its time-order guard out of step with
               // theirs, and a late `account.updated` would then reach the
               // others and not this one.
-              stripeAccountUpdatedAt: sql`case when ${registrySettings.stripeAccountId} is null then ${toEpochSeconds(now)} else ${registrySettings.stripeAccountUpdatedAt} end`,
+              stripeAccountUpdatedAt: sql`case when ${registrySettings.stripeAccountId} is null then ${stamp} else ${registrySettings.stripeAccountUpdatedAt} end`,
               updatedAt: now,
             },
           })
           .returning()
           .all(),
       );
-      return toSettingsRecord(row as SettingsRow);
+      const [row] = written as SettingsRow[];
+      return row ? toSettingsRecord(row) : null;
     }).pipe(Effect.withSpan("cire.registry.attachStripeAccount"));
   },
 
@@ -2053,17 +2077,11 @@ export const registryService = {
         createdAt: sql`${now}`,
         updatedAt: sql`${now}`,
       } satisfies Record<keyof typeof registrySettings.$inferSelect, SQL>;
-      // In the table's column order, which is the order the INSERT names them.
-      const selectList = Object.keys(getTableColumns(registrySettings)).map((key) => {
-        if (!Object.hasOwn(values, key))
-          throw new Error(`registry_settings column "${key}" has no value`);
-        return values[key as keyof typeof values];
-      });
       const written = yield* dbQuery(() =>
         db
           .insert(registrySettings)
           .select(
-            sql`SELECT ${sql.join(selectList, sql`, `)}
+            sql`SELECT ${sql.join(inColumnOrder(values), sql`, `)}
                 FROM ${registrySettings} src
                 WHERE src.wedding_id = ${fromWeddingId}
                   AND ${controlsSourceAccount(weddingId, osnProfileId)}
@@ -2099,39 +2117,40 @@ export const registryService = {
         return toSettingsDto(toSettingsRecord(row), deployment, weddingCurrency ?? "AUD");
       }
 
-      // Nothing written: say which rule failed, in a fixed order.
+      // Nothing written: say which rule failed, in a fixed order. ONE read
+      // gives the verdict and the settings a 409 carries: the wedding, its
+      // row, and the source row by its key, every rule tested against it.
+      const source = alias(registrySettings, "src");
       const [verdict] = yield* dbQuery(() =>
-        db.all<AdoptVerdictRow>(sql`
-          SELECT (SELECT stripe_account_id IS NOT NULL FROM ${registrySettings}
-                  WHERE wedding_id = ${weddingId}) AS targetConnected,
-                 ${ownsLiveWedding(weddingId, osnProfileId)} AS ownsTarget,
-                 EXISTS (SELECT 1 FROM ${registrySettings} src
-                         WHERE src.wedding_id = ${fromWeddingId}
-                           AND ${controlsSourceAccount(weddingId, osnProfileId)}) AS controls,
-                 EXISTS (SELECT 1 FROM ${registrySettings} src
-                         WHERE src.wedding_id = ${fromWeddingId}
-                           AND ${ownersSitBesideSource(weddingId)}) AS ownersFit,
-                 EXISTS (SELECT 1 FROM ${registrySettings} src
-                         WHERE src.wedding_id = ${fromWeddingId}
-                           AND ${sourceCurrencyFits(weddingId)}) AS currencyFits
-        `),
+        db
+          .select({
+            settings: registrySettings,
+            currency: weddings.currency,
+            ownsTarget: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
+            controls: sql<number>`(${source.weddingId} IS NOT NULL AND ${controlsSourceAccount(weddingId, osnProfileId)})`,
+            ownersFit: sql<number>`(${source.weddingId} IS NOT NULL AND ${ownersSitBesideSource(weddingId)})`,
+            currencyFits: sql<number>`(${source.weddingId} IS NOT NULL AND ${sourceCurrencyFits(weddingId)})`,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .leftJoin(source, eq(source.weddingId, fromWeddingId))
+          .where(eq(weddings.id, weddingId))
+          .all(),
       );
-      const current = () =>
-        settingsWithCurrency(weddingId).pipe(
-          Effect.map(({ record, currency }) => toSettingsDto(record, deployment, currency)),
-        );
       // A caller who no longer owns this wedding is told nothing about it.
       if (verdict?.ownsTarget !== 1) return yield* Effect.fail(new StripeAccountNotFound());
-      if (verdict.targetConnected === 1) {
-        return yield* Effect.fail(new StripeAlreadyConnected({ current: yield* current() }));
+      const row = verdict.settings as SettingsRow | null;
+      const current = toSettingsDto(
+        row ? toSettingsRecord(row) : defaultSettings(weddingId),
+        deployment,
+        verdict.currency,
+      );
+      if (row?.stripeAccountId) {
+        return yield* Effect.fail(new StripeAlreadyConnected({ current }));
       }
       if (verdict.controls !== 1) return yield* Effect.fail(new StripeAccountNotFound());
-      if (verdict.ownersFit !== 1) {
-        return yield* Effect.fail(new StripeOwnersDiffer({ current: yield* current() }));
-      }
-      if (verdict.currencyFits !== 1) {
-        return yield* Effect.fail(new CurrencyMismatch({ current: yield* current() }));
-      }
+      if (verdict.ownersFit !== 1) return yield* Effect.fail(new StripeOwnersDiffer({ current }));
+      if (verdict.currencyFits !== 1) return yield* Effect.fail(new CurrencyMismatch({ current }));
       // Every rule holds now: something changed between the write and this
       // read. Nothing was written, so the caller is told to look again.
       return yield* Effect.fail(new StripeAccountNotFound());
