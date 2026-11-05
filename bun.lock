@@ -697,7 +697,6 @@
       "version": "0.3.15",
       "dependencies": {
         "@growthbook/growthbook": "1.8.0",
-        "@shared/observability": "workspace:*",
       },
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
@@ -750,6 +749,7 @@
         "@effect/vitest": "4.0.5",
         "@shared/typescript-config": "workspace:*",
         "vitest": "5.0.5",
+        "wrangler": "4.149.0",
       },
     },
     "shared/openapi-tools": {
@@ -862,9 +862,6 @@
     "shared/turnstile": {
       "name": "@shared/turnstile",
       "version": "0.2.41",
-      "dependencies": {
-        "@shared/observability": "workspace:*",
-      },
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "vitest": "5.0.5",

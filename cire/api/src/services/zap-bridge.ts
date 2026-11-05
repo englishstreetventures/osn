@@ -1,12 +1,11 @@
 import { importKeyFromJwk, signArcToken } from "@shared/crypto/jwk";
-import { instrumentedFetch } from "@shared/observability/fetch";
 
 /**
  * Server-to-server bridge to zap-api for the vendor enquiry c2b chat flow.
  * The ONLY file in cire/api that makes an outbound S2S call to zap-api.
  *
  * Mirrors `osn-bridge.ts` exactly: same base-URL trim, same `signArcToken` mint
- * per call, same `instrumentedFetch` default, same `fromEnv` key-import → null
+ * per call, same plain `fetch` default, same `fromEnv` key-import → null
  * on missing/corrupt pattern. The deltas: audience `"zap-api"`, scope
  * `"chat:c2b"`, three methods (provisionC2bChat / sendC2bMessage /
  * listC2bMessages) instead of one.
@@ -16,7 +15,7 @@ import { instrumentedFetch } from "@shared/observability/fetch";
  * issuer key, new audience + scope. No new key env vars are added.
  *
  * `fetchImpl` on `createZapChatClient` exists ONLY so tests can inject a fake
- * fetch; production callers pass nothing and the client uses `instrumentedFetch`.
+ * fetch; production callers pass nothing and the client uses the global `fetch`.
  * `createZapChatClientFromEnv` returns `null` (never throws) when any required
  * piece is absent or the JWK is corrupt — a missing config disables the feature,
  * never crashes boot.
@@ -185,8 +184,8 @@ export interface ZapChatClientConfig {
   arcKeyId: string;
   /**
    * Injectable fetch implementation — exists ONLY for tests. Production code
-   * passes nothing and the client falls back to `instrumentedFetch`; the module
-   * comment in `osn-bridge.ts` says what that wrapper sends.
+   * passes nothing and the client calls the global `fetch`, read on each call;
+   * the module comment in `osn-bridge.ts` says what that call carries.
    */
   fetchImpl?: typeof fetch;
 }
@@ -197,7 +196,10 @@ export interface ZapChatClientConfig {
 
 export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient {
   const base = config.zapApiUrl.replace(/\/+$/, "");
-  const doFetch = config.fetchImpl ?? instrumentedFetch;
+  const doFetch: (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ) => Promise<Response> = config.fetchImpl ?? ((input, init) => fetch(input, init));
 
   async function mint(): Promise<string> {
     return signArcToken(config.arcPrivateKey, {

@@ -1,6 +1,5 @@
 import { oauthConsents, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { instrumentedFetch } from "@shared/observability";
 import { and, eq, exists } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -118,7 +117,7 @@ const revokeOne = (
 ): Effect.Effect<void> =>
   Effect.tryPromise({
     try: async () => {
-      const res = await instrumentedFetch(`${url}${REVOKE_PATH}`, {
+      const res = await fetch(`${url}${REVOKE_PATH}`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
         body: JSON.stringify({ osnProfileId }),

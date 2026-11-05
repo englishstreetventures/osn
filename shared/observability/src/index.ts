@@ -51,32 +51,21 @@ export {
 // Tracing
 //
 // `makeTracingLayer` comes straight from `./tracing/layer` rather than the
-// `./tracing` barrel: that barrel is the workerd-safe surface the two deployed
-// Workers import, so it deliberately does NOT reach the NodeSdk layer. This
-// root barrel is Bun-only (it already re-exports the Node OTel metric
-// exporters), so it is the right place to expose both.
+// `./tracing` barrel: that barrel is the workerd-safe surface the Workers
+// import, so it deliberately does NOT reach the NodeSdk layer. This root barrel
+// is Bun-only (it already re-exports the Node OTel metric exporters), so it is
+// the right place to expose both.
 export { makeTracingLayer, otlpExporterUrl } from "./tracing/layer";
 export {
-  makeOtlpTracing,
+  installWorkersTracing,
   NoopTracingLive,
-  injectTraceContext,
-  extractTraceContext,
-  currentTraceId,
-  currentSpanId,
-  type OtlpTracing,
-  type OtlpTracingOptions,
+  WorkersTracingLive,
+  type WorkersSpan,
+  type WorkersTracing,
 } from "./tracing";
 
 // Elysia plugin + health routes
-export {
-  observabilityPlugin,
-  healthRoutes,
-  type ObservabilityPluginOptions,
-  type HealthRoutesOptions,
-} from "./elysia";
-
-// Instrumented fetch
-export { instrumentedFetch } from "./fetch";
+export { observabilityPlugin, healthRoutes, type HealthRoutesOptions } from "./elysia";
 
 /**
  * Combined observability layer — logger + tracing + metrics exporter.
@@ -84,7 +73,7 @@ export { instrumentedFetch } from "./fetch";
  * Provide this once at the top of your application:
  *
  *   const app = new Elysia()
- *     .use(observabilityPlugin({ serviceName: "pulse-api" }))
+ *     .use(observabilityPlugin())
  *     .use(routes);
  *
  *   Effect.runPromise(

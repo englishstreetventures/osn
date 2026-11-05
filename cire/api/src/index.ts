@@ -1,6 +1,7 @@
 import { makeLogEmailLive, makeResendEmailLive } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
 import { loadConfig, parseDeploymentEnvironment } from "@shared/observability/config";
+import { installWorkersTracing } from "@shared/observability/tracing";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import type { TopicHub } from "@shared/realtime/hub";
@@ -21,7 +22,7 @@ import { sendReconcileAlert, type OperatorReconcileAlert } from "./lib/reconcile
 import { registryOutboundLimiters } from "./lib/registry-limiters";
 import { resendEmailConfig } from "./lib/resend-email";
 import { siteOriginOptions, webOriginProblem } from "./lib/web-origin";
-import { flushCireTelemetry, runCire } from "./observability";
+import { runCire } from "./observability";
 import { createRealtimeRoute, type RealtimeRoute } from "./routes/realtime";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { claimReviewService, type PendingClaimsSummary } from "./services/claim-review";
@@ -272,6 +273,10 @@ const isDeployedEnv = (env: Env): boolean => parseDeploymentEnvironment(env.OSN_
 
 const handler: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
+    // Mirror this invocation's Effect spans into its Cloudflare trace. First,
+    // before anything can open a span.
+    installWorkersTracing(ctx.tracing);
+
     // Fail closed at the edge if any required binding/var is missing, rather
     // than letting createApp fall back to its localhost dev defaults for the
     // OSN issuer/audience in a misconfigured production deployment.
@@ -624,18 +629,6 @@ const handler: ExportedHandler<Env> = {
     // and Elysia rebuilds any Response once a plugin has set a header.
     const response = await runInD1Session(env.DB, () => realtime(request) ?? app.fetch(request));
 
-    // Drain this request's spans to the OTLP collector. Awaited-then-scheduled,
-    // in that order, for two reasons: every span the request opened has ended
-    // by the time `app.fetch` resolves, and `waitUntil` keeps the isolate alive
-    // for the POST without the guest waiting on it.
-    //
-    // This explicit drain is the ONLY reliable one on workerd — no fiber
-    // survives between requests, so the exporter's background interval either
-    // never fires or fires with no live context, and a failed background export
-    // disables the exporter (dropping spans) for 60 seconds. `flushCireTelemetry`
-    // is a no-op when no OTLP endpoint is configured and can never reject. See
-    // `shared/observability/src/tracing/otlp.ts`.
-    ctx.waitUntil(flushCireTelemetry());
     return response;
   },
 
@@ -685,6 +678,7 @@ const handler: ExportedHandler<Env> = {
   // the other and the isolate stays alive until each delete settles. All twelve
   // share this one invocation's Workers limits (CPU, subrequests, D1 queries).
   async scheduled(_event, env, ctx) {
+    installWorkersTracing(ctx.tracing);
     if (!env.DB) return;
     // Same session routing as `fetch`, for the same reason. The sweeps are
     // write-heavy, so this buys little today — but it keeps one path through
@@ -696,7 +690,9 @@ const handler: ExportedHandler<Env> = {
     // One session PER SWEEP, not one shared by all of them. `waitUntil` only
     // registers a promise — what decides which session a query rides is where
     // the promise was created — so each sweep gets its own `runInD1Session`
-    // wrapping its own `Effect.runPromise`. Sharing one would couple
+    // wrapping its own `runCire`. Every sweep runs on `runCire`, as routes do,
+    // so its spans join the cron's Cloudflare trace and its log lines take the
+    // redacting logger. Sharing one session would couple
     // unrelated, delete-heavy sweeps to a single bookmark that each of them
     // keeps advancing, so every read would be forwarded to the primary anyway.
     //
@@ -711,7 +707,7 @@ const handler: ExportedHandler<Env> = {
       ctx.waitUntil(runInD1Session(d1, body));
 
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         sessionService.sweepExpired().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled session sweep failed", { reason: err.reason }),
@@ -727,7 +723,7 @@ const handler: ExportedHandler<Env> = {
     // snapshot of an OSN profile (email, handle, display name), so keeping dead
     // ones is a data-retention problem as well as a size one.
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         organiserSessionService.sweepExpired().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled organiser session sweep failed", { reason: err.reason }),
@@ -777,7 +773,7 @@ const handler: ExportedHandler<Env> = {
         : undefined;
 
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         retentionService
           .sweepExpiredGuestData(new Date(), { sheets: env.SHEETS }, giftSummaryNotifier)
           .pipe(
@@ -793,7 +789,7 @@ const handler: ExportedHandler<Env> = {
 
     // Expired vendor-claim tokens: 7-day TTL, nothing else ever deleted them.
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         maintenanceSweeps.sweepExpiredVendorClaims().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled vendor-claim sweep failed", { reason: err.reason }),
@@ -828,7 +824,7 @@ const handler: ExportedHandler<Env> = {
             )
         : undefined;
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         claimReviewService.sweep(handoffZap, alertOperator ? { alertOperator } : {}).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled vendor claim review sweep failed", {
@@ -844,7 +840,7 @@ const handler: ExportedHandler<Env> = {
     // in `cire-sheets`) — previously only reclaimed when the whole wedding
     // aged out of retention, a year+ later.
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         maintenanceSweeps.sweepStalePreviews(new Date(), { sheets: env.SHEETS }).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled stale-preview sweep failed", { reason: err.reason }),
@@ -858,7 +854,7 @@ const handler: ExportedHandler<Env> = {
     // child row and the sheet and image objects those rows name. Bounded per
     // run; a wedding with money still able to move is left for a later run.
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         maintenanceSweeps
           .purgeDeletedWeddings(new Date(), { sheets: env.SHEETS, assets: env.ASSETS })
           .pipe(
@@ -873,7 +869,7 @@ const handler: ExportedHandler<Env> = {
     // Change-log rows older than 90 days. They hold ids and a kind, never a
     // name, but they are still a record of a household's replies.
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         rsvpChangeService.sweepExpired(new Date()).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled rsvp change sweep failed", { reason: err.reason }),
@@ -886,7 +882,7 @@ const handler: ExportedHandler<Env> = {
     // too, but nothing subscribes while push is off, and each row names an
     // organiser.
     runSweep(() =>
-      Effect.runPromise(
+      runCire(
         sweepRealtimeSubscribeBudget(new Date()).pipe(
           Effect.catch(() => Effect.logError("scheduled realtime budget sweep failed")),
           Effect.provide(dbLayer),
@@ -922,7 +918,7 @@ const handler: ExportedHandler<Env> = {
           ? { apiOrigin, secret: env.CIRE_OIDC_CLIENT_SECRET }
           : undefined;
       runSweep(() =>
-        Effect.runPromise(
+        runCire(
           rsvpDigestService
             .sendDailyDigests({ organiserOrigin, lookup: organiserEmailLookup, stopLinks })
             .pipe(
@@ -959,7 +955,7 @@ const handler: ExportedHandler<Env> = {
     // grace window — so a freshly uploaded image whose row write lags is safe.
     if (!reconcilersOff) {
       runSweep(() =>
-        Effect.runPromise(
+        runCire(
           assetReconcileService
             .reconcileOrphans(env.ASSETS, new Date(), { alertOperator: alertReconcile })
             .pipe(
@@ -981,7 +977,7 @@ const handler: ExportedHandler<Env> = {
     // Absent SHEETS ⇒ no-op.
     if (!reconcilersOff) {
       runSweep(() =>
-        Effect.runPromise(
+        runCire(
           sheetReconcileService
             .reconcileOrphans(env.SHEETS, new Date(), { alertOperator: alertReconcile })
             .pipe(

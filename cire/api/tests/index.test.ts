@@ -64,9 +64,10 @@ const BASE_ENV = {
   CLAIM_RATE_LIMITER: fakeRateLimiter,
 };
 
-// Minimal concrete stand-in for the ambient `Span` abstract class — these
-// boot tests never actually create a span, so the shape only needs to
-// satisfy `Tracing.Span`'s constructor type.
+// Minimal concrete stand-in for the ambient `Span` abstract class. The handler
+// installs `ctx.tracing` as the Workers trace mirror, so every Effect span a
+// boot runs opens one of these; `isTraced` false makes the mirror end it at
+// once, so the stand-in records nothing.
 class StubSpan {
   get isTraced(): boolean {
     return false;
@@ -103,9 +104,7 @@ const ctx: ExecutionContext = {
     startActiveSpan: () => {
       throw new Error("tracing not available in this test context");
     },
-    startSpan: () => {
-      throw new Error("tracing not available in this test context");
-    },
+    startSpan: () => new StubSpan(),
     Span: StubSpan,
   },
 };

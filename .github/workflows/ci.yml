@@ -354,6 +354,28 @@ jobs:
           path: test-artifacts/
           if-no-files-found: warn
 
+      # @shared/observability's Workers traces and Workers Logs on real
+      # workerd: `wrangler dev` under Node on a fixture Worker, read back
+      # through wrangler's local explorer
+      # (shared/observability/tests/wrangler/workers-observability.e2e.ts).
+      # Here for the same reason as the step above: it needs the install and
+      # Node. Not in `test:d1`, which also gates the dev deploy and every
+      # production release. After the upload above, so that artifact keeps
+      # only its own file.
+      - name: Test Workers traces and logs on real Wrangler
+        timeout-minutes: 5
+        run: bun run --cwd shared/observability test:wrangler
+
+      # What the two requests recorded, ids, times and ports removed, whether
+      # the test passed or not.
+      - name: Keep the Workers observability test's spans and logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: observability-workers
+          path: test-artifacts/observability-workers.json
+          if-no-files-found: warn
+
       - name: Save turbo cache
         if: github.event_name != 'merge_group'
         uses: actions/cache/save@v4

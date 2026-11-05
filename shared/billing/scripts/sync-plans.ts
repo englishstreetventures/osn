@@ -21,7 +21,7 @@ import { syncPlans, type SyncReport } from "../src/sync/sync-plans";
 export interface ScriptIo {
   readonly write: (line: string) => void;
   readonly cwd: string;
-  /** Defaults to `instrumentedFetch`. */
+  /** Defaults to the global `fetch`. */
   readonly fetchImpl?: FetchFn;
 }
 

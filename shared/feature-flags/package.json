@@ -18,8 +18,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "@growthbook/growthbook": "1.8.0",
-    "@shared/observability": "workspace:*"
+    "@growthbook/growthbook": "1.8.0"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",

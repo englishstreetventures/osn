@@ -11,7 +11,6 @@
  * Pulse uses to register with osn-api). Rotated automatically.
  */
 import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@shared/crypto";
-import { instrumentedFetch } from "@shared/observability";
 import { Effect } from "effect";
 
 /**
@@ -65,9 +64,8 @@ export async function arcAuthHeader(audience: string, scope: string): Promise<st
 }
 
 /**
- * POSTs JSON to a downstream service with an ARC token attached. Uses
- * `instrumentedFetch` so outbound calls show up on the trace tree and the
- * HTTP-client metric histogram.
+ * POSTs JSON to a downstream service with an ARC token attached. On Workers,
+ * Cloudflare traces the call as a `fetch` span in the request's trace.
  */
 export async function arcPostJson<T>(
   url: string,
@@ -78,7 +76,7 @@ export async function arcPostJson<T>(
   const timeoutMs = options.timeoutMs ?? 10_000;
   const timer = setTimeout(() => controller.abort(), timeoutMs).unref?.();
   try {
-    const res = await instrumentedFetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -112,7 +110,7 @@ export async function arcFetchStream(
   const timeoutMs = options.timeoutMs ?? 10_000;
   const timer = setTimeout(() => controller.abort(), timeoutMs).unref?.();
   try {
-    const res = await instrumentedFetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -177,7 +175,7 @@ export async function registerWithDownstream(
   }
   const { publicKey, keyId, expiresAt } = await initKeys();
   const publicKeyJwk = await exportKeyToJwk(publicKey);
-  const res = await instrumentedFetch(`${serviceUrl}/internal/register-service`, {
+  const res = await fetch(`${serviceUrl}/internal/register-service`, {
     method: "POST",
     headers: {
       "content-type": "application/json",

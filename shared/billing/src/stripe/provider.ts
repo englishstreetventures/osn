@@ -2,7 +2,7 @@
  * The Stripe implementation of {@link BillingProvider}.
  *
  * Every call goes through {@link createStripeRequest} (pinned API version, one
- * timeout over the fetch and the body, `instrumentedFetch` by default) and
+ * timeout over the fetch and the body, the global `fetch` by default) and
  * {@link stripeCall} (a span, the duration metric, errors narrowed to the
  * port's). Connect is never used: no call sets `Stripe-Account`, and the
  * webhook refuses any event naming an account.
