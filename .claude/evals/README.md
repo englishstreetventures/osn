@@ -110,6 +110,7 @@ and `report.html`.
 | `prep-pr-open-decision-opens-draft` | `prep-pr` | `Bash Write Edit` | |
 | `retro-fallback-card-and-routing` | `retro` | `Bash Write Edit` | |
 | `retro-restraint-on-a-proportionate-session` | `retro` | `Bash Write Edit` | |
+| `review-design-cire-envelope-seal` | `review-design` | `Bash Write Edit` | |
 | `review-docs-session-ttl-page-drift` | `review-docs` | `Bash Write Edit` | |
 | `review-performance-entitlement-gate-fold` | `review-performance` | `Bash Write Edit` | |
 | `review-performance-vendor-read-round-trips` | `review-performance` | `Bash Write Edit` | |
@@ -149,6 +150,7 @@ graders. In short:
 | `prep-pr-open-decision-opens-draft` | A finished branch whose issue carries an unanswered `needs:decision`. Scores the draft, the hold line closing Impact, and the decision recorded as open for the owner. |
 | `retro-fallback-card-and-routing` | A branch whose only card is the unattended fallback's, with null identity. Scores replacing it, comparing spend with the issue's rating, and routing each finding. |
 | `retro-restraint-on-a-proportionate-session` | An expensive session that was worth it, with four baits and one real finding. Most points are for not reporting a bait. |
+| `review-design-cire-envelope-seal` | A new host-portal component that draws its own eyebrow, its own swatch radio buttons with an animated focus ring and a line restating its heading, beside a changed hand-drawn heading in the file next to it. `Eyebrow` and `Button`'s `choice` variant are on the base. Scores each element found with the component that replaces it, the content colours and a correct `Notice` left alone, and no unmeasured number stated as measured. |
 | `review-docs-session-ttl-page-drift` | A branch that updates two of a page's three mentions of a value and renames a heading two links point at. One escaped-pipe wikilink is bait. |
 | `review-performance-entitlement-gate-fold` | A gate behind a gate that re-reads the same row. Scores the finding, the fold, and the fold's constraint, one grader each. |
 | `review-performance-vendor-read-round-trips` | Three serial pairs of independent single-row reads, and a record dropped by a full page navigation. |
