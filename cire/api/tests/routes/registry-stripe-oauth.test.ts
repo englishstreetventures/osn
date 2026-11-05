@@ -581,11 +581,13 @@ describe("the callback refuses what the wedding cannot take", () => {
   });
 
   it("answers a lost race as already connected, handing back only an unused account (13)", async () => {
-    let db: TestDb | undefined;
+    // Filled once the app is built; the exchange runs after that.
+    const held: { db?: TestDb } = {};
     const oauth = oauthStub({
       duringExchange: () => {
         const now = new Date();
-        db?.insert(registrySettings)
+        held.db
+          ?.insert(registrySettings)
           .values({
             weddingId: BOOTSTRAP_WEDDING_ID,
             stripeAccountId: "acct_won",
@@ -602,7 +604,8 @@ describe("the callback refuses what the wedding cannot take", () => {
       },
     });
     const built = buildApp({ oauth: oauth.client });
-    db = built.db;
+    held.db = built.db;
+    const { db } = built;
     openedRegistry(db);
     const state = await start(built.app);
     expect((await callback(built.app, { state, code: "ac_x" })).outcome).toBe("already_connected");

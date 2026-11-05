@@ -1200,6 +1200,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   profile owns alone. On the first it connected a Stripe account that can
  *   charge and settles in AUD; the second has no settings row. For giving the
  *   second the first's account from the Money gifts panel.
+ * - `wed_e2e_oauth`: Garden Wedding, which the dev profile owns alone, with an
+ *   open registry and no Stripe account, for connecting a Stripe account the
+ *   owner already has through the E2E suite's Stripe stand-in.
  * - `wed_e2e_emails`: one household, Tanaka, of Gus with no address and Hana
  *   with an address she gave herself on the invite, for adding an address in
  *   the guest editor under the organiser's attestation.
@@ -1635,6 +1638,13 @@ export function seedE2eOrganiser(db: TestDb): void {
     .run();
   wedding("wed_e2e_shared_to", "party-wedding", "Party Wedding");
   seatDevOwner(db, "wed_e2e_shared_to", "whost_e2e_shared_to_owner", now);
+
+  wedding("wed_e2e_oauth", "garden-wedding", "Garden Wedding");
+  seatDevOwner(db, "wed_e2e_oauth", "whost_e2e_oauth_owner", now);
+  // An open registry with no account: the OAuth connect fills an existing row.
+  db.insert(schema.registrySettings)
+    .values({ weddingId: "wed_e2e_oauth", createdAt: now, updatedAt: now })
+    .run();
 
   wedding("wed_e2e_emails", "emails-wedding", "Emails Wedding");
   seatDevOwner(db, "wed_e2e_emails", "whost_e2e_emails_owner", now);
