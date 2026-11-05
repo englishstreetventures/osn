@@ -381,13 +381,16 @@ test("markup and style files in a product count", () => {
 
 // The component packages build classes in plain `.ts` modules too
 // (`shared/ui/src/ui/control.ts`, `cire/ui/src/sign-in-card-class.ts`), and
-// every surface that imports them changes with them.
-test("any source file in a component or token package counts", () => {
+// every surface that imports them changes with them. `@cire/theme` holds the
+// guest site's palette and type in `.ts` alone.
+test("any source file in a component, token or theme package counts", () => {
   expect(designCandidate(file("shared/ui/src/ui/control.ts"))).toBe(true);
   expect(designCandidate(file("shared/ui/src/lib/utils.ts"))).toBe(true);
   expect(designCandidate(file("cire/ui/src/sign-in-card-class.ts"))).toBe(true);
   expect(designCandidate(file("osn/auth-ui/src/index.ts"))).toBe(true);
   expect(designCandidate(file("shared/design-tokens/src/index.ts"))).toBe(true);
+  expect(designCandidate(file("cire/theme/src/palette.ts"))).toBe(true);
+  expect(designCandidate(file("cire/theme/src/typography.ts"))).toBe(true);
 });
 
 test("a plain .ts file outside the component packages does not count", () => {

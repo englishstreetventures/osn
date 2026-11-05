@@ -38,9 +38,10 @@
  * `scripts/`, `wiki/`, `docs/`, `.claude/`, `.agents/`, `.github/`,
  * `.changeset/`), that is either markup or style (`.tsx`, `.jsx`, `.astro`,
  * `.css`, `.html`, `.svg`, `.mdx`) or any file under the `src/` of a
- * component or token package (`shared/ui`, `cire/ui`, `osn/auth-ui`,
- * `shared/design-tokens`), whose plain `.ts` modules build classes every
- * surface importing them draws with. Added and deleted files count.
+ * component, token or theme package (`shared/ui`, `cire/ui`, `osn/auth-ui`,
+ * `shared/design-tokens`, `cire/theme`), whose plain `.ts` modules build the
+ * classes, colours and type every surface importing them draws with. Added
+ * and deleted files count.
  * `.claude/skills/review-design/SKILL.md` is the review it starts.
  *
  * The test is an allowlist, like `scripts/changeset-required.sh`: a change is
@@ -272,17 +273,19 @@ const NO_SCREEN_ROOTS = new Set([
   ".changeset",
 ]);
 
-/** The component and token packages, whose every source file is look. */
+/** The component, token and theme packages, whose every source file is
+ * look. */
 const DESIGN_PACKAGES = [
   "shared/ui/src/",
   "cire/ui/src/",
   "osn/auth-ui/src/",
   "shared/design-tokens/src/",
+  "cire/theme/src/",
 ];
 
 /** Whether a change can alter how a screen looks: markup or style in a
- * product tree, or any source in a component or token package, as a regular
- * file. Test code draws no screen anyone ships. */
+ * product tree, or any source in a component, token or theme package, as a
+ * regular file. Test code draws no screen anyone ships. */
 export function designCandidate(change: ChangedPath): boolean {
   if (change.symlink === true) return false;
   if (change.modes.some((mode) => mode === SYMLINK || mode === SUBMODULE)) return false;
