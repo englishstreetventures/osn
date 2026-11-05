@@ -87,9 +87,9 @@ permissions:
 
 # Concurrency is set per stack job (below), not here: one group per stack
 # (`deploy-dev-<stack>`), so two runs never deploy the same stack at once while
-# the other stacks stay parallel. `queue: max` keeps every job waiting for the
-# group, first in first out; GitHub's default would cancel a waiting job when
-# another joins, and with it a newer commit's deploy.
+# the other stacks stay parallel. `queue: max` keeps up to 100 jobs waiting for
+# the group, first in first out; GitHub's default, `single`, cancels a waiting
+# job when another joins, and with it a newer commit's deploy.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

@@ -180,11 +180,12 @@ Production is not in this workflow. `production-release.yml` ships it in release
 Each stack job takes a group of its own, `deploy-dev-<stack>`, with
 `cancel-in-progress: false` and `queue: max`: two runs never deploy one stack
 at once, the other stacks stay parallel, and no rollback can race the next
-run's deploy. Every job that reaches the group waits its turn, first in first
-out. GitHub's default keeps one waiting job and cancels it when another
-arrives, which could drop the newest commit's deploy. The cost: a burst of
-pushes that touch one stack deploys it once per push, one after another
-(about two minutes each for cire, 76 s for musubi).
+run's deploy. Up to 100 jobs wait for the group, first in first out, and
+GitHub cancels a job that arrives while 100 wait. Its default, `single`,
+keeps one waiting job and cancels it when another arrives, which could drop
+the newest commit's deploy; `single` and `max` are the only values GitHub
+takes. The cost: a burst of pushes that touch one stack deploys it once per
+push, one after another (about two minutes each for cire, 76 s for musubi).
 
 *Measured 2026-11-04 — `gh api repos/englishstreetventures/osn/actions/runs/41822531132/jobs`, cire and musubi stack jobs*
 

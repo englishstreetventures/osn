@@ -421,8 +421,8 @@ describe("W1: one Alchemy job per stack", () => {
       // No stack job waits for another: each deploys its whole stack.
       expect(needsOf(job).toSorted()).toEqual(["build", "changes"]);
       // One run at a time per stack, and a run is never cancelled part-way, so
-      // no rollback races the next run's deploy. `queue: max` keeps every
-      // waiting run: with GitHub's default, a run joining the group cancels
+      // no rollback races the next run's deploy. `queue: max` keeps up to 100
+      // waiting runs: with GitHub's default, a run joining the group cancels
       // the one already waiting, whose commit may be the newest.
       expect(job.concurrency).toEqual({
         group: `deploy-dev-${key}`,
