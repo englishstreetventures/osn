@@ -1732,7 +1732,7 @@ describe("asking which Stripe account takes the gifts", () => {
     // The button pressed is gone, so the question takes focus, named by its
     // own words for a screen reader.
     await waitFor(() => expect(document.activeElement).toBe(choice));
-    expect(choice.getAttribute("role")).toBe("group");
+    expect(choice.tagName).toBe("FIELDSET");
     expect(choice.getAttribute("aria-labelledby")).toBe("stripe-account-choice-label");
     const radios = screen.getAllByRole("radio", { name: /account/i }) as HTMLInputElement[];
     // Each account by the weddings it serves, with what Stripe can do with it.
@@ -1740,7 +1740,7 @@ describe("asking which Stripe account takes the gifts", () => {
       "The account you use for Beach and CeremonyStripe can take payments on it.",
       "The account you use for Garden, Hall and IslandStripe still wants something before it can take payments.",
       "The account you use for QuietStripe hasn’t said which currency it pays out in yet.",
-      "A new account for this wedding" + "Stripe asks for your identity and bank details.",
+      "A new account for this weddingStripe asks for your identity and bank details.",
     ]);
     // Nothing is chosen for the owner: giving a wedding an account is theirs
     // to decide, every time.

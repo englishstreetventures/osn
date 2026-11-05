@@ -267,7 +267,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
    * when the button that opened it disappears; the Connect (or, once there is
    * an account, Continue) button, when the question does.
    */
-  let questionEl: HTMLDivElement | undefined;
+  let questionEl: HTMLFieldSetElement | undefined;
   let connectButtonEl: HTMLButtonElement | undefined;
   /**
    * Close the account question and give focus back to the panel's button,
@@ -1012,12 +1012,11 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 radio, whose words a screen reader in forms mode would skip. */}
             <Show when={stripeState() === "none" ? offered() : null}>
               {(accounts) => (
-                <div
+                <fieldset
                   ref={questionEl}
-                  role="group"
                   tabindex="-1"
                   aria-labelledby="stripe-account-choice-label"
-                  class="flex flex-col gap-3 outline-none"
+                  class="flex min-w-0 flex-col gap-3 border-0 p-0 outline-none"
                   data-testid="stripe-account-choice"
                 >
                   <p
@@ -1099,7 +1098,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                       Choose an account first.
                     </p>
                   </Show>
-                </div>
+                </fieldset>
               )}
             </Show>
 
