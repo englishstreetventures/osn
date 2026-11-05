@@ -80,11 +80,11 @@ reading the field before pressing "Create wedding" is what catches a name that
 is not theirs.
 
 A signed-out visitor keeps the parameter through sign-in: `RequireAuth` sends
-them to `/login?returnTo=/?name=…`, and `SignInPanel` returns them to that path,
+them to `/login/?returnTo=/?name=…`, and `SignInPanel` returns them to that path,
 as it does any same-origin path. Tests: `WeddingList.prefill.test.tsx` and
 `SignInPanel.test.tsx` in `cire/host/tests/components/`, and the
 `cire-checklist-starter` E2E flow, which arrives at `/?name=Amara%20%26%20Sam`
-signed out, signs in from the `/login?returnTo=` it is sent to, finds the names
+signed out, signs in from the `/login/?returnTo=` it is sent to, finds the names
 in the form and gone from the address, and cancels with nothing sent. The
 marketing site's half, the link itself, is `cire-landing-home`'s
 ([[cire-landing#Tests]]).
