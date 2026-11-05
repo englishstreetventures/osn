@@ -36,7 +36,7 @@ const patterns: readonly CommentPattern[] = [
   // leaving a number that now resolves to an unrelated public issue — so a
   // rewrite removes the whole reference, never just its prefix.
   { messageId: "trackerRef", regex: /\b(?:osn-)?tracker[ \t]*#\d+/gi },
-  { messageId: "findingId", regex: /\b[CDPST]-[A-Z]\d+\b/g },
+  { messageId: "findingId", regex: /\b[CDGPSTU]-[A-Z]\d+\b/g },
   // The lookbehind rejects a hyphen as well as a word character. A finding tag
   // used as a label ends in a colon too, and without that its own tail would
   // report a second time as a plan code that was never there.
