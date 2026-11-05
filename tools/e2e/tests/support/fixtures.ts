@@ -465,7 +465,7 @@ export function guestSitePaths(page: Page): readonly string[] {
  *
  * With `arriveAt`, the portal root with a query the portal reads and drops
  * (`/?name=…`), the page first opens that address signed out, as a link from
- * elsewhere would, and the sign-in starts from the `/login?returnTo=` the
+ * elsewhere would, and the sign-in starts from the `/login/?returnTo=` the
  * portal sends it to. It checks that `returnTo` is that address; the callback
  * lands on it, and the portal leaves it for the wedding list.
  *
@@ -497,10 +497,10 @@ export async function signInToCireHost(flow: Flow, page: Page, arriveAt?: string
   const returnTo = await flow.step("organiser: sign in to the portal with musubi", async () => {
     let carried: string | null = null;
     if (arriveAt === undefined) {
-      await page.goto(`${ORIGINS.cireHost}/login`);
+      await page.goto(`${ORIGINS.cireHost}/login/`);
     } else {
       await page.goto(`${ORIGINS.cireHost}${arriveAt}`);
-      await page.waitForURL((url) => url.origin === ORIGINS.cireHost && url.pathname === "/login");
+      await page.waitForURL((url) => url.origin === ORIGINS.cireHost && url.pathname === "/login/");
       carried = new URL(page.url()).searchParams.get("returnTo");
     }
     await page.getByRole("button", { name: "Continue with musubi" }).click();
