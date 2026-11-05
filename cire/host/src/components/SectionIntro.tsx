@@ -12,6 +12,11 @@ import { Show } from "solid-js";
  */
 export default function SectionIntro(props: {
   title: string;
+  /**
+   * The heading stays in the heading list but is not drawn, where the
+   * description already says what the view is (as RsvpView's hidden h2).
+   */
+  hideTitle?: boolean;
   description?: string;
   /** Right-aligned controls (a button, a count) that belong with this header. */
   actions?: JSX.Element;
@@ -26,7 +31,12 @@ export default function SectionIntro(props: {
   return (
     <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
       <div class="flex flex-col gap-1">
-        <h2 class="font-display text-text text-ui-lg font-light">{props.title}</h2>
+        <h2
+          class="font-display text-text text-ui-lg font-light"
+          classList={{ "sr-only": props.hideTitle }}
+        >
+          {props.title}
+        </h2>
         <Show when={props.description}>
           <p class="font-body text-text-muted text-ui-sm leading-ui-normal max-w-prose">
             {props.description}
