@@ -1,4 +1,11 @@
-import { context, type Context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import {
+  type Link,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  TraceFlags,
+  trace,
+} from "@opentelemetry/api";
 import { Elysia } from "elysia";
 
 import type { HttpMethod } from "../metrics/attrs";
@@ -10,7 +17,7 @@ import { extractTraceContext } from "../tracing/propagation";
  *
  * One call wires up:
  * - Request ID propagation (`x-request-id` in / out; generated if absent)
- * - W3C traceparent extraction (inbound)
+ * - Inbound W3C trace context kept as a span link, never the parent
  * - A server span per request with OTel HTTP semconv attributes
  * - RED metrics (request count + duration histogram)
  * - In-flight request gauge
@@ -26,39 +33,12 @@ export interface ObservabilityPluginOptions {
 type RequestState = {
   start: bigint;
   span: ReturnType<ReturnType<typeof trace.getTracer>["startSpan"]>;
-  /**
-   * OTel Context with the request span set as active. Stored so that
-   * handlers can opt in to parent-child trace linkage via
-   * `getRequestContext(request)` when running child spans manually.
-   * Elysia's hook model does not let us wrap the handler invocation
-   * in `context.with(...)`, so this is the best we can do without
-   * patching Elysia internals — see the plugin docstring for details.
-   */
-  ctx: Context;
   route: string;
   method: HttpMethod;
   requestId: string;
 };
 
 const REQUEST_STATE = new WeakMap<Request, RequestState>();
-
-/**
- * Get the OTel `Context` carrying the inbound HTTP request's server
- * span, so caller code can manually use it as the parent of a child
- * span:
- *
- *   const parent = getRequestContext(request);
- *   context.with(parent, () => someChildWork());
- *
- * Returns `undefined` if the request was not seen by the plugin.
- *
- * NOTE: This is an escape hatch. Most code should not need it — the
- * plugin's server span and metric emission are automatic, and Effect
- * service spans created via `Effect.withSpan` will be correctly linked
- * into distributed traces via outbound W3C `traceparent` propagation.
- */
-export const getRequestContext = (request: Request): Context | undefined =>
-  REQUEST_STATE.get(request)?.ctx;
 
 const genRequestId = (): string => {
   // Cheap random ID — crypto.randomUUID() is fine and bun has it globally.
@@ -79,21 +59,36 @@ const sanitizeInboundRequestId = (raw: string | null): string | null => {
 };
 
 /**
- * Decide whether to honour an inbound W3C `traceparent`.
+ * The span link for a request's inbound W3C `traceparent`, when it is well
+ * formed.
  *
- * For public-facing HTTP, trusting upstream trace context is a privilege
- * escalation — external callers could force 100% sampling (financial
- * DoS on trace ingest), inject chosen trace IDs to muddle incident
- * response, or link their requests to internal traces in dashboards.
- *
- * Rule: honour `traceparent` only when the request presents an
- * `Authorization: ARC ...` header, the scheme first-party
- * service-to-service calls use. Every other request starts a fresh
- * root span.
+ * The caller chooses every field of a `traceparent`, and the plugin runs
+ * before any route checks credentials, so no header it sees proves who sent
+ * the request. The inbound context is therefore never the server span's
+ * parent, which would hand the caller the trace id and, through a
+ * parent-based sampler, the sampling decision. A link keeps it for
+ * correlation and decides neither, as long as no sampler reads links. It is
+ * the caller's unverified claim: the link holds only its trace id, span id
+ * and sampled bit, and `tracestate` and `baggage` are never parsed.
  */
-const shouldHonourInboundTraceparent = (headers: Headers): boolean => {
-  const auth = headers.get("authorization");
-  return auth !== null && auth.startsWith("ARC ");
+const inboundTraceLinks = (headers: Headers): Link[] | undefined => {
+  const traceparent = headers.get("traceparent");
+  if (traceparent === null) return undefined;
+  // Extracted onto the root context, so the only span context the result can
+  // hold is one the propagator parsed from this header; the W3C propagator
+  // parses only a well-formed `traceparent` with non-zero ids.
+  const inbound = trace.getSpanContext(extractTraceContext({ traceparent }, ROOT_CONTEXT));
+  if (inbound === undefined) return undefined;
+  return [
+    {
+      context: {
+        traceId: inbound.traceId,
+        spanId: inbound.spanId,
+        traceFlags: inbound.traceFlags & TraceFlags.SAMPLED,
+        isRemote: true,
+      },
+    },
+  ];
 };
 
 export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
@@ -120,56 +115,31 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       // Increment in-flight gauge.
       httpServerActiveRequests.inc({ "http.request.method": method });
 
-      // Only extract inbound trace context when the request presents an
-      // `Authorization: ARC ...` header; any other starts a fresh root span.
-      const inboundCtx = shouldHonourInboundTraceparent(request.headers)
-        ? extractTraceContext(request.headers)
-        : undefined;
-      const span = tracer.startSpan(
-        `HTTP ${method}`,
-        {
-          kind: SpanKind.SERVER,
-          attributes: {
-            "http.request.method": method,
-            // No `url.path` or query: paths hold handles and profile ids,
-            // and queries carry OAuth codes and magic-link tokens. The span
-            // names the matched route template (`http.route`) instead.
-            "url.scheme": url.protocol.replace(":", ""),
-            "server.address": url.hostname,
-            "service.name": options.serviceName,
-            "osn.request.id": requestId,
-          },
+      // Every server span is a root, so the registered sampler makes its own
+      // decision; neither an inbound `traceparent` nor a span active in the
+      // calling context is its parent. Elysia runs onRequest, the handler and
+      // onAfterResponse as separate calls, so this span is never active
+      // inside a handler (wiki/shared/observability/tracing.md §Elysia hook
+      // limitation).
+      const span = tracer.startSpan(`HTTP ${method}`, {
+        kind: SpanKind.SERVER,
+        root: true,
+        links: inboundTraceLinks(request.headers),
+        attributes: {
+          "http.request.method": method,
+          // No `url.path` or query: paths hold handles and profile ids,
+          // and queries carry OAuth codes and magic-link tokens. The span
+          // names the matched route template (`http.route`) instead.
+          "url.scheme": url.protocol.replace(":", ""),
+          "server.address": url.hostname,
+          "service.name": options.serviceName,
+          "osn.request.id": requestId,
         },
-        inboundCtx,
-      );
-
-      // Build an OTel Context carrying the request span as active, and
-      // stash it on the request state. We deliberately do NOT try to
-      // `context.with(ctx, () => {})` here — that callback would
-      // immediately tear the context back down. Elysia's hook
-      // lifecycle (onRequest → handler → onAfterResponse are separate
-      // invocations, not a single enclosing scope) means there is no
-      // way to make an OTel `context.with(...)` span the whole
-      // request via hooks alone.
-      //
-      // The practical consequences:
-      //   1. `trace.getActiveSpan()` inside a synchronous handler will
-      //      NOT see the server span. Callers that want child spans
-      //      should use `getRequestContext(request)` + `context.with`
-      //      explicitly, or rely on Effect.withSpan — Effect manages
-      //      its own fiber-local span tree.
-      //   2. Distributed traces across services still work correctly
-      //      because inbound `traceparent` is captured on this span
-      //      AND the outbound `instrumentedFetch` wrapper injects
-      //      `traceparent` into S2S calls.
-      //   3. Same-process HTTP → service parent-child linkage is a
-      //      known limitation tracked as an open issue.
-      const ctx = trace.setSpan(inboundCtx ?? context.active(), span);
+      });
 
       REQUEST_STATE.set(request, {
         start: process.hrtime.bigint(),
         span,
-        ctx,
         // IMPORTANT: default to the fixed sentinel `"unmatched"`,
         // NOT `url.pathname`. Any request that short-circuits before
         // onAfterHandle (404, body validation failure, etc.) MUST record

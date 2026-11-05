@@ -313,7 +313,7 @@ the runs where the timing happens to tie.
 - `/register-service` validates `allowedScopes` against `PERMITTED_SCOPES` allowlist — services cannot self-promote.
 - A `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
 - ARC tokens are machine-to-machine only. Never use them for user-facing authentication — use access tokens for that.
-- The `Authorization: ARC ...` header is the trust boundary for inbound trace context propagation -- only ARC-authenticated callers have their `traceparent` honoured.
+- An `Authorization: ARC ...` header earns no trust for inbound trace context: the observability plugin links any caller's well-formed `traceparent` to its server span and never makes it the parent ([[tracing#Inbound trace context]]).
 
 ## Metrics
 

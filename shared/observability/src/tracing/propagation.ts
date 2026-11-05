@@ -5,7 +5,7 @@
  * `tracestate`) headers. These helpers are thin wrappers so callers don't
  * need to import `@opentelemetry/api` directly.
  */
-import { context, propagation, trace } from "@opentelemetry/api";
+import { type Context, context, propagation, trace } from "@opentelemetry/api";
 
 /**
  * Inject the current active span's trace context into an outbound
@@ -21,11 +21,14 @@ export const injectTraceContext = (headers: Headers): void => {
 
 /**
  * Extract trace context from an inbound `Headers` instance (or a plain
- * record-of-strings). Returns the extracted Context, suitable for
- * `context.with(ctx, fn)`.
+ * record-of-strings) onto `base`, the active context unless one is given.
+ * Returns the extracted Context, suitable for `context.with(ctx, fn)`.
  */
-export const extractTraceContext = (headers: Headers | Record<string, string | undefined>) => {
-  return propagation.extract(context.active(), headers, {
+export const extractTraceContext = (
+  headers: Headers | Record<string, string | undefined>,
+  base: Context = context.active(),
+) => {
+  return propagation.extract(base, headers, {
     get: (carrier, key) => {
       if (carrier instanceof Headers) return carrier.get(key) ?? undefined;
       return (carrier as Record<string, string | undefined>)[key] ?? undefined;

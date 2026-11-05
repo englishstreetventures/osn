@@ -1,11 +1,27 @@
-import { metrics, SpanKind, SpanStatusCode, type Attributes } from "@opentelemetry/api";
+import {
+  context,
+  metrics,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+  TraceFlags,
+  type Attributes,
+  type Link,
+} from "@opentelemetry/api";
 import {
   AggregationTemporality,
   InMemoryMetricExporter,
   MeterProvider,
   PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics";
-import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import {
+  InMemorySpanExporter,
+  ParentBasedSampler,
+  SamplingDecision,
+  SimpleSpanProcessor,
+  type Sampler,
+} from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { Elysia, t } from "elysia";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,9 +35,25 @@ import { observabilityPlugin } from "../src/elysia/plugin";
  * `MeterProvider` whose metric reader the tests collect from. Spans and
  * metric data points are asserted directly. Vitest isolates test files, so
  * the global registration does not leak into other files.
+ *
+ * The tracer provider samples through `ParentBasedSampler`, whose root
+ * delegate runs only for a span with no parent. That delegate records each
+ * call and returns the decision a test sets, so a test can see that a span
+ * was sampled by our sampler rather than by a parent's flag.
  */
+const rootSamplerCalls: { traceId: string; links: Link[] }[] = [];
+let rootDecision = SamplingDecision.RECORD_AND_SAMPLED;
+const rootSampler: Sampler = {
+  shouldSample: (_context, traceId, _name, _kind, _attributes, links) => {
+    rootSamplerCalls.push({ traceId, links });
+    return { decision: rootDecision };
+  },
+  toString: () => "RecordingRootSampler",
+};
+
 const spanExporter = new InMemorySpanExporter();
 const tracerProvider = new NodeTracerProvider({
+  sampler: new ParentBasedSampler({ root: rootSampler }),
   spanProcessors: [new SimpleSpanProcessor(spanExporter)],
 });
 tracerProvider.register();
@@ -43,6 +75,8 @@ beforeEach(async () => {
   // Let any `onAfterResponse` from the previous test finish first.
   await new Promise((resolve) => setTimeout(resolve, 5));
   spanExporter.reset();
+  rootSamplerCalls.length = 0;
+  rootDecision = SamplingDecision.RECORD_AND_SAMPLED;
 });
 
 type Point = { attributes: Attributes; value: unknown };
@@ -83,8 +117,9 @@ const send = async (app: ReturnType<typeof makeApp>, url: string, init?: Request
   return res;
 };
 
-const TRACEPARENT = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
-const TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
+const INBOUND_TRACE_ID = "0af7651916cd43dd8448eb211c80319c";
+const INBOUND_SPAN_ID = "b7ad6b7169203331";
+const traceparent = (flags: string) => `00-${INBOUND_TRACE_ID}-${INBOUND_SPAN_ID}-${flags}`;
 
 const LEAK = "leak-msg@example.com";
 
@@ -196,31 +231,136 @@ describe("observabilityPlugin", () => {
     expect(res.headers.get("x-request-id")).toMatch(/^req_/);
   });
 
-  describe("inbound traceparent trust gate", () => {
-    const run = async (headers: Record<string, string>) => {
-      const res = await send(makeApp(), "http://localhost/ping", { headers });
-      expect(res.status).toBe(200);
+  describe("inbound trace context becomes a span link, never the parent", () => {
+    const ARC = ["an ARC Authorization header", { authorization: "ARC anything" }] as const;
+    const NONE = ["no Authorization header", {}] as const;
+    const CALLERS = [
+      ARC,
+      NONE,
+      ["Authorization: Bearer", { authorization: "Bearer x" }],
+      ["a lower-case arc scheme", { authorization: "arc x" }],
+    ] as const;
+
+    const inboundLink = (traceFlags: number) => ({
+      traceId: INBOUND_TRACE_ID,
+      spanId: INBOUND_SPAN_ID,
+      traceFlags,
+      isRemote: true,
+    });
+
+    const onlyServerSpan = () => {
       const spans = serverSpans();
       expect(spans).toHaveLength(1);
       return spans[0]!;
     };
 
-    it("starts a fresh root for a traceparent with no Authorization header", async () => {
-      const span = await run({ traceparent: TRACEPARENT });
-      expect(span.spanContext().traceId).not.toBe(TRACE_ID);
-      expect(span.parentSpanContext?.spanId).toBeUndefined();
+    /** A root of our own: a new trace id, no parent, and our sampler asked once. */
+    const expectOwnRoot = (span: ReturnType<typeof onlyServerSpan>) => {
+      expect(span.spanContext().traceId).not.toBe(INBOUND_TRACE_ID);
+      expect(span.parentSpanContext).toBeUndefined();
+      expect(rootSamplerCalls.map((c) => c.traceId)).toEqual([span.spanContext().traceId]);
+    };
+
+    it.each(CALLERS)(
+      "starts a new root that links a sampled traceparent sent with %s",
+      async (_, auth) => {
+        // Every flag bit set: the link keeps only the sampled bit.
+        const res = await send(makeApp(), "http://localhost/ping", {
+          headers: { ...auth, traceparent: traceparent("ff"), tracestate: "caller=chosen" },
+        });
+        expect(res.status).toBe(200);
+        const span = onlyServerSpan();
+        expectOwnRoot(span);
+        expect(span.spanContext().traceFlags & TraceFlags.SAMPLED).toBe(TraceFlags.SAMPLED);
+        expect(span.spanContext().traceState).toBeUndefined();
+        expect(span.links.map((l) => l.context)).toEqual([inboundLink(TraceFlags.SAMPLED)]);
+        expect(span.links[0]!.context.traceState).toBeUndefined();
+        // The sampler saw the link when it decided: links are set at start.
+        expect(rootSamplerCalls[0]!.links.map((l) => l.context)).toEqual([
+          inboundLink(TraceFlags.SAMPLED),
+        ]);
+      },
+    );
+
+    it.each([ARC, NONE])(
+      "samples by our sampler when an unsampled traceparent is sent with %s",
+      async (_, auth) => {
+        await send(makeApp(), "http://localhost/ping", {
+          headers: { ...auth, traceparent: traceparent("00") },
+        });
+        const span = onlyServerSpan();
+        expectOwnRoot(span);
+        expect(span.spanContext().traceFlags & TraceFlags.SAMPLED).toBe(TraceFlags.SAMPLED);
+        expect(span.links.map((l) => l.context)).toEqual([inboundLink(TraceFlags.NONE)]);
+      },
+    );
+
+    it.each([ARC, NONE])(
+      "records nothing when our sampler declines a sampled traceparent sent with %s",
+      async (_, auth) => {
+        rootDecision = SamplingDecision.NOT_RECORD;
+        const res = await makeApp().handle(
+          new Request("http://localhost/ping", {
+            headers: { ...auth, traceparent: traceparent("01") },
+          }),
+        );
+        expect(res.status).toBe(200);
+        // The gauge falls in onAfterResponse, the hook that ends the span.
+        await vi.waitFor(async () => expect(await activeRequests("GET")).toBe(0));
+        expect(serverSpans()).toHaveLength(0);
+        expect(rootSamplerCalls).toHaveLength(1);
+      },
+    );
+
+    it.each([
+      ["not a traceparent", "not-a-traceparent"],
+      ["no flags", `00-${INBOUND_TRACE_ID}-${INBOUND_SPAN_ID}`],
+      ["an all-zero trace id", `00-${"0".repeat(32)}-${INBOUND_SPAN_ID}-01`],
+      ["the reserved version ff", `ff-${INBOUND_TRACE_ID}-${INBOUND_SPAN_ID}-01`],
+      ["a fifth part on version 00", `${traceparent("01")}-extra`],
+    ])("adds no link for a traceparent with %s", async (_, value) => {
+      const res = await send(makeApp(), "http://localhost/ping", {
+        headers: { authorization: "ARC anything", traceparent: value },
+      });
+      expect(res.status).toBe(200);
+      const span = onlyServerSpan();
+      expectOwnRoot(span);
+      expect(span.links).toEqual([]);
+      expect(rootSamplerCalls[0]!.links).toEqual([]);
     });
 
-    it("starts a fresh root for a traceparent with Authorization: Bearer", async () => {
-      const span = await run({ traceparent: TRACEPARENT, authorization: "Bearer x" });
-      expect(span.spanContext().traceId).not.toBe(TRACE_ID);
-      expect(span.parentSpanContext?.spanId).toBeUndefined();
-    });
+    describe("inside a span already active in the calling context", () => {
+      const LOCAL_TRACE_ID = "1".repeat(32);
+      const activeContext = (isRemote: boolean) =>
+        trace.setSpanContext(ROOT_CONTEXT, {
+          traceId: LOCAL_TRACE_ID,
+          spanId: "2".repeat(16),
+          traceFlags: TraceFlags.SAMPLED,
+          isRemote,
+        });
 
-    it("starts a fresh root for a lower-case 'arc' scheme", async () => {
-      const span = await run({ traceparent: TRACEPARENT, authorization: "arc x" });
-      expect(span.spanContext().traceId).not.toBe(TRACE_ID);
-      expect(span.parentSpanContext?.spanId).toBeUndefined();
+      it.each([
+        [
+          "a valid traceparent under a local span",
+          traceparent("01"),
+          false,
+          [inboundLink(TraceFlags.SAMPLED)],
+        ],
+        ["a malformed traceparent under a local span", "not-a-traceparent", false, []],
+        ["a malformed traceparent under a remote span", "not-a-traceparent", true, []],
+      ])(
+        "starts a new root and links only the header, for %s",
+        async (_, value, isRemote, links) => {
+          const res = await context.with(activeContext(isRemote), () =>
+            send(makeApp(), "http://localhost/ping", { headers: { traceparent: value } }),
+          );
+          expect(res.status).toBe(200);
+          const span = onlyServerSpan();
+          expectOwnRoot(span);
+          expect(span.spanContext().traceId).not.toBe(LOCAL_TRACE_ID);
+          expect(span.links.map((l) => l.context)).toEqual(links);
+        },
+      );
     });
   });
 
