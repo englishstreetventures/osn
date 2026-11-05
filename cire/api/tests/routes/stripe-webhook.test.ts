@@ -14,7 +14,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { WEBHOOK_TOLERANCE_SECONDS } from "../../src/services/stripe";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, beforeStatement, jsonBody } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 
@@ -1375,5 +1375,97 @@ describe("one account taking gifts for two weddings", () => {
     expect(await jsonBody(res)).toEqual({ received: true, matched: true });
     expect(row(db, PARTY)?.stripeAccountId).toBe(ACCOUNT);
     expect(row(db, PARTY)?.stripeChargesEnabled).toBe(true);
+  });
+});
+
+/**
+ * Two deliveries for one gift landing together. Each writer reads the row,
+ * decides from its status, and writes; another delivery can move the status
+ * between the two. The write carries the status it decided from, so it never
+ * lands on a row that has since moved.
+ */
+describe("deliveries that race each other", () => {
+  const UPDATE = /^update "registry_contributions"/;
+  const setRow = (db: ReturnType<typeof buildApp>["db"], set: Record<string, unknown>) =>
+    db
+      .update(registryContributions)
+      .set(set)
+      .where(eq(registryContributions.id, CONTRIBUTION_ID))
+      .run();
+
+  it("leaves a gift settled when an unpaid completion races the debit that cleared", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId);
+    beforeStatement(db, UPDATE, () => setRow(db, { status: "succeeded" }));
+
+    const res = await deliver(app, checkoutCompleted({ session: { payment_status: "unpaid" } }));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "duplicate" });
+    expect((await gifts(db))[0]?.status).toBe("succeeded");
+  });
+
+  it("leaves a gift settled when an expiry races its settlement", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId);
+    beforeStatement(db, UPDATE, () => setRow(db, { status: "succeeded" }));
+
+    const res = await deliver(app, sessionEvent("checkout.session.expired"));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "ignored" });
+    expect((await gifts(db))[0]?.status).toBe("succeeded");
+  });
+
+  // A row that never got its session attached: the write adopts the session,
+  // and another delivery moves the row off `pending` first. Nothing is
+  // written, the delivery is still refused, and the log names that cause,
+  // not a session another gift holds.
+  it.each([
+    ["a settle", () => checkoutCompleted(), "settle"],
+    ["an expiry", () => sessionEvent("checkout.session.expired"), "expiry"],
+  ] as const)(
+    "leaves a gift settled when %s adopting its session races its settlement",
+    async (_, payload, writer) => {
+      const { app, db, familyId } = buildApp();
+      seedPending(db, familyId, { sessionId: null });
+      beforeStatement(db, UPDATE, () => setRow(db, { status: "succeeded" }));
+
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await deliver(app, payload());
+      });
+
+      expect(await jsonBody(res!)).toEqual({ received: true, outcome: "rejected" });
+      const [gift] = await gifts(db);
+      expect(gift?.status).toBe("succeeded");
+      expect(gift?.stripeCheckoutSessionId).toBeNull();
+      expect(logs).toContain(
+        `${writer} found the gift already off pending while adopting its checkout session`,
+      );
+      expect(logs).not.toContain("lost the race to adopt a checkout session");
+    },
+  );
+
+  it("never records a smaller refund over a larger one that landed first", async () => {
+    const { app, db, familyId } = buildApp();
+    await seedSettled(app, db, familyId);
+    await deliver(app, chargeRefunded({ charge: { refunded: false, amount_refunded: 2_000 } }));
+    beforeStatement(db, UPDATE, () => setRow(db, { refundedAmountMinor: 8_000 }));
+
+    await deliver(app, chargeRefunded({ charge: { refunded: false, amount_refunded: 5_000 } }));
+
+    const [gift] = await gifts(db);
+    expect(gift?.refundedAmountMinor).toBe(8_000);
+    expect(gift?.status).toBe("succeeded");
+  });
+
+  it("does not refund a gift a dispute took hold of first", async () => {
+    const { app, db, familyId } = buildApp();
+    await seedSettled(app, db, familyId);
+    beforeStatement(db, UPDATE, () => setRow(db, { status: "disputed" }));
+
+    const res = await deliver(app, chargeRefunded());
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "ignored" });
+    expect((await gifts(db))[0]?.status).toBe("disputed");
   });
 });

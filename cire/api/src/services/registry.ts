@@ -347,6 +347,26 @@ export interface MoneyDeployment {
   readonly takesPayments: boolean;
 }
 
+/**
+ * What has come in towards a group gift, as the couple see it.
+ *
+ * Only `succeeded` gifts: a gift still pending, one that failed, one held in a
+ * dispute and one refunded in full are not money the couple have. A partial
+ * refund leaves the gift in at the amount given, as the gift log and the
+ * wedding's total show it. Keyed by currency the way the wedding's total is
+ * (`contributionsByCurrency`): a gift in the wedding's currency adds to
+ * `raisedMinor`, and one in any other is counted in `otherCurrencyCount` and
+ * added to nothing.
+ */
+export interface GroupGiftRaised {
+  /** Minor units of the wedding's currency. */
+  raisedMinor: number;
+  /** How many gifts `raisedMinor` adds. */
+  giftCount: number;
+  /** Gifts towards it in another currency, left out of `raisedMinor`. */
+  otherCurrencyCount: number;
+}
+
 export interface RegistryItemDto {
   id: string;
   weddingId: string;
@@ -360,8 +380,20 @@ export interface RegistryItemDto {
   quantityWanted: number;
   /** Sum of non-released claim quantities. Derived, never stored. */
   quantityClaimed: number;
+  /**
+   * On a cash fund, the fund is a GROUP GIFT: money several households give
+   * towards one named item, which the couple buy themselves. Set at create and
+   * never changed. Always false on a gift to reserve.
+   */
   allowPartial: boolean;
+  /** A cash fund's goal, or a group gift's target, in the wedding's minor units. */
   targetMinor: number | null;
+  /**
+   * What a group gift has raised; null on everything else. Derived, never
+   * stored, and the couple's alone: no guest route sends it. Whether the
+   * target is reached is this against `targetMinor`, and nothing caps it.
+   */
+  raised: GroupGiftRaised | null;
   category: string | null;
   sortOrder: number;
   createdAt: number;
@@ -503,6 +535,11 @@ export interface CreateRegistryItemInput {
   category: string | null;
   /** A cash fund's goal; must be null (or absent) on a gift to reserve. */
   targetMinor?: number | null;
+  /**
+   * Make the cash fund a group gift. Only on a `cash_fund`, and only with a
+   * target: a group gift without one is a plain fund.
+   */
+  allowPartial?: boolean;
 }
 
 export interface UpdateRegistryItemPatch {
@@ -585,6 +622,16 @@ interface ItemRow {
   createdAt: Date;
   updatedAt: Date;
 }
+
+/**
+ * Is this item a group gift? A cash fund with `allowPartial` — the one test
+ * every reader uses, the target aside: a group gift whose target is missing
+ * (written by a rollback or by hand) is still a group gift.
+ */
+export const isGroupGift = (item: { kind: RegistryItemKind; allowPartial: boolean }): boolean =>
+  item.kind === "cash_fund" && item.allowPartial;
+
+const NOTHING_RAISED: GroupGiftRaised = { raisedMinor: 0, giftCount: 0, otherCurrencyCount: 0 };
 
 /**
  * How drizzle-sqlite stores `integer({ mode: "timestamp" })` — epoch SECONDS,
@@ -853,7 +900,11 @@ export function decodeGiftSummary(raw: string | null, at: Date | null): GiftSumm
   };
 }
 
-const toItemDto = (r: ItemRow, quantityClaimed: number): RegistryItemDto => ({
+const toItemDto = (
+  r: ItemRow,
+  quantityClaimed: number,
+  raised?: GroupGiftRaised,
+): RegistryItemDto => ({
   id: r.id,
   weddingId: r.weddingId,
   kind: r.kind,
@@ -867,6 +918,7 @@ const toItemDto = (r: ItemRow, quantityClaimed: number): RegistryItemDto => ({
   quantityClaimed,
   allowPartial: r.allowPartial,
   targetMinor: r.targetMinor,
+  raised: isGroupGift(r) ? (raised ?? NOTHING_RAISED) : null,
   category: r.category,
   sortOrder: r.sortOrder,
   createdAt: r.createdAt.getTime(),
@@ -1057,8 +1109,10 @@ const toStripeStatus = (
   moneyGiftsBlockedBy: moneyGiftsBlock(deployment, record, currency),
 });
 
-/** One currency's worth of settled gift money. */
+/** One currency's worth of settled gift money, given to one item or to none. */
 interface CurrencyTotal {
+  /** The fund or group gift it was given to; null for a gift to neither. */
+  itemId: string | null;
   /** Upper-case ISO code, as `RegistrySnapshot.currency` is. */
   currency: string;
   totalMinor: number;
@@ -1066,7 +1120,12 @@ interface CurrencyTotal {
 }
 
 /**
- * Succeeded contributions totalled PER CURRENCY, computed IN SQL.
+ * Succeeded contributions totalled PER ITEM AND CURRENCY, computed IN SQL.
+ *
+ * Per item as well, so one statement serves both totals the snapshot shows:
+ * the wedding's, which is every row summed, and each group gift's, which is
+ * its own rows. A wedding has at most `MAX_ITEMS_PER_WEDDING` items, so the
+ * rows are bounded by that times the currencies it has been given in.
  *
  * In SQL, not summed from the gift log: a total taken from the log would be
  * a function of how many rows one page returns, and would under-report the
@@ -1093,6 +1152,7 @@ function contributionsByCurrency(
     const rows = yield* dbQuery(() =>
       db
         .select({
+          itemId: registryContributions.itemId,
           currency: key,
           totalMinor: sql<number>`coalesce(sum(coalesce(${registryContributions.primaryAmountMinor}, ${registryContributions.amountMinor})), 0)`,
           count: sql<number>`count(*)`,
@@ -1104,15 +1164,86 @@ function contributionsByCurrency(
             eq(registryContributions.status, "succeeded"),
           ),
         )
-        .groupBy(key)
+        .groupBy(registryContributions.itemId, key)
         .all(),
     );
     return (rows as CurrencyTotal[]).map((row) => ({
+      itemId: row.itemId ?? null,
       currency: String(row.currency ?? "").toUpperCase(),
       totalMinor: Number(row.totalMinor ?? 0) || 0,
       count: Number(row.count ?? 0) || 0,
     }));
   });
+}
+
+/**
+ * Totals in the wedding's currency added up, and gifts in any other counted
+ * beside them: two currencies summed is not an amount of anything.
+ */
+function foldRaised(totals: readonly CurrencyTotal[], primary: string): GroupGiftRaised {
+  let raisedMinor = 0;
+  let giftCount = 0;
+  let otherCurrencyCount = 0;
+  for (const total of totals) {
+    if (total.currency === primary) {
+      raisedMinor += total.totalMinor;
+      giftCount += total.count;
+    } else {
+      otherCurrencyCount += total.count;
+    }
+  }
+  return { raisedMinor, giftCount, otherCurrencyCount };
+}
+
+/** What {@link raisedColumns} adds to an item row. */
+interface RaisedColumns {
+  /** `{"minor":…,"count":…,"other":…}` on a group gift; NULL on anything else. */
+  raisedJson: string | null;
+}
+
+/**
+ * One item's {@link GroupGiftRaised}, as a column of a statement that names
+ * `registry_items` — an UPDATE's RETURNING — so an edit learns it without a
+ * second read. The same rule as `contributionsByCurrency` and `foldRaised`:
+ * succeeded gifts of this item and wedding, keyed on the primary currency where
+ * a row has one, compared with the wedding's own.
+ *
+ * Gated on the row being a group gift, so a gift to reserve or a plain fund
+ * reads no contribution at all. One scan of the item's gifts, with the
+ * wedding's currency read once beside it, and the three figures packed into
+ * one JSON value.
+ */
+function raisedColumns() {
+  const rc = registryContributions;
+  const ours = sql`upper(coalesce(${rc.primaryCurrency}, ${rc.currency})) = wc.cur`;
+  return {
+    raisedJson: sql<
+      string | null
+    >`CASE WHEN ${registryItems.kind} = 'cash_fund' AND ${registryItems.allowPartial} = 1 THEN (
+      SELECT json_object(
+        'minor', coalesce(sum(CASE WHEN ${ours} THEN coalesce(${rc.primaryAmountMinor}, ${rc.amountMinor}) END), 0),
+        'count', coalesce(sum(CASE WHEN ${ours} THEN 1 END), 0),
+        'other', coalesce(sum(CASE WHEN ${ours} THEN NULL ELSE 1 END), 0)
+      )
+      FROM (SELECT upper(coalesce(${weddings.currency}, 'AUD')) AS cur FROM ${weddings} WHERE ${weddings.id} = ${registryItems.weddingId}) AS wc
+      JOIN ${rc} ON ${rc.itemId} = ${registryItems.id} AND ${rc.weddingId} = ${registryItems.weddingId} AND ${rc.status} = 'succeeded'
+    ) END`,
+  };
+}
+
+/** A group gift's figures from {@link raisedColumns}; nothing raised when absent. */
+function raisedOf(row: RaisedColumns): GroupGiftRaised {
+  if (!row.raisedJson) return NOTHING_RAISED;
+  const parsed = JSON.parse(row.raisedJson) as {
+    minor?: unknown;
+    count?: unknown;
+    other?: unknown;
+  };
+  return {
+    raisedMinor: Number(parsed.minor ?? 0) || 0,
+    giftCount: Number(parsed.count ?? 0) || 0,
+    otherCurrencyCount: Number(parsed.other ?? 0) || 0,
+  };
 }
 
 /**
@@ -1260,7 +1391,8 @@ interface ContributionPatch {
 interface RefundPatch {
   updatedAt: Date;
   status?: RegistryContributionStatus;
-  refundedAmountMinor?: number;
+  /** Written as the larger of the stored total and the new one, in SQL. */
+  refundedAmountMinor?: SQL;
 }
 
 /**
@@ -1291,6 +1423,41 @@ function sessionAdoptionGuard(contributionId: string, checkoutSessionId: string)
     isNull(registryContributions.stripeCheckoutSessionId),
     sql`not exists (select 1 from ${registryContributions} other where other.stripe_checkout_session_id = ${checkoutSessionId})`,
   ) as SQL;
+}
+
+/**
+ * Log why a write adopting a checkout session wrote nothing, from the row as it
+ * stands now. Another delivery moving the row off `pending` first is two
+ * deliveries for one gift, a warning. Anything else is another row holding the
+ * session id, one gift being settled or closed by another's event: an error.
+ */
+function logAdoptionMiss(
+  writer: "settle" | "expiry",
+  contributionId: string,
+  input: { checkoutSessionId: string; stripeAccountId: string },
+): Effect.Effect<void, never, DbService> {
+  return Effect.gen(function* () {
+    const now = yield* contributionOnAccount(
+      eq(registryContributions.id, contributionId),
+      input.stripeAccountId,
+    );
+    const fields = { contributionId, checkoutSessionId: input.checkoutSessionId };
+    if (now && now.status !== "pending") {
+      yield* Effect.logWarning(
+        writer === "settle"
+          ? "settle found the gift already off pending while adopting its checkout session"
+          : "expiry found the gift already off pending while adopting its checkout session",
+        fields,
+      );
+      return;
+    }
+    yield* Effect.logError(
+      writer === "settle"
+        ? "settle lost the race to adopt a checkout session"
+        : "expiry lost the race to adopt a checkout session",
+      fields,
+    );
+  });
 }
 
 /** The single row a lookup on a unique column names, or nothing. */
@@ -1462,18 +1629,26 @@ export const registryService = {
       // Split here rather than in SQL: the wedding's currency comes from its own
       // read, and the two run together above. Passing one into the other would
       // serialise two D1 round trips that currently overlap, to save a filter
-      // over at most a handful of rows.
+      // over one row per item and currency.
       const primary = currency.toUpperCase();
-      const contributionsPrimaryMinor =
-        contributionTotals.find((total) => total.currency === primary)?.totalMinor ?? 0;
-      const contributionsOtherCurrencyCount = contributionTotals.reduce(
-        (count, total) => (total.currency === primary ? count : count + total.count),
-        0,
-      );
+      const wedding = foldRaised(contributionTotals, primary);
+      const byItem = new Map<string, CurrencyTotal[]>();
+      for (const total of contributionTotals) {
+        if (total.itemId === null) continue;
+        const held = byItem.get(total.itemId);
+        if (held) held.push(total);
+        else byItem.set(total.itemId, [total]);
+      }
 
       return {
         settings: toSettingsDto(record, deployment, currency),
-        items: (itemRows as ItemRow[]).map((r) => toItemDto(r, claimed.get(r.id) ?? 0)),
+        items: (itemRows as ItemRow[]).map((r) =>
+          toItemDto(
+            r,
+            claimed.get(r.id) ?? 0,
+            isGroupGift(r) ? foldRaised(byItem.get(r.id) ?? [], primary) : undefined,
+          ),
+        ),
         gifts: gifts.entries,
         giftsHasMore: gifts.hasMore,
         // Read off the settings row already in hand. The sweep writes the summary
@@ -1483,8 +1658,8 @@ export const registryService = {
           ? decodeGiftSummary(settingsRow.giftSummaryJson, settingsRow.giftSummaryAt)
           : null,
         currency,
-        contributionsPrimaryMinor,
-        contributionsOtherCurrencyCount,
+        contributionsPrimaryMinor: wedding.raisedMinor,
+        contributionsOtherCurrencyCount: wedding.otherCurrencyCount,
       };
     }).pipe(Effect.withSpan("cire.registry.get"));
   },
@@ -2699,23 +2874,30 @@ export const registryService = {
         db
           .update(registryContributions)
           .set(patch)
+          // `pending` is re-checked in the predicate, not only read above:
+          // Stripe can deliver an unpaid completion while the debit that
+          // cleared is being settled, and writing `pending` over that would
+          // take a received gift out of every total.
           .where(
-            adopting
-              ? sessionAdoptionGuard(pending.id, input.checkoutSessionId)
-              : eq(registryContributions.id, pending.id),
+            and(
+              adopting
+                ? sessionAdoptionGuard(pending.id, input.checkoutSessionId)
+                : eq(registryContributions.id, pending.id),
+              eq(registryContributions.status, "pending"),
+            ),
           )
           .returning({ id: registryContributions.id })
           .all(),
       );
       if ((updated as Array<{ id: string }>).length === 0) {
-        // Only reachable while adopting: another row claimed this session id
-        // between the read and the write, so this row is not the one that was
-        // paid. Nothing is written, and Stripe is still answered — a retry
-        // would only lose the same race again.
-        yield* Effect.logError("settle lost the race to adopt a checkout session", {
-          contributionId: pending.id,
-          checkoutSessionId: input.checkoutSessionId,
-        });
+        // Another delivery moved the row off `pending` between the read and
+        // the write, which is a duplicate like any other.
+        if (!adopting) return "duplicate";
+        // While adopting it may also be that another row claimed this session
+        // id, so this row is not the one that was paid. Nothing is written
+        // either way, and Stripe is still answered — a retry would only lose
+        // the same race again. The row is read again so the log names which.
+        yield* logAdoptionMiss("settle", pending.id, input);
         return "rejected";
       }
       return input.paid ? "settled" : "duplicate";
@@ -2771,21 +2953,25 @@ export const registryService = {
         db
           .update(registryContributions)
           .set(patch)
+          // `pending` is re-checked in the predicate: a settlement landing
+          // between the read and this write must not be closed as `failed`.
           .where(
-            adopting
-              ? sessionAdoptionGuard(row.id, input.checkoutSessionId)
-              : eq(registryContributions.id, row.id),
+            and(
+              adopting
+                ? sessionAdoptionGuard(row.id, input.checkoutSessionId)
+                : eq(registryContributions.id, row.id),
+              eq(registryContributions.status, "pending"),
+            ),
           )
           .returning({ id: registryContributions.id })
           .all(),
       );
       if ((updated as Array<{ id: string }>).length === 0) {
-        // Adopting only, same race as settle: the session belongs to another
+        // The row moved off `pending` meanwhile: nothing left to close.
+        if (!adopting) return "ignored";
+        // Adopting, the same race as settle: the session may belong to another
         // row, so closing this one against it would be closing the wrong gift.
-        yield* Effect.logError("expiry lost the race to adopt a checkout session", {
-          contributionId: row.id,
-          checkoutSessionId: input.checkoutSessionId,
-        });
+        yield* logAdoptionMiss("expiry", row.id, input);
         return "rejected";
       }
       return "failed";
@@ -2897,16 +3083,30 @@ export const registryService = {
       }
 
       const patch: RefundPatch = { updatedAt: new Date() };
-      if (advances) patch.refundedAmountMinor = refunded;
+      // The larger of the two in the statement itself, so a delivery of an
+      // older total racing a newer one can never lower what is recorded.
+      if (advances) {
+        patch.refundedAmountMinor = sql`max(coalesce(${registryContributions.refundedAmountMinor}, 0), ${refunded})`;
+      }
       if (input.fullyRefunded) patch.status = "refunded";
 
-      yield* dbQuery(() =>
+      const written = yield* dbQuery(() =>
         db
           .update(registryContributions)
           .set(patch)
-          .where(eq(registryContributions.id, row.id))
-          .run(),
+          // `succeeded` is re-checked in the predicate, as the dispute path
+          // does: a dispute that took hold meanwhile is the next delivery's
+          // to resolve, not this one's to overwrite.
+          .where(
+            and(
+              eq(registryContributions.id, row.id),
+              eq(registryContributions.status, "succeeded"),
+            ),
+          )
+          .returning({ id: registryContributions.id })
+          .all(),
       );
+      if ((written as Array<{ id: string }>).length === 0) return "ignored";
       return input.fullyRefunded ? "refunded" : "partial";
     }).pipe(Effect.withSpan("cire.registry.refundContribution"));
   },
@@ -3013,6 +3213,12 @@ export const registryService = {
       if (needs !== null && needs !== kind) {
         return yield* Effect.fail(new RegistryItemFieldsInvalid());
       }
+      // A group gift is a cash fund with a target. The flag says nothing on a
+      // gift to reserve, and a group gift with no target is a plain fund.
+      const allowPartial = input.allowPartial === true;
+      if (allowPartial && (kind !== "cash_fund" || (input.targetMinor ?? null) === null)) {
+        return yield* Effect.fail(new RegistryItemFieldsInvalid());
+      }
       if (input.imageKey && !imageKeyBelongsTo(input.weddingId, input.imageKey)) {
         return yield* Effect.fail(new ImageKeyNotInWedding());
       }
@@ -3052,7 +3258,7 @@ export const registryService = {
         externalUrl: input.externalUrl,
         priceMinor: input.priceMinor,
         quantityWanted: input.quantityWanted,
-        allowPartial: false,
+        allowPartial,
         targetMinor: input.targetMinor ?? null,
         category: input.category,
         sortOrder: Number(maxSort) + 1,
@@ -3083,6 +3289,9 @@ export const registryService = {
       // other kind" below.
       const needs = kindTheFieldsNeed(patch);
       if (needs === "both") return yield* Effect.fail(new RegistryItemFieldsInvalid());
+      // A plain fund may drop its goal; a group gift keeps its target, so the
+      // flag goes in the WHERE beside the kind.
+      const clearsTarget = patch.targetMinor === null;
       if (patch.imageKey && !imageKeyBelongsTo(weddingId, patch.imageKey)) {
         return yield* Effect.fail(new ImageKeyNotInWedding());
       }
@@ -3106,7 +3315,9 @@ export const registryService = {
 
       // One round trip (as budgetService.updateItem): RETURNING reports whether
       // an (item, wedding) row existed, so there is no separate existence SELECT.
-      const [updated] = yield* dbQuery(() =>
+      // It also carries what the item has raised, which only a group gift
+      // reports, so an edit to one stays a single statement.
+      const [returned] = yield* dbQuery(() =>
         db
           .update(registryItems)
           .set(set)
@@ -3115,13 +3326,17 @@ export const registryService = {
               eq(registryItems.id, itemId),
               eq(registryItems.weddingId, weddingId),
               needs === null ? undefined : eq(registryItems.kind, needs),
+              clearsTarget ? eq(registryItems.allowPartial, false) : undefined,
             ),
           )
-          .returning()
+          .returning({ ...getTableColumns(registryItems), ...raisedColumns() })
           .all(),
       );
+      const updated = returned as (ItemRow & RaisedColumns) | undefined;
       if (!updated) {
-        if (needs === null) return yield* Effect.fail(new RegistryItemNotInWedding());
+        if (needs === null && !clearsTarget) {
+          return yield* Effect.fail(new RegistryItemNotInWedding());
+        }
         // The kind was part of the match, so a miss may be an item of the
         // other kind. One point read on the failure path tells the two apart.
         const [exists] = yield* dbQuery(() =>
@@ -3136,7 +3351,7 @@ export const registryService = {
         );
       }
       // A cash fund is never claimed, so it has nothing to count.
-      if ((updated as ItemRow).kind === "cash_fund") return toItemDto(updated as ItemRow, 0);
+      if (updated.kind === "cash_fund") return toItemDto(updated, 0, raisedOf(updated));
       // The claimed sum for the ONE item that changed. The wedding-wide
       // GROUP BY this used to call built a map of every item's claims to read a
       // single key out of it.
@@ -3154,7 +3369,7 @@ export const registryService = {
           .all(),
       );
       const claimed = Number((claimedRow as { claimed: number } | undefined)?.claimed ?? 0) || 0;
-      return toItemDto(updated as ItemRow, claimed);
+      return toItemDto(updated, claimed);
     }).pipe(Effect.withSpan("cire.registry.updateItem"));
   },
 
@@ -3180,7 +3395,12 @@ export const registryService = {
     weddingId: string,
     itemId: string,
   ): Effect.Effect<
-    { kind: RegistryItemKind; imageKey: string | null; imageKeyOrphaned: boolean },
+    {
+      kind: RegistryItemKind;
+      allowPartial: boolean;
+      imageKey: string | null;
+      imageKeyOrphaned: boolean;
+    },
     RegistryItemNotInWedding,
     DbService
   > {
@@ -3197,13 +3417,18 @@ export const registryService = {
           .returning({
             id: registryItems.id,
             kind: registryItems.kind,
+            allowPartial: registryItems.allowPartial,
             imageKey: registryItems.imageKey,
           })
           .all(),
       );
       if (!removed) return yield* Effect.fail(new RegistryItemNotInWedding());
-      const { kind, imageKey } = removed as { kind: RegistryItemKind; imageKey: string | null };
-      if (!imageKey) return { kind, imageKey: null, imageKeyOrphaned: false };
+      const { kind, allowPartial, imageKey } = removed as {
+        kind: RegistryItemKind;
+        allowPartial: boolean;
+        imageKey: string | null;
+      };
+      if (!imageKey) return { kind, allowPartial, imageKey: null, imageKeyOrphaned: false };
       const [row] = yield* dbQuery(() =>
         db
           .select({ total: sql<number>`count(*)` })
@@ -3212,7 +3437,7 @@ export const registryService = {
           .all(),
       );
       const remaining = Number((row as { total: number } | undefined)?.total ?? 0) || 0;
-      return { kind, imageKey, imageKeyOrphaned: remaining === 0 };
+      return { kind, allowPartial, imageKey, imageKeyOrphaned: remaining === 0 };
     }).pipe(Effect.withSpan("cire.registry.removeItem"));
   },
 
@@ -3599,8 +3824,8 @@ export interface PublicRegistryItemDto {
 }
 
 /**
- * One cash fund as a guest sees it: its name, its picture and the couple's
- * words about it, and nothing else.
+ * One cash fund as a guest sees it: its name, its picture, the couple's words
+ * about it and whether it is a group gift, and nothing else.
  *
  * No target, no price and no count. The target is the couple's planning
  * number, and how much has come in — in total or from anyone — is theirs too:
@@ -3616,6 +3841,11 @@ export interface PublicRegistryFundDto {
   imageName: string | null;
   imageCrop: string | null;
   sortOrder: number;
+  /**
+   * A group gift: one item several households give towards, which the couple
+   * buy themselves. Said so the page can say it; nothing about how near it is.
+   */
+  groupGift: boolean;
 }
 
 /**
@@ -3725,6 +3955,7 @@ const toPublicFundDto = (weddingId: string, r: ItemRow): PublicRegistryFundDto =
   imageName: publicImageName(weddingId, r.imageKey),
   imageCrop: r.imageCrop,
   sortOrder: r.sortOrder,
+  groupGift: isGroupGift(r),
 });
 
 /**

@@ -42,8 +42,10 @@ import { variantSrc } from "../invite-images";
  * amount: "wherever they choose" first and chosen, then each fund by its name,
  * picture and the couple's words. Nothing else about a fund is here, and
  * nothing else exists on the wire to show: its goal and what has come in are
- * the couple's. A fund that closed while the page was open is said in a toast,
- * whose Refresh reads the list again.
+ * the couple's. A group gift is offered the same way, saying what it is — one
+ * thing guests give towards together, which the couple buy — and never how
+ * near its target it is. A fund that closed while the page was open is said
+ * in a toast, whose Refresh reads the list again.
  */
 
 export interface GiftMoneyPanelProps {
@@ -77,8 +79,14 @@ export interface GiftMoneyPanelProps {
   navigate?: (url: string) => void;
 }
 
-/** What the guest is told when the hand-off did not happen. */
-export function giftMoneyMessage(result: GiftContributionResult): string {
+/**
+ * What the guest is told when the hand-off did not happen. `chose.groupGift`
+ * says the item they chose was a group gift, for the words a closed one gets.
+ */
+export function giftMoneyMessage(
+  result: GiftContributionResult,
+  chose: { groupGift?: boolean } = {},
+): string {
   switch (result.kind) {
     case "ok":
       // The caller navigates; nothing is said, because the page is leaving.
@@ -87,7 +95,9 @@ export function giftMoneyMessage(result: GiftContributionResult): string {
       return "The couple aren’t taking money gifts at the moment.";
     case "fund-closed":
       // Said in a toast, not the status line; see `showFundClosed`.
-      return "This fund is no longer available.";
+      return chose.groupGift === true
+        ? "This group gift is no longer available."
+        : "This fund is no longer available.";
     case "signed-out":
       return "Your invite session has ended. Enter your invite code again on the invitation.";
     case "rate-limited":
@@ -169,7 +179,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
    * and one that leaves on its own takes that way with it. The panel's status
    * line stays empty, so the guest is told once.
    */
-  function showFundClosed() {
+  function showFundClosed(groupGift: boolean) {
     const options: ToastOptions = {
       id: FUND_CLOSED_TOAST,
       duration: Number.POSITIVE_INFINITY,
@@ -177,7 +187,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
     };
     const refresh = props.refreshList;
     if (refresh) options.action = { label: "Refresh", onClick: refresh };
-    toast.error(giftMoneyMessage({ kind: "fund-closed" }), options);
+    toast.error(giftMoneyMessage({ kind: "fund-closed" }, { groupGift }), options);
   }
 
   async function submit(event: SubmitEvent) {
@@ -190,9 +200,10 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
     toast.dismiss(FUND_CLOSED_TOAST);
     const trimmedName = displayName().trim();
     const trimmedMessage = message().trim();
+    const chosen = fundId();
     const result = await contributeGift(props.apiUrl, props.slug, {
       amountMinor: amount,
-      itemId: fundId(),
+      itemId: chosen,
       // Empty means "I said nothing", which is `null` on the wire, not `""`.
       displayName: trimmedName === "" ? null : trimmedName,
       message: trimmedMessage === "" ? null : trimmedMessage,
@@ -206,7 +217,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
     }
     setBusy(false);
     if (result.kind === "fund-closed") {
-      showFundClosed();
+      showFundClosed(funds().some((fund) => fund.id === chosen && fund.groupGift === true));
       return;
     }
     setStatus(giftMoneyMessage(result));
@@ -278,6 +289,11 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                       )}
                     </Show>
                     <span class="flex min-w-0 flex-col gap-1">
+                      <Show when={fund.groupGift === true}>
+                        <span class="text-text-muted text-ui-xs tracking-ui-widest uppercase">
+                          Group gift
+                        </span>
+                      </Show>
                       <span class="font-display text-text text-ui-md leading-ui-snug font-light break-words">
                         {fund.title}
                       </span>
@@ -287,6 +303,14 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                             {description()}
                           </span>
                         )}
+                      </Show>
+                      {/* What a group gift is, said once on the row: money
+                          towards one thing, which the couple buy themselves.
+                          Never how near it is — that is theirs alone. */}
+                      <Show when={fund.groupGift === true}>
+                        <span class="text-text-muted text-ui-sm leading-ui-normal">
+                          Guests give towards it together, and the couple buy it with what comes in.
+                        </span>
                       </Show>
                     </span>
                   </label>

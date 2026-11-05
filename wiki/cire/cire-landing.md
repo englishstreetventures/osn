@@ -479,7 +479,7 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
 
 Cire's longer-term plan is to compete with all-in-one suites (withjoy.com): not
 just the invitation, but the whole wedding **management platform** run from the
-organiser dashboard. The gift registry, with money gifts and named cash funds,
+organiser dashboard. The gift registry, with money gifts, named cash funds and group gifts,
 is built ([[cire-registry]]). Tracked, not yet built:
 
 - **Wedding-management platform** — budget, vendors, seating, schedule/timeline,

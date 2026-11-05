@@ -190,7 +190,7 @@ describe("publishing", () => {
     );
     // No fund, so nothing to say about funds.
     expect(document.getElementById("registry-publish-blocked")?.textContent).not.toMatch(
-      /cash funds/i,
+      /cash funds|group gifts/i,
     );
   });
 
@@ -248,7 +248,7 @@ describe("publishing", () => {
     const blocked = (await screen.findByRole("radio", { name: /^Published/ })) as HTMLInputElement;
     expect(blocked.disabled).toBe(true);
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
-      /cash funds count once money gifts are on\.$/i,
+      /cash funds and group gifts count once money gifts are on\.$/i,
     );
     unmount();
 
@@ -280,7 +280,7 @@ describe("publishing", () => {
           stripeChargesEnabled: true,
           moneyGiftsBlockedBy: "cash_gifts_off",
         },
-        /cash funds count once money gifts are on\.$/i,
+        /cash funds and group gifts count once money gifts are on\.$/i,
       ],
       [
         {
@@ -289,7 +289,7 @@ describe("publishing", () => {
           stripeChargesEnabled: false,
           moneyGiftsBlockedBy: "stripe_not_ready",
         },
-        /cash funds count once Stripe can take payments for you and money gifts are on\.$/i,
+        /cash funds and group gifts count once Stripe can take payments for you and money gifts are on\.$/i,
       ],
     ] as const) {
       setCachedRegistry("wed_1", snapshot({ items: funds, settings: half as never }));
@@ -324,11 +324,11 @@ describe("publishing", () => {
     const blocked = (await screen.findByRole("radio", { name: /^Published/ })) as HTMLInputElement;
     expect(blocked.disabled).toBe(true);
     expect(publishNotice()).toMatch(
-      /cash funds don’t count: your Stripe account pays out in a currency other than NZD\.$/i,
+      /cash funds and group gifts don’t count: your Stripe account pays out in a currency other than NZD\.$/i,
     );
     expect(publishNotice()).not.toMatch(/once money gifts are on/i);
     expect(screen.getByTestId("money-gifts-currency").textContent).toMatch(
-      /guests aren’t offered money gifts or cash funds: your Stripe account pays out in a currency other than NZD, the one every gift is charged in/i,
+      /guests aren’t offered money gifts, cash funds or group gifts: your Stripe account pays out in a currency other than NZD, the one every gift is charged in/i,
     );
     unmount();
 
@@ -356,10 +356,10 @@ describe("publishing", () => {
       ((await screen.findByRole("radio", { name: /^Published/ })) as HTMLInputElement).disabled,
     ).toBe(true);
     expect(publishNotice()).toMatch(
-      /cash funds don’t count until Stripe says which currency your account pays out in\.$/i,
+      /cash funds and group gifts don’t count until Stripe says which currency your account pays out in\.$/i,
     );
     expect(screen.getByTestId("money-gifts-currency").textContent).toMatch(
-      /until Stripe says which currency your account pays out in\. Check again to ask it\.$/,
+      /Guests aren’t offered money gifts, cash funds or group gifts until Stripe says which currency your account pays out in\. Check again to ask it\.$/,
     );
     owner.unmount();
 
@@ -411,7 +411,9 @@ describe("publishing", () => {
         name: /^Published/,
       })) as HTMLInputElement;
       expect(publish.disabled).toBe(true);
-      expect(publishNotice()).toMatch(/cash funds don’t count while guests can’t see them\.$/i);
+      expect(publishNotice()).toMatch(
+        /cash funds and group gifts don’t count while guests can’t see them\.$/i,
+      );
       view.unmount();
     }
   });
@@ -438,7 +440,9 @@ describe("publishing", () => {
     const publish = (await screen.findByRole("radio", { name: /^Published/ })) as HTMLInputElement;
     expect(publish.disabled).toBe(true);
     const notice = document.getElementById("registry-publish-blocked")?.textContent ?? "";
-    expect(notice).toMatch(/money gifts aren’t available on this site yet/i);
+    expect(notice).toMatch(
+      /cash funds and group gifts don’t count: money gifts aren’t available on this site yet\.$/i,
+    );
     // Turning money gifts on would change nothing, so the notice does not say to.
     expect(notice).not.toMatch(/once money gifts are on/i);
   });
@@ -614,7 +618,7 @@ describe("a save that changes whether guests can give", () => {
       true,
     );
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
-      /cash funds count once money gifts are on/i,
+      /cash funds and group gifts count once money gifts are on/i,
     );
   });
 });

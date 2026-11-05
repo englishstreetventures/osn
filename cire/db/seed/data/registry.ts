@@ -41,8 +41,10 @@ export type SeedRegistryItem = {
   readonly priceMinor: number | null;
   readonly quantityWanted: number;
   readonly category: string | null;
-  /** A cash fund's goal, minor units; null on every product. */
+  /** A cash fund's goal, or a group gift's target, minor units; null on every product. */
   readonly targetMinor: number | null;
+  /** On a cash fund with a target: a group gift. Absent reads as false. */
+  readonly allowPartial?: boolean;
   readonly sortOrder: number;
 };
 
@@ -214,6 +216,22 @@ export const registryItems = [
     category: null,
     targetMinor: 500_000,
     sortOrder: 10,
+  },
+  {
+    // A group gift: one item several households give money towards, which
+    // the couple buy themselves. Like the fund above, it shows in the
+    // organiser's list and not on the guest page while money gifts are off.
+    kind: "cash_fund",
+    id: item(12),
+    title: "A record player and speakers",
+    description: "For slow Sunday mornings.",
+    externalUrl: null,
+    priceMinor: null,
+    quantityWanted: 1,
+    category: null,
+    targetMinor: 150_000,
+    allowPartial: true,
+    sortOrder: 11,
   },
 ] as const satisfies readonly SeedRegistryItem[];
 

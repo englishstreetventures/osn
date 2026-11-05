@@ -174,9 +174,10 @@ export type UpdateRegistrySettingsBody = Schema.Schema.Type<typeof UpdateRegistr
  * here is exactly the mistake that makes a gift list unreadable. The same holds
  * for a cash fund's `targetMinor`.
  *
- * `kind` picks a gift to reserve (`product`, the default) or a cash fund. Which
- * fields each kind may carry is the service's check, not this schema's: the
- * defaults below cannot tell "left out" from "sent as the default".
+ * `kind` picks a gift to reserve (`product`, the default) or a cash fund, and
+ * `allowPartial` makes a cash fund a group gift, which needs a `targetMinor`.
+ * Which fields each kind may carry is the service's check, not this schema's:
+ * the defaults below cannot tell "left out" from "sent as the default".
  */
 export const CreateRegistryItemBody = Schema.Struct({
   kind: ItemKind.pipe(Schema.withDecodingDefaultType(Effect.succeed("product" as const))),
@@ -192,12 +193,14 @@ export const CreateRegistryItemBody = Schema.Struct({
   targetMinor: Schema.NullOr(TargetMinor).pipe(
     Schema.withDecodingDefaultType(Effect.succeed(null)),
   ),
+  allowPartial: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
 });
 export type CreateRegistryItemBody = Schema.Schema.Type<typeof CreateRegistryItemBody>;
 
 /**
  * Update item: partial patch. Absent ⇒ unchanged; explicit null clears. An
- * item's `kind` is set when it is created and never patched.
+ * item's `kind` and `allowPartial` are set when it is created and never
+ * patched; a body carrying either has it dropped here.
  */
 export const UpdateRegistryItemBody = Schema.Struct({
   targetMinor: Schema.optional(Schema.NullOr(TargetMinor)),
