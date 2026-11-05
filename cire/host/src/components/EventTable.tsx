@@ -1,6 +1,5 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
-import { eyebrowClass } from "@cire/ui/eyebrow";
 import FileInput from "@cire/ui/file-input";
 import Skeleton from "@cire/ui/skeleton";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -36,12 +35,6 @@ import {
 import { hasGuestPolicy, hasRunOfShow, hasText } from "../lib/invite-emptiness";
 import { LINK_PILL_ROW, LinkPill } from "./LinkPill";
 import SectionIntro from "./SectionIntro";
-
-/**
- * A row's label, drawn once per row: the eyebrow's classes on a plain element,
- * without `Eyebrow`'s run-time choice of tag.
- */
-const ROW_LABEL_CLASS = eyebrowClass();
 
 const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
@@ -255,7 +248,6 @@ export default function EventTable(props: EventTableProps) {
                 // details into a half-width card.
                 <li class={EVENT_CARD_CLASS}>
                   <header class="flex flex-col gap-1">
-                    <span class={ROW_LABEL_CLASS}>{event.slug}</span>
                     <h3 class="font-display text-text text-ui-lg font-light">{event.name}</h3>
                     <p class="font-body text-text-muted text-ui-sm">
                       {formatEventWhen(event.startAt, event.endAt, event.timezone)} ·{" "}

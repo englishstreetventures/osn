@@ -1,6 +1,5 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
-import { eyebrowClass } from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import Plus from "lucide-solid/icons/plus";
@@ -14,12 +13,6 @@ import CreateWeddingForm, {
   MAX_DISPLAY_NAME,
   type WeddingSummary,
 } from "./CreateWeddingForm";
-
-/**
- * A row's label, drawn once per row: the eyebrow's classes on a plain element,
- * without `Eyebrow`'s run-time choice of tag.
- */
-const ROW_LABEL_CLASS = eyebrowClass();
 
 const DELETED_ROW_CLASS = `${cardClass({ padding: "sm", fill: "none" })} flex-row flex-wrap items-center justify-between`;
 
@@ -106,7 +99,6 @@ export default function WeddingList(props: {
                       aria-hidden="true"
                       class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
                     />
-                    <span class={ROW_LABEL_CLASS}>{wedding.slug}</span>
                     <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
                       {wedding.displayName}
                     </span>

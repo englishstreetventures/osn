@@ -290,6 +290,15 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await claimFromOrganiserAddress(context);
   await loginSurfaces(flow, page);
   await signInToCireHost(flow, page);
+  // Sign-in lands on the wedding list: each card is the wedding's name, with
+  // no small-caps line over it repeating the name as its link's slug.
+  const weddingName = page
+    .getByRole("button", { name: /Cire Wedding/ })
+    .getByText("Cire Wedding", { exact: true });
+  await flow.step("see the wedding list", async () => {
+    await expect(weddingName).toBeVisible({ timeout: 60_000 });
+  });
+  flow.check("wedding list: no eyebrow over a wedding's name", "", await eyebrowOver(weddingName));
   await wordmarkSwap(flow, page);
 
   // ── The portal ────────────────────────────────────────────────────────────
