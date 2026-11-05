@@ -662,9 +662,21 @@ describe("cire/api over real D1 (Miniflare)", () => {
           `${columns} VALUES ('reg_gg_fund', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Trip', 0, NULL, 94, 1, 1)`,
         ),
       ).toBe("accepted");
-      // Clearing a group gift's target is refused; a plain fund's goal is not.
+      // An update of each column the update trigger watches is refused when it
+      // leaves the wrong shape: clearing a group gift's target, turning it into
+      // a gift to reserve, flagging a fund with no target, or a flag that is no
+      // flag. A plain fund's goal may still be cleared.
       expect(
         await attempt("UPDATE registry_items SET target_minor = NULL WHERE id = 'reg_gg_ok'"),
+      ).toContain(REFUSED);
+      expect(
+        await attempt("UPDATE registry_items SET kind = 'product' WHERE id = 'reg_gg_ok'"),
+      ).toContain(REFUSED);
+      expect(
+        await attempt("UPDATE registry_items SET allow_partial = 1 WHERE id = 'reg_gg_fund'"),
+      ).toContain(REFUSED);
+      expect(
+        await attempt("UPDATE registry_items SET allow_partial = 2 WHERE id = 'reg_gg_ok'"),
       ).toContain(REFUSED);
       expect(
         await attempt(
@@ -672,9 +684,14 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ),
       ).toBe("accepted");
       const kept = await d1
-        .prepare("SELECT target_minor FROM registry_items WHERE id = 'reg_gg_ok'")
-        .first<{ target_minor: number | null }>();
-      expect(kept?.target_minor).toBe(1000);
+        .prepare(
+          "SELECT id, kind, allow_partial, target_minor FROM registry_items WHERE id IN ('reg_gg_ok', 'reg_gg_fund') ORDER BY id",
+        )
+        .all<{ id: string; kind: string; allow_partial: number; target_minor: number | null }>();
+      expect(kept.results).toEqual([
+        { id: "reg_gg_fund", kind: "cash_fund", allow_partial: 0, target_minor: null },
+        { id: "reg_gg_ok", kind: "cash_fund", allow_partial: 1, target_minor: 1000 },
+      ]);
       await d1.prepare("DELETE FROM registry_items WHERE id IN ('reg_gg_ok', 'reg_gg_fund')").run();
     },
     MF_TIMEOUT_MS,

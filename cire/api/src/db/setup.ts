@@ -1166,11 +1166,12 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   sees their own tasks, and a co-host holds a task of another event; for
  *   reading what such a helper is given.
  * - `wed_e2e_money`: money gifts on, a connected Stripe account that can charge
- *   and settles in the wedding's currency, one cash fund, one group gift and
- *   nothing to reserve, unpublished. The group gift, an espresso machine with
+ *   and settles in the wedding's currency, one cash fund, two group gifts and
+ *   nothing to reserve, unpublished. One group gift, an espresso machine with
  *   a $1,200 target, has had $1,400 given by two households — past its
  *   target — beside a gift refunded in full and one not yet paid, which count
- *   for nothing. For the portal on a site that cannot take a money
+ *   for nothing; the other, a stand mixer, has had one gift of exactly its
+ *   $500 target. For the portal on a site that cannot take a money
  *   gift: the stack's cire-api holds a Stripe key and no webhook secret. Its
  *   second owner, Kit (`usr_e2e_kit`), connected the account, so the dev
  *   profile is an owner who sees the account's status and cannot open its
@@ -1539,6 +1540,20 @@ export function seedE2eOrganiser(db: TestDb): void {
       updatedAt: now,
     })
     .run();
+  db.insert(schema.registryItems)
+    .values({
+      id: "reg_e2e_money_mixer",
+      weddingId: "wed_e2e_money",
+      kind: "cash_fund",
+      allowPartial: true,
+      title: "Stand mixer",
+      description: null,
+      targetMinor: 50_000,
+      sortOrder: 2,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
   db.insert(schema.families)
     .values(
       (["Okafor", "Lindqvist"] as const).map((familyName, i) => ({
@@ -1556,11 +1571,12 @@ export function seedE2eOrganiser(db: TestDb): void {
     familyId: string,
     status: "succeeded" | "refunded" | "pending",
     amountMinor: number,
+    item: { id: string; title: string } = { id: "reg_e2e_money_group", title: "Espresso machine" },
   ) => ({
     id,
     weddingId: "wed_e2e_money",
-    itemId: "reg_e2e_money_group",
-    itemTitle: "Espresso machine",
+    itemId: item.id,
+    itemTitle: item.title,
     familyId,
     status,
     amountMinor,
@@ -1576,6 +1592,10 @@ export function seedE2eOrganiser(db: TestDb): void {
       groupGift("rct_e2e_money_2", "fam_e2e_money_2", "succeeded", 60_000),
       groupGift("rct_e2e_money_3", "fam_e2e_money_2", "refunded", 50_000),
       groupGift("rct_e2e_money_4", "fam_e2e_money_1", "pending", 10_000),
+      groupGift("rct_e2e_money_5", "fam_e2e_money_1", "succeeded", 50_000, {
+        id: "reg_e2e_money_mixer",
+        title: "Stand mixer",
+      }),
     ])
     .run();
 

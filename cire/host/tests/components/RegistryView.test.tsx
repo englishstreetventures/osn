@@ -2049,6 +2049,64 @@ describe("RegistryView — group gifts", () => {
     expect(screen.queryByText("Espresso machine")).toBeNull();
   });
 
+  it("says what the older API saved when it cannot take it back", async () => {
+    // The delete fails, so the plain fund stays on the list as something the
+    // couple did not choose; they are told to remove it themselves.
+    const saved = item({
+      id: "oops",
+      kind: "cash_fund",
+      title: "Espresso machine",
+      targetMinor: 120_000,
+    });
+    setCachedRegistry("wed_1", snapshot());
+    authFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ item: saved }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "boom" }), { status: 500 }))
+      .mockImplementation(
+        async () => new Response(JSON.stringify(snapshot({ items: [saved] })), { status: 200 }),
+      );
+    renderList();
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A group gift" }));
+    fireEvent.input(screen.getByLabelText("Group gift"), {
+      target: { value: "Espresso machine" },
+    });
+    fireEvent.input(screen.getByLabelText("Target"), { target: { value: "1200" } });
+    fireEvent.click(screen.getByRole("button", { name: /add group gift/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Group gifts aren’t available yet, and “Espresso machine” was saved as a cash fund. Remove it from your list.",
+    );
+    expect(authFetch.mock.calls[1]![1].method).toBe("DELETE");
+  });
+
+  it("replaces a group gift's row when a re-read moves any of its figures", async () => {
+    // Each re-read changes one figure, so a row kept for a figure that moved
+    // would show the old one.
+    const raised = (raisedMinor: number, giftCount: number, otherCurrencyCount: number) =>
+      groupGift({ raised: { raisedMinor, giftCount, otherCurrencyCount } });
+    const rowText = async () =>
+      (await screen.findByText("Espresso machine")).closest("li")?.textContent ?? "";
+    const aud = (minor: number) => formatMinor(minor, "AUD");
+    setCachedRegistry("wed_1", snapshot({ items: [raised(100_000, 1, 0)] }));
+    renderList();
+
+    expect(await rowText()).toContain(`${aud(100_000)} of ${aud(120_000)} · 1 gift`);
+    expect(await rowText()).toContain(`${aud(20_000)} to go`);
+
+    setCachedRegistry("wed_1", snapshot({ items: [raised(120_000, 1, 0)] }));
+    await waitFor(async () => expect(await rowText()).toContain("Target reached"));
+    expect(await rowText()).not.toMatch(/to go|Past target/);
+
+    setCachedRegistry("wed_1", snapshot({ items: [raised(120_000, 2, 0)] }));
+    await waitFor(async () => expect(await rowText()).toContain(" · 2 gifts"));
+
+    setCachedRegistry("wed_1", snapshot({ items: [raised(120_000, 2, 1)] }));
+    await waitFor(async () =>
+      expect(await rowText()).toContain(" · 1 more in another currency, not added in"),
+    );
+  });
+
   it("keeps an open editor's field across a re-read whose figures did not change", async () => {
     // Every read sends `raised` as a new object. A row rebuilt for it would
     // take the field the couple are typing in out from under them.

@@ -276,12 +276,10 @@ function fundsHiddenWords(
 function groupGiftStatus(item: RegistryItem, currency: string, swept: boolean) {
   const target = item.targetMinor;
   const raised = item.raised;
+  // Storage refuses a group gift with no target; only the type allows one.
+  if (target == null) return { figure: null, toGo: null, state: null };
   if (swept || !raised) {
-    return {
-      figure: target == null ? null : `Target ${formatMinor(target, currency)}`,
-      toGo: null,
-      state: null,
-    };
+    return { figure: `Target ${formatMinor(target, currency)}`, toGo: null, state: null };
   }
   const given = formatMinor(raised.raisedMinor, currency);
   const count =
@@ -292,9 +290,6 @@ function groupGiftStatus(item: RegistryItem, currency: string, swept: boolean) {
     raised.otherCurrencyCount === 0
       ? ""
       : ` · ${raised.otherCurrencyCount} more in another currency, not added in`;
-  if (target == null) {
-    return { figure: `${given} raised${count}${other}`, toGo: null, state: null };
-  }
   const figure = `${given} of ${formatMinor(target, currency)}${count}${other}`;
   if (raised.raisedMinor < target) {
     return {

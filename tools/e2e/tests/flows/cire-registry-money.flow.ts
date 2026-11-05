@@ -5,16 +5,19 @@
  * Connect webhook secret, so the registry read answers `takesPayments: false`,
  * its settings name `payments_unavailable` as why guests cannot give money,
  * and the portal says so: the Money gifts panel names the site, a list holding
- * one cash fund and one group gift and nothing else cannot be published, and
- * the gift list says guests cannot see either.
+ * one cash fund and two group gifts and nothing else cannot be published, and
+ * the gift list says guests cannot see its cash funds and group gifts.
  *
- * The group gift, an espresso machine with a $1,200 target, has had $1,400
+ * One group gift, an espresso machine with a $1,200 target, has had $1,400
  * given by two households beside a gift refunded in full and one not yet paid.
- * The registry read counts the two received gifts and nothing else, its row
- * says it is past its target, and the owner adds a second group gift through
- * the form, which the API stores as a cash fund marked a group gift and whose
- * row says what is left to raise. The gifts tab lists both together. Guests
- * cannot give on this stack, so the money a guest gives towards one is held by
+ * The registry read counts the two received gifts and nothing else, and its
+ * row says it is past its target. The other, a stand mixer, has had one gift of
+ * exactly its $500 target, and its row says the target is reached. The owner
+ * adds a third group gift through the form, which the API stores as a cash
+ * fund marked a group gift and whose row says what is left to raise; then
+ * edits it, and the portal refuses a cleared target before sending anything
+ * and stores a new one. The gifts tab lists all three together. Guests cannot
+ * give on this stack, so the money a guest gives towards one is held by
  * cire-api's route tests (`tests/routes/registry-group-gifts.test.ts`).
  *
  * The wedding is `CIRE_ORGANISER.money`, which cire-api seeds for the suite
@@ -150,6 +153,11 @@ test("cire-registry-money", async ({ page, flow }) => {
     return (await notice.textContent()) ?? "";
   });
   flow.check("the gift list says guests cannot see the fund", true, UNAVAILABLE.test(list));
+  flow.check(
+    "the gift list names both cash funds and group gifts",
+    true,
+    list.trim().startsWith("Guests can’t see your cash funds and group gifts:"),
+  );
   flow.check("registry read marks the group gift", "group gift", settings.groupGift);
   flow.check(
     "registry read counts the two received gifts towards it, and nothing else",
@@ -173,6 +181,25 @@ test("cire-registry-money", async ({ page, flow }) => {
     pastTarget.includes("$1,400.00 of $1,200.00 · 2 gifts"),
   );
   flow.check("its row says the target is passed", true, pastTarget.includes("Past target"));
+
+  const reached = await flow.step(
+    "the group gift given exactly its target says it is reached",
+    async () => {
+      const row = rows.filter({ hasText: "Stand mixer" });
+      await expect(row).toContainText("Target reached");
+      return (await row.textContent()) ?? "";
+    },
+  );
+  flow.check(
+    "its row says one gift came to the target",
+    true,
+    reached.includes("$500.00 of $500.00 · 1 gift"),
+  );
+  flow.check(
+    "its row says neither what is left nor that it is passed",
+    false,
+    /to go|Past target/.test(reached),
+  );
 
   const added = await flow.step("add a group gift through the form", async () => {
     await page.getByRole("radio", { name: "A group gift" }).check();
@@ -210,13 +237,67 @@ test("cire-registry-money", async ({ page, flow }) => {
   flow.check("the row is stored as a group gift", "cash_fund/1/60000", added.stored);
   flow.check("the new row says what is left to raise", true, added.row.includes("$600.00 to go"));
 
+  const edited = await flow.step("edit the new group gift's target", async () => {
+    const editor = page.getByTestId("registry-items");
+    let patches = 0;
+    const countPatch = (request: { method(): string; url(): string }) => {
+      if (request.method() === "PATCH" && request.url().includes("/registry/items/")) patches += 1;
+    };
+    page.on("request", countPatch);
+    await page.getByRole("button", { name: "Edit Record player" }).click();
+    const target = editor.getByLabel("Target", { exact: true });
+    await target.fill("");
+    await editor.getByRole("button", { name: "Save" }).click();
+    const refusal = page.getByRole("alert").filter({ hasText: "needs a target" });
+    await expect(refusal).toBeVisible();
+    const refused = { text: (await refusal.textContent()) ?? "", patches };
+
+    await target.fill("700");
+    const saved = page.waitForResponse(
+      (r) => r.url().includes("/registry/items/") && r.request().method() === "PATCH",
+    );
+    await editor.getByRole("button", { name: "Save" }).click();
+    const response = await saved;
+    page.off("request", countPatch);
+    const { item } = (await response.json()) as { item: { id: string; targetMinor: number } };
+    const row = rows.filter({ hasText: "Record player" });
+    await expect(row).toContainText("$700.00 to go");
+    const stored = queryOne<{ target: number }>(
+      DB_FILES.cire,
+      "SELECT target_minor AS target FROM registry_items WHERE id = ?",
+      item.id,
+    );
+    return {
+      refusal: refused.text.trim(),
+      patchesBeforeTarget: refused.patches,
+      status: response.status(),
+      answer: item.targetMinor,
+      stored: stored?.target ?? -1,
+      row: (await row.textContent()) ?? "",
+    };
+  });
+  flow.check(
+    "the portal refuses a cleared target in its words",
+    "A group gift needs a target: what it costs.",
+    edited.refusal,
+  );
+  flow.check("the portal sends nothing for a cleared target", 0, edited.patchesBeforeTarget);
+  flow.check("cire-api saves the new target", 200, edited.status);
+  flow.check("cire-api answers the new target", 70_000, edited.answer);
+  flow.check("the new target is stored", 70_000, edited.stored);
+  flow.check(
+    "the row says what is left of the new target",
+    true,
+    edited.row.includes("$700.00 to go"),
+  );
+
   const together = await flow.step("the gifts tab lists the group gifts together", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/registry/gifts`);
     const card = page.getByTestId("group-gifts");
     await expect(card).toContainText("Record player");
     return (await card.locator("li").allTextContents()).map((text) => text.trim());
   });
-  flow.check("the gifts tab shows two group gifts", 2, together.length);
+  flow.check("the gifts tab shows three group gifts", 3, together.length);
   flow.check(
     "the gifts tab shows the espresso machine past its target",
     true,
@@ -228,9 +309,19 @@ test("cire-registry-money", async ({ page, flow }) => {
     ),
   );
   flow.check(
+    "the gifts tab shows the stand mixer at its target",
+    true,
+    together.some(
+      (text) =>
+        text.includes("Stand mixer") &&
+        text.includes("$500.00 of $500.00 · 1 gift") &&
+        text.includes("Target reached"),
+    ),
+  );
+  flow.check(
     "the gifts tab shows the record player with nothing in yet",
     true,
-    together.some((text) => text.includes("Record player") && text.includes("$0.00 of $600.00")),
+    together.some((text) => text.includes("Record player") && text.includes("$0.00 of $700.00")),
   );
 
   const panel = await flow.step(

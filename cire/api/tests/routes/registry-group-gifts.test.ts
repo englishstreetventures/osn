@@ -7,6 +7,7 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
+  weddings,
 } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
@@ -460,6 +461,16 @@ describe("what counts as raised", () => {
     const gift = await addGroupGift(app, "Espresso machine", 20_000);
     insertGift(db, { id: "rct_1", itemId: gift.id, amountMinor: 4_000 });
     insertGift(db, { id: "rct_usd", itemId: gift.id, amountMinor: 500, currency: "USD" });
+    // Charged in USD with an AUD figure on the row: counted by the AUD pair,
+    // as the snapshot counts it.
+    insertGift(db, {
+      id: "rct_converted",
+      itemId: gift.id,
+      amountMinor: 1_000,
+      currency: "usd",
+      primaryAmountMinor: 1_500,
+      primaryCurrency: "AUD",
+    });
     // Another wedding's row naming this item is not this item's money here
     // either, nor is a gift that never settled.
     insertGift(db, {
@@ -477,10 +488,26 @@ describe("what counts as raised", () => {
     expect(res.status).toBe(200);
     const { item } = (await res.json()) as { item: RegistryItemDto };
     expect(item.title).toBe("Espresso grinder");
-    expect(item.raised).toEqual({ raisedMinor: 4_000, giftCount: 1, otherCurrencyCount: 1 });
+    expect(item.raised).toEqual({ raisedMinor: 5_500, giftCount: 2, otherCurrencyCount: 1 });
     expect(
       statements.filter((s) => /registry_items|registry_contributions/.test(s.sql)),
     ).toHaveLength(1);
+    expect(await raisedOf(app, gift.id)).toEqual(item.raised);
+  });
+
+  it("answers an edit in the wedding's own currency, as the snapshot does", async () => {
+    const { app, db } = buildApp();
+    const gift = await addGroupGift(app, "Espresso machine", 20_000);
+    db.update(weddings).set({ currency: "NZD" }).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
+    insertGift(db, { id: "rct_nzd", itemId: gift.id, amountMinor: 3_000, currency: "NZD" });
+    insertGift(db, { id: "rct_aud", itemId: gift.id, amountMinor: 700, currency: "AUD" });
+
+    const res = await organiser(app, "PATCH", `/items/${gift.id}`, { title: "Espresso grinder" });
+
+    expect(res.status).toBe(200);
+    const { item } = (await res.json()) as { item: RegistryItemDto };
+    expect(item.raised).toEqual({ raisedMinor: 3_000, giftCount: 1, otherCurrencyCount: 1 });
+    expect(await raisedOf(app, gift.id)).toEqual(item.raised);
   });
 
   it("sends no raised figure on a gift to reserve or a plain fund", async () => {
@@ -599,8 +626,14 @@ describe("the couple's record of it", () => {
     const { app, db } = buildApp();
     const gift = await addGroupGift(app, "Espresso machine", 10_000);
     await giveAndSettle(app, db, HOUSEHOLDS[0]!, gift.id, 4_000);
+    const removes = () =>
+      counterValue(CIRE_METRICS.registryItemWrite, { action: "remove", kind: "group_gift" });
+    const before = await removes();
 
     expect((await organiser(app, "DELETE", `/items/${gift.id}`)).status).toBe(200);
+
+    // Counted as a group gift, not as the plain fund it is stored as.
+    expect(await removes()).toBe(before + 1);
 
     const [row] = db.select().from(registryContributions).all();
     expect(row?.itemId).toBeNull();
@@ -657,6 +690,9 @@ describe("what a group gift may carry", () => {
   it("keeps its target and stays a group gift whatever an edit sends", async () => {
     const { app, db } = buildApp();
     const gift = await addGroupGift(app, "Espresso machine", 10_000);
+    const updates = () =>
+      counterValue(CIRE_METRICS.registryItemWrite, { action: "update", kind: "group_gift" });
+    const before = await updates();
 
     const cleared = await organiser(app, "PATCH", `/items/${gift.id}`, { targetMinor: null });
     const priced = await organiser(app, "PATCH", `/items/${gift.id}`, { priceMinor: 5_000 });
@@ -669,6 +705,8 @@ describe("what a group gift may carry", () => {
     expect(await jsonBody(cleared)).toEqual({ error: "invalid_item_fields" });
     expect(priced.status).toBe(400);
     expect(flipped.status).toBe(200);
+    // The one edit that wrote is counted, as a group gift.
+    expect(await updates()).toBe(before + 1);
     const row = db.select().from(registryItems).where(eq(registryItems.id, gift.id)).get();
     expect([row?.title, row?.allowPartial, row?.targetMinor, row?.priceMinor]).toEqual([
       "Espresso grinder",
