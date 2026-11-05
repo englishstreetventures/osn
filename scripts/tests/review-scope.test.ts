@@ -7,6 +7,7 @@ import {
   changeClass,
   changedLines,
   classifyPath,
+  designCandidate,
   parseRawZ,
   reviewScope,
   stateCandidate,
@@ -174,14 +175,33 @@ test("one change outside the list makes the whole diff full", () => {
 });
 
 // An empty list means the wrong range was diffed, never that nothing changed,
-// so it gets every review there is, the state review included.
-test("an empty list is full-state", () => {
-  expect(reviewScope([])).toBe("full-state");
+// so it gets every review there is, the state and design reviews included.
+test("an empty list is full-state-design", () => {
+  expect(reviewScope([])).toBe("full-state-design");
 });
 
 test("a full diff that writes state is full-state", () => {
   expect(reviewScope([file("pulse/api/src/services/events.ts")], true)).toBe("full-state");
   expect(reviewScope([file("pulse/api/src/services/events.ts")], false)).toBe("full");
+});
+
+test("a full diff that changes how a screen looks is full-design", () => {
+  expect(reviewScope([file("cire/host/src/components/Foo.tsx")], false, true)).toBe("full-design");
+});
+
+test("state and design together are full-state-design", () => {
+  expect(reviewScope([file("pulse/web/src/pages/Event.tsx")], true, true)).toBe(
+    "full-state-design",
+  );
+});
+
+// A trivial diff holds no source, so neither flag can lift it; the flags are
+// only ever computed for a full diff, and this holds if a caller passes them.
+test("neither state nor design lifts a trivial verdict", () => {
+  expect(reviewScope([file("wiki/a.md")], true, true)).toBe("trivial");
+  expect(reviewScope([file("wiki/a.md"), file("tests/a.test.ts")], true, true)).toBe(
+    "trivial-tests",
+  );
 });
 
 // --- whether the diff writes state --------------------------------------------
@@ -345,6 +365,71 @@ test("changedLines keeps every added and removed line after the hunk header", ()
     "ALTER TABLE `t` ADD `s` text;",
   ]);
   expect(changedLines("")).toEqual([]);
+});
+
+// --- whether the diff changes how a screen looks ------------------------------
+
+test("markup and style files in a product count", () => {
+  expect(designCandidate(file("cire/host/src/components/invite/EnvelopePicker.tsx"))).toBe(true);
+  expect(designCandidate(file("pulse/web/src/explore/NavPill.jsx"))).toBe(true);
+  expect(designCandidate(file("cire/landing/src/components/sections/Faq.astro"))).toBe(true);
+  expect(designCandidate(file("cire/host/src/styles/global.css"))).toBe(true);
+  expect(designCandidate(file("musubi/social/index.html"))).toBe(true);
+  expect(designCandidate(file("pulse/web/public/marker.svg"))).toBe(true);
+  expect(designCandidate(file("pulse/landing/src/pages/guide.mdx"))).toBe(true);
+});
+
+// The component packages build classes in plain `.ts` modules too
+// (`shared/ui/src/ui/control.ts`, `cire/ui/src/sign-in-card-class.ts`), and
+// every surface that imports them changes with them.
+test("any source file in a component or token package counts", () => {
+  expect(designCandidate(file("shared/ui/src/ui/control.ts"))).toBe(true);
+  expect(designCandidate(file("shared/ui/src/lib/utils.ts"))).toBe(true);
+  expect(designCandidate(file("cire/ui/src/sign-in-card-class.ts"))).toBe(true);
+  expect(designCandidate(file("osn/auth-ui/src/index.ts"))).toBe(true);
+  expect(designCandidate(file("shared/design-tokens/src/index.ts"))).toBe(true);
+});
+
+test("a plain .ts file outside the component packages does not count", () => {
+  expect(designCandidate(file("pulse/api/src/services/events.ts"))).toBe(false);
+  expect(designCandidate(file("cire/host/src/lib/api.ts"))).toBe(false);
+  expect(designCandidate(file("shared/ui/package.json"))).toBe(false);
+  expect(designCandidate(file("cire/ui/README.md"))).toBe(false);
+});
+
+test("test code never counts, a browser test included", () => {
+  expect(designCandidate(file("cire/host/tests/components/Foo.test.tsx"))).toBe(false);
+  expect(designCandidate(file("cire/host/tests/styles/chip-contrast.browser.test.tsx"))).toBe(
+    false,
+  );
+  expect(designCandidate(file("cire/host/tests/fixtures/page.html"))).toBe(false);
+  expect(designCandidate(file("shared/ui/tests/ui/button.test.tsx"))).toBe(false);
+  expect(designCandidate(file("shared/ui/src/ui/button.spec.tsx"))).toBe(false);
+});
+
+test("tooling, docs and agent trees never count", () => {
+  expect(designCandidate(file("tools/lab/src/stories/shared-ui/Button.story.tsx"))).toBe(false);
+  expect(designCandidate(file("tools/metrics/index.html"))).toBe(false);
+  expect(designCandidate(file("scripts/report.html"))).toBe(false);
+  expect(designCandidate(file("wiki/assets/diagram.svg"))).toBe(false);
+  expect(designCandidate(file("docs/superpowers/mock.html"))).toBe(false);
+  expect(designCandidate(file(".claude/mods/panel/index.tsx"))).toBe(false);
+  expect(designCandidate(file(".agents/skills/stageshow/kit/frame.css"))).toBe(false);
+  expect(designCandidate(file(".github/assets/badge.svg"))).toBe(false);
+  expect(designCandidate(file(".changeset/x.mdx"))).toBe(false);
+});
+
+test("a symlink or a submodule never counts", () => {
+  const view = "cire/host/src/components/Foo.tsx";
+  expect(designCandidate({ path: view, modes: ["000000", "120000"] })).toBe(false);
+  expect(designCandidate({ path: view, modes: ["100644", "160000"] })).toBe(false);
+  expect(designCandidate({ path: view, modes: [], symlink: true })).toBe(false);
+});
+
+test("an added or deleted view counts", () => {
+  const view = "cire/host/src/components/Foo.tsx";
+  expect(designCandidate({ path: view, modes: ["000000", "100644"] })).toBe(true);
+  expect(designCandidate({ path: view, modes: ["100644", "000000"] })).toBe(true);
 });
 
 // --- the command, in a real repository ----------------------------------------
@@ -547,6 +632,79 @@ test("the command reads no state from test code or tooling", async () => {
       join(dir, "scripts", "seed.ts"),
       WRITER.replace("{ endTime: now }", '{ status: "finished" }'),
     );
+    expect((await scope(dir)).stdout).toBe("full\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the command finds a view changed in committed, uncommitted and untracked work", async () => {
+  const { dir, git } = await repo();
+  try {
+    await mkdir(join(dir, "app", "src"), { recursive: true });
+    await writeFile(join(dir, "app", "src", "logic.ts"), "export {};\n");
+    git("add", ".");
+    git("commit", "-qm", "logic");
+    expect((await scope(dir)).stdout).toBe("full\n");
+
+    // An untracked view.
+    await writeFile(join(dir, "app", "src", "View.tsx"), "export const V = () => <p />;\n");
+    expect((await scope(dir)).stdout).toBe("full-design\n");
+
+    // Committed, then edited and left uncommitted, it still counts.
+    git("add", ".");
+    git("commit", "-qm", "view");
+    expect((await scope(dir)).stdout).toBe("full-design\n");
+    await writeFile(join(dir, "app", "src", "View.tsx"), "export const V = () => <b />;\n");
+    expect((await scope(dir)).stdout).toBe("full-design\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the command finds a deleted stylesheet", async () => {
+  const { dir, git } = await repo();
+  try {
+    git("checkout", "-q", "main");
+    await mkdir(join(dir, "app", "src"), { recursive: true });
+    await writeFile(join(dir, "app", "src", "global.css"), "a { color: red; }\n");
+    git("add", ".");
+    git("commit", "-qm", "styles");
+    git("checkout", "-q", "-B", "work");
+    git("rm", "-q", "app/src/global.css");
+    git("commit", "-qm", "drop the styles");
+
+    expect((await scope(dir)).stdout).toBe("full-design\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the command finds state and design in one diff", async () => {
+  const { dir } = await repo();
+  try {
+    await mkdir(join(dir, "svc", "src"), { recursive: true });
+    await writeFile(
+      join(dir, "svc", "src", "events.ts"),
+      WRITER.replace("{ endTime: now }", '{ status: "finished" }'),
+    );
+    await writeFile(join(dir, "svc", "src", "Close.tsx"), "export const C = () => <p />;\n");
+
+    expect((await scope(dir)).stdout).toBe("full-state-design\n");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the command reads no design from test code or tooling", async () => {
+  const { dir } = await repo();
+  try {
+    await mkdir(join(dir, "app", "tests"), { recursive: true });
+    await writeFile(join(dir, "app", "tests", "View.test.tsx"), "export {};\n");
+    expect((await scope(dir)).stdout).toBe("trivial-tests\n");
+
+    await mkdir(join(dir, "tools", "lab", "src"), { recursive: true });
+    await writeFile(join(dir, "tools", "lab", "src", "Story.tsx"), "export {};\n");
     expect((await scope(dir)).stdout).toBe("full\n");
   } finally {
     await rm(dir, { recursive: true, force: true });
