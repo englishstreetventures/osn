@@ -67,8 +67,8 @@ wordmark logotype, the seal's monogram and inside running body copy only. The
 whole page uses one eyebrow, the hero's: "Digital wedding invitations" is the
 first screen's only line saying what Cire makes, since the heading and the lede
 never say "wedding". "See it live" carries none, because its lede and the demo's
-frame already say the invitation is live (`cire/host/DESIGN.md` §3, "A line earns
-its place"). No visible copy uses the
+frame already say the invitation is live (`cire/host/DESIGN.md` §3, "An eyebrow
+over a heading says what the screen does not"). No visible copy uses the
 em-dash or the word "premium" (Classic and Gala are free;
 `tools/e2e/tests/flows/cire-landing-home.flow.ts` checks both over every text
 node, hidden states included).

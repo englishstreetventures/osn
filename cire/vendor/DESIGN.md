@@ -169,8 +169,8 @@ the interactive card at `sm`, and the sign-in card is `@cire/ui`'s
 `signInCardClass`, `xl` on the opaque surface with the lit top edge, the same
 as the host portal's. Every label that leads a
 card or a section is `Eyebrow`, and the two `.astro` pages' is `eyebrowClass`.
-None repeats the heading under it (host §3, An eyebrow over a heading): the top
-bar's tabs already say "Listings" and "Enquiries", so the listing editor's
+None repeats the heading under it (host §3, "An eyebrow over a heading says
+what the screen does not"): the top bar's tabs already say "Listings" and "Enquiries", so the listing editor's
 heading (the organisation's name) and the inbox's stand alone. The sign-in and
 claim pages keep "Cire · Vendor portal": neither has a top bar, so it is the
 only line naming the site. The claim card keeps "You've been invited to

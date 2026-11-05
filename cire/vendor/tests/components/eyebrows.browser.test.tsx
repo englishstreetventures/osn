@@ -1,12 +1,11 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
 /**
- * No small-caps line repeats the heading under it (host `DESIGN.md` §3, "A
- * line earns its place"): the top bar's tabs already say "Listings" and
+ * No small-caps line repeats the heading under it (host `DESIGN.md` §3, "An
+ * eyebrow over a heading says what the screen does not"): the top bar's tabs already say "Listings" and
  * "Enquiries", so the listing editor's heading (the organisation's name) and
  * the inbox's stand alone.
  *
@@ -37,54 +36,21 @@ vi.mock("../../src/lib/api", async (importOriginal) => ({
 
 import Eyebrow from "@cire/ui/eyebrow";
 
+// The host's readers, shared so the two portals are held to one detector.
+import { eyebrowOver } from "../../../host/tests/test-support/eyebrow-over";
+import * as pictures from "../../../host/tests/test-support/picture-each";
 import VendorApp from "../../src/components/VendorApp";
 import { setThemePreference } from "../../src/lib/preferences";
 import { ENQUIRY, ORGS } from "../test-support/dashboard";
 import { useFallbackFonts } from "../test-support/fonts";
 
-/** The text of the small-caps line straight above `heading`, or "" when there is none. */
-function eyebrowOver(heading: HTMLElement): string {
-  const above = heading.previousElementSibling;
-  if (!above) return "";
-  const style = getComputedStyle(above);
-  // `normal` parses to NaN, which is not small caps.
-  const ratio = Number.parseFloat(style.letterSpacing) / Number.parseFloat(style.fontSize);
-  return style.textTransform === "uppercase" && ratio >= 0.09
-    ? (above.textContent ?? "").trim()
-    : "";
-}
-
-const VIEWPORTS = [
-  { width: 390, height: 844 },
-  { width: 1280, height: 800 },
-] as const;
-const THEMES = ["light", "dark"] as const;
-
-/** `path` resolves from this file's directory: four levels up is the repository root. */
-const shot = (name: string) => `../../../../e2e-artifacts/cire-eyebrows/vendor/${name}.png`;
-
-/** Waits out every finite animation, so a picture is of a page at rest. */
-async function settle() {
-  await document.fonts.ready;
-  await Promise.all(
-    document
-      .getAnimations()
-      .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
-      .map((a) => a.finished.catch(() => {})),
-  );
-}
-
-/** Pictures the page as it stands at each width, in each theme. */
-async function pictureEach(name: string) {
-  for (const viewport of VIEWPORTS) {
-    for (const theme of THEMES) {
-      await page.viewport(viewport.width, viewport.height);
-      setThemePreference(theme);
-      await settle();
-      await page.screenshot({ path: shot(`${name}-${viewport.width}-${theme}`) });
-    }
-  }
-}
+/** Pictures the page at each width and theme into `e2e-artifacts/cire-eyebrows/vendor/`. */
+const pictureEach = (name: string) =>
+  pictures.pictureEach(name, {
+    // From this file's directory, four levels up is the repository root.
+    dir: "../../../../e2e-artifacts/cire-eyebrows/vendor",
+    setTheme: setThemePreference,
+  });
 
 function renderPortal(hash: string) {
   useFallbackFonts();

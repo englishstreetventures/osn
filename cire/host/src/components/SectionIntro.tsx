@@ -5,9 +5,10 @@ import { Show } from "solid-js";
  * The shared header for a dashboard section or tab panel — a serif heading
  * and an optional one-line description. Every tab leads with one of these so
  * the panels read as one family. No eyebrow over the heading: the module's
- * header, its tab and the heading already name the panel (DESIGN.md §3, "A
- * line earns its place"). `actions` slots a control (e.g. an export button)
- * to the right of the heading on wider screens.
+ * header, its tab and the heading already name the panel (DESIGN.md §3, "An
+ * eyebrow over a heading says what the screen does not"). `actions` slots a
+ * control (e.g. an export button) to the right of the heading on wider
+ * screens.
  */
 export default function SectionIntro(props: {
   title: string;
