@@ -1,6 +1,6 @@
 {
   "name": "@shared/feature-flags",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
