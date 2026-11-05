@@ -316,7 +316,7 @@ export const OIDC_MAX_AGE_CEILING_SEC = 315_360_000;
  * absent — and the future client-registration route must reject them at
  * write time using {@link isReservedOidcClientId}.
  */
-export const RESERVED_OIDC_CLIENT_IDS: ReadonlySet<string> = new Set([
+const RESERVED_OIDC_CLIENT_IDS: ReadonlySet<string> = new Set([
   // Referenced, not re-spelt: a literal here could drift from the audience the
   // signer actually mints, and the deny-list would then guard a name nothing
   // uses while the real audience stayed claimable.

@@ -7,7 +7,7 @@ import { Data, Effect } from "effect";
 
 import { metricAppEnrollmentJoined, metricAppEnrollmentLeft } from "../metrics";
 
-export class AppEnrollmentDbError extends Data.TaggedError("AppEnrollmentDbError")<{
+class AppEnrollmentDbError extends Data.TaggedError("AppEnrollmentDbError")<{
   readonly cause: unknown;
 }> {}
 
@@ -18,7 +18,7 @@ const enrollmentId = (): string => `aenr_${crypto.randomUUID().replace(/-/g, "")
  * The active row is the one with `left_at IS NULL`. At most one such row
  * exists at a time per (account, app).
  */
-export const getActiveEnrollment = (
+const getActiveEnrollment = (
   accountId: string,
   app: AppEnrollmentApp,
 ): Effect.Effect<AppEnrollment | null, AppEnrollmentDbError, Db> =>

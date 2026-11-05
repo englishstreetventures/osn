@@ -52,7 +52,7 @@ function initKeys(): Promise<KeyInit> {
  * Mints an ARC token for the given audience + scope and returns the
  * full `Authorization: ARC <token>` header value.
  */
-export async function arcAuthHeader(audience: string, scope: string): Promise<string> {
+async function arcAuthHeader(audience: string, scope: string): Promise<string> {
   const { privateKey, keyId } = await initKeys();
   const token = await getOrCreateArcToken(privateKey, {
     iss: "osn-api",
@@ -67,7 +67,7 @@ export async function arcAuthHeader(audience: string, scope: string): Promise<st
  * POSTs JSON to a downstream service with an ARC token attached. On Workers,
  * Cloudflare traces the call as a `fetch` span in the request's trace.
  */
-export async function arcPostJson<T>(
+async function arcPostJson<T>(
   url: string,
   body: unknown,
   options: { audience: string; scope: string; timeoutMs?: number },

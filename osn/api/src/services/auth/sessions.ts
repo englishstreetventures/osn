@@ -27,7 +27,7 @@ import type { SessionSummary } from "./types";
  * How a destructive "revoke every OTHER session" path should treat the caller.
  * See {@link createSessionsModule}'s `classifyCallerSession`.
  */
-export type CallerSessionResolution =
+type CallerSessionResolution =
   | { readonly _tag: "resolved"; readonly sessionHash: string }
   | { readonly _tag: "none" }
   | { readonly _tag: "stale" };

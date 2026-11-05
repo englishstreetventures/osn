@@ -75,7 +75,7 @@ export interface RecoveryLockoutStore {
   reset(accountId: string, failures: number): Promise<void>;
 }
 
-export interface RecoveryLockoutConfig {
+interface RecoveryLockoutConfig {
   threshold?: number;
   lockoutMs?: number;
 }

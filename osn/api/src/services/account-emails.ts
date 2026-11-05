@@ -27,7 +27,7 @@ import { Data, Effect } from "effect";
  * reason this is an omit-list rather than a per-id `{ found: false }`.
  */
 
-export class AccountEmailDbError extends Data.TaggedError("AccountEmailDbError")<{
+class AccountEmailDbError extends Data.TaggedError("AccountEmailDbError")<{
   readonly cause: unknown;
 }> {}
 

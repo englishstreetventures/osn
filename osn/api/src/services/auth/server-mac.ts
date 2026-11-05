@@ -27,7 +27,7 @@ const MAC_BYTES = 32;
 const CHALLENGE_BYTES = NONCE_BYTES + EXPIRY_BYTES + MAC_BYTES;
 
 /** What opening a discoverable challenge found. */
-export type OpenedChallenge =
+type OpenedChallenge =
   | { readonly ok: true; readonly nonce: string; readonly expiresAt: number }
   | { readonly ok: false; readonly reason: "malformed" | "forged" | "expired" };
 

@@ -64,7 +64,7 @@ function matchesPrefix(path: string, prefixes: readonly string[]): boolean {
   });
 }
 
-export interface OriginGuardConfig {
+interface OriginGuardConfig {
   /** Allowed origins (from OSN_CORS_ORIGIN). Empty = skip validation (dev mode). */
   allowedOrigins: Set<string>;
 }

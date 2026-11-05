@@ -45,10 +45,10 @@ import { storeCall } from "./store-call";
  * reaches it — a wrong code here spends the entry. `spent`: past it; refuse
  * without comparing.
  */
-export type AttemptStanding = "open" | "last" | "spent";
+type AttemptStanding = "open" | "last" | "spent";
 
 /** A guess counted against a live entry. */
-export interface CountedGuess<V> {
+interface CountedGuess<V> {
   readonly entry: V;
   readonly standing: AttemptStanding;
 }

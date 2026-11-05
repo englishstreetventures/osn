@@ -30,16 +30,16 @@ export type BindingDescription =
     };
 
 /** osn-api's Worker input apart from the values only the stack holds: resources and secrets. */
-export interface OsnApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
+interface OsnApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
   readonly bindings: Readonly<Record<string, BindingDescription>>;
 }
 
 /** osn-api's database, migrated by Alchemy from the flattened chain. */
-export interface OsnDbDeclaration extends RetainedD1Input {
+interface OsnDbDeclaration extends RetainedD1Input {
   readonly migrations: string;
 }
 
-export interface MusubiDeclaration {
+interface MusubiDeclaration {
   readonly osnApi: OsnApiDeclaration;
   readonly osnDb: OsnDbDeclaration;
   readonly musubiSocial: SiteWorkerInput;
@@ -168,7 +168,7 @@ export const PRODUCTION_RESOURCE_KINDS: Readonly<Record<string, ResourceKind>> =
   productionSiteKinds(SITE_LOGICAL_IDS, PRODUCTION_SITE_MODES);
 
 /** The musubi stack on production: its sites, by logical id, and the build each uploads. */
-export interface MusubiProductionSites {
+interface MusubiProductionSites {
   readonly sites: Readonly<Record<string, SiteWorkerInput>>;
   readonly prebuilt: readonly PrebuiltSite[];
 }

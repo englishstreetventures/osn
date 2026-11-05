@@ -46,7 +46,7 @@ export const DISABLED_CIRE_ORGANISER_REVOKE: CireOrganiserRevokeConfig = {
  * The shortest secret either side accepts. cire-api refuses a shorter one
  * too (503), so a short value is reported here as unset rather than sent.
  */
-export const MIN_REVOKE_SECRET_LENGTH = 32;
+const MIN_REVOKE_SECRET_LENGTH = 32;
 
 const REVOKE_PATH = "/internal/revoke-organiser-sessions";
 /** Per request. Five profiles at five at a time stay well inside `waitUntil`'s 30 seconds. */

@@ -120,7 +120,7 @@ export interface EncryptedTotpSecret {
  * and what {@link fromJsonSafe} produces from a parked enrolment, so both
  * callers meet the same contract.
  */
-export interface StoredTotpSecret {
+interface StoredTotpSecret {
   secretCiphertext: Uint8Array;
   iv: Uint8Array;
   keyVersion: number;
@@ -134,7 +134,7 @@ export interface StoredTotpSecret {
  * `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` looks at the wrong value first, during the
  * one procedure where that costs the most.
  */
-export interface ImportTotpKeyOptions {
+interface ImportTotpKeyOptions {
   readonly envName?: string;
   readonly onInvalidLength?: (decodedBytes: number) => void;
 }
@@ -227,7 +227,7 @@ export async function encryptTotpSecret(
 }
 
 /** A recovered secret, and which of the ring's keys actually opened it. */
-export interface DecryptedTotpSecret {
+interface DecryptedTotpSecret {
   secret: Uint8Array;
   keyVersion: number;
 }
@@ -311,7 +311,7 @@ export async function decryptTotpSecret(
  * store round-trips it through `JSON.stringify`. A `Uint8Array` here would work
  * in every test and come back from the store as `{"0":12,"1":200,…}`.
  */
-export interface EncryptedTotpSecretJson {
+interface EncryptedTotpSecretJson {
   ciphertextB64: string;
   ivB64: string;
   keyVersion: number;

@@ -16,15 +16,15 @@ import { RESERVED_HANDLES } from "./auth/constants";
 // `message` reaches clients verbatim via the routes' `safeError` allowlist —
 // construct with static string literals only, never interpolated
 // causes or user input. Pinned by tests/lib/safe-error-static-messages.test.ts.
-export class OrgError extends Data.TaggedError("OrgError")<{
+class OrgError extends Data.TaggedError("OrgError")<{
   readonly message: string;
 }> {}
 
-export class NotFoundError extends Data.TaggedError("NotFoundError")<{
+class NotFoundError extends Data.TaggedError("NotFoundError")<{
   readonly message: string;
 }> {}
 
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
 
@@ -32,7 +32,7 @@ export class DatabaseError extends Data.TaggedError("DatabaseError")<{
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ListOptions {
+interface ListOptions {
   limit?: number;
   offset?: number;
 }
@@ -830,5 +830,3 @@ export function createOrganisationService() {
     getMemberRole,
   };
 }
-
-export type OrganisationService = ReturnType<typeof createOrganisationService>;

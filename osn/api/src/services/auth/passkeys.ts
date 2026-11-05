@@ -996,5 +996,3 @@ export function createPasskeysModule(
     completePasskeyLoginDirect,
   };
 }
-
-export type PasskeysModule = ReturnType<typeof createPasskeysModule>;

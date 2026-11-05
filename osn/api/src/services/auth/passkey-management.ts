@@ -251,5 +251,3 @@ export function createPasskeyManagementModule(
     deletePasskey,
   };
 }
-
-export type PasskeyManagementModule = ReturnType<typeof createPasskeyManagementModule>;
