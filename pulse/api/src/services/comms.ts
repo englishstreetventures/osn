@@ -6,15 +6,15 @@ import { Data, Effect, Schema } from "effect";
 import { metricCommsBlastSent } from "../metrics";
 import { EventNotFound } from "./events";
 
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
 
-export class ValidationError extends Data.TaggedError("ValidationError")<{
+class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 
-export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
+class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
   readonly eventId: string;
 }> {}
 
@@ -23,7 +23,7 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
 // ---------------------------------------------------------------------------
 
 export const CommsChannelSchema = Schema.Literals(["sms", "email"]);
-export type CommsChannel = Schema.Schema.Type<typeof CommsChannelSchema>;
+type CommsChannel = Schema.Schema.Type<typeof CommsChannelSchema>;
 
 export const CommsChannelsSchema = Schema.Array(CommsChannelSchema).check(
   Schema.isMinLength(1),

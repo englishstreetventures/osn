@@ -30,11 +30,11 @@ export const MAX_SERIES_INSTANCES = 260; // weekly × 5yr
  */
 const MAX_EXPANSION_STEPS = MAX_SERIES_INSTANCES;
 
-export class SeriesNotFound extends Data.TaggedError("SeriesNotFound")<{
+class SeriesNotFound extends Data.TaggedError("SeriesNotFound")<{
   readonly id: string;
 }> {}
 
-export class SeriesRRuleInvalid extends Data.TaggedError("SeriesRRuleInvalid")<{
+class SeriesRRuleInvalid extends Data.TaggedError("SeriesRRuleInvalid")<{
   readonly reason:
     | "unsupported_freq"
     | "too_many_instances"
@@ -55,7 +55,7 @@ interface WeekdayIndex {
 
 const WEEKDAY_INDEX: WeekdayIndex = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
 
-export interface ParsedRRule {
+interface ParsedRRule {
   freq: "WEEKLY" | "MONTHLY";
   interval: number;
   byDay: number[] | null; // day-of-week indices 0..6; null = derive from dtstart

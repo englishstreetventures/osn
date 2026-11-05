@@ -5,7 +5,7 @@ import { INTEREST_CATEGORIES, type InterestCategory } from "../../lib/onboarding
 import { CategoryGlyph, CATEGORY_LABELS } from "./CategoryGlyph";
 import { StepShell } from "./StepShell";
 
-export interface Step3InterestsProps {
+interface Step3InterestsProps {
   totalSteps: number;
   selected: ReadonlySet<InterestCategory>;
   onToggle: (category: InterestCategory) => void;

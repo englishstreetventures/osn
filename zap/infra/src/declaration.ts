@@ -13,16 +13,16 @@ import {
 export type BindingDescription = { readonly kind: "d1" };
 
 /** zap-api's Worker input apart from the values only the stack holds: resources and secrets. */
-export interface ZapApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
+interface ZapApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
   readonly bindings: Readonly<Record<string, BindingDescription>>;
 }
 
 /** zap-api's database, migrated by Alchemy from the flattened chain. */
-export interface ZapDbDeclaration extends RetainedD1Input {
+interface ZapDbDeclaration extends RetainedD1Input {
   readonly migrations: string;
 }
 
-export interface ZapDeclaration {
+interface ZapDeclaration {
   readonly zapApi: ZapApiDeclaration;
   readonly zapDb: ZapDbDeclaration;
 }

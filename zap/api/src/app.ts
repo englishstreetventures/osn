@@ -14,7 +14,7 @@ import { createInternalRoutes } from "./routes/internal";
 
 export const SERVICE_NAME = "zap-api";
 
-export interface AppOptions {
+interface AppOptions {
   /**
    * DB service layer. Defaults to the bun:sqlite `local` layer (dev + tests);
    * the Workers entry (`index.ts`) passes `makeDbD1Live(env.DB)` for the

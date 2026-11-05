@@ -12,10 +12,10 @@ import type { OidcConfig } from "@shared/osn-auth-client/oidc-rp";
  * Changing this value invalidates only in-flight transactions — a ten-minute
  * TTL — so a bump costs at most one retried sign-in.
  */
-export const PULSE_OIDC_TX_HMAC_INFO = "pulse-oidc-tx-hmac-v1";
+const PULSE_OIDC_TX_HMAC_INFO = "pulse-oidc-tx-hmac-v1";
 
 /** The env pieces the relying-party config is assembled from. */
-export interface PulseOidcEnv {
+interface PulseOidcEnv {
   /** Issuer origin, e.g. `https://id.musubi.social`. */
   OSN_ISSUER_URL?: string | undefined;
   /** JWKS endpoint of that issuer. */

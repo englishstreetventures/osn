@@ -47,7 +47,7 @@ export async function listCloseFriendCandidates(): Promise<CandidateEntry[] | nu
   return body.connections ?? [];
 }
 
-export type AddCloseFriendError = "self" | "not_a_connection" | "expired" | "unknown";
+type AddCloseFriendError = "self" | "not_a_connection" | "expired" | "unknown";
 
 export async function addCloseFriend(
   friendId: string,

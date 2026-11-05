@@ -95,7 +95,7 @@ function InstanceRow(props: { instance: SeriesInstance }) {
   );
 }
 
-export function SeriesDetailPage() {
+function SeriesDetailPage() {
   const params = useParams<{ id: string }>();
   const { session } = useAuth();
   // Both reads go out with the session cookie, so they key on the viewer:

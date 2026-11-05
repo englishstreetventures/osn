@@ -13,7 +13,7 @@ import type { JSX } from "solid-js";
  * the Tailwind theme, so there was no utility to write. It is now
  * (`app.css`'s `@theme inline` block), and this component is what that bought.
  */
-export type NavPillTone = "accent" | "outline";
+type NavPillTone = "accent" | "outline";
 
 const TONE = {
   /** The brand coral, for the one action the nav is asking for. */

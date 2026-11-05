@@ -13,10 +13,6 @@ import { createTestLayer } from "../helpers/db";
  * handler through `runtime.runPromise`, plus the 401/403 gates.
  */
 vi.mock("../../src/lib/osn-bridge", () => ({
-  OsnBridgeError: class OsnBridgeError {
-    _tag = "OsnBridgeError";
-    constructor(public args: { cause: unknown }) {}
-  },
   verifyStepUp: vi.fn(() => Effect.succeed({ ok: true, accountId: "acc_test" } as const)),
   notifyAppLeft: vi.fn(() => Effect.succeed({ closed: true } as const)),
 }));

@@ -1,7 +1,7 @@
 import welcomePulse from "../../assets/onboarding/welcome-pulse.svg?raw";
 import { StepShell } from "./StepShell";
 
-export interface Step1WelcomeProps {
+interface Step1WelcomeProps {
   displayName: string | null;
   totalSteps: number;
   onPrimary: () => void;

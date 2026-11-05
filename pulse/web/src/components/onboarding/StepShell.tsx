@@ -6,7 +6,7 @@ import { Show, type JSX } from "solid-js";
  * + headline + body slot + sticky action row. Step components focus on
  * content and copy; layout, motion, and progress are owned here.
  */
-export interface StepShellProps {
+interface StepShellProps {
   stepIndex: number;
   totalSteps: number;
   eyebrow?: string;

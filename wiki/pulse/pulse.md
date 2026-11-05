@@ -15,7 +15,7 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Pulse
@@ -107,7 +107,7 @@ Events can be **public** or **private**:
 
 Non-authorised viewers get `null` from `loadVisibleEvent` and the route returns **404** (not 403, to avoid disclosing existence). See [[event-access]] for the full visibility gate.
 
-Every direct-fetch route (`GET /events/:id`, `/ics`, `/comms`, `/rsvps`, `/rsvps/counts`, `/rsvps/latest`) MUST use `loadVisibleEvent`. List / discovery surfaces (`listEvents`, `discoverEvents`) use the shared `buildVisibilityFilter` helper from `services/eventVisibility.ts` — the single source of truth for the SQL predicate equivalent to `canViewEvent`. (`services/eventAccess.ts` re-exports it, so either import path reaches the same function.)
+Every direct-fetch route (`GET /events/:id`, `/ics`, `/comms`, `/rsvps`, `/rsvps/counts`, `/rsvps/latest`) MUST use `loadVisibleEvent`. List / discovery surfaces (`listEvents`, `discoverEvents`) use the shared `buildVisibilityFilter` helper from `services/eventVisibility.ts` — the single source of truth for the SQL predicate equivalent to `canViewEvent`.
 
 ### Discovery
 

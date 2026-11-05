@@ -25,7 +25,7 @@ export const SITE_DESCRIPTION =
  * tints its chip. Drives the colourful category showcase. Each category is a
  * real Pulse discovery category; the glyph + colour are purely decorative.
  */
-export interface Category {
+interface Category {
   readonly label: string;
   /** A single display glyph (emoji or serif char). */
   readonly glyph: string;

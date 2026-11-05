@@ -18,7 +18,7 @@ import { Data, Effect } from "effect";
 // Tagged errors
 // ---------------------------------------------------------------------------
 
-export class ZapBridgeError extends Data.TaggedError("ZapBridgeError")<{
+class ZapBridgeError extends Data.TaggedError("ZapBridgeError")<{
   readonly cause: unknown;
 }> {}
 

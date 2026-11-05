@@ -161,7 +161,7 @@ export async function updateMySettings(data: {
   }
 }
 
-export interface CommsSummary {
+interface CommsSummary {
   channels: ("sms" | "email")[];
   blasts: {
     id: string;

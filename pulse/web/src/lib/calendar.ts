@@ -11,7 +11,7 @@ import { authFetch, PULSE_API_URL } from "./auth";
 
 const BASE_URL = PULSE_API_URL;
 
-export type EventStatus = "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
+type EventStatus = "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
 
 export interface CalendarEvent {
   id: string;
@@ -47,7 +47,7 @@ export async function fetchMyCalendar(limit = 50): Promise<CalendarEntry[]> {
 // Pure helpers (no DOM / no network) — unit-tested directly.
 // ---------------------------------------------------------------------------
 
-export interface DayGroup {
+interface DayGroup {
   /** Local YYYY-MM-DD key, stable for keying the <For>. */
   key: string;
   /** Start-of-day Date for the group. */

@@ -16,7 +16,7 @@ import type { InterestCategory } from "../../lib/onboarding";
  * category should affect a metric.
  */
 
-export interface CategoryGlyphProps {
+interface CategoryGlyphProps {
   category: InterestCategory;
   size?: number;
 }

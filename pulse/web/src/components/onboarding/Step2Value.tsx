@@ -1,7 +1,7 @@
 import valueMap from "../../assets/onboarding/value-map.svg?raw";
 import { StepShell } from "./StepShell";
 
-export interface Step2ValueProps {
+interface Step2ValueProps {
   totalSteps: number;
   onPrimary: () => void;
   onBack: () => void;
