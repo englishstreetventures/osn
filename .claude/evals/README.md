@@ -108,6 +108,7 @@ and `report.html`.
 | `prep-pr-finding-routing` | `prep-pr` | `Bash Write Edit` | |
 | `prep-pr-missing-test-written` | `prep-pr` | `Bash Write Edit` | |
 | `prep-pr-open-decision-opens-draft` | `prep-pr` | `Bash Write Edit` | |
+| `prep-pr-reports-merge-conflict` | `prep-pr` | `Bash Write Edit` | |
 | `retro-fallback-card-and-routing` | `retro` | `Bash Write Edit` | |
 | `retro-restraint-on-a-proportionate-session` | `retro` | `Bash Write Edit` | |
 | `review-design-cire-envelope-seal` | `review-design` | `Bash Write Edit` | |
@@ -148,6 +149,7 @@ graders. In short:
 | `prep-pr-finding-routing` | A branch that fixes one tracker finding while a review left five more. Scores where each goes, and a public body that names tracker issues by bare reference only. |
 | `prep-pr-missing-test-written` | A new module with no test, reported by the test review. Scores whether the test is written on the branch rather than filed or asked about. |
 | `prep-pr-open-decision-opens-draft` | A finished branch whose issue carries an unanswered `needs:decision`. Scores the draft, the hold line closing Impact, and the decision recorded as open for the owner. |
+| `prep-pr-reports-merge-conflict` | A finished branch that `main` has moved under, so it no longer merges. Scores the merge check, the conflicting file named, and the branch reported not ready rather than rebased or pushed. |
 | `retro-fallback-card-and-routing` | A branch whose only card is the unattended fallback's, with null identity. Scores replacing it, comparing spend with the issue's rating, and routing each finding. |
 | `retro-restraint-on-a-proportionate-session` | An expensive session that was worth it, with four baits and one real finding. Most points are for not reporting a bait. |
 | `review-design-cire-envelope-seal` | A new host-portal component that draws its own eyebrow, its own swatch radio buttons with an animated focus ring and a line restating its heading, beside a changed hand-drawn heading in the file next to it. `Eyebrow` and `Button`'s `choice` variant are on the base. Scores each element found with the component that replaces it, the content colours and a correct `Notice` left alone, and no unmeasured number stated as measured. |

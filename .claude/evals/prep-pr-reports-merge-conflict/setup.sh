@@ -60,7 +60,7 @@ perl -pi -e 's/^const SESSION_TTL_SECONDS = 30 \* 24 \* 60 \* 60;$/const SESSION
 grep -q 'SESSION_TTL_SECONDS = 7 \* 24 \* 60 \* 60;' cire/api/src/routes/claim.ts
 git commit -qam "fix(cire-api): guest sessions last a week"
 
-git fetch -q origin
+git fetch -q origin '+refs/heads/*:refs/remotes/origin/*'
 git checkout -q fix/cire-api-guest-session-ttl
 
 # Prove the fixture: the branch must conflict with main.
