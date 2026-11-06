@@ -82,9 +82,19 @@ There is no `GET` on any of them: mail scanners open links before people do.
   count: the cap is per link sent.
 - **A wrong pick ends the request at once**, confirmed or not. Five
   candidates, so a pick made without the waiting screen is right one time in
-  five. Sign-up counts a wrong pick as a strike per address
-  (`registration_link_lockout`): three in 24 hours and no more sign-up links go
-  to that address until the window passes, while begin answers as ever.
+  five. Sign-up counts a wrong pick as a strike (`registration_link_lockout`)
+  under the probe key of the address's mailbox key (`mailboxKey` in
+  [`helpers.ts`](../../osn/api/src/services/auth/helpers.ts)): three in 24
+  hours and no more sign-up links go to any address with that key until the
+  window passes, while begin answers as ever.
+- **The mailbox key** is the address lowercased, folded only at providers that
+  deliver every variant to one mailbox, a closed list: `gmail.com` and
+  `googlemail.com` cut a `+tag`, drop the local part's dots and read as
+  `gmail.com`; `outlook.com`, `hotmail.com`, `live.com`, `fastmail.com`,
+  `icloud.com`, `proton.me` and `protonmail.com` cut a `+tag` only. An address
+  at any other domain is its own key. The key feeds the strike counter and the
+  Resend cap and nothing else: the account, the pending sign-up and the mail
+  keep the address as typed.
 - **"I didn't ask for this"** (`pairingPick: "none"`) ends the request too,
   confirmed or not, counts nothing against the reader, and answers
   `declined`. The entry stays, marked `declined`, until it expires, so the same
@@ -97,10 +107,12 @@ There is no `GET` on any of them: mail scanners open links before people do.
   (`consume` naming the entry it read); of two polls at once one gets the
   result and the other `expired`. A database fault after the claim puts the
   request back for the next poll.
-- **A taken address is told apart by nothing.** Begin writes the request and
+- **Begin, the poll and Resend answer a taken address and a free one alike
+  while nobody acts on the free one's link.** Begin writes the request and
   swaps the pending entry in every branch (same calls, same answer shape, a
-  plausible pairing number), mails after the answer, and a taken address's
-  request is never mailed, so its poll stays `pending` until it expires.
+  plausible pairing number) and mails after the answer. A taken address's
+  request is never mailed, and its poll stays `pending` until it expires, as a
+  free one's does while its link goes unanswered.
 
 ## Sign-up
 
@@ -112,11 +124,16 @@ There is no `GET` on any of them: mail scanners open links before people do.
 - **Resend** sends another link for the same request; every link sent stays
   usable, three in all. A refused or failed send leaves the request live, and
   Resend is the retry.
-- **Resent mail per address** is capped: `registrationSendCap`, six Resend
-  links an hour, keyed on the address's probe key, checked inside the send
-  that runs after the answer. A begin's first link does not count, so the
-  newest sign-up always gets its first link. The key is the address as typed,
-  lowercased: `+tag` variants are separate addresses.
+- **Resent mail** is capped per mailbox key ([[#Rules every flow keeps]]):
+  `registrationSendCap`, six Resend links an hour, keyed on the probe key of
+  the address's mailbox key, checked inside the send that runs after the
+  answer.
+- **A begin's first link** does not count against that cap, so the newest
+  sign-up always gets its first link. It is bounded by begin's own limits —
+  Turnstile, and five begins a minute per IP — and by one live sign-up per
+  address, which the tab that began can end at once with `previous`. No
+  per-address count applies to it; the strike lockout stops it as it stops a
+  Resend.
 - **The wait survives a reload.** `Register` keeps the request, claim secret,
   address and handle (no birthdate) in this tab's `sessionStorage`, and the
   auth dialogs and `/authorize` reopen it. The pairing number is never stored:

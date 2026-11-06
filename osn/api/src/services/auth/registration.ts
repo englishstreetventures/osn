@@ -243,8 +243,9 @@ export function createRegistrationModule(
    *    two store calls (the link request's write, then a swap from nothing on
    *    the pending entry), and mails after the answer. Neither the body, the
    *    status nor the time to answer says whether an address has an account.
-   *    A taken address gets a request whose link is never sent, so its poll
-   *    stays `pending` until it expires, as a real one's does unconfirmed.
+   *    A taken address gets a request whose link is never sent. Its poll and
+   *    Resend answer as a free address's do while nobody acts on the free
+   *    one's link: `pending` and `sent` until the request expires.
    *    "Is this handle free?" is answered by the public `/handle/:handle`.
    *  - A swap from nothing refuses to replace a live pending entry, so a
    *    second begin for someone's address cannot take over the request their

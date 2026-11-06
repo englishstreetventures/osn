@@ -57,10 +57,10 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
       // -------------------------------------------------------------------------
       // Sign-up: begin (opens an emailed-link request, creates nothing yet)
       //
-      // Answers `{ requestId, claimSecret, expiresAt }` (or a public error code
-      // on validation failure) whether or not the email/handle is already
-      // taken — a taken address gets a request whose link is never sent, so no
-      // answer tells the two apart.
+      // Answers `{ requestId, claimSecret, pairingCode, expiresAt }` (or a
+      // public error code on validation failure) whether or not the
+      // email/handle is already taken — a taken address gets a request whose
+      // link is never sent, and begin's answer does not tell the two apart.
       // -------------------------------------------------------------------------
       .post(
         "/register/begin",
@@ -224,8 +224,8 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
       // Sign-up: one more link for the same request
       //
       // Only the tab holding the claim secret can ask. Every link sent stays
-      // usable; three in all. A taken address's request answers alike and
-      // mails nothing.
+      // usable; three in all. A taken address's request counts its Resends as
+      // a free one's does and mails nothing.
       // -------------------------------------------------------------------------
       .post(
         "/register/:requestId/resend",
