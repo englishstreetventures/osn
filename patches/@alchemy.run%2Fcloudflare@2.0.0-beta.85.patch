@@ -1,11 +1,25 @@
 diff --git a/lib/D1/ImportDatabase.js b/lib/D1/ImportDatabase.js
-index f35e825e10b30091851ab6f3e0d568706f71714a..e63bf6f9976eb72075e1e52260f1de0026309e75 100644
+index 0ea3ee4b32582dc0402546acb2855d494e7b9511..30bceeb631ed0b7faaf0d7d5d6f84646b978823b 100644
 --- a/lib/D1/ImportDatabase.js
 +++ b/lib/D1/ImportDatabase.js
-@@ -4,12 +4,29 @@ import { md5 } from "alchemy/Util/md5";
- import * as Effect from "effect/Effect";
+@@ -1,3 +1,4 @@
++import { Credentials, formatHeaders } from "@distilled.cloud/cloudflare/Credentials";
+ import * as d1 from "@distilled.cloud/cloudflare/d1";
+ import { md5 } from "alchemy/Util/md5";
+ import * as Data from "effect/Data";
+@@ -5,76 +6,136 @@ import * as Effect from "effect/Effect";
  import * as HttpClient from "effect/http/HttpClient";
  import * as HttpClientRequest from "effect/http/HttpClientRequest";
+ /**
+- * A D1 import that Cloudflare accepted but could not finish: the SQL upload
+- * was rejected, ingestion reported `status: "error"`, or an in-progress
+- * response carried no bookmark to poll.
++ * A D1 import that Cloudflare accepted but could not finish. Exported so the
++ * package's declarations still resolve; this import dies with Cloudflare's
++ * error or the reply instead of failing with it.
+  */
+ export class D1ImportError extends Data.TaggedError("D1ImportError") {
+ }
 +/**
 + * A reply as JSON for an error message, with any presigned upload URL
 + * replaced by "[redacted]": deploy logs can be public.
@@ -20,26 +34,39 @@ index f35e825e10b30091851ab6f3e0d568706f71714a..e63bf6f9976eb72075e1e52260f1de00
 +    .join(": ");
  /**
   * Import SQL into a D1 database via the multi-step Cloudflare flow:
-- *   1. POST `action: "init"` -> returns presigned `upload_url`
+- *   1. POST `action: "init"` -> returns a presigned `upload_url`, unless D1
+- *      already holds a file with this etag, in which case the init response
+- *      is itself the first polling response (the import has started).
+- *   2. PUT raw SQL to `upload_url` (only when one was returned)
+- *   3. POST `action: "ingest"` -> returns the first polling response
+- *   4. POST `action: "poll"` with `at_bookmark` until `status === "complete"`
 + *   1. POST `action: "init"` -> returns presigned `upload_url`, or no URL when
 + *      Cloudflare already holds the file, and then the import has started
-  *   2. PUT raw SQL to `upload_url`
-- *   3. POST `action: "ingest"` -> returns `at_bookmark`
++ *   2. PUT raw SQL to `upload_url`
 + *   3. POST `action: "ingest"` -> starts the import
-  *   4. POST `action: "poll"` until `status === "complete"`
++ *   4. POST `action: "poll"` until `status === "complete"`
 + *
 + * Every reply is read as wrangler reads it. A failed import dies with
 + * Cloudflare's error or the reply itself, and no message carries an upload
 + * URL or an R2 error body.
   */
- export const importD1Database = (options) => Effect.gen(function* () {
-     const credentialsEff = yield* Credentials;
-@@ -25,8 +42,20 @@ export const importD1Database = (options) => Effect.gen(function* () {
-             return yield* Effect.die(`D1 import request failed (${res.status}): ${text}`);
-         }
-         const text = yield* res.text.pipe(Effect.orDie);
--        const json = JSON.parse(text);
--        return json.result;
+-export const importD1Database = Effect.fn(function* (options) {
+-    const { accountId, databaseId } = options;
+-    const importDb = yield* d1.importDatabase;
++export const importD1Database = (options) => Effect.gen(function* () {
++    const credentialsEff = yield* Credentials;
++    const credentials = yield* credentialsEff;
++    const authHeaders = formatHeaders(credentials);
++    const url = importEndpoint(credentials.apiBaseUrl, options.accountId, options.databaseId);
+     const client = yield* HttpClient.HttpClient;
++    const postJson = (body) => Effect.gen(function* () {
++        const req = HttpClientRequest.post(url).pipe(HttpClientRequest.setHeaders(authHeaders), HttpClientRequest.bodyJsonUnsafe(body));
++        const res = yield* client.execute(req).pipe(Effect.orDie);
++        if (res.status < 200 || res.status >= 300) {
++            const text = yield* res.text.pipe(Effect.orElseSucceed(() => ""));
++            return yield* Effect.die(`D1 import request failed (${res.status}): ${text}`);
++        }
++        const text = yield* res.text.pipe(Effect.orDie);
 +        let envelope;
 +        try {
 +            envelope = JSON.parse(text);
@@ -54,13 +81,31 @@ index f35e825e10b30091851ab6f3e0d568706f71714a..e63bf6f9976eb72075e1e52260f1de00
 +            return yield* Effect.die(`D1 import request returned no result: ${describeReply(envelope)}`);
 +        }
 +        return envelope.result;
-     });
++    });
      const etag = yield* md5(options.sqlData);
-     // Step 1: init via the typed d1 client
-@@ -37,50 +66,68 @@ export const importD1Database = (options) => Effect.gen(function* () {
-         action: "init",
-         etag,
-     });
+-    const init = yield* importDb({ accountId, databaseId, action: "init", etag });
+-    const sqlData = options.sqlData;
+-    const uploadUrl = init.uploadUrl;
+-    let firstPoll = init;
+-    if (uploadUrl) {
+-        const bytes = typeof sqlData === "string"
+-            ? yield* Effect.sync(() => new TextEncoder().encode(sqlData))
+-            : sqlData;
+-        const putRes = yield* client.execute(HttpClientRequest.put(uploadUrl).pipe(HttpClientRequest.bodyUint8Array(bytes, "application/sql")));
+-        if (putRes.status < 200 || putRes.status >= 300) {
+-            const text = yield* putRes.text.pipe(Effect.orElseSucceed(() => ""));
+-            return yield* new D1ImportError({
+-                databaseId,
+-                message: `Failed to upload SQL file to D1 (${putRes.status}): ${text}`,
+-            });
++    // Step 1: init via the typed d1 client
++    const initDb = yield* d1.importDatabase;
++    const init = yield* initDb({
++        accountId: options.accountId,
++        databaseId: options.databaseId,
++        action: "init",
++        etag,
++    });
 +    const uploadFilename = options.filename ?? init.filename ?? "import.sql";
 +    // Reads one reply: a failure dies with its error or the reply, completion
 +    // ends the import, and a reply still in progress is polled again with its
@@ -69,27 +114,54 @@ index f35e825e10b30091851ab6f3e0d568706f71714a..e63bf6f9976eb72075e1e52260f1de00
 +    const settle = (reply, missingBookmark) => Effect.gen(function* () {
 +        if (reply.status === "error" || reply.success === false) {
 +            return yield* Effect.die(reply.error ? reply.error : `D1 import failed: ${describeReply(reply)}`);
-+        }
+         }
+-        firstPoll = yield* importDb({
+-            accountId,
+-            databaseId,
+-            action: "ingest",
+-            etag,
+-            filename: init.filename ?? undefined,
+-        });
+-    }
+-    const poll = (response) => Effect.gen(function* () {
+-        if (response.status === "complete") {
 +        if (reply.status === "complete") {
-+            return {
+             return {
+-                filename: response.filename ?? options.filename ?? init.filename ?? "import.sql",
+-                numQueries: response.result?.numQueries ?? 0,
 +                filename: reply.filename ?? uploadFilename,
 +                numQueries: reply.result?.num_queries ?? 0,
-+            };
-+        }
+             };
+         }
+-        if (response.status === "error") {
+-            return yield* new D1ImportError({
+-                databaseId,
+-                message: response.error ?? "Error during D1 import",
+-            });
+-        }
+-        if (!response.atBookmark) {
+-            return yield* new D1ImportError({
+-                databaseId,
+-                message: response.error ?? "D1 import response is incomplete and has no bookmark to poll",
+-            });
 +        if (!reply.at_bookmark) {
 +            return yield* Effect.die(`${missingBookmark}: ${describeReply(reply)}`);
-+        }
+         }
+-        return yield* poll(yield* importDb({
+-            accountId,
+-            databaseId,
 +        yield* Effect.sleep("1 second");
 +        const next = yield* postJson({
-+            action: "poll",
+             action: "poll",
+-            currentBookmark: response.atBookmark,
+-        }));
 +            current_bookmark: reply.at_bookmark,
 +        });
 +        return yield* settle(next, "D1 import poll reply missing bookmark");
 +    });
 +    // No upload URL: Cloudflare already holds a file with this etag, init has
 +    // started its import, and init's reply is the first to read.
-     if (!init.uploadUrl) {
--        return yield* Effect.die(init.error ?? "Failed to get upload URL for D1 import");
++    if (!init.uploadUrl) {
 +        return yield* settle({
 +            at_bookmark: init.atBookmark,
 +            error: init.error,
@@ -102,62 +174,35 @@ index f35e825e10b30091851ab6f3e0d568706f71714a..e63bf6f9976eb72075e1e52260f1de00
 +            status: init.status,
 +            success: init.success,
 +        }, "D1 import init reply has no upload URL or bookmark");
-     }
--    const uploadFilename = options.filename ?? init.filename ?? "import.sql";
-     // Step 2: PUT to the presigned upload URL
-     const bytes = typeof options.sqlData === "string"
-         ? new TextEncoder().encode(options.sqlData)
-         : options.sqlData;
-     const putReq = HttpClientRequest.put(init.uploadUrl).pipe(HttpClientRequest.bodyUint8Array(bytes, "application/sql"));
--    const putRes = yield* client.execute(putReq).pipe(Effect.orDie);
++    }
++    // Step 2: PUT to the presigned upload URL
++    const bytes = typeof options.sqlData === "string"
++        ? new TextEncoder().encode(options.sqlData)
++        : options.sqlData;
++    const putReq = HttpClientRequest.put(init.uploadUrl).pipe(HttpClientRequest.bodyUint8Array(bytes, "application/sql"));
 +    // A failed connection dies with the error's kind alone: the error holds
 +    // the request, whose URL carries the upload signature.
 +    const putRes = yield* client.execute(putReq).pipe(Effect.catch((error) => Effect.die(`Failed to upload SQL file to D1: ${error.reason._tag}`)));
-     if (putRes.status < 200 || putRes.status >= 300) {
-         const text = yield* putRes.text.pipe(Effect.orElseSucceed(() => ""));
--        return yield* Effect.die(`Failed to upload SQL file to D1 (${putRes.status}): ${text}`);
++    if (putRes.status < 200 || putRes.status >= 300) {
++        const text = yield* putRes.text.pipe(Effect.orElseSucceed(() => ""));
 +        const detail = describeUploadFailure(text);
 +        return yield* Effect.die(`Failed to upload SQL file to D1 (${putRes.status})${detail ? `: ${detail}` : ""}`);
-     }
--    // Step 3: ingest
++    }
 +    // Step 3: ingest. The server waits before it answers, so a small file can
 +    // finish here, and the ingest reply is the first to read.
-     const ingest = yield* postJson({
-         action: "ingest",
-         etag,
-         filename: init.filename,
++    const ingest = yield* postJson({
++        action: "ingest",
++        etag,
++        filename: init.filename,
      });
--    if (!ingest.at_bookmark) {
--        return yield* Effect.die(ingest.error ?? "Ingest response missing bookmark");
--    }
--    // Step 4: poll until complete
--    const poll = (bookmark) => Effect.gen(function* () {
--        const data = yield* postJson({
--            action: "poll",
--            current_bookmark: bookmark,
--        });
--        if (data.status === "complete" && data.result) {
--            return {
--                filename: data.filename ?? uploadFilename,
--                numQueries: data.result.num_queries ?? 0,
--            };
--        }
--        if (data.status === "error") {
--            return yield* Effect.die(data.error ?? "Error during D1 import");
--        }
--        if (!data.at_bookmark) {
--            return yield* Effect.die("D1 import poll missing bookmark");
--        }
--        return yield* poll(data.at_bookmark);
--    });
--    return yield* poll(ingest.at_bookmark);
+-    return yield* poll(firstPoll);
 +    return yield* settle(ingest, "D1 import ingest reply missing bookmark");
  });
- const importEndpoint = (apiBaseUrl, accountId, databaseId) => `${apiBaseUrl}/accounts/${accountId}/d1/database/${databaseId}/import`;
++const importEndpoint = (apiBaseUrl, accountId, databaseId) => `${apiBaseUrl}/accounts/${accountId}/d1/database/${databaseId}/import`;
  //# sourceMappingURL=ImportDatabase.js.map
 \ No newline at end of file
 diff --git a/lib/Workers/Assets.js b/lib/Workers/Assets.js
-index 016282b9a1c3c913c4cf057308f08d7d33e22fca..85724d1e3406b79e226b2f8cc8649b072ef8b5e0 100644
+index 075182ce9116cef909966f252d0c4c406e0dbc34..1e06984724b4d5f72a5089c81e221219c70968e4 100644
 --- a/lib/Workers/Assets.js
 +++ b/lib/Workers/Assets.js
 @@ -30,12 +30,17 @@ export class FailedToReadAssetError extends Data.TaggedError("FailedToReadAssetE
@@ -240,13 +285,44 @@ index 016282b9a1c3c913c4cf057308f08d7d33e22fca..85724d1e3406b79e226b2f8cc8649b07
          })), Effect.flatMap(sha256), Effect.map((hash) => hash.slice(0, 32)));
          count++;
 diff --git a/src/D1/ImportDatabase.ts b/src/D1/ImportDatabase.ts
-index ca4bc0ec20ddffb2401227d9c8bad114000752b3..ae69737ece344af6f262e592833331bff5deb156 100644
+index 70dc62fe415a69e4d5eab54d74263f33247e6b35..4a8f7be5ccfb270dad730db35f8cb78643be1866 100644
 --- a/src/D1/ImportDatabase.ts
 +++ b/src/D1/ImportDatabase.ts
-@@ -31,12 +31,40 @@ interface ImportPollingResponse {
-   upload_url?: string | null;
+@@ -1,3 +1,4 @@
++import { Credentials, formatHeaders } from "@distilled.cloud/cloudflare/Credentials";
+ import * as d1 from "@distilled.cloud/cloudflare/d1";
+ import { md5 } from "alchemy/Util/md5";
+ import * as Data from "effect/Data";
+@@ -18,92 +19,190 @@ export interface ImportDatabaseResult {
  }
  
+ /**
+- * A D1 import that Cloudflare accepted but could not finish: the SQL upload
+- * was rejected, ingestion reported `status: "error"`, or an in-progress
+- * response carried no bookmark to poll.
++ * A D1 import that Cloudflare accepted but could not finish. Exported so the
++ * package's declarations still resolve; this import dies with Cloudflare's
++ * error or the reply instead of failing with it.
+  */
+ export class D1ImportError extends Data.TaggedError("D1ImportError")<{
+   databaseId: string;
+   message: string;
+ }> {}
+ 
++interface ImportPollingResponse {
++  at_bookmark?: string | null;
++  error?: string | null;
++  filename?: string | null;
++  messages?: string[] | null;
++  result?: {
++    final_bookmark?: string | null;
++    num_queries?: number | null;
++  } | null;
++  status?: "complete" | "error" | null;
++  success?: boolean | null;
++  upload_url?: string | null;
++}
++
 +interface ImportEnvelope {
 +  success?: boolean | null;
 +  result?: ImportPollingResponse | null;
@@ -272,26 +348,54 @@ index ca4bc0ec20ddffb2401227d9c8bad114000752b3..ae69737ece344af6f262e592833331bf
 +
  /**
   * Import SQL into a D1 database via the multi-step Cloudflare flow:
-- *   1. POST `action: "init"` -> returns presigned `upload_url`
+- *   1. POST `action: "init"` -> returns a presigned `upload_url`, unless D1
+- *      already holds a file with this etag, in which case the init response
+- *      is itself the first polling response (the import has started).
+- *   2. PUT raw SQL to `upload_url` (only when one was returned)
+- *   3. POST `action: "ingest"` -> returns the first polling response
+- *   4. POST `action: "poll"` with `at_bookmark` until `status === "complete"`
 + *   1. POST `action: "init"` -> returns presigned `upload_url`, or no URL when
 + *      Cloudflare already holds the file, and then the import has started
-  *   2. PUT raw SQL to `upload_url`
-- *   3. POST `action: "ingest"` -> returns `at_bookmark`
++ *   2. PUT raw SQL to `upload_url`
 + *   3. POST `action: "ingest"` -> starts the import
-  *   4. POST `action: "poll"` until `status === "complete"`
++ *   4. POST `action: "poll"` until `status === "complete"`
 + *
 + * Every reply is read as wrangler reads it. A failed import dies with
 + * Cloudflare's error or the reply itself, and no message carries an upload
 + * URL or an R2 error body.
   */
- export const importD1Database = (options: ImportDatabaseOptions) =>
-   Effect.gen(function* () {
-@@ -58,8 +86,19 @@ export const importD1Database = (options: ImportDatabaseOptions) =>
-           return yield* Effect.die(`D1 import request failed (${res.status}): ${text}`);
-         }
-         const text = yield* res.text.pipe(Effect.orDie);
--        const json = JSON.parse(text) as { result: ImportPollingResponse };
--        return json.result;
+-export const importD1Database = Effect.fn(function* (options: ImportDatabaseOptions) {
+-  const { accountId, databaseId } = options;
+-  const importDb = yield* d1.importDatabase;
+-  const client = yield* HttpClient.HttpClient;
+-  const etag = yield* md5(options.sqlData);
+-
+-  const init = yield* importDb({ accountId, databaseId, action: "init", etag });
+-
+-  const sqlData = options.sqlData;
+-  const uploadUrl = init.uploadUrl;
+-  let firstPoll = init;
+-  if (uploadUrl) {
++export const importD1Database = (options: ImportDatabaseOptions) =>
++  Effect.gen(function* () {
++    const credentialsEff = yield* Credentials;
++    const credentials = yield* credentialsEff;
++    const authHeaders = formatHeaders(credentials);
++    const url = importEndpoint(credentials.apiBaseUrl, options.accountId, options.databaseId);
++    const client = yield* HttpClient.HttpClient;
++
++    const postJson = (body: unknown): Effect.Effect<ImportPollingResponse, never, never> =>
++      Effect.gen(function* () {
++        const req = HttpClientRequest.post(url).pipe(
++          HttpClientRequest.setHeaders(authHeaders),
++          HttpClientRequest.bodyJsonUnsafe(body),
++        );
++        const res = yield* client.execute(req).pipe(Effect.orDie);
++        if (res.status < 200 || res.status >= 300) {
++          const text = yield* res.text.pipe(Effect.orElseSucceed(() => ""));
++          return yield* Effect.die(`D1 import request failed (${res.status}): ${text}`);
++        }
++        const text = yield* res.text.pipe(Effect.orDie);
 +        let envelope: ImportEnvelope | null;
 +        try {
 +          envelope = JSON.parse(text) as ImportEnvelope | null;
@@ -305,15 +409,20 @@ index ca4bc0ec20ddffb2401227d9c8bad114000752b3..ae69737ece344af6f262e592833331bf
 +          return yield* Effect.die(`D1 import request returned no result: ${describeReply(envelope)}`);
 +        }
 +        return envelope.result;
-       });
- 
-     const etag = yield* md5(options.sqlData);
-@@ -72,11 +111,56 @@ export const importD1Database = (options: ImportDatabaseOptions) =>
-       action: "init",
-       etag,
-     });
++      });
++
++    const etag = yield* md5(options.sqlData);
++
++    // Step 1: init via the typed d1 client
++    const initDb = yield* d1.importDatabase;
++    const init = yield* initDb({
++      accountId: options.accountId,
++      databaseId: options.databaseId,
++      action: "init",
++      etag,
++    });
 +    const uploadFilename = options.filename ?? init.filename ?? "import.sql";
- 
++
 +    // Reads one reply: a failure dies with its error or the reply, completion
 +    // ends the import, and a reply still in progress is polled again with its
 +    // bookmark one second later, so a server that answers at once cannot drive
@@ -345,8 +454,7 @@ index ca4bc0ec20ddffb2401227d9c8bad114000752b3..ae69737ece344af6f262e592833331bf
 +
 +    // No upload URL: Cloudflare already holds a file with this etag, init has
 +    // started its import, and init's reply is the first to read.
-     if (!init.uploadUrl) {
--      return yield* Effect.die(init.error ?? "Failed to get upload URL for D1 import");
++    if (!init.uploadUrl) {
 +      return yield* settle(
 +        {
 +          at_bookmark: init.atBookmark,
@@ -362,71 +470,93 @@ index ca4bc0ec20ddffb2401227d9c8bad114000752b3..ae69737ece344af6f262e592833331bf
 +        },
 +        "D1 import init reply has no upload URL or bookmark",
 +      );
-     }
--    const uploadFilename = options.filename ?? init.filename ?? "import.sql";
- 
-     // Step 2: PUT to the presigned upload URL
++    }
++
++    // Step 2: PUT to the presigned upload URL
      const bytes =
-@@ -86,45 +170,27 @@ export const importD1Database = (options: ImportDatabaseOptions) =>
-     const putReq = HttpClientRequest.put(init.uploadUrl).pipe(
-       HttpClientRequest.bodyUint8Array(bytes, "application/sql"),
-     );
--    const putRes = yield* client.execute(putReq).pipe(Effect.orDie);
+-      typeof sqlData === "string"
+-        ? yield* Effect.sync(() => new TextEncoder().encode(sqlData))
+-        : sqlData;
+-    const putRes = yield* client.execute(
+-      HttpClientRequest.put(uploadUrl).pipe(
+-        HttpClientRequest.bodyUint8Array(bytes, "application/sql"),
+-      ),
++      typeof options.sqlData === "string"
++        ? new TextEncoder().encode(options.sqlData)
++        : options.sqlData;
++    const putReq = HttpClientRequest.put(init.uploadUrl).pipe(
++      HttpClientRequest.bodyUint8Array(bytes, "application/sql"),
++    );
 +    // A failed connection dies with the error's kind alone: the error holds
 +    // the request, whose URL carries the upload signature.
 +    const putRes = yield* client.execute(putReq).pipe(
 +      Effect.catch((error) => Effect.die(`Failed to upload SQL file to D1: ${error.reason._tag}`)),
-+    );
+     );
      if (putRes.status < 200 || putRes.status >= 300) {
        const text = yield* putRes.text.pipe(Effect.orElseSucceed(() => ""));
--      return yield* Effect.die(`Failed to upload SQL file to D1 (${putRes.status}): ${text}`);
+-      return yield* new D1ImportError({
+-        databaseId,
+-        message: `Failed to upload SQL file to D1 (${putRes.status}): ${text}`,
+-      });
 +      const detail = describeUploadFailure(text);
 +      return yield* Effect.die(
 +        `Failed to upload SQL file to D1 (${putRes.status})${detail ? `: ${detail}` : ""}`,
 +      );
      }
- 
--    // Step 3: ingest
+-    firstPoll = yield* importDb({
+-      accountId,
+-      databaseId,
++
 +    // Step 3: ingest. The server waits before it answers, so a small file can
 +    // finish here, and the ingest reply is the first to read.
-     const ingest = yield* postJson({
++    const ingest = yield* postJson({
        action: "ingest",
        etag,
-       filename: init.filename,
-     });
--    if (!ingest.at_bookmark) {
--      return yield* Effect.die(ingest.error ?? "Ingest response missing bookmark");
--    }
+-      filename: init.filename ?? undefined,
+-    });
+-  }
 -
--    // Step 4: poll until complete
--    const poll = (bookmark: string): Effect.Effect<ImportDatabaseResult, never, never> =>
--      Effect.gen(function* () {
--        const data = yield* postJson({
--          action: "poll",
--          current_bookmark: bookmark,
+-  const poll = (
+-    response: d1.ImportDatabaseResponse,
+-  ): Effect.Effect<ImportDatabaseResult, d1.ImportDatabaseError | D1ImportError> =>
+-    Effect.gen(function* () {
+-      if (response.status === "complete") {
+-        return {
+-          filename: response.filename ?? options.filename ?? init.filename ?? "import.sql",
+-          numQueries: response.result?.numQueries ?? 0,
+-        };
+-      }
+-      if (response.status === "error") {
+-        return yield* new D1ImportError({
+-          databaseId,
+-          message: response.error ?? "Error during D1 import",
 -        });
--        if (data.status === "complete" && data.result) {
--          return {
--            filename: data.filename ?? uploadFilename,
--            numQueries: data.result.num_queries ?? 0,
--          };
--        }
--        if (data.status === "error") {
--          return yield* Effect.die(data.error ?? "Error during D1 import");
--        }
--        if (!data.at_bookmark) {
--          return yield* Effect.die("D1 import poll missing bookmark");
--        }
--        return yield* poll(data.at_bookmark);
--      });
--
--    return yield* poll(ingest.at_bookmark);
+-      }
+-      if (!response.atBookmark) {
+-        return yield* new D1ImportError({
+-          databaseId,
+-          message: response.error ?? "D1 import response is incomplete and has no bookmark to poll",
+-        });
+-      }
+-      return yield* poll(
+-        yield* importDb({
+-          accountId,
+-          databaseId,
+-          action: "poll",
+-          currentBookmark: response.atBookmark,
+-        }),
+-      );
++      filename: init.filename,
+     });
 +    return yield* settle(ingest, "D1 import ingest reply missing bookmark");
-   });
++  });
  
- const importEndpoint = (apiBaseUrl: string, accountId: string, databaseId: string) =>
+-  return yield* poll(firstPoll);
+-});
++const importEndpoint = (apiBaseUrl: string, accountId: string, databaseId: string) =>
++  `${apiBaseUrl}/accounts/${accountId}/d1/database/${databaseId}/import`;
 diff --git a/src/Workers/Assets.ts b/src/Workers/Assets.ts
-index d6a4ed3d937998cf98cfab8c21aa9d6ce296f20e..79d830c04a08c65ceb9a9ad2d2d0cc5ba05aa900 100644
+index 1cd1de32a9e6fa9eb4ecf76256e54682c53f5d72..5a894b8626a9c9f6b010ba5708587aceb6b7b2d3 100644
 --- a/src/Workers/Assets.ts
 +++ b/src/Workers/Assets.ts
 @@ -166,12 +166,17 @@ export class AssetUploadSessionError extends Data.TaggedError("AssetUploadSessio
