@@ -18,8 +18,9 @@ export const meta = { title: "osn/auth-ui/ConfirmLinkPage", layout: "padded" as 
  * The colours are musubi's, which is the lab's own mapping, so the
  * **light · dark** toggle (or `?theme=dark`) is the theme check.
  *
- * The page keeps its own state and moves only when a number is tapped, so each
- * story past Ready taps the first one after mount (`Pressed`, below). The
+ * The page keeps its own state and moves only when a number or "I didn't ask
+ * for this" is pressed, so each story past Ready presses one after mount
+ * (`Pressed` and `Declining`, below). The
  * confirm calls are stubs that send nothing. The numbers are fixed examples;
  * a host reads its own with the link's secret.
  */
@@ -202,6 +203,60 @@ export const ErrorRetry = state(
   },
 );
 
+/** Presses "I didn't ask for this" after mount, to show the decline's states. */
+function Declining(props: { children: JSX.Element }) {
+  let box: HTMLDivElement | undefined;
+  onMount(() =>
+    Array.from(box?.querySelectorAll("button") ?? [])
+      .find((button) => button.textContent === "I didn't ask for this")
+      ?.click(),
+  );
+  return <div ref={box}>{props.children}</div>;
+}
+
+export const Declined = state(
+  "declined",
+  <>
+    The person pressed "I didn't ask for this" (the host is sent <Mono>null</Mono>, with no second
+    step) and the request was ended: "Cancelled", and no button. Step-up's line also tells them to
+    sign out their other sessions.
+  </>,
+  () => (
+    <div class="flex flex-col gap-6">
+      <Declining>
+        <ConfirmLinkPage
+          purpose="sign-up"
+          email={EMAIL}
+          candidates={THREE}
+          onConfirm={() => Promise.resolve<ConfirmOutcome>("declined")}
+        />
+      </Declining>
+      <Declining>
+        <ConfirmLinkPage
+          purpose="step-up"
+          candidates={THREE}
+          onConfirm={() => Promise.resolve<ConfirmOutcome>("declined")}
+        />
+      </Declining>
+    </div>
+  ),
+);
+
+export const OpensConfirmed = state(
+  "opens on an answer",
+  <>
+    A link opened again after it was confirmed, and one whose numbers the host could not read: the
+    host passes <Mono>initialOutcome</Mono> and no numbers, and the page opens on that answer
+    without a call.
+  </>,
+  () => (
+    <div class="flex flex-col gap-6">
+      <ConfirmLinkPage purpose="sign-up" initialOutcome="confirmed" onConfirm={never} />
+      <ConfirmLinkPage purpose="sign-up" initialOutcome="expired" onConfirm={never} />
+    </div>
+  ),
+);
+
 const FLOWS: { purpose: ConfirmLinkPurpose; email?: string; note: string }[] = [
   { purpose: "sign-up", email: EMAIL, note: "sign-up" },
   { purpose: "recovery", note: "recovery: the asking device gets in; every other is signed out" },
@@ -275,7 +330,7 @@ export const Phone: Story = {
   ),
 };
 
-const ANSWERS = ["confirmed", "expired", "throws", "never"] as const;
+const ANSWERS = ["accepts", "refuses", "throws", "never"] as const;
 
 const LISTS = {
   "three of four digits": THREE,
@@ -296,7 +351,9 @@ interface PlaygroundArgs extends StoryArgs {
 }
 
 /**
- * A change to the numbers, the answer or "continue here" starts a fresh page,
+ * "accepts" confirms a number and declines "I didn't ask for this"; "refuses"
+ * answers either as expired. A change to the numbers, the answer or "continue
+ * here" starts a fresh page,
  * ready to tap; a change to the flow or the address does not, so typing an
  * address keeps its focus. Clear the address to see the wording with none.
  */
@@ -305,7 +362,7 @@ export const Playground: Story<PlaygroundArgs> = {
     purpose: "sign-up",
     email: EMAIL,
     numbers: "three of four digits",
-    answer: "confirmed",
+    answer: "accepts",
     continueHere: false,
   },
   controls: {
@@ -324,10 +381,11 @@ export const Playground: Story<PlaygroundArgs> = {
             purpose={args.purpose}
             email={args.email || undefined}
             candidates={LISTS[key.numbers]}
-            onConfirm={() => {
+            onConfirm={(pick) => {
               if (key.answer === "throws") return failAfter();
               if (key.answer === "never") return never();
-              return answerAfter(key.answer);
+              if (key.answer === "refuses") return answerAfter("expired");
+              return answerAfter(pick === null ? "declined" : "confirmed");
             }}
             onContinue={key.continueHere ? () => {} : undefined}
           />
