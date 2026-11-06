@@ -417,6 +417,21 @@ describe("CheckEmailView — the words for each flow", () => {
     expect(region().textContent).not.toContain("We sent");
   });
 
+  it.each([
+    ["sign-up", "waiting"],
+    ["recovery", "waiting"],
+    ["sign-up", "expired"],
+  ] as const)(
+    "keeps the address out of the browser's page translation (%s, %s)",
+    (purpose, status) => {
+      render(() => (
+        <CheckEmailView email={EMAIL} purpose={purpose} status={status} onResend={() => {}} />
+      ));
+
+      expect(screen.getByText(EMAIL).getAttribute("translate")).toBe("no");
+    },
+  );
+
   it("names no address when it is given none", () => {
     render(() => (
       <>
