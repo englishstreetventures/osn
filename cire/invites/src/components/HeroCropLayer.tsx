@@ -13,9 +13,12 @@ interface HeroCropLayerProps {
   readonly crossOrigin: "anonymous" | undefined;
 }
 
-/** The fade every crop layer runs, the plain backdrop `<img>`'s own. */
-// oxlint-disable-next-line house/no-literal-motion -- a hero fade, choreography longer than --dur-slow (cire/host/DESIGN.md §Motion)
-const HERO_FADE = "transition-opacity duration-700";
+/**
+ * The fade every crop layer runs, the plain backdrop `<img>`'s own: a hero
+ * fade, choreography slower than `--dur-slow`, so it keeps its own time,
+ * scaled like every cire duration (cire/host/DESIGN.md §4, Motion).
+ */
+const HERO_FADE = "transition-opacity duration-[calc(700ms*var(--motion-scale))]";
 
 /**
  * One of the hero backdrop's crop layers, shared by every design pack.

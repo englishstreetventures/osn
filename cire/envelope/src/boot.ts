@@ -172,7 +172,7 @@ export function envelopeStyle(z: number): string {
     `${live} body::before{content:"";position:fixed;inset:0;z-index:${layer};background:var(--color-bg,#14261b)}`,
     `${live} [data-edge-hero],${live} [data-edge-hero] *,[data-envelope-overlay] *{animation-play-state:paused!important}`,
     `${live} body>:not([data-envelope-overlay]):not(:has(dialog[open])){interactivity:inert}`,
-    // oxlint-disable-next-line house/no-literal-motion -- the cover handing over to the opening; --dur-base is 200ms only on touch
+    // oxlint-disable-next-line house/no-literal-motion -- the cover leaving: scene.ts's leave() waits at most 400ms for this transition to end, a time shared with script
     `[data-envelope-overlay]{position:fixed;inset:0;z-index:${layer};background:var(--color-bg,#14261b);transition:opacity .2s ease-out}`,
     `[data-envelope-overlay][data-state="loading"]{pointer-events:none}`,
     `html:not([${ENVELOPE_ATTR}]) [data-envelope-overlay]{display:none}`,
@@ -182,8 +182,7 @@ export function envelopeStyle(z: number): string {
     `[data-envelope-overlay] button:focus-visible{outline:2px solid var(--color-gold-ink,#c9a86a);outline-offset:-6px}`,
     `[data-envelope-overlay] button:focus:not(:focus-visible){outline:none}`,
     `[data-edge-hero][tabindex="-1"]:focus{outline:none}`,
-    // oxlint-disable-next-line house/no-literal-motion -- the tap prompt fading in over the cover, choreography longer than --dur-slow
-    `[data-envelope-overlay] [data-envelope-prompt]{position:absolute;left:0;right:0;bottom:max(2.5rem,calc(env(safe-area-inset-bottom) + 1.5rem));margin:0;text-align:center;font-family:var(--font-body,"Lato",system-ui,sans-serif);font-size:.8125rem;letter-spacing:.2em;text-transform:uppercase;color:var(--color-text-muted,rgba(255,255,255,.6));opacity:0;transition:opacity .6s ease-out;pointer-events:none}`,
+    `[data-envelope-overlay] [data-envelope-prompt]{position:absolute;left:0;right:0;bottom:max(2.5rem,calc(env(safe-area-inset-bottom) + 1.5rem));margin:0;text-align:center;font-family:var(--font-body,"Lato",system-ui,sans-serif);font-size:.8125rem;letter-spacing:.2em;text-transform:uppercase;color:var(--color-text-muted,rgba(255,255,255,.6));opacity:0;transition:opacity calc(.6s*var(--motion-scale,1)) var(--ease-out,ease-out);pointer-events:none}`,
     `[data-envelope-overlay][data-prompt] [data-envelope-prompt]{opacity:1}`,
     `[${ENVELOPE_REPLAY_ATTR}]{display:none}`,
     `html[${ENVELOPE_CAPABLE_ATTR}][${ENVELOPE_KEY_ATTR}] [${ENVELOPE_REPLAY_ATTR}]{display:inline-block;margin:1.5rem 0 0;padding:.5rem .75rem;border:0;border-radius:.25rem;background:none;font-family:var(--font-body,"Lato",system-ui,sans-serif);font-size:.8125rem;letter-spacing:.04em;color:var(--color-text-muted,rgba(255,255,255,.6));text-decoration:underline;text-decoration-color:color-mix(in oklab,currentColor 45%,transparent);text-underline-offset:.3em;cursor:pointer}`,
