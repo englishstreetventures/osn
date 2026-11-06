@@ -92,7 +92,7 @@ async function nextCheckout(page: Page): Promise<Promise<string>> {
 async function openCheckout(
   flow: Flow,
   page: Page,
-  weddingId: string,
+  { weddingId, name }: { weddingId: string; name: string },
 ): Promise<{ sessionId: string; price: string; catalogue: number }> {
   return flow.step(`open a Gold checkout for ${weddingId}`, async () => {
     const reached = await nextCheckout(page);
@@ -100,7 +100,11 @@ async function openCheckout(
       (res) =>
         res.url() === `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/upgrade/catalogue`,
     );
+    // A new document: from the portal itself, a change of the hash alone
+    // leaves it on the wedding it was showing.
+    await page.goto("about:blank");
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/overview`);
+    await expect(page.getByRole("button", { name: "Switch wedding" })).toContainText(name);
     const nav = page.getByRole("navigation", { name: "Wedding modules" });
     await nav
       .getByRole("button", { name: /— locked\. Included with Gold\.$/ })
@@ -161,7 +165,7 @@ const screenshot = async (page: Page, name: string): Promise<void> => {
  */
 export async function buyGold(flow: Flow, page: Page): Promise<void> {
   const { weddingId } = CIRE_ORGANISER.upgrade.bought;
-  const opened = await openCheckout(flow, page, weddingId);
+  const opened = await openCheckout(flow, page, CIRE_ORGANISER.upgrade.bought);
   flow.check("upgrade: cire-api prices Gold for an Ivory wedding", 200, opened.catalogue);
   flow.check("upgrade: the dialog shows the Gold Price, one-off", true, isGoldPrice(opened.price));
   const opening = purchaseOf(weddingId);
@@ -226,7 +230,7 @@ export async function buyGold(flow: Flow, page: Page): Promise<void> {
  */
 export async function refundGold(flow: Flow, page: Page): Promise<void> {
   const { weddingId, name } = CIRE_ORGANISER.upgrade.refunded;
-  const opened = await openCheckout(flow, page, weddingId);
+  const opened = await openCheckout(flow, page, CIRE_ORGANISER.upgrade.refunded);
   flow.check("refund: the dialog shows the Gold Price, one-off", true, isGoldPrice(opened.price));
 
   await flow.step("delete the wedding while its checkout is open", async () => {

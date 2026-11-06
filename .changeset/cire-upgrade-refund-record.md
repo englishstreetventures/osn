@@ -11,7 +11,9 @@ written in the refund claim's batch. The purge no longer holds a deleted
 wedding for a refund cire owes: the daily reconciliation and `refund.failed`
 work from the record once the purchase row is gone. Once Stripe accepts a
 refund cire made, every owner of the wedding is emailed once (`upgrade-refund`),
-and `owners_notified_at` is written only when the mail went out. The daily
+after the webhook has answered Stripe, on a daily refund budget of the
+wedding's own, and `owners_notified_at` is written only when the mail went out.
+The table's migration gives a record to any purchase already in a refund. The daily
 reconciliation works one queue, oldest first, across refunds and stale
 checkouts. The local cire-api resolves owners' addresses through osn-api when
 it has an ARC key and a local Resend, and the E2E stack now sells Gold: a flow

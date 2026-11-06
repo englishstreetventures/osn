@@ -2161,9 +2161,17 @@ export const platformRefunds = sqliteTable(
     paymentIntentId: text("payment_intent_id"),
     amountMinor: integer("amount_minor"),
     currency: text("currency"),
-    // Why the payment could not upgrade the wedding.
+    // Why the payment could not upgrade the wedding; `unrecorded` for a refund
+    // the table's migration found already under way, which stored no reason.
     reason: text("reason", {
-      enum: ["no_tier", "wedding_not_live", "unknown_tier", "not_from_tier", "already_held"],
+      enum: [
+        "no_tier",
+        "wedding_not_live",
+        "unknown_tier",
+        "not_from_tier",
+        "already_held",
+        "unrecorded",
+      ],
     }).notNull(),
     // `refunding` until Stripe accepts the refund (`auto_refunded`, with
     // `refund_id`); `refunded` when a person refunded it first; `refund_failed`

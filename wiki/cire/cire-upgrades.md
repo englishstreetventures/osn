@@ -365,7 +365,12 @@ moved the record to `auto_refunded` sends, and `owners_notified_at` is written
 once the notice has gone out, so an empty one means the owners were not
 mailed. A replay, the reconciliation's
 retry, a refund a person made and a payment that is not cire's mail nobody,
-and nobody is mailed when the purge has taken the wedding.
+and nobody is mailed when the purge has taken the wedding. The webhook sends
+the mail after it has answered Stripe (the Worker's `waitUntil`), so a slow
+osn-api or Resend never holds a delivery open; the daily run sends it in the
+run. Either way the send has 20 seconds, and spends a refund budget of the
+wedding's own (`refund:<wedding id>`, 30 emails a UTC day), apart from the
+owner-change notices'.
 
 A refund Stripe accepted can still fail at the bank — a closed card. Stripe
 sends `refund.failed`; when its refund id is the one the row recorded, or the
@@ -400,8 +405,9 @@ refusing cannot keep a paid checkout waiting:
   dashboard is marked `refunded`, never granted; a part refund still grants.
   Stripe's own `expired` closes it `expired`. Anything else stays.
 
-Every row read is moved to the back (`updated_at`), so one that keeps failing
-cannot hold every run's places. Each run also counts the `refund_failed`
+A row whose step fails is moved to the back (`updated_at`), so one that keeps
+failing cannot hold every run's places; a row read but not worked keeps its
+place. Each run also counts the `refund_failed`
 refunds and, while there are any, logs `upgrade refunds waiting for a person`
 at error with the count. This is what makes a storage error that
 outlasts Stripe's retries end in a grant rather than a payment for nothing.

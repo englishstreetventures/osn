@@ -246,8 +246,8 @@ describe("createOwnerNotices — an upgrade refund", () => {
   });
 
   /**
-   * A refund notice spends the wedding's budget and nothing else: it has no
-   * acting owner, so it must not share one platform-wide key.
+   * A refund notice spends a budget of the wedding's own: it has no acting
+   * owner, so it must not share one platform-wide key.
    */
   it("spends only the wedding's own budget", async () => {
     const { notices, run, transport } = setup({ emailsPerDay: 2 }, ["usr_a"]);
@@ -266,6 +266,37 @@ describe("createOwnerNotices — an upgrade refund", () => {
     expect(
       await counterValue(CIRE_METRICS.ownerNotice, { kind: "upgrade_refund", result: "throttled" }),
     ).toBe(before + 1);
+  });
+
+  /**
+   * Refund notices and owner-change notices spend different keys: refunds an
+   * owner set off cannot use up the budget an owner's removal is told from,
+   * and owner changes cannot leave a refund untold.
+   */
+  it("leaves the owner-change budget alone, and the other way round", async () => {
+    // Two owners: each notice is two emails, the whole of a day's budget.
+    const { notices, run, transport } = setup({ emailsPerDay: 2 }, ["usr_a", "usr_b"]);
+    const refund = () =>
+      notices.refundIssued({
+        weddingId: "wed_one",
+        tier: "gold",
+        amountMinor: 7900,
+        currency: "AUD",
+      });
+    const change = () =>
+      notices.ownerChanged({
+        weddingId: "wed_one",
+        actorOsnProfileId: "usr_a",
+        subjectOsnProfileId: "usr_b",
+        change: "removed",
+      });
+    await run(refund());
+    await run(refund());
+    expect(transport.batches).toHaveLength(1);
+    await run(change());
+    expect(transport.batches).toHaveLength(2);
+    await run(change());
+    expect(transport.batches).toHaveLength(2);
   });
 
   it("sends nothing for a wedding that is gone", async () => {
