@@ -649,11 +649,17 @@ describe("runPlanGuardCli", () => {
     cire_host: ["next.host.cireweddings.com"],
     cire_vendor: ["next.vendor.cireweddings.com"],
   };
+  /** Both sites staged, whatever production's modes are now. */
+  const STAGED: Readonly<Record<SiteSurface, SiteMode>> = {
+    ...PRODUCTION_SITE_MODES,
+    cire_host: "staged",
+    cire_vendor: "staged",
+  };
   const run = (
     argv: string[],
     log?: string,
     live: unknown = STAGED_LIVE,
-    modes: Readonly<Record<SiteSurface, SiteMode>> = PRODUCTION_SITE_MODES,
+    modes: Readonly<Record<SiteSurface, SiteMode>> = STAGED,
   ) => {
     if (log !== undefined) writeFileSync(join(dir, "plan.log"), log);
     writeFileSync(domainsFile, typeof live === "string" ? live : JSON.stringify(live));
@@ -740,7 +746,7 @@ describe("runPlanGuardCli", () => {
 
   const UPDATE = pretty("Plan: 1 to update", "[CireVendor] update", "[CireHost] noop");
   const record = () => JSON.parse(readFileSync(join(dir, "record.json"), "utf8")) as unknown;
-  const vendorWorker = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
+  const vendorWorker = { ...STAGED, cire_vendor: "worker" } as const;
 
   test("GD1: no --domains is a usage error; an unreadable, malformed or partial file refuses", () => {
     const bare = ["--log", join(dir, "plan.log"), "--out", join(dir, "record.json")];

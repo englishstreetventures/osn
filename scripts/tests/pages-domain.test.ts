@@ -346,12 +346,27 @@ describe("check", () => {
 
 describe("precheck", () => {
   test("PD5: a worker site whose host is free passes; with no worker site shipping it asks nothing", async () => {
-    const free = await run(["precheck"], TODAY, { STACKS: "musubi cire", FLIP: "" });
+    // Every cire site staged, as before its first flip.
+    const cireStaged = { ...PRODUCTION_SITE_MODES, cire_vendor: "staged" } as const;
+    const free = await run(["precheck"], TODAY, { STACKS: "musubi cire", FLIP: "" }, cireStaged);
     expect(free.code).toBe(0);
     expect(free.output).toContain("musubi_landing www.musubi.social free");
-    const none = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "" });
+    const none = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "" }, cireStaged);
     expect(none.code).toBe(0);
     expect(none.calls).toEqual([]);
+  });
+
+  test("PD5: while vendor.cireweddings.com is on Pages, a release shipping the cire stack is refused unless it flips cire_vendor", async () => {
+    const refused = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "" });
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("cire_vendor vendor.cireweddings.com pages cire-vendor");
+    expect(refused.output).toContain("flip: cire_vendor and surfaces: cire_vendor");
+    const flip = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "cire_vendor" });
+    expect(flip.code).toBe(0);
+    // A release that leaves the cire sites out asks nothing of the cire zone.
+    const musubi = await run(["precheck"], TODAY, { STACKS: "musubi", FLIP: "" });
+    expect(musubi.code).toBe(0);
+    expect(musubi.output).not.toContain("cire_vendor");
   });
 
   test("PD5: a worker site still on Pages is refused without a flip naming it", async () => {
