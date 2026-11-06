@@ -39,4 +39,10 @@
 # sight every few pull requests, which is the failure the second rule names.
 # When the chain reaches the line, squash it into a fresh baseline again
 # (cire/db/README.md has the method) rather than raise the line.
-cire/db/migrations 5184
+#
+# The chain is at the line's 192 without `platform_refunds`, and the squash's
+# first step needs production to have applied every live migration, the
+# newest of which has not yet shipped, so the line stands two writes higher,
+# at 194 (5238 rows), for that table and its index.
+# Bounded until englishstreetventures/osn#2096 lands.
+cire/db/migrations 5238

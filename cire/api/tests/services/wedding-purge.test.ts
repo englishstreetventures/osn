@@ -248,6 +248,45 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
       expect(logs).toContain("upgrade refunds waiting for a person");
     });
 
+    // Nor does a refund handed to a person or one Stripe accepted: each record
+    // stays, and the wedding goes on schedule.
+    it("no refund handed to a person, nor one Stripe accepted", async () => {
+      const db = makeDb();
+      for (const [weddingId, status] of [
+        ["wed_failed", "refund_failed"],
+        ["wed_back", "auto_refunded"],
+      ] as const) {
+        seedWedding(db, weddingId, daysAgo(60));
+        const [purchase] = db
+          .update(weddingUpgradePurchases)
+          .set({ status, createdAt: daysAgo(40), paymentIntentId: `pi_${weddingId}` })
+          .where(eq(weddingUpgradePurchases.weddingId, weddingId))
+          .returning({
+            id: weddingUpgradePurchases.id,
+            product: weddingUpgradePurchases.entitlement,
+          })
+          .all();
+        const s = Math.floor(daysAgo(40).getTime() / 1000);
+        db.run(
+          sql.raw(
+            `INSERT INTO platform_refunds (id, purchase_id, entitlement, payment_intent_id, amount_minor, currency, reason, status, refund_id, owners_notified_at, created_at, updated_at) VALUES ('rfd_${weddingId}', '${purchase!.id}', '${purchase!.product}', 'pi_${weddingId}', 4900, 'AUD', 'wedding_not_live', '${status}', NULL, NULL, ${s}, ${s})`,
+          ),
+        );
+      }
+
+      expect((await purge(db)).purged).toBe(2);
+      expect(exists(db, "wed_failed")).toBe(false);
+      expect(exists(db, "wed_back")).toBe(false);
+      expect(
+        db.all<{ id: string; status: string }>(
+          sql.raw("SELECT id, status FROM platform_refunds ORDER BY id"),
+        ),
+      ).toEqual([
+        { id: "rfd_wed_back", status: "auto_refunded" },
+        { id: "rfd_wed_failed", status: "refund_failed" },
+      ]);
+    });
+
     it("a change still writing", async () => {
       const db = makeDb();
       seedWedding(db, "wed_change", daysAgo(8));

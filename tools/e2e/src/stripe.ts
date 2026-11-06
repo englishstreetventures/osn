@@ -17,9 +17,11 @@
  *    {@link STRIPE_STANDIN_GOLD_PRICE};
  *  - `POST /v1/checkout/sessions` — a platform Checkout session (no
  *    `Stripe-Account`), whose `url` is on Stripe's own Checkout host, which the
- *    flow routes itself; `GET` reads one back and `POST …/expire` closes one;
- *  - `POST /v1/refunds` — a full refund of a PaymentIntent, accepted at once;
- *    `GET /v1/refunds?payment_intent=` lists a PaymentIntent's refunds.
+ *    flow routes itself;
+ *  - `POST /v1/refunds` — a full refund of a PaymentIntent, accepted at once.
+ *
+ * It does not read a session back, expire one or list refunds: no flow takes
+ * cire-api down a path that asks.
  *
  * A POST with an `Idempotency-Key` it has seen answers the first response
  * again, as Stripe does.
@@ -58,10 +60,7 @@ export interface StripeCalls {
   account: number;
   price: number;
   checkoutCreate: number;
-  checkoutRead: number;
-  checkoutExpire: number;
   refund: number;
-  refundList: number;
 }
 
 /** A refund the stand-in made, as `GET /__e2e/stripe/refunds` answers it. */
@@ -99,7 +98,7 @@ export interface StripeServerOptions {
 
 interface Session {
   readonly id: string;
-  status: "open" | "complete" | "expired";
+  status: "open" | "complete";
   readonly successUrl: string;
   readonly clientReferenceId: string | null;
   readonly purchaseId: string | null;
@@ -117,9 +116,9 @@ const missing = (): Response =>
     { status: 404 },
   );
 
-/** A session as Stripe's API answers it; its PaymentIntent expanded when asked. */
-function sessionBody(session: Session, expand: boolean, refunded: boolean) {
-  const base = {
+/** A session as Stripe's API answers it, and as its events carry it. */
+function sessionBody(session: Session) {
+  return {
     id: session.id,
     object: "checkout.session",
     status: session.status,
@@ -129,13 +128,7 @@ function sessionBody(session: Session, expand: boolean, refunded: boolean) {
     amount_total: session.amountMinor,
     currency: session.currency,
     payment_status: session.status === "complete" ? "paid" : "unpaid",
-  };
-  if (session.paymentIntent === null) return { ...base, payment_intent: null };
-  return {
-    ...base,
-    payment_intent: expand
-      ? { id: session.paymentIntent, latest_charge: { refunded } }
-      : session.paymentIntent,
+    payment_intent: session.paymentIntent,
   };
 }
 
@@ -146,10 +139,7 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
     account: 0,
     price: 0,
     checkoutCreate: 0,
-    checkoutRead: 0,
-    checkoutExpire: 0,
     refund: 0,
-    refundList: 0,
   };
   const usedCodes = new Set<string>();
   const sessions = new Map<string, Session>();
@@ -178,7 +168,7 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
       object: "event",
       type: "checkout.session.completed",
       created: seconds,
-      data: { object: sessionBody(session, false, false) },
+      data: { object: sessionBody(session) },
     });
     const digest = createHmac("sha256", options.platformWebhookSecret)
       .update(`${seconds}.${payload}`)
@@ -280,23 +270,8 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
             paymentIntent: null,
           };
           sessions.set(session.id, session);
-          return sessionBody(session, false, false);
+          return sessionBody(session);
         });
-      }
-      const session = /^\/v1\/checkout\/sessions\/(cs_e2e_[0-9]+)(\/expire)?$/.exec(pathname);
-      if (session && platform) {
-        const found = sessions.get(session[1] ?? "");
-        if (!found) return missing();
-        if (method === "GET" && session[2] === undefined) {
-          calls.checkoutRead += 1;
-          const refunded = refunds.some((r) => r.paymentIntent === found.paymentIntent);
-          return Response.json(sessionBody(found, url.searchParams.size > 0, refunded));
-        }
-        if (method === "POST" && session[2] !== undefined) {
-          calls.checkoutExpire += 1;
-          if (found.status === "open") found.status = "expired";
-          return Response.json(sessionBody(found, false, false));
-        }
       }
       if (method === "POST" && pathname === "/v1/refunds" && platform) {
         calls.refund += 1;
@@ -322,16 +297,6 @@ export function startStripeServer(port: number, options: StripeServerOptions): S
             amount: refund.amountMinor,
             metadata: refund.purchaseId === null ? {} : { purchaseId: refund.purchaseId },
           };
-        });
-      }
-      if (method === "GET" && pathname === "/v1/refunds" && platform) {
-        calls.refundList += 1;
-        const intent = url.searchParams.get("payment_intent");
-        return Response.json({
-          object: "list",
-          data: refunds
-            .filter((r) => r.paymentIntent === intent)
-            .map((r) => ({ id: r.id, metadata: { purchaseId: r.purchaseId } })),
         });
       }
       return missing();

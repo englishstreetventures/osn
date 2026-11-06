@@ -150,10 +150,13 @@ function readBack(result: unknown): string | undefined {
 }
 
 /**
- * How many purchases one daily reconciliation reads. Each costs at most
- * three Stripe calls and four D1 calls (six when a delete or a comp races its
- * grant) inside the cron's shared invocation (`wiki/shared/free-tier-limits.md`),
- * and the set is empty on any day every webhook landed.
+ * How many rows one daily reconciliation works: it reads up to this many
+ * refund records and this many stale checkouts, and works the oldest of them.
+ * Each costs at most three Stripe calls and four D1 calls (six when a delete
+ * or a comp races its grant), and a refund it lands four more D1 calls and two
+ * subrequests for the owners' mail, inside the cron's shared invocation
+ * (`wiki/shared/free-tier-limits.md`). The set is empty on any day every
+ * webhook landed.
  */
 export const RECONCILE_PER_RUN = 2;
 
@@ -164,6 +167,9 @@ export const RECONCILE_PER_RUN = 2;
  * nothing from the purge: its record is outside the wedding's cascade.
  */
 export const REFUND_GIVE_UP_MS = 13 * 24 * 60 * 60 * 1000;
+
+/** How long the owners' refund notice may take, osn-api's lookup and Resend's send together. */
+const NOTICE_TIMEOUT = "20 seconds";
 
 /**
  * Tell a unique-constraint violation from any other write failure, in the text
@@ -289,6 +295,14 @@ interface SettleInput {
   paidAmountMinor: number | null;
   paidCurrency: string | null;
   paymentIntentId: string | null;
+  /**
+   * Runs the owners' refund notice after the webhook has answered (the
+   * Worker's `waitUntil`), so a slow osn-api or Resend never holds Stripe's
+   * delivery open. Absent, the notice runs before the settle returns.
+   */
+  deferNotice?:
+    | ((notice: Effect.Effect<void, never, DbService>) => Effect.Effect<void>)
+    | undefined;
 }
 
 /** What a settle attempt concluded. Mirrors the metric's bounded outcome set. */
@@ -631,12 +645,16 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
       );
       const row = rows[0];
       if (row === undefined) return;
-      const sent = yield* deps.notifyRefund({
-        weddingId: row.weddingId,
-        tier: tierForProduct(row.product),
-        amountMinor: row.amountMinor,
-        currency: row.currency,
-      });
+      // Bounded: the email transport sets no timeout of its own, and a send
+      // that hangs would hold the cron, or the request's `waitUntil`, open.
+      const sent = yield* deps
+        .notifyRefund({
+          weddingId: row.weddingId,
+          tier: tierForProduct(row.product),
+          amountMinor: row.amountMinor,
+          currency: row.currency,
+        })
+        .pipe(Effect.timeout(NOTICE_TIMEOUT));
       if (!sent) return;
       yield* dbQuery(() =>
         db
@@ -677,8 +695,13 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
   const refundPurchase = (
     db: Db,
     purchase: { id: string; label: PaidTier | "unmapped"; paymentIntentId: string | null },
+    deferNotice?: SettleInput["deferNotice"],
   ): Effect.Effect<SettleOutcome, never, DbService> =>
     Effect.gen(function* () {
+      const tell = (): Effect.Effect<void, never, DbService> =>
+        deferNotice === undefined
+          ? notifyOwners(db, purchase.id)
+          : deferNotice(notifyOwners(db, purchase.id));
       const refused = (
         reason: string,
         fields: { status?: number | undefined; code?: string | undefined },
@@ -731,7 +754,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         // told the owners.
         metricUpgradePurchaseSettled(purchase.label, moved ? "auto_refunded" : "replayed");
         if (!moved) return "replayed" as const;
-        yield* notifyOwners(db, purchase.id);
+        yield* tell();
         return "auto_refunded" as const;
       }
 
@@ -755,7 +778,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         // Not moved: another delivery recorded it first.
         const outcome = !moved ? "replayed" : own.success !== null ? "auto_refunded" : "refunded";
         metricUpgradePurchaseSettled(purchase.label, outcome);
-        if (outcome === "auto_refunded") yield* notifyOwners(db, purchase.id);
+        if (outcome === "auto_refunded") yield* tell();
         return outcome;
       }
       if (error.status === 409 && error.code?.startsWith("idempotency") === true) {
@@ -1032,7 +1055,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           if (purchase.tier === null) return "replayed" as const;
           return yield* grant(db, purchase, purchase.tier, input, depth);
         case "refunding":
-          return yield* refundPurchase(db, purchase);
+          return yield* refundPurchase(db, purchase, input.deferNotice);
         case "auto_refunded":
         case "refund_failed":
           metricUpgradePurchaseSettled(purchase.label, "replayed");
@@ -1504,14 +1527,15 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     },
 
     /**
-     * The daily pass that finishes what a webhook could not. It reads at most
-     * {@link RECONCILE_PER_RUN} rows, least recently moved first: a purchase
-     * cire decided to refund (`refunding`), whose refund it tries again, and a
-     * `pending` purchase whose session has outlived its payable day, whose
-     * session it asks Stripe about — settling a paid one exactly as the
-     * webhook would (grant, or refund when it cannot) and closing an expired
-     * one. A row whose step fails is moved to the back, so one that keeps
-     * failing does not hold every run's places.
+     * The daily pass that finishes what a webhook could not. It works at most
+     * {@link RECONCILE_PER_RUN} rows, least recently moved first, from up to
+     * that many of each kind: a refund cire decided on (its record reads
+     * `refunding`), which it tries again, and a `pending` purchase whose
+     * session has outlived its payable day, whose session it asks Stripe
+     * about — settling a paid one exactly as the webhook would (grant, or
+     * refund when it cannot) and closing an expired one. A row whose step
+     * fails is moved to the back, so one that keeps failing does not hold
+     * every run's places; a row read but not worked keeps its place.
      */
     reconcile(): Effect.Effect<{ read: number; failed: number }, never, DbService> {
       return Effect.gen(function* () {

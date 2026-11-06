@@ -12,8 +12,9 @@
  *    deleted included, with the restore deadline;
  *  - an upgrade payment cire refunded because it could not grant it
  *    (`upgrade-refund`) goes to every owner, once, after Stripe accepted the
- *    refund. It names no actor and no reason, and spends only the wedding's
- *    budget.
+ *    refund. It names no actor and no reason, and spends a refund budget of
+ *    the wedding's own, so refunds and owner changes cannot use up each
+ *    other's.
  *
  * Each names who acted. The actor gets their own copy because a session
  * someone else is using is exactly the case where the real owner needs to
@@ -280,7 +281,7 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
         kind === "delete_started"
           ? [`actor:${actorOsnProfileId}`]
           : kind === "upgrade_refund"
-            ? [`wedding:${weddingId}`]
+            ? [`refund:${weddingId}`]
             : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
       const allowed = yield* spend(keys, inputs.length, now);
       const budgeted = inputs.slice(0, allowed);

@@ -1,9 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, weddingUpgradePurchases } from "@cire/db";
-import { EmailService, type SendEmailInput } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -66,10 +65,7 @@ function stripeStub(refunds: RefundLog): StripeClient {
   } as unknown as StripeClient;
 }
 
-function buildApp({
-  platformSecret = PLATFORM_SECRET as string | null,
-  mail = undefined as SendEmailInput[] | undefined,
-} = {}) {
+function buildApp({ platformSecret = PLATFORM_SECRET as string | null } = {}) {
   const refunds: RefundLog = { calls: [], refuse: null };
   const db = createDb(":memory:");
   seedDb(db);
@@ -85,18 +81,6 @@ function buildApp({
     stripeWebhookSecret: CONNECT_SECRET,
     upgradePrices: { crimson: "price_c" },
     upgradeLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
-    // Owner mail on, through a transport that keeps what it is handed.
-    ...(mail === undefined
-      ? {}
-      : {
-          organiserEmailLookup: async (ids: readonly string[]) => ({
-            answered: true,
-            emails: new Map(ids.map((id) => [id, `${id}@example.test`] as const)),
-          }),
-          emailLayer: Layer.succeed(EmailService, {
-            send: (input: SendEmailInput) => Effect.sync(() => void mail.push(input)),
-          }),
-        }),
   });
   return { app, db, refunds };
 }
@@ -467,29 +451,6 @@ describe("a payment for a wedding deleted while its checkout was open", () => {
     expect(await jsonBody(again)).toEqual({ received: true, outcome: "auto_refunded" });
     expect(purchaseRow(db)).toEqual({ status: "auto_refunded", refund_id: "re_2" });
     expect(tierOf(db)).toEqual(IVORY);
-  });
-});
-
-describe("telling the owners of a refund", () => {
-  /**
-   * Through the app as it is built, the route's service is the one that mails:
-   * one email to the owners after the refund, none on a redelivery.
-   */
-  it("emails the wedding's owners once when the webhook's refund lands, and not on a replay", async () => {
-    const mail: SendEmailInput[] = [];
-    const { app, db } = buildApp({ mail });
-    seedPurchase(db);
-    db.$client
-      .query("UPDATE weddings SET deleted_at = unixepoch() WHERE id = ?")
-      .run(BOOTSTRAP_WEDDING_ID);
-
-    const res = await deliver(app, completed());
-    expect(await jsonBody(res)).toEqual({ received: true, outcome: "auto_refunded" });
-    expect(mail.map((m) => m.template)).toEqual(["upgrade-refund"]);
-
-    const again = await deliver(app, completed());
-    expect(await jsonBody(again)).toEqual({ received: true, outcome: "replayed" });
-    expect(mail).toHaveLength(1);
   });
 });
 

@@ -1998,6 +1998,25 @@ describe("settlePurchase", () => {
      * leaves the row open: the claim holds the read's decision, as the grant's
      * flip does, and a fresh read grants the payment.
      */
+    it("leaves the row refunding when the record names another refund", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      // The record alone moves, by hand, to another refund: Stripe's answer
+      // for this one must not carry the row past it.
+      beforeStatement(db, /^update "platform_refunds" set "status" = \?/, () => {
+        db.$client.exec(
+          `UPDATE platform_refunds SET status = 'auto_refunded', refund_id = 're_other' WHERE purchase_id = '${purchaseId}'`,
+        );
+      });
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
+      expect(purchases(db)[0]).toMatchObject({ status: "refunding", refund_id: null });
+      expect(notices).toEqual([]);
+    });
+
     it("grants, not refunds, when the wedding is restored between its read and its refund claim", async () => {
       const db = createDb();
       seedWedding(db);
@@ -2334,6 +2353,49 @@ describe("refundFailed", () => {
     expect(await counterValue(name, { tier: "unmapped", outcome: "refund_failed" })).toBe(
       before + 1,
     );
+  });
+
+  /**
+   * The purchase row moves only into the state its record holds. A record a
+   * person marked `refunded`, or one that names another refund, leaves the
+   * row where it was, however well the row's own columns match.
+   */
+  it("leaves the purchase row alone when the record says otherwise", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, {
+      id: "upg_p",
+      product: "gold",
+      status: "auto_refunded",
+      sessionId: "cs_1",
+      paymentIntentId: "pi_1",
+      refundId: "re_1",
+    });
+    seedPurchase(db, {
+      id: "upg_q",
+      product: "gold",
+      status: "refunding",
+      sessionId: "cs_2",
+      paymentIntentId: "pi_2",
+    });
+    db.$client.exec(
+      "UPDATE platform_refunds SET status = 'refunded' WHERE purchase_id = 'upg_p';" +
+        " UPDATE platform_refunds SET status = 'refund_failed', refund_id = 're_other' WHERE purchase_id = 'upg_q';",
+    );
+    const svc = makeService(stubStripe().client, { t: BASE_MS });
+
+    await captureLogs(async () => {
+      expect(await run(db, svc.refundFailed({ purchaseId: "upg_p", refundId: "re_1" }))).toBe(
+        "ignored",
+      );
+      expect(await run(db, svc.refundFailed({ purchaseId: "upg_q", refundId: "re_1" }))).toBe(
+        "ignored",
+      );
+    });
+    expect(purchases(db)).toMatchObject([
+      { id: "upg_p", status: "auto_refunded", refund_id: "re_1" },
+      { id: "upg_q", status: "refunding", refund_id: null },
+    ]);
   });
 
   /**
