@@ -147,6 +147,13 @@ function lastSentBody(suffix: string) {
   return call ? JSON.parse(call[1].body as string) : null;
 }
 
+/** An element's text as a sighted organiser sees it: without `sr-only` text. */
+function visibleText(el: HTMLElement): string {
+  const copy = el.cloneNode(true) as HTMLElement;
+  for (const hidden of copy.querySelectorAll(".sr-only")) hidden.remove();
+  return copy.textContent ?? "";
+}
+
 /** The section strip under Content. */
 const sectionStrip = () => screen.getByRole("tablist", { name: "Invite sections" });
 
@@ -858,31 +865,35 @@ describe("InviteBuilder theme", () => {
   });
 });
 
-describe("InviteBuilder shown/hidden badges", () => {
+describe("InviteBuilder section states", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
     vi.restoreAllMocks();
   });
 
-  /** All segment badges, in DOM order: [hero, story, faq, footer]. */
-  const badges = (container: HTMLElement) =>
-    [...container.querySelectorAll("[data-segment-badge]")] as HTMLElement[];
+  /** The switchable section cards, in DOM order: [hero, story, faq, footer].
+   *  Each carries its state as `data-state`. */
+  const cards = (container: HTMLElement) =>
+    [...container.querySelectorAll("fieldset[data-state]")] as HTMLElement[];
+  /** A card's live region: visually hidden, read out when the state changes. */
+  const statusIn = (card: HTMLElement) => within(card).getByRole("status", { hidden: true });
 
   it("marks hero, story, FAQ and footer 'Hidden — empty' for a blank invite", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
 
-    await waitFor(() => expect(badges(container)).toHaveLength(4));
-    const [hero, story, faq, footer] = badges(container);
-    expect(hero.dataset.shown).toBe("false");
-    expect(story.dataset.shown).toBe("false");
-    expect(faq.dataset.shown).toBe("false");
-    expect(footer.dataset.shown).toBe("false");
-    expect(hero.textContent).toContain("Hidden — empty");
-    expect(story.textContent).toContain("Hidden — empty");
-    expect(faq.textContent).toContain("Hidden — empty");
-    expect(footer.textContent).toContain("Hidden — empty");
+    await waitFor(() => expect(cards(container)).toHaveLength(4));
+    const [hero, story, faq, footer] = cards(container);
+    for (const card of [hero, story, faq, footer]) expect(card.dataset.state).toBe("empty");
+    // The tab names the state; the card carries only the switch, no pill.
+    setView("content");
+    await waitFor(() => within(sectionStrip()).getByRole("tab", { name: "Hero (hidden — empty)" }));
+    expect(visibleText(hero)).not.toContain("Hidden — empty");
+    expect(within(hero).getByLabelText("Show on the invite")).toBeInTheDocument();
+    // Only the screen reader gets the words, in a visually hidden live region.
+    expect(statusIn(hero).textContent).toBe("Hidden — empty");
+    expect(statusIn(hero).classList.contains("sr-only")).toBe(true);
   });
 
   it("marks a section 'Shown' when its content is present", async () => {
@@ -897,29 +908,30 @@ describe("InviteBuilder shown/hidden badges", () => {
     );
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
 
-    await waitFor(() => expect(badges(container)).toHaveLength(4));
-    const [hero, story, faq, footer] = badges(container);
-    expect(hero.dataset.shown).toBe("true");
-    expect(story.dataset.shown).toBe("true");
-    expect(faq.dataset.shown).toBe("true");
-    expect(footer.dataset.shown).toBe("true");
-    expect(hero.textContent).toContain("Shown");
+    await waitFor(() => expect(cards(container)).toHaveLength(4));
+    const [hero, story, faq, footer] = cards(container);
+    for (const card of [hero, story, faq, footer]) expect(card.dataset.state).toBe("shown");
   });
 
-  it("flips the hero badge to 'Shown' live as the organiser types a title", async () => {
+  it("flips the hero to 'Shown' live as the organiser types a title", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
 
-    await waitFor(() => expect(badges(container)).toHaveLength(4));
-    expect(badges(container)[0].dataset.shown).toBe("false");
+    await waitFor(() => expect(cards(container)).toHaveLength(4));
+    expect(cards(container)[0].dataset.state).toBe("empty");
+    // The live region is there before the change, so the change is announced.
+    const region = statusIn(cards(container)[0]);
+    expect(region.textContent).toBe("Hidden — empty");
 
-    // Typing a couple title flips the hero badge without any save.
+    // Typing a couple title flips the hero without any save.
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "A & B" } });
 
-    await waitFor(() => expect(badges(container)[0].dataset.shown).toBe("true"));
+    await waitFor(() => expect(cards(container)[0].dataset.state).toBe("shown"));
+    expect(statusIn(cards(container)[0])).toBe(region);
+    expect(region.textContent).toBe("Shown");
     // Whitespace-only does NOT count as content — clearing back to spaces hides it.
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "   " } });
-    await waitFor(() => expect(badges(container)[0].dataset.shown).toBe("false"));
+    await waitFor(() => expect(cards(container)[0].dataset.state).toBe("empty"));
     // No network save was triggered by typing.
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
@@ -936,9 +948,9 @@ describe("InviteBuilder shown/hidden badges", () => {
     );
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
 
-    await waitFor(() => expect(badges(container)).toHaveLength(4));
-    expect(badges(container)[3].dataset.shown).toBe("true");
-    // …and the note field really is empty — the badge came from the image.
+    await waitFor(() => expect(cards(container)).toHaveLength(4));
+    expect(cards(container)[3].dataset.state).toBe("shown");
+    // …and the note field really is empty — the state came from the image.
     expect((screen.getByLabelText("Closing note (optional)") as HTMLTextAreaElement).value).toBe(
       "",
     );
@@ -969,20 +981,20 @@ describe("InviteBuilder shown/hidden badges", () => {
     }
   });
 
-  it("flips the footer badge live, and whitespace-only stays hidden", async () => {
+  it("flips the footer live, and whitespace-only stays hidden", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
 
-    await waitFor(() => expect(badges(container)).toHaveLength(4));
-    const footerBadge = () => badges(container)[3];
-    expect(footerBadge().dataset.shown).toBe("false");
+    await waitFor(() => expect(cards(container)).toHaveLength(4));
+    const footer = () => cards(container)[3];
+    expect(footer().dataset.state).toBe("empty");
 
     const field = screen.getByLabelText("Closing note (optional)");
     fireEvent.input(field, { target: { value: "Looking forward to celebrating with you" } });
-    await waitFor(() => expect(footerBadge().dataset.shown).toBe("true"));
+    await waitFor(() => expect(footer().dataset.state).toBe("shown"));
 
     fireEvent.input(field, { target: { value: "   " } });
-    await waitFor(() => expect(footerBadge().dataset.shown).toBe("false"));
+    await waitFor(() => expect(footer().dataset.state).toBe("empty"));
   });
 });
 
@@ -1767,7 +1779,7 @@ describe("InviteBuilder on a phone", () => {
     expect(trigger().querySelector("[data-hidden-icon]")).toBeNull();
 
     // Under Content the pill names the section, and a hidden one says so:
-    // the eye-off icon to the eye, the badge's words in the name.
+    // the eye-off icon to the eye, the state's words in the name.
     setView("content");
     expect(trigger().getAttribute("aria-label")).toBe(
       "Invite: Hero (hidden — empty). Choose a view or section",
@@ -2046,7 +2058,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
   };
 
   const panel = (id: string) => document.getElementById(id)!;
-  const badgeIn = (id: string) => panel(id).querySelector("[data-segment-badge]") as HTMLElement;
+  const stateOf = (id: string) => document.getElementById(id)?.dataset.state;
   const reasonIn = (id: string) => panel(id).querySelector("[data-visibility-reason]");
   const switchIn = (id: string) =>
     within(panel(id)).getByLabelText("Show on the invite") as HTMLInputElement;
@@ -2054,7 +2066,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
   async function renderWith(customisation: unknown) {
     authFetchMock.mockResolvedValueOnce(json(customisation));
     render(() => <InviteBuilder {...WEDDING} />);
-    await waitFor(() => expect(badgeIn("invite-hero")).toBeTruthy());
+    await waitFor(() => expect(stateOf("invite-hero")).toBeTruthy());
   }
 
   it("seeds every switch on for a payload that predates the switches", async () => {
@@ -2065,23 +2077,25 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
       // dashboard's `:focus-visible` ring lands on something visible.
       expect(switchIn(id).tagName).toBe("INPUT");
       expect(switchIn(id).type).toBe("checkbox");
-      expect(badgeIn(id).dataset.state).toBe("shown");
+      expect(stateOf(id)).toBe("shown");
     }
   });
 
   it("marks a switched-off section with content 'Hidden — switched off' and says the content is kept", async () => {
     await renderWith({ ...FILLED, visibility: { hero: true, story: false, footer: true } });
-    const badge = badgeIn("invite-story");
-    expect(badge.dataset.state).toBe("off");
-    expect(badge.dataset.shown).toBe("false");
-    expect(badge.textContent).toContain("Hidden — switched off");
+    expect(stateOf("invite-story")).toBe("off");
+    setView("content");
+    await waitFor(() =>
+      within(sectionStrip()).getByRole("tab", { name: "Our story (hidden — switched off)" }),
+    );
+    expect(visibleText(panel("invite-story"))).not.toContain("Hidden — switched off");
     expect(switchIn("invite-story").checked).toBe(false);
     expect(reasonIn("invite-story")?.textContent).toMatch(/everything in it is kept/);
     // Hiding the section does not stop its photo serving at its own address,
     // so the line must not promise privacy.
     expect(reasonIn("invite-story")?.textContent).toMatch(/does not make its photo private/);
     // The other two are untouched.
-    expect(badgeIn("invite-hero").dataset.state).toBe("shown");
+    expect(stateOf("invite-hero")).toBe("shown");
     expect(reasonIn("invite-hero")).toBeNull();
   });
 
@@ -2089,7 +2103,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
   // has to say why the section is hidden and what would show it.
   it("explains a section switched on but empty, naming what to add", async () => {
     await renderWith(EMPTY_CUSTOMISATION);
-    expect(badgeIn("invite-hero").dataset.state).toBe("empty");
+    expect(stateOf("invite-hero")).toBe("empty");
     expect(switchIn("invite-hero").checked).toBe(true);
     expect(reasonIn("invite-hero")?.textContent).toBe(
       "Switched on, but guests won't see it until it has content: add a title, a subtitle or an image.",
@@ -2103,12 +2117,12 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     expect(reasonIn("invite-hero")?.textContent).toMatch(/gift list/);
   });
 
-  it("flips the badge live when the switch is toggled, without saving", async () => {
+  it("flips the state live when the switch is toggled, without saving", async () => {
     await renderWith(FILLED);
     fireEvent.click(switchIn("invite-hero"));
-    await waitFor(() => expect(badgeIn("invite-hero").dataset.state).toBe("off"));
+    await waitFor(() => expect(stateOf("invite-hero")).toBe("off"));
     fireEvent.click(switchIn("invite-hero"));
-    await waitFor(() => expect(badgeIn("invite-hero").dataset.state).toBe("shown"));
+    await waitFor(() => expect(stateOf("invite-hero")).toBe("shown"));
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -2150,7 +2164,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     fireEvent.click(within(panel("invite-hero")).getByRole("button", { name: "Reset section" }));
     await waitFor(() => expect(switchIn("invite-hero").checked).toBe(true));
     // The reset also cleared the title, so the hero is now on but empty.
-    expect(badgeIn("invite-hero").dataset.state).toBe("empty");
+    expect(stateOf("invite-hero")).toBe("empty");
   });
 
   it("switches Our Story back on when that section is reset", async () => {
@@ -2158,7 +2172,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
     await openSection(/^Our story/);
     fireEvent.click(within(panel("invite-story")).getByRole("button", { name: "Reset section" }));
     await waitFor(() => expect(switchIn("invite-story").checked).toBe(true));
-    expect(badgeIn("invite-story").dataset.state).toBe("empty");
+    expect(stateOf("invite-story")).toBe("empty");
     // The hero kept its own switch.
     expect(switchIn("invite-hero").checked).toBe(true);
   });
@@ -2234,7 +2248,7 @@ describe("InviteBuilder section visibility switches (migration 0063)", () => {
   it("names the switched-off state on its tab, and marks it with the eye-off icon", async () => {
     setView("content");
     await renderWith({ ...FILLED, visibility: { hero: true, story: true, footer: false } });
-    // The tab's accessible name carries the state, in the badge's words.
+    // The tab's accessible name carries the state, in `SECTION_STATE_LABELS`' words.
     const closingTab = within(sectionStrip()).getByRole("tab", {
       name: "Closing (hidden — switched off)",
     });
@@ -2279,14 +2293,14 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     { id: "faq_b", question: "Are children invited?", answer: "Ceremony only." },
   ];
   const panel = () => document.getElementById("invite-faq")!;
-  const badge = () => panel().querySelector("[data-segment-badge]") as HTMLElement;
+  const state = () => panel().dataset.state;
 
   async function renderWith(customisation: unknown) {
     authFetchMock.mockResolvedValueOnce(json(customisation));
     // The FAQ is one of Content's sections.
     setView("content");
     render(() => <InviteBuilder {...WEDDING} />);
-    await waitFor(() => expect(badge()).toBeTruthy());
+    await waitFor(() => expect(document.getElementById("invite-faq")?.dataset.state).toBeTruthy());
   }
 
   it("asks for the entries with its first load", async () => {
@@ -2304,13 +2318,13 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     expect(tabs.indexOf("FAQ")).toBe(tabs.indexOf("Events") + 1);
     expect(tabs.findIndex((t) => t?.startsWith("Closing"))).toBe(tabs.indexOf("FAQ") + 1);
 
-    expect(badge().dataset.state).toBe("shown");
+    expect(state()).toBe("shown");
     expect(within(panel()).getByText("Is there parking?")).toBeInTheDocument();
   });
 
   it("explains a FAQ switched on with no entries", async () => {
     await renderWith({ ...EMPTY_CUSTOMISATION, faqs: [] });
-    expect(badge().dataset.state).toBe("empty");
+    expect(state()).toBe("empty");
     expect(panel().querySelector("[data-visibility-reason]")?.textContent).toBe(
       "Switched on, but guests won't see it until it has content: add a question and its answer.",
     );
@@ -2318,7 +2332,7 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
 
   it("says a switched-off FAQ keeps its questions", async () => {
     await renderWith({ ...EMPTY_CUSTOMISATION, faqs: FAQS, visibility: { faq: false } });
-    expect(badge().dataset.state).toBe("off");
+    expect(state()).toBe("off");
     within(sectionStrip()).getByRole("tab", { name: "FAQ (hidden — switched off)" });
     expect(panel().querySelector("[data-visibility-reason]")?.textContent).toMatch(
       /they are all kept/,
@@ -2332,7 +2346,7 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     );
 
     fireEvent.click(within(panel()).getByLabelText("Show on the invite"));
-    expect(badge().dataset.state).toBe("off");
+    expect(state()).toBe("off");
     fireEvent.click(screen.getByText("Save invite"));
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
@@ -2348,7 +2362,7 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     fireEvent.click(screen.getByText("Save invite"));
     await waitFor(() => screen.getByText("All changes saved"));
 
-    expect(badge().dataset.state).toBe("shown");
+    expect(state()).toBe("shown");
     expect(within(panel()).getByText("Are children invited?")).toBeInTheDocument();
   });
 
@@ -2357,7 +2371,7 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     authFetchMock.mockResolvedValueOnce(json({ ok: true })); // upload
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // reload, no entries
     const { container } = render(() => <InviteBuilder {...WEDDING} />);
-    await waitFor(() => expect(badge()).toBeTruthy());
+    await waitFor(() => expect(document.getElementById("invite-faq")?.dataset.state).toBeTruthy());
 
     const input = container.querySelector('#invite-hero input[type="file"]') as HTMLInputElement;
     Object.defineProperty(input, "files", {
@@ -2372,7 +2386,7 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     );
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
     expect(within(panel()).getByText("Is there parking?")).toBeInTheDocument();
-    expect(badge().dataset.state).toBe("shown");
+    expect(state()).toBe("shown");
   });
 
   it("guards a tab close while a question is half-typed, and stops once it is cancelled", async () => {
@@ -2411,7 +2425,7 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     expect(confirmSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("adds an entry and the section's badge follows", async () => {
+  it("adds an entry and the section's state follows", async () => {
     await renderWith({ ...EMPTY_CUSTOMISATION, faqs: [] });
     authFetchMock.mockResolvedValueOnce(json({ faq: FAQS[0] }));
 
@@ -2422,7 +2436,7 @@ describe("InviteBuilder FAQ section (migration 0064)", () => {
     fireEvent.input(within(panel()).getByLabelText("Answer"), { target: { value: "Yes." } });
     fireEvent.click(within(panel()).getByText("Add question"));
 
-    await waitFor(() => expect(badge().dataset.state).toBe("shown"));
+    await waitFor(() => expect(state()).toBe("shown"));
     within(sectionStrip()).getByRole("tab", { name: "FAQ" });
   });
 });

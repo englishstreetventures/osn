@@ -454,10 +454,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 
   // Live "what a guest will see" states, mirroring the guest invite's state
   // functions: shown, empty (switched on with no content) or off. Driven by the
-  // draft (so the badge flips the instant the organiser types or flips the
-  // switch) plus the loaded image URL (image upload/remove refetches `data`).
-  // A section renders on the live invite only in the `shown` state — the badges
-  // surface that before the organiser saves.
+  // draft (so a section's tab and reason line change the instant the organiser
+  // types or flips the switch) plus the loaded image URL (image upload/remove
+  // refetches `data`). A section renders on the live invite only in the `shown`
+  // state — the tabs surface that before the organiser saves.
   const heroSectionState = () =>
     heroState(draft.visibility.hero, {
       imageUrl: data()?.hero.imageUrl,
@@ -479,10 +479,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     });
 
   // The FAQ has content once it has an entry. The entries apply at once, so the
-  // badge reads the live list; the switch is the draft's, like the others.
+  // state reads the live list; the switch is the draft's, like the others.
   const faqSectionState = () => faqState(draft.visibility.faq, faqs());
 
-  /** Section state per nav item, mirroring the section badges. `undefined` for
+  /** Section state per nav item, as each section card has it. `undefined` for
    *  the sections that cannot be hidden. */
   const navState = (id: string): SectionState | undefined => {
     switch (id) {
@@ -500,7 +500,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   };
 
   /** Whether a section is hidden from guests, and the words for it after its
-   *  name: "(hidden — empty)". Wording follows the badge. */
+   *  name: "(hidden — empty)". Wording from `SECTION_STATE_LABELS`. */
   const hiddenNote = (id: string): string | undefined => {
     const state = navState(id);
     return isHiddenState(state) ? `(${SECTION_STATE_LABELS[state!].toLowerCase()})` : undefined;

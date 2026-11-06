@@ -18,7 +18,7 @@ import {
  * `invite-emptiness.ts` is a hand-maintained mirror of
  * `cire/invites/src/components/invite-emptiness.ts`, and nothing checked that the
  * two agree. The stakes are quiet but real: these predicates decide whether the
- * builder's per-section badge says "Shown" or "Hidden — empty", so a drift
+ * builder's section tabs say a section is shown or "hidden — empty", so a drift
  * doesn't break anything visibly — it just makes the builder lie about what a
  * guest will see, and the organiser finds out from the guest.
  *
@@ -118,8 +118,8 @@ describe("isFooterEmpty", () => {
 });
 
 /**
- * The switch combined with the content check — what the builder's badge, tab
- * state and preview show. The guest module's copy of these three functions is
+ * The switch combined with the content check — what the builder's tab state,
+ * reason line and preview show. The guest module's copy of these three functions is
  * held to the same four cases (`cire/invites/tests/components/invite-emptiness.test.ts`).
  */
 type StateFn = (visible: boolean | null | undefined, content: never) => string;

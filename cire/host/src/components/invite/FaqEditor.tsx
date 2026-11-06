@@ -7,7 +7,7 @@
  * own "Show on the invite" switch is in the section card around this editor and
  * saves with the rest.
  *
- * The list itself is owned by the builder (it drives the section's badge and
+ * The list itself is owned by the builder (it drives the section's state and
  * the preview); this component makes the API calls and reports each result back
  * through `onEntriesChange`.
  *

@@ -13,7 +13,9 @@
  *   icon, no border, no fill — and the "Interactive preview" note is the
  *   accent box at the 6px step;
  * - the host's invite builder on its Hero section at a desktop width, where the
- *   section's state badge is an outlined pill, a live region.
+ *   card carries the "Show on the invite" switch, no state pill and a visually
+ *   hidden live region for the state, and the image field's "Applies
+ *   immediately" marker is an outlined pill.
  *
  * And one the `cire-event-details` flow stands in: the invitation opened from
  * "Preview invite" on a phone, where the welcome's preview note is the accent
@@ -137,39 +139,50 @@ export async function landingFeedback(flow: Flow, landing: Page, demo: Locator):
 }
 
 /**
- * The invite builder, open on its sections: the Hero section's state badge, at
- * a desktop width where the sections are a strip in the view bar, under
- * Content.
+ * The invite builder, open on its sections: the Hero card's switch and its
+ * "Applies immediately" marker, at a desktop width where the sections are a
+ * strip in the view bar, under Content.
  */
 export async function builderFeedback(flow: Flow, page: Page): Promise<void> {
   const views = page.getByRole("tablist", { name: "Views" });
   const sections = page.getByRole("tablist", { name: "Invite sections" });
-  const panel = page.getByRole("tabpanel").filter({ has: page.locator("[data-segment-badge]") });
-  const badge = panel.locator("[data-segment-badge]").first();
+  const panel = page.locator("#invite-hero");
+  const visibilitySwitch = panel.getByLabel("Show on the invite");
+  const badge = panel.getByText("Applies immediately", { exact: true }).first();
   await flow.step("feedback: open the builder's Hero section", async () => {
     await page.setViewportSize(DESKTOP);
     await views.getByRole("tab", { name: "Content" }).click();
     await sections.getByRole("tab", { name: /^Hero/ }).click();
+    await expect(visibilitySwitch).toBeVisible();
     await expect(badge).toBeVisible();
   });
-  flow.check("feedback: the section badge is a pill", true, await isPill(badge));
+  // The switch is the card's one visible visibility control: the tab names the
+  // state, and the state's words live only in a visually hidden live region.
+  const stateWords = panel.getByText(/^(Shown|Hidden — empty|Hidden — switched off)$/);
+  flow.check("feedback: the Hero card's state words appear once", 1, await stateWords.count());
   flow.check(
-    "feedback: the section badge is outlined",
+    "feedback: the Hero card's state words are its live region, an <output>",
+    "OUTPUT",
+    await stateWords.evaluate((el) => el.tagName),
+  );
+  flow.check(
+    "feedback: the Hero card's live region is visually hidden",
+    "1px",
+    await computed(stateWords, "width"),
+  );
+  flow.check("feedback: the instant marker is a pill", true, await isPill(badge));
+  flow.check(
+    "feedback: the instant marker is outlined",
     "1px",
     await computed(badge, "border-top-width"),
   );
   flow.check(
-    "feedback: the section badge draws no fill",
+    "feedback: the instant marker draws no fill",
     "rgba(0, 0, 0, 0)",
     await computed(badge, "background-color"),
   );
-  flow.check(
-    "feedback: the section badge is a live region",
-    "status",
-    (await badge.getAttribute("role")) ?? "",
-  );
-  await flow.step("feedback: shoot the section badge", () =>
-    shoot(page, "host-builder-badge", DESKTOP, async (scheme) => {
+  await flow.step("feedback: shoot the instant marker", () =>
+    shoot(page, "host-builder-instant-marker", DESKTOP, async (scheme) => {
       await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
       await badge.scrollIntoViewIfNeeded();
       await expect(badge).toBeInViewport();

@@ -9,7 +9,7 @@
  *
  * Sections the guest site would hide (a hero, story, FAQ or closing section
  * that is empty or switched off) render as a labelled placeholder strip saying which,
- * mirroring the section cards' badges.
+ * mirroring the section tabs.
  *
  * The pane follows the wedding's DESIGN PACK as well as its scheme: hero
  * anchoring, copy alignment, the code-entry panel and the events rule all come
