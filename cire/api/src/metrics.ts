@@ -333,7 +333,7 @@ export type WeddingArchiveFileStatus =
   | "unreadable"
   | "unavailable";
 /** Which owner notice was attempted. */
-export type OwnerNoticeKind = "owner_change" | "delete_started";
+export type OwnerNoticeKind = "owner_change" | "delete_started" | "upgrade_refund";
 /** How an owner notice ended: mailed, nobody to mail, held by the per-wedding
  *  throttle, or the lookup or send failed. */
 export type OwnerNoticeResult = "sent" | "no_recipients" | "throttled" | "failed";

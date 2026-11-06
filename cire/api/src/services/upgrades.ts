@@ -17,7 +17,7 @@
  * The orderings here are load-bearing. See the comments at each one.
  */
 
-import { weddingUpgradePurchases, weddings, platformSales } from "@cire/db";
+import { platformRefunds, platformSales, weddingUpgradePurchases, weddings } from "@cire/db";
 import {
   and,
   asc,
@@ -321,6 +321,20 @@ interface UpgradeServiceDeps {
   /** Injected so the staleness window is testable without waiting. */
   now?: () => number;
   newId?: (prefix: string) => string;
+  /**
+   * Emails the wedding's owners that a payment was refunded, once Stripe has
+   * accepted the refund. Absent where cire cannot send owner mail.
+   */
+  notifyRefund?: ((refund: RefundNotice) => Effect.Effect<void, never, DbService>) | undefined;
+}
+
+/** What the owners are told about a refund cire made. */
+export interface RefundNotice {
+  weddingId: string;
+  /** The tier the payment was for; `null` for a legacy product. */
+  tier: PaidTier | null;
+  amountMinor: number | null;
+  currency: string | null;
 }
 
 export function createUpgradeService(deps: UpgradeServiceDeps) {
@@ -516,38 +530,103 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
       .where(eq(weddingUpgradePurchases.id, purchaseId));
 
   /**
-   * Move a `refunding` row on, and say whether this call moved it. A refund
-   * Stripe accepted (`auto_refunded` with its id) also moves a row handed to a
-   * person that holds no refund id: the give-up can land while a refund that
-   * ran at Stripe is still on its way back, and that refund outranks it. A
-   * bank's failure keeps its refund id, so it is never overwritten here.
+   * Move a refund on, and say whether this call moved it: the refund record
+   * (`platform_refunds`, which outlives the wedding) and, while it exists, the
+   * purchase row, in one batch under the same guard. The record decides.
+   *
+   * A refund Stripe accepted (`auto_refunded` with its id) also moves one
+   * handed to a person that holds no refund id: the give-up can land while a
+   * refund that ran at Stripe is still on its way back, and that refund
+   * outranks it. A bank's failure keeps its refund id, so it is never
+   * overwritten here. The same write stamps `owners_notified_at`, so only the
+   * call that records Stripe's acceptance emails the owners.
    */
   const leaveRefunding = (
     db: Db,
     purchaseId: string,
     set: { status: "auto_refunded" | "refunded" | "refund_failed"; refundId?: string },
   ) =>
-    dbQuery(() =>
-      db
-        .update(weddingUpgradePurchases)
-        .set({ ...set, updatedAt: new Date(now()) })
-        .where(
-          and(
-            eq(weddingUpgradePurchases.id, purchaseId),
-            set.status === "auto_refunded"
-              ? or(
-                  eq(weddingUpgradePurchases.status, "refunding"),
-                  and(
-                    eq(weddingUpgradePurchases.status, "refund_failed"),
-                    isNull(weddingUpgradePurchases.refundId),
-                  ),
-                )
-              : eq(weddingUpgradePurchases.status, "refunding"),
-          ),
-        )
-        .returning({ id: weddingUpgradePurchases.id })
-        .all(),
-    ).pipe(Effect.map((rows) => !changedNone(rows)));
+    Effect.gen(function* () {
+      const at = new Date(now());
+      const accepted = set.status === "auto_refunded";
+      const recordSet: Partial<typeof platformRefunds.$inferInsert> = { ...set, updatedAt: at };
+      if (accepted) recordSet.ownersNotifiedAt = at;
+      const results = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          db
+            .update(platformRefunds)
+            .set(recordSet)
+            .where(
+              and(
+                eq(platformRefunds.purchaseId, purchaseId),
+                accepted
+                  ? or(
+                      eq(platformRefunds.status, "refunding"),
+                      and(
+                        eq(platformRefunds.status, "refund_failed"),
+                        isNull(platformRefunds.refundId),
+                      ),
+                    )
+                  : eq(platformRefunds.status, "refunding"),
+              ),
+            )
+            .returning({ id: platformRefunds.id }),
+          db
+            .update(weddingUpgradePurchases)
+            .set({ ...set, updatedAt: at })
+            .where(
+              and(
+                eq(weddingUpgradePurchases.id, purchaseId),
+                accepted
+                  ? or(
+                      eq(weddingUpgradePurchases.status, "refunding"),
+                      and(
+                        eq(weddingUpgradePurchases.status, "refund_failed"),
+                        isNull(weddingUpgradePurchases.refundId),
+                      ),
+                    )
+                  : eq(weddingUpgradePurchases.status, "refunding"),
+              ),
+            ),
+        ]),
+      );
+      return !changedNone(results[0]);
+    });
+
+  /**
+   * Tell the wedding's owners that a payment was refunded. Fail-soft and
+   * best effort: a purchase row the purge has taken leaves nobody to tell.
+   */
+  const notifyOwners = (db: Db, purchaseId: string) =>
+    Effect.gen(function* () {
+      if (deps.notifyRefund === undefined) return;
+      const rows = yield* dbQuery(() =>
+        db
+          .select({
+            weddingId: weddingUpgradePurchases.weddingId,
+            product: platformRefunds.entitlement,
+            amountMinor: platformRefunds.amountMinor,
+            currency: platformRefunds.currency,
+          })
+          .from(platformRefunds)
+          .innerJoin(
+            weddingUpgradePurchases,
+            eq(weddingUpgradePurchases.id, platformRefunds.purchaseId),
+          )
+          .where(eq(platformRefunds.purchaseId, purchaseId))
+          .all(),
+      );
+      const row = rows[0];
+      if (row === undefined) return;
+      yield* deps.notifyRefund({
+        weddingId: row.weddingId,
+        tier: tierForProduct(row.product),
+        amountMinor: row.amountMinor,
+        currency: row.currency,
+      });
+    }).pipe(
+      Effect.catchCause(() => Effect.logWarning("upgrade refund notice failed", { purchaseId })),
+    );
 
   /**
    * Refund a payment cire decided it cannot grant, and record what Stripe did.
@@ -572,7 +651,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
   const refundPurchase = (
     db: Db,
     purchase: { id: string; label: PaidTier | "unmapped"; paymentIntentId: string | null },
-  ): Effect.Effect<SettleOutcome> =>
+  ): Effect.Effect<SettleOutcome, never, DbService> =>
     Effect.gen(function* () {
       const refused = (
         reason: string,
@@ -622,9 +701,12 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           status: "auto_refunded",
           refundId: attempt.success.id,
         });
-        // Not moved: another delivery recorded the same refund first.
+        // Not moved: another delivery recorded the same refund first, and
+        // told the owners.
         metricUpgradePurchaseSettled(purchase.label, moved ? "auto_refunded" : "replayed");
-        return moved ? ("auto_refunded" as const) : ("replayed" as const);
+        if (!moved) return "replayed" as const;
+        yield* notifyOwners(db, purchase.id);
+        return "auto_refunded" as const;
       }
 
       const error = attempt.failure;
@@ -647,6 +729,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         // Not moved: another delivery recorded it first.
         const outcome = !moved ? "replayed" : own.success !== null ? "auto_refunded" : "refunded";
         metricUpgradePurchaseSettled(purchase.label, outcome);
+        if (outcome === "auto_refunded") yield* notifyOwners(db, purchase.id);
         return outcome;
       }
       if (error.status === 409 && error.code?.startsWith("idempotency") === true) {
@@ -762,12 +845,42 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                 tier === null ? undefined : not(grantable(purchase, tier)),
               ),
             ),
+          // The refund's record, outside the wedding's cascade, written only
+          // while the row reads `refunding`; a concurrent claim's stands.
+          // Every column, in the table's order.
+          db
+            .insert(platformRefunds)
+            .select(
+              db
+                .select({
+                  id: bound(newId("rfd"), platformRefunds.id),
+                  purchaseId: weddingUpgradePurchases.id,
+                  entitlement: weddingUpgradePurchases.entitlement,
+                  paymentIntentId: weddingUpgradePurchases.paymentIntentId,
+                  amountMinor: weddingUpgradePurchases.amountMinor,
+                  currency: weddingUpgradePurchases.currency,
+                  reason: bound(reason ?? "no_tier", platformRefunds.reason),
+                  status: bound("refunding", platformRefunds.status),
+                  refundId: bound(null, platformRefunds.refundId),
+                  ownersNotifiedAt: bound(null, platformRefunds.ownersNotifiedAt),
+                  createdAt: bound(new Date(now()), platformRefunds.createdAt),
+                  updatedAt: bound(new Date(now()), platformRefunds.updatedAt),
+                })
+                .from(weddingUpgradePurchases)
+                .where(
+                  and(
+                    eq(weddingUpgradePurchases.id, row.id),
+                    eq(weddingUpgradePurchases.status, "refunding"),
+                  ),
+                ),
+            )
+            .onConflictDoNothing(),
           statusReadBack(db, row.id),
         ]),
       );
       // Whatever the row reads now decides: `refunding` from this claim or a
       // concurrent one, or a grant that landed first.
-      return yield* after(db, purchase, readBack(claimed[1]), input, depth);
+      return yield* after(db, purchase, readBack(claimed[2]), input, depth);
     });
 
   /**
@@ -952,42 +1065,48 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     }).pipe(Effect.withSpan("cire.upgrade.failPurchase"));
 
   /**
-   * One row of the daily reconciliation. `true` once the row has moved on;
-   * `false` leaves it for a later run.
+   * A refund the daily reconciliation asks Stripe for again, from its record.
+   * `true` once it has moved on; `false` leaves it for a later run.
    */
-  const reconcileOne = (
+  const reconcileRefund = (
     db: Db,
-    row: {
-      id: string;
+    refund: {
+      purchaseId: string;
       product: string;
-      status: string;
-      sessionId: string | null;
       paymentIntentId: string | null;
       createdAt: Date;
     },
   ): Effect.Effect<boolean, never, DbService> =>
     Effect.gen(function* () {
-      if (row.status === "refunding") {
-        const outcome = yield* refundPurchase(db, {
-          id: row.id,
-          label: tierForProduct(row.product) ?? "unmapped",
-          paymentIntentId: row.paymentIntentId,
+      const outcome = yield* refundPurchase(db, {
+        id: refund.purchaseId,
+        label: tierForProduct(refund.product) ?? "unmapped",
+        paymentIntentId: refund.paymentIntentId,
+      });
+      // In progress elsewhere, or unanswered: a refund may exist at Stripe,
+      // and no timer outranks it.
+      if (outcome === "refunding") return false;
+      if (outcome !== "refund_failed") return true;
+      if (now() - refund.createdAt.getTime() < REFUND_GIVE_UP_MS) return false;
+      // Asked long enough: a person returns the money.
+      const handed = yield* leaveRefunding(db, refund.purchaseId, { status: "refund_failed" });
+      if (handed) {
+        yield* Effect.logError("upgrade refund given up; a person must return the money", {
+          purchaseId: refund.purchaseId,
         });
-        // In progress elsewhere, or unanswered: a refund may exist at Stripe,
-        // and no timer outranks it.
-        if (outcome === "refunding") return false;
-        if (outcome !== "refund_failed") return true;
-        if (now() - row.createdAt.getTime() < REFUND_GIVE_UP_MS) return false;
-        // Asked long enough. A person returns the money before the purge may
-        // take the deleted wedding this row belongs to.
-        const handed = yield* leaveRefunding(db, row.id, { status: "refund_failed" });
-        if (handed) {
-          yield* Effect.logError("upgrade refund given up; a person must return the money", {
-            purchaseId: row.id,
-          });
-        }
-        return true;
       }
+      return true;
+    });
+
+  /**
+   * A `pending` purchase whose session has outlived its payable day: what
+   * Stripe says it paid settles it. `true` once it has moved on.
+   */
+  const reconcilePending = (
+    db: Db,
+    row: { id: string; sessionId: string | null },
+  ): Effect.Effect<boolean, never, DbService> =>
+    Effect.gen(function* () {
       if (row.sessionId === null) return false;
       const sessionId = row.sessionId;
       const probe = yield* probeSession(row.id, sessionId, { withPayment: true });
@@ -1282,57 +1401,67 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     }): Effect.Effect<"recorded" | "ignored", never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
-        const changed = yield* dbQuery(() =>
-          db
-            .update(weddingUpgradePurchases)
-            .set({ status: "refund_failed", refundId: input.refundId, updatedAt: new Date(now()) })
-            .where(
-              and(
-                eq(weddingUpgradePurchases.id, input.purchaseId),
-                or(
-                  and(
-                    eq(weddingUpgradePurchases.status, "auto_refunded"),
-                    eq(weddingUpgradePurchases.refundId, input.refundId),
-                  ),
-                  // A refund Stripe accepted while cire's call timed out, so
-                  // its id was never recorded. Only cire's own create call
-                  // names a purchase in a refund's metadata, and the row's
-                  // `refunding` guard then keeps the late success off it.
-                  and(
-                    eq(weddingUpgradePurchases.status, "refunding"),
-                    isNull(weddingUpgradePurchases.refundId),
+        const at = new Date(now());
+        // The record decides, the purchase row follows while it exists. The
+        // second arm is a refund Stripe accepted while cire's call timed out,
+        // so its id was never recorded: only cire's own create call names a
+        // purchase in a refund's metadata, and the `refunding` guard then keeps
+        // the late success off it.
+        const results = yield* dbQuery(() =>
+          commitBatchResults(db, [
+            db
+              .update(platformRefunds)
+              .set({ status: "refund_failed", refundId: input.refundId, updatedAt: at })
+              .where(
+                and(
+                  eq(platformRefunds.purchaseId, input.purchaseId),
+                  or(
+                    and(
+                      eq(platformRefunds.status, "auto_refunded"),
+                      eq(platformRefunds.refundId, input.refundId),
+                    ),
+                    and(eq(platformRefunds.status, "refunding"), isNull(platformRefunds.refundId)),
                   ),
                 ),
-              ),
-            )
-            .returning({ product: weddingUpgradePurchases.entitlement })
-            .all(),
-        );
-        const product = (changed as { product: string }[])[0]?.product;
-        if (product === undefined) {
-          // Our refund, but no purchase this build still holds in
-          // `auto_refunded` with it: the purge took a deleted wedding's row,
-          // or the row moved since. The money is still owed, so a person
-          // must see it — unless this is a redelivery of one already recorded.
-          const rows = yield* dbQuery(() =>
+              )
+              .returning({ product: platformRefunds.entitlement }),
             db
-              .select({ status: weddingUpgradePurchases.status })
-              .from(weddingUpgradePurchases)
+              .update(weddingUpgradePurchases)
+              .set({ status: "refund_failed", refundId: input.refundId, updatedAt: at })
               .where(
                 and(
                   eq(weddingUpgradePurchases.id, input.purchaseId),
-                  eq(weddingUpgradePurchases.refundId, input.refundId),
+                  or(
+                    and(
+                      eq(weddingUpgradePurchases.status, "auto_refunded"),
+                      eq(weddingUpgradePurchases.refundId, input.refundId),
+                    ),
+                    and(
+                      eq(weddingUpgradePurchases.status, "refunding"),
+                      isNull(weddingUpgradePurchases.refundId),
+                    ),
+                  ),
                 ),
-              )
-              .all(),
-          );
-          if (rows[0]?.status !== "refund_failed") {
+              ),
+            db
+              .select({ status: platformRefunds.status, refundId: platformRefunds.refundId })
+              .from(platformRefunds)
+              .where(eq(platformRefunds.purchaseId, input.purchaseId)),
+          ]),
+        );
+        const product = (results[0] as { product: string }[])[0]?.product;
+        if (product === undefined) {
+          // Our refund, but no record of it in a state it can move from. A
+          // redelivery of one already recorded is silent; anything else is
+          // money still owed that a person must see.
+          const record = (results[2] as { status: string; refundId: string | null }[])[0];
+          if (record?.status !== "refund_failed" || record.refundId !== input.refundId) {
             metricUpgradePurchaseSettled("unmapped", "refund_failed");
             yield* Effect.logError("upgrade refund failed at the bank", {
               purchaseId: input.purchaseId,
               refundId: input.refundId,
               paymentIntentId: input.paymentIntentId ?? null,
-              purchaseFound: false,
+              recordFound: record !== undefined,
             });
           }
           return "ignored" as const;
@@ -1360,51 +1489,81 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     reconcile(): Effect.Effect<{ read: number; failed: number }, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
-        const rows = yield* dbQuery(() =>
+        // Refunds come from their record, which outlives the wedding, so one
+        // still owed completes after the purge has taken the purchase row.
+        const refunds = yield* dbQuery(() =>
           db
             .select({
-              id: weddingUpgradePurchases.id,
-              product: weddingUpgradePurchases.entitlement,
-              status: weddingUpgradePurchases.status,
-              sessionId: weddingUpgradePurchases.checkoutSessionId,
-              paymentIntentId: weddingUpgradePurchases.paymentIntentId,
-              createdAt: weddingUpgradePurchases.createdAt,
+              purchaseId: platformRefunds.purchaseId,
+              product: platformRefunds.entitlement,
+              paymentIntentId: platformRefunds.paymentIntentId,
+              createdAt: platformRefunds.createdAt,
             })
-            .from(weddingUpgradePurchases)
-            .where(
-              or(
-                eq(weddingUpgradePurchases.status, "refunding"),
-                and(
-                  eq(weddingUpgradePurchases.status, "pending"),
-                  isNotNull(weddingUpgradePurchases.checkoutSessionId),
-                  lte(
-                    weddingUpgradePurchases.createdAt,
-                    new Date(now() - CHECKOUT_SESSION_LIFETIME_MS),
-                  ),
-                ),
-              ),
-            )
-            .orderBy(asc(weddingUpgradePurchases.updatedAt), asc(weddingUpgradePurchases.id))
+            .from(platformRefunds)
+            .where(eq(platformRefunds.status, "refunding"))
+            .orderBy(asc(platformRefunds.updatedAt), asc(platformRefunds.id))
             .limit(RECONCILE_PER_RUN)
             .all(),
         );
+        const room = RECONCILE_PER_RUN - refunds.length;
+        const stale =
+          room <= 0
+            ? []
+            : yield* dbQuery(() =>
+                db
+                  .select({
+                    id: weddingUpgradePurchases.id,
+                    sessionId: weddingUpgradePurchases.checkoutSessionId,
+                  })
+                  .from(weddingUpgradePurchases)
+                  .where(
+                    and(
+                      eq(weddingUpgradePurchases.status, "pending"),
+                      isNotNull(weddingUpgradePurchases.checkoutSessionId),
+                      lte(
+                        weddingUpgradePurchases.createdAt,
+                        new Date(now() - CHECKOUT_SESSION_LIFETIME_MS),
+                      ),
+                    ),
+                  )
+                  .orderBy(asc(weddingUpgradePurchases.updatedAt), asc(weddingUpgradePurchases.id))
+                  .limit(room)
+                  .all(),
+              );
 
-        let failed = 0;
-        for (const row of rows) {
-          const done = yield* reconcileOne(db, row).pipe(
+        /** A failed step is logged and leaves its row for a later run. */
+        const step = (purchaseId: string, work: Effect.Effect<boolean, never, DbService>) =>
+          work.pipe(
             Effect.catchDefect((cause) =>
               Effect.logError("upgrade reconcile step failed", {
-                purchaseId: row.id,
+                purchaseId,
                 cause: String(cause),
               }).pipe(Effect.as(false)),
             ),
           );
-          if (done) continue;
+
+        let failed = 0;
+        for (const refund of refunds) {
+          if (yield* step(refund.purchaseId, reconcileRefund(db, refund))) continue;
           failed += 1;
-          // To the back of the queue: a row still where it was must not hold
-          // the run's few places for good. A row that is done has always left
-          // the status it was read in. Guarded on that status, so a row that
-          // moved on meanwhile is untouched.
+          // To the back of the queue, guarded on the status it was read in,
+          // so a refund that moved on meanwhile is untouched.
+          yield* dbQuery(() =>
+            db
+              .update(platformRefunds)
+              .set({ updatedAt: new Date(now()) })
+              .where(
+                and(
+                  eq(platformRefunds.purchaseId, refund.purchaseId),
+                  eq(platformRefunds.status, "refunding"),
+                ),
+              )
+              .run(),
+          );
+        }
+        for (const row of stale) {
+          if (yield* step(row.id, reconcilePending(db, row))) continue;
+          failed += 1;
           yield* dbQuery(() =>
             db
               .update(weddingUpgradePurchases)
@@ -1412,26 +1571,26 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               .where(
                 and(
                   eq(weddingUpgradePurchases.id, row.id),
-                  eq(weddingUpgradePurchases.status, row.status),
+                  eq(weddingUpgradePurchases.status, "pending"),
                 ),
               )
               .run(),
           );
         }
         // Every day a refund waits for a person, say so: the hand-over's own
-        // log line is one line, and the purge keeps the wedding until then.
+        // log line is one line.
         const waiting = yield* dbQuery(() =>
           db
             .select({ n: count() })
-            .from(weddingUpgradePurchases)
-            .where(eq(weddingUpgradePurchases.status, "refund_failed"))
+            .from(platformRefunds)
+            .where(eq(platformRefunds.status, "refund_failed"))
             .all(),
         );
         const owed = waiting[0]?.n ?? 0;
         if (owed > 0) {
           yield* Effect.logError("upgrade refunds waiting for a person", { count: owed });
         }
-        return { read: rows.length, failed };
+        return { read: refunds.length + stale.length, failed };
       }).pipe(Effect.withSpan("cire.upgrade.reconcile"));
     },
 

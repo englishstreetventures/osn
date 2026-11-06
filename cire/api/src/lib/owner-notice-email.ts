@@ -9,7 +9,11 @@
  *    goes to the owner who did it and every other owner, and — for a removal
  *    or demotion — to the person affected;
  *  - a delete (`wedding-delete-started`) goes to every owner, the one who
- *    deleted included, with the restore deadline.
+ *    deleted included, with the restore deadline;
+ *  - an upgrade payment cire refunded because it could not grant it
+ *    (`upgrade-refund`) goes to every owner, once, after Stripe accepted the
+ *    refund. It names no actor and no reason, and spends only the wedding's
+ *    budget.
  *
  * Each names who acted. The actor gets their own copy because a session
  * someone else is using is exactly the case where the real owner needs to
@@ -39,6 +43,7 @@
 import { ownerNoticeBudget, weddingHosts, weddings } from "@cire/db";
 import { EmailService } from "@shared/email";
 import type { EmailTemplateData, SendEmailInput } from "@shared/email";
+import { LEGAL_ENTITY } from "@shared/legal";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { Cause, Effect, type Layer } from "effect";
 
@@ -48,12 +53,17 @@ import type { OwnerNoticeKind, OwnerNoticeResult } from "../metrics";
 import { runCire } from "../observability";
 import type { HostRole } from "../services/hosts";
 import type { OsnOrganiserEmailLookup, OsnProfileDisplayResolver } from "../services/osn-bridge";
+import type { RefundNotice } from "../services/upgrades";
 import { getWaitUntil } from "./execution-ctx";
+import { formatMinor } from "./money";
 
 /** Owner-notice emails one wedding, or one acting owner, may cause per UTC
  *  day. A real ownership change mails a handful of people; this is room for
  *  several on one day. */
 const OWNER_NOTICE_EMAILS_PER_DAY = 30;
+
+/** The tiers as the couple reads them. */
+const TIER_NAMES = { gold: "Gold", crimson: "Crimson" } as const;
 
 /** A seat the actor created this recently does not mail its holder. */
 const FRESH_SEAT_MS = 24 * 60 * 60 * 1000;
@@ -269,7 +279,9 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
       const keys =
         kind === "delete_started"
           ? [`actor:${actorOsnProfileId}`]
-          : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
+          : kind === "upgrade_refund"
+            ? [`wedding:${weddingId}`]
+            : [`wedding:${weddingId}`, `actor:${actorOsnProfileId}`];
       const allowed = yield* spend(keys, inputs.length, now);
       const budgeted = inputs.slice(0, allowed);
       if (budgeted.length === 0) return "throttled" as const;
@@ -375,6 +387,36 @@ export function createOwnerNotices(deps: OwnerNoticeDeps) {
             },
           });
           return { recipients, named: [input.actorOsnProfileId], render };
+        }),
+      );
+    },
+
+    /** An upgrade payment cire could not grant was refunded, and Stripe accepted it. */
+    refundIssued(input: RefundNotice): Effect.Effect<void, never, DbService> {
+      return deliver("upgrade_refund", input.weddingId, "", new Date(), () =>
+        Effect.gen(function* () {
+          const wedding = yield* weddingOwners(input.weddingId);
+          if (!wedding) return null;
+          const recipients: Recipient[] = wedding.owners.map((osnProfileId) => ({
+            osnProfileId,
+            audience: "owner" as const,
+          }));
+          const amount =
+            input.amountMinor === null || input.currency === null
+              ? null
+              : formatMinor(input.amountMinor, input.currency);
+          const render: RenderFor = (_recipient, to) => ({
+            template: "upgrade-refund",
+            to,
+            data: {
+              weddingName: wedding.name,
+              tierName: input.tier === null ? null : TIER_NAMES[input.tier],
+              amount,
+              contactEmail: LEGAL_ENTITY.contactEmail,
+              portalUrl: deps.portalUrl,
+            },
+          });
+          return { recipients, named: [], render };
         }),
       );
     },
