@@ -15,7 +15,9 @@
  *   tall below `md` (`max-md:h-11`) and `Button`'s own `sm` 32px from it;
  * - Try again and Continue are 44px tall below `md` (`max-md:h-11`) and
  *   `Button`'s own `lg` 40px from `md` up;
- * - the error notice sits directly above Try again.
+ * - the error notice sits directly above Try again;
+ * - typed, the field, Confirm and the decline fit the same column, each at
+ *   least 44px tall below `md`, with 16px type so a phone does not zoom.
  *
  * The page sits where the host route will put it: `AuthorizePage`'s `<main>`
  * (`mx-auto … max-w-md px-6 py-10`), with no app shell. At a 320px viewport
@@ -240,5 +242,77 @@ describe("ConfirmLinkPage on a bare musubi route", () => {
     expect(notice.getBoundingClientRect().bottom).toBeLessThanOrEqual(
       button.getBoundingClientRect().top,
     );
+  });
+});
+
+/** The page in typed mode, as recovery's host draws it. */
+async function mountTyped(answer: "confirmed" | "throws") {
+  render(() => (
+    <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-10">
+      <ConfirmLinkPage
+        purpose="recovery"
+        email={LONG_EMAIL}
+        typeNumber
+        onConfirm={() =>
+          answer === "throws"
+            ? Promise.reject(new Error("no connection"))
+            : Promise.resolve<ConfirmOutcome>("confirmed")
+        }
+      />
+    </main>
+  ));
+  await painted();
+  const heading = screen.getByRole("heading", { level: 1 });
+  const card = heading.closest("main")?.firstElementChild as HTMLElement;
+  const field = screen.getByLabelText(
+    "Type the number shown on the screen where you started.",
+  ) as HTMLInputElement;
+  return { card, field };
+}
+
+describe("ConfirmLinkPage typing the number, on a bare musubi route", () => {
+  it("fits the field and its buttons in a 320px phone's column, every target at least 44px", async () => {
+    await atViewport(PHONE);
+    const { card, field } = await mountTyped("throws");
+    fireEvent.input(field, { target: { value: "123456" } });
+    await painted();
+
+    expect(card.getBoundingClientRect().width).toBe(272);
+    expect(card.scrollWidth).toBe(card.clientWidth);
+    expect(document.documentElement.scrollWidth).toBe(PHONE.width);
+
+    const cardBox = card.getBoundingClientRect();
+    const targets = [
+      field,
+      screen.getByRole("button", { name: "Confirm" }),
+      screen.getByRole("button", { name: "I didn't ask for this" }),
+    ];
+    for (const target of targets) {
+      const box = target.getBoundingClientRect();
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.left).toBeGreaterThanOrEqual(cardBox.left);
+      expect(box.right).toBeLessThanOrEqual(cardBox.right);
+    }
+    // A six-digit entry sits inside the field, with nothing to scroll.
+    expect(field.scrollWidth).toBe(field.clientWidth);
+    // 16px type below 640px, so a phone's browser does not zoom on focus.
+    expect(getComputedStyle(field).fontSize).toBe("16px");
+
+    await page.screenshot({ path: `${SHOTS}/typed-320.png` });
+
+    await press("Confirm");
+    expect(buttonHeight("Try again")).toBe(44);
+    expect(document.documentElement.scrollWidth).toBe(PHONE.width);
+    await page.screenshot({ path: `${SHOTS}/typed-error-320.png` });
+  });
+
+  it("draws Confirm at Button's own 40px from md up", async () => {
+    await atViewport(DESKTOP);
+    const { field } = await mountTyped("confirmed");
+    fireEvent.input(field, { target: { value: "4821" } });
+    await painted();
+
+    expect(buttonHeight("Confirm")).toBe(40);
+    await page.screenshot({ path: `${SHOTS}/typed-1280.png` });
   });
 });
