@@ -108,8 +108,8 @@ as `--container-ui-*`, which is the namespace Tailwind reads a `max-w-*` from.
 
 Three groups sit outside `@theme` as plain custom properties, because a
 component consumes them inside its own rule rather than as a utility:
-`--ui-focus-width` / `--ui-focus-offset`, the motion tokens
-(`--ui-dur-fast|base|slow`, `--ui-ease-out|in-out`) and `--ui-elev-1|2`.
+`--ui-focus-width` / `--ui-focus-offset`, the motion tokens (§Motion, below)
+and `--ui-elev-1|2`.
 Aliasing those would generate utilities nobody spells. No `@shared/ui`
 primitive reads the two focus tokens: it draws focus with Tailwind's fixed
 2px utilities (`ring-2`, `outline-2`, `outline-hidden` and their offsets), so
@@ -158,6 +158,62 @@ what the page recedes _to_, behind a sticky bar or under a scrim, and on a dark
 theme it is lighter. **`accent-ink` is not `on-accent`**: `accent-ink` is accent
 text on the page, `on-accent` is the label on a filled accent ground, and the
 two have opposite contrast requirements.
+
+## Motion
+
+Each motion token is named for its job. **Choose one by its job, never by the
+nearest number**: a hover timed on `--ui-dur-exit` because 80ms looked right
+would change pace the day exits do, and a sheet on `--ui-dur-fast` would stop
+following an app that slows its panels. `tokens.css` carries the same job as
+a one-line comment beside each value, and `CONTRACT_SCALAR_TOKENS.motion`
+lists them.
+
+| Token | Value | Used for |
+| --- | --- | --- |
+| `--ui-dur-fast` | 120ms | A hover, a press, a small panel arriving |
+| `--ui-dur-base` | 200ms | A panel swap, a pill sliding |
+| `--ui-dur-slow` | 320ms | Something crossing the screen |
+| `--ui-dur-exit` | 80ms | A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on its own `--ui-modal-exit` ([[component-library]], §Overlays: `Modal`) |
+| `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving; a Kobalte overlay leaving runs on it too. `Modal`'s exit runs `ease-in` |
+| `--ui-ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | Something moving between two places |
+| `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` |
+| `--ui-scale-exit` | 0.98 | How small an overlay ends as it leaves, `Modal` included |
+| `--ui-distance-enter` | 24px | How far `Modal` rises into place |
+| `--ui-distance-exit` | 8px | How far `Modal` sinks as it leaves |
+
+**An exit is shorter and smaller than its entry.** A panel leaving has nothing
+more to tell the reader, so it gets out of the way: 80ms against 120ms, and it
+ends at 0.98 where it started at 0.96. `Modal` keeps its entry's own 0.98, so
+its exit is softer by distance and time alone (8px in 150ms against 24px in
+350ms). No app sets any of these today, so every app runs the values above.
+
+`Dialog`'s `sheet` presentation scales like its centred card, from its
+centre. Below `md` the sheet is pinned to the bottom edge at full width, so
+its sides and its bottom edge sit in from the screen's by 2% of its size as
+it arrives and 1% as it leaves. `Modal`'s sheet rises from below the edge
+instead. Musubi's dialogs, most of the sheet's callers, move to a fade with
+no scale in englishstreetventures/osn#2040; pulse's share dialog keeps the
+scale.
+
+The overlays reach them through four utilities in `tokens.css`, not by
+reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` and
+`animate-out` runs `--ui-dur-exit`; `zoom-in` and `zoom-out` set the scale an
+element enters from and leaves to from `--ui-scale-enter` and
+`--ui-scale-exit`. Two pairs of names sit close: `--ui-scale-enter` is the
+token an app sets, `--ui-enter-scale` is what `zoom-in` writes on one element
+for the keyframes to read.
+
+**Reduced motion has one home for the Kobalte overlays.** Under
+`prefers-reduced-motion: reduce`, a flat block in `tokens.css` sets
+`--ui-enter-animation` and `--ui-exit-animation` to `none` on the root, and
+`animate-in` and `animate-out` read their `animation-name` from them. Every
+overlay drawn with those utilities stops moving, and a new one needs nothing
+on its class string. The accent menu's pop is its own `animation` shorthand,
+so it keeps its `motion-safe:` prefix. `Modal` is a transition, not these
+utilities: its own stylesheet drops every duration to 1ms
+([[component-library]] §Overlays: `Modal`).
+`overlay-motion.browser.test.tsx` holds each of these in Chromium
+([[browser-tests]]).
 
 ## A `max-w-*` outside the built-in steps needs naming in the linter
 

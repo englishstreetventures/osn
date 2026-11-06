@@ -356,7 +356,7 @@ export const NativeModal = () => {
  * reduced-motion path, which each app reaches through its own global clamp.
  */
 export const ModalMotion: Story<{ enter: number; exit: number } & StoryArgs> = {
-  args: { enter: 350, exit: 200 },
+  args: { enter: 350, exit: 150 },
   controls: {
     enter: { kind: "range", min: 0, max: 1200 },
     exit: { kind: "range", min: 0, max: 1200 },

@@ -43,7 +43,9 @@ const PopoverContent: ParentComponent<
         class={clsx(
           "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:w-60 base:rounded-ui-md base:border base:text-ui-sm base:shadow-md base:outline-none",
           POPOVER_PADDING[local.padding ?? "default"],
-          "base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out-95 base:data-[expanded]:zoom-in-95",
+          // Grows from the side it is anchored to: Popper writes the origin
+          // for the placement it settled on, flips included.
+          "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out base:data-[expanded]:zoom-in",
           local.class,
         )}
         // A modal dialog marks everything outside itself `aria-hidden`, and

@@ -10,7 +10,8 @@
  * Two variants, chosen once on the panel:
  *
  * - `default` — the shared look musubi's account menu and pulse's two menus
- *   draw. Its strings are frozen:
+ *   draw. It grows from its trigger and shrinks a little as it closes, on the
+ *   shared motion tokens (`tokens.css`). Its strings are frozen:
  *   `tests/dropdown-menu-default.browser.test.tsx` reads them back literally,
  *   because that is the only thing that keeps those apps unmoved by a change
  *   made for cire. A focused row is marked by its sunk fill; a contrast theme
@@ -19,7 +20,7 @@
  * - `accent` — cire's portal look: the raised panel at the 10px corner with
  *   the floating shadow, 6px rows in full ink, the highlighted row a 10%
  *   accent wash with readable accent ink. It opens with a short pop from the
- *   trigger's side and closes at once: a menu held mounted for an exit
+ *   trigger's side, from the shared `--ui-scale-enter`, and closes at once: a menu held mounted for an exit
  *   animation keeps focus inside it, and Kobalte's hand-back to the trigger
  *   then falls to `<body>`.
  *
@@ -39,11 +40,11 @@ export type MenuLabelTone = "heading" | "identity" | "eyebrow";
 const PANEL = {
   default:
     "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:min-w-32 base:rounded-ui-md base:border base:p-1 base:shadow-md base:outline-none " +
-    "base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out-95 base:data-[expanded]:zoom-in-95",
+    "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out base:data-[expanded]:zoom-in",
   accent:
     "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:min-w-32 base:rounded-ui-md base:border base:p-1.5 " +
     "base:shadow-[var(--elev-2,var(--ui-elev-2))] base:outline-none " +
-    "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:fade-in-0 base:[--ui-enter-scale:0.96] " +
+    "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:fade-in-0 base:data-[expanded]:zoom-in " +
     "base:motion-safe:data-[expanded]:[animation:ui-enter_var(--dur-fast,var(--ui-dur-fast))_var(--ease-out,var(--ui-ease-out))_both]",
 } satisfies Readonly<Record<MenuVariant, string>>;
 

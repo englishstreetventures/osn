@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-06
 ---
 
 # Frontend Patterns
@@ -554,6 +554,15 @@ Tailwind's bare `transition` (150ms) does not. All four cire apps — the two
 portals, the guest site and the marketing site — carry the same ladder and the
 same `pointer: fine` block, and `cire/vendor/tests/styles/tokens.test.ts` fails
 if any copy differs.
+
+`Modal`'s exit runs the same on both. Cire sets `--ui-modal-exit` to its desk
+`--dur-base` (150ms) under the query, and on touch `Modal` falls back to its
+own 150ms, so a dialog closes alike at a desk and in the hand
+([[component-library]] §Overlays: `Modal`). `Dialog`, `Popover`, `Tooltip` and
+the default `DropdownMenu` read `--ui-dur-*` ([[design-tokens]] §Motion), not
+cire's ladder, so they keep one pace on every input. The accent
+`DropdownMenu`, cire's own menus, pops on the app's `--dur-fast` and so follows
+it ([[component-library]] §DropdownMenu).
 
 ### A gesture follows the finger, and the finger's speed outlives it
 
