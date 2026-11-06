@@ -581,7 +581,6 @@ describe("<AuthorizePage />", () => {
       JSON.stringify({
         requestId: "signup_000000000001",
         claimSecret: "1".repeat(64),
-        pairingCode: "41",
         expiresAt: Math.floor(Date.now() / 1000) + 600,
         email: "alice@example.com",
         handle: "alice",
