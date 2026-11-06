@@ -185,6 +185,111 @@ export const Fields = () => {
 };
 
 /**
+ * `labelTreatment="plain"`: the label `Label` draws by default — the words as
+ * written, full ink, weight 500, the control type step — over `Field`'s wiring.
+ * The first column is the sign-up form (`@osn/auth-ui`'s `Register`) drawn with
+ * plain fields, two of them wrong; the second holds a field with two errors,
+ * one with a hint, and a long label wrapping in a 200px column; the third is
+ * the Email field in the default treatment, cire's, for comparison.
+ *
+ * Register's Email label also carries an `InfoPopover` beside it. `Field` has
+ * no place for one, so it is not drawn here.
+ */
+export const PlainLabels = () => {
+  const [handle, setHandle] = createSignal("ada");
+  return (
+    <div class="flex flex-wrap items-start gap-10">
+      <div class="flex w-80 flex-col gap-4">
+        <Field labelTreatment="plain" label="Email" errors={["Please enter a valid email address"]}>
+          {(field) => <Input {...field} type="email" value="ada@example" />}
+        </Field>
+        <Field labelTreatment="plain" label="Handle">
+          {(field) => (
+            <UsernameInput
+              {...field}
+              value={handle()}
+              onInput={setHandle}
+              status="available"
+              placeholder="lowercase, numbers, _"
+            />
+          )}
+        </Field>
+        <Field
+          labelTreatment="plain"
+          label="Date of birth"
+          errors={["Musubi is for users 13 and older"]}
+        >
+          {(field) => <Input {...field} type="date" value="2020-01-01" />}
+        </Field>
+        <Field labelTreatment="plain" label="Display name (optional)">
+          {(field) => <Input {...field} />}
+        </Field>
+      </div>
+
+      <div class="flex w-80 flex-col gap-4">
+        <Field
+          labelTreatment="plain"
+          label="Organisation handle"
+          errors={["Use lowercase letters, numbers and underscores", "That handle is taken"]}
+        >
+          {(field) => <Input {...field} value="Acme Ltd" />}
+        </Field>
+        <Field
+          labelTreatment="plain"
+          label="Date of birth"
+          hint="You must be 13 or older to use Musubi"
+        >
+          {(field) => <Input {...field} type="date" />}
+        </Field>
+        <div class="w-50">
+          <Field labelTreatment="plain" label="A label long enough to wrap onto a second line">
+            {(field) => <Input {...field} />}
+          </Field>
+        </div>
+      </div>
+
+      <div class="flex w-80 flex-col gap-4">
+        <Field label="Email" errors={["Please enter a valid email address"]}>
+          {(field) => <Input {...field} type="email" value="ada@example" />}
+        </Field>
+      </div>
+    </div>
+  );
+};
+
+interface FieldPlaygroundArgs extends StoryArgs {
+  labelTreatment: "caps" | "plain";
+  label: string;
+  hint: boolean;
+  errors: number;
+  labelHidden: boolean;
+}
+
+const PLAYGROUND_ERRORS = ["Please enter a valid email address", "That address is already in use"];
+
+/** Every way `Field`'s label, hint and errors combine, one control each. */
+export const FieldPlayground: Story<FieldPlaygroundArgs> = {
+  args: { labelTreatment: "plain", label: "Email", hint: true, errors: 1, labelHidden: false },
+  controls: {
+    labelTreatment: { kind: "select", options: ["caps", "plain"] },
+    errors: { kind: "select", options: [0, 1, 2] },
+  },
+  render: (args) => (
+    <div class="w-80">
+      <Field
+        labelTreatment={args.labelTreatment}
+        label={args.label}
+        labelHidden={args.labelHidden}
+        hint={args.hint ? "We never show it on your profile" : undefined}
+        errors={PLAYGROUND_ERRORS.slice(0, Number(args.errors))}
+      >
+        {(field) => <Input {...field} type="email" value="ada@example" />}
+      </Field>
+    </div>
+  ),
+};
+
+/**
  * Five sizes, each a fixed height an input and a select share, so a date and a
  * currency line up in a column. `sm` (28px) sits in a table row or a filter
  * bar, `md` (36px) in a form; `form` (34px, md's sides and type) and
