@@ -439,8 +439,10 @@ export function createEmailLinkModule(ctx: AuthContext) {
 
       // Two tries: a Resend can append a link to the entry between the read
       // and the write, which loses the first swap without changing the answer.
+      // A decline that won meanwhile has ended the request: nothing confirms it.
       let current: EmailLinkChallenge | null = entry;
       for (let attempt = 0; attempt < 2 && usable(current); attempt++) {
+        if (current.status === "declined") return REFUSED;
         if (current.status === "confirmed") return REPEAT;
         const from: EmailLinkChallenge = current;
         const won = yield* storeCall(links, "swap", () =>
