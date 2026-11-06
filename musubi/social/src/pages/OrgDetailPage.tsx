@@ -229,11 +229,11 @@ export function OrgDetailPage() {
                             </AvatarFallback>
                           </Avatar>
                           <div class="min-w-0 flex-1">
-                            <p class="text-foreground text-title font-medium">
+                            <p class="text-foreground text-title truncate font-medium">
                               {member.displayName || `@${member.handle}`}
                             </p>
                             <Show when={member.displayName}>
-                              <p class="text-subtle text-meta">@{member.handle}</p>
+                              <p class="text-subtle text-meta truncate">@{member.handle}</p>
                             </Show>
                           </div>
                           <Badge variant="secondary">{member.role}</Badge>
