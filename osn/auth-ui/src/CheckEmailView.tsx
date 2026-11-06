@@ -167,9 +167,13 @@ export function CheckEmailView(props: CheckEmailViewProps) {
     return "Resend link";
   };
 
+  // `translate="no"`: a browser's page translation must not rewrite the
+  // address the person has to recognise.
   const address = (): JSX.Element =>
     props.email ? (
-      <strong class="text-ui-ink font-medium wrap-anywhere">{props.email}</strong>
+      <strong class="text-ui-ink font-medium wrap-anywhere" translate="no">
+        {props.email}
+      </strong>
     ) : (
       "your email address"
     );
