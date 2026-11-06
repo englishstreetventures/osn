@@ -12,7 +12,6 @@ import { createAuthService } from "../../src/services/auth";
 import { MAX_SESSIONS_PER_ACCOUNT } from "../../src/services/auth/constants";
 import { deriveSessionBinding } from "../../src/services/auth/helpers";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import {
   createCapturingTestLayer,

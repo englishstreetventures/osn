@@ -3,10 +3,9 @@ import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Deferred, Effect, Layer, Logger, References } from "effect";
-import { beforeAll, vi } from "vitest";
+import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
-import { hashSessionToken } from "../../src/services/auth/helpers";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";

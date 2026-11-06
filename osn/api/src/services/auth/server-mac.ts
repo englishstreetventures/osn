@@ -112,7 +112,7 @@ export function createServerMac(secret: string | undefined): ServerMac {
           if (found.size === count) break;
         }
       }
-      return [...found].sort((a, b) => a - b).map(String);
+      return [...found].toSorted((a, b) => a - b).map(String);
     },
     pairingDigest(requestId, value) {
       return mac(PAIRING_DIGEST_LABEL).update(`${requestId}\0${value}`).digest("hex");

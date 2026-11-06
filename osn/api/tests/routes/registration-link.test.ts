@@ -426,7 +426,7 @@ describe("the number on the waiting screen", () => {
     expect(list).toHaveLength(EMAIL_LINK_PAIRING_CANDIDATES);
     expect(new Set(list).size).toBe(list.length);
     expect(list.every((c) => /^[1-9][0-9]$/.test(c))).toBe(true);
-    expect([...list].sort((a, b) => Number(a) - Number(b))).toEqual(list);
+    expect(list.toSorted((a, b) => Number(a) - Number(b))).toEqual(list);
     expect(list).toContain(s.pairingCode);
 
     await resendThroughRoutes(h.app, s.requestId, s.claimSecret);

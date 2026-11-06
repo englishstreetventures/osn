@@ -21,7 +21,7 @@ import { errorResponse } from "./response-schemas";
  */
 export function createEmailLinkRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
-  const params = t.Object({ requestId: t.String({ pattern: EMAIL_LINK_ID_PATTERN }) });
+  const requestIdParam = t.Object({ requestId: t.String({ pattern: EMAIL_LINK_ID_PATTERN }) });
   const linkSecret = t.String({ pattern: EMAIL_LINK_SECRET_PATTERN });
   return (
     new Elysia()
@@ -52,7 +52,7 @@ export function createEmailLinkRoutes(ctx: AuthRouteContext) {
           }
         },
         {
-          params,
+          params: requestIdParam,
           body: t.Object({ linkSecret }),
           response: {
             200: t.Union([
@@ -105,7 +105,7 @@ export function createEmailLinkRoutes(ctx: AuthRouteContext) {
           }
         },
         {
-          params,
+          params: requestIdParam,
           body: t.Object({
             linkSecret,
             pairingPick: t.String({ pattern: EMAIL_LINK_PICK_PATTERN }),
