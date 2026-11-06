@@ -187,17 +187,22 @@ describe("ConfirmLinkPage — what each answer shows", () => {
     expect(confirmButton().disabled).toBe(false);
   });
 
-  it("treats an answer that is neither outcome as an error", async () => {
-    // A host's async function with a missing `return` resolves `undefined`.
-    const onConfirm = vi.fn(() => Promise.resolve(undefined as unknown as ConfirmOutcome));
-    render(() => <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />);
+  // A host's async function with a missing `return` resolves `undefined`; one
+  // typed through `any` can resolve a truthy value such as a `Response`.
+  it.each([undefined, "ok", true])(
+    "treats an answer that is neither outcome (%s) as an error",
+    async (answer) => {
+      const onConfirm = vi.fn(() => Promise.resolve(answer as unknown as ConfirmOutcome));
+      render(() => <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />);
 
-    fireEvent.click(confirmButton());
-    await settle();
+      fireEvent.click(confirmButton());
+      await settle();
 
-    expect(shown(ERROR_LINE)).toHaveLength(1);
-    expect(confirmButton().textContent).toBe("Try again");
-  });
+      expect(shown(ERROR_LINE)).toHaveLength(1);
+      expect(confirmButton().textContent).toBe("Try again");
+      expect(confirmButton().disabled).toBe(false);
+    },
+  );
 
   it("sends the person back to where they started, and offers Continue only when the host can continue here", async () => {
     const onContinue = vi.fn();
@@ -316,6 +321,17 @@ describe("ConfirmLinkPage — the words for each flow", () => {
       paragraph("Confirming sets this address as the email of the account that asked."),
     ).not.toBeNull();
   });
+
+  it.each(["sign-up", "email-change"] as const)(
+    "%s keeps the address out of the browser's page translation",
+    (purpose) => {
+      render(() => (
+        <ConfirmLinkPage purpose={purpose} email={EMAIL} onConfirm={() => new Promise(() => {})} />
+      ));
+
+      expect(screen.getByText(EMAIL).getAttribute("translate")).toBe("no");
+    },
+  );
 });
 
 describe("ConfirmLinkPage — focus and what is said aloud", () => {
