@@ -636,7 +636,7 @@ test("cire-event-details", async ({ page, context, flow }) => {
       .locator("xpath=..");
     await expect(warning).toBeVisible();
     await shot(page, "legacy-event-drawer");
-    const listed = (await warning.locator("p").allTextContents()).join(" ");
+    const toFix = (await warning.locator("p").allTextContents()).join(" ");
 
     // A time set on a zone the browser cannot resolve takes its offset from
     // nowhere it can trust, so Save waits for a zone.
@@ -653,12 +653,12 @@ test("cire-event-details", async ({ page, context, flow }) => {
     await expect(save).toBeEnabled();
     await drawer.getByRole("button", { name: "Done" }).click();
     await expect(drawer).toBeHidden();
-    return { listed, waited, ...(await saveScheduleOf(LEGACY_API)) };
+    return { toFix, waited, ...(await saveScheduleOf(LEGACY_API)) };
   });
   flow.check(
     "the drawer lists each saved value to fix",
     "These saved details need fixing. Your other changes still save. Event name is required. Re-enter the start time. Re-enter the end time. Choose a timezone from the list.",
-    fixing.listed,
+    fixing.toFix,
   );
   flow.check("a time edited on that zone waits for a zone", 1, fixing.waited);
   flow.check("the fix applied", 200, fixing.status);
