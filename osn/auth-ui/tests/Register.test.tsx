@@ -644,6 +644,30 @@ describe("Register component", () => {
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
     });
 
+    it("publishes the session of a completing answer that lands after the dialog closed, and clears the stored wait", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      const late = deferred<unknown>();
+      stub.registrationStatus.mockReturnValueOnce(late.promise);
+      hoisted.adoptSession.mockResolvedValue(undefined);
+      const onCancel = vi.fn();
+      const view = renderRegister({ onCancel });
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      view.unmount();
+      late.resolve(completed());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
+      expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
+      expect(sessionStorage.getItem("osn.signup.previous")).toBeNull();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+    });
+
     it("drops a stale expired answer for a request it no longer waits on", async () => {
       stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
       const late = deferred<unknown>();

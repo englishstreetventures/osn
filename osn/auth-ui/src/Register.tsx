@@ -226,13 +226,16 @@ export function Register(props: RegisterProps) {
     } finally {
       polling = false;
     }
-    if (disposed) return;
     // The account exists and this browser holds its session cookie whatever
-    // the person did meanwhile, so a completing answer is never dropped.
+    // the person did meanwhile, so a completing answer is never dropped: the
+    // view takes it to the passkey step, and once the view is gone it is
+    // handed over without one.
     if (answer?.status === "complete") {
-      finish(answer);
+      if (disposed) void handOver(answer);
+      else finish(answer);
       return;
     }
+    if (disposed) return;
     // Any other answer about a request this tab no longer waits on is stale.
     if (waiting() !== request) return;
     if (answer === null) {
@@ -426,6 +429,25 @@ export function Register(props: RegisterProps) {
     setHandle(done.handle);
     toast.success("Email verified");
     setStep("passkey");
+  }
+
+  /**
+   * A completing answer that lands after the view is gone — the dialog was
+   * closed while the poll was out. There is no passkey step left to hold the
+   * session for, so it is published at once, as the cookie the answer set
+   * would publish it on the next load, and the stored wait and the request
+   * left for retiring are cleared so no later dialog resumes or retires it.
+   * Nothing here touches the view.
+   */
+  async function handOver(done: Extract<RegistrationStatus, { status: "complete" }>) {
+    writeStored(PENDING_KEY, null);
+    writeStored(PREVIOUS_KEY, null);
+    try {
+      await adoptSession(done.session);
+    } catch {
+      // Storage refused the session; the cookie still signs the browser in
+      // on its next load, and there is no view to say so.
+    }
   }
 
   /**

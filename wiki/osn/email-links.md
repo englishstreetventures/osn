@@ -145,6 +145,11 @@ There is no `GET` on any of them: mail scanners open links before people do.
   and at once when the tab comes back into view. A full ten-minute wait is about
   62 polls: one Worker request each, plus at most one CORS preflight per ten
   minutes (`maxAge: 600`).
+- **A completing answer is never dropped.** `Register` holds the session for
+  the passkey step and publishes it once a passkey is enrolled. When the answer
+  lands after the dialog closed, there is no passkey step: `Register` publishes
+  the session at once, as the cookie the answer set would on the next load, and
+  clears `osn.signup.pending` and `osn.signup.previous`.
 
 ## Adding a flow
 
