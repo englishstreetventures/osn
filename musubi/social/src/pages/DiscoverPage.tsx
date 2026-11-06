@@ -6,6 +6,7 @@ import { Button } from "@shared/ui/ui/button";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { EmptyNote } from "../components/EmptyNote";
 import { graphClient, recommendationClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
 
@@ -60,14 +61,7 @@ export function DiscoverPage() {
         </p>
       </div>
 
-      <Show
-        when={session()}
-        fallback={
-          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-            Sign in to discover people.
-          </div>
-        }
-      >
+      <Show when={session()} fallback={<EmptyNote>Sign in to discover people.</EmptyNote>}>
         <Show
           when={!recommendations.loading}
           fallback={
@@ -81,13 +75,13 @@ export function DiscoverPage() {
           <Show
             when={(recommendations()?.suggestions.length ?? 0) > 0}
             fallback={
-              <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
+              <EmptyNote>
                 No suggestions yet.{" "}
                 <A href="/search" class="text-foreground underline underline-offset-2">
                   Search for someone
                 </A>
                 , or join an organisation to find people you already share one with.
-              </div>
+              </EmptyNote>
             }
           >
             <div class="grid gap-3 sm:grid-cols-2">

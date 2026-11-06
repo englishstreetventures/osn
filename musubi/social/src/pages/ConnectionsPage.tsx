@@ -17,6 +17,7 @@ import {
 } from "@shared/ui/ui/dialog";
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { SectionTabs } from "../components/SectionTabs";
 import { graphClient } from "../lib/api";
@@ -158,14 +159,7 @@ export function ConnectionsPage() {
         </p>
       </div>
 
-      <Show
-        when={session()}
-        fallback={
-          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-            Sign in to view your connections.
-          </div>
-        }
-      >
+      <Show when={session()} fallback={<EmptyNote>Sign in to view your connections.</EmptyNote>}>
         <SectionTabs
           label="Connection filters"
           tabs={TABS}
@@ -180,7 +174,9 @@ export function ConnectionsPage() {
             <Show
               when={(connections()?.connections?.length ?? 0) > 0}
               fallback={
-                <EmptyState message="No connections yet. Discover people to connect with." />
+                <EmptyNote size="section">
+                  No connections yet. Discover people to connect with.
+                </EmptyNote>
               }
             >
               <div class="flex flex-col gap-1">
@@ -221,7 +217,7 @@ export function ConnectionsPage() {
           <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
             <Show
               when={(pending()?.pending.length ?? 0) > 0}
-              fallback={<EmptyState message="No pending connection requests." />}
+              fallback={<EmptyNote size="section">No pending connection requests.</EmptyNote>}
             >
               <div class="flex flex-col gap-1">
                 <For each={pending()?.pending}>
@@ -268,7 +264,7 @@ export function ConnectionsPage() {
           <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
             <Show
               when={(sent()?.sent.length ?? 0) > 0}
-              fallback={<EmptyState message="No outgoing connection requests." />}
+              fallback={<EmptyNote size="section">No outgoing connection requests.</EmptyNote>}
             >
               <div class="flex flex-col gap-1">
                 <For each={sent()?.sent}>
@@ -351,7 +347,7 @@ export function ConnectionsPage() {
           <Show when={!payload.loading} fallback={<LoadingSkeleton count={1} />}>
             <Show
               when={(blocked()?.blocks.length ?? 0) > 0}
-              fallback={<EmptyState message="You haven't blocked anyone." />}
+              fallback={<EmptyNote size="section">You haven't blocked anyone.</EmptyNote>}
             >
               <div class="flex flex-col gap-1">
                 <For each={blocked()?.blocks}>
@@ -380,14 +376,6 @@ export function ConnectionsPage() {
         </Show>
       </Show>
     </main>
-  );
-}
-
-function EmptyState(props: { message: string }) {
-  return (
-    <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-12 text-center">
-      {props.message}
-    </div>
   );
 }
 

@@ -14,13 +14,33 @@
  * the app, and the last checks prove it.
  */
 
+import type { Page } from "@playwright/test";
+
 import { DB_FILES, MUSUBI_ORG, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, signInToMusubiAsDev, test } from "../support/fixtures";
 
 const { org, member, otherOrg } = MUSUBI_ORG;
 
+const MEMBERS_ONLY = "Only members can see who belongs to this organisation.";
+
 /** Fails the routes' handle pattern, `^[a-z0-9_]+$`. */
 const BAD_HANDLE = "Not_A_Handle";
+
+/**
+ * Holds the browser's requests to exactly `url` until the returned function
+ * runs, so a check can see what the page shows while that load is in flight.
+ */
+async function hold(page: Page, url: string): Promise<() => void> {
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(url, async (route) => {
+    await released;
+    await route.continue();
+  });
+  return release;
+}
 
 /** Members `org` has, read from osn-api's database. */
 function memberRows(): number {
@@ -77,11 +97,12 @@ test("musubi-org-detail", async ({ page, flow }) => {
     true,
     await page.getByText(member.name, { exact: true }).isVisible(),
   );
-  // The owner's row is an admin's, which the page offers no Remove for.
+  // The owner's row is an admin's, which the page offers no Remove for. Each
+  // Remove button is named for its member.
   flow.check(
     "Remove offered on the member's row only",
     1,
-    await page.getByRole("button", { name: "Remove", exact: true }).count(),
+    await page.getByRole("button", { name: /^Remove/ }).count(),
   );
 
   await flow.step("rename the organisation", async () => {
@@ -100,7 +121,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
   flow.check("organisation row on the suite clock", true, onSuiteClock(saved?.created_at));
 
   await flow.step("remove the member", async () => {
-    await page.getByRole("button", { name: "Remove", exact: true }).click();
+    await page.getByRole("button", { name: `Remove @${member.handle}`, exact: true }).click();
     await expect(page.getByText(`Removed @${member.handle}`)).toBeVisible();
     await expect(page.getByText(`@${member.handle}`, { exact: true })).toHaveCount(0);
   });
@@ -125,9 +146,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
     await search.press("Enter");
     await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations/${otherOrg.handle}`);
     await expect(page.getByRole("heading", { level: 1, name: otherOrg.name })).toBeVisible();
-    await expect(
-      page.getByText("Only members can see who belongs to this organisation."),
-    ).toBeVisible();
+    await expect(page.getByText(MEMBERS_ONLY)).toBeVisible();
   });
   flow.check(
     "roster refused to a non-member",
@@ -135,9 +154,27 @@ test("musubi-org-detail", async ({ page, flow }) => {
     flow.saw(`GET osn-api /organisations/${otherOrg.handle}/members 403`),
   );
 
+  // Back to the first organisation with its roster held in flight: the page
+  // stays mounted, and the refusal the other roster drew must not stay with it.
+  const staleRefusals = await flow.step(
+    "go back to the organisation while its roster loads",
+    async () => {
+      const roster = `${ORIGINS.osnApi}/organisations/${org.handle}/members`;
+      const release = await hold(page, roster);
+      await page.goBack();
+      await expect(page.getByRole("heading", { level: 1, name: org.renamed })).toBeVisible();
+      const shown = await page.getByText(MEMBERS_ONLY).count();
+      release();
+      await expect(
+        page.getByRole("main").getByText(`@${MUSUBI_ORG.owner.handle}`, { exact: true }),
+      ).toBeVisible();
+      await page.unroute(roster);
+      return shown;
+    },
+  );
+  flow.check("no stale roster refusal while the roster loads", 0, staleRefusals);
+
   await flow.step("delete the organisation", async () => {
-    await page.goBack();
-    await expect(page.getByRole("heading", { level: 1, name: org.renamed })).toBeVisible();
     page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations`);
@@ -166,7 +203,9 @@ test("musubi-org-detail", async ({ page, flow }) => {
   // A failure other than 404 gets the general notice. osn-api refuses a handle
   // with capitals before it looks anything up. The link is added to the page
   // and clicked, so the router opens it in the app, with no second page load.
-  await flow.step("follow a link to a handle the API refuses", async () => {
+  const staleNotFound = await flow.step("follow a link to a handle the API refuses", async () => {
+    const lookup = `${ORIGINS.osnApi}/organisations/${BAD_HANDLE}`;
+    const release = await hold(page, lookup);
     await page.evaluate((href) => {
       const link = document.createElement("a");
       link.href = href;
@@ -178,9 +217,15 @@ test("musubi-org-detail", async ({ page, flow }) => {
     }, `/organisations/${BAD_HANDLE}`);
     await page.getByRole("link", { name: "Malformed organisation link" }).click();
     await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations/${BAD_HANDLE}`);
+    // The lookup is still held: the last organisation's 404 must not show for this one.
+    const shown = await page.getByText("Organisation not found.").count();
+    release();
     await expect(page.getByText("This organisation could not be loaded.")).toBeVisible();
+    await page.unroute(lookup);
     await page.evaluate(() => document.getElementById("e2e-bad-handle-link")?.remove());
+    return shown;
   });
+  flow.check("no stale not-found while the next organisation loads", 0, staleNotFound);
   flow.check(
     "malformed handle refused",
     true,

@@ -8,6 +8,7 @@ import { Label } from "@shared/ui/ui/label";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, lazy, Show, Suspense } from "solid-js";
 
+import { EmptyNote } from "../components/EmptyNote";
 import { SectionTabs } from "../components/SectionTabs";
 import { PRODUCT_NAME } from "../lib/auth";
 import { registrationClient } from "../lib/authClients";
@@ -80,14 +81,7 @@ export function SettingsPage() {
         </p>
       </div>
 
-      <Show
-        when={session()}
-        fallback={
-          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-            Sign in to manage your settings.
-          </div>
-        }
-      >
+      <Show when={session()} fallback={<EmptyNote>Sign in to manage your settings.</EmptyNote>}>
         {/* Profile onboarding banner */}
         <div class="mb-4">
           <ProfileOnboarding checkHandle={registrationClient.checkHandle} dismissible />

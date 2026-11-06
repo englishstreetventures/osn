@@ -1,7 +1,6 @@
 import { OrgClientError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
-import { clsx } from "@shared/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Badge } from "@shared/ui/ui/badge";
 import { Button } from "@shared/ui/ui/button";
@@ -12,6 +11,7 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
+import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
@@ -29,17 +29,12 @@ function statusOf(error: unknown): number | undefined {
   return error instanceof OrgClientError ? error.status : undefined;
 }
 
-/** A dashed notice in place of content that did not load (DESIGN.md: empty states). */
-function Notice(props: { message: string; class?: string }) {
+/** A load that failed for a reason other than the ones the page names. */
+function LoadFailure(props: { message: string }) {
   return (
-    <div
-      class={clsx(
-        "text-muted-foreground border-border rounded-card text-body border border-dashed text-center",
-        props.class ?? "py-12",
-      )}
-    >
-      {props.message}
-    </div>
+    <p class="text-destructive text-meta" role="alert">
+      {props.message} Reload and try again.
+    </p>
   );
 }
 
@@ -59,21 +54,24 @@ export function OrgDetailPage() {
     return t && handle ? `${t}|${handle}` : false;
   });
 
-  const [org, { refetch: refetchOrg }] = createResource(resourceKey, async (key) => {
+  const [org, { mutate: setOrg }] = createResource(resourceKey, async (key) => {
     const { token: keyToken, handle } = parseKey(key as string);
     return (await orgClient.getOrg(keyToken, handle)).organisation;
   });
 
-  const [members, { refetch: refetchMembers }] = createResource(resourceKey, (key) => {
+  const [members, { mutate: setMembers }] = createResource(resourceKey, (key) => {
     const { token: keyToken, handle } = parseKey(key as string);
     return orgClient.listMembers(keyToken, handle);
   });
 
-  // Solid throws when a resource that failed is read, so every read below
-  // checks `.error` first. A roster read by a non-member answers 403: the
+  // What shows is chosen by `state`, never by `.error`: Solid keeps a failed
+  // load's error until the next load finishes, and the page stays mounted when
+  // only the handle changes, so `.error` can belong to the organisation before.
+  // Solid also throws when a failed resource is read, so values are read only
+  // in the `ready` state. A roster read by a non-member answers 403: the
   // organisation is public, its member list is not.
-  const orgReady = () => (org.error || org.loading ? undefined : org());
-  const memberRows = () => (members.error ? undefined : members()?.members);
+  const orgReady = () => (org.state === "ready" ? org() : undefined);
+  const memberRows = () => (members.state === "ready" ? members()?.members : undefined);
 
   const [showEdit, setShowEdit] = createSignal(false);
   const [editName, setEditName] = createSignal("");
@@ -81,7 +79,7 @@ export function OrgDetailPage() {
   const [saving, setSaving] = createSignal(false);
 
   function openEdit() {
-    const o = org();
+    const o = orgReady();
     if (o) {
       setEditName(o.name);
       setEditDesc(o.description ?? "");
@@ -93,13 +91,13 @@ export function OrgDetailPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await orgClient.updateOrg(token(), params.handle, {
+      const { organisation } = await orgClient.updateOrg(token(), params.handle, {
         name: editName(),
         description: editDesc() || undefined,
       });
       toast.success("Organisation updated");
       setShowEdit(false);
-      refetchOrg();
+      setOrg(organisation);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update");
     } finally {
@@ -122,7 +120,10 @@ export function OrgDetailPage() {
     try {
       await orgClient.removeMember(token(), params.handle, profileHandle);
       toast.success(`Removed @${profileHandle}`);
-      refetchMembers();
+      setMembers(
+        (roster) =>
+          roster && { members: roster.members.filter((member) => member.handle !== profileHandle) },
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to remove member");
     }
@@ -134,7 +135,7 @@ export function OrgDetailPage() {
         when={orgReady()}
         fallback={
           <Show
-            when={org.error}
+            when={org.state === "errored"}
             fallback={
               <div class="flex flex-col gap-3">
                 <div class="bg-muted/50 h-8 w-48 animate-pulse rounded" />
@@ -142,14 +143,14 @@ export function OrgDetailPage() {
               </div>
             }
           >
-            <Notice
-              class="py-16"
-              message={
-                statusOf(org.error) === 404
-                  ? "Organisation not found."
-                  : "This organisation could not be loaded."
-              }
-            />
+            {/* No organisation to title the page: the section's own head. */}
+            <h1 class="text-foreground text-display mb-6 font-medium">Organisations</h1>
+            <Show
+              when={statusOf(org.error) === 404}
+              fallback={<LoadFailure message="This organisation could not be loaded." />}
+            >
+              <EmptyNote>Organisation not found.</EmptyNote>
+            </Show>
           </Show>
         }
       >
@@ -195,19 +196,20 @@ export function OrgDetailPage() {
                 <h2 class="text-foreground text-title font-medium">Members</h2>
               </div>
               <Show
-                when={!members.error}
+                when={members.state !== "errored"}
                 fallback={
-                  <Notice
-                    message={
-                      statusOf(members.error) === 403
-                        ? "Only members can see who belongs to this organisation."
-                        : "Members could not be loaded."
-                    }
-                  />
+                  <Show
+                    when={statusOf(members.error) === 403}
+                    fallback={<LoadFailure message="Members could not be loaded." />}
+                  >
+                    <EmptyNote size="section">
+                      Only members can see who belongs to this organisation.
+                    </EmptyNote>
+                  </Show>
                 }
               >
                 <Show
-                  when={!members.loading}
+                  when={members.state === "ready"}
                   fallback={
                     <div class="flex flex-col gap-2">
                       {Array.from({ length: 2 }, () => (
@@ -240,6 +242,7 @@ export function OrgDetailPage() {
                               variant="ghost"
                               size="sm"
                               class="h-7 max-md:h-10"
+                              aria-label={`Remove @${member.handle}`}
                               onClick={() => removeMember(member.handle)}
                             >
                               Remove
