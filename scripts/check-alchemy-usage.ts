@@ -35,13 +35,15 @@
  *    `--stage` that is neither `dev` nor `production`: without `--stage` the
  *    stage comes from `ALCHEMY_STAGE` in the environment, `--env-file` or
  *    `.env`, and a variable or expression may hold either.
- *  - all three: no console log level below `info` (`--log-level` or
- *    `ALCHEMY_LOG_LEVEL` at `all`, `trace` or `debug`), which prints Debug
- *    records, whole failure causes among them, into a public run log; and no
- *    `--log-format json` or `ALCHEMY_LOG_FORMAT=json`, under which Alchemy
- *    prints no plan for the plan summary or the production plan guard to read.
- *    A segment's own leading assignments are read, and in a workflow the
- *    step, job and workflow `env`.
+ *  - all three, in every command whether or not it runs Alchemy itself (a
+ *    package script passes its arguments on): `--log-level` only at `info`,
+ *    `warn`, `warning`, `error`, `fatal` or `none`, since a lower level
+ *    prints Debug records, whole failure causes among them, into a public run
+ *    log; `--log-format` only as `pretty`, since under `json` Alchemy prints
+ *    no plan for the plan summary or the production plan guard to read; and
+ *    `ALCHEMY_LOG_LEVEL` and `ALCHEMY_LOG_FORMAT` never named, in a command
+ *    or as a key of any workflow, job or step `env`: a variable reaches every
+ *    Alchemy run after it, which the guard cannot follow.
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
  *    state constructor name (`localState`, `inMemoryState`, `postgresState`,
  *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
@@ -82,14 +84,26 @@ const ALCHEMY_COMMAND = /(?:^|[\s;&|(`'"/])alchemy(?:@\S+)?\s+\S/m;
 /** The start of an Alchemy invocation inside a command line. */
 const INVOCATION = String.raw`\balchemy(?:@\S+)?\s+`;
 
-/** A console floor below Info, as `--log-level` and `ALCHEMY_LOG_LEVEL` spell it. */
-const LOW_LOG_LEVEL = /(?:all|trace|debug)/;
+/** Alchemy's console log settings as environment variables. */
+const LOG_SETTING_VARIABLE = /\bALCHEMY_LOG_(?:LEVEL|FORMAT)\b/;
 
-const LOW_LOG_LEVEL_WHY =
-  "a console log level below info prints Debug records, which carry whole failure causes, into a public run log";
+/** A `--log-level` or `--log-format` flag in a command's words, and its value. */
+const LOG_FLAG = /(?:^|\s)--log-(level|format)(?:=|\s+)(\S*)/gi;
 
-const JSON_LOG_FORMAT_WHY =
-  "under the json log format Alchemy prints no plan, which the plan summary and the production plan guard read";
+/** The values each flag may take: Info and above, and the text format. */
+const ALLOWED_LOG_VALUES = {
+  level: new Set(["info", "warn", "warning", "error", "fatal", "none"]),
+  format: new Set(["pretty"]),
+} as const;
+
+export const LOG_LEVEL_WHY =
+  "`--log-level` below info, or at a value the guard cannot read, prints Debug records, which carry whole failure causes, into a public run log";
+
+export const LOG_FORMAT_WHY =
+  "`--log-format` other than pretty: under json Alchemy prints no plan, which the plan summary and the production plan guard read";
+
+export const LOG_VARIABLE_WHY =
+  "ALCHEMY_LOG_LEVEL and ALCHEMY_LOG_FORMAT reach every Alchemy run after them, which the guard cannot follow; pass `--log-level` or `--log-format` instead";
 
 const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] = [
   {
@@ -123,20 +137,6 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] =
   {
     pattern: new RegExp(String.raw`${INVOCATION}(?:[^\n]*?\s)?(?<!\bstate\s+)logs(?=\s|$)`),
     why: "prints a stage's Worker logs, which carry request paths, into a public run log",
-  },
-  {
-    pattern: new RegExp(
-      String.raw`(?:${INVOCATION}(?:[^\n]*?\s)?--log-level(?:=|\s+)|(?:^|\s)ALCHEMY_LOG_LEVEL=)${LOW_LOG_LEVEL.source}(?=\s|$)`,
-      "i",
-    ),
-    why: LOW_LOG_LEVEL_WHY,
-  },
-  {
-    pattern: new RegExp(
-      String.raw`(?:${INVOCATION}(?:[^\n]*?\s)?--log-format(?:=|\s+)|(?:^|\s)ALCHEMY_LOG_FORMAT=)json(?=\s|$)`,
-      "i",
-    ),
-    why: JSON_LOG_FORMAT_WHY,
   },
 ];
 
@@ -345,6 +345,13 @@ const scriptSegments = (
 
 export function checkPackageScripts(where: string, manifestText: string): Finding[] {
   const findings: Finding[] = [];
+  for (const [name, value] of Object.entries(
+    (JSON.parse(manifestText) as Manifest).scripts ?? {},
+  )) {
+    for (const problem of logSettingProblems(value)) {
+      findings.push({ where: `${where} scripts.${name}`, problem });
+    }
+  }
   for (const { at, segment } of scriptSegments(where, manifestText)) {
     if (inlineValue(segment, "DO_NOT_TRACK") !== "1") {
       findings.push({ where: at, problem: "an Alchemy command must start with DO_NOT_TRACK=1" });
@@ -384,21 +391,29 @@ interface CompositeAction {
   readonly runs?: { readonly steps?: readonly Step[] };
 }
 
-/** A step's refused console log settings: for each, the first env block that sets it decides. */
-function logSettingProblems(levels: readonly (EnvBlock | undefined)[]): string[] {
-  const first = (name: string): string | undefined => {
-    const value = levels.find((env) => env !== undefined && env[name] !== undefined)?.[name];
-    return value === undefined ? undefined : String(value);
-  };
-  const level = first("ALCHEMY_LOG_LEVEL");
-  const format = first("ALCHEMY_LOG_FORMAT");
-  return [
-    ...(level !== undefined && new RegExp(`^${LOW_LOG_LEVEL.source}$`, "i").test(level)
-      ? [LOW_LOG_LEVEL_WHY]
-      : []),
-    ...(format !== undefined && format.toLowerCase() === "json" ? [JSON_LOG_FORMAT_WHY] : []),
-  ];
+/** The log settings a command refuses, read from its words as the shell hands them over. */
+function logSettingProblems(command: string): string[] {
+  const problems = new Set<string>();
+  if (LOG_SETTING_VARIABLE.test(command)) problems.add(LOG_VARIABLE_WHY);
+  const segments = joinContinuations(command)
+    .split("\n")
+    .flatMap((line) => line.split(COMMAND_SEPARATOR))
+    .map(readSegment);
+  for (const segment of segments) {
+    for (const [, kind = "", value = ""] of segment.text.matchAll(LOG_FLAG)) {
+      const level = kind.toLowerCase() === "level";
+      const allowed = level ? ALLOWED_LOG_VALUES.level : ALLOWED_LOG_VALUES.format;
+      if (!allowed.has(value.toLowerCase())) problems.add(level ? LOG_LEVEL_WHY : LOG_FORMAT_WHY);
+    }
+  }
+  return [...problems];
 }
+
+/** An env block that sets either of Alchemy's log variables, whatever the value. */
+const envLogProblems = (where: string, env: EnvBlock | undefined): Finding[] =>
+  Object.keys(env ?? {}).some((key) => LOG_SETTING_VARIABLE.test(key))
+    ? [{ where, problem: LOG_VARIABLE_WHY }]
+    : [];
 
 /** The first env block that sets `DO_NOT_TRACK` decides; none set means on. */
 const telemetryOff = (...levels: readonly (EnvBlock | undefined)[]): boolean => {
@@ -413,10 +428,12 @@ function checkSteps(
 ): Finding[] {
   const findings: Finding[] = [];
   for (const [index, step] of steps.entries()) {
+    const at = `${where}.steps[${index}]`;
+    findings.push(...envLogProblems(`${at}.env`, step.env));
     if (typeof step.run !== "string") continue;
+    for (const problem of logSettingProblems(step.run)) findings.push({ where: at, problem });
     const segments = alchemySegments(step.run);
     if (segments.length === 0) continue;
-    const at = `${where}.steps[${index}]`;
     const off = telemetryOff(step.env, ...outer);
     const segmentOff = (segment: Segment): boolean => {
       const inline = inlineValue(segment, "DO_NOT_TRACK");
@@ -425,9 +442,6 @@ function checkSteps(
     if (!segments.every(segmentOff)) {
       findings.push({ where: at, problem: 'an Alchemy step needs DO_NOT_TRACK: "1" in its env' });
     }
-    for (const problem of logSettingProblems([step.env, ...outer])) {
-      findings.push({ where: at, problem });
-    }
     for (const segment of segments) findings.push(...forbidden(at, segment));
   }
   return findings;
@@ -435,9 +449,14 @@ function checkSteps(
 
 export function checkWorkflow(where: string, yamlText: string): Finding[] {
   const workflow = (Bun.YAML.parse(yamlText) ?? {}) as Workflow;
-  return Object.entries(workflow.jobs ?? {}).flatMap(([jobId, job]) =>
-    checkSteps(`${where} jobs.${jobId}`, job.steps ?? [], [job.env, workflow.env]),
-  );
+  const findings = envLogProblems(`${where} env`, workflow.env);
+  for (const [jobId, job] of Object.entries(workflow.jobs ?? {})) {
+    findings.push(...envLogProblems(`${where} jobs.${jobId}.env`, job.env));
+    findings.push(
+      ...checkSteps(`${where} jobs.${jobId}`, job.steps ?? [], [job.env, workflow.env]),
+    );
+  }
+  return findings;
 }
 
 export function checkCompositeAction(where: string, yamlText: string): Finding[] {

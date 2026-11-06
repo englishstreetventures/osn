@@ -6,6 +6,9 @@ import {
   checkScriptsRunAsCi,
   checkStackSource,
   checkWorkflow,
+  LOG_FORMAT_WHY,
+  LOG_LEVEL_WHY,
+  LOG_VARIABLE_WHY,
 } from "../check-alchemy-usage";
 
 const manifest = (scripts: Record<string, string>) => JSON.stringify({ name: "x", scripts });
@@ -600,52 +603,125 @@ jobs:
 });
 
 describe("console log settings that reach a public run log", () => {
+  const problems = (findings: readonly { readonly problem: string }[]) =>
+    findings.map((finding) => finding.problem);
+
   test.each([
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level debug",
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level=trace",
     "CI=true DO_NOT_TRACK=1 bun alchemy --log-level ALL plan --stage dev",
-    "CI=true DO_NOT_TRACK=1 ALCHEMY_LOG_LEVEL=debug bun alchemy plan --stage dev",
-  ])("refuses %j, which prints Debug records", (script) => {
-    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+    'CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level "debug"',
+    'bun run deploy:dev -- --log-level "$LEVEL"',
+    "bun run deploy:dev -- --log-level debug",
+  ])("refuses %j, which prints Debug records or a level it cannot read", (script) => {
+    expect(problems(checkPackageScripts("p", manifest({ x: script })))).toEqual([LOG_LEVEL_WHY]);
   });
 
   test.each([
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run --log-format json",
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-format=json",
-    "CI=true DO_NOT_TRACK=1 ALCHEMY_LOG_FORMAT=json bun alchemy plan --stage dev",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-format 'json'",
+    "bun run plan:production -- --log-format json",
   ])("refuses %j, under which Alchemy prints no plan", (script) => {
-    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+    expect(problems(checkPackageScripts("p", manifest({ x: script })))).toEqual([LOG_FORMAT_WHY]);
+  });
+
+  test.each([
+    "CI=true DO_NOT_TRACK=1 ALCHEMY_LOG_LEVEL=debug bun alchemy plan --stage dev",
+    "CI=true DO_NOT_TRACK=1 ALCHEMY_LOG_LEVEL='debug' bun alchemy plan --stage dev",
+    "CI=true DO_NOT_TRACK=1 env ALCHEMY_LOG_LEVEL=debug bun alchemy plan --stage dev",
+    "export ALCHEMY_LOG_LEVEL=debug && CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev",
+    "CI=true DO_NOT_TRACK=1 ALCHEMY_LOG_FORMAT=pretty bun alchemy plan --stage dev",
+    "ALCHEMY_LOG_FORMAT=json bun run plan:dev",
+  ])("refuses %j, whose variable reaches runs the guard cannot follow", (script) => {
+    expect(problems(checkPackageScripts("p", manifest({ x: script })))).toEqual([LOG_VARIABLE_WHY]);
   });
 
   test.each([
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level info",
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level=warn",
+    "CI=true DO_NOT_TRACK=1 bun alchemy --log-level info plan --stage dev",
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-format pretty",
+    "bun run deploy:dev -- --log-level error",
   ])("passes %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
   });
 
-  test.each([
-    { env: 'env:\n  DO_NOT_TRACK: "1"\n  ALCHEMY_LOG_LEVEL: debug', stepEnv: "" },
-    { env: TRACK_OFF, stepEnv: "        env:\n          ALCHEMY_LOG_LEVEL: TRACE" },
-    { env: TRACK_OFF, stepEnv: "        env:\n          ALCHEMY_LOG_FORMAT: json" },
-  ])("refuses a workflow env that sets either for an Alchemy step, %j", ({ env, stepEnv }) => {
-    expect(
-      checkWorkflow("w", blockWorkflow(env, stepEnv, ["bun alchemy deploy --stage dev --yes"])),
-    ).toHaveLength(1);
-  });
+  const DEPLOY = ["bun alchemy deploy --stage dev --yes"];
 
-  test("passes a workflow env at info, and a step's own value over the workflow's", () => {
+  test("refuses either variable in the workflow, a job or a step env, each where it is set, whatever the value", () => {
     expect(
       checkWorkflow(
         "w",
-        blockWorkflow(
-          'env:\n  DO_NOT_TRACK: "1"\n  ALCHEMY_LOG_LEVEL: debug',
-          "        env:\n          ALCHEMY_LOG_LEVEL: info",
-          ["bun alchemy deploy --stage dev --yes"],
+        blockWorkflow('env:\n  DO_NOT_TRACK: "1"\n  ALCHEMY_LOG_LEVEL: debug', "", DEPLOY),
+      ),
+    ).toEqual([{ where: "w env", problem: LOG_VARIABLE_WHY }]);
+    expect(
+      checkWorkflow(
+        "w",
+        blockWorkflow(TRACK_OFF, "        env:\n          ALCHEMY_LOG_FORMAT: pretty", DEPLOY),
+      ),
+    ).toEqual([{ where: "w jobs.a.steps[0].env", problem: LOG_VARIABLE_WHY }]);
+    expect(
+      checkWorkflow(
+        "w",
+        blockWorkflow('env:\n  DO_NOT_TRACK: "1"\n  ALCHEMY_LOG_LEVEL: ${{ vars.LEVEL }}', "", [
+          "bun run deploy:dev",
+        ]),
+      ),
+    ).toEqual([{ where: "w env", problem: LOG_VARIABLE_WHY }]);
+    const jobEnv = `
+name: t
+on: workflow_dispatch
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    env:
+      DO_NOT_TRACK: "1"
+      ALCHEMY_LOG_LEVEL: info
+    steps:
+      - run: bun alchemy deploy --stage dev --yes
+`;
+    expect(checkWorkflow("w", jobEnv)).toEqual([
+      { where: "w jobs.a.env", problem: LOG_VARIABLE_WHY },
+    ]);
+  });
+
+  test.each([
+    { lines: ["export ALCHEMY_LOG_LEVEL=debug", "bun alchemy deploy --stage dev --yes"] },
+    { lines: ['echo "ALCHEMY_LOG_LEVEL=debug" >> "$GITHUB_ENV"'] },
+  ])("refuses a step whose commands name either variable, $lines", ({ lines }) => {
+    expect(problems(checkWorkflow("w", blockWorkflow(TRACK_OFF, "", lines)))).toEqual([
+      LOG_VARIABLE_WHY,
+    ]);
+  });
+
+  test("refuses a step that passes a package script a low log level", () => {
+    expect(
+      problems(
+        checkWorkflow(
+          "w",
+          blockWorkflow(TRACK_OFF, "", ["bun run deploy:dev -- --log-level debug"]),
         ),
       ),
-    ).toEqual([]);
+    ).toEqual([LOG_LEVEL_WHY]);
+  });
+
+  test("refuses either variable in a composite action's step env", () => {
+    const action = `
+name: a
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        DO_NOT_TRACK: "1"
+        ALCHEMY_LOG_FORMAT: json
+      run: bun alchemy deploy --stage dev --yes
+`;
+    expect(checkCompositeAction("a", action)).toEqual([
+      { where: "a runs.steps[0].env", problem: LOG_VARIABLE_WHY },
+    ]);
   });
 
   test("refuses makeBucketState in a stack file, called or not", () => {

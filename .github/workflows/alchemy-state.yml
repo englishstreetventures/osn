@@ -10,9 +10,10 @@ name: Alchemy state store
 #
 #   action: bootstrap  `alchemy state bootstrap --backend cloudflare`: deploys
 #                      the store when absent; when it is serving, refreshes
-#                      credentials and upgrades it only if its version differs
-#                      from the pinned @alchemy.run/cloudflare's. The tier's
-#                      token needs Secrets Store edit.
+#                      credentials, upgrades it when its version is older
+#                      than the pinned @alchemy.run/cloudflare's, and refuses
+#                      one that is newer. The tier's token needs Secrets Store
+#                      edit.
 # Each run first checks that the tier's token reaches exactly one account,
 # the one its CLOUDFLARE_ACCOUNT_ID names, and on dev that it acts on no zone
 # of another account and no production zone, and does act on the DEV_DOMAIN
