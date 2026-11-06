@@ -1607,7 +1607,7 @@ full-width filled pill, `size="lg"` with `max-md:h-11`, so 40px on a desktop and
 | --- | --- | --- | --- |
 | ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and what to do if you did not | Confirm |
 | confirming | Confirm this email | The same; after 10 seconds, "This is taking longer than usual. Keep this page open." | Confirming…, disabled |
-| error | Confirm this email | A danger `Notice`, "We couldn't confirm this email just now.", above the ready lines | Try again |
+| error | Confirm this email | The ready lines, then a danger `Notice`, "We couldn't confirm this email just now.", directly above the button, where `CheckEmailView` puts its error too | Try again |
 | confirmed | Confirmed | "Go back to where you started to …" and "You can close this page", or "Continue to …" with `onContinue` | none, or Continue |
 | expired | This link no longer works | It has expired or was used; if you confirmed it already, carry on where you started; if not, ask for a new link there | none |
 
