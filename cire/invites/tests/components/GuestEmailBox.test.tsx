@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GuestEmailBox } from "../../src/components/GuestEmailBox";
-import type { FamilyMember } from "../../src/components/types";
+import type { FamilyMember, MemberEmail } from "../../src/components/types";
 import { description } from "../test-support/described";
 
 const ada: FamilyMember = {
@@ -74,5 +75,85 @@ describe("GuestEmailBox", () => {
     );
     expect(field.hasAttribute("aria-describedby")).toBe(false);
     expect(field.hasAttribute("aria-invalid")).toBe(false);
+  });
+
+  describe("after the RSVP deadline", () => {
+    const hostsAdded: MemberEmail = { address: "ada@example.test", source: "organiser_attested" };
+
+    // An address is not a reply, but the hosts have stopped taking them: the
+    // page shows what is on file and the way to remove it, and nothing to add.
+    it("offers removal of a stored address and no way to change it", async () => {
+      const onChange = vi.fn();
+      render(() => (
+        <GuestEmailBox
+          apiUrl="https://api.test"
+          member={ada}
+          email={hostsAdded}
+          closed
+          onChange={onChange}
+          onMemberRequired={() => {}}
+        />
+      ));
+      expect(screen.getByText("ada@example.test")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Change email" })).toBeNull();
+      expect(screen.queryByLabelText("Your email, Ada")).toBeNull();
+      expect(screen.getByRole("status").textContent).toMatch(/RSVPs have closed/);
+      expect(document.body.textContent).not.toMatch(/Change it if/);
+
+      fetchMock.mockResolvedValueOnce(Response.json({ email: null }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove email" }));
+      await waitFor(() => expect(onChange).toHaveBeenCalledWith(null));
+      // The removal is announced, nothing offers to add the address again,
+      // and the heading holds focus.
+      expect(screen.getByRole("status").textContent).toMatch(/won’t email that address/);
+      expect(screen.getByRole("status").textContent).not.toMatch(/add it again/);
+      expect(screen.queryByLabelText("Your email, Ada")).toBeNull();
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading")));
+    });
+
+    // The clock passes the deadline under a guest who is typing: the form goes,
+    // the closed line is announced, and focus lands on the heading, not the page.
+    it("closes the form under a guest who is typing and moves focus to the heading", async () => {
+      const [closed, setClosed] = createSignal(false);
+      render(() => (
+        <GuestEmailBox
+          apiUrl="https://api.test"
+          member={ada}
+          email={null}
+          closed={closed()}
+          onChange={() => {}}
+          onMemberRequired={() => {}}
+        />
+      ));
+      const field = screen.getByLabelText("Your email, Ada");
+      field.focus();
+      expect(document.activeElement).toBe(field);
+      setClosed(true);
+      await waitFor(() => expect(screen.queryByLabelText("Your email, Ada")).toBeNull());
+      expect(screen.getByRole("status").textContent).toMatch(/RSVPs have closed/);
+      expect(document.activeElement).toBe(screen.getByRole("heading"));
+    });
+
+    // The page's clock can run behind the server's: the server's refusal is the
+    // verdict, and the form goes instead of inviting a retry.
+    it("closes the form when the server says RSVPs have closed", async () => {
+      render(() => (
+        <GuestEmailBox
+          apiUrl="https://api.test"
+          member={ada}
+          email={null}
+          onChange={() => {}}
+          onMemberRequired={() => {}}
+        />
+      ));
+      fireEvent.input(screen.getByLabelText("Your email, Ada"), {
+        target: { value: "ada@example.test" },
+      });
+      fireEvent.click(screen.getByRole("checkbox", { name: /emails about this wedding/ }));
+      fetchMock.mockResolvedValueOnce(Response.json({ error: "rsvp_closed" }, { status: 403 }));
+      fireEvent.click(screen.getByRole("button", { name: "Add email" }));
+      await waitFor(() => expect(screen.queryByLabelText("Your email, Ada")).toBeNull());
+      expect(screen.getByRole("status").textContent).toMatch(/RSVPs have closed/);
+    });
   });
 });

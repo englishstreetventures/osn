@@ -217,3 +217,54 @@ it("'Not you?' sends one request while one is in flight, and a retry clears the 
   expect(await view.findByText("Who are you?")).toBeTruthy();
   expect(view.queryByRole("alert")).toBeNull();
 });
+
+// Once RSVPs have closed, the "Wedding emails" box takes no new address. A
+// member with none on file has nothing to add or remove, so gets no box; one
+// with an address keeps the box to remove it.
+function renderClosed(initial: ClaimResult) {
+  const [result, setResult] = createSignal<ClaimResult>(initial);
+  const view = render(() => (
+    <LoginSection
+      apiUrl="https://api.test"
+      result={result()}
+      rsvpDeadlineState="closed"
+      onClaimed={() => {}}
+      onMemberChange={(update) => setResult(update(result()))}
+    />
+  ));
+  return { view, result };
+}
+
+it("shows no email box to a member with no address once RSVPs have closed", () => {
+  const { view } = renderClosed(household([member("Chidi"), member("Ada")], "g-Ada"));
+  expect(view.queryByRole("region", { name: "Wedding emails" })).toBeNull();
+});
+
+it("keeps the email box, with removal only, for a member whose address is on file after close", async () => {
+  const email = { address: "ada@example.test", source: "guest" } as const;
+  const initial = household([member("Chidi"), member("Ada")], "g-Ada");
+  const { view } = renderClosed({ ...initial, member: { guestId: "g-Ada", email } });
+  const box = await view.findByRole("region", { name: "Wedding emails" });
+  expect(box.textContent).toContain("ada@example.test");
+  expect(view.queryByRole("button", { name: "Change email" })).toBeNull();
+});
+
+// Removing the address empties the member's record, which is the condition
+// that kept the box away from a member who never had one. The box stays: its
+// status line carries the removal and its heading holds focus.
+it("keeps the email box mounted, with its removal note, after the member removes the address once closed", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(Response.json({ email: null }))),
+  );
+  const email = { address: "ada@example.test", source: "guest" } as const;
+  const initial = household([member("Chidi"), member("Ada")], "g-Ada");
+  const { view, result } = renderClosed({ ...initial, member: { guestId: "g-Ada", email } });
+  fireEvent.click(await view.findByRole("button", { name: "Remove email" }));
+  await waitFor(() => expect(result().member).toEqual({ guestId: "g-Ada" }));
+  const box = view.getByRole("region", { name: "Wedding emails" });
+  expect(box.querySelector("output")?.textContent).toMatch(/Removed/);
+  await waitFor(() =>
+    expect(document.activeElement).toBe(view.getByRole("heading", { name: "Wedding emails" })),
+  );
+});

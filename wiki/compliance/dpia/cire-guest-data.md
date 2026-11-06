@@ -12,7 +12,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-11-06
 ---
 
 # DPIA — Cire guest data (special-category dietary)
@@ -121,7 +121,8 @@ final sign-off now turns only on the residual retention gaps below.
   organiser attests to on their behalf. An organiser-added address was not
   obtained from the guest (Art. 14): the attestation commits the organiser to
   passing on the guest notice, which the portal links under the box, and the
-  invite shows the guest "Your hosts added this" with Change and Remove. The
+  invite shows the guest "Your hosts added this" with Change and Remove, and
+  with Remove alone once the RSVP deadline has passed. The
   household sees only the chosen member's own address, never a list, but
   anyone holding the code who picks that member sees it — the household trust
   model that already shows every member's dietary answers. `guest` therefore

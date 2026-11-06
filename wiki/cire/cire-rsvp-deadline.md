@@ -7,7 +7,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-budget]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-06
 ---
 # RSVP deadline
 
@@ -76,6 +76,9 @@ Locking guests out of an invite because of a data problem is the worse failure. 
 | Host-preview family | Already 403 | Preview sessions never write real RSVP data, deadline or not. |
 | `PUT` / `DELETE /api/plus-one/:guestId` (the household's plus-one) | **Yes** — 403 `rsvp_closed` | Same predicate and instant as the reply: the plus-one prompt locks when the replies do ([[cire-plus-ones]]). |
 | `PUT …/plus-one` permission routes (organiser) | **No** | Same reasoning as the organiser-recorded reply. |
+| `PUT /api/claim/member/email` (the guest's own address) | **Yes** — 403 `rsvp_closed` | Once RSVPs close the hosts take no new address from a guest. The seat's other refusals (preview, member step off, member required or changed) answer first. The invite shows no form, and a member with no address on file gets no box ([[cire-auth]]). |
+| `DELETE /api/claim/member/email` | **No** | A guest can always take their address back. A removal after the deadline cannot be undone by the guest, because giving an address back is a save. |
+| Organiser import and change apply (`Guest Email`) | **No** | Same reasoning as the organiser-recorded reply: the hosts keep control of their own list. |
 
 Enforcement lives on the **write**, not only in the UI: a stale tab, or anything talking to the API directly, must not be able to slip a late reply in. The route reads the deadline in the same join it already makes for the family's `kind`, so the gate costs no extra round-trip — and **fails closed on a zero-row join**, since both gates read that one result and optional chaining would have made a missing row answer "allow" to each of them.
 

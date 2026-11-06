@@ -962,6 +962,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         guestId: GUEST_1,
         weddingId: BOOTSTRAP_WEDDING_ID,
         email: address,
+        rsvpClosed: false,
         optOuts: 0,
       };
 
@@ -1016,6 +1017,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         guestId: GUEST_1,
         weddingId: BOOTSTRAP_WEDDING_ID,
         email: oldAddress,
+        rsvpClosed: false,
         optOuts: 1,
       };
 

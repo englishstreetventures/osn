@@ -561,6 +561,7 @@ type GuestEmailBlockReason =
   | "member_changed"
   | "invalid"
   | "consent_outdated"
+  | "deadline"
   | "too_many_changes"
   | "attestation_required"
   | "attestation_stale";

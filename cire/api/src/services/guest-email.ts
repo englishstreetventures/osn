@@ -1,9 +1,10 @@
-import { emailSuppressions, families, guests } from "@cire/db";
+import { emailSuppressions, families, guests, weddings } from "@cire/db";
 import { GUEST_EMAIL_CONSENT } from "@cire/guest-email";
 import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitBatch, DbService, dbQuery } from "../db";
+import { isRsvpClosed } from "../lib/rsvp-deadline";
 import { metricGuestEmailChanged } from "../metrics";
 import type { MemberEmail } from "../schemas/claim";
 import {
@@ -78,6 +79,8 @@ interface Seat {
   readonly guestId: string;
   readonly weddingId: string;
   readonly email: string | null;
+  /** The wedding's RSVP deadline has passed: the seat takes no new address. */
+  readonly rsvpClosed: boolean;
 }
 
 /** A seat about to take an address: its opt-outs counted up to the cap. */
@@ -113,6 +116,8 @@ function resolveSeat(
           weddingId: families.weddingId,
           guestId: guests.id,
           email: guests.email,
+          rsvpDeadline: weddings.rsvpDeadline,
+          rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
           // Bounded: the count stops at the cap, the one value the save
           // compares it with. Keyed by the session's member, the only seat
           // this read can answer for.
@@ -122,6 +127,9 @@ function resolveSeat(
               : sql<null>`null`,
         })
         .from(families)
+        // Inner, as the reply route's read is: a household with no wedding
+        // row is refused, never read as a wedding with no deadline.
+        .innerJoin(weddings, eq(weddings.id, families.weddingId))
         .leftJoin(
           guests,
           and(
@@ -140,7 +148,12 @@ function resolveSeat(
       return yield* refuse("member_required");
     }
     if (request.bodyMember !== request.sessionMember) return yield* refuse("member_changed");
-    const seat: Seat = { guestId: row.guestId, weddingId: row.weddingId, email: row.email };
+    const seat: Seat = {
+      guestId: row.guestId,
+      weddingId: row.weddingId,
+      email: row.email,
+      rsvpClosed: isRsvpClosed(row.rsvpDeadline, row.rsvpDeadlineTimezone, new Date()),
+    };
     return request.countOptOuts === true ? { ...seat, optOuts: Number(row.optOuts ?? 0) } : seat;
   });
 }

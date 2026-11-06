@@ -29,7 +29,7 @@ const { level = 2 } = Astro.props
 const Section = level === 2 ? 'h2' : 'h3'
 const Sub = level === 2 ? 'h3' : 'h4'
 
-const updated = '2026-11-02'
+const updated = '2026-11-06'
 
 // The third-party lists are generated from the consent vendor registry, so the
 // notice cannot disagree with what the guest site's consent framework governs:
@@ -189,7 +189,9 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
       to your hosts when they add it. Remove the address on your invitation to withdraw it at
       any time, and we delete it. After that we will not email it to you about this wedding,
       even if it is added again, unless you add it back yourself; and if your hosts added it,
-      we will not email it to anyone else at the wedding either.
+      we will not email it to anyone else at the wedding either. Once RSVPs have closed you
+      can still remove your address, but you can no longer add or change one on your
+      invitation.
     </li>
     <li>
       <strong>The first-opened timestamp</strong> — so your hosts can tell a delivered
