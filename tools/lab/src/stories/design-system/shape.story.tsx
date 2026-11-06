@@ -237,8 +237,8 @@ function Puck(props: { duration: string; easing: string; gone: boolean }) {
 }
 
 /**
- * Three durations by two easings. A duration you cannot see is a number; press
- * play and the six pucks leave together and arrive apart.
+ * Every duration token by every easing. A duration you cannot see is a number;
+ * press play and the pucks leave together and arrive apart.
  */
 export const Motion: Story<MotionArgs> = {
   args: { loop: false },
@@ -256,9 +256,10 @@ export const Motion: Story<MotionArgs> = {
         intro={
           <>
             <Mono>fast</Mono> for a hover or a toggle, <Mono>base</Mono> for a panel,{" "}
-            <Mono>slow</Mono> for something that moves across the screen. <Mono>ease-out</Mono> is
-            for things arriving; <Mono>ease-in-out</Mono> for things that go somewhere and stay
-            there. Custom properties, read inside a component's own <Mono>transition</Mono>.
+            <Mono>slow</Mono> for something that moves across the screen, <Mono>exit</Mono> for an
+            overlay closing. <Mono>ease-out</Mono> is for things arriving; <Mono>ease-in-out</Mono>{" "}
+            for things that go somewhere and stay there. Custom properties, read inside a
+            component's own <Mono>transition</Mono>.
           </>
         }
       >

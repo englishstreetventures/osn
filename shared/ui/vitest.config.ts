@@ -22,7 +22,7 @@ import { playwright } from "@vitest/browser-playwright";
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
-import { emulateMedia } from "./tests/test-support/browser-commands.ts";
+import { emulateMedia, movePointer } from "./tests/test-support/browser-commands.ts";
 
 /**
  * Escape hatch for environments that ship a prebuilt Chromium whose build number
@@ -65,8 +65,9 @@ export default defineConfig({
             headless: true,
             instances: [{ browser: "chromium" }],
             // Lets a test flip `prefers-reduced-motion` for itself instead of
-            // running the whole suite twice under a second browser instance.
-            commands: { emulateMedia },
+            // running the whole suite twice under a second browser instance,
+            // and move the real pointer in steps.
+            commands: { emulateMedia, movePointer },
           },
         },
       },

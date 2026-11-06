@@ -564,7 +564,10 @@ describe("the accent variant", () => {
     await open();
     const moving = getComputedStyle(screen.getByRole("menu"));
     expect(moving.animationName).toBe("ui-enter");
-    expect(moving.getPropertyValue("--ui-enter-scale").trim()).toBe("0.96");
+    // The shared entry scale, read back rather than written here.
+    expect(moving.getPropertyValue("--ui-enter-scale").trim()).toBe(
+      getComputedStyle(document.documentElement).getPropertyValue("--ui-scale-enter").trim(),
+    );
     await userEvent.keyboard("{Escape}");
     await settle();
     await emulateMedia({ reducedMotion: "reduce" });
