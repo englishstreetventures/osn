@@ -30,7 +30,7 @@ import { CI_USER_AGENT } from "../smoke-check";
 
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
 const ZONE_ID = "fedcba9876543210fedcba9876543210";
-const DNS_TOKEN = "dev-pages-dns-token-for-tests";
+
 const API_TOKEN = "dev-deploy-token-for-tests";
 const GH_TOKEN = "github-job-token-for-tests";
 const DOMAIN = "example.dev";
@@ -49,7 +49,8 @@ const BASE_ENV: Record<string, string> = {
   GITHUB_RUN_ATTEMPT: "1",
   GITHUB_REPOSITORY: "englishstreetventures/osn",
 };
-const DNS_ENV = { ...BASE_ENV, CLOUDFLARE_PAGES_DNS_TOKEN: DNS_TOKEN };
+/** The Pages and DNS steps hold the dev deploy token, as the Alchemy steps do. */
+const PAGES_ENV = { ...BASE_ENV, CLOUDFLARE_API_TOKEN: API_TOKEN };
 const DEPLOY_ENV = { ...BASE_ENV, CLOUDFLARE_API_TOKEN: API_TOKEN, OSN_DEPLOY_TIER: "dev" };
 const GH_ENV = { ...BASE_ENV, GITHUB_TOKEN: GH_TOKEN };
 
@@ -471,15 +472,14 @@ describe("domain-move-rehearsal.ts", () => {
 
   test("R2: an unknown step, no --out, or a missing DEV_DOMAIN, account or token exits 2 before any request", async () => {
     for (const [args, env] of [
-      [["teleport", ...OUT], DNS_ENV],
-      [["detach"], DNS_ENV],
-      [["detach", ...OUT], { ...DNS_ENV, DEV_DOMAIN: undefined }],
-      [["detach", ...OUT], { ...DNS_ENV, CLOUDFLARE_ACCOUNT_ID: "" }],
-      [["detach", ...OUT], { ...DNS_ENV, CLOUDFLARE_PAGES_DNS_TOKEN: undefined }],
+      [["teleport", ...OUT], PAGES_ENV],
+      [["detach"], PAGES_ENV],
+      [["detach", ...OUT], { ...PAGES_ENV, DEV_DOMAIN: undefined }],
+      [["detach", ...OUT], { ...PAGES_ENV, CLOUDFLARE_ACCOUNT_ID: "" }],
+      [["detach", ...OUT], { ...PAGES_ENV, CLOUDFLARE_API_TOKEN: undefined }],
       [["flip", ...OUT], { ...DEPLOY_ENV, CLOUDFLARE_API_TOKEN: " " }],
-      [["upload-reach", ...OUT], BASE_ENV],
       [["watch", ...OUT], BASE_ENV],
-      [["preflight", ...OUT], { ...DNS_ENV, GITHUB_RUN_ID: "" }],
+      [["preflight", ...OUT], { ...PAGES_ENV, GITHUB_RUN_ID: "" }],
     ] as const) {
       const result = await run([...args], world(), env);
       expect({ args, code: result.code, calls: result.calls.length }).toEqual({
@@ -493,7 +493,7 @@ describe("domain-move-rehearsal.ts", () => {
   test.each(["cireweddings.com", "next.musubi.social", "pulse.events", "x.pages.dev"])(
     "R3: DEV_DOMAIN %s exits 2 before any request",
     async (domain) => {
-      const result = await run(["detach", ...OUT], onPages(), { ...DNS_ENV, DEV_DOMAIN: domain });
+      const result = await run(["detach", ...OUT], onPages(), { ...PAGES_ENV, DEV_DOMAIN: domain });
       expect(result.code).toBe(2);
       expect(result.calls).toEqual([]);
     },
@@ -502,16 +502,15 @@ describe("domain-move-rehearsal.ts", () => {
   test("R4: on a re-run every step but destroy, cleanup and report exits 2 before any request; cleanup still cleans", async () => {
     const rerun = { GITHUB_RUN_ATTEMPT: "2" };
     for (const [step, env] of [
-      ["upload-reach", DEPLOY_ENV],
-      ["preflight", DNS_ENV],
-      ["pages-on", DNS_ENV],
+      ["preflight", PAGES_ENV],
+      ["pages-on", PAGES_ENV],
       ["worker-staged", DEPLOY_ENV],
       ["wait-watch", GH_ENV],
-      ["detach", DNS_ENV],
+      ["detach", PAGES_ENV],
       ["flip", DEPLOY_ENV],
-      ["check", DNS_ENV],
+      ["check", PAGES_ENV],
       ["unflip", DEPLOY_ENV],
-      ["attach", DNS_ENV],
+      ["attach", PAGES_ENV],
       ["watch", GH_ENV],
     ] as const) {
       const result = await run([step, ...OUT], onPages(), { ...env, ...rerun });
@@ -525,23 +524,29 @@ describe("domain-move-rehearsal.ts", () => {
     const w = onPages();
     w.records[SPARE] = [];
     w.workerDomains = [];
-    const cleanup = await run(["cleanup", ...OUT], w, { ...DNS_ENV, ...rerun });
+    const cleanup = await run(["cleanup", ...OUT], w, { ...PAGES_ENV, ...rerun });
     expect(cleanup.code).toBe(0);
     expect(Object.keys(w.projects)).toEqual([]);
     expect(w.records[HOST]).toEqual([]);
   });
 
-  test("R4a: upload-reach refuses a token reaching another account, or any zone", async () => {
-    expect((await run(["upload-reach", ...OUT], world({ zones: [] }), DEPLOY_ENV)).code).toBe(0);
-    const twoAccounts = await run(
-      ["upload-reach", ...OUT],
-      world({ zones: [], accounts: [ACCOUNT, "f".repeat(32)] }),
-      DEPLOY_ENV,
-    );
-    expect(twoAccounts.code).toBe(1);
-    const zoned = await run(["upload-reach", ...OUT], world(), DEPLOY_ENV);
-    expect(zoned.code).toBe(1);
-    expect(zoned.calls.every((call) => call.auth === `Bearer ${API_TOKEN}`)).toBe(true);
+  test("R4a: every Cloudflare step holds the dev deploy token, under the name Alchemy and Wrangler read, and no other", async () => {
+    // A Pages and DNS step given only a separate Pages token's name has no token.
+    for (const step of ["preflight", "pages-on", "detach", "check", "attach", "cleanup"]) {
+      const result = await run([step, ...OUT], onPages(), {
+        ...BASE_ENV,
+        CLOUDFLARE_PAGES_DNS_TOKEN: "a-separate-pages-token",
+      });
+      expect({ step, code: result.code, calls: result.calls.length }).toEqual({
+        step,
+        code: 2,
+        calls: 0,
+      });
+    }
+    // Given the deploy token, a Pages and DNS step sends it, and only it, to Cloudflare.
+    const read = await run(["check", ...OUT], onPages(), PAGES_ENV);
+    expect(read.calls.length).toBeGreaterThan(0);
+    expect(read.calls.every((call) => call.auth === `Bearer ${API_TOKEN}`)).toBe(true);
   });
 
   test("R5: preflight refuses, writing nothing, a token reaching two accounts or zones other than exactly DEV_DOMAIN", async () => {
@@ -555,7 +560,7 @@ describe("domain-move-rehearsal.ts", () => {
         ],
       }),
     ]) {
-      const result = await run(["preflight", ...OUT], w, DNS_ENV);
+      const result = await run(["preflight", ...OUT], w, PAGES_ENV);
       expect(result.code).toBe(1);
       expect(writes(result.calls)).toEqual([]);
     }
@@ -568,7 +573,7 @@ describe("domain-move-rehearsal.ts", () => {
       world({ records: { [HOST]: [cname("r", HOST, "elsewhere")] } }),
       world({ records: { [SPARE]: [workerRecord(SPARE)] } }),
     ]) {
-      const result = await run(["preflight", ...OUT], w, DNS_ENV);
+      const result = await run(["preflight", ...OUT], w, PAGES_ENV);
       expect(result.code).toBe(1);
       expect(writes(result.calls)).toEqual([]);
     }
@@ -576,7 +581,7 @@ describe("domain-move-rehearsal.ts", () => {
     const w = world({
       records: { [HOST]: [{ id: "t", name: HOST, type: "TXT", content: "v=x" }] },
     });
-    const clean = await run(["preflight", ...OUT], w, DNS_ENV);
+    const clean = await run(["preflight", ...OUT], w, PAGES_ENV);
     expect(clean.code).toBe(0);
     expect(
       writes(clean.calls).map((call) => [call.method, call.url.slice(API.length), call.body]),
@@ -589,7 +594,7 @@ describe("domain-move-rehearsal.ts", () => {
     const result = await run(
       ["preflight", ...OUT],
       world({ extra: { subdomain: `${PROJECT}-4xk.pages.dev` } }),
-      DNS_ENV,
+      PAGES_ENV,
     );
     expect(result.code).toBe(1);
     expect(result.output).toContain(`${PROJECT}-4xk.pages.dev`);
@@ -597,7 +602,7 @@ describe("domain-move-rehearsal.ts", () => {
 
   test("R8: pages-on makes the CNAME, then adds the domain, and waits for the Pages marker and an active domain", async () => {
     const w = world({ projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`] } } });
-    const result = await run(["pages-on", ...OUT], w, DNS_ENV);
+    const result = await run(["pages-on", ...OUT], w, PAGES_ENV);
     expect(result.code).toBe(0);
     expect(writes(result.calls).map((call) => [call.method, call.url.slice(API.length)])).toEqual([
       ["POST", `/zones/${ZONE_ID}/dns_records`],
@@ -610,7 +615,7 @@ describe("domain-move-rehearsal.ts", () => {
     const never = await run(
       ["pages-on", ...OUT],
       world({ projects: { [PROJECT]: { domains: [] } } }),
-      DNS_ENV,
+      PAGES_ENV,
       { probe: async () => ({ outcome: "error", error: "ERR_TLS_CERT_ALTNAME_INVALID" }) },
     );
     expect(never.code).toBe(1);
@@ -625,14 +630,14 @@ describe("domain-move-rehearsal.ts", () => {
         records: { [HOST]: [cname("r", HOST, "other")] },
       }),
     ]) {
-      const refused = await run(["detach", ...OUT], w, DNS_ENV);
+      const refused = await run(["detach", ...OUT], w, PAGES_ENV);
       expect(refused.code).toBe(1);
       expect(writes(refused.calls)).toEqual([]);
     }
     const w = onPages();
     w.records[HOST]?.push({ id: "txt", name: HOST, type: "TXT", content: "keep" });
     let probes = 0;
-    const result = await run(["detach", ...OUT], w, DNS_ENV, {
+    const result = await run(["detach", ...OUT], w, PAGES_ENV, {
       probe: async () => {
         probes += 1;
         return { outcome: "pages" };
@@ -735,14 +740,14 @@ describe("domain-move-rehearsal.ts", () => {
     const w = detached();
     w.records[HOST] = [workerRecord(HOST)];
     w.workerDomains = [{ id: "wd", hostname: HOST, service: REHEARSAL_WORKER }];
-    const free = await run(["check", ...OUT], w, DNS_ENV);
+    const free = await run(["check", ...OUT], w, PAGES_ENV);
     expect(free.code).toBe(0);
     expect(free.fragment.state).toEqual({ kind: "free" });
     const odd = detached();
     odd.records[HOST] = [
       { id: "odd", name: HOST, type: "AAAA", content: "100::", meta: { managed_by: "workers" } },
     ];
-    const unclear = await run(["check", ...OUT], odd, DNS_ENV);
+    const unclear = await run(["check", ...OUT], odd, PAGES_ENV);
     expect(unclear.code).toBe(1);
     expect((unclear.fragment.state as { kind: string }).kind).toBe("unclear");
     expect(JSON.stringify(unclear.fragment.calls)).toContain("managed_by");
@@ -768,11 +773,11 @@ describe("domain-move-rehearsal.ts", () => {
   test("R14: attach refuses, writing nothing, while a Worker record holds the host; otherwise it puts the host back and waits for Pages", async () => {
     const held = detached();
     held.records[HOST] = [workerRecord(HOST)];
-    const refused = await run(["attach", ...OUT], held, DNS_ENV);
+    const refused = await run(["attach", ...OUT], held, PAGES_ENV);
     expect(refused.code).toBe(1);
     expect(writes(refused.calls)).toEqual([]);
     const w = detached();
-    const result = await run(["attach", ...OUT], w, DNS_ENV);
+    const result = await run(["attach", ...OUT], w, PAGES_ENV);
     expect(result.code).toBe(0);
     expect(w.projects[PROJECT]?.domains).toContain(HOST);
     expect(events(result).firstPagesAnswerAt).toBeString();
@@ -820,7 +825,7 @@ describe("domain-move-rehearsal.ts", () => {
   });
 
   test("R16: cleanup with nothing there writes nothing; with leftovers it removes only rehearsal projects and their CNAMEs at the two hosts", async () => {
-    const empty = await run(["cleanup", ...OUT], world(), DNS_ENV);
+    const empty = await run(["cleanup", ...OUT], world(), PAGES_ENV);
     expect(empty.code).toBe(0);
     expect(writes(empty.calls)).toEqual([]);
     const old = rehearsalProject("123");
@@ -838,7 +843,7 @@ describe("domain-move-rehearsal.ts", () => {
         [SPARE]: [cname("c2", SPARE, old)],
       },
     });
-    const result = await run(["cleanup", ...OUT], w, DNS_ENV);
+    const result = await run(["cleanup", ...OUT], w, PAGES_ENV);
     expect(Object.keys(w.projects)).toEqual(["cire-host"]);
     expect(w.records[HOST]?.map((record) => record.id)).toEqual(["a1"]);
     expect(w.records[SPARE]).toEqual([]);
@@ -858,7 +863,7 @@ describe("domain-move-rehearsal.ts", () => {
       },
     ];
     w.flaky[`GET /accounts/${ACCOUNT}/pages/projects/${PROJECT}/domains`] = [
-      failed(500, 0, `internal error for ${ACCOUNT} with ${DNS_TOKEN}`),
+      failed(500, 0, `internal error for ${ACCOUNT} with ${API_TOKEN}`),
     ];
     w.records[HOST]?.push({
       id: "m",
@@ -867,10 +872,10 @@ describe("domain-move-rehearsal.ts", () => {
       content: "x",
       meta: { new_flag: true },
     });
-    const result = await run(["check", ...OUT], w, DNS_ENV);
+    const result = await run(["check", ...OUT], w, PAGES_ENV);
     const text = JSON.stringify(result.fragment);
     for (const hidden of [
-      DNS_TOKEN,
+      API_TOKEN,
       ACCOUNT,
       ZONE_ID,
       "someone@example.com",
@@ -1263,7 +1268,7 @@ describe("domain-move-rehearsal.ts", () => {
         [SPARE]: [cname("c2", SPARE, "cire-host")],
       },
     });
-    const result = await run(["cleanup", ...OUT], w, DNS_ENV);
+    const result = await run(["cleanup", ...OUT], w, PAGES_ENV);
     expect(w.records[SPARE]?.map((record) => record.id)).toEqual(["c2"]);
     expect(result.code).toBe(1);
     const order = writes(result.calls).map(
@@ -1282,7 +1287,7 @@ describe("domain-move-rehearsal.ts", () => {
     const w = world({
       projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`], pendingReads: 2 } },
     });
-    const result = await run(["pages-on", ...OUT], w, DNS_ENV);
+    const result = await run(["pages-on", ...OUT], w, PAGES_ENV);
     expect(result.code).toBe(0);
     const at = events(result);
     expect(Date.parse(String(at.pagesDomainActiveAt))).toBeGreaterThan(
@@ -1291,7 +1296,7 @@ describe("domain-move-rehearsal.ts", () => {
     const never = world({
       projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`], status: "pending" } },
     });
-    const capped = await run(["pages-on", ...OUT], never, DNS_ENV);
+    const capped = await run(["pages-on", ...OUT], never, PAGES_ENV);
     expect(capped.code).toBe(0);
     expect(events(capped).pagesDomainActiveAt).toBeUndefined();
     expect(
@@ -1394,7 +1399,7 @@ describe("domain-move-rehearsal.ts", () => {
         { id: "z-foreign", name: "private-client.example", account: { id: "f".repeat(32) } },
       ],
     });
-    const result = await run(["preflight", ...OUT], w, DNS_ENV);
+    const result = await run(["preflight", ...OUT], w, PAGES_ENV);
     expect(result.code).toBe(1);
     expect(writes(result.calls)).toEqual([]);
     expect(JSON.stringify(result.fragment)).not.toContain("private-client.example");
@@ -1417,7 +1422,7 @@ describe("domain-move-rehearsal.ts", () => {
     const waited = await run(["wait-watch", ...OUT], w, GH_ENV);
     expect(waited.calls.every((call) => call.url.startsWith(GITHUB))).toBe(true);
     const detachRun = await run(["detach", ...OUT], onPages(), {
-      ...DNS_ENV,
+      ...PAGES_ENV,
       GITHUB_TOKEN: GH_TOKEN,
     });
     expect(detachRun.calls.length).toBeGreaterThan(0);
@@ -1431,14 +1436,14 @@ describe("domain-move-rehearsal.ts", () => {
       records: { [HOST]: [cname("c1", HOST, PROJECT)] },
     });
     w.flaky[`DELETE /zones/${ZONE_ID}/dns_records/c1`] = [failed(500, 0)];
-    const result = await run(["cleanup", ...OUT], w, DNS_ENV);
+    const result = await run(["cleanup", ...OUT], w, PAGES_ENV);
     expect(result.code).toBe(1);
     expect(Object.keys(w.projects)).toEqual([PROJECT]);
     const w2 = world({
       projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`, HOST] } },
       records: { [HOST]: [cname("c1", HOST, PROJECT)] },
     });
-    const clean = await run(["cleanup", ...OUT], w2, DNS_ENV);
+    const clean = await run(["cleanup", ...OUT], w2, PAGES_ENV);
     expect(clean.code).toBe(0);
     const order = writes(clean.calls).map((call) => `${call.method} ${call.url.slice(API.length)}`);
     expect(order.indexOf(`DELETE /zones/${ZONE_ID}/dns_records/c1`)).toBeLessThan(

@@ -1,9 +1,10 @@
 // Holds .github/workflows/domain-move-rehearsal.yml to what makes it safe to
-// dispatch: it reaches the dev account alone, each credential reaches only
-// the steps that use it, the rehearsed steps that hold the Pages and DNS
-// token run with nothing installed (as production's detach and attach jobs
-// do), the rollback runs after a failed flip, and the cleanup runs whatever
-// happened before it, cancellation included.
+// dispatch: it reaches the dev account alone, with the dev deploy token and
+// account id and nothing else; each credential reaches only the steps that
+// use it, each checked first; the rehearsed Pages and DNS steps run with
+// nothing installed (as production's detach and attach jobs do); the
+// rollback runs after a failed flip, and the cleanup runs whatever happened
+// before it, cancellation included.
 
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -72,29 +73,30 @@ const OUT = '--out "$RUNNER_TEMP/rehearsal"';
 
 const DEV_ACCOUNT = "${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}";
 const DEPLOY_TOKEN = "${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}";
-const DNS_TOKEN = "${{ secrets.CLOUDFLARE_DEV_PAGES_DNS_TOKEN }}";
-const UPLOAD_TOKEN = "${{ secrets.CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN }}";
 const DEV_DOMAIN = "${{ vars.DEV_DOMAIN }}";
 
-/** The rehearsal's own steps, by the job that runs each, and which token each holds. */
+/**
+ * The rehearsal's own steps, by the job that runs each, and what each holds:
+ * the dev deploy token for a Pages and DNS step (`pages`) or an Alchemy step
+ * (`alchemy`), or the job token.
+ */
 const SCRIPT_STEPS: readonly {
   readonly job: string;
   readonly step: string;
-  readonly token: "dns" | "deploy" | "upload" | "github";
+  readonly token: "pages" | "alchemy" | "github";
 }[] = [
-  { job: "setup-pages", step: "upload-reach", token: "upload" },
-  { job: "setup-pages", step: "preflight", token: "dns" },
-  { job: "pages-on", step: "pages-on", token: "dns" },
-  { job: "worker-staged", step: "worker-staged", token: "deploy" },
+  { job: "setup-pages", step: "preflight", token: "pages" },
+  { job: "pages-on", step: "pages-on", token: "pages" },
+  { job: "worker-staged", step: "worker-staged", token: "alchemy" },
   { job: "watch", step: "watch", token: "github" },
   { job: "detach", step: "wait-watch", token: "github" },
-  { job: "detach", step: "detach", token: "dns" },
-  { job: "flip", step: "flip", token: "deploy" },
-  { job: "check", step: "check", token: "dns" },
-  { job: "unflip", step: "unflip", token: "deploy" },
-  { job: "attach", step: "attach", token: "dns" },
-  { job: "destroy", step: "destroy", token: "deploy" },
-  { job: "cleanup", step: "cleanup", token: "dns" },
+  { job: "detach", step: "detach", token: "pages" },
+  { job: "flip", step: "flip", token: "alchemy" },
+  { job: "check", step: "check", token: "pages" },
+  { job: "unflip", step: "unflip", token: "alchemy" },
+  { job: "attach", step: "attach", token: "pages" },
+  { job: "destroy", step: "destroy", token: "alchemy" },
+  { job: "cleanup", step: "cleanup", token: "pages" },
 ];
 
 const stepId = (step: string) => step.replaceAll("-", "_");
@@ -103,23 +105,18 @@ const scriptStep = (job: string, step: string) =>
 
 /** What a step holding each token must set, exactly. */
 const ENV_OF = {
-  dns: {
+  pages: {
     DEV_DOMAIN,
     CLOUDFLARE_ACCOUNT_ID: DEV_ACCOUNT,
-    CLOUDFLARE_PAGES_DNS_TOKEN: DNS_TOKEN,
+    CLOUDFLARE_API_TOKEN: DEPLOY_TOKEN,
     BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1",
   },
-  deploy: {
+  alchemy: {
     DEV_DOMAIN,
     OSN_DEPLOY_TIER: "dev",
     CLOUDFLARE_ACCOUNT_ID: DEV_ACCOUNT,
     CLOUDFLARE_API_TOKEN: DEPLOY_TOKEN,
     BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1",
-  },
-  upload: {
-    DEV_DOMAIN,
-    CLOUDFLARE_ACCOUNT_ID: DEV_ACCOUNT,
-    CLOUDFLARE_API_TOKEN: UPLOAD_TOKEN,
   },
   github: {
     DEV_DOMAIN,
@@ -199,11 +196,10 @@ describe("domain-move-rehearsal.yml", () => {
   });
 
   test("W3: it reads the dev account's credentials alone, every job in the dev Environment, and names no production zone", () => {
+    // The dev deploy token and account id, as deploy.yml's stack jobs read them; no other token.
     expect(secretsIn(workflow)).toEqual([
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN",
       "CLOUDFLARE_DEV_ACCOUNT_ID",
-      "CLOUDFLARE_DEV_PAGES_DNS_TOKEN",
-      "CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN",
     ]);
     // DEV_DOMAIN is a dev Environment variable, so even the jobs holding no
     // secret (watch, report) run there to read it.
@@ -240,14 +236,14 @@ describe("domain-move-rehearsal.yml", () => {
       SCRIPT_STEPS.filter((entry) => entry.token === token).map(
         (entry) => `${entry.job} ${stepId(entry.step)}`,
       );
-    expect(holding("CLOUDFLARE_DEV_PAGES_DNS_TOKEN").toSorted()).toEqual(byToken("dns").toSorted());
-    expect(holding("CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN").toSorted()).toEqual(
-      ["setup-pages upload", ...byToken("upload")].toSorted(),
-    );
+    // The deploy token: the rehearsal's Cloudflare steps, the Alchemy jobs'
+    // token checks, and Wrangler's upload of the marker page; nothing else.
     expect(holding("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN").toSorted()).toEqual(
       [
-        ...byToken("deploy"),
+        ...byToken("pages"),
+        ...byToken("alchemy"),
         ...["worker-staged", "flip", "unflip", "destroy"].map((id) => `${id} token`),
+        "setup-pages upload",
       ].toSorted(),
     );
     for (const { job, step, token } of SCRIPT_STEPS) {
@@ -259,7 +255,7 @@ describe("domain-move-rehearsal.yml", () => {
     }
   });
 
-  test("W5: the rehearsed steps that hold the Pages and DNS token run with nothing installed; setup-pages checks both Pages tokens before its install", () => {
+  test("W5: the rehearsed Pages and DNS steps run with nothing installed; setup-pages checks the token's reach before the install that precedes Wrangler", () => {
     for (const id of ["pages-on", "detach", "check", "attach", "cleanup", "watch", "report"]) {
       const steps = stepsOf(id);
       expect({ id, installs: steps.filter(isInstall) }).toEqual({ id, installs: [] });
@@ -280,8 +276,10 @@ describe("domain-move-rehearsal.yml", () => {
     const install = setup.findIndex(isInstall);
     expect(setup[install]?.run).toBe("bun install --frozen-lockfile --filter osn");
     const at = (id: string) => setup.findIndex((step) => step.id === id);
-    expect(at("upload_reach")).toBeGreaterThan(-1);
-    expect(at("upload_reach")).toBeLessThan(at("preflight"));
+    // The preflight's reach check (exactly the dev account and the DEV_DOMAIN
+    // zone) is the first step holding the token, before any install.
+    const first = setup.findIndex((step) => JSON.stringify(step).includes("secrets."));
+    expect(first).toBe(at("preflight"));
     expect(at("preflight")).toBeLessThan(install);
     expect(install).toBeLessThan(at("upload"));
   });
@@ -417,7 +415,7 @@ describe("domain-move-rehearsal.yml", () => {
     );
     expect(upload?.env).toEqual({
       CLOUDFLARE_ACCOUNT_ID: DEV_ACCOUNT,
-      CLOUDFLARE_API_TOKEN: UPLOAD_TOKEN,
+      CLOUDFLARE_API_TOKEN: DEPLOY_TOKEN,
     });
   });
 

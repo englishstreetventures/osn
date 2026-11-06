@@ -14,7 +14,6 @@
  * merges the fragments into `<dir>/domain-move-rehearsal.json`.
  *
  * Steps, in the order the workflow runs them:
- *   upload-reach   the upload token reaches exactly the dev account and no zone
  *   preflight      reach; the run's project absent and both hosts held by
  *                  nothing; then makes the run's Pages project
  *   pages-on       puts the moved host on the project (attachHost); waits for
@@ -48,19 +47,19 @@
  * first attempt's cleanup removed what it would act on.
  *
  * Environment:
- *   DEV_DOMAIN                  the dev zone (the dev Environment's variable)
- *   CLOUDFLARE_ACCOUNT_ID       the dev account
- *   CLOUDFLARE_PAGES_DNS_TOKEN  preflight, pages-on, detach, check, attach,
- *                               cleanup: the dev Pages and DNS token
- *   CLOUDFLARE_API_TOKEN        upload-reach: the dev upload token;
- *                               worker-staged, flip, unflip, destroy: the dev
- *                               deploy token, which Alchemy also reads
- *   GITHUB_TOKEN                wait-watch, watch: the job token
+ *   DEV_DOMAIN             the dev zone (the dev Environment's variable)
+ *   CLOUDFLARE_ACCOUNT_ID  the dev account
+ *   CLOUDFLARE_API_TOKEN   every Cloudflare step: the dev deploy token, which
+ *                          Alchemy and Wrangler read under the same name. The
+ *                          Pages and DNS steps check its reach first, as
+ *                          pages-domain.ts does: exactly the dev account and
+ *                          the DEV_DOMAIN zone.
+ *   GITHUB_TOKEN           wait-watch, watch: the job token
  *   GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_REPOSITORY  set by Actions
  * No token, account id or 32-hex id reaches a fragment or a message.
  *
  * Imports only node built-ins and the repository's import-free files, so a
- * step that holds the Pages and DNS token runs before any install.
+ * step runs with nothing installed, as a flip release's detach and attach do.
  *
  * Exit codes: 0 done; 1 refused, Cloudflare failed, or what the step waits
  * for did not come in time; 2 a usage error, before any request.
@@ -116,7 +115,6 @@ const ALCHEMY_LOG_LINES = 40;
 const PAGES_STATUS_EVERY = 5;
 
 const STEPS = [
-  "upload-reach",
   "preflight",
   "pages-on",
   "worker-staged",
@@ -135,26 +133,28 @@ export type Step = (typeof STEPS)[number];
 
 const isStep = (value: string): value is Step => STEPS.some((step) => step === value);
 
-/** The env name each step reads its token from; report holds none. */
+/**
+ * The env name each step reads its token from; report holds none. Every
+ * Cloudflare step holds the dev deploy token, the one Alchemy reads.
+ */
 const TOKEN_OF = {
-  "upload-reach": "CLOUDFLARE_API_TOKEN",
-  preflight: "CLOUDFLARE_PAGES_DNS_TOKEN",
-  "pages-on": "CLOUDFLARE_PAGES_DNS_TOKEN",
+  preflight: "CLOUDFLARE_API_TOKEN",
+  "pages-on": "CLOUDFLARE_API_TOKEN",
   "worker-staged": "CLOUDFLARE_API_TOKEN",
   "wait-watch": "GITHUB_TOKEN",
-  detach: "CLOUDFLARE_PAGES_DNS_TOKEN",
+  detach: "CLOUDFLARE_API_TOKEN",
   flip: "CLOUDFLARE_API_TOKEN",
-  check: "CLOUDFLARE_PAGES_DNS_TOKEN",
+  check: "CLOUDFLARE_API_TOKEN",
   unflip: "CLOUDFLARE_API_TOKEN",
-  attach: "CLOUDFLARE_PAGES_DNS_TOKEN",
+  attach: "CLOUDFLARE_API_TOKEN",
   destroy: "CLOUDFLARE_API_TOKEN",
-  cleanup: "CLOUDFLARE_PAGES_DNS_TOKEN",
+  cleanup: "CLOUDFLARE_API_TOKEN",
   watch: "GITHUB_TOKEN",
   report: "",
 } as const satisfies Readonly<Record<Step, string>>;
 
 /** The env names of every token a step may hold, all redacted from what it records. */
-const TOKEN_NAMES = ["CLOUDFLARE_PAGES_DNS_TOKEN", "CLOUDFLARE_API_TOKEN", "GITHUB_TOKEN"] as const;
+const TOKEN_NAMES = ["CLOUDFLARE_API_TOKEN", "GITHUB_TOKEN"] as const;
 
 /** Steps that may run on a re-run attempt: each finishes or reads what an earlier attempt left. */
 const ANY_ATTEMPT: ReadonlySet<Step> = new Set(["destroy", "cleanup", "report"]);
@@ -670,7 +670,7 @@ async function until<T>(
   return until(ctx, intervalMs, deadline, tick, wake);
 }
 
-/** The Pages and DNS token's reach, its projects, and where `host` is. */
+/** The token's reach (exactly the dev account and zone), its projects, and where `host` is. */
 async function readHost(ctx: Context, host: string) {
   const zones = await ctx.api.reach([ctx.hosts.zone]);
   const projects = await ctx.api.projects();
@@ -889,11 +889,6 @@ async function alchemy(ctx: Context, script: AlchemyScript, mode: RehearsalMode)
     ctx.input.out(`Alchemy's ${script} failed (exit ${run.exitCode}). Its last lines:\n${tail}\n`);
   }
   return run.exitCode;
-}
-
-async function uploadReach(ctx: Context): Promise<StepResult> {
-  await ctx.api.reach([]);
-  return { ok: true, message: "The upload token reaches the dev account alone and no zone." };
 }
 
 async function preflight(ctx: Context, project: string): Promise<StepResult> {
@@ -1425,8 +1420,6 @@ function runStep(
   project: string,
 ): Promise<StepResult> {
   switch (step) {
-    case "upload-reach":
-      return uploadReach(ctx);
     case "preflight":
       return preflight(ctx, project);
     case "pages-on":

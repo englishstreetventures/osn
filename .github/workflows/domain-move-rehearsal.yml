@@ -15,21 +15,18 @@ name: Domain move rehearsal
 #   setup-pages ─┬─> pages-on ─┬─> watch ─────────────────────────────────────────┐
 #                └─> worker-staged ─┴─> detach ─> flip ─> check ─> unflip ─> attach ─> destroy ─> cleanup ─> report
 #
-# Credentials, all from the `dev` Environment, which reaches the dev account
-# alone and allows `main` alone:
-#   CLOUDFLARE_DEV_PAGES_DNS_TOKEN     the dev counterpart of production's Pages
-#                                      and DNS token: only the script holds it,
-#                                      on a runner that installs nothing or
-#                                      before its job's install, and refuses it
-#                                      unless it reaches exactly the dev account
-#                                      and the DEV_DOMAIN zone.
-#   CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN  Pages Edit alone: Wrangler uploads the
-#                                      marker page with it, once the script has
-#                                      checked it reaches the dev account and
-#                                      no zone.
-#   CLOUDFLARE_DEV_ACCOUNT_API_TOKEN   the dev deploy token: the Alchemy steps,
-#                                      each after token:check.
-# watch and detach also read this run's jobs with the job token.
+# Credentials: the `dev` Environment's CLOUDFLARE_DEV_ACCOUNT_ID and
+# CLOUDFLARE_DEV_ACCOUNT_API_TOKEN, the dev deploy token deploy.yml's stack
+# jobs use, which also holds Pages Edit on the dev account for this
+# rehearsal. The Environment reaches the dev account alone and allows `main`
+# alone. Each step that holds the token checks its reach before anything
+# else uses it: the Alchemy jobs with token:check, the Pages and DNS steps
+# with pages-domain.ts's own check (exactly the dev account and the
+# DEV_DOMAIN zone), and setup-pages's Wrangler upload after its preflight's.
+# Production keeps its separate Pages and DNS token; on dev the deploy token
+# already holds DNS Edit beside installed code, so a second token there adds
+# no protection. watch and detach also read this run's jobs with the job
+# token.
 #
 # The rollback (unflip, attach) runs whenever the detach succeeded, after a
 # failed flip too, as production's rollback does; destroy, cleanup and report
@@ -55,9 +52,9 @@ env:
   DO_NOT_TRACK: "1"
 
 jobs:
-  # The run's Pages project and the page it serves. Both Pages tokens are
-  # checked, and the project made, before the install; only Wrangler's
-  # upload, after it, holds the upload token.
+  # The run's Pages project and the page it serves. The token's reach is
+  # checked, and the project made, before the install; Wrangler's upload
+  # follows it.
   setup-pages:
     name: Make the Pages project and its marker page
     runs-on: ubuntu-latest
@@ -72,21 +69,13 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Check the upload token reaches the dev account and no zone
-        id: upload_reach
-        run: bun run scripts/domain-move-rehearsal.ts upload-reach --out "$RUNNER_TEMP/rehearsal"
-        env:
-          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN }}
-
-      - name: Check both hosts are free, then make the run's Pages project
+      - name: Check the token's reach and both hosts are free, then make the run's Pages project
         id: preflight
         run: bun run scripts/domain-move-rehearsal.ts preflight --out "$RUNNER_TEMP/rehearsal"
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PAGES_DNS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1"
 
       # The root's tree alone, which pins the Wrangler that uploads the page.
@@ -98,7 +87,7 @@ jobs:
         run: bunx wrangler pages deploy shared/infra/rehearsal/pages --project-name "osn-move-rehearsal-$GITHUB_RUN_ID" --branch main --commit-dirty=true
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
       - name: Keep the job's record
         if: ${{ always() }}
@@ -176,7 +165,7 @@ jobs:
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PAGES_DNS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1"
 
       - name: Keep the job's record
@@ -259,7 +248,7 @@ jobs:
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PAGES_DNS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1"
 
       - name: Keep the job's record
@@ -339,7 +328,7 @@ jobs:
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PAGES_DNS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1"
 
       - name: Keep the job's record
@@ -421,7 +410,7 @@ jobs:
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PAGES_DNS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1"
 
       - name: Keep the job's record
@@ -502,7 +491,7 @@ jobs:
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
-          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PAGES_DNS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
           BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1"
 
       - name: Keep the job's record

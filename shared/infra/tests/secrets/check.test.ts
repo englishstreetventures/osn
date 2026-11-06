@@ -157,17 +157,14 @@ describe("checkGithub", () => {
     expect(outcome.stdout).toContain("forbidden but set: CLOUDFLARE_API_TOKEN");
   });
 
-  // Secrets the dev Environment holds for its workflows alone, the read-only
-  // token the free-tier alert's dev job reads, and the two Pages tokens the
-  // domain move rehearsal reads: none is a Worker secret, and a dev job fails
-  // without each.
+  // Secrets the dev Environment holds for its workflows alone, and the read-only
+  // token the free-tier alert's dev job reads: none is a Worker secret, and a
+  // dev job fails without each.
   const DEV_WORKFLOW_ONLY = [
     "ASTRO_KEY",
     "CF_ACCESS_CLIENT_ID",
     "CF_ACCESS_CLIENT_SECRET",
     "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
-    "CLOUDFLARE_DEV_PAGES_DNS_TOKEN",
-    "CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN",
   ];
 
   test("C1: accepts the dev Environment's workflow-only secrets and read-only token as its own", async () => {
