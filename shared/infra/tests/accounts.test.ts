@@ -103,8 +103,13 @@ describe("the credentials the workflows read", () => {
     ]);
   });
 
-  test("only alchemy-state.yml, deploy.yml and free-tier-ceiling-alert.yml reach the dev account", () => {
-    const allowed = new Set(["alchemy-state.yml", "deploy.yml", "free-tier-ceiling-alert.yml"]);
+  test("only alchemy-state.yml, deploy.yml, domain-move-rehearsal.yml and free-tier-ceiling-alert.yml reach the dev account", () => {
+    const allowed = new Set([
+      "alchemy-state.yml",
+      "deploy.yml",
+      "domain-move-rehearsal.yml",
+      "free-tier-ceiling-alert.yml",
+    ]);
     const dev = new Set([...accountSecrets("dev"), ...DEV_READONLY_CREDENTIALS]);
     for (const file of workflowFiles.filter((candidate) => !allowed.has(candidate))) {
       const reached = cloudflareSecrets(file).filter((name) => dev.has(name));

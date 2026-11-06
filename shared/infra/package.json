@@ -25,7 +25,9 @@
     "production-hosts": "bun run scripts/production-hosts.ts",
     "plan-summary": "bun run scripts/plan-summary.ts",
     "state:bootstrap": "CI=true DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare",
-    "state:check": "CI=true DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare"
+    "state:check": "CI=true DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare",
+    "rehearsal:deploy": "CI=true DO_NOT_TRACK=1 bun alchemy deploy rehearsal/alchemy.run.ts --stage domain-move --yes",
+    "rehearsal:destroy": "CI=true DO_NOT_TRACK=1 bun alchemy destroy rehearsal/alchemy.run.ts --stage domain-move --yes"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.84",

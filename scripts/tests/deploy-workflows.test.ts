@@ -2561,7 +2561,9 @@ describe("every other workflow", () => {
   };
 
   // A Worker deployed from anywhere else skips the smoke check, and the planner
-  // never sees it.
+  // never sees it. This reads Wrangler deploys alone: an Alchemy deploy, such
+  // as the domain move rehearsal's throwaway marker Worker, does not show here;
+  // domain-move-rehearsal-workflow.test.ts holds that workflow instead.
   test("deploys no Worker", () => {
     for (const path of otherWorkflows()) {
       const text = readFileSync(join(root, path), "utf8");
