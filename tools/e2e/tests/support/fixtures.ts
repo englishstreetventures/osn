@@ -366,22 +366,48 @@ export async function mailFor(
   return messages;
 }
 
-/** The newest one-time code sent to `email`, waiting for the mail to land. */
-export async function otpFor(email: string, after = 0): Promise<string> {
-  let code = "";
+/** A sign-up link as the email carries it: `<musubi>/verify/<request id>#<secret>`. */
+export interface MailedLink {
+  readonly url: string;
+  readonly requestId: string;
+  readonly linkSecret: string;
+}
+
+const LINK_RE = /(https?:\/\/[^\s"<>]+\/verify\/(signup_[a-f0-9]{12})#([a-f0-9]{64}))/;
+
+/**
+ * The newest sign-up link sent to `email` after its first `after` messages,
+ * waiting for the mail to land: osn-api sends it after it answers.
+ */
+export async function linkFor(email: string, after = 0): Promise<MailedLink> {
+  let link: MailedLink | undefined;
   await expect
     .poll(
       async () => {
         const response = await fetch(`${ORIGINS.mail}/__e2e/mail?to=${encodeURIComponent(email)}`);
         const messages = (await response.json()) as Array<{ text: string }>;
-        const latest = messages.slice(after).at(-1);
-        code = latest?.text.match(/\b(\d{6})\b/)?.[1] ?? "";
-        return code;
+        const match = messages
+          .slice(after)
+          .map((m) => LINK_RE.exec(m.text))
+          .findLast((m) => m !== null);
+        link = match ? { url: match[1]!, requestId: match[2]!, linkSecret: match[3]! } : undefined;
+        return link !== undefined;
       },
-      { message: `no one-time code reached ${email}`, timeout: 15_000 },
+      { message: `no sign-up link reached ${email}`, timeout: 15_000 },
     )
-    .not.toBe("");
-  return code;
+    .toBe(true);
+  return link!;
+}
+
+/**
+ * On a page showing an emailed link's confirm card, picks `pairingCode` — the
+ * number the tab that began shows — and confirms. `flows.test.ts` counts the
+ * calls against osn-api's confirm budget.
+ */
+export async function confirmLinkOnPage(page: Page, pairingCode: string): Promise<void> {
+  await page.getByRole("button", { name: pairingCode, exact: true }).click();
+  const confirm = page.getByRole("button", { name: "Confirm", exact: true });
+  if (await confirm.isVisible()) await confirm.click();
 }
 
 /** Makes the mail stand-in refuse the next send to `email`, as Resend refuses an unverified sender. */
@@ -429,9 +455,10 @@ export async function osnDispatchFailureLog(): Promise<string> {
 }
 
 /**
- * Registers an OSN account through the API, the way Musubi's dialog does, and
- * leaves its session cookie in `request`'s jar. For flows whose subject is not
- * registration.
+ * Registers an OSN account through the API, the way Musubi's dialog and the
+ * emailed link's page do between them — begin, confirm with the pairing code
+ * begin answered, claim — and leaves its session cookie in `request`'s jar.
+ * For flows whose subject is not registration.
  */
 export async function registerThroughApi(
   flow: Flow,
@@ -451,15 +478,24 @@ export async function registerThroughApi(
   });
   flow.recordRequest("POST", beginUrl, begin.status());
   expect(begin.status(), "register/begin").toBe(200);
+  const begun = (await begin.json()) as { claimSecret: string; pairingCode: string };
 
-  const code = await otpFor(person.email);
-  const completeUrl = `${ORIGINS.osnApi}/register/complete`;
-  const complete = await request.post(completeUrl, {
+  const link = await linkFor(person.email);
+  const confirmUrl = `${ORIGINS.osnApi}/email-link/${link.requestId}/confirm`;
+  const confirm = await request.post(confirmUrl, {
     headers,
-    data: { email: person.email, code },
+    data: { linkSecret: link.linkSecret, pairingPick: begun.pairingCode },
   });
-  flow.recordRequest("POST", completeUrl, complete.status());
-  expect(complete.status(), "register/complete").toBe(201);
+  flow.recordRequest("POST", confirmUrl, confirm.status());
+  expect(confirm.status(), "email-link confirm").toBe(200);
+
+  const statusUrl = `${ORIGINS.osnApi}/register/${link.requestId}/status`;
+  const status = await request.post(statusUrl, {
+    headers,
+    data: { claimSecret: begun.claimSecret },
+  });
+  flow.recordRequest("POST", statusUrl, status.status());
+  expect(status.status(), "register status").toBe(201);
 }
 
 /** A virtual platform authenticator on `page`, through the Chrome DevTools Protocol. */
