@@ -1,6 +1,6 @@
 {
   "name": "@zap/db",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "private": true,
   "license": "UNLICENSED",
   "author": "English Street Ventures Pty Ltd",
@@ -37,7 +37,6 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
-    "@effect/vitest": "4.0.5",
     "@shared/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.3",

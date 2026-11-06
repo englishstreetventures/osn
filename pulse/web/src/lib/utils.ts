@@ -55,7 +55,7 @@ export function deriveEndFromDuration(start: string, hours: number): string {
 }
 
 /** The identity fields any signed-in surface needs to label a person. */
-export interface DisplayIdentity {
+interface DisplayIdentity {
   displayName: string | null;
   handle: string | null;
   email: string | null;

@@ -1,5 +1,32 @@
 # @zap/infra
 
+## 0.1.15
+
+### Patch Changes
+
+- f860728: Stop exporting symbols used only inside their own file, drop re-exports nothing imports, and delete declarations nothing reads. No behaviour changes.
+
+## 0.1.14
+
+### Patch Changes
+
+- Updated dependencies [e87ed59]
+  - @shared/infra@0.6.8
+
+## 0.1.13
+
+### Patch Changes
+
+- Updated dependencies [6dbdb99]
+  - @shared/infra@0.6.7
+
+## 0.1.12
+
+### Patch Changes
+
+- Updated dependencies [7af11c1]
+  - @shared/infra@0.6.6
+
 ## 0.1.11
 
 ### Patch Changes

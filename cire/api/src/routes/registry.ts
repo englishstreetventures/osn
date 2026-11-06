@@ -5,7 +5,12 @@ import { Elysia } from "elysia";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { getWaitUntil } from "../lib/execution-ctx";
-import { metricRegistryGift, metricRegistryItemWrite, metricRegistryLinkPreview } from "../metrics";
+import {
+  metricRegistryGift,
+  metricRegistryItemWrite,
+  metricRegistryLinkPreview,
+  type RegistryItemKindAttr,
+} from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
@@ -41,14 +46,20 @@ import type { LinkPreviewOptions } from "../services/link-preview";
 import { createTransformBreakers, linkThumbnailService } from "../services/link-thumbnail";
 import type { TransformBreakers } from "../services/link-thumbnail";
 import { reapR2Objects } from "../services/r2-cleanup";
-import { registryService, settingsForReader } from "../services/registry";
-import type { RegistrySettingsDto, SettingsReader } from "../services/registry";
+import { isGroupGift, registryService, settingsForReader } from "../services/registry";
+import type { RegistryItemKind, RegistrySettingsDto, SettingsReader } from "../services/registry";
 import { registryImageService } from "../services/registry-image";
 import type { RegistryImageError } from "../services/registry-image";
 
 // Sentinel parse hook — the handler parses by hand so a malformed payload
 // degrades to the schema's 400 (same idiom as the other organiser write routes).
 const manualParse = { parse: () => ({}) };
+
+/** The item-write metric's `kind`: a group gift is counted apart from a plain fund. */
+const itemKindAttr = (item: {
+  kind: RegistryItemKind;
+  allowPartial: boolean;
+}): RegistryItemKindAttr => (isGroupGift(item) ? "group_gift" : item.kind);
 
 const badRequest = (set: { status?: number | string }) =>
   Effect.sync(() => {
@@ -178,8 +189,10 @@ function parseOffset(raw: unknown): number {
  *
  * `/registry` is the whole snapshot with page one of the gift log, plus
  * `takesPayments`: whether this deployment can take a money gift at all (a
- * Stripe key AND the Connect webhook secret). It sits beside the settings, not
- * in them, because it is the deployment's and the same for every wedding. The
+ * Stripe key AND the Connect webhook secret), and `connectsExistingStripe`:
+ * whether an owner may connect a Stripe account they already have (Stripe
+ * Connect OAuth configured). Both sit beside the settings, not in them,
+ * because they are the deployment's and the same for every wedding. The
  * settings carry `moneyGiftsBlockedBy`, which the service decides with it by
  * the guest list's own rule, so the portal never tells a couple their guests
  * can give money, or see a cash fund, where the guest list offers neither. A
@@ -204,7 +217,11 @@ function parseOffset(raw: unknown): number {
 export const createRegistryReadRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
-  deps: { readonly takesPayments: boolean },
+  deps: {
+    readonly takesPayments: boolean;
+    /** Whether an owner may connect a Stripe account they already have (OAuth). */
+    readonly connectsExistingStripe?: boolean;
+  },
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -225,6 +242,7 @@ export const createRegistryReadRoutes = (
                 ...snapshot,
                 settings: settingsForReader(snapshot.settings, reader),
                 takesPayments: deps.takesPayments,
+                connectsExistingStripe: deps.connectsExistingStripe === true,
               })),
               Effect.provideService(DbService, db),
               Effect.tapDefect(logDefect(weddingId)),
@@ -340,7 +358,7 @@ export const createRegistryWriteRoutes = (
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknownEffect(CreateRegistryItemBody)(raw);
                 const item = yield* registryService.createItem({ weddingId, ...body });
-                yield* Effect.sync(() => metricRegistryItemWrite("create", item.kind));
+                yield* Effect.sync(() => metricRegistryItemWrite("create", itemKindAttr(item)));
                 return { item };
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -395,7 +413,7 @@ export const createRegistryWriteRoutes = (
                   itemId: params.itemId,
                   patch: body,
                 });
-                yield* Effect.sync(() => metricRegistryItemWrite("update", item.kind));
+                yield* Effect.sync(() => metricRegistryItemWrite("update", itemKindAttr(item)));
                 return { item };
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -419,7 +437,9 @@ export const createRegistryWriteRoutes = (
           if (!weddingId) return internalSync(set);
           return runCire(
             registryService.removeItem(weddingId, params.itemId).pipe(
-              Effect.tap(({ kind }) => Effect.sync(() => metricRegistryItemWrite("remove", kind))),
+              Effect.tap((removed) =>
+                Effect.sync(() => metricRegistryItemWrite("remove", itemKindAttr(removed))),
+              ),
               // Nothing else references the object now, so it is an orphan.
               // Reap it rather than leaving it to the 7-day reconcile sweep:
               // the picture came off a shop page or the couple's camera roll,

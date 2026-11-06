@@ -10,7 +10,7 @@
 // purchase that is not theirs and is told 404.
 import { isDotSegment, isModule, type Module } from "./dashboard-route";
 
-export interface UpgradeReturn {
+interface UpgradeReturn {
   purchaseId: string;
   weddingId: string;
   /** Where to land once it settles. Absent when the param was not a module. */

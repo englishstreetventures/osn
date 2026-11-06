@@ -100,6 +100,7 @@ import {
   registryGuestService,
   registryService,
   SettingsChanged,
+  StripeAlreadyConnected,
 } from "../../src/services/registry";
 import {
   type GiftSummary,
@@ -616,6 +617,82 @@ describe("cire/api over real D1 (Miniflare)", () => {
         refused = String(error);
       }
       expect(refused).toContain("vendor status is not a pipeline stage");
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "D1 refuses a group gift that is not a cash fund with a target",
+    async () => {
+      const columns =
+        "INSERT INTO registry_items (id, wedding_id, kind, title, allow_partial, target_minor, sort_order, created_at, updated_at)";
+      const attempt = async (statement: string): Promise<string> => {
+        try {
+          await d1.prepare(statement).run();
+          return "accepted";
+        } catch (error) {
+          return String(error);
+        }
+      };
+      const REFUSED = "a group gift is a cash fund with a target";
+      // A gift to reserve, a fund with no target, and a flag that is no flag.
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_product', '${BOOTSTRAP_WEDDING_ID}', 'product', 'Pan', 1, 1000, 90, 1, 1)`,
+        ),
+      ).toContain(REFUSED);
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_untargeted', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Sofa', 1, NULL, 91, 1, 1)`,
+        ),
+      ).toContain(REFUSED);
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_flag', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Sofa', 2, 1000, 92, 1, 1)`,
+        ),
+      ).toContain(REFUSED);
+      // A group gift as the service writes it, and a plain fund with no goal.
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_ok', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Sofa', 1, 1000, 93, 1, 1)`,
+        ),
+      ).toBe("accepted");
+      expect(
+        await attempt(
+          `${columns} VALUES ('reg_gg_fund', '${BOOTSTRAP_WEDDING_ID}', 'cash_fund', 'Trip', 0, NULL, 94, 1, 1)`,
+        ),
+      ).toBe("accepted");
+      // An update of each column the update trigger watches is refused when it
+      // leaves the wrong shape: clearing a group gift's target, turning it into
+      // a gift to reserve, flagging a fund with no target, or a flag that is no
+      // flag. A plain fund's goal may still be cleared.
+      expect(
+        await attempt("UPDATE registry_items SET target_minor = NULL WHERE id = 'reg_gg_ok'"),
+      ).toContain(REFUSED);
+      expect(
+        await attempt("UPDATE registry_items SET kind = 'product' WHERE id = 'reg_gg_ok'"),
+      ).toContain(REFUSED);
+      expect(
+        await attempt("UPDATE registry_items SET allow_partial = 1 WHERE id = 'reg_gg_fund'"),
+      ).toContain(REFUSED);
+      expect(
+        await attempt("UPDATE registry_items SET allow_partial = 2 WHERE id = 'reg_gg_ok'"),
+      ).toContain(REFUSED);
+      expect(
+        await attempt(
+          "UPDATE registry_items SET target_minor = NULL, title = 'Trip away' WHERE id = 'reg_gg_fund'",
+        ),
+      ).toBe("accepted");
+      const kept = await d1
+        .prepare(
+          "SELECT id, kind, allow_partial, target_minor FROM registry_items WHERE id IN ('reg_gg_ok', 'reg_gg_fund') ORDER BY id",
+        )
+        .all<{ id: string; kind: string; allow_partial: number; target_minor: number | null }>();
+      expect(kept.results).toEqual([
+        { id: "reg_gg_fund", kind: "cash_fund", allow_partial: 0, target_minor: null },
+        { id: "reg_gg_ok", kind: "cash_fund", allow_partial: 1, target_minor: 1000 },
+      ]);
+      await d1.prepare("DELETE FROM registry_items WHERE id IN ('reg_gg_ok', 'reg_gg_fund')").run();
     },
     MF_TIMEOUT_MS,
   );
@@ -2136,6 +2213,80 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ),
       );
       expect(saved.shippingAddress).toBe("2 Example St");
+    },
+    MF_TIMEOUT_MS,
+  );
+  it(
+    "registry Stripe: a wedding takes the account its owner connected on another, in one statement on D1",
+    async () => {
+      // The reuse is one INSERT … SELECT … ON CONFLICT DO UPDATE … WHERE …
+      // RETURNING, whose every rule sits in the SELECT's WHERE. How D1 parses
+      // and binds that is pinned here, on each of its three paths.
+      const now = new Date();
+      const stamp = new Date(1_700_000_000_000);
+      await db.insert(weddings).values({
+        id: "wed_d1_source",
+        slug: "d1-source",
+        displayName: "Source",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db
+        .insert(weddingHosts)
+        .values({ ...ownerSeat("wed_d1_source", "usr_test", now), id: "whost_d1_source" });
+      await db.insert(registrySettings).values({
+        weddingId: "wed_d1_source",
+        stripeAccountId: "acct_d1_shared",
+        stripeConnectedByOsnProfileId: "usr_test",
+        stripeChargesEnabled: true,
+        stripePayoutsEnabled: true,
+        stripeDefaultCurrency: "AUD",
+        stripeAccountUpdatedAt: stamp,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const adopt = () =>
+        registryService.adoptStripeAccount(
+          BOOTSTRAP_WEDDING_ID,
+          "wed_d1_source",
+          "usr_test",
+          PAYING_SITE,
+        );
+      const stored = async () =>
+        (
+          await db
+            .select()
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+        )[0];
+
+      // The insert path: the wedding has no settings row yet. The answer is
+      // the RETURNING row, judged against the wedding's own currency.
+      const inserted = await run(adopt());
+      expect(inserted.stripeConnected).toBe(true);
+      expect(inserted.stripeConnectedByOsnProfileId).toBe("usr_test");
+      expect(inserted.stripeChargesEnabled).toBe(true);
+      expect(inserted.moneyGiftsBlockedBy).toBe("cash_gifts_off");
+      expect((await stored())?.stripeAccountUpdatedAt?.getTime()).toBe(stamp.getTime());
+
+      // The refused path: the wedding now has an account, so nothing is written.
+      const exit = await Effect.runPromiseExit(adopt().pipe(Effect.provideService(DbService, db)));
+      const error = Exit.isFailure(exit)
+        ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+        : undefined;
+      expect(error).toBeInstanceOf(StripeAlreadyConnected);
+
+      // The conflict path: a row with no account keeps what it holds.
+      await db
+        .update(registrySettings)
+        .set({ stripeAccountId: null, stripeConnectedByOsnProfileId: null, headline: "Kept" })
+        .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID));
+      const filled = await run(adopt());
+      expect(filled.headline).toBe("Kept");
+      const row = await stored();
+      expect(row?.stripeAccountId).toBe("acct_d1_shared");
+      expect(row?.stripeConnectedByOsnProfileId).toBe("usr_test");
+      expect(row?.stripeDefaultCurrency).toBe("AUD");
     },
     MF_TIMEOUT_MS,
   );

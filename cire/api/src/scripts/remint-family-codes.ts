@@ -36,7 +36,7 @@ import { commitGroupedBatches, DbService, dbQuery } from "../db";
 import { generateFamilyCode } from "../services/family-code";
 import type { CodeStyle } from "../services/family-code";
 
-export class RemintError extends Data.TaggedError("RemintError")<{
+class RemintError extends Data.TaggedError("RemintError")<{
   reason: string;
 }> {}
 
@@ -49,7 +49,7 @@ export function isLegacyCode(publicId: string): boolean {
   return (publicId.match(/-/g) ?? []).length < 2;
 }
 
-export interface RemintResult {
+interface RemintResult {
   /** Families whose code was rotated to the new format. */
   reminted: number;
   /** Families skipped because they were already on the new format. */

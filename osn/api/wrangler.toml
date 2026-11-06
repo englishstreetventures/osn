@@ -149,11 +149,11 @@ name = "RL_USER_60_60"
 namespace_id = "2007"
 simple = { limit = 60, period = 60 }
 
-# ── Workers observability (Part 3) ───────────────────────────────────────────
-# Free Workers Logs + invocation capture in the Cloudflare dashboard. This is the
-# interim observability while OTel export stays deferred on workerd (the
-# redacting osnLoggerLayer keeps structured logs; no logger/observability code
-# changes). head_sampling_rate = 1 captures every invocation at launch volume.
+# ── Workers observability ────────────────────────────────────────────────────
+# Workers Logs + invocation capture in the Cloudflare dashboard, and Workers
+# traces where a tier turns them on. The redacting osnLoggerLayer writes each
+# log line as a structured object, and mirrors Effect spans into the trace.
+# head_sampling_rate = 1 captures every invocation at launch volume.
 # Each tier states its trace and URL-redaction posture below.
 [observability]
 enabled = true
@@ -446,10 +446,3 @@ crons = ["0 */6 * * *"]
 #                              non-local, so per-IP keying uses cf-connecting-ip
 #                              exclusively (Part 1). Only consulted by the Bun
 #                              dev server's XFF/socket path.
-#   OTEL_EXPORTER_OTLP_HEADERS Grafana Cloud auth (optional, deferred export)
-
-# ── OpenTelemetry export (deferred on workerd) ───────────────────────────────
-# OTEL_SERVICE_NAME / OTEL_EXPORTER_OTLP_ENDPOINT are non-secret [vars]; the
-# headers token is a secret. Metric/trace EXPORT on workerd is deferred — the
-# redacting logger (osnLoggerLayer) is active, recording call-sites are no-ops
-# until an exporter is attached.

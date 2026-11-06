@@ -51,7 +51,7 @@ export function parseWranglerSecretList(stdout: string): string[] {
     .toSorted();
 }
 
-export interface LiveExpectation {
+interface LiveExpectation {
   readonly worker: WorkerKey;
   readonly tier: Tier;
   readonly scriptName: string;

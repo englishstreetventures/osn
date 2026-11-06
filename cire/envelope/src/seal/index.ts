@@ -42,7 +42,7 @@ export interface Seal {
   dispose(): void;
 }
 
-export interface SealOptions {
+interface SealOptions {
   /** World units (CSS pixels). */
   readonly radius: number;
   /** The flap's hinge: a piece that stays on the flap is attached here and opens with it. */

@@ -101,7 +101,7 @@ export interface DraftEvent {
 /** The event fields the drawer form edits (everything on {@link DraftEvent}
  *  except the client `key`, the server `id`, and `sortOrder` — those are managed
  *  by the store, not typed into the form). */
-export type EventPatch = Partial<
+type EventPatch = Partial<
   Pick<
     DraftEvent,
     | "name"
@@ -235,7 +235,7 @@ export interface DesiredStateWire {
  * save leaves them out. With no events there is nothing to tell by; the API is
  * taken to be current, the one a deploy order of API first gives.
  */
-export function readsEventDetails(events: readonly EventRow[]): boolean {
+function readsEventDetails(events: readonly EventRow[]): boolean {
   return events.every((e) => "runOfShow" in e);
 }
 
@@ -490,7 +490,7 @@ const same = (a: unknown, b: unknown) =>
 const quoted = (name: string) => `“${name.trim() || "Untitled"}”`;
 
 /** What {@link replayDraft} made of the organiser's edits. */
-export interface ReplayResult {
+interface ReplayResult {
   /** The fresh rows with the organiser's edits applied on top. */
   readonly draft: DraftState;
   /** One sentence per edit that could not be kept, or that needs a second look. */
@@ -920,7 +920,7 @@ export function draftWarnings(draft: DraftState): string[] {
 
 // ── The store hook ────────────────────────────────────────────────────────────
 
-export interface GuestEventDraft {
+interface GuestEventDraft {
   /** The reactive draft store (read in components; mutate via the methods). */
   readonly draft: DraftState;
   /** True once `load` has run — components gate rendering on this. */

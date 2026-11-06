@@ -3,9 +3,7 @@ import { Db } from "@pulse/db/service";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { DatabaseError, EventNotFound } from "./events";
-
-export { buildVisibilityFilter } from "./eventVisibility";
+import { DatabaseError } from "./events";
 
 /**
  * Single source of truth for "can this viewer see this event?".
@@ -144,8 +142,3 @@ export const canViewAttendees = (
   event: Pick<Event, "createdByProfileId">,
   viewerId: string | null,
 ): boolean => viewerId != null && viewerId === event.createdByProfileId;
-
-/**
- * Re-export for tests + routes that don't need the full event row.
- */
-export type { EventNotFound };

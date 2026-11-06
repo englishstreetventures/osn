@@ -35,7 +35,7 @@ export interface FaqEntry {
 
 /** One FAQ entry as a household receives it: the text alone. The id is what
  *  the builder edits by, and the guest page has no use for it. */
-export type GuestFaqEntry = Omit<FaqEntry, "id">;
+type GuestFaqEntry = Omit<FaqEntry, "id">;
 
 const ENTRY_FIELDS = {
   id: weddingFaqs.id,

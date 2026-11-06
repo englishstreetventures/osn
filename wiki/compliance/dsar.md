@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # DSAR Runbook
@@ -174,9 +174,9 @@ owners, each with an `owner` seat. Two consequences:
   wedding has a connected account. An erasure request from the connector sets
   it to NULL in the same pass that removes their seats: `UPDATE
   registry_settings SET stripe_connected_by_osn_profile_id = NULL WHERE
-  stripe_connected_by_osn_profile_id = ?`. NULL beside an account matches no
-  owner, so the account's links stay closed rather than opening to the other
-  owners; the account itself, with the requester's identity and bank details,
+  stripe_connected_by_osn_profile_id = ?`, which reaches every wedding they
+  gave the account to as well. NULL beside an account matches no owner, so
+  the account's links stay closed rather than opening to the other owners; the account itself, with the requester's identity and bank details,
   is Stripe's and theirs ([[retention]]), and an operator forwards the request
   to Stripe as that row says.
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a

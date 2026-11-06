@@ -782,7 +782,7 @@ describe("RsvpPanel", () => {
     const privacyLink = screen.getByRole("link", {
       name: /^privacy notice ?\(opens in a new tab\)$/,
     });
-    expect(privacyLink.getAttribute("href")).toBe("/privacy");
+    expect(privacyLink.getAttribute("href")).toBe("/privacy/");
   });
 
   it("asks for consent ONCE and names everyone it covers", () => {
@@ -1470,7 +1470,7 @@ describe("RsvpPanel", () => {
       within(line)
         .getByRole("link", { name: /^privacy notice ?\(opens in a new tab\)$/ })
         .getAttribute("href"),
-    ).toBe("/privacy");
+    ).toBe("/privacy/");
   });
 
   it.each([

@@ -234,20 +234,20 @@ function isNetworkError(err: unknown): boolean {
 }
 
 /** Initial delay before the first registration retry. Exposed for tests. */
-export const REGISTRATION_RETRY_BASE_MS = 5_000;
+const REGISTRATION_RETRY_BASE_MS = 5_000;
 /**
  * Upper bound on the retry delay. Exponential backoff doubles the delay
  * on each failure and caps here — matches the 5-min cadence that
  * `rotateKey` uses for post-boot rotation failures so both retry paths
  * are pressure-consistent (P-I1).
  */
-export const REGISTRATION_RETRY_MAX_MS = 5 * 60 * 1000;
+const REGISTRATION_RETRY_MAX_MS = 5 * 60 * 1000;
 /**
  * Symmetric jitter applied to each retry delay (±). Prevents retry
  * clustering if multiple pulse-api-like processes start against the
  * same osn/api restart window (P-I2).
  */
-export const REGISTRATION_RETRY_JITTER_MS = 1_000;
+const REGISTRATION_RETRY_JITTER_MS = 1_000;
 
 let _registrationRetryAttempts = 0;
 
@@ -327,7 +327,7 @@ async function rotateKey(): Promise<void> {
  * in local dev are legitimate (osn/api not up yet) and should be
  * distinguishable from both success and "secret unset" in caller logs.
  */
-export type KeyRotationStatus = "registered" | "skipped-secret-unset" | "pending-retry";
+type KeyRotationStatus = "registered" | "skipped-secret-unset" | "pending-retry";
 
 /**
  * Registers the service's ephemeral public key with osn/api and schedules

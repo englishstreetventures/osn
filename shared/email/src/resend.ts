@@ -16,9 +16,9 @@
  * metrics export nothing there, and most callers swallow the failure. See
  * {@link logDispatchFailure} for what the line holds.
  *
- * All outbound HTTP goes through `instrumentedFetch` so the call becomes a
- * child span of `email.resend.dispatch` and `traceparent` is injected for
- * cross-service trace correlation.
+ * On Workers, Cloudflare traces each POST as a `fetch` span in the request's
+ * trace, beside the `email.resend.dispatch` span. The call carries no trace
+ * context: Workers do not propagate it.
  *
  * SECURITY: the Resend API key is a bearer secret. It is only ever placed in
  * the `Authorization` header — never in the URL, never in span/metric
@@ -33,7 +33,6 @@
  * mail to another host.
  */
 
-import { instrumentedFetch } from "@shared/observability/fetch";
 import { Effect, Layer } from "effect";
 
 import {
@@ -342,7 +341,7 @@ const sendBatch = (
       const response = yield* Effect.tryPromise({
         // The signal aborts the request when a caller's timeout interrupts.
         try: (signal) =>
-          instrumentedFetch(batchUrl, {
+          fetch(batchUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -450,7 +449,7 @@ export const makeResendEmailLive = (config: ResendEmailConfig): Layer.Layer<Emai
             // the wait ends and the connection is freed. A request Resend has
             // already received may still be delivered.
             try: (signal) =>
-              instrumentedFetch(sendUrl, {
+              fetch(sendUrl, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",

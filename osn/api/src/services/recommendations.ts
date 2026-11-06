@@ -26,11 +26,7 @@ import { Data, Effect } from "effect";
 // Errors
 // ---------------------------------------------------------------------------
 
-export class RecommendationError extends Data.TaggedError("RecommendationError")<{
-  readonly message: string;
-}> {}
-
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
 
@@ -141,7 +137,7 @@ function hydrateOrganisation(
  * enumerate via `GET /graph/connections`, so no length gate on it buys any
  * enumeration resistance. Below this we return an empty list, never an error.
  */
-export const MIN_SEARCH_QUERY_LENGTH = 1;
+const MIN_SEARCH_QUERY_LENGTH = 1;
 
 /**
  * Minimum length of the **handle prefix being sought** before the pass that
@@ -209,9 +205,9 @@ const SEARCH_OVERFETCH_FACTOR = 3;
 // ---------------------------------------------------------------------------
 
 /** Why a profile was suggested. Drives the explanatory line in the UI. */
-export type SuggestionReason = "mutual_connections" | "shared_organisation";
+type SuggestionReason = "mutual_connections" | "shared_organisation";
 
-export interface Suggestion {
+interface Suggestion {
   handle: string;
   displayName: string | null;
   avatarUrl: string | null;
@@ -230,9 +226,9 @@ export interface Suggestion {
  * `getConnectionStatus` uses. Lets the search UI render the right action
  * (Connect / Pending / Connected) without an extra request per result.
  */
-export type SearchConnectionState = "none" | "pending_sent" | "pending_received" | "connected";
+type SearchConnectionState = "none" | "pending_sent" | "pending_received" | "connected";
 
-export interface ProfileSearchResult {
+interface ProfileSearchResult {
   handle: string;
   displayName: string | null;
   avatarUrl: string | null;
@@ -247,7 +243,7 @@ interface ProfileRow {
   avatarUrl: string | null;
 }
 
-export interface OrganisationSearchResult {
+interface OrganisationSearchResult {
   /**
    * The handle is the address, not the `org_*` id. `GET /organisations/:handle`
    * resolves by handle (`getOrganisationByHandle`), and the public
@@ -1345,5 +1341,3 @@ export function createRecommendationService() {
 
   return { suggestConnections, searchProfiles, searchOrganisations };
 }
-
-export type RecommendationService = ReturnType<typeof createRecommendationService>;

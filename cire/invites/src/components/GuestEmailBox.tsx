@@ -277,7 +277,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 <>
                   {GUEST_EMAIL_CONSENT.text} See our{" "}
                   <a
-                    href="/privacy"
+                    href="/privacy/"
                     target="_blank"
                     rel="noopener noreferrer"
                     class={proseLinkClass()}

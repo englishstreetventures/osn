@@ -95,6 +95,8 @@ export const PORTS = {
   cireLanding: 4323,
   /** The Resend stand-in osn-api sends OTP mail to. Not a dev app. */
   mail: 4590,
+  /** The Stripe stand-in cire-api's OAuth connect calls. Not a dev app. */
+  stripe: 4591,
 } as const;
 
 export type AppName = keyof typeof PORTS;
@@ -253,9 +255,28 @@ export const CIRE_ORGANISER = {
   money: {
     weddingId: "wed_e2e_money",
     fundTitle: "Honeymoon fund",
+    /** Past its $1,200 target: $1,400 from two households, one refund aside. */
+    groupGift: { id: "reg_e2e_money_group", title: "Espresso machine" },
     accountId: "acct_e2e_money",
     connector: { hostId: "whost_e2e_kit", profileId: "usr_e2e_kit" },
   },
+  /**
+   * Two weddings the dev profile owns alone. On `from` it connected a Stripe
+   * account that can charge, in AUD; `to` has no account, so its Money gifts
+   * panel offers the dev profile that one — and not Money Wedding's, which Kit
+   * connected.
+   */
+  shared: {
+    from: { weddingId: "wed_e2e_shared_from", name: "Ceremony Wedding" },
+    to: { weddingId: "wed_e2e_shared_to", name: "Party Wedding" },
+    accountId: "acct_e2e_shared",
+  },
+  /**
+   * A Gold wedding the dev profile owns alone, whose registry is open (a
+   * settings row) and has no Stripe account: for connecting a Stripe account
+   * the owner already has, through the Stripe stand-in.
+   */
+  oauth: { weddingId: "wed_e2e_oauth", name: "Garden Wedding" },
   /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
    *  Cy Charlie at Table 2, all three having said yes. And an after party,
    *  inviting Ada, with no plan yet. */

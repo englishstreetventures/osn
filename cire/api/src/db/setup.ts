@@ -535,6 +535,8 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   shipping_visible_from TEXT,
   stripe_account_id TEXT,
   stripe_connected_by_osn_profile_id TEXT,
+  stripe_account_type TEXT,
+  stripe_connected_at INTEGER,
   stripe_charges_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_payouts_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_account_updated_at INTEGER,
@@ -546,6 +548,16 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS registry_settings_stripe_account_idx ON registry_settings(stripe_account_id) WHERE stripe_account_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS registry_stripe_oauth_states (
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  osn_profile_id TEXT NOT NULL,
+  state_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (wedding_id, osn_profile_id)
+);
+CREATE INDEX IF NOT EXISTS registry_stripe_oauth_states_expires_idx ON registry_stripe_oauth_states(expires_at);
 CREATE TABLE IF NOT EXISTS registry_items (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
@@ -767,6 +779,33 @@ WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'decline
 BEGIN
   SELECT RAISE(ABORT, 'vendor status is not a pipeline stage');
 END;
+CREATE TRIGGER IF NOT EXISTS registry_items_group_gift_shape BEFORE INSERT ON registry_items
+WHEN NEW.allow_partial NOT IN (0, 1)
+  OR (NEW.allow_partial = 1 AND (NEW.kind <> 'cash_fund' OR NEW.target_minor IS NULL))
+BEGIN
+  SELECT RAISE(ABORT, 'a group gift is a cash fund with a target');
+END;
+CREATE TRIGGER IF NOT EXISTS registry_items_group_gift_shape_update BEFORE UPDATE OF kind, allow_partial, target_minor ON registry_items
+WHEN NEW.allow_partial NOT IN (0, 1)
+  OR (NEW.allow_partial = 1 AND (NEW.kind <> 'cash_fund' OR NEW.target_minor IS NULL))
+BEGIN
+  SELECT RAISE(ABORT, 'a group gift is a cash fund with a target');
+END;
+CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_type BEFORE INSERT ON registry_settings
+WHEN NEW.stripe_account_type IS NOT NULL AND NEW.stripe_account_type NOT IN ('express', 'standard')
+BEGIN
+  SELECT RAISE(ABORT, 'stripe account type is not express or standard');
+END;
+CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_type_update BEFORE UPDATE OF stripe_account_type ON registry_settings
+WHEN NEW.stripe_account_type IS NOT NULL AND NEW.stripe_account_type NOT IN ('express', 'standard')
+BEGIN
+  SELECT RAISE(ABORT, 'stripe account type is not express or standard');
+END;
+CREATE TRIGGER IF NOT EXISTS registry_settings_stripe_account_cleared AFTER UPDATE OF stripe_account_id ON registry_settings
+WHEN NEW.stripe_account_id IS NULL AND (NEW.stripe_account_type IS NOT NULL OR NEW.stripe_connected_at IS NOT NULL)
+BEGIN
+  UPDATE registry_settings SET stripe_account_type = NULL, stripe_connected_at = NULL WHERE wedding_id = NEW.wedding_id;
+END;
 `;
 
 export function createDb(path: string = ":memory:") {
@@ -964,7 +1003,7 @@ export function applyE2eRsvpDeadline(
  * published list puts on the invite never appears in the other cire flows.
  * No `image_key` on any gift: the local asset store starts empty.
  */
-export function seedE2eGiftList(db: TestDb): void {
+function seedE2eGiftList(db: TestDb): void {
   const now = new Date();
   const weddingId = "wed_e2e_gift_list";
   const eventId = "evt_e2e_gift_reception";
@@ -1153,12 +1192,23 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   sees their own tasks, and a co-host holds a task of another event; for
  *   reading what such a helper is given.
  * - `wed_e2e_money`: money gifts on, a connected Stripe account that can charge
- *   and settles in the wedding's currency, one cash fund and nothing to
- *   reserve, unpublished. For the portal on a site that cannot take a money
+ *   and settles in the wedding's currency, one cash fund, two group gifts and
+ *   nothing to reserve, unpublished. One group gift, an espresso machine with
+ *   a $1,200 target, has had $1,400 given by two households — past its
+ *   target — beside a gift refunded in full and one not yet paid, which count
+ *   for nothing; the other, a stand mixer, has had one gift of exactly its
+ *   $500 target. For the portal on a site that cannot take a money
  *   gift: the stack's cire-api holds a Stripe key and no webhook secret. Its
  *   second owner, Kit (`usr_e2e_kit`), connected the account, so the dev
  *   profile is an owner who sees the account's status and cannot open its
  *   onboarding links.
+ * - `wed_e2e_shared_from` and `wed_e2e_shared_to`: two weddings the dev
+ *   profile owns alone. On the first it connected a Stripe account that can
+ *   charge and settles in AUD; the second has no settings row. For giving the
+ *   second the first's account from the Money gifts panel.
+ * - `wed_e2e_oauth`: Garden Wedding, which the dev profile owns alone, with an
+ *   open registry and no Stripe account, for connecting a Stripe account the
+ *   owner already has through the E2E suite's Stripe stand-in.
  * - `wed_e2e_emails`: one household, Tanaka, of Gus with no address and Hana
  *   with an address she gave herself on the invite, for adding an address in
  *   the guest editor under the organiser's attestation.
@@ -1178,7 +1228,7 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * flow checks is written out again as `CIRE_ORGANISER` in
  * `tools/e2e/src/config.ts`; a change here goes there too.
  */
-export function seedE2eOrganiser(db: TestDb): void {
+function seedE2eOrganiser(db: TestDb): void {
   const now = new Date();
   const wedding = (id: string, slug: string, displayName: string, weddingDate?: string) =>
     db
@@ -1505,6 +1555,102 @@ export function seedE2eOrganiser(db: TestDb): void {
       updatedAt: now,
     })
     .run();
+  db.insert(schema.registryItems)
+    .values({
+      id: "reg_e2e_money_group",
+      weddingId: "wed_e2e_money",
+      kind: "cash_fund",
+      allowPartial: true,
+      title: "Espresso machine",
+      description: "For slow Sunday mornings.",
+      targetMinor: 120_000,
+      sortOrder: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.registryItems)
+    .values({
+      id: "reg_e2e_money_mixer",
+      weddingId: "wed_e2e_money",
+      kind: "cash_fund",
+      allowPartial: true,
+      title: "Stand mixer",
+      description: null,
+      targetMinor: 50_000,
+      sortOrder: 2,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.families)
+    .values(
+      (["Okafor", "Lindqvist"] as const).map((familyName, i) => ({
+        id: `fam_e2e_money_${i + 1}`,
+        weddingId: "wed_e2e_money",
+        publicId: `MONEY${i + 1}-E2E-GG0${i + 1}`,
+        familyName,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
+    .run();
+  const groupGift = (
+    id: string,
+    familyId: string,
+    status: "succeeded" | "refunded" | "pending",
+    amountMinor: number,
+    item: { id: string; title: string } = { id: "reg_e2e_money_group", title: "Espresso machine" },
+  ) => ({
+    id,
+    weddingId: "wed_e2e_money",
+    itemId: item.id,
+    itemTitle: item.title,
+    familyId,
+    status,
+    amountMinor,
+    currency: "AUD",
+    stripeCheckoutSessionId: `cs_e2e_${id}`,
+    stripePaymentIntentId: status === "pending" ? null : `pi_e2e_${id}`,
+    createdAt: now,
+    updatedAt: now,
+  });
+  db.insert(schema.registryContributions)
+    .values([
+      groupGift("rct_e2e_money_1", "fam_e2e_money_1", "succeeded", 80_000),
+      groupGift("rct_e2e_money_2", "fam_e2e_money_2", "succeeded", 60_000),
+      groupGift("rct_e2e_money_3", "fam_e2e_money_2", "refunded", 50_000),
+      groupGift("rct_e2e_money_4", "fam_e2e_money_1", "pending", 10_000),
+      groupGift("rct_e2e_money_5", "fam_e2e_money_1", "succeeded", 50_000, {
+        id: "reg_e2e_money_mixer",
+        title: "Stand mixer",
+      }),
+    ])
+    .run();
+
+  wedding("wed_e2e_shared_from", "ceremony-wedding", "Ceremony Wedding");
+  seatDevOwner(db, "wed_e2e_shared_from", "whost_e2e_shared_from_owner", now);
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId: "wed_e2e_shared_from",
+      stripeAccountId: "acct_e2e_shared",
+      stripeConnectedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  wedding("wed_e2e_shared_to", "party-wedding", "Party Wedding");
+  seatDevOwner(db, "wed_e2e_shared_to", "whost_e2e_shared_to_owner", now);
+
+  wedding("wed_e2e_oauth", "garden-wedding", "Garden Wedding");
+  seatDevOwner(db, "wed_e2e_oauth", "whost_e2e_oauth_owner", now);
+  // An open registry with no account: the OAuth connect fills an existing row.
+  db.insert(schema.registrySettings)
+    .values({ weddingId: "wed_e2e_oauth", createdAt: now, updatedAt: now })
+    .run();
 
   wedding("wed_e2e_emails", "emails-wedding", "Emails Wedding");
   seatDevOwner(db, "wed_e2e_emails", "whost_e2e_emails_owner", now);
@@ -1590,8 +1736,7 @@ export function seedE2eOrganiser(db: TestDb): void {
  * The R2 key of `wed_e2e_envelope`'s hero image. The seed stores only the key;
  * the local server puts the bytes behind it (`applyE2eOrganiserAssets`).
  */
-export const E2E_ENVELOPE_HERO_KEY =
-  "assets/wed_e2e_envelope/hero-e0000000-0000-4000-8000-0000000000e1";
+const E2E_ENVELOPE_HERO_KEY = "assets/wed_e2e_envelope/hero-e0000000-0000-4000-8000-0000000000e1";
 
 /**
  * Three weddings for the envelope E2E flow (`cire-invite-envelope.flow.ts`),

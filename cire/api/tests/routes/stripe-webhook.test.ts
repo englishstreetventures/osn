@@ -14,7 +14,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { WEBHOOK_TOLERANCE_SECONDS } from "../../src/services/stripe";
-import { appRequest, jsonBody } from "../test-helpers";
+import { appRequest, beforeStatement, jsonBody, recordStatements } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 
@@ -1249,14 +1249,340 @@ describe("refund and dispute events for a gift cire has no row for", () => {
     // A purged wedding's gifts are gone; a dispute on one still reaches the
     // platform's balance, so it is never dropped silently.
     const { app } = buildApp();
-    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, { event });
+    // The bootstrap wedding's account was created here: Express.
+    const attrs = { event, account: "express" };
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs);
     let res: Response | undefined;
     const logs = await captureLogs(async () => {
       res = await deliver(app, payload());
     });
     expect(res?.status).toBe(200);
     expect(await jsonBody(res!)).toEqual({ received: true, outcome: "unknown" });
-    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, { event })).toBe(before + 1);
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs)).toBe(before + 1);
     expect(logs).toContain("stripe webhook: money event for a gift cire has no row for");
+  });
+});
+
+/**
+ * A Standard account is the couple's own Stripe account, connected through
+ * OAuth, and this endpoint hears its own shop's events as well as gifts. Its
+ * holder has API keys, so a Checkout Session of theirs can carry any
+ * `client_reference_id`, and its refunds and disputes are its own liability.
+ */
+describe("a Standard account's own business on the gift endpoint", () => {
+  const standard = (db: ReturnType<typeof buildApp>["db"]) =>
+    db
+      .update(registrySettings)
+      .set({ stripeAccountType: "standard" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+  it("settles no gift that stored no session, whatever id the session names (20)", async () => {
+    const { app, db, familyId } = buildApp();
+    standard(db);
+    seedPending(db, familyId, { sessionId: null });
+    const res = await deliver(app, checkoutCompleted({ session: { id: "cs_couple_made" } }));
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "rejected" });
+    expect((await gifts(db))[0]?.status).toBe("pending");
+  });
+
+  it("closes no gift that stored no session when a session of the account's ends", async () => {
+    const { app, db, familyId } = buildApp();
+    standard(db);
+    seedPending(db, familyId, { sessionId: null });
+    const ended = JSON.parse(checkoutCompleted({ session: { id: "cs_couple_made" } })) as Record<
+      string,
+      unknown
+    >;
+    for (const type of ["checkout.session.expired", "checkout.session.async_payment_failed"]) {
+      const res = await deliver(app, JSON.stringify({ ...ended, type }));
+      expect(await jsonBody(res)).toEqual({ received: true, outcome: "rejected" });
+    }
+    const [gift] = await gifts(db);
+    expect(gift?.status).toBe("pending");
+    expect(gift?.stripeCheckoutSessionId ?? null).toBeNull();
+  });
+
+  it("still closes a Standard gift whose session it stored", async () => {
+    const { app, db, familyId } = buildApp();
+    standard(db);
+    seedPending(db, familyId);
+    const ended = JSON.parse(checkoutCompleted()) as Record<string, unknown>;
+    const res = await deliver(app, JSON.stringify({ ...ended, type: "checkout.session.expired" }));
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "failed" });
+  });
+
+  it("still settles a Standard gift whose session it stored (20)", async () => {
+    const { app, db, familyId } = buildApp();
+    standard(db);
+    seedPending(db, familyId);
+    expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
+      received: true,
+      outcome: "settled",
+    });
+  });
+
+  it("still adopts a session on an Express account (20)", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId, { sessionId: null });
+    expect(await jsonBody(await deliver(app, checkoutCompleted()))).toEqual({
+      received: true,
+      outcome: "settled",
+    });
+  });
+
+  it.each([
+    ["refund", () => chargeRefunded()],
+    ["dispute", () => dispute("charge.dispute.created")],
+  ] as const)("counts a %s on its own charge without raising it (21)", async (event, payload) => {
+    const { app, db } = buildApp();
+    standard(db);
+    const attrs = { event, account: "standard" };
+    const before = await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs);
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await deliver(app, payload());
+    });
+    expect(await jsonBody(res!)).toEqual({ received: true, outcome: "unknown" });
+    expect(await counterValue(CIRE_METRICS.registryStripeUnmatched, attrs)).toBe(before + 1);
+    expect(logs).not.toContain("stripe webhook: money event for a gift cire has no row for");
+    expect(logs).toContain("money event on a Standard account's own charge");
+  });
+
+  it("acknowledges an ended session naming no gift of cire's before any read", async () => {
+    const { app, db } = buildApp();
+    const statements = recordStatements(db);
+    const ended = JSON.parse(
+      checkoutCompleted({
+        session: { client_reference_id: "order_1001" },
+        metadata: { contributionId: "order_1001" },
+      }),
+    ) as Record<string, unknown>;
+    const res = await deliver(app, JSON.stringify({ ...ended, type: "checkout.session.expired" }));
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
+    expect(statements).toEqual([]);
+  });
+
+  it("acknowledges a session naming no gift of cire's before any read (21)", async () => {
+    const { app, db } = buildApp();
+    const statements = recordStatements(db);
+    const res = await deliver(
+      app,
+      checkoutCompleted({
+        session: { client_reference_id: "order_1001" },
+        metadata: { contributionId: "order_1001" },
+      }),
+    );
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
+    expect(statements).toEqual([]);
+  });
+});
+
+/**
+ * Two weddings that share one connected account: an owner who connected it on
+ * one has given it to the other too. Account events name the account and never
+ * a wedding, so each reaches every row that names it. A gift event still acts
+ * only on its own gift, whose wedding must name the account it arrived on.
+ */
+describe("one account taking gifts for two weddings", () => {
+  const PARTY = "wed_party";
+  const PARTY_FAMILY = "fam_party";
+
+  /** A second wedding naming the bootstrap wedding's account, with a household. */
+  function shareAccount(db: ReturnType<typeof buildApp>["db"]) {
+    const now = new Date();
+    db.insert(weddings)
+      .values({ id: PARTY, slug: "party", displayName: "Party", createdAt: now, updatedAt: now })
+      .run();
+    db.insert(registrySettings)
+      .values({
+        weddingId: PARTY,
+        published: true,
+        cashGiftsEnabled: true,
+        stripeAccountId: ACCOUNT,
+        stripeChargesEnabled: false,
+        stripePayoutsEnabled: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(families)
+      .values({
+        id: PARTY_FAMILY,
+        weddingId: PARTY,
+        publicId: "PARTY-FAMILY-01",
+        familyName: "Okafor",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const row = (db: ReturnType<typeof buildApp>["db"], weddingId: string) =>
+    db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).get();
+
+  it("caches what Stripe says on every wedding that names the account", async () => {
+    const { app, db } = buildApp();
+    shareAccount(db);
+
+    const res = await deliver(app, accountUpdated());
+
+    expect(await jsonBody(res)).toEqual({ received: true, matched: true });
+    for (const weddingId of [BOOTSTRAP_WEDDING_ID, PARTY]) {
+      expect(row(db, weddingId)?.stripeChargesEnabled, weddingId).toBe(true);
+      expect(row(db, weddingId)?.stripePayoutsEnabled, weddingId).toBe(true);
+    }
+  });
+
+  it("clears the account from every wedding when Stripe revokes it", async () => {
+    // Revocation is the platform losing the account, so no wedding may keep
+    // offering guests a charge on it.
+    const { app, db } = buildApp();
+    shareAccount(db);
+
+    const res = await deliver(app, deauthorized());
+
+    expect(await jsonBody(res)).toEqual({ received: true, matched: true });
+    for (const weddingId of [BOOTSTRAP_WEDDING_ID, PARTY]) {
+      const cleared = row(db, weddingId);
+      expect(cleared?.stripeAccountId, weddingId).toBeNull();
+      expect(cleared?.stripeConnectedByOsnProfileId, weddingId).toBeNull();
+      expect(cleared?.stripeChargesEnabled, weddingId).toBe(false);
+      expect(cleared?.stripeDeauthorizedAccountId, weddingId).toBe(ACCOUNT);
+      // The couple's intent stays theirs, on both.
+      expect(cleared?.cashGiftsEnabled, weddingId).toBe(weddingId === PARTY);
+    }
+  });
+
+  it("settles a gift on either wedding, and refunds the other's", async () => {
+    const { app, db, familyId } = buildApp();
+    shareAccount(db);
+    // A settled gift on the bootstrap wedding, then a pending one on the party.
+    await seedSettled(app, db, familyId);
+    seedPending(db, PARTY_FAMILY, { id: "rct_party", sessionId: "cs_party", weddingId: PARTY });
+
+    const settled = await deliver(
+      app,
+      checkoutCompleted({
+        session: { id: "cs_party", payment_intent: "pi_party" },
+        metadata: { contributionId: "rct_party" },
+      }),
+    );
+    expect(await jsonBody(settled)).toEqual({ received: true, outcome: "settled" });
+
+    const refunded = await deliver(app, chargeRefunded());
+    expect(await jsonBody(refunded)).toEqual({ received: true, outcome: "refunded" });
+
+    const byId = new Map((await gifts(db)).map((g) => [g.id, g]));
+    expect(byId.get("rct_party")?.status).toBe("succeeded");
+    expect(byId.get("rct_party")?.weddingId).toBe(PARTY);
+    expect(byId.get(CONTRIBUTION_ID)?.status).toBe("refunded");
+  });
+
+  it("keeps the account on the other wedding when one wedding is deleted", async () => {
+    // The purge hard-deletes a wedding and its settings row by cascade; the
+    // wedding that shares the account keeps it, and keeps hearing about it.
+    const { app, db } = buildApp();
+    shareAccount(db);
+    db.delete(weddings).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
+    expect(row(db, BOOTSTRAP_WEDDING_ID)).toBeUndefined();
+
+    const res = await deliver(app, accountUpdated());
+
+    expect(await jsonBody(res)).toEqual({ received: true, matched: true });
+    expect(row(db, PARTY)?.stripeAccountId).toBe(ACCOUNT);
+    expect(row(db, PARTY)?.stripeChargesEnabled).toBe(true);
+  });
+});
+
+/**
+ * Two deliveries for one gift landing together. Each writer reads the row,
+ * decides from its status, and writes; another delivery can move the status
+ * between the two. The write carries the status it decided from, so it never
+ * lands on a row that has since moved.
+ */
+describe("deliveries that race each other", () => {
+  const UPDATE = /^update "registry_contributions"/;
+  const setRow = (db: ReturnType<typeof buildApp>["db"], set: Record<string, unknown>) =>
+    db
+      .update(registryContributions)
+      .set(set)
+      .where(eq(registryContributions.id, CONTRIBUTION_ID))
+      .run();
+
+  it("leaves a gift settled when an unpaid completion races the debit that cleared", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId);
+    beforeStatement(db, UPDATE, () => setRow(db, { status: "succeeded" }));
+
+    const res = await deliver(app, checkoutCompleted({ session: { payment_status: "unpaid" } }));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "duplicate" });
+    expect((await gifts(db))[0]?.status).toBe("succeeded");
+  });
+
+  it("leaves a gift settled when an expiry races its settlement", async () => {
+    const { app, db, familyId } = buildApp();
+    seedPending(db, familyId);
+    beforeStatement(db, UPDATE, () => setRow(db, { status: "succeeded" }));
+
+    const res = await deliver(app, sessionEvent("checkout.session.expired"));
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "ignored" });
+    expect((await gifts(db))[0]?.status).toBe("succeeded");
+  });
+
+  // A row that never got its session attached: the write adopts the session,
+  // and another delivery moves the row off `pending` first. Nothing is
+  // written, the delivery is still refused, and the log names that cause,
+  // not a session another gift holds.
+  it.each([
+    ["a settle", () => checkoutCompleted(), "settle"],
+    ["an expiry", () => sessionEvent("checkout.session.expired"), "expiry"],
+  ] as const)(
+    "leaves a gift settled when %s adopting its session races its settlement",
+    async (_, payload, writer) => {
+      const { app, db, familyId } = buildApp();
+      seedPending(db, familyId, { sessionId: null });
+      beforeStatement(db, UPDATE, () => setRow(db, { status: "succeeded" }));
+
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await deliver(app, payload());
+      });
+
+      expect(await jsonBody(res!)).toEqual({ received: true, outcome: "rejected" });
+      const [gift] = await gifts(db);
+      expect(gift?.status).toBe("succeeded");
+      expect(gift?.stripeCheckoutSessionId).toBeNull();
+      expect(logs).toContain(
+        `${writer} found the gift already off pending while adopting its checkout session`,
+      );
+      expect(logs).not.toContain("lost the race to adopt a checkout session");
+    },
+  );
+
+  it("never records a smaller refund over a larger one that landed first", async () => {
+    const { app, db, familyId } = buildApp();
+    await seedSettled(app, db, familyId);
+    await deliver(app, chargeRefunded({ charge: { refunded: false, amount_refunded: 2_000 } }));
+    beforeStatement(db, UPDATE, () => setRow(db, { refundedAmountMinor: 8_000 }));
+
+    await deliver(app, chargeRefunded({ charge: { refunded: false, amount_refunded: 5_000 } }));
+
+    const [gift] = await gifts(db);
+    expect(gift?.refundedAmountMinor).toBe(8_000);
+    expect(gift?.status).toBe("succeeded");
+  });
+
+  it("does not refund a gift a dispute took hold of first", async () => {
+    const { app, db, familyId } = buildApp();
+    await seedSettled(app, db, familyId);
+    beforeStatement(db, UPDATE, () => setRow(db, { status: "disputed" }));
+
+    const res = await deliver(app, chargeRefunded());
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "ignored" });
+    expect((await gifts(db))[0]?.status).toBe("disputed");
   });
 });

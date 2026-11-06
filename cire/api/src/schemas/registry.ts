@@ -51,7 +51,7 @@ function parseHttpsUrl(value: string): URL | null {
  * column holds is what the parser saw — one normal form per link, and no gap
  * between the string that passed validation and the string that gets rendered.
  */
-export const HttpsUrl = Schema.String.check(
+const HttpsUrl = Schema.String.check(
   Schema.isMaxLength(MAX_URL_CHARS),
   Schema.makeFilter((value) =>
     parseHttpsUrl(value) !== null
@@ -174,9 +174,10 @@ export type UpdateRegistrySettingsBody = Schema.Schema.Type<typeof UpdateRegistr
  * here is exactly the mistake that makes a gift list unreadable. The same holds
  * for a cash fund's `targetMinor`.
  *
- * `kind` picks a gift to reserve (`product`, the default) or a cash fund. Which
- * fields each kind may carry is the service's check, not this schema's: the
- * defaults below cannot tell "left out" from "sent as the default".
+ * `kind` picks a gift to reserve (`product`, the default) or a cash fund, and
+ * `allowPartial` makes a cash fund a group gift, which needs a `targetMinor`.
+ * Which fields each kind may carry is the service's check, not this schema's:
+ * the defaults below cannot tell "left out" from "sent as the default".
  */
 export const CreateRegistryItemBody = Schema.Struct({
   kind: ItemKind.pipe(Schema.withDecodingDefaultType(Effect.succeed("product" as const))),
@@ -192,12 +193,14 @@ export const CreateRegistryItemBody = Schema.Struct({
   targetMinor: Schema.NullOr(TargetMinor).pipe(
     Schema.withDecodingDefaultType(Effect.succeed(null)),
   ),
+  allowPartial: Schema.Boolean.pipe(Schema.withDecodingDefaultType(Effect.succeed(false))),
 });
 export type CreateRegistryItemBody = Schema.Schema.Type<typeof CreateRegistryItemBody>;
 
 /**
  * Update item: partial patch. Absent ⇒ unchanged; explicit null clears. An
- * item's `kind` is set when it is created and never patched.
+ * item's `kind` and `allowPartial` are set when it is created and never
+ * patched; a body carrying either has it dropped here.
  */
 export const UpdateRegistryItemBody = Schema.Struct({
   targetMinor: Schema.optional(Schema.NullOr(TargetMinor)),
@@ -286,7 +289,7 @@ export const GiftKindSchema = Schema.Literals(["claim", "contribution"]);
 const MIN_CONTRIBUTION_MINOR = 500;
 const MAX_CONTRIBUTION_MINOR = 1_000_000;
 
-export const ContributionAmount = Schema.Number.check(
+const ContributionAmount = Schema.Number.check(
   Schema.isInt(),
   Schema.isBetween({ minimum: MIN_CONTRIBUTION_MINOR, maximum: MAX_CONTRIBUTION_MINOR }),
 );
@@ -326,3 +329,14 @@ export const ClaimItemBody = Schema.Struct({
   ),
 });
 export type ClaimItemBody = Schema.Schema.Type<typeof ClaimItemBody>;
+
+/**
+ * Give this wedding the Stripe account the caller connected on another wedding
+ * of theirs. It names that WEDDING, never an account: the account comes off the
+ * named wedding's row, and only when cire's own record says the caller
+ * connected it there.
+ */
+export const ReuseStripeAccountBody = Schema.Struct({
+  fromWeddingId: Schema.NonEmptyString.check(Schema.isMaxLength(64)),
+});
+export type ReuseStripeAccountBody = Schema.Schema.Type<typeof ReuseStripeAccountBody>;

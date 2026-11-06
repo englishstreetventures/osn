@@ -82,7 +82,7 @@ export interface LineupSlot {
 }
 
 /** Parsed weekday hours map. Keys are ISO weekday numbers (Mon = 1, Sun = 7). */
-export type VenueHours = Record<string, { open: string; close: string } | null>;
+type VenueHours = Record<string, { open: string; close: string } | null>;
 
 export function parseVenueHours(raw: string | null): VenueHours | null {
   if (!raw) return null;
@@ -214,7 +214,7 @@ function venueLocalNow(now: Date, tz: string) {
   return { weekday: WEEKDAY_FROM_SHORT[wd] ?? "1", minutes: hh * 60 + mm };
 }
 
-export interface OpenStatus {
+interface OpenStatus {
   isOpen: boolean;
   label: string;
 }

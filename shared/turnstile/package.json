@@ -1,6 +1,6 @@
 {
   "name": "@shared/turnstile",
-  "version": "0.2.39",
+  "version": "0.2.42",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -16,9 +16,6 @@
     "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
-  },
-  "dependencies": {
-    "@shared/observability": "workspace:*"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",

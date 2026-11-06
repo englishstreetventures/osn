@@ -60,7 +60,7 @@ export const RSVP_DIGEST_MAX_EMAILS_PER_RUN = 100;
 /** How far back a digest reaches. Bounds the reads, and the size of a first digest. */
 export const RSVP_DIGEST_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
-export class RsvpDigestError extends Data.TaggedError("RsvpDigestError")<{
+class RsvpDigestError extends Data.TaggedError("RsvpDigestError")<{
   reason: string;
 }> {}
 
@@ -72,7 +72,7 @@ export interface RsvpDigestResult {
   deferred: number;
 }
 
-export interface RsvpDigestOptions {
+interface RsvpDigestOptions {
   /** Base of the portal link — the organiser origin from `WEB_ORIGIN`. */
   organiserOrigin: string;
   lookup: OsnOrganiserEmailLookup;
@@ -89,7 +89,7 @@ export interface RsvpDigestOptions {
 
 /** What a stop link did. `no_seat` — the person no longer holds a seat that
  *  receives the digest, so there was nothing to turn off. */
-export type DigestStopOutcome = "stopped" | "no_seat";
+type DigestStopOutcome = "stopped" | "no_seat";
 
 interface Recipient {
   weddingId: string;
@@ -139,7 +139,7 @@ const byString = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
  * Weddings go in order of their longest-waiting recipient, and each wedding's
  * recipients oldest cursor first, so what is left over goes first next run.
  */
-export interface RecipientChoice {
+interface RecipientChoice {
   chosen: Recipient[];
   /** Pending recipients left for a later run. */
   deferred: number;
@@ -196,7 +196,7 @@ function countGroups(groups: readonly ChangeGroup[]) {
  * recipient who turned the digest off mid-run stays off. The `WHERE` is also
  * what lets SQLite read the `ON` that follows as the upsert rather than a join.
  */
-export function buildMarkStatement(db: Db, marks: readonly Mark[], now: Date) {
+function buildMarkStatement(db: Db, marks: readonly Mark[], now: Date) {
   const updatedAt = hostRsvpNotices.updatedAt.mapToDriverValue(now);
   const payload = JSON.stringify(marks.map((m) => [m.weddingId, m.osnProfileId, m.seq]));
   const wedding = sql`json_extract(value, '$[0]')`;

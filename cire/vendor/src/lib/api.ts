@@ -8,35 +8,31 @@ import { CIRE_API_URL } from "./osn";
 export const apiUrl = (path: string) => `${CIRE_API_URL}${path}`;
 
 /**
- * `authFetch` rejects with `AuthExpiredError` (from `@shared/rp-auth`) when
- * cire/api answers 401 — the session cookie is gone or expired. The error may
- * arrive wrapped, so the string check catches a FiberFailure printout too.
- * Callers should redirect to sign-in when this returns true.
+ * The login page's path with any trailing slashes. Start-anchored, so a run of
+ * slashes elsewhere in a crafted address is read once, not once per slash; and
+ * free of a quoted `/login`, so the bundle names the page only as it is linked.
  */
-export function isAuthExpired(err: unknown): boolean {
-  if (typeof err === "object" && err !== null && "_tag" in err) {
-    if ((err as { _tag: unknown })._tag === "AuthExpiredError") return true;
-  }
-  return String(err).includes("AuthExpiredError");
-}
+const LOGIN_PAGE = /^\/login\/*$/;
 
 /**
  * Bounce to the login page on an expired session, remembering where the vendor
  * was so the sign-in can send them back to it (a thread, an organisation)
  * rather than to the dashboard. Only the same-origin path+query+hash is carried
  * (as `returnTo`), never an absolute URL, and the sign-in panel checks it again
- * before following it. `/login` itself is never remembered: it would loop.
+ * before following it. The login page itself is never remembered: it would
+ * loop. That is `/login/`, where it is served, or `/login`, which the dev
+ * server answers too. It is linked as `/login/`: the asset server redirects
+ * `/login` there.
  */
 export function redirectToLogin(): void {
   if (signingOut) {
-    window.location.href = "/login";
+    window.location.href = "/login/";
     return;
   }
   const here = window.location.pathname + window.location.search + window.location.hash;
-  const target =
-    window.location.pathname === "/login"
-      ? "/login"
-      : `/login?returnTo=${encodeURIComponent(here)}`;
+  const target = LOGIN_PAGE.test(window.location.pathname)
+    ? "/login/"
+    : `/login/?returnTo=${encodeURIComponent(here)}`;
   window.location.href = target;
 }
 
@@ -55,7 +51,7 @@ export async function signOutToLogin(logout: () => Promise<void>): Promise<void>
   try {
     await logout();
   } finally {
-    window.location.href = "/login";
+    window.location.href = "/login/";
   }
 }
 

@@ -28,7 +28,7 @@ import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
  * (the per-wedding version had exactly that over-invalidation problem — P-I1).
  */
 
-export class EventNotFound extends Data.TaggedError("EventNotFound")<{
+class EventNotFound extends Data.TaggedError("EventNotFound")<{
   readonly eventId?: string;
 }> {}
 

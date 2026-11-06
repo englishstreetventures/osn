@@ -439,8 +439,9 @@ describe("directoryService.seedFromCrm", () => {
     const { claimToken, claimUrl, directoryVendorId } = res.value;
 
     expect(claimToken).toBeTruthy();
-    expect(claimUrl).toContain(claimToken);
-    expect(claimUrl).toContain(TEST_ORIGIN);
+    // The claim page by the address it is served at, so the email's link
+    // reaches it without the asset server's redirect from `/claim`.
+    expect(claimUrl).toBe(`${TEST_ORIGIN}/claim/?token=${claimToken}`);
     expect(directoryVendorId).toBeTruthy();
 
     // The draft listing was created

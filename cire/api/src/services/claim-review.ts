@@ -35,14 +35,14 @@ import { metricVendorClaimReview } from "../metrics";
 import { flushBufferedEnquiry } from "./enquiries";
 import type { ZapChatClient } from "./zap-bridge";
 
-export class ClaimReviewSweepError extends Data.TaggedError("ClaimReviewSweepError")<{
+class ClaimReviewSweepError extends Data.TaggedError("ClaimReviewSweepError")<{
   reason: string;
 }> {}
 
 /** Buffered enquiries handed off per cron run: 20 zap calls, 10 D1 writes. */
-export const HANDOFFS_PER_RUN = 10;
+const HANDOFFS_PER_RUN = 10;
 
-export interface ClaimReviewSweepResult {
+interface ClaimReviewSweepResult {
   handedOff: number;
   pending: number;
 }

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 
 import { weddingHosts, weddings } from "@cire/db";
 import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
+import { installWorkersTracing } from "@shared/observability/tracing";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { Miniflare } from "miniflare";
@@ -64,9 +65,10 @@ const BASE_ENV = {
   CLAIM_RATE_LIMITER: fakeRateLimiter,
 };
 
-// Minimal concrete stand-in for the ambient `Span` abstract class — these
-// boot tests never actually create a span, so the shape only needs to
-// satisfy `Tracing.Span`'s constructor type.
+// Minimal concrete stand-in for the ambient `Span` abstract class. The handler
+// installs `ctx.tracing` as the Workers trace mirror, so every Effect span a
+// boot runs opens one of these; `isTraced` false makes the mirror end it at
+// once, so the stand-in records nothing.
 class StubSpan {
   get isTraced(): boolean {
     return false;
@@ -103,9 +105,7 @@ const ctx: ExecutionContext = {
     startActiveSpan: () => {
       throw new Error("tracing not available in this test context");
     },
-    startSpan: () => {
-      throw new Error("tracing not available in this test context");
-    },
+    startSpan: () => new StubSpan(),
     Span: StubSpan,
   },
 };
@@ -434,7 +434,7 @@ describe("organiser sign-in config on the Worker", () => {
       );
       expect(res.status).toBe(302);
       const location = new URL(res.headers.get("location") ?? "");
-      expect(location.pathname).toBe("/login");
+      expect(location.pathname).toBe("/login/");
       expect(location.searchParams.get("auth_error")).toBe("sign_in_unavailable");
       expect(logs).toContain("OIDC client config incomplete");
       expect(logs).toContain("OSN_JWKS_URL");
@@ -531,6 +531,74 @@ describe("money gifts need both Stripe values on the Worker", () => {
   it("says nothing without a key, where there is no payment surface to explain", async () => {
     for (const extra of [{}, { STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET }]) {
       const { statuses, logs } = await giveThroughWorker(extra);
+      expect(statuses).toEqual([404, 404]);
+      expect(logs).not.toContain(WARNING);
+    }
+  });
+});
+
+describe("connecting an existing Stripe account needs the client id on the Worker", () => {
+  // Distinctive values, so a log line that carried either would be found.
+  const KEY = "stripe-key-under-test-oauth-7c1d";
+  const WARNING = "stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id";
+
+  /**
+   * Stripe's redirect back, with a state no start minted, to a Worker built for
+   * `extra` on a binding it has not seen. A mounted callback answers a 302 to
+   * the portal (`expired`); an unmounted one answers 404.
+   */
+  async function returnThroughWorker(
+    extra: Record<string, unknown>,
+  ): Promise<{ statuses: number[]; logs: string }> {
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = { ...BASE_ENV, ...extra, DB: freshBinding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+    const back = () =>
+      new Request("https://api.example.com/api/organiser/stripe/oauth/callback?state=x&code=y", {
+        headers: { "cf-connecting-ip": "203.0.113.65" },
+      }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0];
+    const statuses: number[] = [];
+    const logs = await captureLogs(async () => {
+      statuses.push((await handler.fetch!(back(), env, ctx)).status);
+      statuses.push((await handler.fetch!(back(), env, ctx)).status);
+    });
+    return { statuses, logs };
+  }
+
+  const ON = {
+    STRIPE_SECRET_KEY: KEY,
+    STRIPE_CONNECT_CLIENT_ID: "ca_workerUnderTest",
+    CIRE_API_ORIGIN: "https://api.example.com",
+  };
+
+  it("mounts the callback with the key, a ca_ id and the API origin, and says nothing", async () => {
+    const { statuses, logs } = await returnThroughWorker(ON);
+    expect(statuses).toEqual([302, 302]);
+    expect(logs).not.toContain(WARNING);
+    expect(logs).not.toContain(KEY);
+  });
+
+  it("mounts nothing for a client id that is not a ca_ id, and says so once", async () => {
+    const { statuses, logs } = await returnThroughWorker({
+      ...ON,
+      STRIPE_CONNECT_CLIENT_ID: "sk_test_pasted_into_the_wrong_box",
+    });
+    expect(statuses).toEqual([404, 404]);
+    expect(logs.split(WARNING).length - 1).toBe(1);
+    expect(logs).not.toContain("sk_test_pasted_into_the_wrong_box");
+  });
+
+  it("mounts nothing, and says nothing, without the client id or the API origin", async () => {
+    for (const extra of [
+      { STRIPE_SECRET_KEY: KEY, CIRE_API_ORIGIN: ON.CIRE_API_ORIGIN },
+      { STRIPE_SECRET_KEY: KEY, STRIPE_CONNECT_CLIENT_ID: ON.STRIPE_CONNECT_CLIENT_ID },
+    ]) {
+      const { statuses, logs } = await returnThroughWorker(extra);
       expect(statuses).toEqual([404, 404]);
       expect(logs).not.toContain(WARNING);
     }
@@ -1037,6 +1105,56 @@ describe("D1 session routing at the entry points", () => {
   // test below that calls `runCron` carries a 30 s budget rather than bun's 5 s
   // default. A timeout here is worse than a failure: bun kills workerd, and the
   // next blocking call waits on it forever, so `bun test` never exits.
+
+  it("runs every sweep on the mirrored runtime, so each opens its span in the cron's trace", async () => {
+    const opened: string[] = [];
+    const tracing = {
+      ...ctx.tracing,
+      startSpan: (name: string) => {
+        opened.push(name);
+        return { isTraced: true, setAttribute: () => undefined, end: () => undefined };
+      },
+    };
+    const probe = probeD1();
+    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
+      NonNullable<typeof handler.scheduled>
+    >[1];
+    const pending: Promise<unknown>[] = [];
+    const cronCtx = {
+      ...ctx,
+      tracing,
+      waitUntil: (promise: Promise<unknown>) => {
+        pending.push(promise);
+      },
+    } as unknown as ExecutionContext;
+    try {
+      await handler.scheduled!(
+        { cron: "0 4 * * *", scheduledTime: Date.now(), noRetry: () => {} } as ScheduledController,
+        env,
+        cronCtx,
+      );
+      await Promise.allSettled(pending);
+    } finally {
+      installWorkersTracing(undefined);
+    }
+
+    // One per sweep; with no mail transport the digest does not run.
+    expect([...new Set(opened)].toSorted()).toEqual(
+      [
+        "cire.assets.reconcileOrphans",
+        "cire.claimReview.sweep",
+        "cire.maintenance.purgeDeletedWeddings",
+        "cire.maintenance.sweepExpiredVendorClaims",
+        "cire.maintenance.sweepStalePreviews",
+        "cire.organiserSession.sweepExpired",
+        "cire.realtime.sweepSubscribeBudget",
+        "cire.retention.sweepExpiredGuestData",
+        "cire.rsvp_changes.sweepExpired",
+        "cire.session.sweepExpired",
+        "cire.sheets.reconcileOrphans",
+      ].toSorted(),
+    );
+  }, 30_000);
 
   it("gives each scheduled sweep its own session", async () => {
     // One session per sweep — deliberately NOT one shared by all of them.

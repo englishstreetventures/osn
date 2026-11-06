@@ -118,7 +118,7 @@ export function createApp(options: AppOptions = {}) {
     // `aot` is false on Workers — see `AppOptions.aot`.
     new Elysia({ aot })
       .use(corsOrigins ? cors({ origin: corsOrigins, credentials: true }) : cors())
-      .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
+      .use(observabilityPlugin())
       // CSRF guard for the cookie-authenticated surface — mounted before any
       // route factory so it gates the whole app. Only fires when the request
       // carries `pulse_web_session`; see `lib/origin-guard.ts` for why Pulse

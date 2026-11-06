@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * A loading placeholder is `@cire/ui`'s `Skeleton` (cire/host/DESIGN.md §4,
- * englishstreetventures/osn#1837): it takes the corner and fill of what it
- * stands in for, and pulses on the motion tokens with `Loading`. A block drawn
+ * A loading placeholder is `@cire/ui`'s `Skeleton` or `SkeletonOutline`
+ * (cire/host/DESIGN.md §4, englishstreetventures/osn#1837 and #1955): each
+ * takes the look the owner chose, and pulses on the motion tokens with
+ * `Loading`. A block drawn
  * by hand with Tailwind's `animate-pulse` picks its own corner and fill and
  * pulses at a fixed pace, and nothing on screen says so, so this reads every
  * source file under `src/` and fails on any that writes the class.

@@ -564,5 +564,3 @@ export function createRegistrationModule(
     checkHandle,
   };
 }
-
-export type RegistrationModule = ReturnType<typeof createRegistrationModule>;

@@ -11,7 +11,7 @@ This skill covers **issue bodies only**. A pull-request title and body follow th
 
 Two things this skill does not own, and links to instead:
 
-- **A review finding** (`S-`, `P-`, `C-`, `G-`): its four fields (Issue / Why / Solution / Rationale), its labels and its severity are in `wiki/conventions/review-findings.md` §Filing a finding. A worked example is `.claude/skills/prep-pr/references/issue-filing-example.md`. The writing rules below still apply to what goes in each field.
+- **A review finding** (`S-`, `P-`, `C-`, `G-`, `U-`): its four fields (Issue / Why / Solution / Rationale), its labels and its severity are in `wiki/conventions/review-findings.md` §Filing a finding. A worked example is `.claude/skills/prep-pr/references/issue-filing-example.md`. The writing rules below still apply to what goes in each field.
 - **The label and type scheme**: `wiki/conventions/github-issues-setup.md` §3 and §4.
 
 ## Step 0 — Whether it should be an issue at all
@@ -34,9 +34,9 @@ are not deferrals; this step does not apply to them.
 | The issue is | Repository |
 |---|---|
 | A security, performance or compliance finding, however minor | `englishstreetventures/osn-tracker` (private) |
-| A state finding (`G-`) and everything else | `englishstreetventures/osn` (public) |
+| A state finding (`G-`), a design finding (`U-`) and everything else | `englishstreetventures/osn` (public) |
 
-Route by kind, never by severity. A security, performance or compliance finding names an unpatched route, so filing it in the public repository publishes it, and a public issue never links to a tracker issue either. A state finding is a correctness defect with nothing to disclose, which is why its ID is public.
+Route by kind, never by severity. A security, performance or compliance finding names an unpatched route, so filing it in the public repository publishes it, and a public issue never links to a tracker issue either. A state finding is a correctness defect and a design finding a departure from the design system; neither has anything to disclose, which is why their IDs are public.
 
 Search the repository the table chose, open and closed both. A finding is searched by its ID as well, in the repository its kind goes to:
 
@@ -52,7 +52,7 @@ The title states the outcome, specific enough to tell the issue apart from its n
 
 - Product work: `<Product> <surface>: <outcome>` — `Cire RSVP: collect meal choices and export catering counts`.
 - A bug: what breaks, where — `Flaky osn/api test: recovery-session rotation late in the window`.
-- A finding: its ID first — `S-M1 — No rate limit on POST /events/:id/rsvp`. In the public repository a security, performance or compliance finding never appears at all; a state finding (`G-`) is a correctness defect and is filed there, its ID first — `G-M1 — Marking a done task done again moves its completion time`.
+- A finding: its ID first — `S-M1 — No rate limit on POST /events/:id/rsvp`. In the public repository a security, performance or compliance finding never appears at all; a state finding (`G-`) is a correctness defect and is filed there, its ID first — `G-M1 — Marking a done task done again moves its completion time` — and so is a design finding (`U-`).
 - Not an activity ("Improve RSVP", "Look into tests"), and no internal draft ID (`GP-1`, `EP-Q`) the reader cannot look up.
 
 ## Step 3 — Type and labels
@@ -92,7 +92,7 @@ The epic's **What** and **Why** describe the whole outcome; its **Done when** na
 
 ### A finding
 
-The four fields in `wiki/conventions/review-findings.md`. A security, performance or compliance finding is filed in the tracker only, and a public issue body never names one, not even by number or ID. A state finding (`G-`) is filed in the public repository as `--type Bug`, with `severity:` from its tier and no `area:` unless its fix is a migration (`area:schema`). A public pull request carries a tracker issue only as a bare reference — `Closes englishstreetventures/osn-tracker#<n>` — and never its ID, title or detail (`write-pr`).
+The four fields in `wiki/conventions/review-findings.md`. A security, performance or compliance finding is filed in the tracker only, and a public issue body never names one, not even by number or ID. A state finding (`G-`) is filed in the public repository as `--type Bug`, with `severity:` from its tier and no `area:` unless its fix is a migration (`area:schema`). A design finding (`U-`) is filed the same way, with no `area:`. A public pull request carries a tracker issue only as a bare reference — `Closes englishstreetventures/osn-tracker#<n>` — and never its ID, title or detail (`write-pr`).
 
 ### A `needs:decision` proposal
 

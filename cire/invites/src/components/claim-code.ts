@@ -4,14 +4,14 @@ import { turnstileEnabled } from "./TurnstileWidget";
 import type { ClaimResult } from "./types";
 import { isValidClaimResponse } from "./utils";
 
-export interface ClaimCodeOptions {
+interface ClaimCodeOptions {
   apiUrl: string;
   /** Current claim result — non-null once claimed (suppresses ?code= auto-claim re-fire). */
   result: Accessor<ClaimResult | null>;
   onClaimed: (result: ClaimResult) => void;
 }
 
-export interface ClaimCode {
+interface ClaimCode {
   code: Accessor<string>;
   setCode: (value: string) => void;
   loading: Accessor<boolean>;

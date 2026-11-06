@@ -18,7 +18,7 @@ import { ExternalTexture, type WebGLRenderer } from "three";
 import type { DrawableCanvas, ElementTextureContext } from "../html-in-canvas";
 
 /** Marks the clone, so the head stylesheet holds its animations at their start, as it does the hero's. */
-export const CARD_ATTR = "data-envelope-card";
+const CARD_ATTR = "data-envelope-card";
 
 /** What the scene's size is, in CSS pixels and device pixels per CSS pixel. */
 export interface Viewport {
@@ -74,7 +74,7 @@ function cloneHero(hero: HTMLElement, blobUrl: string | null, viewport: Viewport
  * size of the canvas's drawing buffer, which three rounds down, so the last
  * frame samples one texel per pixel.
  */
-export function textureSize(viewport: Viewport, maxSize: number): [number, number] {
+function textureSize(viewport: Viewport, maxSize: number): [number, number] {
   return [
     Math.min(maxSize, Math.floor(viewport.width * viewport.dpr)),
     Math.min(maxSize, Math.floor(viewport.height * viewport.dpr)),

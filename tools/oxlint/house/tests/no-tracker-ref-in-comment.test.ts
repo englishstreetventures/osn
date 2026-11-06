@@ -42,9 +42,9 @@ export const fontSource = "self";
 // Bundle split measured under osn-tracker #287.
 export const chunkKb = 119;
 `,
-  // Three tags in three shapes the pre-review design would each have missed: a
-  // parenthesised one mid-line, a two-digit one, and a tier outside the
-  // security/perf pair.
+  // Five tags in the shapes the pre-review design would each have missed: a
+  // parenthesised one mid-line, a two-digit one, and tiers outside the
+  // security/perf pair, the state and design reviews' among them.
   "finding-id.ts": `
 // Bound checked at the edge (S-M1).
 export const a = 1;
@@ -52,6 +52,10 @@ export const a = 1;
 export const b = 2;
 // Regression fixture kept for T-S2.
 export const c = 3;
+// The WHERE names the status, after G-H2.
+export const d = 4;
+// Drawn with Eyebrow, as U-H1 asked.
+export const e = 5;
 `,
   // One tag at the start of its line, one mid-sentence.
   "phase-code.ts": `
@@ -202,7 +206,7 @@ describe("house/no-tracker-ref-in-comment", () => {
   });
 
   it("reports each reference separately rather than once per comment", () => {
-    expect(forFixture(diagnostics, "finding-id.ts")).toHaveLength(3);
+    expect(forFixture(diagnostics, "finding-id.ts")).toHaveLength(5);
     expect(forFixture(diagnostics, "phase-code.ts")).toHaveLength(2);
     expect(forFixture(diagnostics, "narrative.ts")).toHaveLength(3);
     expect(forFixture(diagnostics, "tracker-ref.ts")).toHaveLength(1);
@@ -237,6 +241,8 @@ describe("house/no-tracker-ref-in-comment", () => {
     expect(messages.join("\n")).toContain("S-M1");
     expect(messages.join("\n")).toContain("C-M15");
     expect(messages.join("\n")).toContain("T-S2");
+    expect(messages.join("\n")).toContain("G-H2");
+    expect(messages.join("\n")).toContain("U-H1");
   });
 
   it("points at the line the reference sits on, not the line its block opens on", () => {

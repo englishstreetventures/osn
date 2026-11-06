@@ -31,7 +31,7 @@ export interface WriteTracker {
   reset(): void;
 }
 
-export function createWriteTracker(): WriteTracker {
+function createWriteTracker(): WriteTracker {
   const writing = new Map<string, number>();
   const epochs = new Map<string, number>();
   const listeners = new Set<(weddingId: string) => void>();

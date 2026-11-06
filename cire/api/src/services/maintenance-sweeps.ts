@@ -28,6 +28,7 @@ import {
   imports,
   registryContributions,
   registryItems,
+  registrySettings,
   vendorClaims,
   weddingInviteCustomisations,
   weddings,
@@ -50,9 +51,10 @@ import { INVITE_IMAGE_SLOTS } from "../schemas/invite";
 import { SLOT_COLUMNS } from "./invite";
 import type { DeletableBucket } from "./r2-cleanup";
 import { reapR2Objects } from "./r2-cleanup";
+import type { StripeError } from "./stripe";
 import { changeClaimLive } from "./wedding-lifecycle";
 
-export class MaintenanceSweepError extends Data.TaggedError("MaintenanceSweepError")<{
+class MaintenanceSweepError extends Data.TaggedError("MaintenanceSweepError")<{
   op: "vendor_claims" | "stale_previews" | "purge_deleted_weddings";
   reason: string;
 }> {}
@@ -86,7 +88,7 @@ export const PURGE_PENDING_HOLD_S = 14 * 24 * 60 * 60;
 const purgeHeld = (wedding: SQL | string, nowS: number, nowMs: number): SQL =>
   sql`(EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.weddingId} = ${wedding} AND ${weddingUpgradePurchases.status} = 'pending' AND ${weddingUpgradePurchases.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}) OR EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND (${registryContributions.status} = 'disputed' OR (${registryContributions.status} = 'pending' AND ${registryContributions.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR ${changeClaimLive(nowMs)})`;
 
-export interface PurgeRunResult {
+interface PurgeRunResult {
   purged: number;
   held: number;
   errors: number;
@@ -127,6 +129,7 @@ function purgeOne(
   nowMs: number,
   cutoffS: number,
   reapTo: { sheets?: DeletableBucket; assets?: DeletableBucket },
+  stripe: PurgeStripe,
 ): Effect.Effect<"ok" | "held", MaintenanceSweepError, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
@@ -161,6 +164,13 @@ function purgeOne(
             .from(registryItems)
             .where(and(eq(registryItems.weddingId, weddingId), isNotNull(registryItems.imageKey))),
           db
+            .select({
+              stripeAccountId: registrySettings.stripeAccountId,
+              stripeAccountType: registrySettings.stripeAccountType,
+            })
+            .from(registrySettings)
+            .where(eq(registrySettings.weddingId, weddingId)),
+          db
             .delete(weddings)
             .where(
               and(
@@ -175,7 +185,7 @@ function purgeOne(
       catch: (e) => new MaintenanceSweepError({ op: "purge_deleted_weddings", reason: String(e) }),
     });
 
-    const [deleted] = results[4] as readonly { id: string }[];
+    const [deleted] = results[5] as readonly { id: string }[];
     // Restored, or a hold appeared, between the candidate read and here.
     if (!deleted) return "held" as const;
 
@@ -187,6 +197,11 @@ function purgeOne(
     ];
     yield* reapR2Objects(reapTo.sheets, "sheets", sheetKeys);
     yield* reapR2Objects(reapTo.assets, "assets", assetKeys);
+    const [settings] = results[4] as readonly {
+      stripeAccountId: string | null;
+      stripeAccountType: "express" | "standard" | null;
+    }[];
+    if (settings) yield* handBackStandardAccount(weddingId, settings, stripe);
     // The only record left once the rows are gone: ids and counts, no names.
     yield* Effect.logInfo("wedding purged", {
       weddingId,
@@ -196,6 +211,55 @@ function purgeOne(
     });
     return "ok" as const;
   }).pipe(Effect.withSpan("cire.wedding.purge"));
+}
+
+/** How the purge hands a Standard account back; absent where OAuth is not configured. */
+export interface PurgeStripe {
+  readonly deauthorize?: (accountId: string) => Effect.Effect<void, StripeError>;
+}
+
+/**
+ * A purged wedding's Standard account — the couple's own, connected through
+ * OAuth — is handed back when no other wedding names it, so cire keeps no
+ * access to an account it no longer uses and stops hearing its events. An
+ * Express account cire created stays at Stripe, as it always has. Best-effort:
+ * the rows are already gone, so a refusal is logged with the account id for a
+ * hand fix and the purge still counts.
+ */
+function handBackStandardAccount(
+  weddingId: string,
+  settings: { stripeAccountId: string | null; stripeAccountType: "express" | "standard" | null },
+  stripe: PurgeStripe,
+): Effect.Effect<void, never, DbService> {
+  return Effect.gen(function* () {
+    const accountId = settings.stripeAccountId;
+    if (!accountId || settings.stripeAccountType !== "standard" || !stripe.deauthorize) return;
+    const db = yield* DbService;
+    const others = yield* Effect.tryPromise({
+      try: () =>
+        Promise.resolve(
+          db
+            .select({ weddingId: registrySettings.weddingId })
+            .from(registrySettings)
+            .where(eq(registrySettings.stripeAccountId, accountId))
+            .limit(1)
+            .all(),
+        ),
+      catch: () => null,
+    }).pipe(Effect.catch(() => Effect.succeed(null)));
+    // Unknown is not "nobody": handing back an account another wedding uses
+    // would end that wedding's gifts.
+    if (others === null || others.length > 0) return;
+    yield* stripe
+      .deauthorize(accountId)
+      .pipe(
+        Effect.catchTag("StripeError", () =>
+          Effect.logError("stripe account not handed back after purge").pipe(
+            Effect.annotateLogs({ weddingId, stripeAccountId: accountId }),
+          ),
+        ),
+      );
+  });
 }
 
 export const maintenanceSweeps = {
@@ -307,6 +371,7 @@ export const maintenanceSweeps = {
   purgeDeletedWeddings(
     now: Date = new Date(),
     buckets: { sheets?: DeletableBucket; assets?: DeletableBucket } = {},
+    stripe: PurgeStripe = {},
   ): Effect.Effect<PurgeRunResult, MaintenanceSweepError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -364,7 +429,7 @@ export const maintenanceSweeps = {
       let purged = 0;
       let errors = 0;
       for (const candidate of candidates) {
-        const outcome = yield* purgeOne(candidate, nowS, nowMs, cutoffS, buckets).pipe(
+        const outcome = yield* purgeOne(candidate, nowS, nowMs, cutoffS, buckets, stripe).pipe(
           Effect.catch((err) =>
             Effect.logError("wedding purge failed", {
               weddingId: candidate.id,

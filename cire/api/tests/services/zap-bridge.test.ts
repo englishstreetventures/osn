@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { afterEach, describe, it, expect } from "bun:test";
 
 import { generateKeyPair } from "jose";
 
@@ -22,6 +22,32 @@ function fakeFetch(status: number, json: unknown) {
 }
 
 describe("zap-bridge createZapChatClient", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("with no fetchImpl, calls the global fetch as it is when the call is made", async () => {
+    // Built first, stubbed after: a default captured at construction would
+    // send this request to the network instead of the stub.
+    const client = createZapChatClient({
+      zapApiUrl: "https://zap.example",
+      arcPrivateKey: await testKey(),
+      arcKeyId: "kid_test",
+    });
+    const { impl, calls } = fakeFetch(201, { chatId: "cht_global" });
+    globalThis.fetch = impl;
+
+    const res = await client.provisionC2bChat({
+      memberProfileIds: ["usr_a", "usr_b"],
+      createdByProfileId: "usr_a",
+      title: "Vendor ↔ Wedding",
+    });
+
+    expect(res.chatId).toBe("cht_global");
+    expect(calls[0]?.url).toBe("https://zap.example/internal/chats");
+  });
+
   it("provisionC2bChat POSTs to /internal/chats with an ARC header + returns chatId", async () => {
     const { impl, calls } = fakeFetch(201, { chatId: "cht_123" });
     const client = createZapChatClient({

@@ -31,7 +31,7 @@ export class ConsentDenied extends Data.TaggedError("ConsentDenied")<{
  * tagged failure. Returns a Promise so it can be unit-overridden in tests
  * without an Effect runtime; the default implementation wraps the ARC bridge.
  */
-export type ConsentGate = (viewerProfileId: string, targetProfileId: string) => Promise<boolean>;
+type ConsentGate = (viewerProfileId: string, targetProfileId: string) => Promise<boolean>;
 
 /** Default gate — the real ARC-authenticated OSN graph lookup. */
 const defaultGate: ConsentGate = (viewerProfileId, targetProfileId) =>

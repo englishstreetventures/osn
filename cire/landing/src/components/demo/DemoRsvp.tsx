@@ -215,8 +215,9 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
         when={!submitted()}
         fallback={
           <div class="py-6 text-center">
-            <Eyebrow class="mb-3">Preview</Eyebrow>
-            <h3 class="font-display text-text text-ui-xl mb-4 font-light italic">
+            {/* The dialog's name once the reply is sent: only one side of the
+                `Show` is mounted, so the id stays unique. */}
+            <h3 id={titleId} class="font-display text-text text-ui-xl mb-4 font-light italic">
               That&rsquo;s the feeling.
             </h3>
             <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-7 font-light">
@@ -229,9 +230,10 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
           </div>
         }
       >
-        <Eyebrow class="mb-3">Respond</Eyebrow>
+        {/* The event's name, as the guest sheet titles it: "Respond," is for the
+            ear, so the dialog is named for what it does. */}
         <h3 id={titleId} class="font-display text-text text-ui-xl mb-2 font-light italic">
-          {shownEvent()?.name}
+          <span class="sr-only">Respond,</span> {shownEvent()?.name}
         </h3>
         <div
           class="mb-6"

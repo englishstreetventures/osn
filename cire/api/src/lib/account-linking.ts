@@ -51,7 +51,7 @@ export interface AccountLinking {
 const WEDDING_ID = /^wed_(?:[0-9a-f]{32}|bootstrap)$/;
 
 /** The parsed `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS`. */
-export interface WeddingIdList {
+interface WeddingIdList {
   weddings: ReadonlySet<string>;
   /**
    * Entries that are not the shape of a wedding id, so match no wedding: a

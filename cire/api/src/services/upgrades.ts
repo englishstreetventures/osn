@@ -44,18 +44,18 @@ export class UpgradeConflict extends Data.TaggedError("UpgradeConflict")<{
 }> {}
 
 /** The upgrade could not be sold here: no Stripe Price is configured for it. */
-export class UpgradeUnavailable extends Data.TaggedError("UpgradeUnavailable")<{
+class UpgradeUnavailable extends Data.TaggedError("UpgradeUnavailable")<{
   readonly tier: PaidTier;
 }> {}
 
 /** A write that failed for a reason that is not a conflict. */
-export class UpgradeWriteError extends Data.TaggedError("UpgradeWriteError")<{
+class UpgradeWriteError extends Data.TaggedError("UpgradeWriteError")<{
   readonly op: string;
   readonly reason: string;
 }> {}
 
 /** Stripe refused, so there is no payment page to send anyone to. */
-export class UpgradeProviderError extends Data.TaggedError("UpgradeProviderError")<{
+class UpgradeProviderError extends Data.TaggedError("UpgradeProviderError")<{
   readonly reason: string;
 }> {}
 
@@ -150,9 +150,9 @@ export const STALE_PENDING_MS = 60_000;
  * sets no `expires_at`, so Stripe's default of a day applies to every session
  * this product has opened.
  */
-export const CHECKOUT_SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
+const CHECKOUT_SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
-export interface StartPurchaseInput {
+interface StartPurchaseInput {
   weddingId: string;
   tier: PaidTier;
   /** The owner who pressed Upgrade. Recorded on the purchase row. */
@@ -176,7 +176,7 @@ export interface StartPurchaseResult {
 
 type StartError = UpgradeConflict | UpgradeUnavailable | UpgradeWriteError | UpgradeProviderError;
 
-export interface SettleInput {
+interface SettleInput {
   purchaseId: string;
   checkoutSessionId: string;
   paid: boolean;
@@ -186,9 +186,9 @@ export interface SettleInput {
 }
 
 /** What a settle attempt concluded. Mirrors the metric's bounded outcome set. */
-export type SettleOutcome = "granted" | "replayed" | "unpaid" | "unknown" | "mismatch" | "refunded";
+type SettleOutcome = "granted" | "replayed" | "unpaid" | "unknown" | "mismatch" | "refunded";
 
-export interface UpgradeServiceDeps {
+interface UpgradeServiceDeps {
   stripe: StripeClient;
   catalogue: UpgradeCatalogue;
   /** Injected so the staleness window is testable without waiting. */

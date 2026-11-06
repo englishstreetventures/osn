@@ -69,7 +69,6 @@
     "@stryker-mutator/vitest-runner": "10.0.0",
     "bun-types": "1.4.4",
     "lefthook": "2.2.2",
-    "oxfmt": "0.73.0",
     "oxlint": "1.88.0",
     "portless": "0.15.12",
     "turbo": "2.11.9",

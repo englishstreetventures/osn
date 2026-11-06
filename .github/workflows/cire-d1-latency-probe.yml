@@ -36,9 +36,10 @@ jobs:
     # The dev Environment holds DEV_DOMAIN, the one input every dev host
     # comes from.
     environment: dev
-    # Its own group, never the cire stack's deploy group: GitHub cancels the
-    # pending job in a group when another joins it, so a probe there could
-    # cancel a queued dev deploy. A dev deploy can therefore overlap a run; the
+    # Its own group, never the cire stack's deploy group: a probe there would
+    # wait behind every queued dev deploy (that group keeps them all, with
+    # `queue: max`) and hold the next one up while it ran. A dev deploy can
+    # therefore overlap a run; the
     # report prints its window so an overlapping run can be spotted and
     # repeated.
     concurrency:

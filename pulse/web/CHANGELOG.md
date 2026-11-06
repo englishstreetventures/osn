@@ -1,5 +1,42 @@
 # @osn/pulse
 
+## 0.24.57
+
+### Patch Changes
+
+- f860728: Stop exporting symbols used only inside their own file, drop re-exports nothing imports, and delete declarations nothing reads. No behaviour changes.
+- Updated dependencies [f860728]
+  - @pulse/api@0.28.12
+
+## 0.24.56
+
+### Patch Changes
+
+- 6dbdb99: Drop dependencies no file imports (`motion`, `jose`, `@solidjs/meta`, `@solidjs/testing-library`, `@shared/design-tokens`, `@effect/vitest`, `@opentelemetry/exporter-logs-otlp-http`, and the direct `@vitest/browser` that `@vitest/browser-playwright` already brings in), and stop exporting shared symbols used only inside their own file. No behaviour changes.
+- Updated dependencies [6dbdb99]
+  - @pulse/api@0.28.11
+  - @shared/toast@0.3.12
+  - @shared/ui@0.10.2
+
+## 0.24.55
+
+### Patch Changes
+
+- Updated dependencies [08d9eaf]
+  - @pulse/api@0.28.10
+
+## 0.24.54
+
+### Patch Changes
+
+- @pulse/api@0.28.9
+
+## 0.24.53
+
+### Patch Changes
+
+- @pulse/api@0.28.8
+
 ## 0.24.52
 
 ### Patch Changes

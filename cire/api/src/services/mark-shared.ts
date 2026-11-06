@@ -20,13 +20,13 @@ import { Data, Effect } from "effect";
 import { DbService, dbQuery } from "../db";
 import { metricFamilyCodeShared } from "../metrics";
 
-export class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {}
+class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {}
 
-export class MarkSharedWriteError extends Data.TaggedError("MarkSharedWriteError")<{
+class MarkSharedWriteError extends Data.TaggedError("MarkSharedWriteError")<{
   reason: string;
 }> {}
 
-export interface MarkSharedResult {
+interface MarkSharedResult {
   familyId: string;
   /** Epoch-ms timestamp the family was marked shared. */
   codeSharedAt: number;

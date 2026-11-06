@@ -25,7 +25,7 @@ import { MapPreview } from "./MapPreview";
 import { PinterestBoard } from "./PinterestBoard";
 import type { EventSummary, FamilyMember } from "./types";
 
-export interface DetailsPanelProps {
+interface DetailsPanelProps {
   event: EventSummary;
   /** Origin used to stamp the calendar invite's "Invite:" link. */
   siteUrl: string;

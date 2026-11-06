@@ -10,16 +10,15 @@ import { describe, expect, it } from "vitest";
  * `osn/api` and `cire/api` are deployed as Cloudflare Workers. Neither
  * `@effect/opentelemetry`'s `NodeSdk` nor the `@opentelemetry/sdk-*` packages
  * run on workerd, so the subpaths those Workers import
- * (`@shared/observability/config`, `/logger` and — since OTLP trace export was
- * wired — `/tracing`) must not reach them.
+ * (`@shared/observability/config`, `/logger`, `/metrics` and `/tracing`) must
+ * not reach them.
  *
  * `osn/api/tests/observability.test.ts` guards the same property, but only by
  * importing the module under vitest, where a Node-only dependency resolves
  * fine and the test still passes. This one walks the real static import graph
  * from each entry file and fails on the first banned specifier, naming the file
- * that introduced it — so a re-export added to `src/tracing/index.ts` (the
- * mistake this is here to catch: it used to re-export `./layer`, which is
- * `NodeSdk`) breaks the build rather than the production deploy.
+ * that introduced it — so a re-export of `./layer` (which is `NodeSdk`) added
+ * to `src/tracing/index.ts` breaks the build rather than the production deploy.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,8 +30,7 @@ const srcRoot = resolve(here, "../../src");
  * `@opentelemetry/sdk-trace-base` is caught by `@opentelemetry/sdk-`.
  *
  * `@opentelemetry/api` is deliberately NOT here: it is a dependency-free
- * façade, it already ships in both Worker bundles via
- * `@shared/observability/metrics`, and `tracing/propagation.ts` needs it.
+ * façade, and it ships in every Worker bundle via `@shared/observability/metrics`.
  */
 const BANNED_PREFIXES = [
   "@effect/opentelemetry",

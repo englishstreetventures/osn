@@ -156,7 +156,7 @@ describe("SignInPanel", () => {
 
   it("carries a ?name= target through sign-in only when it is a path on this origin", () => {
     // The marketing site links the organiser portal as `/?name=…`; signed out,
-    // the portal bounces through `/login?returnTo=` and must land back on that
+    // the portal bounces through `/login/?returnTo=` and must land back on that
     // path. A crafted `returnTo` carrying the same parameter gets the dashboard.
     at(`?returnTo=${encodeURIComponent("/?name=Amara%20%26%20Sam")}`);
     fireEvent.click(renderPanel());
@@ -203,6 +203,28 @@ describe("SignInPanel", () => {
     fireEvent.click(renderPanel());
     expect(resumedTo()).toBe("/");
     expect(returnedTo()).toBe("/");
+  });
+
+  it.each(["/loginx", "/x/login"])(
+    "resumes on %s, which only looks like the sign-in page",
+    (raw) => {
+      at(`?returnTo=${encodeURIComponent(raw)}`);
+      fireEvent.click(renderPanel());
+      expect(resumedTo()).toBe(raw);
+      expect(returnedTo()).toBe(raw);
+    },
+  );
+
+  // A run of slashes is read once, not once per slash: the check must not
+  // stall the tab on a `returnTo` someone crafted.
+  it("reads a long run of slashes in returnTo at once", () => {
+    const raw = `/x${"/".repeat(30_000)}y`;
+    at(`?returnTo=${encodeURIComponent(raw)}`);
+    const button = renderPanel();
+    const started = performance.now();
+    fireEvent.click(button);
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(resumedTo()).toBe(raw);
   });
 
   it("says it is connecting after a press, at full strength, and ignores a second", () => {

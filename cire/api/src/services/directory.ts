@@ -96,12 +96,12 @@ export interface ListingDto {
   updatedAt: number;
 }
 
-export interface LiveListingInWeddingDto extends ListingDto {
+interface LiveListingInWeddingDto extends ListingDto {
   /** True when the asking wedding's CRM already has a row linking this listing. */
   inWedding: boolean;
 }
 
-export interface UpsertListingBody {
+interface UpsertListingBody {
   name: string;
   description: string | null;
   email: string | null;
@@ -115,13 +115,13 @@ export interface UpsertListingBody {
   categories: string[];
 }
 
-export interface SeedFromCrmBody extends UpsertListingBody {
+interface SeedFromCrmBody extends UpsertListingBody {
   // email is the claim recipient (may differ from the listing email); non-null
   // because SeedListingBody (the HTTP boundary) requires a non-empty email.
   email: string;
 }
 
-export interface DirectoryServiceConfig {
+interface DirectoryServiceConfig {
   vendorPortalOrigin?: string;
 }
 
@@ -141,7 +141,7 @@ export interface BrowseListingDto {
   inWedding: boolean;
 }
 
-export interface BrowseFilter {
+interface BrowseFilter {
   category?: string | null;
   q?: string | null;
   location?: string | null;
@@ -382,7 +382,7 @@ function requireVendor(
 export function createDirectoryService(config: DirectoryServiceConfig = {}) {
   const vendorPortalOrigin = config.vendorPortalOrigin ?? "https://vendor.cireweddings.com";
 
-  const claimUrl = (token: string) => `${vendorPortalOrigin}/claim?token=${token}`;
+  const claimUrl = (token: string) => `${vendorPortalOrigin}/claim/?token=${token}`;
 
   return {
     /**
@@ -587,7 +587,7 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
      * Mint a single-use claim token + URL for an EXISTING listing so an
      * out-of-band surface (e.g. the couple-side enquiry-new email) can invite
      * the vendor to claim their listing via the canonical
-     * `${vendorPortalOrigin}/claim?token=…` → `consumeClaim` flow.
+     * `${vendorPortalOrigin}/claim/?token=…` → `consumeClaim` flow.
      *
      * Returns `null` when the listing is unknown, already claimed
      * (`owner_org_id` set) or holding a claim that waits for an operator

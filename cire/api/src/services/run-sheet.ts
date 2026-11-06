@@ -32,12 +32,12 @@ import { eventTimesOf, weddingAssignees, withAssignees } from "./tasks";
 import type { AssigneeRow, TaskRow } from "./tasks";
 
 /** A seat holding one of the reader's tasks, before its name is looked up. */
-export interface RunSheetSeat {
+interface RunSheetSeat {
   hostId: string;
   osnProfileId: string;
 }
 
-export interface RunSheetRead {
+interface RunSheetRead {
   scope: RunSheetScope;
   viewerHostId: string;
   items: RunSheetItem[];

@@ -42,6 +42,11 @@ import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/preferences";
 import { reportRealtimeFallback, weddingTopicUrl } from "../lib/realtime";
 import { markRunSheetStale } from "../lib/run-sheet-store";
+import {
+  clearStripeConnectParam,
+  readStripeConnectReturn,
+  stripeConnectWords,
+} from "../lib/stripe-connect-return";
 import { TasksChangedContext } from "../lib/tasks-changed";
 import { markTasksStale } from "../lib/tasks-store";
 import { TIER_LABEL, tierOf } from "../lib/tiers";
@@ -841,6 +846,21 @@ function Dashboard() {
   function handleLeftWedding(weddingId: string) {
     setWeddings((prev) => (prev ?? []).filter((w) => w.id !== weddingId));
   }
+
+  /**
+   * Back from connecting a Stripe account. cire-api's callback did the work;
+   * the redirect carries one word saying how it ended and the route of the
+   * wedding's registry settings, which read the account as stored. The word is
+   * stripped first, for the same reason the upgrade receipt is.
+   */
+  onMount(() => {
+    if (typeof window === "undefined") return;
+    const outcome = readStripeConnectReturn(window.location.search);
+    if (!outcome) return;
+    history.replaceState(null, "", clearStripeConnectParam(new URL(window.location.href)));
+    const words = stripeConnectWords(outcome);
+    toast[words.tone](words.text);
+  });
 
   /**
    * Back from Stripe.

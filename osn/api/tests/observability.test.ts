@@ -1,24 +1,27 @@
 /**
- * The load-bearing contract of `runOsn` / `runOsnSync` is that they install
- * `osnLoggerLayer` — the workerd-safe, logger-only observability layer — so
- * every log line is routed through the shared redaction deny-list. The deny-
- * list *logic* is owned + tested upstream (`@shared/observability`
- * redact.test.ts); these tests pin that osn's logger layer actually *applies*
- * it: a PII-bearing context object passed to an osn log call comes out
- * `[REDACTED]` end-to-end, and a refactor that drops the layer (or swaps
- * `runOsn` back to a bare `Effect.runPromise`) fails loudly.
+ * Two contracts of osn's Workers observability layer, `osnLoggerLayer`.
  *
- * Note on shape: PII is passed as the log MESSAGE object
- * (`Effect.logInfo("msg", { email })`) — not via `Effect.annotateLogs`. The
- * redacting logger walks the message object and scrubs by key, which is the
- * path exercised here. (A denied annotation KEY carrying a primitive value is
- * not redacted — a pre-existing shared-logger limitation, see cire's
- * observability.test.ts note — so it would be the wrong thing to assert.)
+ * Redaction: `runOsn` / `runOsnSync` install it, so every log line is routed
+ * through the shared redaction deny-list. The deny-list *logic* is owned +
+ * tested upstream (`@shared/observability` redact.test.ts); these tests pin
+ * that osn's logger layer actually *applies* it: a PII-bearing context object
+ * passed to an osn log call comes out `[REDACTED]` end-to-end, and a refactor
+ * that drops the layer (or swaps `runOsn` back to a bare `Effect.runPromise`)
+ * fails loudly. PII is passed as the log MESSAGE object
+ * (`Effect.logInfo("msg", { email })`), the shape osn's call sites use.
+ *
+ * Trace mirror: the Worker's `fetch` and `scheduled` install their
+ * `ctx.tracing`, and a span run on `osnLoggerLayer` (which `appRuntime` merges
+ * and every cron sweep runs on, through `runOsn`) then reaches it. Drop the install from either
+ * handler, or `WorkersTracingLive` from the layer, and a test below fails.
  */
+import type { ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
+import { installWorkersTracing } from "@shared/observability/tracing";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runOsn, runOsnSync } from "../src/observability";
+import { handler, type Env } from "../src/index";
+import { osnLoggerLayer, runOsn, runOsnSync } from "../src/observability";
 
 /**
  * Capture everything Effect's logger writes for one run. Effect's default
@@ -80,5 +83,84 @@ describe("osn observability logger layer", () => {
     expect(out).not.toContain("acc_secret_principal");
     expect(out).toContain("[REDACTED]");
     expect(out).toContain("prof_sync");
+  });
+});
+
+describe("osn Workers trace mirror", () => {
+  afterEach(() => {
+    installWorkersTracing(undefined);
+  });
+
+  /** A stand-in for `ctx.tracing` that records the names of the spans it opens. */
+  const recordingContext = () => {
+    const opened: string[] = [];
+    const tracing = {
+      startSpan: (name: string) => {
+        opened.push(name);
+        return { isTraced: true, setAttribute: () => undefined, end: () => undefined };
+      },
+    };
+    const ctx = {
+      waitUntil: () => undefined,
+      passThroughOnException: () => undefined,
+      tracing,
+    } as unknown as ExecutionContext;
+    return { ctx, opened };
+  };
+
+  const spanOnLayer = () =>
+    Effect.runPromise(
+      Effect.void.pipe(Effect.withSpan("probe.osn"), Effect.provide(osnLoggerLayer)),
+    );
+
+  it("fetch installs ctx.tracing, and a span on osnLoggerLayer reaches it", async () => {
+    const { ctx, opened } = recordingContext();
+    // No DB: answered 503 before any binding is used.
+    const res = await handler.fetch(new Request("https://api.osn.test/"), {} as Env, ctx);
+    expect(res.status).toBe(503);
+
+    await spanOnLayer();
+    expect(opened).toEqual(["probe.osn"]);
+  });
+
+  it("scheduled installs ctx.tracing, and a span on osnLoggerLayer reaches it", async () => {
+    const { ctx, opened } = recordingContext();
+    // No DB: returns before any sweep.
+    await handler.scheduled({} as ScheduledController, {} as Env, ctx);
+
+    await spanOnLayer();
+    expect(opened).toEqual(["probe.osn"]);
+  });
+
+  it("a cron run's sweeps open their spans on the mirror", async () => {
+    const { ctx, opened } = recordingContext();
+    const pending: Promise<unknown>[] = [];
+    const cronCtx = {
+      ...ctx,
+      waitUntil: (promise: Promise<unknown>) => pending.push(promise.catch(() => undefined)),
+    } as unknown as ExecutionContext;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    try {
+      // A stub D1 binding: the sweeps fail inside, after opening their spans.
+      await handler.scheduled({} as ScheduledController, { DB: {} } as unknown as Env, cronCtx);
+      await Promise.all(pending);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+
+    expect(opened).toEqual(
+      expect.arrayContaining(["account.deletion.hard", "auth.session.rotated_sweep"]),
+    );
+  });
+
+  it("a fetch with no context clears the mirror", async () => {
+    const { ctx, opened } = recordingContext();
+    await handler.fetch(new Request("https://api.osn.test/"), {} as Env, ctx);
+    await handler.fetch(new Request("https://api.osn.test/"), {} as Env);
+
+    await spanOnLayer();
+    expect(opened).toEqual([]);
   });
 });

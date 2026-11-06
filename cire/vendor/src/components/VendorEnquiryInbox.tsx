@@ -1,6 +1,5 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
-import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
 import { Chip, type ChipTone } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -78,10 +77,7 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
 
   return (
     <div class="flex flex-col gap-4">
-      <div class="flex flex-col gap-0.5">
-        <Eyebrow>Enquiries</Eyebrow>
-        <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">Your inbox</h2>
-      </div>
+      <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">Your inbox</h2>
 
       <output class="sr-only">{announcement()}</output>
 

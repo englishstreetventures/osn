@@ -4,7 +4,7 @@ tags: [systems, cire, feature-flags, growthbook]
 related:
   - "[[cire-organiser]]"
   - "[[cire-workerd]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-11-05
 ---
 # Feature flags — GrowthBook
 
@@ -125,6 +125,6 @@ effect within the cache TTL (~60s). No webhook required.
 
 ## Observability
 
-The payload fetch goes through `@shared/observability`'s `instrumentedFetch`, so
-it appears on the trace tree. Flag reads themselves emit no logs. See
+The payload fetch is a plain `fetch`, which Cloudflare traces as a `fetch` span
+on a Worker. Flag reads themselves emit no logs. See
 `[[cire-workerd]]`.

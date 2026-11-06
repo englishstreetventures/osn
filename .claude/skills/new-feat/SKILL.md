@@ -124,7 +124,7 @@ The plan names:
 - Effect, WebSocket or E2E-encryption considerations, if any
 - **for a change under `.claude/skills/`, the eval cases that score text it moves or rewrites.** Find them with `grep -rl "<moved phrase>" .claude/evals/*/graders/`, one search per phrase. For each case, say how its graders' wording stays true after the change
 - the changeset — always needed unless every changed file is on the allowlist in `scripts/changeset-required.sh`; `@cire/*` packages are version-less and never share a changeset with a versioned one
-- **the observability plan** for every new service, route or service function — which error paths use `Effect.logError` and any new secret field for the redaction list; which functions get `Effect.withSpan("<domain>.<operation>")` and that outbound HTTP goes through `instrumentedFetch`; which counters or histograms join the owning `metrics.ts`, named `{namespace}.{domain}.{subject}.{measurement}` with a bounded string-literal attribute type — never a user, request or event id. `wiki/shared/observability/overview.md` holds the rules.
+- **the observability plan** for every new service, route or service function — which error paths use `Effect.logError` and any new secret field for the redaction list; which functions get `Effect.withSpan("<domain>.<operation>")` (on osn-api and cire-api these join Cloudflare's trace, beside its own D1 and outbound `fetch` spans); which counters or histograms join the owning `metrics.ts`, named `{namespace}.{domain}.{subject}.{measurement}` with a bounded string-literal attribute type — never a user, request or event id. `wiki/shared/observability/overview.md` holds the rules.
 
 ## Step 3 — Attack the plan before building on it
 

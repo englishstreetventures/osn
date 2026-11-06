@@ -88,7 +88,7 @@ export function cspReportEndpoint(apiOrigin: string = API_ORIGIN): string {
 export const CSP_REPORT_ENDPOINT = cspReportEndpoint();
 
 /** The `report-to` group name, shared by the CSP directive + the header. */
-export const REPORTING_ENDPOINT_NAME = "csp-endpoint" as const;
+const REPORTING_ENDPOINT_NAME = "csp-endpoint" as const;
 
 /**
  * The Content-Security-Policy as a structured, ordered map of
@@ -187,7 +187,7 @@ export function buildCsp(directives: Record<string, readonly string[]> = CSP_DIR
  * moodboard, the Maps embed, and submit a claim with DevTools open), flip this
  * to `true` to enforce. That one-line change is the entire enforce step.
  */
-export const CSP_ENFORCE = false;
+const CSP_ENFORCE = false;
 
 /** The CSP header name for the current rollout mode. */
 export function cspHeaderName(): "Content-Security-Policy" | "Content-Security-Policy-Report-Only" {

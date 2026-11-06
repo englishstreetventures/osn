@@ -599,8 +599,9 @@ describe("cash funds, as a guest sees them", () => {
     // Exhaustive key set: the couple's target, a price, a count or a total
     // added to the DTO later fails here before it reaches a guest.
     expect(Object.keys(fund ?? {}).toSorted()).toEqual(
-      ["description", "id", "imageCrop", "imageName", "sortOrder", "title"].toSorted(),
+      ["description", "groupGift", "id", "imageCrop", "imageName", "sortOrder", "title"].toSorted(),
     );
+    expect(fund?.groupGift).toBe(false);
     expect(fund?.id).toBe(FUND);
     expect(fund?.title).toBe(FUND_TITLE);
     expect(fund?.imageName).toBe(FUND_IMAGE);

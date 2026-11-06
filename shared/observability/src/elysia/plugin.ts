@@ -1,64 +1,30 @@
-import { context, type Context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { Elysia } from "elysia";
 
 import type { HttpMethod } from "../metrics/attrs";
 import { httpServerActiveRequests, recordHttpRequest, toHttpMethod } from "../metrics/http";
-import { extractTraceContext } from "../tracing/propagation";
 
 /**
  * Elysia observability plugin.
  *
  * One call wires up:
  * - Request ID propagation (`x-request-id` in / out; generated if absent)
- * - W3C traceparent extraction (inbound)
- * - A server span per request with OTel HTTP semconv attributes
  * - RED metrics (request count + duration histogram)
  * - In-flight request gauge
  *
- * Handlers don't need to do anything to benefit — spans and metrics are
- * emitted automatically on request lifecycle hooks.
+ * It starts no span. On Cloudflare Workers the runtime records a handler span
+ * for every invocation (`observability.traces` in the Worker's config); on Bun
+ * nothing traces a request, only the Effect spans the handler runs.
+ *
+ * Handlers don't need to do anything to benefit — metrics are recorded
+ * automatically on request lifecycle hooks.
  */
-export interface ObservabilityPluginOptions {
-  /** Service name, used for the span attribute `service.name`. */
-  readonly serviceName: string;
-}
-
 type RequestState = {
   start: bigint;
-  span: ReturnType<ReturnType<typeof trace.getTracer>["startSpan"]>;
-  /**
-   * OTel Context with the request span set as active. Stored so that
-   * handlers can opt in to parent-child trace linkage via
-   * `getRequestContext(request)` when running child spans manually.
-   * Elysia's hook model does not let us wrap the handler invocation
-   * in `context.with(...)`, so this is the best we can do without
-   * patching Elysia internals — see the plugin docstring for details.
-   */
-  ctx: Context;
   route: string;
   method: HttpMethod;
-  requestId: string;
 };
 
 const REQUEST_STATE = new WeakMap<Request, RequestState>();
-
-/**
- * Get the OTel `Context` carrying the inbound HTTP request's server
- * span, so caller code can manually use it as the parent of a child
- * span:
- *
- *   const parent = getRequestContext(request);
- *   context.with(parent, () => someChildWork());
- *
- * Returns `undefined` if the request was not seen by the plugin.
- *
- * NOTE: This is an escape hatch. Most code should not need it — the
- * plugin's server span and metric emission are automatic, and Effect
- * service spans created via `Effect.withSpan` will be correctly linked
- * into distributed traces via outbound W3C `traceparent` propagation.
- */
-export const getRequestContext = (request: Request): Context | undefined =>
-  REQUEST_STATE.get(request)?.ctx;
 
 const genRequestId = (): string => {
   // Cheap random ID — crypto.randomUUID() is fine and bun has it globally.
@@ -78,27 +44,7 @@ const sanitizeInboundRequestId = (raw: string | null): string | null => {
   return REQUEST_ID_RE.test(raw) ? raw : null;
 };
 
-/**
- * Decide whether to honour an inbound W3C `traceparent`.
- *
- * For public-facing HTTP, trusting upstream trace context is a privilege
- * escalation — external callers could force 100% sampling (financial
- * DoS on trace ingest), inject chosen trace IDs to muddle incident
- * response, or link their requests to internal traces in dashboards.
- *
- * Rule: honour `traceparent` only when the request presents an
- * `Authorization: ARC ...` header, the scheme first-party
- * service-to-service calls use. Every other request starts a fresh
- * root span.
- */
-const shouldHonourInboundTraceparent = (headers: Headers): boolean => {
-  const auth = headers.get("authorization");
-  return auth !== null && auth.startsWith("ARC ");
-};
-
-export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
-  const tracer = trace.getTracer("@shared/observability");
-
+export const observabilityPlugin = () => {
   // `.as("global")` at the end lifts every hook to the app that mounts the
   // plugin. Elysia keeps a plugin's hooks local by default, and this
   // instance has no routes of its own, so without it only `onRequest` runs.
@@ -106,7 +52,6 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
     .onRequest(({ request, set }) => {
       // A closed set, so a made-up method cannot mint metric series.
       const method = toHttpMethod(request.method);
-      const url = new URL(request.url);
 
       // Never echo a client-controlled id back untouched.
       const inboundRequestId = sanitizeInboundRequestId(request.headers.get("x-request-id"));
@@ -120,56 +65,8 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       // Increment in-flight gauge.
       httpServerActiveRequests.inc({ "http.request.method": method });
 
-      // Only extract inbound trace context when the request presents an
-      // `Authorization: ARC ...` header; any other starts a fresh root span.
-      const inboundCtx = shouldHonourInboundTraceparent(request.headers)
-        ? extractTraceContext(request.headers)
-        : undefined;
-      const span = tracer.startSpan(
-        `HTTP ${method}`,
-        {
-          kind: SpanKind.SERVER,
-          attributes: {
-            "http.request.method": method,
-            // No `url.path` or query: paths hold handles and profile ids,
-            // and queries carry OAuth codes and magic-link tokens. The span
-            // names the matched route template (`http.route`) instead.
-            "url.scheme": url.protocol.replace(":", ""),
-            "server.address": url.hostname,
-            "service.name": options.serviceName,
-            "osn.request.id": requestId,
-          },
-        },
-        inboundCtx,
-      );
-
-      // Build an OTel Context carrying the request span as active, and
-      // stash it on the request state. We deliberately do NOT try to
-      // `context.with(ctx, () => {})` here — that callback would
-      // immediately tear the context back down. Elysia's hook
-      // lifecycle (onRequest → handler → onAfterResponse are separate
-      // invocations, not a single enclosing scope) means there is no
-      // way to make an OTel `context.with(...)` span the whole
-      // request via hooks alone.
-      //
-      // The practical consequences:
-      //   1. `trace.getActiveSpan()` inside a synchronous handler will
-      //      NOT see the server span. Callers that want child spans
-      //      should use `getRequestContext(request)` + `context.with`
-      //      explicitly, or rely on Effect.withSpan — Effect manages
-      //      its own fiber-local span tree.
-      //   2. Distributed traces across services still work correctly
-      //      because inbound `traceparent` is captured on this span
-      //      AND the outbound `instrumentedFetch` wrapper injects
-      //      `traceparent` into S2S calls.
-      //   3. Same-process HTTP → service parent-child linkage is a
-      //      known limitation tracked as an open issue.
-      const ctx = trace.setSpan(inboundCtx ?? context.active(), span);
-
       REQUEST_STATE.set(request, {
         start: process.hrtime.bigint(),
-        span,
-        ctx,
         // IMPORTANT: default to the fixed sentinel `"unmatched"`,
         // NOT `url.pathname`. Any request that short-circuits before
         // onAfterHandle (404, body validation failure, etc.) MUST record
@@ -179,28 +76,11 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
         // URL path segments into observability storage).
         route: "unmatched",
         method,
-        requestId,
       });
     })
     .onAfterHandle(({ request, route }) => {
       const state = REQUEST_STATE.get(request);
-      if (state && route) {
-        state.route = route;
-        state.span.setAttribute("http.route", route);
-      }
-    })
-    .onError(({ request, error, code }) => {
-      const state = REQUEST_STATE.get(request);
-      if (!state) return;
-      // Span storage gets the error's name and Elysia's error code, never
-      // the error's message or stack: a message is free text that
-      // `redact()`, which scrubs object keys, cannot clean, and Elysia's
-      // validation errors put the rejected input in theirs.
-      state.span.recordException({
-        name: error instanceof Error ? error.name : "Error",
-        message: String(code),
-      });
-      state.span.setStatus({ code: SpanStatusCode.ERROR, message: String(code) });
+      if (state && route) state.route = route;
     })
     .onAfterResponse(({ request, set }) => {
       const state = REQUEST_STATE.get(request);
@@ -209,12 +89,6 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       const durationNs = process.hrtime.bigint() - state.start;
       const durationSeconds = Number(durationNs) / 1e9;
       const status = typeof set.status === "number" ? set.status : 200;
-
-      state.span.setAttribute("http.response.status_code", status);
-      if (status >= 500) {
-        state.span.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${status}` });
-      }
-      state.span.end();
 
       recordHttpRequest({
         method: state.method,

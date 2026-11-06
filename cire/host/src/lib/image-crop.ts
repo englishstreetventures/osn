@@ -74,7 +74,7 @@ export type AspectPresetId =
   | "9:16"
   | "freeform";
 
-export interface AspectPreset {
+interface AspectPreset {
   id: AspectPresetId;
   label: string;
   /** Fixed ratio (w÷h), or null for Original (slot default) / Freeform (unlocked). */

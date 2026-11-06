@@ -55,9 +55,11 @@ export function isChangeInProgress(body: { reason?: unknown } | null): boolean {
 }
 
 /**
- * Whether a 409 from apply means the wedding's head moved since the preview —
- * someone else's change landed — so the draft is stale, as opposed to another
- * change still being written.
+ * Whether an apply refusal says the wedding's head moved since the preview, so
+ * the preview can no longer apply and the draft is stale. A 409 says so when
+ * someone else's change landed, as opposed to another change still being
+ * written; a 402 says so when the guest cap refused the change while it was
+ * writing, after its first batches were saved.
  */
 export function isHeadMoved(body: { reason?: unknown } | null): boolean {
   return body?.reason === "head_moved";

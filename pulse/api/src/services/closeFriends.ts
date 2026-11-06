@@ -16,12 +16,12 @@ import { getConnectionIds, GraphBridgeError } from "./graphBridge";
 // Errors
 // ---------------------------------------------------------------------------
 
-export class CloseFriendNotFound extends Data.TaggedError("CloseFriendNotFound")<{
+class CloseFriendNotFound extends Data.TaggedError("CloseFriendNotFound")<{
   readonly profileId: string;
   readonly friendId: string;
 }> {}
 
-export class NotEligibleForCloseFriend extends Data.TaggedError("NotEligibleForCloseFriend")<{
+class NotEligibleForCloseFriend extends Data.TaggedError("NotEligibleForCloseFriend")<{
   readonly reason: "self" | "not_a_connection";
 }> {}
 

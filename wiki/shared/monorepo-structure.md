@@ -77,7 +77,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Monorepo Structure
@@ -149,7 +149,7 @@ shared/
   feature-flags/       # @shared/feature-flags — key-optional, fail-safe GrowthBook flag client
   infra/               # @shared/infra — pinned Alchemy, the Worker and storage builders, the secret inventory, the dev host layout, the dev-hosts and plan-summary CLIs
   legal/               # @shared/legal — the operator identity every published legal page must state
-  observability/       # @shared/observability — OTel logger / tracer / metric helpers, Elysia plugin, instrumentedFetch
+  observability/       # @shared/observability — redacting logger, Workers trace mirror, Bun OTLP layer, metric helpers, Elysia plugin
   openapi-tools/       # @shared/openapi-tools — OpenAPI spec generation and normalisation (specs land in shared/openapi/)
   osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, Elysia adapter)
   rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives, getClientIp trust policy

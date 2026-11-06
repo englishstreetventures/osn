@@ -15,18 +15,18 @@ import { withProfileCrud } from "../metrics";
 import type { AuthService, PublicProfile } from "./auth";
 
 // ---------------------------------------------------------------------------
-// Errors (re-exported from auth for convenience)
+// Errors
 // ---------------------------------------------------------------------------
 
-export class AuthError extends Data.TaggedError("AuthError")<{
+class AuthError extends Data.TaggedError("AuthError")<{
   readonly message: string;
 }> {}
 
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
 
-export class ValidationError extends Data.TaggedError("ValidationError")<{
+class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 
@@ -340,5 +340,3 @@ export function createProfileService(authService: AuthService) {
 
   return { createProfile, deleteProfile, setDefaultProfile };
 }
-
-export type ProfileService = ReturnType<typeof createProfileService>;

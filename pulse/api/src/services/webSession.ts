@@ -8,11 +8,11 @@ import { Data, Effect } from "effect";
 
 import { metricWebSessionCreated, metricWebSessionSwept } from "../metrics";
 
-export class WebSessionInvalid extends Data.TaggedError("WebSessionInvalid")<{
+class WebSessionInvalid extends Data.TaggedError("WebSessionInvalid")<{
   reason: "missing" | "expired";
 }> {}
 
-export class WebSessionWriteError extends Data.TaggedError("WebSessionWriteError")<{
+class WebSessionWriteError extends Data.TaggedError("WebSessionWriteError")<{
   op: "insert" | "delete" | "deleteAllForProfile" | "sweep";
   reason: string;
 }> {}
@@ -33,12 +33,12 @@ const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
  */
 export type WebIdentity = OsnIdentity;
 
-export interface CreatedWebSession {
+interface CreatedWebSession {
   token: string;
   expiresAt: Date;
 }
 
-export interface ValidatedWebSession extends WebIdentity {
+interface ValidatedWebSession extends WebIdentity {
   expiresAt: Date;
 }
 

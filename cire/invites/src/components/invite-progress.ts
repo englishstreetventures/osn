@@ -10,7 +10,7 @@ import type { FamilyMember, RsvpSummary } from "./types";
  * - `complete` — every invited member has a reply on file for every event
  *   they are invited to.
  */
-export type InviteProgress = "not-started" | "partial" | "complete";
+type InviteProgress = "not-started" | "partial" | "complete";
 
 /**
  * Where this household stands with its replies, from the reply rows alone.

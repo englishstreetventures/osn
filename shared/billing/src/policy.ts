@@ -81,7 +81,7 @@ export interface FeatureAccess {
   readonly until: Date | null;
 }
 
-export interface SubscriptionDecision {
+interface SubscriptionDecision {
   readonly allowed: boolean;
   readonly reason: Exclude<AccessReason, "grant">;
   readonly until: Date | null;

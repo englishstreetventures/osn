@@ -232,7 +232,7 @@ describe("vendor CRM routes", () => {
     const [sent] = lastEmail.recorded();
     expect(sent?.to).toBe("contact@hillside.com");
     expect(sent?.template).toBe("vendor-claim-invite");
-    expect(sent?.text).toMatch(/https:\/\/vendor\.test\/claim\?token=/);
+    expect(sent?.text).toMatch(/https:\/\/vendor\.test\/claim\/\?token=/);
 
     // The linked CRM vendor row should have directoryVendorId set now.
     const list = await req(app, "GET", base, OWNER);

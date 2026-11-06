@@ -108,7 +108,7 @@ export interface AuthorizeSession {
  * confirmed belongs to the client, which is exactly why it is a value and not
  * a failure — see `validateAuthorizeRequest`.
  */
-export type AuthorizeValidation =
+type AuthorizeValidation =
   | { kind: "ok"; request: ValidatedAuthorizeRequest; prompts: Set<string> }
   | {
       kind: "error";
@@ -120,7 +120,7 @@ export type AuthorizeValidation =
     };
 
 /** What a validated request needs next. */
-export type AuthorizeOutcome =
+type AuthorizeOutcome =
   | { kind: "code"; code: string }
   | {
       kind: "interaction";
@@ -155,7 +155,7 @@ export interface DecisionResult {
 }
 
 /** Everything an authorization code binds at issue time. */
-export interface IssueCodeInput {
+interface IssueCodeInput {
   clientId: string;
   accountId: string;
   profileId: string;
@@ -177,7 +177,7 @@ export interface ExchangeInput {
 }
 
 /** What the token endpoint hands back on a successful exchange. */
-export interface OidcTokenResponse {
+interface OidcTokenResponse {
   access_token: string;
   id_token: string;
   token_type: "Bearer";
@@ -247,20 +247,20 @@ const parseScope = (scope: string): string[] =>
     .filter((s) => s.length > 0);
 
 /** Requested scopes narrowed to what the client is allowed, order preserved. */
-export function narrowScope(requested: string, allowed: string): string {
+function narrowScope(requested: string, allowed: string): string {
   const permitted = new Set(parseScope(allowed));
   const kept = parseScope(requested).filter((s) => permitted.has(s));
   return [...new Set(kept)].join(" ");
 }
 
 /** True when `granted` covers every scope in `requested`. */
-export function scopeCovers(granted: string, requested: string): boolean {
+function scopeCovers(granted: string, requested: string): boolean {
   const have = new Set(parseScope(granted));
   return parseScope(requested).every((s) => have.has(s));
 }
 
 /** Union of two scope strings, for widening an existing consent. */
-export function mergeScope(a: string, b: string): string {
+function mergeScope(a: string, b: string): string {
   return [...new Set([...parseScope(a), ...parseScope(b)])].join(" ");
 }
 
@@ -490,7 +490,7 @@ export function validateClientRegistration(input: {
 }
 
 /** A relying-party secret, shown once at registration and never stored raw. */
-export function generateClientSecret(): string {
+function generateClientSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return "cs_" + base64Url(Buffer.from(bytes));
@@ -1702,5 +1702,3 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     buildErrorRedirect,
   };
 }
-
-export type OidcModule = ReturnType<typeof createOidcModule>;

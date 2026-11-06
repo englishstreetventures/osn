@@ -148,7 +148,7 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
 
         <p class="text-text-muted text-ui-xs leading-ui-normal mt-5 font-light">
           Your guest won&apos;t see this invitation, so please share our{" "}
-          <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
+          <a href="/privacy/" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
             privacy notice
             <span class="sr-only"> (opens in a new tab)</span>
           </a>{" "}

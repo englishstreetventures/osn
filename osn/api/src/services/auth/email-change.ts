@@ -393,5 +393,3 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
     completeEmailChange,
   };
 }
-
-export type EmailChangeModule = ReturnType<typeof createEmailChangeModule>;

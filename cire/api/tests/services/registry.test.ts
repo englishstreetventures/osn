@@ -28,6 +28,7 @@ import {
   toEpochSeconds,
 } from "../../src/services/registry";
 import { recordStatements } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { insertWedding } from "../test-helpers/wedding";
 
 const OTHER = "wed_other";
@@ -1646,10 +1647,20 @@ describe("registry ownership + range guards", () => {
     const second = await ok(db, registryService.createItem({ ...newItem(), imageKey: ownKey }));
 
     const shared = await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, first.id));
-    expect(shared).toEqual({ kind: "product", imageKey: ownKey, imageKeyOrphaned: false });
+    expect(shared).toEqual({
+      kind: "product",
+      allowPartial: false,
+      imageKey: ownKey,
+      imageKeyOrphaned: false,
+    });
 
     const last = await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, second.id));
-    expect(last).toEqual({ kind: "product", imageKey: ownKey, imageKeyOrphaned: true });
+    expect(last).toEqual({
+      kind: "product",
+      allowPartial: false,
+      imageKey: ownKey,
+      imageKeyOrphaned: true,
+    });
   });
 
   it("refuses an out-of-range quantity on create, update and claim", async () => {
@@ -2717,20 +2728,26 @@ describe("settling a gift whose session was never attached", () => {
     const holder = seedContribution(db, { status: "succeeded", sessionId: "cs_1" });
     const orphan = seedContribution(db, { status: "pending", sessionId: null });
 
-    const outcome = await ok(
-      db,
-      registryService.settleContribution({
-        contributionId: orphan,
-        checkoutSessionId: "cs_1",
-        stripeAccountId: ACCOUNT,
-        paymentIntentId: "pi_1",
-        paid: true,
-        paidAmountMinor: 10_000,
-        paidCurrency: "AUD",
-      }),
-    );
+    let outcome: unknown;
+    const logs = await captureLogs(async () => {
+      outcome = await ok(
+        db,
+        registryService.settleContribution({
+          contributionId: orphan,
+          checkoutSessionId: "cs_1",
+          stripeAccountId: ACCOUNT,
+          paymentIntentId: "pi_1",
+          paid: true,
+          paidAmountMinor: 10_000,
+          paidCurrency: "AUD",
+        }),
+      );
+    });
 
     expect(outcome).toBe("rejected");
+    // An error, named for the clash: another gift holds the session.
+    expect(logs).toContain("ERROR");
+    expect(logs).toContain("settle lost the race to adopt a checkout session");
     expect(contribution(db, orphan).status).toBe("pending");
     expect(contribution(db, orphan).stripeCheckoutSessionId).toBeNull();
     expect(contribution(db, holder).status).toBe("succeeded");

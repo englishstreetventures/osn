@@ -22,7 +22,7 @@
  */
 
 /** HKDF `info` for the stop-link MAC key. Distinct from every other use of the secret. */
-export const DIGEST_STOP_HMAC_INFO = "cire-rsvp-digest-stop-v1";
+const DIGEST_STOP_HMAC_INFO = "cire-rsvp-digest-stop-v1";
 
 /** Bumped if the payload's shape ever changes, so an old token cannot be misread. */
 const TOKEN_VERSION = "v1";

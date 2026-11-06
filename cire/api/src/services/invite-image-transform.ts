@@ -158,16 +158,6 @@ export function buildTransformCacheKey(args: {
 
 // ── Binding wrapper ───────────────────────────────────────────────────────────
 
-/**
- * Minimal structural shape of the Workers Images binding we depend on — narrow
- * by design (mirrors the `AssetsBucket` Tag style) so a test stub implements
- * just `input().transform().output()`. The real `ImagesBinding` from
- * `@cloudflare/workers-types` satisfies this structurally.
- */
-export interface ImageTransformer {
-  width?: number;
-}
-
 export interface ImageOutput {
   /** The transformed image as a Response (carries the right content-type). */
   response(): Response;
@@ -189,7 +179,7 @@ export interface ImagesBindingLike {
   input(stream: ReadableStream<Uint8Array>): ImageTransformHandle;
 }
 
-export class ImageTransformError extends Data.TaggedError("ImageTransformError")<{
+class ImageTransformError extends Data.TaggedError("ImageTransformError")<{
   readonly reason: string;
   readonly variant: ImageVariant;
   readonly format: OutputFormat;
@@ -312,7 +302,7 @@ const IMAGE_VARY = "Accept, Origin";
  * again after an hour; an `immutable` image is never revalidated, so a tag on
  * it would be bytes on every response for nothing.
  */
-export function imageEtag(
+function imageEtag(
   lifetime: ImageClientLifetime,
   version: string | undefined,
   variant: ImageVariant,
@@ -327,7 +317,7 @@ export function imageEtag(
  * `"x"` are the same tag, and the header may list several. A `*` does not
  * count — no browser sends one on a GET, and answering in full is the safe side.
  */
-export function ifNoneMatchHits(header: string | null, etag: string): boolean {
+function ifNoneMatchHits(header: string | null, etag: string): boolean {
   if (!header) return false;
   const opaque = (tag: string) => tag.trim().replace(/^W\//, "");
   const wanted = opaque(etag);
@@ -339,7 +329,7 @@ export function ifNoneMatchHits(header: string | null, etag: string): boolean {
  * paths. The cache-hit path re-stamps `Cache-Control` through the same
  * {@link imageCacheControl}, so the two paths cannot disagree.
  */
-export function imageResponseHeaders(
+function imageResponseHeaders(
   contentType: string,
   visibility: "public" | "private" = "public",
   lifetime: ImageClientLifetime = "immutable",

@@ -6,7 +6,7 @@
  * The call runs in the background: each request here runs inside
  * `withBackgroundSink`, as the Worker entry runs it, and the test awaits what
  * the request handed to `waitUntil` before it looks at what reached cire.
- * cire itself is a spy on `globalThis.fetch`, which `instrumentedFetch` calls;
+ * cire itself is a spy on `globalThis.fetch`, which the revoke call uses;
  * the E2E flow `cire-registry-money` drives the real cire route.
  */
 

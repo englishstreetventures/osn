@@ -204,7 +204,7 @@ export type GiftContributionResult =
   | { kind: "error" };
 
 /** What a guest is giving, and what they want said with it. */
-export interface GiftContributionBody {
+interface GiftContributionBody {
   /** Minor units of the wedding's currency. */
   amountMinor: number;
   /** Giving to one of the couple's cash funds, rather than in general. */
@@ -271,7 +271,7 @@ export async function contributeGift(
 }
 
 /** Stripe's own hosted checkout, and nowhere else. */
-export function isStripeCheckoutUrl(raw: string): boolean {
+function isStripeCheckoutUrl(raw: string): boolean {
   try {
     return new URL(raw).origin === "https://checkout.stripe.com";
   } catch {
@@ -291,8 +291,8 @@ export function isStripeCheckoutUrl(raw: string): boolean {
 export const GIFT_AMOUNT_PRESETS_MINOR = [5_000, 10_000, 20_000] as const;
 
 /** The server's own bounds (`ContributeBody`). Mirrored for the input's min/max. */
-export const MIN_GIFT_AMOUNT_MINOR = 500;
-export const MAX_GIFT_AMOUNT_MINOR = 1_000_000;
+const MIN_GIFT_AMOUNT_MINOR = 500;
+const MAX_GIFT_AMOUNT_MINOR = 1_000_000;
 
 /**
  * Turn what a guest typed into minor units, or `null` if it is not a number the
@@ -319,7 +319,7 @@ export function parseGiftAmountMinor(raw: string, currency: string): number | nu
  * fixed 2 is wrong by 100× in both directions, which on a payment screen is not
  * a rounding nit.
  */
-export function giftCurrencyExponent(currency: string): number {
+function giftCurrencyExponent(currency: string): number {
   const formatter = priceFormatter(currency);
   return formatter?.resolvedOptions().maximumFractionDigits ?? 2;
 }
@@ -517,7 +517,7 @@ export function giftRegistryClaimedCopy(
 }
 
 /** One shelf of the list: the couple's own label, and what sits under it. */
-export interface GiftRegistryGroup {
+interface GiftRegistryGroup {
   /** The couple's category, trimmed. `null` is the ungrouped tail. */
   category: string | null;
   items: GiftRegistryItem[];

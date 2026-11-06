@@ -23,8 +23,9 @@ describe("PORTS", () => {
     expect(VENDOR_PORTAL_ORIGIN).toBe(`http://localhost:${DEV_APPS["@cire/vendor"].port}`);
   });
 
-  test("the mail stand-in's port belongs to no dev app", () => {
+  test("the stand-ins' ports belong to no dev app", () => {
     const devPorts = Object.values(DEV_APPS).map((app) => app.port);
     expect(devPorts).not.toContain(PORTS.mail);
+    expect(devPorts).not.toContain(PORTS.stripe);
   });
 });

@@ -92,7 +92,7 @@ const REM_PX = 16;
  * `known()` is false until the shell has measured the panel: a view renders
  * nothing list-shaped before then, so it never draws the wrong variant first.
  */
-export interface CompactLayout {
+interface CompactLayout {
   /** Draw the narrow layout. */
   compact: Accessor<boolean>;
   /** The panel has been measured, so `compact` is the real answer. */

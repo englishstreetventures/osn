@@ -5,12 +5,11 @@
  * Email Service REST API. No intermediate Worker, no ARC tokens — a
  * single bearer-authed HTTPS call.
  *
- * All outbound HTTP goes through `instrumentedFetch` so the call becomes
- * a child span of `email.cloudflare.dispatch` and `traceparent` is injected
- * for cross-service trace correlation.
+ * On Workers, Cloudflare traces the POST as a `fetch` span in the request's
+ * trace, beside the `email.cloudflare.dispatch` span. The call carries no
+ * trace context: Workers do not propagate it.
  */
 
-import { instrumentedFetch } from "@shared/observability/fetch";
 import { Effect, Layer } from "effect";
 
 import {
@@ -82,7 +81,7 @@ export const makeCloudflareEmailLive = (config: CloudflareEmailConfig): Layer.La
 
         const response = yield* Effect.tryPromise({
           try: () =>
-            instrumentedFetch(apiUrl, {
+            fetch(apiUrl, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",

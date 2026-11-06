@@ -41,7 +41,7 @@ export interface EnquiryRoutesDeps {
   limiter: RateLimiterBackend;
   /**
    * Directory service — used to mint the vendor's claim token for the
-   * enquiry-new email via the canonical `${vendorPortalOrigin}/claim?token=…`
+   * enquiry-new email via the canonical `${vendorPortalOrigin}/claim/?token=…`
    * flow (`issueClaimForListing`). Never hand-roll a claim URL here; the CTA
    * must be a real, consumable link on the vendor portal.
    */
@@ -210,7 +210,7 @@ export const createOrganiserEnquiriesRoutes = (
                       .all(),
                   );
                   // Claim CTA: mint a single-use token on the listing via the
-                  // canonical directory flow → `${vendorPortalOrigin}/claim?token=…`,
+                  // canonical directory flow → `${vendorPortalOrigin}/claim/?token=…`,
                   // consumable by `POST /api/vendor/claims/:token/consume`. Returns
                   // null for an already-claimed (or unknown) listing, in which case
                   // the enquiry-new email omits the CTA anyway (open() only sends it

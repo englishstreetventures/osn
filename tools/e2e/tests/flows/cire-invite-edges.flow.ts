@@ -199,7 +199,7 @@ test("cire-invite-edges", async ({ page, browser, flow }) => {
     const legal = footer.locator('nav[aria-label="Legal"]');
     flow.check(
       "the not-found footer links the legal pages",
-      "Privacy notice /privacy | Terms /terms",
+      "Privacy notice /privacy/ | Terms /terms/",
       (
         await legal
           .locator("a")

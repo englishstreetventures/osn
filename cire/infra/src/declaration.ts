@@ -36,19 +36,19 @@ export type BindingDescription =
     };
 
 /** cire-api's Worker input apart from the values only the stack holds: resources and secrets. */
-export interface CireApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
+interface CireApiDeclaration extends Omit<ApiWorkerInput, "bindings" | "secrets"> {
   readonly bindings: Readonly<Record<string, BindingDescription>>;
 }
 
 /** cire-invites' Worker input apart from its secrets, which the stack reads. */
-export type CireInvitesDeclaration = Omit<ApiWorkerInput, "secrets">;
+type CireInvitesDeclaration = Omit<ApiWorkerInput, "secrets">;
 
 /** cire's database, migrated by Alchemy from the flattened chain and seeded. */
-export interface CireDbDeclaration extends RetainedD1Input {
+interface CireDbDeclaration extends RetainedD1Input {
   readonly migrations: string;
 }
 
-export interface CireDeclaration {
+interface CireDeclaration {
   readonly cireApi: CireApiDeclaration;
   readonly cireDb: CireDbDeclaration;
   readonly cireAssets: RetainedBucketInput;
@@ -159,20 +159,13 @@ const bucket = (names: StageNames, stage: string): RetainedBucketInput => ({
 });
 
 /**
- * A static cire site. None of host, vendor and landing builds a
- * `404.html`, so an unknown path is a plain 404; the organiser and vendor
- * portals route in the URL hash, so no deep link needs a fallback. Each
- * ships a `_headers` and no `_redirects`.
+ * A static cire site, with the not-found handling its spec gives it. Each
+ * ships a `_headers` and no `_redirects`, and none builds a `404.html`.
  */
-const site = (
-  names: StageNames,
-  stage: string,
-  directory: string,
-  domain: string | null,
-): SiteWorkerInput => ({
-  name: physicalName(names, stage),
+const site = (spec: CireSiteSpec, stage: string, domain: string | null): SiteWorkerInput => ({
+  name: physicalName(spec.names, stage),
   stage,
-  directory,
+  directory: spec.directory,
   redirectsFile: true,
   entry: null,
   domain,
@@ -182,7 +175,7 @@ const site = (
   // Access application covers.
   previewUrls: false,
   htmlHandling: "auto-trailing-slash",
-  notFoundHandling: "none",
+  notFoundHandling: spec.notFoundHandling,
   issues: true,
 });
 
@@ -209,6 +202,14 @@ interface CireSiteSpec {
   readonly names: StageNames;
   readonly site: string;
   readonly directory: string;
+  /**
+   * What an unknown path answers. The organiser and vendor portals route in
+   * the browser, so each serves its own `index.html` there, as its Pages
+   * project does; the organiser portal must, since cire-api's enquiry emails
+   * link `/vendors/enquiries/<id>`, which no file answers. The marketing site
+   * answers 404: every page it links is a file.
+   */
+  readonly notFoundHandling: SiteWorkerInput["notFoundHandling"];
   readonly host: (hosts: StageHosts) => string;
   readonly baked: (hosts: StageHosts) => readonly string[];
 }
@@ -218,6 +219,7 @@ const SITES = {
     names: { base: "cire-host", dev: "cire-host-dev", production: "cire-host" },
     site: "@cire/host",
     directory: HOST_DIST,
+    notFoundHandling: "single-page-application",
     host: (hosts) => hosts.cireHost,
     baked: (hosts) => [hosts.cireApi, hosts.musubiSocial, hosts.cireInvites],
   },
@@ -225,6 +227,7 @@ const SITES = {
     names: { base: "cire-vendor", dev: "cire-vendor-dev", production: "cire-vendor" },
     site: "@cire/vendor",
     directory: VENDOR_DIST,
+    notFoundHandling: "single-page-application",
     host: (hosts) => hosts.cireVendor,
     baked: (hosts) => [hosts.cireApi, hosts.musubiSocial],
   },
@@ -232,6 +235,7 @@ const SITES = {
     names: { base: "cire-landing", dev: "cire-landing-dev", production: "cire-landing" },
     site: "@cire/landing",
     directory: LANDING_DIST,
+    notFoundHandling: "none",
     host: (hosts) => hosts.cireLanding,
     baked: (hosts) => [hosts.cireLanding, hosts.cireHost],
   },
@@ -251,7 +255,7 @@ export const PRODUCTION_RESOURCE_KINDS: Readonly<Record<string, ResourceKind>> =
   productionSiteKinds(SITE_LOGICAL_IDS, PRODUCTION_SITE_MODES);
 
 /** The cire stack on production: its sites, by logical id, and the build each uploads. */
-export interface CireProductionSites {
+interface CireProductionSites {
   readonly sites: Readonly<Record<string, SiteWorkerInput>>;
   readonly prebuilt: readonly PrebuiltSite[];
 }
@@ -273,12 +277,7 @@ export function cireProductionSites(input: {
     sites: Object.fromEntries(
       shipped.map((key) => [
         SITE_LOGICAL_IDS[key],
-        site(
-          SITES[key].names,
-          "production",
-          SITES[key].directory,
-          siteDomain(key, input.modes[key]),
-        ),
+        site(SITES[key], "production", siteDomain(key, input.modes[key])),
       ]),
     ),
     prebuilt: shipped.map((key) => sitePrebuilt(key, input.hosts)),
@@ -420,14 +419,9 @@ export function cireDeclaration(input: {
       bindings: {},
       observability: GUEST_OBSERVABILITY,
     },
-    cireHost: site(SITES.cire_host.names, stage, HOST_DIST, SITES.cire_host.host(hosts)),
-    cireVendor: site(SITES.cire_vendor.names, stage, VENDOR_DIST, SITES.cire_vendor.host(hosts)),
-    cireLanding: site(
-      SITES.cire_landing.names,
-      stage,
-      LANDING_DIST,
-      SITES.cire_landing.host(hosts),
-    ),
+    cireHost: site(SITES.cire_host, stage, SITES.cire_host.host(hosts)),
+    cireVendor: site(SITES.cire_vendor, stage, SITES.cire_vendor.host(hosts)),
+    cireLanding: site(SITES.cire_landing, stage, SITES.cire_landing.host(hosts)),
     seeds: { ownerSeat },
     invitesServer: { source: INVITES_SERVER, main: INVITES_ENTRY, target: invitesServer },
     // Each site's build bakes in what deploy.yml's build step sets. The

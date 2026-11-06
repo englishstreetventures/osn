@@ -11,7 +11,7 @@ import type { JSX } from "solid-js";
 import { createEffect, createSignal, Show, For, on, onMount } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { isPreviewExpired } from "../lib/change-revision";
+import { isChangeInProgress, isHeadMoved } from "../lib/change-revision";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
@@ -104,7 +104,7 @@ interface ApplyResponse {
  */
 const KIND = {
   events: {
-    eyebrow: "Events",
+    noun: "events",
     title: "Import your events from a spreadsheet",
     fileName: "events.csv",
     templateFile: "cire-events-template.csv",
@@ -118,7 +118,7 @@ const KIND = {
     bodyKey: "eventsCsv",
   },
   guests: {
-    eyebrow: "Guests",
+    noun: "guests",
     title: "Import your guest list from a spreadsheet",
     fileName: "guests.csv",
     templateFile: "cire-guests-template.csv",
@@ -134,7 +134,8 @@ const KIND = {
 } satisfies Record<
   ImportKind,
   {
-    eyebrow: string;
+    /** What the sheet holds, as the scope notice names it. */
+    noun: string;
     title: string;
     /** The file name organisers are told to upload, and the label on the input. */
     fileName: string;
@@ -296,9 +297,20 @@ export default function ImportPanel(props: {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
-        // An expired preview can never apply, so its Apply goes with it. The
-        // sheet stays chosen: Preview uploads it again.
-        if (isPreviewExpired(body)) setPreview(null);
+        // A preview that can never apply takes its Apply with it: every 409
+        // but another change still writing (which the same preview outlasts),
+        // and a 402 the guest cap gave while this change was writing. A 402
+        // from the check before the write saved nothing, so its preview
+        // applies after an upgrade. The sheet stays chosen: Preview uploads it
+        // again.
+        if (res.status === 409 ? !isChangeInProgress(body) : isHeadMoved(body)) setPreview(null);
+        // A moved head means a change landed — someone else's, or this one's
+        // first batches — that the cached rows do not hold.
+        if (isHeadMoved(body)) {
+          invalidateEvents(props.weddingId);
+          invalidateGuests(props.weddingId);
+          invalidateHouseholds(props.weddingId);
+        }
         throw new Error(formatImportError(res.status, body));
       }
       const data = (await res.json()) as ApplyResponse;
@@ -404,7 +416,7 @@ export default function ImportPanel(props: {
 
   return (
     <div class="flex flex-col gap-6">
-      <SectionIntro eyebrow={copy().eyebrow} title={copy().title} />
+      <SectionIntro title={copy().title} />
 
       <div class="flex flex-wrap items-center gap-3">
         <Button
@@ -503,9 +515,8 @@ export default function ImportPanel(props: {
               fallback={<p class="text-text-muted text-ui-sm">{copy().scopeHint}</p>}
             >
               <Notice tone="danger" alert>
-                This change covers more than your {copy().eyebrow.toLowerCase()} — the server
-                reports a scope of “{p().scope}”. Check the counts below before applying; nothing is
-                saved until you do.
+                This change covers more than your {copy().noun} — the server reports a scope of “
+                {p().scope}”. Check the counts below before applying; nothing is saved until you do.
               </Notice>
             </Show>
             <PlanCounts plan={p().plan} />

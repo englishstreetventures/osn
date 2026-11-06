@@ -6,7 +6,7 @@ related:
   - "[[github-issues-setup]]"
   - "[[cire-platform-plan]]"
   - "[[cire]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-05
 ---
 
 # Deferred decisions
@@ -70,7 +70,7 @@ A row graduates to an issue when its "Revisit When" lands.
 | Guest photo sharing | R2 + moderation | Post-MVP |
 | iPhone AirDrop sharing | Web Share API + custom payload | After core invite is built |
 | Account-linking ARC key provisioning + rotation | Stable `CIRE_API_ARC_PRIVATE_KEY` secret pre-registered in osn-api `service_accounts` (shipped) vs. lazy self-registration per isolate vs. KV-persisted rotating key | Before production launch of linking — wire the secret + osn-side registration; decide rotation story (Workers have no startup hook) |
-| Workerd metric/trace **export** | otel-cf-workers vs. Workers Analytics Engine vs. stay no-op | cire now defines spans + `cire/api/src/metrics.ts` counters/histograms (recording call-sites correct, no-op until an exporter exists). Decide the reader before relying on cire dashboards. See `[[cire-workerd]]` |
+| Workerd metric **export** | Workers Analytics Engine vs. an OTLP metrics push vs. stay no-op | cire defines `cire/api/src/metrics.ts` counters/histograms and osn-api its own; no factory metric reaches an exporter on any runtime (englishstreetventures/osn#501). Decide the reader before relying on dashboards. See `[[cire-workerd]]` |
 | `OSN_API_URL` https enforcement (linking) | Enforce `https://` for the ARC call in prod (like `graphBridge.ts` module-load guard) vs. trust deploy config | Before production launch — Workers has no module-load env, so guard must live in `index.ts` config wiring |
 | Invite builder draft→publish model | Today two persistence models coexist (text, theme and section switches via Save; images/crops/design instantly live — see `[[cire-invite-builder]]`), so a mid-redesign invite can go live half-updated. Options: draft columns + a Publish action on `wedding_invite_customisations` vs. a shadow draft row vs. keep the marked split (current, 2026-07-30 UX pass added badges + remove-confirm). | If an organiser reports a half-updated live invite, or when the builder next grows a surface that writes instantly |
 | Invite builder concurrent-edit guard | The organiser GET payload exposes no row version, so two co-editors are last-write-wins with no warning. Cheap fix: return `updatedAt` from `GET /invite`, compare on save, warn on mismatch. | With the first multi-editor wedding complaint, or alongside the draft→publish decision above |
@@ -126,6 +126,7 @@ Folded in from the retired `cire/wiki/deferred.md` when the cire vault merged in
 | Guest-link stored identifier | Store **account-level** `osn_account_id` (resolved S2S over ARC via `GET /graph/internal/profile-account`), not profile-level — so any of a user's OSN profiles surfaces the invitation in Pulse. `osn_profile_id` kept for audit. account id is S2S-only, never returned to clients (redacted in logs via `@shared/observability`). | 2026-06-12 |
 | ARC token signing on Cloudflare Workers | Added a DB-free, metric-free `signArcToken` to `@shared/crypto/jwk` (the workerd-safe subpath) rather than pulling the `@shared/crypto` barrel (→ `@osn/db`/`bun:sqlite`) or `@shared/observability` (node OTel) into the Worker bundle. `createArcToken` now wraps it + the issuance metric for bun/node. Verified via `cire/api` `wrangler` dry-run build. | 2026-06-12 |
 | Account-linking observability on workerd | **Adopt `@shared/observability` (workerd-safe subpaths).** cire/api now installs the shared redacting logger (`runCire`/`runCireSync` → `cireLoggerLayer`), spans on every service fn, `instrumentedFetch` on the S2S ARC call, and `cire/api/src/metrics.ts` (define-now-export-later — incl. `cire.account_link.{requests,unlinks}` + resolve-duration). Workerd metric/trace **export** is the only remaining open item (own row in Open). Verified via `wrangler` dry-run + `bun test`. | 2026-06-16 |
+| Workerd trace and log export | **Cloudflare's own Workers traces and Workers Logs**, by owner direction on englishstreetventures/osn#1985, rather than a hand-registered OpenTelemetry provider, an OTLP exporter in the Worker, or `otel-cf-workers`. Effect spans are mirrored into Workers traces as custom spans (`WorkersTracingLive`); the redacting logger writes structured objects to Workers Logs. Cloudflare propagates no trace context, so calls between services are separate traces. See `[[tracing]]`. | 2026-11-05 |
 
 ## Parked ideas — cire
 

@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
@@ -9,7 +9,7 @@ import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Textarea } from "@shared/ui/ui/textarea";
-import { batch, createMemo, createSignal, onMount, Show } from "solid-js";
+import { batch, createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import {
@@ -52,6 +52,24 @@ const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-6`;
  * "Check again", which only reads the status. A connected account with nobody on
  * record is no owner's to continue.
  *
+ * WHICH ACCOUNT IS ASKED AT CONNECT. An owner pressing "Connect an account" may
+ * already have connected one on another wedding of theirs, and the press asks
+ * the API for those first (`…/stripe/accounts`, not on load: most visits never
+ * connect anything). Where the site connects existing Stripe accounts
+ * (`connectsExistingStripe`), or they have some, the panel asks which account
+ * takes this wedding's gifts — one already theirs here, a new one, or a Stripe
+ * account they already have — with nothing chosen for them, and says why any
+ * listed account cannot. With neither, it goes on to Stripe as it always did.
+ * Choosing one of theirs gives it to this wedding without leaving the portal
+ * (`…/stripe/reuse`); choosing their own Stripe account sends them to sign in
+ * at Stripe (`…/stripe/oauth`), and cire-api's callback brings them back here.
+ *
+ * THEIR OWN STRIPE ACCOUNT RUNS ITSELF. An account connected that way
+ * (`stripeAccountType: "standard"`) is the couple's, managed in their own Stripe
+ * Dashboard: no "Continue on Stripe", which is cire's onboarding, but a link to
+ * that Dashboard for the person who connected it, and words saying Stripe's
+ * fees and any disputes are theirs.
+ *
  * INTENT AND CAPABILITY ARE DIFFERENT THINGS. "Let guests give money" is the
  * couple's intent (`cash_gifts_enabled`); whether Stripe can take a charge
  * today is `stripe_charges_enabled`, which only Stripe decides. The API refuses
@@ -87,6 +105,60 @@ interface RegistrySettingsViewProps {
 
 /** What the money panel says about the connected account, in one word. */
 type StripeState = "none" | "incomplete" | "ready";
+
+/**
+ * An account this owner connected on another wedding of theirs, as
+ * `GET …/stripe/accounts` lists it: named by the weddings it takes gifts for,
+ * never by its id.
+ */
+interface ReusableAccount {
+  fromWeddingId: string;
+  weddingNames: string[];
+  chargesEnabled: boolean;
+  currencyKnown: boolean;
+  /** Why it cannot take this wedding's gifts; `null` when it can. */
+  blockedBy: "currency_mismatch" | "stripe_owners_differ" | null;
+}
+
+/** The answer in the account question that means "have Stripe make one". */
+const NEW_ACCOUNT = "new";
+/** The answer that means "connect a Stripe account I already have". */
+const EXISTING_ACCOUNT = "existing";
+
+/** Where the holder of their own Stripe account runs it. */
+const STRIPE_DASHBOARD_URL = "https://dashboard.stripe.com/";
+
+/** What connecting an account of their own means for the couple: the fees and
+ *  the disputes are theirs, on their own Stripe account. */
+const EXISTING_ACCOUNT_TERMS =
+  "You sign in to Stripe and choose the account. Gifts are charged on it as your own sales: Stripe’s fees come out of each gift at your account’s rates, and refunds and disputes are yours to handle in your Stripe Dashboard.";
+
+/** The accounts in a list body; anything else reads as none. */
+function reusableAccounts(body: unknown): ReusableAccount[] {
+  const list = (body as { accounts?: unknown } | null)?.accounts;
+  return Array.isArray(list) ? (list as ReusableAccount[]) : [];
+}
+
+/** "Beach", "Beach and Ceremony", "Beach, Ceremony and Party". */
+function namesInWords(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
+}
+
+/** What Stripe can do with a listed account, as the line under its radio. */
+function reusableStateWords(account: ReusableAccount): string {
+  if (!account.chargesEnabled) return "Stripe still wants something before it can take payments.";
+  if (!account.currencyKnown) return "Stripe hasn’t said which currency it pays out in yet.";
+  return "Stripe can take payments on it.";
+}
+
+/** Why a listed account cannot take this wedding's gifts, in a sentence. */
+function blockedWords(account: ReusableAccount, currency: string): string {
+  const names = namesInWords(account.weddingNames);
+  return account.blockedBy === "currency_mismatch"
+    ? `The account you use for ${names} pays out in a currency other than ${currency}, the one this wedding’s gifts are charged in, so it can’t take them.`
+    : `The account you use for ${names} can’t be used here: this wedding has an owner who isn’t an owner of ${names}.`;
+}
 
 /** The six fields this form edits, in the shape the server stores them. */
 type FormFields = Pick<
@@ -138,17 +210,17 @@ function isStripeConnectUrl(raw: string): boolean {
 function fundsDontCountWords(reason: MoneyGiftsBlock | null | undefined, currency: string): string {
   switch (reason) {
     case "payments_unavailable":
-      return " Cash funds don’t count: money gifts aren’t available on this site yet.";
+      return " Cash funds and group gifts don’t count: money gifts aren’t available on this site yet.";
     case "stripe_not_ready":
-      return " Cash funds count once Stripe can take payments for you and money gifts are on.";
+      return " Cash funds and group gifts count once Stripe can take payments for you and money gifts are on.";
     case "stripe_currency_unknown":
-      return " Cash funds don’t count until Stripe says which currency your account pays out in.";
+      return " Cash funds and group gifts don’t count until Stripe says which currency your account pays out in.";
     case "currency_mismatch":
-      return ` Cash funds don’t count: your Stripe account pays out in a currency other than ${currency}.`;
+      return ` Cash funds and group gifts don’t count: your Stripe account pays out in a currency other than ${currency}.`;
     case "cash_gifts_off":
-      return " Cash funds count once money gifts are on.";
+      return " Cash funds and group gifts count once money gifts are on.";
     default:
-      return " Cash funds don’t count while guests can’t see them.";
+      return " Cash funds and group gifts don’t count while guests can’t see them.";
   }
 }
 
@@ -204,6 +276,38 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
   const [connecting, setConnecting] = createSignal(false);
+  /** The accounts the owner was offered after pressing Connect; `null` while
+   *  nothing is being asked. */
+  const [offered, setOffered] = createSignal<ReusableAccount[] | null>(null);
+  /** Their answer: a wedding to take the account from, `NEW_ACCOUNT`, or `""`. */
+  const [chosen, setChosen] = createSignal("");
+  /**
+   * Where focus goes as the account question opens and closes: the question,
+   * when the button that opened it disappears; the Connect (or, once there is
+   * an account, Continue) button, when the question does.
+   */
+  let questionEl: HTMLFieldSetElement | undefined;
+  let connectButtonEl: HTMLButtonElement | undefined;
+  /** Where focus goes when the question closes onto an account whose row
+   *  draws no button: the status line that says what is connected. */
+  let statusEl: HTMLParagraphElement | undefined;
+  /**
+   * Close the account question and give focus back to the panel's button,
+   * which a request still in flight leaves disabled and so unfocusable: the
+   * question is closed only once there is nothing left to wait for.
+   */
+  function closeQuestion(): void {
+    batch(() => {
+      setConnecting(false);
+      setOffered(null);
+      setChosen("");
+    });
+    // An account connected meanwhile may be one whose row has no button at
+    // all — the couple's own, or another owner's — so the old ref can point at
+    // nothing in the page.
+    if (connectButtonEl?.isConnected) connectButtonEl.focus();
+    else statusEl?.focus();
+  }
   const [checking, setChecking] = createSignal(false);
   /** `null` until the first snapshot lands; the form seeds from it once. */
   const [seeded, setSeeded] = createSignal(false);
@@ -222,12 +326,16 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const [cashGifts, setCashGifts] = createSignal(false);
 
   const settingsUrl = () => apiUrl(weddingPath(props.weddingId, "/registry/settings"));
-  const stripeUrl = (leaf: "session" | "refresh") =>
+  const stripeUrl = (leaf: "session" | "refresh" | "accounts" | "reuse" | "oauth") =>
     apiUrl(weddingPath(props.weddingId, `/registry/stripe/${leaf}`));
 
   const settings = (): RegistrySettings | null => snapshot()?.settings ?? null;
   /** Whether this site can take a money gift at all, whatever the settings say. */
   const siteTakesPayments = () => snapshot()?.takesPayments === true;
+  /** Whether this site lets an owner connect a Stripe account they already have. */
+  const connectsExisting = () => snapshot()?.connectsExistingStripe === true;
+  /** The couple's own Stripe account, run in their own Dashboard. */
+  const accountIsTheirOwn = () => settings()?.stripeAccountType === "standard";
   /** Why guests cannot give money, as the server says; `null` when they can. */
   const moneyBlock = () => settings()?.moneyGiftsBlockedBy;
   /** The wedding's currency — every gift is charged in it. */
@@ -500,9 +608,186 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     }
   }
 
-  /** Start (or resume) Stripe onboarding, then hand the couple to Stripe. */
+  /**
+   * The Connect button. With an account already, back to Stripe to continue it.
+   * Without one, first ask which account the owner wants: one they connected on
+   * another wedding, or a new one. Only when they have none to offer does the
+   * press go straight on to Stripe.
+   */
   async function connectStripe(): Promise<void> {
     if (connecting() || !canOpenStripe()) return;
+    if (stripeState() !== "none") return openOnboarding();
+    setConnecting(true);
+    let asked = false;
+    try {
+      const res = await authFetch(stripeUrl("accounts"));
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) {
+        haptic("reject");
+        toast.error(
+          res.status === 404
+            ? "Money gifts aren’t available on this site yet."
+            : res.status === 403
+              ? "Only the wedding’s owner can connect the account gifts are paid into."
+              : "Couldn’t start connecting an account just now. Try again in a moment.",
+        );
+        return;
+      }
+      const accounts = reusableAccounts(await res.json().catch(() => null));
+      if (accounts.length > 0 || connectsExisting()) {
+        batch(() => {
+          setChosen("");
+          setOffered(accounts);
+        });
+        // The button that was pressed is gone; the question takes its focus,
+        // and a screen reader reads it out.
+        questionEl?.focus();
+        asked = true;
+      }
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      toast.error("Couldn’t start connecting an account just now. Is the API running?");
+      return;
+    } finally {
+      setConnecting(false);
+    }
+    if (!asked) await openOnboarding();
+  }
+
+  /** The account question's action: give this wedding the chosen account, or
+   *  go on to Stripe for a new one. Nothing chosen does nothing. */
+  async function answerAccountQuestion(): Promise<void> {
+    const answer = chosen();
+    if (answer === "" || connecting()) return;
+    if (answer === NEW_ACCOUNT) return openOnboarding();
+    if (answer === EXISTING_ACCOUNT) return openOAuth();
+    await reuseAccount(answer);
+  }
+
+  /** Drop one offered account, after the API refused it. */
+  function dropOffered(fromWeddingId: string): void {
+    batch(() => {
+      setOffered((list) => list?.filter((a) => a.fromWeddingId !== fromWeddingId) ?? null);
+      setChosen("");
+    });
+  }
+
+  /** Give this wedding the account the owner connected on `fromWeddingId`. */
+  async function reuseAccount(fromWeddingId: string): Promise<void> {
+    const account = offered()?.find((a) => a.fromWeddingId === fromWeddingId);
+    const names = namesInWords(account?.weddingNames ?? []);
+    setConnecting(true);
+    try {
+      const res = await authFetch(stripeUrl("reuse"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromWeddingId }),
+      });
+      if (res.status === 401) return redirectToLogin();
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+        settings?: RegistrySettings;
+      } | null;
+      if (res.ok && body?.settings) {
+        patchCache(body.settings);
+        closeQuestion();
+        haptic("commit");
+        toast.success(`This wedding’s gifts now go to the account you use for ${names}.`);
+        return;
+      }
+      haptic("reject");
+      // The page is out of date about this wedding, or about that account.
+      if (body?.settings) patchCache(body.settings);
+      switch (body?.error) {
+        case "stripe_already_connected":
+          closeQuestion();
+          toast.error(
+            "This wedding already has a Stripe account — someone connected it while you were choosing. It’s showing now.",
+          );
+          return;
+        case "stripe_account_not_found":
+          dropOffered(fromWeddingId);
+          toast.error("That account can’t be used here any more. Choose another, or a new one.");
+          return;
+        case "stripe_owners_differ":
+        case "currency_mismatch":
+          dropOffered(fromWeddingId);
+          if (account) toast.error(blockedWords({ ...account, blockedBy: body.error }, currency()));
+          else toast.error("That account can’t take this wedding’s gifts.");
+          return;
+        default:
+          toast.error(
+            res.status === 404
+              ? "Money gifts aren’t available on this site yet."
+              : res.status === 403
+                ? "Only the wedding’s owner can connect the account gifts are paid into."
+                : "Couldn’t connect the account just now. Try again in a moment.",
+          );
+      }
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      toast.error("Couldn’t connect the account just now. Is the API running?");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  /**
+   * Send the owner to sign in at Stripe and choose an account they already
+   * have. The API mints a state bound to them and this wedding; cire-api's own
+   * callback finishes the connect and brings them back here with a word saying
+   * how it went (`lib/stripe-connect-return.ts`).
+   */
+  async function openOAuth(): Promise<void> {
+    setConnecting(true);
+    try {
+      const res = await authFetch(stripeUrl("oauth"), { method: "POST" });
+      if (res.status === 401) return redirectToLogin();
+      const body = (await res.json().catch(() => null)) as {
+        url?: string;
+        error?: string;
+        settings?: RegistrySettings;
+      } | null;
+      if (!res.ok) {
+        haptic("reject");
+        if (body?.error === "stripe_already_connected" && body.settings) {
+          patchCache(body.settings);
+          closeQuestion();
+          toast.error(
+            "This wedding already has a Stripe account — someone connected it while you were choosing. It’s showing now.",
+          );
+          return;
+        }
+        toast.error(
+          res.status === 404
+            ? "Connecting a Stripe account you already have isn’t available on this site yet."
+            : res.status === 403
+              ? "Only the wedding’s owner can connect the account gifts are paid into."
+              : "Couldn’t reach Stripe just now. Try again in a moment.",
+        );
+        return;
+      }
+      if (!body?.url || !isStripeConnectUrl(body.url)) {
+        haptic("reject");
+        toast.error("Couldn’t reach Stripe just now. Try again in a moment.");
+        return;
+      }
+      // Leaving the portal; coming back re-reads the settings.
+      invalidateRegistry(props.weddingId);
+      window.location.assign(body.url);
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      toast.error("Couldn’t reach Stripe just now. Is the API running?");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  /** Start (or resume) Stripe onboarding, then hand the couple to Stripe. */
+  async function openOnboarding(): Promise<void> {
     setConnecting(true);
     try {
       const res = await authFetch(stripeUrl("session"), { method: "POST" });
@@ -621,7 +906,6 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   return (
     <div class={PANEL_CLASS}>
       <SectionIntro
-        eyebrow="Registry"
         title="Gift list settings"
         description="Whether your guests can see the list, what it says at the top, where parcels should go, and whether people can give money instead. Guests only ever see this list after entering their invite code."
       />
@@ -774,14 +1058,14 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
                 the switch on or off. A standing note, so `info` and no alert. */}
             <Show when={moneyBlock() === "currency_mismatch"}>
               <Notice tone="info" data-testid="money-gifts-currency">
-                Guests aren’t offered money gifts or cash funds: your Stripe account pays out in a
-                currency other than {currency()}, the one every gift is charged in.
+                Guests aren’t offered money gifts, cash funds or group gifts: your Stripe account
+                pays out in a currency other than {currency()}, the one every gift is charged in.
               </Notice>
             </Show>
             <Show when={moneyBlock() === "stripe_currency_unknown"}>
               <Notice tone="info" data-testid="money-gifts-currency">
-                Guests aren’t offered money gifts or cash funds until Stripe says which currency
-                your account pays out in.{" "}
+                Guests aren’t offered money gifts, cash funds or group gifts until Stripe says which
+                currency your account pays out in.{" "}
                 {props.canManage
                   ? "Check again to ask it."
                   : "Ask an owner to check the Stripe connection."}
@@ -790,64 +1074,216 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
             {/* An owner who did not connect the account is not told it is
                 theirs: it carries the identity and bank of whoever connected it. */}
-            <p class={hintClass} data-testid="stripe-status">
-              {stripeState() === "ready"
-                ? accountIsAnotherOwners()
-                  ? "Stripe is connected and can take payments. Gifts go straight to the account of the person who connected it — we never hold the money."
-                  : "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
-                : stripeState() === "incomplete"
+            <p
+              ref={statusEl}
+              id="stripe-status"
+              tabindex="-1"
+              class={`${hintClass} outline-none`}
+              data-testid="stripe-status"
+            >
+              {accountIsTheirOwn() && stripeState() !== "none"
+                ? stripeState() === "ready"
                   ? accountIsAnotherOwners()
-                    ? "Stripe has the account but still wants something from the person who connected it before it can take payments."
-                    : "Stripe has your account but still wants something before it can take payments."
-                  : "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money."}
+                    ? "The Stripe account of the person who connected it can take payments. Gifts go straight to it — we never hold the money. Only they can manage it, in their own Stripe Dashboard."
+                    : "Your own Stripe account is connected and can take payments. Gifts go straight to it — we never hold the money. Stripe’s fees come out of each gift at your account’s rates, and you handle refunds and disputes in your Stripe Dashboard."
+                  : accountIsAnotherOwners()
+                    ? "The Stripe account of the person who connected it can’t take payments yet: Stripe wants something from them. Only they can manage it, in their own Stripe Dashboard."
+                    : "Your Stripe account is connected but can’t take payments yet. Finish what Stripe asks for in your Stripe Dashboard."
+                : stripeState() === "ready"
+                  ? accountIsAnotherOwners()
+                    ? "Stripe is connected and can take payments. Gifts go straight to the account of the person who connected it — we never hold the money."
+                    : "Stripe is connected and can take payments. Gifts go straight to your account — we never hold the money."
+                  : stripeState() === "incomplete"
+                    ? accountIsAnotherOwners()
+                      ? "Stripe has the account but still wants something from the person who connected it before it can take payments."
+                      : "Stripe has your account but still wants something before it can take payments."
+                    : props.canManage
+                      ? "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money. One you connected for another of your weddings can take this one’s gifts too."
+                      : "To let guests give money, connect a Stripe account. Gifts go straight to it — we never hold the money."}
             </p>
 
-            <div class="flex flex-wrap items-center gap-3">
-              {/* Not `disabled` for an editor, or for an owner who did not
+            {/* The account question, after an owner with accounts on other
+                weddings pressed Connect. Nothing is chosen for them. An account
+                that cannot take this wedding's gifts is a line, not a disabled
+                radio, whose words a screen reader in forms mode would skip. */}
+            <Show when={stripeState() === "none" ? offered() : null}>
+              {(accounts) => (
+                <fieldset
+                  ref={questionEl}
+                  tabindex="-1"
+                  aria-labelledby="stripe-account-choice-label"
+                  class="flex min-w-0 flex-col gap-3 border-0 p-0 outline-none"
+                  data-testid="stripe-account-choice"
+                >
+                  <p
+                    id="stripe-account-choice-label"
+                    class="font-body text-text text-ui-sm leading-ui-normal"
+                  >
+                    Which Stripe account should take this wedding’s gifts?
+                  </p>
+                  <RadioGroup
+                    box="native"
+                    orientation="vertical"
+                    name="stripe-account"
+                    value={chosen()}
+                    onChange={setChosen}
+                    aria-labelledby="stripe-account-choice-label"
+                  >
+                    <For each={accounts().filter((a) => a.blockedBy === null)}>
+                      {(account) => (
+                        <RadioGroupItem
+                          value={account.fromWeddingId}
+                          align="start"
+                          label={
+                            <>
+                              The account you use for {namesInWords(account.weddingNames)}
+                              <span class={`block ${hintClass}`}>
+                                {reusableStateWords(account)}
+                              </span>
+                            </>
+                          }
+                        />
+                      )}
+                    </For>
+                    <RadioGroupItem
+                      value={NEW_ACCOUNT}
+                      align="start"
+                      label={
+                        <>
+                          A new account for this wedding
+                          <span class={`block ${hintClass}`}>
+                            Stripe asks for your identity and bank details.
+                          </span>
+                        </>
+                      }
+                    />
+                    <Show when={connectsExisting()}>
+                      <RadioGroupItem
+                        value={EXISTING_ACCOUNT}
+                        align="start"
+                        label={
+                          <>
+                            Connect a Stripe account you already have
+                            <span class={`block ${hintClass}`}>{EXISTING_ACCOUNT_TERMS}</span>
+                          </>
+                        }
+                      />
+                    </Show>
+                  </RadioGroup>
+                  <For each={accounts().filter((a) => a.blockedBy !== null)}>
+                    {(account) => <p class={hintClass}>{blockedWords(account, currency())}</p>}
+                  </For>
+                  <div class="flex flex-wrap items-center gap-3">
+                    {/* `aria-disabled` until something is chosen, so the reason
+                        stays reachable; `answerAccountQuestion` refuses too. */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={connecting()}
+                      aria-disabled={chosen() === "" ? "true" : undefined}
+                      aria-describedby={chosen() === "" ? "stripe-account-choose" : undefined}
+                      onClick={() => void answerAccountQuestion()}
+                    >
+                      {connecting()
+                        ? "Connecting…"
+                        : chosen() === ""
+                          ? "Continue"
+                          : chosen() === NEW_ACCOUNT || chosen() === EXISTING_ACCOUNT
+                            ? "Continue to Stripe"
+                            : "Use this account"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="quiet"
+                      disabled={connecting()}
+                      onClick={closeQuestion}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                  <Show when={chosen() === ""}>
+                    <p id="stripe-account-choose" class={hintClass}>
+                      Choose an account first.
+                    </p>
+                  </Show>
+                </fieldset>
+              )}
+            </Show>
+
+            {/* While the account question is open its own buttons stand in for these. */}
+            <Show when={!(stripeState() === "none" && offered() !== null)}>
+              <div class="flex flex-wrap items-center gap-3">
+                {/* Not `disabled` for an editor, or for an owner who did not
                   connect the account: the whole point of showing this panel to
                   them is that they read WHY it is not theirs, and a disabled
                   button takes its description out of reach. It stays focusable
                   and `connectStripe` refuses on `canOpenStripe`, as does the
                   route behind it. `connecting()` is a passing state with
                   nothing to explain, so that one stays `disabled`. */}
-              <Button
-                type="button"
-                variant="outline"
-                disabled={connecting()}
-                aria-disabled={canOpenStripe() ? undefined : "true"}
-                aria-describedby={canOpenStripe() ? undefined : stripeReasonId()}
-                onClick={() => void connectStripe()}
-              >
-                {connecting()
-                  ? "Opening Stripe…"
-                  : stripeState() === "none"
-                    ? "Connect an account"
-                    : "Continue on Stripe"}
-              </Button>
-              <Show when={stripeState() !== "none"}>
-                {/* Same owner-only route as its neighbour, so the same gate and
+                {/* Their own Stripe account has no onboarding of cire's: the person
+                  who connected it runs it in their own Dashboard, a page on
+                  Stripe's site, so this is a link, not a button. Anyone else
+                  is told whose it is below. */}
+                <Show
+                  when={accountIsTheirOwn() && stripeState() !== "none"}
+                  fallback={
+                    <Button
+                      ref={connectButtonEl}
+                      type="button"
+                      variant="outline"
+                      disabled={connecting()}
+                      aria-disabled={canOpenStripe() ? undefined : "true"}
+                      aria-describedby={canOpenStripe() ? undefined : stripeReasonId()}
+                      onClick={() => void connectStripe()}
+                    >
+                      {connecting()
+                        ? "Opening Stripe…"
+                        : stripeState() === "none"
+                          ? "Connect an account"
+                          : "Continue on Stripe"}
+                    </Button>
+                  }
+                >
+                  <Show when={canOpenStripe()}>
+                    <a
+                      href={STRIPE_DASHBOARD_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class={buttonClass({ variant: "outline" })}
+                      data-testid="stripe-dashboard-link"
+                    >
+                      Open your Stripe Dashboard
+                      <span class="sr-only"> (opens in a new tab)</span>
+                    </a>
+                  </Show>
+                </Show>
+                <Show when={stripeState() !== "none"}>
+                  {/* Same owner-only route as its neighbour, so the same gate and
                     the same reason. Ungated, a co-host pressing it met "Couldn't
                     reach Stripe just now" — a 403 dressed up as an outage,
                     which is an answer to a question they did not ask. */}
-                <Button
-                  type="button"
-                  variant="quiet"
-                  disabled={checking()}
-                  aria-disabled={props.canManage ? undefined : "true"}
-                  aria-describedby={props.canManage ? undefined : "stripe-owner-only"}
-                  onClick={() => void refreshStripe()}
-                >
-                  {checking() ? "Checking…" : "Check again"}
-                </Button>
-              </Show>
-            </div>
+                  <Button
+                    type="button"
+                    variant="quiet"
+                    disabled={checking()}
+                    aria-disabled={props.canManage ? undefined : "true"}
+                    aria-describedby={props.canManage ? undefined : "stripe-owner-only"}
+                    onClick={() => void refreshStripe()}
+                  >
+                    {checking() ? "Checking…" : "Check again"}
+                  </Button>
+                </Show>
+              </div>
+            </Show>
 
             <Show when={!props.canManage}>
               <p id="stripe-owner-only" class={hintClass} data-testid="stripe-owner-only">
                 Only the wedding’s owner can connect the account gifts are paid into.
               </p>
             </Show>
-            <Show when={props.canManage && !canOpenStripe()}>
+            {/* Their own account draws no disabled button for this to describe:
+                the status line above already says whose it is. */}
+            <Show when={props.canManage && !canOpenStripe() && !accountIsTheirOwn()}>
               <p id="stripe-connector-only" class={hintClass} data-testid="stripe-connector-only">
                 {CONNECTOR_ONLY}
               </p>

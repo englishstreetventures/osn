@@ -269,7 +269,7 @@ describe("GET /api/auth/oidc/callback", () => {
         );
         expect(res.status).toBe(302);
         const location = new URL(res.headers.get("location")!);
-        expect(location.origin + location.pathname).toBe(`${origin}/login`);
+        expect(location.origin + location.pathname).toBe(`${origin}/login/`);
         expect(location.searchParams.get("returnTo")).toBe(path);
         expect(location.searchParams.get("auth_error")).toBe("sign_in_declined");
         expect(res.headers.get("location")).not.toContain("access_denied");
@@ -287,9 +287,42 @@ describe("GET /api/auth/oidc/callback", () => {
         },
       );
       const location = new URL(res.headers.get("location")!);
-      expect(location.origin + location.pathname).toBe(`${VENDOR}/login`);
+      expect(location.origin + location.pathname).toBe(`${VENDOR}/login/`);
       expect(location.searchParams.has("returnTo")).toBe(false);
       expect(location.searchParams.get("auth_error")).toBe("sign_in_failed");
+    });
+
+    it.each([
+      ["a path that only starts with /login", "/loginx"],
+      ["a path that only ends with /login", "/x/login"],
+    ])("carries %s on a portal as the page", async (_, path) => {
+      const config = portalConfig();
+      const { tx } = await startedTx(config, `${HOST}${path}`);
+      const res = await appRequest(
+        portalApp(config),
+        "/api/auth/oidc/callback?error=access_denied",
+        {
+          headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+        },
+      );
+      const location = new URL(res.headers.get("location")!);
+      expect(location.origin + location.pathname).toBe(`${HOST}/login/`);
+      expect(location.searchParams.get("returnTo")).toBe(path);
+    });
+
+    // A run of slashes is read once, not once per slash: the path is whoever
+    // started the sign-in, and the check runs on the Worker.
+    it("reads a long run of slashes in the page at once", async () => {
+      const path = `/x${"/".repeat(30_000)}y`;
+      const config = portalConfig();
+      const { tx } = await startedTx(config, `${HOST}${path}`);
+      const app = portalApp(config);
+      const started = performance.now();
+      const res = await appRequest(app, "/api/auth/oidc/callback?error=access_denied", {
+        headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
+      });
+      expect(performance.now() - started).toBeLessThan(500);
+      expect(new URL(res.headers.get("location")!).searchParams.get("returnTo")).toBe(path);
     });
 
     it.each([
@@ -311,14 +344,14 @@ describe("GET /api/auth/oidc/callback", () => {
         },
       );
       const location = new URL(res.headers.get("location")!);
-      expect(location.origin + location.pathname).toBe(`${HOST}/login`);
+      expect(location.origin + location.pathname).toBe(`${HOST}/login/`);
       expect(location.searchParams.has("returnTo")).toBe(false);
       expect(location.searchParams.get("auth_error")).toBe("sign_in_declined");
     });
 
     it("a declined claim sign-in returns to the vendor's /login, resuming on the claim", async () => {
       const config = portalConfig();
-      const { tx } = await startedTx(config, `${VENDOR}/claim`);
+      const { tx } = await startedTx(config, `${VENDOR}/claim/`);
       const res = await appRequest(
         portalApp(config),
         "/api/auth/oidc/callback?error=access_denied",
@@ -327,8 +360,8 @@ describe("GET /api/auth/oidc/callback", () => {
         },
       );
       const location = new URL(res.headers.get("location")!);
-      expect(location.origin + location.pathname).toBe(`${VENDOR}/login`);
-      expect(location.searchParams.get("returnTo")).toBe("/claim");
+      expect(location.origin + location.pathname).toBe(`${VENDOR}/login/`);
+      expect(location.searchParams.get("returnTo")).toBe("/claim/");
     });
 
     it("a sign-in whose session cannot be stored lands on the portal's /login as failed", async () => {
@@ -349,7 +382,7 @@ describe("GET /api/auth/oidc/callback", () => {
         headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
       });
       const location = new URL(res.headers.get("location")!);
-      expect(location.origin + location.pathname).toBe(`${HOST}/login`);
+      expect(location.origin + location.pathname).toBe(`${HOST}/login/`);
       expect(location.searchParams.get("returnTo")).toBe("/#/w/w_1");
       expect(location.searchParams.get("auth_error")).toBe("sign_in_failed");
       expect(setCookie(res, ORGANISER_COOKIE_NAME)).toBeUndefined();
@@ -390,11 +423,11 @@ describe("GET /api/auth/oidc/callback", () => {
     });
 
     it.each([
-      ["the vendor portal", `${VENDOR}/#/orgs/org_1`, `${VENDOR}/login`],
-      ["the host portal", `${HOST}/`, `${HOST}/login`],
-      ["another host", "https://evil.example/login", `${HOST}/login`],
-      ["a protocol-relative path", "//evil.example/", `${HOST}/login`],
-      ["nothing", "", `${HOST}/login`],
+      ["the vendor portal", `${VENDOR}/#/orgs/org_1`, `${VENDOR}/login/`],
+      ["the host portal", `${HOST}/`, `${HOST}/login/`],
+      ["another host", "https://evil.example/login", `${HOST}/login/`],
+      ["a protocol-relative path", "//evil.example/", `${HOST}/login/`],
+      ["nothing", "", `${HOST}/login/`],
     ])(
       "an unavailable sign-in from %s picks only which portal's /login",
       async (_, returnTo, landing) => {
@@ -408,6 +441,24 @@ describe("GET /api/auth/oidc/callback", () => {
         // The unchecked return_to picks a portal and is carried nowhere.
         expect([...location.searchParams.keys()]).toEqual(["auth_error"]);
         expect(location.searchParams.get("auth_error")).toBe("sign_in_unavailable");
+      },
+    );
+
+    // The local server takes the organiser origin from `WEB_ORIGIN` as typed,
+    // slashes and all. The landing is still the portal's `/login/`.
+    it.each(["/", "//"])(
+      "an unavailable sign-in lands on /login/ when the organiser origin ends in %s",
+      async (tail) => {
+        const app = mkApp(freshDb(), {
+          oidc: null,
+          organiserOrigin: `${HOST}${tail}`,
+          vendorPortalOrigin: VENDOR,
+          allowedOrigins: [TEST_RETURN_ORIGIN, HOST, VENDOR],
+        });
+        const res = await appRequest(app, "/api/auth/oidc/start?return_to=");
+        expect(res.status).toBe(302);
+        const location = new URL(res.headers.get("location")!);
+        expect(location.origin + location.pathname).toBe(`${HOST}/login/`);
       },
     );
   });

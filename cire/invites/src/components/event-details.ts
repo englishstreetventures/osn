@@ -337,13 +337,13 @@ export function guestLocalTime(
 const CLOCK_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 /** One run-of-show item as the payload carries it. */
-export interface RunOfShowItem {
+interface RunOfShowItem {
   time: string;
   label: string;
 }
 
 /** One run-of-show item as the guest reads it. */
-export interface RunOfShowLine extends RunOfShowItem {
+interface RunOfShowLine extends RunOfShowItem {
   /** The time on a 12-hour clock, "4:00 pm". */
   clock: string;
 }
@@ -435,7 +435,7 @@ export function runOfShowLines(
 // ── The guest policy ─────────────────────────────────────────────────────────
 
 /** The guest policy as one household reads it. */
-export interface GuestPolicyLines {
+interface GuestPolicyLines {
   /** The presets in words, children first. */
   presets: string[];
   note: string | null;

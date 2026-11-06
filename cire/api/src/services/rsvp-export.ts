@@ -30,10 +30,10 @@ export { sanitiseCsvCell };
  * The DB `rsvps.status` enum is `attending | declined | maybe`; this maps it to
  * the human-facing cell label below.
  */
-export type EventCell = "not_invited" | "no_response" | "attending" | "not_attending" | "maybe";
+type EventCell = "not_invited" | "no_response" | "attending" | "not_attending" | "maybe";
 
 /** One exported row per guest (including guests who haven't RSVP'd at all). */
-export interface RsvpExportRow {
+interface RsvpExportRow {
   familyCode: string;
   familyName: string;
   firstName: string;
@@ -80,7 +80,7 @@ export interface RsvpExportRow {
 }
 
 /** Who recorded a guest's replies — see {@link RsvpExportRow.recordedBy}. */
-export type RecordedBy =
+type RecordedBy =
   | ""
   | "guest"
   | "household"
@@ -92,12 +92,12 @@ export type RecordedBy =
 const fullName = (person: { firstName: string; lastName: string }) =>
   `${person.firstName} ${person.lastName}`.trim();
 
-export interface RsvpExportEvent {
+interface RsvpExportEvent {
   id: string;
   name: string;
 }
 
-export interface RsvpExport {
+interface RsvpExport {
   /** Events ordered by start time (then sortOrder, then id) — one CSV column each. */
   events: RsvpExportEvent[];
   /** Guest rows, ordered alphabetically by family code, stable within a family. */
@@ -126,7 +126,7 @@ function mapStatus(status: "attending" | "declined" | "maybe"): EventCell {
 /** A guest's response to one event, for the in-dashboard view. `status` is the
  *  raw `rsvps.status` enum (the UI maps it to a label); `dietary` is that
  *  response's dietary note (may be blank). */
-export interface RsvpViewGuest {
+interface RsvpViewGuest {
   guestId: string;
   firstName: string;
   lastName: string;
@@ -168,7 +168,7 @@ export interface RsvpViewGuest {
 /** An invited guest with no reply yet — the pool an organiser can record a
  *  phone/paper RSVP FOR (the guest edit control targets these + can overwrite a
  *  responded row). */
-export interface RsvpViewInvitedGuest {
+interface RsvpViewInvitedGuest {
   guestId: string;
   firstName: string;
   lastName: string;

@@ -23,6 +23,8 @@ import {
   registryContributions,
   registryItems,
   registrySettings,
+  registryStripeOAuthStates,
+  weddingHosts,
   weddings,
 } from "@cire/db";
 import {
@@ -34,13 +36,14 @@ import {
   gte,
   isNotNull,
   isNull,
+  lt,
   lte,
   ne,
   or,
   type SQL,
   sql,
 } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/sqlite-core";
+import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery, outerColumn, unionColumn } from "../db";
@@ -64,7 +67,7 @@ export class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {
  * 'host'`), which reads the gift list and never writes to it. 403-class: the
  * session is valid for this wedding, so saying so tells the caller nothing new.
  */
-export class RegistryPreviewSession extends Data.TaggedError("RegistryPreviewSession") {}
+class RegistryPreviewSession extends Data.TaggedError("RegistryPreviewSession") {}
 /** The image key names another wedding's object. 400-class. */
 export class ImageKeyNotInWedding extends Data.TaggedError("ImageKeyNotInWedding") {}
 /**
@@ -72,7 +75,7 @@ export class ImageKeyNotInWedding extends Data.TaggedError("ImageKeyNotInWedding
  * 409-class. This and the two currency refusals below carry the row as it
  * stands, so the caller can show why guests cannot give without asking again.
  */
-export class StripeNotReady extends Data.TaggedError("StripeNotReady")<{
+class StripeNotReady extends Data.TaggedError("StripeNotReady")<{
   readonly current: RegistrySettingsDto;
 }> {}
 /**
@@ -86,7 +89,7 @@ export class CurrencyMismatch extends Data.TaggedError("CurrencyMismatch")<{
  * Cash gifts asked for while Stripe has not said which currency the connected
  * account settles in. 409-class: it clears once Stripe names one.
  */
-export class SettlementCurrencyUnknown extends Data.TaggedError("SettlementCurrencyUnknown")<{
+class SettlementCurrencyUnknown extends Data.TaggedError("SettlementCurrencyUnknown")<{
   readonly current: RegistrySettingsDto;
 }> {}
 /**
@@ -98,20 +101,40 @@ export class SettingsChanged extends Data.TaggedError("SettingsChanged")<{
   readonly current: RegistrySettingsDto;
 }> {}
 /** A guest asked to give money to a couple who are not taking it. 409-class. */
-export class CashGiftsUnavailable extends Data.TaggedError("CashGiftsUnavailable") {}
+class CashGiftsUnavailable extends Data.TaggedError("CashGiftsUnavailable") {}
 /**
  * A guest asked to give to a cash fund this wedding does not have: the couple
  * deleted it, or the id names a gift to reserve, another wedding's fund or
  * nothing at all. One answer for all of them. 409-class: the page they gave
  * from is out of date.
  */
-export class FundUnavailable extends Data.TaggedError("FundUnavailable") {}
+class FundUnavailable extends Data.TaggedError("FundUnavailable") {}
+/**
+ * An owner named a wedding to take a Stripe account from, and it is not one
+ * whose account they may give this wedding: nobody, someone else or an
+ * operator's record connected it there, the caller no longer owns it, it is
+ * deleted, or it has no account. One answer for all of them, so the route says
+ * nothing about a wedding the caller cannot see. 404-class.
+ */
+export class StripeAccountNotFound extends Data.TaggedError("StripeAccountNotFound") {}
+/** The wedding already has a Stripe account, which is never replaced. 409-class. */
+export class StripeAlreadyConnected extends Data.TaggedError("StripeAlreadyConnected")<{
+  readonly current: RegistrySettingsDto;
+}> {}
+/**
+ * The account would sit beside an owner of this wedding who is not an owner of
+ * the wedding it came from: once it were here, they could remove its connector
+ * and keep it. 409-class.
+ */
+export class StripeOwnersDiffer extends Data.TaggedError("StripeOwnersDiffer")<{
+  readonly current: RegistrySettingsDto;
+}> {}
 /**
  * An item write carrying a field of the other kind: a cash fund with a price,
  * a link, a category or more than one wanted, or a gift to reserve with a
  * target. 400-class.
  */
-export class RegistryItemFieldsInvalid extends Data.TaggedError("RegistryItemFieldsInvalid") {}
+class RegistryItemFieldsInvalid extends Data.TaggedError("RegistryItemFieldsInvalid") {}
 /** The wedding is at its item ceiling. 409-class. */
 export class RegistryItemLimitReached extends Data.TaggedError("RegistryItemLimitReached") {}
 /**
@@ -130,7 +153,7 @@ export class InvalidQuantity extends Data.TaggedError("InvalidQuantity") {}
  * four the same way, the same posture the session-gated invite image slots take
  * (404, not 401/403).
  */
-export class RegistryNotVisible extends Data.TaggedError("RegistryNotVisible") {}
+class RegistryNotVisible extends Data.TaggedError("RegistryNotVisible") {}
 
 /** One page of the gift log. A wedding's log is unbounded; a snapshot is not. */
 const GIFT_LOG_PAGE = 50;
@@ -151,7 +174,7 @@ const MIN_CLAIM_QUANTITY = 1;
 const MAX_CLAIM_QUANTITY = 99;
 
 export type RegistryItemKind = "product" | "cash_fund";
-export type RegistryClaimStatus = "reserved" | "purchased" | "released";
+type RegistryClaimStatus = "reserved" | "purchased" | "released";
 /**
  * A contribution's lifecycle, mirroring `registry_contributions.status`.
  *
@@ -186,12 +209,7 @@ export type RegistryClaimStatus = "reserved" | "purchased" | "released";
  * delivers at least once, out of order, and retries for days, so every one of
  * these events arrives twice sooner or later.
  */
-export type RegistryContributionStatus =
-  | "pending"
-  | "succeeded"
-  | "failed"
-  | "refunded"
-  | "disputed";
+type RegistryContributionStatus = "pending" | "succeeded" | "failed" | "refunded" | "disputed";
 /** Which table a gift-log row came from — the discriminator the portal reads. */
 export type GiftKind = "claim" | "contribution";
 
@@ -200,7 +218,7 @@ export type GiftKind = "claim" | "contribution";
  * included. Server-side only: the Stripe routes and the guest gates read it.
  * Never a response body — the organiser surfaces send `RegistrySettingsDto`.
  */
-export interface RegistrySettingsRecord {
+interface RegistrySettingsRecord {
   weddingId: string;
   published: boolean;
   headline: string | null;
@@ -215,12 +233,37 @@ export interface RegistrySettingsRecord {
    * owner may.
    */
   stripeConnectedByOsnProfileId: string | null;
+  /**
+   * How the account came to cire, as stored: NULL beside an account reads as
+   * `express` ({@link accountTypeOf}).
+   */
+  stripeAccountType: StripeAccountType | null;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
   /** The currency Stripe settles the account in, upper case, or null while unknown. */
   stripeDefaultCurrency: string | null;
   updatedAt: number | null;
 }
+
+/**
+ * How a wedding's Stripe account came to cire. `express`: one cire created and
+ * runs onboarding for. `standard`: the couple's own, connected through Stripe
+ * Connect OAuth and managed in their own Dashboard, which carries Stripe's fees
+ * and its disputes itself on the direct charges cire makes.
+ */
+export type StripeAccountType = "express" | "standard";
+
+/**
+ * The type of the account a row names, or null with none. A NULL column beside
+ * an account is `express`: every account a Worker without the column attached
+ * was one cire created, and so is one an older Worker gives another wedding
+ * during a deploy or a rollback.
+ */
+export const accountTypeOf = (settings: {
+  stripeAccountId: string | null;
+  stripeAccountType: StripeAccountType | null;
+}): StripeAccountType | null =>
+  settings.stripeAccountId === null ? null : (settings.stripeAccountType ?? "express");
 
 /**
  * Why guests are offered no money gift and no cash fund today. The first that
@@ -273,6 +316,12 @@ export interface RegistrySettingsDto {
    * recorded, and for anyone who is not an owner.
    */
   stripeConnectedByOsnProfileId: string | null;
+  /**
+   * The connected account's type, to owners only (`settingsForReader`): a
+   * `standard` account is managed in its holder's own Stripe Dashboard and has
+   * no onboarding link. Null with no account, and for anyone not an owner.
+   */
+  stripeAccountType: StripeAccountType | null;
   stripeChargesEnabled: boolean;
   /**
    * `null` exactly when the guest list offers money and cash funds: the same
@@ -281,6 +330,31 @@ export interface RegistrySettingsDto {
    */
   moneyGiftsBlockedBy: MoneyGiftsBlock | null;
   updatedAt: number | null;
+}
+
+/** Why an account an owner connected on another wedding cannot take this one's gifts. */
+export type ReusableAccountBlock =
+  /** It settles in another currency than this wedding charges gifts in. */
+  | "currency_mismatch"
+  /** This wedding has an owner who is not an owner of the wedding it is on. */
+  | "stripe_owners_differ";
+
+/**
+ * One Stripe account the caller connected on another wedding they own, as
+ * `GET …/registry/stripe/accounts` offers it: by the weddings it takes gifts
+ * for, never by its id, and never with the currency it settles in — only
+ * whether that is known and, through `blockedBy`, whether it matches.
+ */
+export interface ReusableStripeAccountDto {
+  /** The wedding to name when giving this one the account. */
+  fromWeddingId: string;
+  /** Every wedding of the caller's the account takes gifts for, by name. */
+  weddingNames: string[];
+  chargesEnabled: boolean;
+  /** Whether Stripe has said which currency the account settles in. */
+  currencyKnown: boolean;
+  /** Why it cannot take this wedding's gifts, or null when it can. */
+  blockedBy: ReusableAccountBlock | null;
 }
 
 /** What `POST …/registry/stripe/refresh` answers, all from the row as stored. */
@@ -292,13 +366,33 @@ export interface StripeStatusDto {
 }
 
 /** Whether this deployment can take a money gift at all — see `createApp`. */
-export interface MoneyDeployment {
+interface MoneyDeployment {
   /**
    * True exactly when the contribute route is mounted: a Stripe key and the
    * Connect webhook secret. Required, with no default, so no caller can say
    * guests can give money by leaving it out.
    */
   readonly takesPayments: boolean;
+}
+
+/**
+ * What has come in towards a group gift, as the couple see it.
+ *
+ * Only `succeeded` gifts: a gift still pending, one that failed, one held in a
+ * dispute and one refunded in full are not money the couple have. A partial
+ * refund leaves the gift in at the amount given, as the gift log and the
+ * wedding's total show it. Keyed by currency the way the wedding's total is
+ * (`contributionsByCurrency`): a gift in the wedding's currency adds to
+ * `raisedMinor`, and one in any other is counted in `otherCurrencyCount` and
+ * added to nothing.
+ */
+export interface GroupGiftRaised {
+  /** Minor units of the wedding's currency. */
+  raisedMinor: number;
+  /** How many gifts `raisedMinor` adds. */
+  giftCount: number;
+  /** Gifts towards it in another currency, left out of `raisedMinor`. */
+  otherCurrencyCount: number;
 }
 
 export interface RegistryItemDto {
@@ -314,8 +408,20 @@ export interface RegistryItemDto {
   quantityWanted: number;
   /** Sum of non-released claim quantities. Derived, never stored. */
   quantityClaimed: number;
+  /**
+   * On a cash fund, the fund is a GROUP GIFT: money several households give
+   * towards one named item, which the couple buy themselves. Set at create and
+   * never changed. Always false on a gift to reserve.
+   */
   allowPartial: boolean;
+  /** A cash fund's goal, or a group gift's target, in the wedding's minor units. */
   targetMinor: number | null;
+  /**
+   * What a group gift has raised; null on everything else. Derived, never
+   * stored, and the couple's alone: no guest route sends it. Whether the
+   * target is reached is this against `targetMinor`, and nothing caps it.
+   */
+  raised: GroupGiftRaised | null;
   category: string | null;
   sortOrder: number;
   createdAt: number;
@@ -356,7 +462,7 @@ export interface GiftLogEntryDto {
 }
 
 /** A gift's note as an organiser surface may show it. */
-export interface GiftNoteView {
+interface GiftNoteView {
   note: string | null;
   noteHidden: boolean;
 }
@@ -416,7 +522,7 @@ export interface RegistrySnapshot {
 }
 
 /** The six fields the settings view edits. */
-export interface RegistrySettingsFields {
+interface RegistrySettingsFields {
   published: boolean;
   headline: string | null;
   message: string | null;
@@ -435,7 +541,7 @@ const SETTINGS_FIELDS = [
   "shippingVisibleFrom",
 ] as const satisfies readonly (keyof RegistrySettingsFields)[];
 
-export interface UpdateRegistrySettingsPatch extends Partial<RegistrySettingsFields> {
+interface UpdateRegistrySettingsPatch extends Partial<RegistrySettingsFields> {
   /**
    * What the caller last saw for a field it is changing. A field named here is
    * written only if the row still holds that value, or already holds the new
@@ -445,7 +551,7 @@ export interface UpdateRegistrySettingsPatch extends Partial<RegistrySettingsFie
   expected?: Partial<RegistrySettingsFields>;
 }
 
-export interface CreateRegistryItemInput {
+interface CreateRegistryItemInput {
   weddingId: string;
   kind?: RegistryItemKind;
   title: string;
@@ -457,9 +563,14 @@ export interface CreateRegistryItemInput {
   category: string | null;
   /** A cash fund's goal; must be null (or absent) on a gift to reserve. */
   targetMinor?: number | null;
+  /**
+   * Make the cash fund a group gift. Only on a `cash_fund`, and only with a
+   * target: a group gift without one is a plain fund.
+   */
+  allowPartial?: boolean;
 }
 
-export interface UpdateRegistryItemPatch {
+interface UpdateRegistryItemPatch {
   title?: string;
   description?: string | null;
   imageKey?: string | null;
@@ -510,6 +621,7 @@ interface SettingsRow {
   shippingVisibleFrom: string | null;
   stripeAccountId: string | null;
   stripeConnectedByOsnProfileId: string | null;
+  stripeAccountType: StripeAccountType | null;
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
   stripeDefaultCurrency: string | null;
@@ -541,6 +653,16 @@ interface ItemRow {
 }
 
 /**
+ * Is this item a group gift? A cash fund with `allowPartial` — the one test
+ * every reader uses, the target aside: a group gift whose target is missing
+ * (written by a rollback or by hand) is still a group gift.
+ */
+export const isGroupGift = (item: { kind: RegistryItemKind; allowPartial: boolean }): boolean =>
+  item.kind === "cash_fund" && item.allowPartial;
+
+const NOTHING_RAISED: GroupGiftRaised = { raisedMinor: 0, giftCount: 0, otherCurrencyCount: 0 };
+
+/**
  * How drizzle-sqlite stores `integer({ mode: "timestamp" })` — epoch SECONDS,
  * not milliseconds. Only `claim` needs it (it writes the columns through a raw
  * conditional statement rather than a Date-valued insert); exported so the test
@@ -560,6 +682,7 @@ const defaultSettings = (weddingId: string): RegistrySettingsRecord => ({
   shippingVisibleFrom: null,
   stripeAccountId: null,
   stripeConnectedByOsnProfileId: null,
+  stripeAccountType: null,
   stripeChargesEnabled: false,
   stripePayoutsEnabled: false,
   stripeDefaultCurrency: null,
@@ -576,6 +699,7 @@ const toSettingsRecord = (r: SettingsRow): RegistrySettingsRecord => ({
   shippingVisibleFrom: r.shippingVisibleFrom,
   stripeAccountId: r.stripeAccountId,
   stripeConnectedByOsnProfileId: r.stripeConnectedByOsnProfileId,
+  stripeAccountType: r.stripeAccountType,
   stripeChargesEnabled: r.stripeChargesEnabled,
   stripePayoutsEnabled: r.stripePayoutsEnabled,
   stripeDefaultCurrency: r.stripeDefaultCurrency,
@@ -642,9 +766,10 @@ export interface SettingsReader {
  * The settings as one reader receives them; every organiser response that
  * carries settings goes through here.
  *
- * Only an owner is told which owner connected the account: the portal needs
- * it to offer that owner, and no one else, the onboarding link, and an editor
- * or a viewer need not know whose bank the gifts reach.
+ * Only an owner is told which owner connected the account and how it came to
+ * cire: the portal needs both to offer that owner, and no one else, the
+ * onboarding link or the way to their own Stripe Dashboard, and an editor or a
+ * viewer need not know whose bank the gifts reach.
  *
  * A member who cannot edit is also told less about why guests cannot give
  * money. The two currency reasons are an editor's to act on, and they say
@@ -658,7 +783,9 @@ export function settingsForReader(
   settings: RegistrySettingsDto,
   reader: SettingsReader,
 ): RegistrySettingsDto {
-  const told = reader.canManage ? settings : { ...settings, stripeConnectedByOsnProfileId: null };
+  const told = reader.canManage
+    ? settings
+    : { ...settings, stripeConnectedByOsnProfileId: null, stripeAccountType: null };
   if (reader.canEdit) return told;
   switch (settings.moneyGiftsBlockedBy) {
     case "stripe_currency_unknown":
@@ -690,6 +817,7 @@ const toSettingsDto = (
   shippingVisibleFrom: s.shippingVisibleFrom,
   stripeConnected: s.stripeAccountId !== null,
   stripeConnectedByOsnProfileId: s.stripeConnectedByOsnProfileId,
+  stripeAccountType: accountTypeOf(s),
   stripeChargesEnabled: s.stripeChargesEnabled,
   moneyGiftsBlockedBy: moneyGiftsBlock(deployment, s, currency),
   updatedAt: s.updatedAt,
@@ -807,7 +935,11 @@ export function decodeGiftSummary(raw: string | null, at: Date | null): GiftSumm
   };
 }
 
-const toItemDto = (r: ItemRow, quantityClaimed: number): RegistryItemDto => ({
+const toItemDto = (
+  r: ItemRow,
+  quantityClaimed: number,
+  raised?: GroupGiftRaised,
+): RegistryItemDto => ({
   id: r.id,
   weddingId: r.weddingId,
   kind: r.kind,
@@ -821,6 +953,7 @@ const toItemDto = (r: ItemRow, quantityClaimed: number): RegistryItemDto => ({
   quantityClaimed,
   allowPartial: r.allowPartial,
   targetMinor: r.targetMinor,
+  raised: isGroupGift(r) ? (raised ?? NOTHING_RAISED) : null,
   category: r.category,
   sortOrder: r.sortOrder,
   createdAt: r.createdAt.getTime(),
@@ -1011,8 +1144,10 @@ const toStripeStatus = (
   moneyGiftsBlockedBy: moneyGiftsBlock(deployment, record, currency),
 });
 
-/** One currency's worth of settled gift money. */
+/** One currency's worth of settled gift money, given to one item or to none. */
 interface CurrencyTotal {
+  /** The fund or group gift it was given to; null for a gift to neither. */
+  itemId: string | null;
   /** Upper-case ISO code, as `RegistrySnapshot.currency` is. */
   currency: string;
   totalMinor: number;
@@ -1020,7 +1155,12 @@ interface CurrencyTotal {
 }
 
 /**
- * Succeeded contributions totalled PER CURRENCY, computed IN SQL.
+ * Succeeded contributions totalled PER ITEM AND CURRENCY, computed IN SQL.
+ *
+ * Per item as well, so one statement serves both totals the snapshot shows:
+ * the wedding's, which is every row summed, and each group gift's, which is
+ * its own rows. A wedding has at most `MAX_ITEMS_PER_WEDDING` items, so the
+ * rows are bounded by that times the currencies it has been given in.
  *
  * In SQL, not summed from the gift log: a total taken from the log would be
  * a function of how many rows one page returns, and would under-report the
@@ -1047,6 +1187,7 @@ function contributionsByCurrency(
     const rows = yield* dbQuery(() =>
       db
         .select({
+          itemId: registryContributions.itemId,
           currency: key,
           totalMinor: sql<number>`coalesce(sum(coalesce(${registryContributions.primaryAmountMinor}, ${registryContributions.amountMinor})), 0)`,
           count: sql<number>`count(*)`,
@@ -1058,15 +1199,86 @@ function contributionsByCurrency(
             eq(registryContributions.status, "succeeded"),
           ),
         )
-        .groupBy(key)
+        .groupBy(registryContributions.itemId, key)
         .all(),
     );
     return (rows as CurrencyTotal[]).map((row) => ({
+      itemId: row.itemId ?? null,
       currency: String(row.currency ?? "").toUpperCase(),
       totalMinor: Number(row.totalMinor ?? 0) || 0,
       count: Number(row.count ?? 0) || 0,
     }));
   });
+}
+
+/**
+ * Totals in the wedding's currency added up, and gifts in any other counted
+ * beside them: two currencies summed is not an amount of anything.
+ */
+function foldRaised(totals: readonly CurrencyTotal[], primary: string): GroupGiftRaised {
+  let raisedMinor = 0;
+  let giftCount = 0;
+  let otherCurrencyCount = 0;
+  for (const total of totals) {
+    if (total.currency === primary) {
+      raisedMinor += total.totalMinor;
+      giftCount += total.count;
+    } else {
+      otherCurrencyCount += total.count;
+    }
+  }
+  return { raisedMinor, giftCount, otherCurrencyCount };
+}
+
+/** What {@link raisedColumns} adds to an item row. */
+interface RaisedColumns {
+  /** `{"minor":…,"count":…,"other":…}` on a group gift; NULL on anything else. */
+  raisedJson: string | null;
+}
+
+/**
+ * One item's {@link GroupGiftRaised}, as a column of a statement that names
+ * `registry_items` — an UPDATE's RETURNING — so an edit learns it without a
+ * second read. The same rule as `contributionsByCurrency` and `foldRaised`:
+ * succeeded gifts of this item and wedding, keyed on the primary currency where
+ * a row has one, compared with the wedding's own.
+ *
+ * Gated on the row being a group gift, so a gift to reserve or a plain fund
+ * reads no contribution at all. One scan of the item's gifts, with the
+ * wedding's currency read once beside it, and the three figures packed into
+ * one JSON value.
+ */
+function raisedColumns() {
+  const rc = registryContributions;
+  const ours = sql`upper(coalesce(${rc.primaryCurrency}, ${rc.currency})) = wc.cur`;
+  return {
+    raisedJson: sql<
+      string | null
+    >`CASE WHEN ${registryItems.kind} = 'cash_fund' AND ${registryItems.allowPartial} = 1 THEN (
+      SELECT json_object(
+        'minor', coalesce(sum(CASE WHEN ${ours} THEN coalesce(${rc.primaryAmountMinor}, ${rc.amountMinor}) END), 0),
+        'count', coalesce(sum(CASE WHEN ${ours} THEN 1 END), 0),
+        'other', coalesce(sum(CASE WHEN ${ours} THEN NULL ELSE 1 END), 0)
+      )
+      FROM (SELECT upper(coalesce(${weddings.currency}, 'AUD')) AS cur FROM ${weddings} WHERE ${weddings.id} = ${registryItems.weddingId}) AS wc
+      JOIN ${rc} ON ${rc.itemId} = ${registryItems.id} AND ${rc.weddingId} = ${registryItems.weddingId} AND ${rc.status} = 'succeeded'
+    ) END`,
+  };
+}
+
+/** A group gift's figures from {@link raisedColumns}; nothing raised when absent. */
+function raisedOf(row: RaisedColumns): GroupGiftRaised {
+  if (!row.raisedJson) return NOTHING_RAISED;
+  const parsed = JSON.parse(row.raisedJson) as {
+    minor?: unknown;
+    count?: unknown;
+    other?: unknown;
+  };
+  return {
+    raisedMinor: Number(parsed.minor ?? 0) || 0,
+    giftCount: Number(parsed.count ?? 0) || 0,
+    otherCurrencyCount: Number(parsed.other ?? 0) || 0,
+  };
 }
 
 /**
@@ -1135,6 +1347,8 @@ interface WebhookContributionRow {
   refundedAmountMinor: number | null;
   /** Non-null exactly when the row's wedding owns the account the event came on. */
   ownedAccountId: string | null;
+  /** That account's stored type, beside `ownedAccountId`. */
+  ownedAccountType: StripeAccountType | null;
 }
 
 function contributionsOnAccount(
@@ -1154,6 +1368,7 @@ function contributionsOnAccount(
           currency: registryContributions.currency,
           refundedAmountMinor: registryContributions.refundedAmountMinor,
           ownedAccountId: registrySettings.stripeAccountId,
+          ownedAccountType: registrySettings.stripeAccountType,
         })
         .from(registryContributions)
         .leftJoin(
@@ -1214,7 +1429,8 @@ interface ContributionPatch {
 interface RefundPatch {
   updatedAt: Date;
   status?: RegistryContributionStatus;
-  refundedAmountMinor?: number;
+  /** Written as the larger of the stored total and the new one, in SQL. */
+  refundedAmountMinor?: SQL;
 }
 
 /**
@@ -1245,6 +1461,41 @@ function sessionAdoptionGuard(contributionId: string, checkoutSessionId: string)
     isNull(registryContributions.stripeCheckoutSessionId),
     sql`not exists (select 1 from ${registryContributions} other where other.stripe_checkout_session_id = ${checkoutSessionId})`,
   ) as SQL;
+}
+
+/**
+ * Log why a write adopting a checkout session wrote nothing, from the row as it
+ * stands now. Another delivery moving the row off `pending` first is two
+ * deliveries for one gift, a warning. Anything else is another row holding the
+ * session id, one gift being settled or closed by another's event: an error.
+ */
+function logAdoptionMiss(
+  writer: "settle" | "expiry",
+  contributionId: string,
+  input: { checkoutSessionId: string; stripeAccountId: string },
+): Effect.Effect<void, never, DbService> {
+  return Effect.gen(function* () {
+    const now = yield* contributionOnAccount(
+      eq(registryContributions.id, contributionId),
+      input.stripeAccountId,
+    );
+    const fields = { contributionId, checkoutSessionId: input.checkoutSessionId };
+    if (now && now.status !== "pending") {
+      yield* Effect.logWarning(
+        writer === "settle"
+          ? "settle found the gift already off pending while adopting its checkout session"
+          : "expiry found the gift already off pending while adopting its checkout session",
+        fields,
+      );
+      return;
+    }
+    yield* Effect.logError(
+      writer === "settle"
+        ? "settle lost the race to adopt a checkout session"
+        : "expiry lost the race to adopt a checkout session",
+      fields,
+    );
+  });
 }
 
 /** The single row a lookup on a unique column names, or nothing. */
@@ -1286,6 +1537,117 @@ const inQuantityRange = (n: number, min: number, max: number): boolean =>
 /** Clamp a caller-supplied paging number into a range. NaN reads as the floor. */
 const clamp = (n: number, min: number, max: number): number =>
   Number.isFinite(n) ? Math.min(max, Math.max(min, Math.trunc(n))) : min;
+
+/**
+ * At most this many source weddings are answered when listing the accounts an
+ * owner may reuse. It caps the response, not the rows read: the read still
+ * walks every seat the caller holds (through `wedding_hosts_profile_idx`) and
+ * sorts the matches by name before it cuts. A person owns a handful of
+ * weddings.
+ */
+const REUSABLE_ACCOUNT_SOURCES = 50;
+
+/*
+ * The rules for giving one wedding the Stripe account on another, as SQL over
+ * `src`, an alias of `registry_settings` in the statement around them. The
+ * reuse's write and its failure-path read share them, so the two cannot
+ * disagree. Every rule is a WHERE term or an EXISTS: the reuse is an
+ * INSERT … SELECT … ON CONFLICT, and a JOIN's ON in its outer SELECT would be
+ * read as part of the upsert.
+ */
+
+/**
+ * `osnProfileId` may give `weddingId` the account on `src`: cire's own record
+ * says they connected it there, they still hold an owner seat on that wedding,
+ * it is live, and it is not `weddingId` itself. A pasted account id proves
+ * none of this, which is why the route takes none.
+ */
+const controlsSourceAccount = (weddingId: string, osnProfileId: string): SQL =>
+  sql`src.wedding_id <> ${weddingId}
+    AND src.stripe_account_id IS NOT NULL
+    AND src.stripe_connected_by_osn_profile_id = ${osnProfileId}
+    AND EXISTS (SELECT 1 FROM ${weddingHosts} seat
+                WHERE seat.wedding_id = src.wedding_id
+                  AND seat.osn_profile_id = ${osnProfileId}
+                  AND seat.role = 'owner')
+    AND EXISTS (SELECT 1 FROM ${weddings} sw WHERE sw.id = src.wedding_id AND sw.deleted_at IS NULL)`;
+
+/**
+ * Every owner of `weddingId` is an owner of `src`'s wedding, so the account
+ * goes nowhere it does not already sit beside each of them: anyone who could
+ * remove its connector from `weddingId` could already do so where it came from.
+ */
+const ownersSitBesideSource = (weddingId: string): SQL =>
+  sql`NOT EXISTS (SELECT 1 FROM ${weddingHosts} mine
+                  WHERE mine.wedding_id = ${weddingId}
+                    AND mine.role = 'owner'
+                    AND NOT EXISTS (SELECT 1 FROM ${weddingHosts} theirs
+                                    WHERE theirs.wedding_id = src.wedding_id
+                                      AND theirs.role = 'owner'
+                                      AND theirs.osn_profile_id = mine.osn_profile_id))`;
+
+/** `src`'s account settles in `weddingId`'s currency, or has not said which. */
+const sourceCurrencyFits = (weddingId: string): SQL =>
+  sql`(src.stripe_default_currency IS NULL
+       OR upper(src.stripe_default_currency) =
+          (SELECT upper(tw.currency) FROM ${weddings} tw WHERE tw.id = ${weddingId}))`;
+
+/**
+ * `osnProfileId` holds an owner seat on `weddingId` and it is live. The route's
+ * gate read the same in its own query; the write asks again, so a demotion or
+ * a delete in between attaches nothing.
+ */
+const ownsLiveWedding = (weddingId: string, osnProfileId: string): SQL =>
+  sql`EXISTS (SELECT 1 FROM ${weddingHosts} ts
+              WHERE ts.wedding_id = ${weddingId}
+                AND ts.osn_profile_id = ${osnProfileId}
+                AND ts.role = 'owner'
+                AND EXISTS (SELECT 1 FROM ${weddings} tw
+                            WHERE tw.id = ${weddingId} AND tw.deleted_at IS NULL))`;
+
+/** An account settling in `currency` (or not having said) may take `weddingId`'s gifts. */
+const accountCurrencyFits = (weddingId: string, currency: string | null): SQL =>
+  sql`(${currency} IS NULL
+       OR upper(${currency}) = (SELECT upper(cw.currency) FROM ${weddings} cw WHERE cw.id = ${weddingId}))`;
+
+/**
+ * An account Stripe just connected for `osnProfileId` may join `weddingId`
+ * only where the reuse rules would let it: no other wedding names it, or one
+ * that does is the caller's to give — they connected it there and own it — and
+ * every owner here owns that wedding too. Stripe's sign-in proves the caller
+ * holds the account; it does not settle where it may go. One account across
+ * weddings of different couples is a planner's account, which is
+ * englishstreetventures/osn#2018's to decide. It also keeps every row naming
+ * one account on one connector.
+ */
+const accountMayJoin = (weddingId: string, osnProfileId: string, accountId: string): SQL =>
+  sql`(NOT EXISTS (SELECT 1 FROM ${registrySettings} other
+                   WHERE other.stripe_account_id = ${accountId}
+                     AND other.wedding_id <> ${weddingId})
+       OR EXISTS (SELECT 1 FROM ${registrySettings} src
+                  WHERE src.stripe_account_id = ${accountId}
+                    AND ${controlsSourceAccount(weddingId, osnProfileId)}
+                    AND ${ownersSitBesideSource(weddingId)}))`;
+
+/**
+ * A `registry_settings` row's values in the table's column order, which is the
+ * order an INSERT … SELECT names the columns in.
+ */
+const inColumnOrder = (values: Record<keyof typeof registrySettings.$inferSelect, SQL>): SQL[] =>
+  (Object.keys(getTableColumns(registrySettings)) as Array<keyof typeof values>).map(
+    (key) => values[key],
+  );
+
+/** One wedding whose account the caller may be offered, as the list reads it. */
+interface ReusableSourceRow {
+  weddingId: string;
+  displayName: string;
+  accountId: string;
+  chargesEnabled: number;
+  currencyKnown: number;
+  currencyFits: number;
+  ownersFit: number;
+}
 
 export const registryService = {
   /**
@@ -1329,18 +1691,26 @@ export const registryService = {
       // Split here rather than in SQL: the wedding's currency comes from its own
       // read, and the two run together above. Passing one into the other would
       // serialise two D1 round trips that currently overlap, to save a filter
-      // over at most a handful of rows.
+      // over one row per item and currency.
       const primary = currency.toUpperCase();
-      const contributionsPrimaryMinor =
-        contributionTotals.find((total) => total.currency === primary)?.totalMinor ?? 0;
-      const contributionsOtherCurrencyCount = contributionTotals.reduce(
-        (count, total) => (total.currency === primary ? count : count + total.count),
-        0,
-      );
+      const wedding = foldRaised(contributionTotals, primary);
+      const byItem = new Map<string, CurrencyTotal[]>();
+      for (const total of contributionTotals) {
+        if (total.itemId === null) continue;
+        const held = byItem.get(total.itemId);
+        if (held) held.push(total);
+        else byItem.set(total.itemId, [total]);
+      }
 
       return {
         settings: toSettingsDto(record, deployment, currency),
-        items: (itemRows as ItemRow[]).map((r) => toItemDto(r, claimed.get(r.id) ?? 0)),
+        items: (itemRows as ItemRow[]).map((r) =>
+          toItemDto(
+            r,
+            claimed.get(r.id) ?? 0,
+            isGroupGift(r) ? foldRaised(byItem.get(r.id) ?? [], primary) : undefined,
+          ),
+        ),
         gifts: gifts.entries,
         giftsHasMore: gifts.hasMore,
         // Read off the settings row already in hand. The sweep writes the summary
@@ -1350,8 +1720,8 @@ export const registryService = {
           ? decodeGiftSummary(settingsRow.giftSummaryJson, settingsRow.giftSummaryAt)
           : null,
         currency,
-        contributionsPrimaryMinor,
-        contributionsOtherCurrencyCount,
+        contributionsPrimaryMinor: wedding.raisedMinor,
+        contributionsOtherCurrencyCount: wedding.otherCurrencyCount,
       };
     }).pipe(Effect.withSpan("cire.registry.get"));
   },
@@ -1707,6 +2077,21 @@ export const registryService = {
   },
 
   /**
+   * The settings as an organiser surface sends them, from the row and the
+   * wedding's currency in one read — what a refusal carries so the page can
+   * catch up.
+   */
+  settingsView(
+    weddingId: string,
+    deployment: MoneyDeployment,
+  ): Effect.Effect<RegistrySettingsDto, never, DbService> {
+    return Effect.gen(function* () {
+      const { record, currency } = yield* settingsWithCurrency(weddingId);
+      return toSettingsDto(record, deployment, currency);
+    }).pipe(Effect.withSpan("cire.registry.settingsView"));
+  },
+
+  /**
    * What `POST …/registry/stripe/refresh` answers from the row as stored —
    * the capability flags and why guests cannot give money — before it asks
    * Stripe, and after when its write was refused. `accountId` is for the
@@ -1741,6 +2126,11 @@ export const registryService = {
    * else attached first keeps its connector. The caller compares the returned
    * row's connector with its caller, which is what refuses the owner who lost a
    * race to connect.
+   *
+   * The write asks again that they own the wedding and that it is live
+   * ({@link ownsLiveWedding}): the route's gate read that in its own query,
+   * before a Stripe round trip an owner can be removed or the wedding deleted
+   * during. `null` means nothing was written, because they no longer may.
    */
   attachStripeAccount(
     weddingId: string,
@@ -1752,24 +2142,58 @@ export const registryService = {
       defaultCurrency?: string | null;
     },
     connectedByOsnProfileId: string,
-  ): Effect.Effect<RegistrySettingsRecord, never, DbService> {
+    options: {
+      /** How the account came: `express` (created here) unless said. */
+      accountType?: StripeAccountType;
+      /**
+       * Also require {@link accountMayJoin}: the OAuth connect, whose account
+       * may already be on another wedding. A create makes a new account.
+       */
+      ownersMustFit?: boolean;
+    } = {},
+  ): Effect.Effect<RegistrySettingsRecord | null, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      const accountType = options.accountType ?? "express";
+      // An account Stripe connected must also settle in the wedding's currency
+      // as it stands at the write, not as it was read before the exchange.
+      const joins = options.ownersMustFit
+        ? sql` AND ${accountMayJoin(weddingId, connectedByOsnProfileId, account.id)}
+               AND ${accountCurrencyFits(weddingId, account.defaultCurrency ?? null)}`
+        : sql``;
       const now = new Date();
-      const [row] = yield* dbQuery(() =>
+      const stamp = toEpochSeconds(now);
+      // What a new row holds: the defaults, and the account Stripe just made.
+      const values = {
+        weddingId: sql`${weddingId}`,
+        published: sql`0`,
+        headline: sql`NULL`,
+        message: sql`NULL`,
+        cashGiftsEnabled: sql`0`,
+        shippingAddress: sql`NULL`,
+        shippingVisibleFrom: sql`NULL`,
+        stripeAccountId: sql`${account.id}`,
+        stripeConnectedByOsnProfileId: sql`${connectedByOsnProfileId}`,
+        stripeAccountType: sql`${accountType}`,
+        stripeConnectedAt: sql`${stamp}`,
+        stripeChargesEnabled: sql`${account.chargesEnabled ? 1 : 0}`,
+        stripePayoutsEnabled: sql`${account.payoutsEnabled ? 1 : 0}`,
+        stripeAccountUpdatedAt: sql`${stamp}`,
+        stripeDefaultCurrency: sql`${account.defaultCurrency ?? null}`,
+        stripeDeauthorizedAt: sql`NULL`,
+        stripeDeauthorizedAccountId: sql`NULL`,
+        giftSummaryJson: sql`NULL`,
+        giftSummaryAt: sql`NULL`,
+        createdAt: sql`${stamp}`,
+        updatedAt: sql`${stamp}`,
+      } satisfies Record<keyof typeof registrySettings.$inferSelect, SQL>;
+      const written = yield* dbQuery(() =>
         db
           .insert(registrySettings)
-          .values({
-            weddingId,
-            stripeAccountId: account.id,
-            stripeConnectedByOsnProfileId: connectedByOsnProfileId,
-            stripeChargesEnabled: account.chargesEnabled,
-            stripePayoutsEnabled: account.payoutsEnabled,
-            stripeDefaultCurrency: account.defaultCurrency ?? null,
-            stripeAccountUpdatedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          })
+          .select(
+            sql`SELECT ${sql.join(inColumnOrder(values), sql`, `)}
+                WHERE ${ownsLiveWedding(weddingId, connectedByOsnProfileId)}${joins}`,
+          )
           .onConflictDoUpdate({
             target: registrySettings.weddingId,
             set: {
@@ -1778,6 +2202,10 @@ export const registryService = {
               stripeAccountId: sql`coalesce(${registrySettings.stripeAccountId}, ${account.id})`,
               // The connector follows the id: whoever filled it connected it.
               stripeConnectedByOsnProfileId: sql`case when ${registrySettings.stripeAccountId} is null then ${connectedByOsnProfileId} else ${registrySettings.stripeConnectedByOsnProfileId} end`,
+              // And so does how it came: an account another request attached
+              // first keeps its own type.
+              stripeAccountType: sql`case when ${registrySettings.stripeAccountId} is null then ${accountType} else ${registrySettings.stripeAccountType} end`,
+              stripeConnectedAt: sql`case when ${registrySettings.stripeAccountId} is null then ${stamp} else ${registrySettings.stripeConnectedAt} end`,
               // And the capabilities follow the id. Writing them
               // unconditionally would leave a row describing account A's id
               // beside account B's capabilities — the invariant that saves that
@@ -1788,15 +2216,223 @@ export const registryService = {
               // And so does the settlement currency, for the same reason: it
               // describes the account the id names, and the two have to agree.
               stripeDefaultCurrency: sql`case when ${registrySettings.stripeAccountId} is null then ${account.defaultCurrency ?? null} else ${registrySettings.stripeDefaultCurrency} end`,
-              stripeAccountUpdatedAt: now,
+              // And so does Stripe's timestamp. An account another request
+              // attached first may be one several weddings share; stamping
+              // this row alone would put its time-order guard out of step with
+              // theirs, and a late `account.updated` would then reach the
+              // others and not this one.
+              stripeAccountUpdatedAt: sql`case when ${registrySettings.stripeAccountId} is null then ${stamp} else ${registrySettings.stripeAccountUpdatedAt} end`,
               updatedAt: now,
             },
           })
           .returning()
           .all(),
       );
-      return toSettingsRecord(row as SettingsRow);
+      const [row] = written as SettingsRow[];
+      return row ? toSettingsRecord(row) : null;
     }).pipe(Effect.withSpan("cire.registry.attachStripeAccount"));
+  },
+
+  /**
+   * The Stripe accounts `osnProfileId` connected on other weddings they own,
+   * which `weddingId` might take its gifts through instead of a new account:
+   * one entry per account, named by the weddings it serves, oldest name first.
+   * An account that cannot take this wedding's gifts is listed with the reason,
+   * so the portal can say it.
+   *
+   * Read from the caller's own owner seats outward, so it touches only weddings
+   * they own, and through `wedding_hosts_profile_idx`.
+   */
+  reusableStripeAccounts(
+    weddingId: string,
+    osnProfileId: string,
+  ): Effect.Effect<ReusableStripeAccountDto[], never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db.all<ReusableSourceRow>(sql`
+          SELECT src.wedding_id AS weddingId,
+                 w.display_name AS displayName,
+                 src.stripe_account_id AS accountId,
+                 src.stripe_charges_enabled AS chargesEnabled,
+                 src.stripe_default_currency IS NOT NULL AS currencyKnown,
+                 ${sourceCurrencyFits(weddingId)} AS currencyFits,
+                 ${ownersSitBesideSource(weddingId)} AS ownersFit
+          FROM ${weddingHosts} mine_seat
+          JOIN ${weddings} w ON w.id = mine_seat.wedding_id
+          JOIN ${registrySettings} src ON src.wedding_id = mine_seat.wedding_id
+          WHERE mine_seat.osn_profile_id = ${osnProfileId}
+            AND mine_seat.role = 'owner'
+            AND ${controlsSourceAccount(weddingId, osnProfileId)}
+          ORDER BY w.display_name, w.id
+          LIMIT ${REUSABLE_ACCOUNT_SOURCES}
+        `),
+      );
+      // Several weddings can name one account; it is offered once. The wedding
+      // named for it is one it can be taken from, where there is one.
+      const byAccount = new Map<string, ReusableSourceRow[]>();
+      for (const row of rows) {
+        const group = byAccount.get(row.accountId);
+        if (group) group.push(row);
+        else byAccount.set(row.accountId, [row]);
+      }
+      return [...byAccount.values()].map((group): ReusableStripeAccountDto => {
+        const usable = group.find((row) => row.currencyFits === 1 && row.ownersFit === 1);
+        const chosen = usable ?? (group[0] as ReusableSourceRow);
+        return {
+          fromWeddingId: chosen.weddingId,
+          weddingNames: group.map((row) => row.displayName),
+          chargesEnabled: chosen.chargesEnabled === 1,
+          currencyKnown: chosen.currencyKnown === 1,
+          blockedBy: usable
+            ? null
+            : chosen.currencyFits !== 1
+              ? "currency_mismatch"
+              : "stripe_owners_differ",
+        };
+      });
+    }).pipe(Effect.withSpan("cire.registry.reusableStripeAccounts"));
+  },
+
+  /**
+   * Give `weddingId` the Stripe account `osnProfileId` connected on
+   * `fromWeddingId`, and record them as its connector here too.
+   *
+   * ONE statement, with every rule in its WHERE: the caller connected the
+   * account there and still owns that live wedding ({@link controlsSourceAccount}),
+   * still owns this live one, every owner here owns it there too, and the
+   * account settles in this wedding's currency or has not said which. The
+   * account id comes off the source row and never from the caller. Like
+   * {@link registryService.attachStripeAccount} it only fills a NULL id: the
+   * `DO UPDATE` writes only a row with no account, and an existing row keeps
+   * everything else it holds.
+   *
+   * The capability flags, the settlement currency and Stripe's timestamp are
+   * copied from the source row, so both rows describe the same observation of
+   * the account and every later `account.updated` is judged alike on each.
+   *
+   * Only a refusal pays for a second read, which names the first rule that
+   * failed: the caller no longer owns this wedding (answered as not found);
+   * the wedding already has an account; the source is not the caller's to
+   * give (one answer for every way); its owners differ; its currency differs.
+   */
+  adoptStripeAccount(
+    weddingId: string,
+    fromWeddingId: string,
+    osnProfileId: string,
+    deployment: MoneyDeployment,
+  ): Effect.Effect<
+    RegistrySettingsDto,
+    StripeAccountNotFound | StripeAlreadyConnected | StripeOwnersDiffer | CurrencyMismatch,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = toEpochSeconds(new Date());
+      // What a new row holds: the defaults, and the account fields off `src`.
+      const values = {
+        weddingId: sql`${weddingId}`,
+        published: sql`0`,
+        headline: sql`NULL`,
+        message: sql`NULL`,
+        cashGiftsEnabled: sql`0`,
+        shippingAddress: sql`NULL`,
+        shippingVisibleFrom: sql`NULL`,
+        stripeAccountId: sql`src.stripe_account_id`,
+        stripeConnectedByOsnProfileId: sql`${osnProfileId}`,
+        stripeAccountType: sql`src.stripe_account_type`,
+        stripeConnectedAt: sql`src.stripe_connected_at`,
+        stripeChargesEnabled: sql`src.stripe_charges_enabled`,
+        stripePayoutsEnabled: sql`src.stripe_payouts_enabled`,
+        stripeAccountUpdatedAt: sql`src.stripe_account_updated_at`,
+        stripeDefaultCurrency: sql`src.stripe_default_currency`,
+        stripeDeauthorizedAt: sql`NULL`,
+        stripeDeauthorizedAccountId: sql`NULL`,
+        giftSummaryJson: sql`NULL`,
+        giftSummaryAt: sql`NULL`,
+        createdAt: sql`${now}`,
+        updatedAt: sql`${now}`,
+      } satisfies Record<keyof typeof registrySettings.$inferSelect, SQL>;
+      const written = yield* dbQuery(() =>
+        db
+          .insert(registrySettings)
+          .select(
+            sql`SELECT ${sql.join(inColumnOrder(values), sql`, `)}
+                FROM ${registrySettings} src
+                WHERE src.wedding_id = ${fromWeddingId}
+                  AND ${controlsSourceAccount(weddingId, osnProfileId)}
+                  AND ${ownsLiveWedding(weddingId, osnProfileId)}
+                  AND ${ownersSitBesideSource(weddingId)}
+                  AND ${sourceCurrencyFits(weddingId)}`,
+          )
+          .onConflictDoUpdate({
+            target: registrySettings.weddingId,
+            set: {
+              stripeAccountId: sql`excluded.stripe_account_id`,
+              stripeConnectedByOsnProfileId: sql`excluded.stripe_connected_by_osn_profile_id`,
+              stripeAccountType: sql`excluded.stripe_account_type`,
+              stripeConnectedAt: sql`excluded.stripe_connected_at`,
+              stripeChargesEnabled: sql`excluded.stripe_charges_enabled`,
+              stripePayoutsEnabled: sql`excluded.stripe_payouts_enabled`,
+              stripeAccountUpdatedAt: sql`excluded.stripe_account_updated_at`,
+              stripeDefaultCurrency: sql`excluded.stripe_default_currency`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+            // Only a row with no account takes one: never repoint payouts.
+            setWhere: isNull(registrySettings.stripeAccountId),
+          })
+          .returning({
+            ...getTableColumns(registrySettings),
+            weddingCurrency: sql<
+              string | null
+            >`(select ${weddings.currency} from ${weddings} where ${weddings.id} = ${registrySettings.weddingId})`,
+          })
+          .all(),
+      );
+      const [saved] = written as Array<SettingsRow & { weddingCurrency: string | null }>;
+      if (saved) {
+        const { weddingCurrency, ...row } = saved;
+        return toSettingsDto(toSettingsRecord(row), deployment, weddingCurrency ?? "AUD");
+      }
+
+      // Nothing written: say which rule failed, in a fixed order. ONE read
+      // gives the verdict and the settings a 409 carries: the wedding, its
+      // row, and the source row by its key, every rule tested against it.
+      const source = alias(registrySettings, "src");
+      const [verdict] = yield* dbQuery(() =>
+        db
+          .select({
+            settings: registrySettings,
+            currency: weddings.currency,
+            ownsTarget: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
+            controls: sql<number>`(${source.weddingId} IS NOT NULL AND ${controlsSourceAccount(weddingId, osnProfileId)})`,
+            ownersFit: sql<number>`(${source.weddingId} IS NOT NULL AND ${ownersSitBesideSource(weddingId)})`,
+            currencyFits: sql<number>`(${source.weddingId} IS NOT NULL AND ${sourceCurrencyFits(weddingId)})`,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .leftJoin(source, eq(source.weddingId, fromWeddingId))
+          .where(eq(weddings.id, weddingId))
+          .all(),
+      );
+      // A caller who no longer owns this wedding is told nothing about it.
+      if (verdict?.ownsTarget !== 1) return yield* Effect.fail(new StripeAccountNotFound());
+      const row = verdict.settings as SettingsRow | null;
+      const current = toSettingsDto(
+        row ? toSettingsRecord(row) : defaultSettings(weddingId),
+        deployment,
+        verdict.currency,
+      );
+      if (row?.stripeAccountId) {
+        return yield* Effect.fail(new StripeAlreadyConnected({ current }));
+      }
+      if (verdict.controls !== 1) return yield* Effect.fail(new StripeAccountNotFound());
+      if (verdict.ownersFit !== 1) return yield* Effect.fail(new StripeOwnersDiffer({ current }));
+      if (verdict.currencyFits !== 1) return yield* Effect.fail(new CurrencyMismatch({ current }));
+      // Every rule holds now: something changed between the write and this
+      // read. Nothing was written, so the caller is told to look again.
+      return yield* Effect.fail(new StripeAccountNotFound());
+    }).pipe(Effect.withSpan("cire.registry.adoptStripeAccount"));
   },
 
   /**
@@ -1844,6 +2480,225 @@ export const registryService = {
   },
 
   /**
+   * Record a Stripe Connect OAuth sign-in this owner is starting for this
+   * wedding: the hash of the `state` sent to Stripe, and when it lapses. One
+   * per owner per wedding — starting again replaces the last, so an older state
+   * stops working — and every start deletes the rows already past their time,
+   * so the table holds little more than the sign-ins in flight.
+   */
+  issueStripeOAuthState(input: {
+    weddingId: string;
+    osnProfileId: string;
+    stateHash: string;
+    expiresAt: Date;
+    now: Date;
+  }): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      yield* dbQuery(() =>
+        db
+          .insert(registryStripeOAuthStates)
+          .values({
+            weddingId: input.weddingId,
+            osnProfileId: input.osnProfileId,
+            stateHash: input.stateHash,
+            expiresAt: input.expiresAt,
+            createdAt: input.now,
+          })
+          .onConflictDoUpdate({
+            target: [registryStripeOAuthStates.weddingId, registryStripeOAuthStates.osnProfileId],
+            set: {
+              stateHash: input.stateHash,
+              expiresAt: input.expiresAt,
+              createdAt: input.now,
+            },
+          })
+          .run(),
+      );
+      yield* dbQuery(() =>
+        db
+          .delete(registryStripeOAuthStates)
+          .where(lt(registryStripeOAuthStates.expiresAt, input.now))
+          .run(),
+      );
+    }).pipe(Effect.withSpan("cire.registry.issueStripeOAuthState"));
+  },
+
+  /**
+   * Use up the sign-in a callback names, if it is this owner's for this
+   * wedding and still in time. ONE statement: the row is deleted whether or not
+   * it has lapsed, so a state is good once — a replay finds nothing and never
+   * reaches Stripe, where a code exchanged twice revokes the connection. A
+   * forged state matches no row and deletes none.
+   */
+  consumeStripeOAuthState(input: {
+    weddingId: string;
+    osnProfileId: string;
+    stateHash: string;
+    now: Date;
+  }): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db
+          .delete(registryStripeOAuthStates)
+          .where(
+            and(
+              eq(registryStripeOAuthStates.weddingId, input.weddingId),
+              eq(registryStripeOAuthStates.osnProfileId, input.osnProfileId),
+              eq(registryStripeOAuthStates.stateHash, input.stateHash),
+            ),
+          )
+          .returning({ expiresAt: registryStripeOAuthStates.expiresAt })
+          .all(),
+      );
+      const [row] = rows as Array<{ expiresAt: Date }>;
+      return row !== undefined && row.expiresAt.getTime() > input.now.getTime();
+    }).pipe(Effect.withSpan("cire.registry.consumeStripeOAuthState"));
+  },
+
+  /**
+   * What the OAuth callback must know before it spends the code, in one read:
+   * the caller still owns the wedding, it is live and on Gold or above, and
+   * whether it already has an account. With the wedding's currency, which an
+   * account Stripe connects must settle in.
+   */
+  stripeOAuthTarget(
+    weddingId: string,
+    osnProfileId: string,
+  ): Effect.Effect<{ allowed: boolean; hasAccount: boolean; currency: string }, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({
+            tier: weddings.tier,
+            currency: weddings.currency,
+            owns: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
+            accountId: registrySettings.stripeAccountId,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .where(eq(weddings.id, weddingId))
+          .all(),
+      );
+      const found = row as
+        | { tier: unknown; currency: string; owns: number; accountId: string | null }
+        | undefined;
+      return {
+        allowed:
+          found !== undefined && found.owns === 1 && tierAtLeast(normaliseTier(found.tier), "gold"),
+        hasAccount: found?.accountId != null,
+        currency: found?.currency ?? "AUD",
+      };
+    }).pipe(Effect.withSpan("cire.registry.stripeOAuthTarget"));
+  },
+
+  /**
+   * Why an OAuth attach wrote nothing, read only when it did: the caller no
+   * longer owns the live wedding; it has an account now; or the account is on
+   * another wedding the caller may not bring it from ({@link accountMayJoin}).
+   */
+  stripeOAuthRefusal(
+    weddingId: string,
+    osnProfileId: string,
+    accountId: string,
+    accountCurrency: string | null,
+  ): Effect.Effect<
+    | "forbidden"
+    | "already_connected"
+    | "currency_mismatch"
+    | "owners_differ"
+    | "account_on_deleted_wedding",
+    never,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({
+            owns: sql<number>`${ownsLiveWedding(weddingId, osnProfileId)}`,
+            accountId: registrySettings.stripeAccountId,
+            mayJoin: sql<number>`${accountMayJoin(weddingId, osnProfileId, accountId)}`,
+            currencyFits: sql<number>`${accountCurrencyFits(weddingId, accountCurrency)}`,
+            // Whether a live wedding names it: if none does, only a wedding
+            // being deleted holds it back.
+            liveElsewhere: sql<number>`EXISTS (SELECT 1 FROM ${registrySettings} other
+                                               JOIN ${weddings} ow ON ow.id = other.wedding_id
+                                               WHERE other.stripe_account_id = ${accountId}
+                                                 AND other.wedding_id <> ${weddingId}
+                                                 AND ow.deleted_at IS NULL)`,
+          })
+          .from(weddings)
+          .leftJoin(registrySettings, eq(registrySettings.weddingId, weddings.id))
+          .where(eq(weddings.id, weddingId))
+          .all(),
+      );
+      const found = row as
+        | {
+            owns: number;
+            accountId: string | null;
+            mayJoin: number;
+            currencyFits: number;
+            liveElsewhere: number;
+          }
+        | undefined;
+      if (found?.owns !== 1) return "forbidden" as const;
+      if (found.accountId !== null) return "already_connected" as const;
+      if (found.currencyFits !== 1) return "currency_mismatch" as const;
+      if (found.mayJoin === 1) return "forbidden" as const;
+      return found.liveElsewhere === 1
+        ? ("owners_differ" as const)
+        : ("account_on_deleted_wedding" as const);
+    }).pipe(Effect.withSpan("cire.registry.stripeOAuthRefusal"));
+  },
+
+  /** Whether any wedding names this account — what decides handing it back. */
+  stripeAccountNamed(accountId: string): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db
+          .select({ weddingId: registrySettings.weddingId })
+          .from(registrySettings)
+          .where(eq(registrySettings.stripeAccountId, accountId))
+          .limit(1)
+          .all(),
+      );
+      return rows.length > 0;
+    }).pipe(Effect.withSpan("cire.registry.stripeAccountNamed"));
+  },
+
+  /**
+   * The stored type of an account some wedding names, or `unknown` when none
+   * does. Read only for a refund or dispute that matched no gift: on a
+   * Standard account that is the holder's own business, not a gift cire lost.
+   */
+  stripeAccountTypeNamed(
+    accountId: string,
+  ): Effect.Effect<StripeAccountType | "unknown", never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({
+            stripeAccountId: registrySettings.stripeAccountId,
+            stripeAccountType: registrySettings.stripeAccountType,
+          })
+          .from(registrySettings)
+          .where(eq(registrySettings.stripeAccountId, accountId))
+          .limit(1)
+          .all(),
+      );
+      const found = row as
+        | { stripeAccountId: string | null; stripeAccountType: StripeAccountType | null }
+        | undefined;
+      return found ? (accountTypeOf(found) ?? "unknown") : "unknown";
+    }).pipe(Effect.withSpan("cire.registry.stripeAccountTypeNamed"));
+  },
+
+  /**
    * The couple revoked cire's access to their connected account, from their own
    * Stripe dashboard. Stripe says so once, as `account.application.deauthorized`.
    *
@@ -1862,19 +2717,25 @@ export const registryService = {
    * same as saying they never want gifts again. With no account the guest
    * surface is closed regardless, and reconnecting restores what they chose.
    *
-   * NO monotonic guard, unlike `applyStripeAccountState`, and deliberately.
-   * Deauthorization is terminal — after it, no `account.updated` can match a row
-   * whose id is now NULL — so the ordering hazard runs one way only: a stale
-   * `charges_enabled: true` arriving late must never re-open the surface, while
-   * a deauthorization arriving late must always close it. Gating this write on a
-   * timestamp would invert exactly that.
+   * ONE time guard, and only one, on `stripe_connected_at`. A late
+   * deauthorization still closes every row connected before it: after it no
+   * `account.updated` can match a row whose id is NULL, so a stale
+   * `charges_enabled: true` cannot re-open the surface. What it leaves is a row
+   * connected after Stripe's `created` — the couple reconnected, or cire handed
+   * an unused account back (`StripeConnectOAuth.deauthorize`) and they
+   * connected it again — a newer connection the old event knows nothing about.
+   * An attach stamps its own time and a reuse copies the source's; nothing else
+   * writes the column, so a refresh in flight cannot make a revocation miss.
    *
    * Returns whether a row matched, so the caller can 200 either way: an event
    * for an account this platform does not know is not an error.
    */
   detachStripeAccount(input: {
     accountId: string;
-    /** Stripe's own `created`, in seconds. Recorded, never used as a gate. */
+    /**
+     * Stripe's own `created`, in seconds: recorded, and the time a row must
+     * have known the account by to be cleared.
+     */
     observedAt?: number;
   }): Effect.Effect<boolean, never, DbService> {
     return Effect.gen(function* () {
@@ -1889,6 +2750,8 @@ export const registryService = {
             // Nobody connected the account the wedding no longer has, so the
             // next one is whoever connects it.
             stripeConnectedByOsnProfileId: null,
+            stripeAccountType: null,
+            stripeConnectedAt: null,
             // What the cleared id leaves behind — see the column comments.
             stripeDeauthorizedAccountId: input.accountId,
             stripeDeauthorizedAt: observed,
@@ -1897,7 +2760,22 @@ export const registryService = {
             stripeAccountUpdatedAt: observed,
             updatedAt: now,
           })
-          .where(eq(registrySettings.stripeAccountId, input.accountId))
+          .where(
+            and(
+              eq(registrySettings.stripeAccountId, input.accountId),
+              // A row connected after the revocation is a newer connection: the
+              // couple reconnected, or cire handed the account back and they
+              // connected it again. Its own connect time decides, never the
+              // capability stamp, which a refresh or `account.updated` moves.
+              // Without Stripe's time, every row naming the account is cleared.
+              input.observedAt === undefined
+                ? undefined
+                : or(
+                    isNull(registrySettings.stripeConnectedAt),
+                    lte(registrySettings.stripeConnectedAt, observed),
+                  ),
+            ),
+          )
           .returning({ weddingId: registrySettings.weddingId })
           .all(),
       );
@@ -2296,6 +3174,20 @@ export const registryService = {
         return "rejected";
       }
       if (!pending.ownedAccountId) return "rejected";
+      // Adoption trusts `client_reference_id` to name our own gift, which holds
+      // only while nobody but cire creates Checkout Sessions on the account.
+      // A Standard account's holder has their own API keys and can put any id
+      // there, so on one a completed session settles only the row that stored
+      // its id. A real gift's id is stored before the guest is given the page.
+      if (
+        pending.sessionId === null &&
+        accountTypeOf({
+          stripeAccountId: pending.ownedAccountId,
+          stripeAccountType: pending.ownedAccountType,
+        }) === "standard"
+      ) {
+        return "rejected";
+      }
       if (pending.status !== "pending") return "duplicate";
 
       // The row's amount is what the guest was shown; the session's is
@@ -2341,23 +3233,30 @@ export const registryService = {
         db
           .update(registryContributions)
           .set(patch)
+          // `pending` is re-checked in the predicate, not only read above:
+          // Stripe can deliver an unpaid completion while the debit that
+          // cleared is being settled, and writing `pending` over that would
+          // take a received gift out of every total.
           .where(
-            adopting
-              ? sessionAdoptionGuard(pending.id, input.checkoutSessionId)
-              : eq(registryContributions.id, pending.id),
+            and(
+              adopting
+                ? sessionAdoptionGuard(pending.id, input.checkoutSessionId)
+                : eq(registryContributions.id, pending.id),
+              eq(registryContributions.status, "pending"),
+            ),
           )
           .returning({ id: registryContributions.id })
           .all(),
       );
       if ((updated as Array<{ id: string }>).length === 0) {
-        // Only reachable while adopting: another row claimed this session id
-        // between the read and the write, so this row is not the one that was
-        // paid. Nothing is written, and Stripe is still answered — a retry
-        // would only lose the same race again.
-        yield* Effect.logError("settle lost the race to adopt a checkout session", {
-          contributionId: pending.id,
-          checkoutSessionId: input.checkoutSessionId,
-        });
+        // Another delivery moved the row off `pending` between the read and
+        // the write, which is a duplicate like any other.
+        if (!adopting) return "duplicate";
+        // While adopting it may also be that another row claimed this session
+        // id, so this row is not the one that was paid. Nothing is written
+        // either way, and Stripe is still answered — a retry would only lose
+        // the same race again. The row is read again so the log names which.
+        yield* logAdoptionMiss("settle", pending.id, input);
         return "rejected";
       }
       return input.paid ? "settled" : "duplicate";
@@ -2402,6 +3301,19 @@ export const registryService = {
       // and an `expired` naming it is exactly how such a row gets closed.
       if (row.sessionId !== null && row.sessionId !== input.checkoutSessionId) return "rejected";
       if (!row.ownedAccountId) return "rejected";
+      // The settle path's rule, for the same reason: a Standard account's
+      // holder can create and expire a session naming any gift id, so on one an
+      // ending closes only the gift that stored its id. A row that never stored
+      // one there stays pending rather than be closed by someone else's session.
+      if (
+        row.sessionId === null &&
+        accountTypeOf({
+          stripeAccountId: row.ownedAccountId,
+          stripeAccountType: row.ownedAccountType,
+        }) === "standard"
+      ) {
+        return "rejected";
+      }
       // Already settled, already failed, already refunded: nothing to move, and
       // a redelivery of an event we acted on weeks ago is the ordinary case.
       if (row.status !== "pending") return "ignored";
@@ -2413,21 +3325,25 @@ export const registryService = {
         db
           .update(registryContributions)
           .set(patch)
+          // `pending` is re-checked in the predicate: a settlement landing
+          // between the read and this write must not be closed as `failed`.
           .where(
-            adopting
-              ? sessionAdoptionGuard(row.id, input.checkoutSessionId)
-              : eq(registryContributions.id, row.id),
+            and(
+              adopting
+                ? sessionAdoptionGuard(row.id, input.checkoutSessionId)
+                : eq(registryContributions.id, row.id),
+              eq(registryContributions.status, "pending"),
+            ),
           )
           .returning({ id: registryContributions.id })
           .all(),
       );
       if ((updated as Array<{ id: string }>).length === 0) {
-        // Adopting only, same race as settle: the session belongs to another
+        // The row moved off `pending` meanwhile: nothing left to close.
+        if (!adopting) return "ignored";
+        // Adopting, the same race as settle: the session may belong to another
         // row, so closing this one against it would be closing the wrong gift.
-        yield* Effect.logError("expiry lost the race to adopt a checkout session", {
-          contributionId: row.id,
-          checkoutSessionId: input.checkoutSessionId,
-        });
+        yield* logAdoptionMiss("expiry", row.id, input);
         return "rejected";
       }
       return "failed";
@@ -2539,16 +3455,30 @@ export const registryService = {
       }
 
       const patch: RefundPatch = { updatedAt: new Date() };
-      if (advances) patch.refundedAmountMinor = refunded;
+      // The larger of the two in the statement itself, so a delivery of an
+      // older total racing a newer one can never lower what is recorded.
+      if (advances) {
+        patch.refundedAmountMinor = sql`max(coalesce(${registryContributions.refundedAmountMinor}, 0), ${refunded})`;
+      }
       if (input.fullyRefunded) patch.status = "refunded";
 
-      yield* dbQuery(() =>
+      const written = yield* dbQuery(() =>
         db
           .update(registryContributions)
           .set(patch)
-          .where(eq(registryContributions.id, row.id))
-          .run(),
+          // `succeeded` is re-checked in the predicate, as the dispute path
+          // does: a dispute that took hold meanwhile is the next delivery's
+          // to resolve, not this one's to overwrite.
+          .where(
+            and(
+              eq(registryContributions.id, row.id),
+              eq(registryContributions.status, "succeeded"),
+            ),
+          )
+          .returning({ id: registryContributions.id })
+          .all(),
       );
+      if ((written as Array<{ id: string }>).length === 0) return "ignored";
       return input.fullyRefunded ? "refunded" : "partial";
     }).pipe(Effect.withSpan("cire.registry.refundContribution"));
   },
@@ -2655,6 +3585,12 @@ export const registryService = {
       if (needs !== null && needs !== kind) {
         return yield* Effect.fail(new RegistryItemFieldsInvalid());
       }
+      // A group gift is a cash fund with a target. The flag says nothing on a
+      // gift to reserve, and a group gift with no target is a plain fund.
+      const allowPartial = input.allowPartial === true;
+      if (allowPartial && (kind !== "cash_fund" || (input.targetMinor ?? null) === null)) {
+        return yield* Effect.fail(new RegistryItemFieldsInvalid());
+      }
       if (input.imageKey && !imageKeyBelongsTo(input.weddingId, input.imageKey)) {
         return yield* Effect.fail(new ImageKeyNotInWedding());
       }
@@ -2694,7 +3630,7 @@ export const registryService = {
         externalUrl: input.externalUrl,
         priceMinor: input.priceMinor,
         quantityWanted: input.quantityWanted,
-        allowPartial: false,
+        allowPartial,
         targetMinor: input.targetMinor ?? null,
         category: input.category,
         sortOrder: Number(maxSort) + 1,
@@ -2725,6 +3661,9 @@ export const registryService = {
       // other kind" below.
       const needs = kindTheFieldsNeed(patch);
       if (needs === "both") return yield* Effect.fail(new RegistryItemFieldsInvalid());
+      // A plain fund may drop its goal; a group gift keeps its target, so the
+      // flag goes in the WHERE beside the kind.
+      const clearsTarget = patch.targetMinor === null;
       if (patch.imageKey && !imageKeyBelongsTo(weddingId, patch.imageKey)) {
         return yield* Effect.fail(new ImageKeyNotInWedding());
       }
@@ -2748,7 +3687,9 @@ export const registryService = {
 
       // One round trip (as budgetService.updateItem): RETURNING reports whether
       // an (item, wedding) row existed, so there is no separate existence SELECT.
-      const [updated] = yield* dbQuery(() =>
+      // It also carries what the item has raised, which only a group gift
+      // reports, so an edit to one stays a single statement.
+      const [returned] = yield* dbQuery(() =>
         db
           .update(registryItems)
           .set(set)
@@ -2757,13 +3698,17 @@ export const registryService = {
               eq(registryItems.id, itemId),
               eq(registryItems.weddingId, weddingId),
               needs === null ? undefined : eq(registryItems.kind, needs),
+              clearsTarget ? eq(registryItems.allowPartial, false) : undefined,
             ),
           )
-          .returning()
+          .returning({ ...getTableColumns(registryItems), ...raisedColumns() })
           .all(),
       );
+      const updated = returned as (ItemRow & RaisedColumns) | undefined;
       if (!updated) {
-        if (needs === null) return yield* Effect.fail(new RegistryItemNotInWedding());
+        if (needs === null && !clearsTarget) {
+          return yield* Effect.fail(new RegistryItemNotInWedding());
+        }
         // The kind was part of the match, so a miss may be an item of the
         // other kind. One point read on the failure path tells the two apart.
         const [exists] = yield* dbQuery(() =>
@@ -2778,7 +3723,7 @@ export const registryService = {
         );
       }
       // A cash fund is never claimed, so it has nothing to count.
-      if ((updated as ItemRow).kind === "cash_fund") return toItemDto(updated as ItemRow, 0);
+      if (updated.kind === "cash_fund") return toItemDto(updated, 0, raisedOf(updated));
       // The claimed sum for the ONE item that changed. The wedding-wide
       // GROUP BY this used to call built a map of every item's claims to read a
       // single key out of it.
@@ -2796,7 +3741,7 @@ export const registryService = {
           .all(),
       );
       const claimed = Number((claimedRow as { claimed: number } | undefined)?.claimed ?? 0) || 0;
-      return toItemDto(updated as ItemRow, claimed);
+      return toItemDto(updated, claimed);
     }).pipe(Effect.withSpan("cire.registry.updateItem"));
   },
 
@@ -2822,7 +3767,12 @@ export const registryService = {
     weddingId: string,
     itemId: string,
   ): Effect.Effect<
-    { kind: RegistryItemKind; imageKey: string | null; imageKeyOrphaned: boolean },
+    {
+      kind: RegistryItemKind;
+      allowPartial: boolean;
+      imageKey: string | null;
+      imageKeyOrphaned: boolean;
+    },
     RegistryItemNotInWedding,
     DbService
   > {
@@ -2839,13 +3789,18 @@ export const registryService = {
           .returning({
             id: registryItems.id,
             kind: registryItems.kind,
+            allowPartial: registryItems.allowPartial,
             imageKey: registryItems.imageKey,
           })
           .all(),
       );
       if (!removed) return yield* Effect.fail(new RegistryItemNotInWedding());
-      const { kind, imageKey } = removed as { kind: RegistryItemKind; imageKey: string | null };
-      if (!imageKey) return { kind, imageKey: null, imageKeyOrphaned: false };
+      const { kind, allowPartial, imageKey } = removed as {
+        kind: RegistryItemKind;
+        allowPartial: boolean;
+        imageKey: string | null;
+      };
+      if (!imageKey) return { kind, allowPartial, imageKey: null, imageKeyOrphaned: false };
       const [row] = yield* dbQuery(() =>
         db
           .select({ total: sql<number>`count(*)` })
@@ -2854,7 +3809,7 @@ export const registryService = {
           .all(),
       );
       const remaining = Number((row as { total: number } | undefined)?.total ?? 0) || 0;
-      return { kind, imageKey, imageKeyOrphaned: remaining === 0 };
+      return { kind, allowPartial, imageKey, imageKeyOrphaned: remaining === 0 };
     }).pipe(Effect.withSpan("cire.registry.removeItem"));
   },
 
@@ -3241,8 +4196,8 @@ export interface PublicRegistryItemDto {
 }
 
 /**
- * One cash fund as a guest sees it: its name, its picture and the couple's
- * words about it, and nothing else.
+ * One cash fund as a guest sees it: its name, its picture, the couple's words
+ * about it and whether it is a group gift, and nothing else.
  *
  * No target, no price and no count. The target is the couple's planning
  * number, and how much has come in — in total or from anyone — is theirs too:
@@ -3258,6 +4213,11 @@ export interface PublicRegistryFundDto {
   imageName: string | null;
   imageCrop: string | null;
   sortOrder: number;
+  /**
+   * A group gift: one item several households give towards, which the couple
+   * buy themselves. Said so the page can say it; nothing about how near it is.
+   */
+  groupGift: boolean;
 }
 
 /**
@@ -3367,6 +4327,7 @@ const toPublicFundDto = (weddingId: string, r: ItemRow): PublicRegistryFundDto =
   imageName: publicImageName(weddingId, r.imageKey),
   imageCrop: r.imageCrop,
   sortOrder: r.sortOrder,
+  groupGift: isGroupGift(r),
 });
 
 /**
@@ -3540,8 +4501,9 @@ interface GateRow {
 
 /**
  * The settings half of a gate row whose wedding HAS a settings row. The guest
- * gate does not read who connected the account — no guest path uses it — so the
- * record says nobody, which no authorisation check would match.
+ * gate does not read who connected the account or how it came — no guest path
+ * uses either — so the record says nobody, which no authorisation check would
+ * match, and no type.
  */
 const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   weddingId: r.id,
@@ -3553,6 +4515,7 @@ const gateSettings = (r: GateRow): RegistrySettingsRecord => ({
   shippingVisibleFrom: r.shippingVisibleFrom,
   stripeAccountId: r.stripeAccountId,
   stripeConnectedByOsnProfileId: null,
+  stripeAccountType: null,
   stripeChargesEnabled: r.stripeChargesEnabled === true,
   stripePayoutsEnabled: r.stripePayoutsEnabled === true,
   stripeDefaultCurrency: r.stripeDefaultCurrency,

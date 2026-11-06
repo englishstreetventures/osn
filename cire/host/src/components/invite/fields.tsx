@@ -218,7 +218,7 @@ export function HiddenSectionIcon(props: { class?: string; strokeWidth?: number 
  * What a switchable section's card needs: its state, the switch and its
  * setter, and the words for why a hidden section is hidden.
  */
-export interface SectionVisibility {
+interface SectionVisibility {
   state: SectionState;
   visible: boolean;
   onChange: (visible: boolean) => void;

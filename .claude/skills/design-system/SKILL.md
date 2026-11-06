@@ -164,6 +164,9 @@ A design that only type-checks has not been looked at. Before you report done:
   browser test that proves it; `bun run test:browser` runs it.
 - **Run the gates `AGENTS.md` names** and report their real output. A check you
   did not run is `NOT RUN`, which is a true and useful thing to say.
+- **`prep-pr` reviews the result with the `review-design` skill**, against the
+  same documents and the shared component packages: every element drawn by
+  hand that a shared component already draws comes back as a finding.
 
 In your report, name the design document you followed, every skill you invoked
 or would have invoked, and every place you departed from the system and why.

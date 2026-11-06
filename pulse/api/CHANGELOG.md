@@ -1,5 +1,54 @@
 # @osn/api
 
+## 0.28.12
+
+### Patch Changes
+
+- f860728: Stop exporting symbols used only inside their own file, drop re-exports nothing imports, and delete declarations nothing reads. No behaviour changes.
+
+## 0.28.11
+
+### Patch Changes
+
+- 6dbdb99: Drop dependencies no file imports (`motion`, `jose`, `@solidjs/meta`, `@solidjs/testing-library`, `@shared/design-tokens`, `@effect/vitest`, `@opentelemetry/exporter-logs-otlp-http`, and the direct `@vitest/browser` that `@vitest/browser-playwright` already brings in), and stop exporting shared symbols used only inside their own file. No behaviour changes.
+- Updated dependencies [6dbdb99]
+  - @pulse/db@0.20.16
+  - @shared/observability@0.20.1
+  - @zap/db@0.6.16
+  - @shared/crypto@0.14.22
+  - @shared/osn-auth-client@0.4.60
+
+## 0.28.10
+
+### Patch Changes
+
+- 08d9eaf: Workers tracing and logging move to Cloudflare's own observability. `@shared/observability/tracing` exports `WorkersTracingLive` and `installWorkersTracing`: a Worker installs its handler's `ctx.tracing`, and every sampled `Effect.withSpan` then joins the invocation's Workers trace as a custom span, beside Cloudflare's own handler, D1 and `fetch` spans. A mirrored span carries string, number and boolean attributes (a deny-listed key as `[REDACTED]`), marks a failure with `error.type` and error status, never an error message, and records no exception. On workerd the redacting logger now hands Workers Logs each entry as an object, through the console method of its level, so its keys are indexed, and lists no tracer logger there; elsewhere the tracer logger sees redacted input. Every logger scrubs a logged cause's failures and defects before rendering it, the mirror matches a deny-listed key on its last dotted segment too, and `loadConfig` parses `OTEL_EXPORTER_OTLP_HEADERS` only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+
+  Removed, since nothing registered the global OpenTelemetry provider or propagator they needed: `instrumentedFetch` and the `./fetch` subpath (callers use `fetch`, which Cloudflare traces on a Worker), the workerd OTLP exporter `makeOtlpTracing`, the `traceparent` helpers, and the Elysia plugin's server span. `observabilityPlugin()` takes no options. No call between services carries trace context. osn-api installs `ctx.tracing` in `fetch` and `scheduled`, no longer flushes spans, and runs its cron sweeps on `runOsn`. `@shared/feature-flags` and `@shared/turnstile` drop their `@shared/observability` dependency.
+
+- Updated dependencies [08d9eaf]
+  - @shared/observability@0.20.0
+  - @shared/crypto@0.14.21
+  - @shared/osn-auth-client@0.4.59
+
+## 0.28.9
+
+### Patch Changes
+
+- Updated dependencies [e6b19ae]
+  - @shared/observability@0.19.5
+  - @shared/crypto@0.14.20
+  - @shared/osn-auth-client@0.4.58
+
+## 0.28.8
+
+### Patch Changes
+
+- Updated dependencies [a56d73d]
+  - @shared/observability@0.19.4
+  - @shared/crypto@0.14.19
+  - @shared/osn-auth-client@0.4.57
+
 ## 0.28.7
 
 ### Patch Changes

@@ -1,5 +1,33 @@
 # @shared/realtime
 
+## 0.2.13
+
+### Patch Changes
+
+- Updated dependencies [6dbdb99]
+  - @shared/observability@0.20.1
+
+## 0.2.12
+
+### Patch Changes
+
+- Updated dependencies [08d9eaf]
+  - @shared/observability@0.20.0
+
+## 0.2.11
+
+### Patch Changes
+
+- Updated dependencies [e6b19ae]
+  - @shared/observability@0.19.5
+
+## 0.2.10
+
+### Patch Changes
+
+- Updated dependencies [a56d73d]
+  - @shared/observability@0.19.4
+
 ## 0.2.9
 
 ### Patch Changes

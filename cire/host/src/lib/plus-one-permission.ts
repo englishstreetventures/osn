@@ -66,7 +66,7 @@ export function placePlusOnesAfterInviters<
 }
 
 /** How many of a household's own guests may bring a plus-one, of how many. */
-export interface HouseholdPermission {
+interface HouseholdPermission {
   allowed: number;
   total: number;
 }
@@ -148,7 +148,7 @@ export interface ConfirmedPlusOne {
 }
 
 /** What the API said to a permission write. */
-export type PermissionAnswer =
+type PermissionAnswer =
   /** Written. `removed` counts the plus-ones deleted with it. */
   | { kind: "saved"; removed: number }
   /** Refused: a plus-one in scope was not among those confirmed — none were

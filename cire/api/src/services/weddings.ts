@@ -12,7 +12,7 @@ import type { WeddingRole } from "./hosts";
 import { capForTier, normaliseTier } from "./tiers";
 import type { Tier } from "./tiers";
 
-export type WeddingSummary = {
+type WeddingSummary = {
   id: string;
   slug: string;
   displayName: string;
@@ -32,7 +32,7 @@ export type WeddingSummary = {
 };
 
 /** A soft-deleted wedding its owner can still restore, as the list shows it. */
-export type DeletedWeddingSummary = {
+type DeletedWeddingSummary = {
   id: string;
   slug: string;
   displayName: string;
@@ -41,7 +41,7 @@ export type DeletedWeddingSummary = {
 };
 
 /** The organiser's weddings: live ones to open, deleted ones to restore. */
-export type MemberWeddings = {
+type MemberWeddings = {
   weddings: WeddingSummary[];
   /** Only weddings the caller OWNS, and only inside the restore window. Never
    *  in `weddings`, so no reader of that list can open a deleted wedding. */
@@ -51,7 +51,7 @@ export type MemberWeddings = {
 /** Raised when a new wedding row cannot be persisted (slug collisions are
  *  retried internally; this surfaces only after exhausting the retries or on a
  *  driver error). */
-export class WeddingCreateError extends Data.TaggedError("WeddingCreateError")<{
+class WeddingCreateError extends Data.TaggedError("WeddingCreateError")<{
   readonly reason: string;
   readonly cause?: unknown;
 }> {}

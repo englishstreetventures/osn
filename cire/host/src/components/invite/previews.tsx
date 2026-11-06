@@ -46,9 +46,9 @@ const BAND_MAX_HEIGHT = "6rem";
 // The guest hero's base gradient and title panel, expressed in the SAME derived
 // tokens the guest site uses — so the preview cannot drift from the real hero
 // the way the old hand-copied colour literals could.
-export const PREVIEW_HERO_GRADIENT =
+const PREVIEW_HERO_GRADIENT =
   "linear-gradient(160deg, var(--invite-hero-grad-1) 0%, var(--invite-hero-grad-2) 40%, var(--invite-hero-grad-3) 100%)";
-export const PREVIEW_HERO_SCRIM =
+const PREVIEW_HERO_SCRIM =
   "radial-gradient(ellipse at center, var(--invite-scrim-from) 0%, var(--invite-scrim-to) 100%)";
 
 export type PreviewDevice = "desktop" | "phone";

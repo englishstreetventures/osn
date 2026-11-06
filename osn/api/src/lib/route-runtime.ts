@@ -51,7 +51,7 @@ export type AppRuntime = ManagedRuntime.ManagedRuntime<AppServices, never>;
  * typed via `effectCause`) so server-side diagnosis keeps every detail; only
  * the message is flattened, and to a constant.
  */
-export class OpaqueDefect extends Error {
+class OpaqueDefect extends Error {
   override readonly name = "OpaqueDefect";
 
   constructor(cause: Cause.Cause<unknown>) {
@@ -78,7 +78,7 @@ export class OpaqueDefect extends Error {
  * should keep (shared or freshly wrapped) and the per-request `run` helper
  * bound to it.
  */
-export type AppRunner<R extends AppServices> = {
+type AppRunner<R extends AppServices> = {
   runtime: ManagedRuntime.ManagedRuntime<R, never>;
   run: <A, E>(eff: Effect.Effect<A, E, R>) => Promise<A>;
 };

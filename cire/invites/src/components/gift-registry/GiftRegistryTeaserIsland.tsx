@@ -46,7 +46,7 @@ const GiftRegistryTeaser: Component<GiftRegistryTeaserProps> = import.meta.env.S
   ? () => null
   : lazy(() => import("./GiftRegistryTeaser").then((m) => ({ default: m.GiftRegistryTeaser })));
 
-export interface GiftRegistryTeaserIslandProps {
+interface GiftRegistryTeaserIslandProps {
   /** cire-api origin. */
   apiUrl: string;
   /** The wedding this invite renders. */

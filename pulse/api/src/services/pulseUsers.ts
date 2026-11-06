@@ -4,11 +4,11 @@ import { jsonEachIn } from "@shared/db-utils";
 import { eq, inArray } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
 
-export class ValidationError extends Data.TaggedError("ValidationError")<{
+class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 
@@ -19,7 +19,7 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
  */
 export const DEFAULT_ATTENDANCE_VISIBILITY = "connections" as const;
 
-export type AttendanceVisibility = PulseProfile["attendanceVisibility"];
+type AttendanceVisibility = PulseProfile["attendanceVisibility"];
 
 const AttendanceVisibilitySchema = Schema.Literals(["connections", "no_one"]);
 

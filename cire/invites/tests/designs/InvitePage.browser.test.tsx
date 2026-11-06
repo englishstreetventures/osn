@@ -2,7 +2,7 @@ import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
 import { cleanup, fireEvent, render, waitFor, within } from "@solidjs/testing-library";
 
 import "../../src/styles/global.css";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
 import { noteClaimed } from "../../src/components/claim-session";
@@ -670,9 +670,17 @@ describe("gala InvitePage — the claim panel on a wide screen", () => {
 });
 
 describe.each([
-  ["classic", classicInvitePage],
-  ["gala", galaInvitePage],
-] as const)("%s InvitePage — the FAQ in a real browser", (_name, Pack) => {
+  ["classic", classicInvitePage, () => import("../../src/designs/classic/FaqSection")],
+  ["gala", galaInvitePage, () => import("../../src/designs/gala/FaqSection")],
+] as const)("%s InvitePage — the FAQ in a real browser", (_name, Pack, loadFaqSection) => {
+  // Each pack loads its FAQ section through a `lazy()` import of its own, cold
+  // until a claim carries a FAQ, and a lazy chunk's first load can take most of
+  // `waitFor`'s one-second default (see `SHEET_OPENS`). Loaded here, the tests'
+  // waits cover only the section rendering.
+  beforeAll(async () => {
+    await loadFaqSection();
+  });
+
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();

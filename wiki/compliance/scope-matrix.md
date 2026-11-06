@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-05
 ---
 
 # Compliance Scope Matrix
@@ -64,7 +64,7 @@ What ships in the **first** compliance push. Later rounds harden it.
 2. `[[data-map]]` published as the Article 30 record of processing.
 3. `[[subprocessors]]` published with current DPAs on file.
 4. DSAR endpoints: `GET /account/export` (machine-readable JSON) and `DELETE /account` (full erasure with cross-service fan-out via ARC).
-5. Retention schedule enforced ([[retention]]) — Grafana Cloud retention already tight (14 d traces, 50 GB logs, 30 d metrics on free tier); production sessions auto-expire; security events retained 12 months; deleted-account tombstone retained 30 days.
+5. Retention schedule enforced ([[retention]]) — telemetry retention already tight (Cloudflare keeps Workers traces 7 d and Workers Logs 3 d on Free, 7 d from 2026-12-01); production sessions auto-expire; security events retained 12 months; deleted-account tombstone retained 30 days.
 6. Lawful basis declared per processing purpose in `[[data-map]]`.
 7. Breach response runbook ([[breach-response]]) with named DPO contact.
 8. Cookie banner on `@musubi/landing` only if/when analytics added.
@@ -81,7 +81,7 @@ Privacy because they are the criteria customers ask about.
 | CC1 — Control Environment | GitHub branch protection, codeowners, lefthook pre-commit/pre-push, oxlint, bun fmt, type check, mandatory PR review | Formal security policy doc; HR onboarding/offboarding checklist |
 | CC2 — Communication | This wiki, AGENTS.md, README.md, weekly review cadence | Public security.txt, vuln-disclosure policy |
 | CC3 — Risk Assessment | Per-PR `/review-security` + `/review-performance` skills | Annual risk-assessment doc |
-| CC4 — Monitoring | Grafana Cloud dashboards, OTel everywhere, security_events table | Alert routing doc, on-call rotation |
+| CC4 — Monitoring | Cloudflare Workers traces and Workers Logs on the deployed Workers, security_events table; no metric export yet (englishstreetventures/osn#501) | Alert routing doc, on-call rotation, dashboards |
 | CC5 — Control Activities | This page, the open findings in `englishstreetventures/osn-tracker` | Quarterly access review record |
 | CC6 — Logical Access | Passkey-primary login, step-up tokens, ARC tokens for S2S, role-gated org admin (M3) | Prod access control matrix ([[access-control]]); least-privilege review record |
 | CC7 — System Operations | OTel, structured logs, Effect tracing, /health + /ready endpoints, osn-api's `/health/coordination` round trip | Capacity planning doc, vulnerability scan cadence |

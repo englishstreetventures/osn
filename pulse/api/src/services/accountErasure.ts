@@ -10,7 +10,6 @@ import {
   pulseProfileAccounts,
   pulseUsers,
 } from "@pulse/db/schema";
-import type { PulseDeletionJob } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import type {
@@ -43,7 +42,7 @@ import {
  *      enforced its own 7-day window before fanning out.
  */
 
-export const PULSE_LEAVE_GRACE_SECONDS = 7 * 24 * 60 * 60;
+const PULSE_LEAVE_GRACE_SECONDS = 7 * 24 * 60 * 60;
 export const EVENT_CANCELLATION_WINDOW_SECONDS = 14 * 24 * 60 * 60;
 
 export class PulseErasureDbError extends Data.TaggedError("PulseErasureDbError")<{
@@ -57,7 +56,7 @@ export class PulseDeletionAlreadyPendingError extends Data.TaggedError(
   readonly scheduledFor: number;
 }> {}
 
-export interface RequestErasureInput {
+interface RequestErasureInput {
   readonly profileId: string;
   readonly accountId: string;
   readonly reason?: string;
@@ -534,11 +533,3 @@ export const purgeAccount = (
     yield* recordCompletion("hard", "admin");
     return { purged: profileIds.length, alreadyProcessed: false };
   });
-
-/**
- * Type alias for the row used by retry sweepers.
- */
-export type PulseDeletionJobRow = Pick<
-  PulseDeletionJob,
-  "profileId" | "accountId" | "enrollmentNotifyDoneAt"
->;

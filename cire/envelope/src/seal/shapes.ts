@@ -64,7 +64,7 @@ function crack(a: Point, b: Point, steps: number, amount: number): Point[] {
 }
 
 /** A split seal's two halves: the upper rides the flap, the lower stays on the pocket. */
-export interface SplitHalves {
+interface SplitHalves {
   readonly upper: Outline;
   readonly lower: Outline;
 }

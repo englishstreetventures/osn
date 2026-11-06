@@ -16,7 +16,7 @@ import { createResource } from "solid-js";
 import { apiUrl, weddingPath } from "./api";
 
 /** The kinds this build words. The API may send one it does not know yet. */
-export type RsvpChangeKind =
+type RsvpChangeKind =
   | "reply_new"
   | "reply_edited"
   | "plus_one_added"
@@ -41,7 +41,7 @@ export interface RsvpChanges {
 }
 
 /** The RSVP table's badges. */
-export interface RsvpChangeRows {
+interface RsvpChangeRows {
   /** Sent back to mark seen: covers exactly `rows`. 0 when none. */
   markSeq: number;
   /** Changed RSVP-table rows; `eventId: null` means every row of that guest. */

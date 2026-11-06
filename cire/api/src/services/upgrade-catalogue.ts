@@ -51,7 +51,7 @@ export interface UpgradePriceConfig {
 }
 
 /** One sellable upgrade, priced for the tier the wedding is on now. */
-export interface CatalogueEntry {
+interface CatalogueEntry {
   tier: PaidTier;
   /** The tier this Price upgrades from — the wedding's current tier. */
   fromTier: Tier;
@@ -68,7 +68,7 @@ export interface CatalogueEntry {
  * currency. A Stripe Price's amount cannot change once the Price exists, so a
  * cached read of it is as good as a fresh one.
  */
-export interface Quote {
+interface Quote {
   priceId: string;
   amountMinor: number;
   currency: string;

@@ -27,10 +27,15 @@ vi.mock("../../src/lib/api", async () => {
 import GuestsEditor from "../../src/components/GuestsEditor";
 import { __resetEventsCache, ensureEventsLoaded } from "../../src/lib/events-store";
 import type { DesiredStateWire } from "../../src/lib/guest-event-draft";
-import { __resetGuestsCache, ensureGuestsLoaded } from "../../src/lib/guests-store";
+import {
+  __resetGuestsCache,
+  ensureGuestsLoaded,
+  hasCachedGuests,
+} from "../../src/lib/guests-store";
 import {
   __resetHouseholdsCache,
   ensureHouseholdsLoaded,
+  hasCachedHouseholds,
   invalidateHouseholds,
 } from "../../src/lib/households-store";
 import { confirmNavigation } from "../../src/lib/unsaved-guard";
@@ -1105,6 +1110,82 @@ describe("GuestsEditor", () => {
       await waitFor(() => expect(screen.getByText(/“Sharma” was removed elsewhere/)).toBeTruthy());
       expect(screen.queryByDisplayValue("Adaeze")).toBeNull();
       expect(screen.getByDisplayValue("Raj")).toBeTruthy();
+    });
+  });
+
+  /**
+   * The apply answers 402 when the change would take the wedding past its
+   * tier's guest cap. Refused by the check before the write, nothing was saved
+   * and the same preview applies after an upgrade. Refused while writing
+   * (`reason: "head_moved"`), the batches before the refused one are saved and
+   * the head has moved, so the preview is spent and the draft is stale.
+   */
+  describe("the guest cap refusing the apply", () => {
+    const CAP_402 = {
+      error: "payment_required",
+      entitlement: "capacity",
+      tier: "gold",
+      limit: 100,
+      current: 100,
+    };
+
+    it("closes a preview refused while writing, marks the draft stale and drops the cached rows", async () => {
+      primeLoad();
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
+        if (u.endsWith("/changes/apply")) {
+          return Promise.resolve(json({ ...CAP_402, reason: "head_moved" }, 402));
+        }
+        return Promise.resolve(fallback(url));
+      });
+
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+      await waitFor(() =>
+        expect(document.body.textContent).toContain(
+          "These changes would take you past your plan's limit of 100 guests. Remove some guests, or upgrade to Gold. Some of them may already be saved, so reload before you save again.",
+        ),
+      );
+      expect(document.body.textContent).not.toMatch(/payment_required/);
+      // Confirming the spent preview again could only be refused.
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByRole("button", { name: /Reload and keep my edits/i })).toBeTruthy();
+      // What the change saved is not in the shared caches the other views read.
+      expect(hasCachedGuests("wed_a")).toBe(false);
+      expect(hasCachedHouseholds("wed_a")).toBe(false);
+    });
+
+    it("keeps a preview refused before writing open, and names the cap inside it", async () => {
+      primeLoad();
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
+        if (u.endsWith("/changes/apply")) return Promise.resolve(json(CAP_402, 402));
+        return Promise.resolve(fallback(url));
+      });
+
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+      // Nothing was saved: the same preview applies after an upgrade.
+      await waitFor(() =>
+        expect(screen.getByRole("dialog").textContent).toContain(
+          "These changes would take you past your plan's limit of 100 guests. Remove some guests, or upgrade to Gold.",
+        ),
+      );
+      expect(document.body.textContent).not.toMatch(/payment_required/);
+      expect(document.body.textContent).not.toMatch(/may already be saved/);
+      expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
     });
   });
 

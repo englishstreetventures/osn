@@ -38,7 +38,7 @@ export const MAX_RUN_OF_SHOW_ITEMS = 40;
 export const MAX_RUN_OF_SHOW_LABEL = 200;
 
 /** A 24-hour wall clock, `HH:MM`: hours 00–23, minutes 00–59. */
-export const CLOCK_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const CLOCK_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 /** A check that a string is at most {@link MAX_CELL_LENGTH} characters. */
 const withinCell = (field: string) =>
@@ -176,7 +176,7 @@ const DraftEmail = Schema.String.check(
   ),
 );
 
-export const ParsedGuest = Schema.Struct({
+const ParsedGuest = Schema.Struct({
   /** Optional stable id from the `Guest ID` fidelity column (E2). Absent ⇒
    *  match by `(family, firstName)` as today; present ⇒ match by id, so a
    *  first-name fix is an update, not remove+create. */
@@ -204,7 +204,7 @@ export const ParsedGuest = Schema.Struct({
     Schema.NullOr(Schema.String.check(Schema.isMaxLength(MAX_RAW_EMAIL_LENGTH))),
   ),
 });
-export type ParsedGuest = Schema.Schema.Type<typeof ParsedGuest>;
+type ParsedGuest = Schema.Schema.Type<typeof ParsedGuest>;
 
 /**
  * The consent record behind a stored address, as a before-image carries it:
@@ -501,11 +501,11 @@ export type ImportSummary = Schema.Schema.Type<typeof ImportSummary>;
 
 // ── Request bodies ────────────────────────────────────────────────────────────
 
-export const PreviewBody = Schema.Struct({
+const PreviewBody = Schema.Struct({
   eventsCsv: Schema.String,
   guestsCsv: Schema.String,
 });
-export type PreviewBody = Schema.Schema.Type<typeof PreviewBody>;
+type PreviewBody = Schema.Schema.Type<typeof PreviewBody>;
 
 /**
  * `confirmClears` echoes the preview's `clears` for an editor save that empties

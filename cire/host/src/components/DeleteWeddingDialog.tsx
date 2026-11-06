@@ -103,8 +103,9 @@ export default function DeleteWeddingDialog(props: {
               first.
             </li>
             <li>
-              A Stripe account you connected for cash gifts stays with Stripe. Close it from your
-              Stripe Express dashboard if you no longer need it.
+              A Stripe account you connected for cash gifts stays with Stripe, and keeps taking
+              gifts for any other wedding that uses it. Close it from your Stripe Express dashboard
+              only if no other wedding of yours needs it.
             </li>
           </ul>
           <Field

@@ -957,10 +957,17 @@ describe("gala InvitePage", () => {
     expect(container.querySelector("[data-invite-closing]")).toBeNull();
   });
 
-  // Gala renders its own events section, so the deadline wiring is a SEPARATE
-  // set of call sites from classic's — the same behaviour has to be pinned on
-  // both or one design silently keeps accepting late replies.
   describe("FAQ section", () => {
+    // `FaqSection` reaches the tree through a `lazy()` import of its own, which
+    // the page leaves cold until a claim carries a FAQ. Without this, the first
+    // test here to render it pays that chunk's first transform inside its
+    // one-second `waitFor`, which a loaded CI runner overruns. Loaded here, for
+    // the reason the `EventCard` import at the top of the file gives, each test
+    // waits only for Suspense to swap the section in.
+    beforeAll(async () => {
+      await import("../../../src/designs/gala/FaqSection");
+    });
+
     const FAQ = {
       visible: true,
       entries: [
@@ -1163,6 +1170,9 @@ describe("gala InvitePage", () => {
     });
   });
 
+  // Gala renders its own events section, so the deadline wiring is a SEPARATE
+  // set of call sites from classic's — the same behaviour has to be pinned on
+  // both or one design silently keeps accepting late replies.
   describe("RSVP deadline", () => {
     async function claimWithDeadline(
       rsvpDeadline: ClaimResult["rsvpDeadline"],

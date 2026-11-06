@@ -470,7 +470,7 @@ describe("enquiry-new email links (host/path correctness)", () => {
   const ORGANISER_ORIGIN = "https://host.cireweddings.com";
   const VENDOR_PORTAL_ORIGIN = "https://vendor.cireweddings.com";
 
-  it("unclaimed listing: claim CTA is a consumable vendor-portal /claim?token= link", async () => {
+  it("unclaimed listing: claim CTA is a consumable vendor-portal /claim/?token= link", async () => {
     const { app, email } = buildApp();
     const res = await req(app, enquiriesPath, {
       method: "POST",
@@ -492,7 +492,7 @@ describe("enquiry-new email links (host/path correctness)", () => {
     // consumable by POST /api/vendor/claims/:token/consume. Assert the exact
     // consumable shape and reject the old dead-link shape.
     const claimRe = new RegExp(
-      `${VENDOR_PORTAL_ORIGIN.replace(/[.]/g, "\\.")}/claim\\?token=[A-Za-z0-9_-]+`,
+      `${VENDOR_PORTAL_ORIGIN.replace(/[.]/g, "\\.")}/claim/\\?token=[A-Za-z0-9_-]+`,
     );
     expect(sent!.text).toMatch(claimRe);
     expect(sent!.html).toMatch(claimRe);
@@ -521,8 +521,9 @@ describe("enquiry-new email links (host/path correctness)", () => {
     expect(res.status).toBe(201);
     const sent = email.recorded().find((e) => e.to === "unclaimed@vendor.test");
     expect(sent).toBeDefined();
-    expect(sent!.text).not.toContain("/claim?token=");
-    expect(sent!.html).not.toContain("/claim?token=");
+    // No claim link in either form: `token=` appears in these emails only there.
+    expect(sent!.text).not.toContain("token=");
+    expect(sent!.html).not.toContain("token=");
     expect(
       db.select().from(vendorClaims).where(eq(vendorClaims.directoryVendorId, DV_UNCLAIMED)).all(),
     ).toHaveLength(0);

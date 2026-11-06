@@ -31,7 +31,7 @@ export const STARTER_OFFSET_DAYS = {
   day_of: 0,
 } as const satisfies Record<TimeframeBucket, number>;
 
-export interface StarterItem {
+interface StarterItem {
   /** Stable identity; lower-case words joined by hyphens. Never renamed. */
   readonly key: string;
   readonly bucket: TimeframeBucket;

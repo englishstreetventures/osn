@@ -84,7 +84,7 @@ export function footerState(
 }
 
 /** One FAQ entry, as far as emptiness is concerned. */
-export interface FaqContent {
+interface FaqContent {
   question: string | null | undefined;
   answer: string | null | undefined;
 }
@@ -116,7 +116,7 @@ export function faqState(
 const CLOCK_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 /** One run-of-show item, as far as emptiness is concerned. */
-export interface RunOfShowContent {
+interface RunOfShowContent {
   time: string;
   label: string;
 }

@@ -1,0 +1,167 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 1993,
+    "branch": "feat/skill-review-design",
+    "base_sha": "c8b1b0d004fb4b697d970d2072bd758fbb793265",
+    "head_sha": "d8b5f80050ec480c8a1d877839bec8ab0590c848",
+    "generated_at": "2026-11-05T00:15:25.244Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1992,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:3",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-11-04T23:46:42.045Z",
+    "last_ts": "2026-11-05T00:15:17.285Z",
+    "span_seconds": 1715,
+    "active_seconds": 1747,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 20.42917179999998,
+    "tokens": {
+      "input": 336,
+      "output": 143331,
+      "thinking": 60830,
+      "cache_write_5m": 438037,
+      "cache_write_1h": 0,
+      "cache_read": 38427557
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 336,
+          "output": 143331,
+          "thinking": 60830,
+          "cache_write_5m": 438037,
+          "cache_write_1h": 0,
+          "cache_read": 38427557
+        },
+        "usd_equivalent": 20.42917179999998,
+        "messages": 160
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 12,
+          "output": 2249,
+          "thinking": 1703,
+          "cache_write_5m": 32856,
+          "cache_write_1h": 0,
+          "cache_read": 39863
+        },
+        "usd_equivalent": 0.2252532,
+        "messages": 6
+      },
+      "subagent": {
+        "tokens": {
+          "input": 324,
+          "output": 141082,
+          "thinking": 59127,
+          "cache_write_5m": 405181,
+          "cache_write_1h": 0,
+          "cache_read": 38387694
+        },
+        "usd_equivalent": 20.20391859999998,
+        "messages": 154
+      }
+    },
+    "effort": {
+      "medium": 6,
+      "xhigh": 154
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 2,
+      "docs": 34,
+      "config": 2,
+      "source": 3
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 171,
+        "deleted": 7
+      },
+      "docs": {
+        "added": 775,
+        "deleted": 44
+      },
+      "config": {
+        "added": 133,
+        "deleted": 0
+      },
+      "source": {
+        "added": 93,
+        "deleted": 18
+      }
+    },
+    "packages": [
+      "tools/oxlint"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 137,
+      "Read": 15,
+      "Skill": 9,
+      "StructuredOutput": 3,
+      "Write": 2,
+      "Edit": 2,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 3
+    },
+    "skills": {
+      "new-feat": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 6,
+      "subagent": 154,
+      "with_tools": 160,
+      "with_one_tool": 154,
+      "context_median": 250382,
+      "context_p90": 373527
+    }
+  },
+  "review": null
+}

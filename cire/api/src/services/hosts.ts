@@ -114,11 +114,11 @@ const RUN_SHEET_SCOPES = {
 
 /** The narrowest scope — what an unrecognised stored value degrades to, so a
  *  corrupted row shows a helper less rather than more. */
-export const LEAST_PRIVILEGE_RUN_SHEET_SCOPE: RunSheetScope = "own";
+const LEAST_PRIVILEGE_RUN_SHEET_SCOPE: RunSheetScope = "own";
 
 /** Map a stored scope onto {@link RunSheetScope}, degrading anything the column
  *  is not declared to hold to the narrow value. */
-export function normaliseRunSheetScope(scope: string): RunSheetScope {
+function normaliseRunSheetScope(scope: string): RunSheetScope {
   if (!Object.hasOwn(RUN_SHEET_SCOPES, scope)) return LEAST_PRIVILEGE_RUN_SHEET_SCOPE;
   switch (scope as RunSheetScope) {
     case "own":
@@ -196,7 +196,7 @@ const seatIsHelper = notInArray(weddingHosts.role, NON_HELPER_STORED_ROLES);
 /** A seat surfaced to the management panel — owners and co-hosts alike. Never
  *  echoes the account id — only the profile id (which the organiser typed a
  *  handle for) + when it was added. */
-export interface WeddingHostRow {
+interface WeddingHostRow {
   id: string;
   osnProfileId: string;
   role: WeddingRole;
@@ -219,7 +219,7 @@ export interface WeddingHostRow {
 }
 
 /** A seat {@link hostsService.remove} deleted, as it stood. */
-export interface RemovedSeat {
+interface RemovedSeat {
   role: WeddingRole;
   addedByOsnProfileId: string;
   createdAt: Date;
@@ -292,7 +292,7 @@ export class HostNotFound extends Data.TaggedError("HostNotFound")<{
 
 /** A run-sheet scope was set on a seat that is not a helper's. The scope is a
  *  helper's setting alone; the refused write changed nothing. */
-export class NotAHelper extends Data.TaggedError("NotAHelper")<{
+class NotAHelper extends Data.TaggedError("NotAHelper")<{
   weddingId: string;
 }> {}
 

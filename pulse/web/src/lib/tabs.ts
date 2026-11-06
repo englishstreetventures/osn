@@ -4,7 +4,7 @@
  * what it is called, or where it goes.
  */
 
-export type Tab = {
+type Tab = {
   id: string;
   label: string;
   /** SF Symbol, used only by the native bar. */

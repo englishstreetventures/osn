@@ -15,7 +15,10 @@ import {
   maintenanceSweeps,
   PURGE_PENDING_HOLD_S,
 } from "../../src/services/maintenance-sweeps";
+import type { PurgeStripe } from "../../src/services/maintenance-sweeps";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
+import { StripeError } from "../../src/services/stripe";
+import { captureLogs } from "../test-helpers/capture-logs";
 import {
   fullWeddingKeys,
   fullWeddingStatements,
@@ -307,5 +310,87 @@ describe("maintenanceSweeps.purgeDeletedWeddings — failures", () => {
     expect(exists(db, "wed_old")).toBe(true);
     expect(exists(db, "wed_new")).toBe(false);
     expect(await counterValue(CIRE_METRICS.weddingPurged, { result: "error" })).toBe(before + 1);
+  });
+});
+
+/**
+ * A purged wedding's Standard account — the couple's own, connected through
+ * OAuth — is handed back to its holder when no other wedding uses it, so cire
+ * keeps no access to an account it no longer uses. An Express account cire
+ * created stays, as it always has.
+ */
+describe("handing a purged wedding's Standard account back (23)", () => {
+  const nameAccount = (
+    db: TestDb,
+    weddingId: string,
+    accountId: string,
+    type: "express" | "standard",
+  ) =>
+    db.run(
+      sql`UPDATE registry_settings SET stripe_account_id = ${accountId}, stripe_account_type = ${type} WHERE wedding_id = ${weddingId}`,
+    );
+
+  function recordingStripe(fail = false) {
+    const handedBack: string[] = [];
+    return {
+      handedBack,
+      stripe: {
+        deauthorize: (accountId: string) => {
+          handedBack.push(accountId);
+          return fail ? Effect.fail(new StripeError({ reason: "unreachable" })) : Effect.void;
+        },
+      },
+    };
+  }
+
+  const purgeWith = (db: TestDb, stripe: PurgeStripe) =>
+    Effect.runPromise(
+      maintenanceSweeps
+        .purgeDeletedWeddings(NOW, {}, stripe)
+        .pipe(Effect.provideService(DbService, db)),
+    );
+
+  it("hands back a Standard account no other wedding names, once", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    nameAccount(db, "wed_gone", "acct_own", "standard");
+    const { handedBack, stripe } = recordingStripe();
+    await purgeWith(db, stripe);
+    expect(exists(db, "wed_gone")).toBe(false);
+    expect(handedBack).toEqual(["acct_own"]);
+  });
+
+  it("keeps an account another wedding still uses", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    seedWedding(db, "wed_kept", null);
+    nameAccount(db, "wed_gone", "acct_shared", "standard");
+    nameAccount(db, "wed_kept", "acct_shared", "standard");
+    const { handedBack, stripe } = recordingStripe();
+    await purgeWith(db, stripe);
+    expect(handedBack).toEqual([]);
+  });
+
+  it("leaves an Express account at Stripe", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    nameAccount(db, "wed_gone", "acct_express", "express");
+    const { handedBack, stripe } = recordingStripe();
+    await purgeWith(db, stripe);
+    expect(handedBack).toEqual([]);
+  });
+
+  it("logs the account it could not hand back, and still counts the purge", async () => {
+    const db = makeDb();
+    seedWedding(db, "wed_gone", daysAgo(9));
+    nameAccount(db, "wed_gone", "acct_own", "standard");
+    const { stripe } = recordingStripe(true);
+    let result: Awaited<ReturnType<typeof purgeWith>> | undefined;
+    const logs = await captureLogs(async () => {
+      result = await purgeWith(db, stripe);
+    });
+    expect(result?.purged).toBe(1);
+    expect(logs).toContain("stripe account not handed back after purge");
+    expect(logs).toContain("acct_own");
   });
 });

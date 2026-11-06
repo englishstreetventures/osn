@@ -1,6 +1,6 @@
 ---
 title: Tracing
-aliases: [tracing rules, spans, Effect.withSpan, traceparent]
+aliases: [tracing rules, spans, Effect.withSpan, Workers traces]
 tags: [observability, tracing]
 status: active
 related:
@@ -8,10 +8,13 @@ related:
   - "[[logging]]"
   - "[[metrics]]"
   - "[[arc-tokens]]"
+  - "[[free-tier-limits]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 # Tracing
+
+The deployed Workers are traced by Cloudflare: Workers traces record every invocation, and the application's own `Effect.withSpan` spans join the same trace as custom spans. No Worker registers an OpenTelemetry provider or exports spans itself. Bun processes (`src/local.ts`) export Effect spans over OTLP when an endpoint is set ([[#Bun: OTLP export]]).
 
 ## Native Workers traces
 
@@ -37,17 +40,90 @@ production tier must set `redact_query_string = true`, and no API Worker may
 trace there. The production guest deploy runs it again on the adapter's
 generated `dist/server/wrangler.json` before `wrangler deploy`.
 
-A fetch handler span records the full URL and path, the user agent, the
-visitor's country, city and timezone, their network (ASN) and
-`Accept-Language`; an outbound fetch span records the URL, its query and the
-response status. Neither records a body, a cookie or the client IP
+Cloudflare records, with no code: the fetch, scheduled and queue handler spans;
+every outbound `fetch`; D1 (`d1_first`, `d1_run`, `d1_all`, `d1_raw`,
+`d1_batch`, `d1_exec`, with the query text and rows read and written); KV; R2;
+Durable Object calls, storage and alarms; RPC between Workers; the Cache API;
+Queues; Email; rate-limit bindings
 ([spans and attributes](https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/),
-read 2026-10-15). Cloudflare keeps traces for seven days.
+read 2026-11-05). A fetch handler span records the full URL and path, the user
+agent, the visitor's country, city and timezone, their network (ASN) and
+`Accept-Language`; an outbound fetch span records the URL, its query and the
+response status. Neither records a body, a cookie or the client IP. Cloudflare
+keeps traces for seven days
+([Observability pricing](https://developers.cloudflare.com/observability/pricing/)),
+and samples them at `observability.traces.head_sampling_rate`
+([Workers traces](https://developers.cloudflare.com/workers/observability/traces/)).
 
-The workerd-safe application spans below are separate from native Workers
-traces. `osn-api` and `cire-api` export them through an OTLP/HTTP exporter when
-`OTEL_EXPORTER_OTLP_ENDPOINT` is set ([[cire-workerd]]); without it they are
-inert.
+## Effect spans in Workers traces
+
+`WorkersTracingLive` (`@shared/observability/tracing`,
+[workers.ts](../../../shared/observability/src/tracing/workers.ts)) mirrors each
+sampled `Effect.withSpan` into the invocation's trace through the Workers
+custom-span API, `tracing.startSpan`
+([custom spans](https://developers.cloudflare.com/workers/observability/traces/custom-spans/),
+read 2026-11-05). osn-api's `osnLoggerLayer` and cire-api's `cireLoggerLayer`
+carry it, so every route on `appRuntime` or `runCire` and every cron sweep is
+covered. Each Worker's `fetch` and `scheduled` call
+`installWorkersTracing(ctx.tracing)` first; any invocation's `ctx.tracing`
+records into whichever invocation is current, so concurrent requests each keep
+their spans in their own trace. zap-api and pulse-api do not mirror their Effect
+spans yet: englishstreetventures/osn#2000.
+
+What a mirrored span carries, and what it does not:
+
+- **Placement.** A direct child of the invocation's handler span, beside the
+  native D1 and `fetch` spans. `startSpan` returns a span that is never active,
+  so the Effect tree's own nesting is not kept; the timeline still shows it.
+- **Attributes.** String, number and boolean values only; an object-valued
+  attribute is dropped. A key on the logger's deny-list
+  ([[logging#Redaction]]), whole or by its last dotted segment (`user.email`),
+  carries `[REDACTED]`.
+- **Failure.** `error.type` set to the error's `_tag` (an `Error`'s `name` for a
+  defect) and the span's status set to error. Never the message, which is free
+  text the deny-list cannot clean. Never `recordException` either: on
+  `wrangler dev` each call also writes an error-level log line, so a failure
+  passing up through nested spans would write several. wrangler's local
+  collector shows the error status as nothing; the `error.type` attribute is
+  what it shows.
+- **Not carried.** Span events, which hold the tracer logger's copy of each log
+  line, and links. The Workers span has no API for either.
+- **Sampling.** Cloudflare's. `OSN_TRACE_SAMPLE_RATIO` governs only the Bun
+  path.
+
+Limits and edges:
+
+- Span names are cut at 64 bytes and each span holds about 64 KB of attributes
+  ([custom spans](https://developers.cloudflare.com/workers/observability/traces/custom-spans/)).
+  The API is in beta and Cloudflare may rename spans and attributes.
+- A runtime whose `ctx.tracing` has no `startSpan` (workerd 1.20260730, which
+  Miniflare 4.20260730 in the D1 tests runs, is one) installs nothing, and so
+  does an invocation without a context; until the next invocation installs
+  again, the isolate's spans stay in-process. Every deployed invocation carries
+  one.
+- An Effect fiber that another request's work resumes (one request completing a
+  `Deferred` another request waits on) runs in that request's I/O context.
+  There workerd refuses a console call with "Cannot perform I/O on behalf of a
+  different request", so a log line from that fiber fails, and a span it opens
+  did not reach the trace; the mirror swallows any refusal. A request that
+  awaits a promise another request resolves either never resumes or fails the
+  same way. workerd applies the rule to every kind of I/O, not only telemetry.
+
+  *Measured 2026-11-05 — `wrangler dev` (wrangler 4.149.0, workerd 1.20261006.1), two overlapping requests, traces on and off, `console.log` and `console.info`.*
+
+**Cost.** Ingestion counts where traces are on: local, dev and the production
+guest site, never a production API Worker (above). From 2026-12-01 traces and
+logs share one ingestion allowance, 0.5 GB a day on Workers Free
+([[free-tier-limits#Monitoring]]). CPU: a mirrored span costs 16–29 µs on
+local workerd, with observability on or off.
+
+*Measured 2026-11-05 — `wrangler dev` (wrangler 4.149.0, workerd 1.20261006.1),
+one request opening 1,000 spans through `ctx.tracing.startSpan`, timed between
+two awaited fetches: 16–29 ms. Production not measured.*
+
+[`tests/wrangler/workers-observability.e2e.ts`](../../../shared/observability/tests/wrangler/workers-observability.e2e.ts)
+runs the mirror and the Workers Logs logger on real workerd and reads both back
+([[testing-patterns#The end-to-end suite]]).
 
 ## Span creation
 
@@ -61,53 +137,33 @@ Examples:
 
 ## Span naming convention
 
-Span names are **hierarchical** and **snake_case**. Dots separate layers; underscores separate words. Match the [[metrics]] naming convention so dashboards can correlate on shared prefixes.
+Span names are **hierarchical** and **snake_case**. Dots separate layers; underscores separate words. Match the [[metrics]] naming convention so dashboards can correlate on shared prefixes. Keep names under 64 bytes, where Workers traces cut them.
 
 ## Route-level spans
 
-**Do not create spans at route level** -- the Elysia plugin already creates a span per request with `http.*` attributes. Creating a second span inside the handler is redundant; add service spans inside the Effect pipeline instead.
+**Do not create spans at route level.** On Workers the handler span is Cloudflare's, with the request's method, URL and status; add service spans inside the Effect pipeline instead. The Elysia plugin (`observabilityPlugin`) starts no span: it echoes a sanitised `x-request-id` and records the RED metrics.
 
-**Mount the plugin before the routes.** It lifts its hooks to the app that mounts it (`.as("global")` in [plugin.ts](../../../shared/observability/src/elysia/plugin.ts)), and Elysia attaches a hook only to routes registered after it. A route registered before `.use(observabilityPlugin(...))` still runs `onRequest`, so its span starts and the in-flight gauge rises, but the span never ends and the gauge never falls.
+**Mount the plugin before the routes.** It lifts its hooks to the app that mounts it (`.as("global")` in [plugin.ts](../../../shared/observability/src/elysia/plugin.ts)), and Elysia attaches a hook only to routes registered after it. A route registered before `.use(observabilityPlugin())` still runs `onRequest`, so the in-flight gauge rises, but it never falls.
 
-**The span names the matched route template (`http.route`), never the URL path or query**, since paths hold handles and profile ids and queries carry codes and tokens.
+**Metric labels name the matched route template (`http.route`), never the URL path or query**, since paths hold handles and profile ids and queries carry codes and tokens.
 
-**An error span carries the error's name and Elysia's error code, never its message or stack.** `onError` records an exception event whose type is the error's name and whose message is the code (`UNKNOWN`, `VALIDATION`, `NOT_FOUND`, or a thrown error's own `code`), and sets the span status to that code; a response of 500 or more then sets the status message to `HTTP <status>`. A message is free text that `redact()` cannot clean, since it scrubs object keys, and Elysia's validation errors carry the rejected input in theirs.
+## Trace context across services
 
-## Exporter: env-driven, true no-op when unset (PR #129)
+**No call between services carries trace context.** Cloudflare does not propagate it: "Trace context is also not propagated automatically" ([custom spans](https://developers.cloudflare.com/workers/observability/traces/custom-spans/), read 2026-11-05), and "trace IDs are not propagated to services outside of Cloudflare" ([known limitations](https://developers.cloudflare.com/workers/observability/traces/known-limitations/)). The services call each other over public HTTPS, not service bindings. No service writes a `traceparent` from its span ids either; that is this repository's choice, since a span's `traceFlags` does not say whether the request is sampled, which Cloudflare warns about. So each service's trace stands alone.
 
-`makeTracingLayer` reads `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS`
-from env:
+**Nor is an inbound `traceparent` adopted.** On `wrangler dev` a handler span starts a trace of its own when the caller sends a forged `traceparent`, so no caller chooses another service's trace id or sampling decision; the E2E test above checks it on every run. Cloudflare lists propagation as coming, with no date, so that test is the one to fail first when it lands.
 
-- **Endpoint unset** → a **true `NoopTracingLive`** layer. No NodeSdk, no exporter,
-  no perpetually-failing background export. (Previously an `undefined` exporter URL
-  was silently resolved to `http://localhost:4318` and spammed failed exports — that
-  is gone.)
-- **Endpoint set** → real OTLP export to `<endpoint>/v1/traces` (built by the pure
-  `otlpExporterUrl` helper, trailing slash stripped). `OTEL_EXPORTER_OTLP_HEADERS`
-  supplies the auth header and is a **secret**.
+What is left for following a call from one service to the next: the caller's `fetch` span (its URL path, status and time) against the callee's handler span for that path at that time. osn-api's Workers entry, and the Elysia plugin on pulse-api and zap-api, echo a well-formed inbound `x-request-id`, but no caller sends one and no log line or span records it.
 
-Set the two env vars (plus the optional `OTEL_SERVICE_NAME`) to start exporting spans.
-See [[overview]] and [[observability-setup]] for the full env list.
+## Bun: OTLP export
 
-## Trace propagation
+On Bun, `initObservability()` (osn, pulse and zap `src/local.ts`) builds `makeTracingLayer`, `@effect/opentelemetry`'s `NodeSdk` with an OTLP/HTTP exporter. It exports the process's Effect spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set:
 
-**Propagate trace context across services via the shared `fetch` wrapper.** Any outbound HTTP from our code goes through `instrumentedFetch` from `@shared/observability/fetch` -- it injects `traceparent` + (if configured) the ARC token header. Never use raw `fetch()` for service-to-service calls.
+- **Endpoint unset** → a **true `NoopTracingLive`** layer. No NodeSdk, no exporter, no perpetually-failing background export.
+- **Endpoint set** → real OTLP export to `<endpoint>/v1/traces` (built by the pure `otlpExporterUrl` helper, trailing slash stripped). `OTEL_EXPORTER_OTLP_HEADERS` supplies the auth header and is a **secret**.
+- A root trace is sampled at `OSN_TRACE_SAMPLE_RATIO` (0.1 by default in production, 1.0 elsewhere), and a child follows its parent.
 
-## Inbound traceparent trust boundary
-
-**Inbound `traceparent` is only trusted from ARC-authenticated callers.** The Elysia plugin extracts upstream trace context when -- and only when -- the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans to prevent external attackers from forcing sampling decisions or injecting chosen trace IDs into our internal traces.
-
-## Elysia hook limitation (known)
-
-Elysia's `onRequest -> handler -> onAfterResponse` hooks run as separate invocations, not inside a single enclosing callback. OTel's `context.with(ctx, fn)` scope only lives for the duration of `fn`, so there is no way to make a single OTel `Context` active across the hook -> handler boundary via hooks alone.
-
-**Consequences:**
-- `trace.getActiveSpan()` inside a synchronous handler does NOT see the server span
-- Effect service spans created via `Effect.withSpan` become root spans rather than children of the HTTP request
-
-**Mitigations:**
-- Distributed tracing across services still works (inbound/outbound `traceparent` propagation is unaffected)
-- For handlers that explicitly want child spans, use `getRequestContext(request)` + `context.with(...)` as an escape hatch
+cire-api's Bun dev server builds no NodeSdk layer, so it exports nothing; run `bunx wrangler dev` and read wrangler's local explorer to see its traces. See [[overview]] and [[observability-setup]] for the env list.
 
 ## WebSocket spans
 

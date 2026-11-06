@@ -3,7 +3,7 @@
  * no distinguishing exit code, only a `Plan:` line (alchemy
  * src/Cli/LoggingCli.ts:84-135), so this reads that line.
  */
-export type PlanSummary =
+type PlanSummary =
   | { readonly kind: "no-changes" }
   | { readonly kind: "no-resources" }
   | { readonly kind: "changes"; readonly counts: Readonly<Record<string, number>> }

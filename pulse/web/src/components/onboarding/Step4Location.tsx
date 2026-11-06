@@ -4,7 +4,7 @@ import locationPin from "../../assets/onboarding/location-pin.svg?raw";
 import type { PermOutcome } from "../../lib/onboarding";
 import { StepShell } from "./StepShell";
 
-export interface Step4LocationProps {
+interface Step4LocationProps {
   totalSteps: number;
   perm: PermOutcome;
   onRequest: () => void;

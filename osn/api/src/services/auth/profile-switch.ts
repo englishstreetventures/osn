@@ -124,5 +124,3 @@ export function createProfileSwitchModule(
     switchProfile,
   };
 }
-
-export type ProfileSwitchModule = ReturnType<typeof createProfileSwitchModule>;

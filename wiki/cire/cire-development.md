@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Cire development guide
@@ -747,6 +747,40 @@ walk passes. On a failed walk, reject that release — or dispatch one with
 `surfaces` set to leave the portal out, if the other surfaces must ship — and
 revert. Leaving the release waiting instead holds every surface in it, not only
 the portal, and holds back the next release behind it.
+
+## Links to a site's own pages
+
+Link every page of a cire site by the address it is served at, with its
+trailing slash: `/privacy/`, `/privacy/guests/`, `/terms/`, `/login/?returnTo=…`,
+`${vendorPortalOrigin}/claim/?token=…`. Astro builds each page as
+`<dir>/index.html` (its default `build.format: "directory"`), and the sites'
+Workers serve their assets with `htmlHandling: "auto-trailing-slash"`
+(`cire/infra/src/declaration.ts`), which answers the slash-less address with a
+307 to the slash form; Pages answers it with a 308. A slash-less link therefore
+costs every click a redirect, and tells a search engine the address is a
+temporary one. The owner accepted the 307 for addresses typed or linked from
+elsewhere, on the condition that cire's own links use the slash form
+(englishstreetventures/osn#1988).
+
+The rule covers every link cire's code writes: an `href` on a site, a
+`location.href` or `history.replaceState` in a portal, a URL cire-api puts in an
+email or a sign-in redirect. A comparison against a page's path takes the
+page with any trailing slashes, since the dev server answers both forms, as a
+start-anchored pattern: `/^\/login\/*$/.test(pathname)`. The anchor reads a
+run of slashes in the address once, however long, and the bundle holds no
+quoted slash-less path for the guard below to flag. Text a person reads, such as
+"cireweddings.com/privacy", stays as it is.
+
+[`scripts/check-directory-links.ts`](../../scripts/check-directory-links.ts)
+holds the sites to it. After the build, it lists every directory page of
+cire landing, host, vendor and the guest site, then reads each site's HTML and
+JavaScript (the guest site's server chunks too) for a link that names one
+without its slash, in any form the minified output takes: a quoted or unquoted
+`href`, a template literal opening on an origin variable, an absolute URL on a
+cire host. It fails on a site whose scan finds no slash-form link at all, so a
+scan that stops reading the build cannot pass. CI's Build & Test job runs it
+after the build; locally, `bun run scripts/check-directory-links.ts` after
+`bun run build`.
 
 ## Guest-site SSR bundle size
 

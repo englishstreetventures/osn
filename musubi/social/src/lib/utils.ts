@@ -37,7 +37,7 @@ function decodeJwtPayload(accessToken: string): AccessTokenPayload | null {
   }
 }
 
-export interface TokenClaims {
+interface TokenClaims {
   profileId: string | null;
   email: string | null;
   handle: string | null;

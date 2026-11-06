@@ -8,6 +8,9 @@
 @source "../../../ui/src";
 /* This site draws no file picker, so `FileInput`'s button rules stay out. */
 @source not "../../../ui/src/file-input.tsx";
+/* Nor the portals' hollow loading rows. A page that draws `SkeletonOutline`
+   needs this line gone. */
+@source not "../../../ui/src/skeleton-outline.tsx";
 /* Nor the portals' glass: a segmented strip and the glass it shares. A page
    that draws `SegmentedTabs` or `GLASS_FILL` needs these two lines gone. */
 @source not "../../../ui/src/segmented-tabs.tsx";
@@ -422,7 +425,8 @@
     descent-override   = abs(webfont.descent / webfont.unitsPerEm) / sizeAdjust
     line-gap-override  = (webfont.lineGap / webfont.unitsPerEm) / sizeAdjust
 
-  Source metrics, `@capsizecss/metrics` `entireMetricsCollection` (devDependency):
+  Source metrics, copied from the npm package `@capsizecss/metrics`
+  (`entireMetricsCollection`); install it ad hoc to re-read them:
     cormorantGaramond: ascent 924, descent -287, lineGap 0, unitsPerEm 1000, xWidthAvg 394
     lato:              ascent 1974, descent -426, lineGap 0, unitsPerEm 2000, xWidthAvg 871
     georgia:           unitsPerEm 2048, xWidthAvg 913

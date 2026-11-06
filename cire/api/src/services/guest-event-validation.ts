@@ -155,7 +155,7 @@ export function startsWithTwelveHourTime(line: string): boolean {
 }
 
 /** What one Run of Show line holds, or which rule it breaks. */
-export type RunOfShowLine =
+type RunOfShowLine =
   | { readonly ok: true; readonly item: RunOfShowItem }
   | { readonly ok: false; readonly problem: "time" | "label" | "long" };
 

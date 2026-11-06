@@ -20,7 +20,7 @@ const REFUSALS = {
 
 const FALLBACK = "Could not check the code. Try again.";
 
-export type RedeemOutcome = { ok: true; tier: PaidTier } | { ok: false; message: string };
+type RedeemOutcome = { ok: true; tier: PaidTier } | { ok: false; message: string };
 
 function refusal(status: number, body: { error?: unknown; tier?: unknown } | null): string {
   const error = body?.error;

@@ -64,7 +64,7 @@ import { requestOptions, type RequestOptions, storedTransports } from "./webauth
  * on, because that window's question is "is the target older than the thing
  * asking to remove it".
  */
-export type ProvenanceCheck =
+type ProvenanceCheck =
   | {
       readonly gate: "passkey_mutation";
       /** The passkey being deleted or renamed. */
@@ -133,7 +133,7 @@ const PROVENANCE_VALUES = new Set<string>(["webauthn", "otp", "totp", "recovery"
  * owner derived from a passkey they still hold. That is exactly the credential
  * that has to be able to delete what the recovery enrolled.
  */
-export function provenanceRefusal(
+function provenanceRefusal(
   claims: StepUpProvenanceClaims,
   check: ProvenanceCheck,
   nowMs: number,

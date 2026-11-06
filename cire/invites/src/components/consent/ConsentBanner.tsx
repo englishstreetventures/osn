@@ -240,11 +240,11 @@ function PromptCopy(props: { id?: string }) {
       the Pinterest moodboard — load from Google and Pinterest, who can see your IP address and
       browser, so they stay off until you allow them. “Accept all” turns them on; you can change
       this any time from the footer.{" "}
-      <a href="/privacy" class={proseLinkClass()}>
+      <a href="/privacy/" class={proseLinkClass()}>
         Privacy notice
       </a>
       {" · "}
-      <a href="/terms" class={proseLinkClass()}>
+      <a href="/terms/" class={proseLinkClass()}>
         Terms
       </a>
     </p>

@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-05
 ---
 
 # Contributing
@@ -134,7 +134,7 @@ Before opening a PR, verify:
 Every feature PR should also answer:
 
 - [ ] **Logs** -- are all error paths covered by `Effect.logError`? Any `console.*` calls? Any new secret fields for the redaction deny-list?
-- [ ] **Traces** -- is every service function wrapped in `Effect.withSpan`? Span names consistent? Outbound HTTP through `instrumentedFetch`?
+- [ ] **Traces** -- is every service function wrapped in `Effect.withSpan`? Span names consistent, under 64 bytes, attributes free of PII?
 - [ ] **Metrics** -- new counters/histograms needed? Added to correct `metrics.ts`? Typed `Attrs`? Cardinality bounded?
 
 ## Related

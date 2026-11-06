@@ -1,9 +1,9 @@
 import { Schema } from "effect";
 
 /** Longest table or plan name, after trimming. */
-export const MAX_TABLE_NAME_CHARS = 80;
+const MAX_TABLE_NAME_CHARS = 80;
 /** Largest table. A long banquet table or a head table is the case at the top. */
-export const MAX_TABLE_CAPACITY = 100;
+const MAX_TABLE_CAPACITY = 100;
 /** Most tables one plan holds — and so the longest reorder a request sends,
  *  and the most tables one copy of a plan writes. */
 export const MAX_TABLES_PER_PLAN = 100;

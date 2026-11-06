@@ -15,12 +15,23 @@ import type { Layer } from "effect";
 
 import type { ObservabilityConfig } from "../config";
 import { NoopTracingLive } from "./noop";
-import { otlpExporterUrl } from "./url";
 
-// `otlpExporterUrl` is shared with the workerd-safe `./otlp.ts` exporter and so
-// lives in `./url.ts`, which imports nothing. Re-exported here because this is
-// the path it has always been imported from.
-export { otlpExporterUrl } from "./url";
+/**
+ * Build the per-signal OTLP HTTP endpoint URL from the base endpoint.
+ *
+ * `OTEL_EXPORTER_OTLP_ENDPOINT` is the *base* (e.g.
+ * `https://otlp.grafana.net/otlp`); the OTLP/HTTP spec routes traces to
+ * `<base>/v1/traces` and metrics to `<base>/v1/metrics`. We build the full
+ * URL ourselves (and strip a trailing slash so we never emit `//v1/...`)
+ * rather than leaning on the exporter's own env fallback — that fallback
+ * silently defaults to `http://localhost:4318` when nothing is set, which is
+ * exactly the "blind, perpetually-failing export" we want to avoid. Returns
+ * `undefined` when no endpoint is configured so the caller can stay a no-op.
+ */
+export const otlpExporterUrl = (
+  endpoint: string | undefined,
+  signal: "traces" | "metrics",
+): string | undefined => (endpoint ? `${endpoint.replace(/\/+$/, "")}/v1/${signal}` : undefined);
 
 /**
  * Build the `@effect/opentelemetry` NodeSdk layer.
@@ -31,6 +42,10 @@ export { otlpExporterUrl } from "./url";
  * (`NoopTracingLive`) — NOT the NodeSdk with an undefined URL, which would
  * fall back to `http://localhost:4318` and spam failing export attempts.
  * Setting the two env vars is all that's needed to turn export on.
+ *
+ * A root trace is sampled at `config.traceSampleRatio` (`OSN_TRACE_SAMPLE_RATIO`)
+ * and a child span follows its parent's decision. The standard
+ * `OTEL_TRACES_SAMPLER` variables are not read.
  */
 export const makeTracingLayer = (config: ObservabilityConfig): Layer.Layer<never> => {
   if (!config.otlpEndpoint) return NoopTracingLive;
@@ -59,8 +74,14 @@ export const makeTracingLayer = (config: ObservabilityConfig): Layer.Layer<never
       // Flush metrics every 30s in prod, every 5s in dev for faster feedback.
       exportIntervalMillis: config.env === "production" ? 30_000 : 5_000,
     }),
-    sampler: new ParentBasedSampler({
-      root: new TraceIdRatioBasedSampler(config.traceSampleRatio),
-    }),
+    // `NodeSdk.layer` builds the tracer provider from `spanProcessor` and
+    // `tracerConfig` alone, so a `sampler` key at this level is ignored. The
+    // type check does not flag one: a callback's returned literal gets no
+    // excess-property check.
+    tracerConfig: {
+      sampler: new ParentBasedSampler({
+        root: new TraceIdRatioBasedSampler(config.traceSampleRatio),
+      }),
+    },
   }));
 };

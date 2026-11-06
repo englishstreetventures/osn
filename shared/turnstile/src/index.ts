@@ -19,24 +19,25 @@
  *    request through without a valid token.
  *
  * The secret is never logged, never returned to the caller, and never sent
- * anywhere except Cloudflare's siteverify endpoint over POST. Outbound goes
- * through `instrumentedFetch` so the call shows up on the trace tree (the token
- * + secret are NOT annotated onto the span — only the boolean outcome + error
- * codes, which carry no PII).
+ * anywhere except Cloudflare's siteverify endpoint over POST. On Workers,
+ * Cloudflare traces the POST as a `fetch` span, which records its URL and
+ * status, never its body (the token and the secret travel in the body). The
+ * caller gets back only the boolean outcome and Cloudflare's error codes, which
+ * carry no PII.
  */
-
-import { instrumentedFetch } from "@shared/observability/fetch";
 
 /** Cloudflare's managed siteverify endpoint. */
 export const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
 /**
- * Minimal fetch shape this module needs. Both the global `fetch` and
- * `@shared/observability`'s `instrumentedFetch` satisfy it; using a structural
- * type (rather than `typeof fetch`) avoids coupling to lib-dom's `preconnect`
- * member, which the instrumented wrapper doesn't expose.
+ * Minimal fetch shape this module needs. The global `fetch` satisfies it; a
+ * structural type (rather than `typeof fetch`) avoids coupling to lib-dom's
+ * `preconnect` member, which a test's stand-in doesn't have.
  */
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+
+/** The global `fetch`, read on each call so a test's stub is always the one called. */
+const globalFetch: FetchLike = (input, init) => fetch(input, init);
 
 /** Result of a single siteverify attempt. `ok` is the only field a gate needs. */
 export interface TurnstileVerifyResult {
@@ -77,13 +78,13 @@ interface SiteverifyResponse {
  * use {@link createTurnstileVerifier} so the key-optional branch is handled.
  *
  * `fetchImpl` is injectable purely for unit tests — production always uses the
- * instrumented fetch. Never throws: any failure maps to `{ ok: false }`.
+ * global fetch. Never throws: any failure maps to `{ ok: false }`.
  */
 export async function siteverify(
   secret: string,
   token: string,
   remoteip: string | null | undefined,
-  fetchImpl: FetchLike = instrumentedFetch,
+  fetchImpl: FetchLike = globalFetch,
 ): Promise<TurnstileVerifyResult> {
   const form = new URLSearchParams();
   form.set("secret", secret);
@@ -127,11 +128,11 @@ export async function siteverify(
  *  - `secret` present ⇒ returns a fail-closed {@link TurnstileVerifier}.
  *
  * @param secret   the `TURNSTILE_SECRET_KEY` wrangler secret, or undefined.
- * @param fetchImpl test seam; defaults to the instrumented fetch.
+ * @param fetchImpl test seam; defaults to the global fetch.
  */
 export function createTurnstileVerifier(
   secret: string | undefined | null,
-  fetchImpl: FetchLike = instrumentedFetch,
+  fetchImpl: FetchLike = globalFetch,
 ): TurnstileVerifier | null {
   const trimmed = secret?.trim();
   if (!trimmed) return null;

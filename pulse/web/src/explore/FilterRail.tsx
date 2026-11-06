@@ -16,8 +16,6 @@ const CATEGORIES = [
   { id: "late", label: "Late night", ico: "\u263E" },
 ] as const;
 
-export type CategoryId = (typeof CATEGORIES)[number]["id"];
-
 export function FilterRail(props: {
   active: string;
   onSelect: (id: string) => void;

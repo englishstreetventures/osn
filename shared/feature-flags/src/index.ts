@@ -19,8 +19,8 @@
  * Evaluation itself is **synchronous and offline** — we hand a pre-fetched
  * payload to the GrowthBook SDK's `initSync`, which does no I/O and needs no
  * Node APIs, so it runs cleanly in the Workers runtime. The only network is the
- * cached payload fetch, which goes through `instrumentedFetch` (shows on the
- * trace tree) and **fails safe**: an unreachable CDN falls back to the last
+ * cached payload fetch (on Workers, Cloudflare traces it as a `fetch` span) and
+ * **fails safe**: an unreachable CDN falls back to the last
  * good payload, and with no payload at all every flag resolves to its coded
  * default. A flag lookup never throws and never blocks a request on GrowthBook.
  *
@@ -35,7 +35,6 @@ import {
   type FeatureDefinitions,
   type SavedGroupsValues,
 } from "@growthbook/growthbook";
-import { instrumentedFetch } from "@shared/observability/fetch";
 
 /**
  * The registry literal, defaults still at their literal types (`false`, not
@@ -151,8 +150,11 @@ export interface FeatureFlags {
   forRequest(attributes?: FlagAttributes, options?: ForRequestOptions): Promise<FlagEvaluator>;
 }
 
-/** Minimal fetch shape — both global `fetch` and `instrumentedFetch` satisfy it. */
+/** Minimal fetch shape — the global `fetch` satisfies it. */
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+
+/** The global `fetch`, read on each call so a test's stub is always the one called. */
+const globalFetch: FetchLike = (input, init) => fetch(input, init);
 
 /**
  * Minimal KV shape this module needs (a subset of Cloudflare's `KVNamespace`).
@@ -245,7 +247,7 @@ export function createFeatureFlags(config: FeatureFlagsConfig): FeatureFlags {
   const apiHost = (config.apiHost?.trim() || DEFAULT_API_HOST).replace(/\/+$/, "");
   const ttlMs = (config.ttlSeconds ?? DEFAULT_TTL_SECONDS) * 1000;
   const staleServeMs = ttlMs * STALE_SERVE_TTLS;
-  const fetchImpl = config.fetchImpl ?? instrumentedFetch;
+  const fetchImpl = config.fetchImpl ?? globalFetch;
   const kv = config.kv ?? null;
   const ctx = config.ctx ?? null;
   const clock = config.now ?? Date.now;

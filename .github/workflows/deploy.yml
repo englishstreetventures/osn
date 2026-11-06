@@ -30,12 +30,17 @@ name: Deploy
 #   2. checks that the dev token reaches the dev account alone, acts on no
 #      zone of another account and no production zone, and acts on the
 #      DEV_DOMAIN zone (`token:check`), before any other step holds it;
-#   3. records each Worker's newest deployment (scripts/worker-deployments.ts
+#   3. refuses, and succeeds, when the stack already passed on dev at a
+#      commit newer than this one (scripts/dev-deploy-order.ts), so a run that
+#      reached the stack's group late never puts older code back; the
+#      snapshot, the musubi job's `cire_seed` step, the deploy, every check
+#      after them and every record job then skip;
+#   4. records each Worker's newest deployment (scripts/worker-deployments.ts
 #      snapshot); in the musubi job, derives osn-api's cire seed values from
 #      three cire-api secrets (the `cire_seed` step); deploys the stack, then
 #      names the deployment the deploy made for each Worker, or `unchanged`
 #      when it uploaded none (compare);
-#   4. runs scripts/smoke-check.ts for every surface of the stack. A failing
+#   5. runs scripts/smoke-check.ts for every surface of the stack. A failing
 #      check rolls back the deployment this run made, never one it did not,
 #      and the job fails once every surface has been checked.
 # A Worker a smoke check rolled back still matches Alchemy's state, so the next
@@ -76,12 +81,15 @@ on:
         default: false
 
 # Read-only: this workflow deploys to Cloudflare, it never writes to the repo.
+# The stack jobs also read deployments and Actions runs, for the order check.
 permissions:
   contents: read
 
 # Concurrency is set per stack job (below), not here: one group per stack
 # (`deploy-dev-<stack>`), so two runs never deploy the same stack at once while
-# the other stacks stay parallel.
+# the other stacks stay parallel. `queue: max` keeps up to 100 jobs waiting for
+# the group, first in first out; GitHub's default, `single`, cancels a waiting
+# job when another joins, and with it a newer commit's deploy.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -214,9 +222,17 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 45
+    # The order check reads the dev Environment's Deployment records and the
+    # Actions runs and jobs they link. A job-level block replaces the
+    # workflow's, so it names contents too.
+    permissions:
+      contents: read
+      deployments: read
+      actions: read
     concurrency:
       group: deploy-dev-musubi
       cancel-in-progress: false
+      queue: max
     outputs:
       # False when the deploy or the compare failed: a Worker whose new
       # version may not have uploaded must not record success.
@@ -231,7 +247,13 @@ jobs:
           echo "::error::force re-uploads every resource, so a plan can never be 'no changes'. Dispatch one or the other."
           exit 1
 
+      # Full history, from which the order check tells an older commit from a
+      # newer one. No later step fetches or pushes, so the job token, which
+      # can read deployments and Actions runs here, stays off the disk.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
       - uses: actions/setup-node@v4
@@ -321,8 +343,30 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
+      # Two pushes close together each start a run, and the older commit's job
+      # can reach this stack's group after the newer one's has deployed.
+      # scripts/dev-deploy-order.ts writes deploy=false when the stack already
+      # passed on dev at a commit newer than this one, by the dev Environment's
+      # Deployment records; the snapshot, the cire_seed step and the deploy
+      # then skip, and the job succeeds with a line in the run summary naming
+      # both commits. It holds the job token alone. At main's newest commit it
+      # reads nothing.
+      - name: Refuse a commit older than one the stack already passed on dev
+        id: order
+        timeout-minutes: 5
+        run: bun run scripts/dev-deploy-order.ts --stack musubi
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Refuse force or expect_no_change on a commit the stack has passed
+        if: ${{ (inputs.force == true || inputs.expect_no_change == true) && steps.order.outputs.deploy == 'false' }}
+        run: |
+          echo "::error::The stack already passed on dev at a newer commit, so this run deploys nothing: force would re-upload nothing and expect_no_change would prove nothing. Dispatch Deploy again."
+          exit 1
+
       - name: Record each Worker's newest deployment
         id: snapshot
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" osn_api osn_social musubi_landing
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
@@ -340,9 +384,11 @@ jobs:
       # key id as outputs, and masks the hash in this job's log. It imports
       # node built-ins alone (DV6 in
       # musubi/infra/tests/scripts/derive-cire-seed.test.ts), so no package
-      # code runs beside the secrets.
+      # code runs beside the secrets. Like the deploy, the one step that reads
+      # its outputs, it runs only when the order check lets the commit deploy.
       - name: Derive osn-api's cire seed values
         id: cire_seed
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         run: bun --no-install musubi/infra/scripts/derive-cire-seed.ts
         env:
           CIRE_OIDC_CLIENT_SECRET: ${{ secrets.CIRE_OIDC_CLIENT_SECRET }}
@@ -353,6 +399,7 @@ jobs:
       # and every required secret below are set, before anything uploads.
       - name: Deploy the musubi stack
         id: deploy
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         working-directory: musubi/infra
         run: |
           set -o pipefail
@@ -507,9 +554,17 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 45
+    # The order check reads the dev Environment's Deployment records and the
+    # Actions runs and jobs they link. A job-level block replaces the
+    # workflow's, so it names contents too.
+    permissions:
+      contents: read
+      deployments: read
+      actions: read
     concurrency:
       group: deploy-dev-cire
       cancel-in-progress: false
+      queue: max
     outputs:
       # False when the deploy or the compare failed: a Worker whose new
       # version may not have uploaded must not record success.
@@ -526,7 +581,13 @@ jobs:
           echo "::error::force re-uploads every resource, so a plan can never be 'no changes'. Dispatch one or the other."
           exit 1
 
+      # Full history, from which the order check tells an older commit from a
+      # newer one. No later step fetches or pushes, so the job token, which
+      # can read deployments and Actions runs here, stays off the disk.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
       - uses: actions/setup-node@v4
@@ -686,8 +747,29 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
+      # Two pushes close together each start a run, and the older commit's job
+      # can reach this stack's group after the newer one's has deployed.
+      # scripts/dev-deploy-order.ts writes deploy=false when the stack already
+      # passed on dev at a commit newer than this one, by the dev Environment's
+      # Deployment records; the snapshot and the deploy then skip, and the job
+      # succeeds with a line in the run summary naming both commits. It holds
+      # the job token alone. At main's newest commit it reads nothing.
+      - name: Refuse a commit older than one the stack already passed on dev
+        id: order
+        timeout-minutes: 5
+        run: bun run scripts/dev-deploy-order.ts --stack cire
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Refuse force or expect_no_change on a commit the stack has passed
+        if: ${{ (inputs.force == true || inputs.expect_no_change == true) && steps.order.outputs.deploy == 'false' }}
+        run: |
+          echo "::error::The stack already passed on dev at a newer commit, so this run deploys nothing: force would re-upload nothing and expect_no_change would prove nothing. Dispatch Deploy again."
+          exit 1
+
       - name: Record each Worker's newest deployment
         id: snapshot
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" cire_api cire_invites cire_host cire_vendor cire_landing
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
@@ -706,6 +788,7 @@ jobs:
       # with the Worker version before it.
       - name: Deploy the cire stack
         id: deploy
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         working-directory: cire/infra
         run: |
           set -o pipefail
@@ -720,13 +803,15 @@ jobs:
           # The profile given the seeded weddings' owner seat; empty seeds none.
           CIRE_DEV_OWNER_PROFILE_ID: ${{ vars.CIRE_DEV_OWNER_PROFILE_ID }}
           # cire-api's dev Worker secrets; CIRE_INTERNAL_REVOKE_SECRET (shared
-          # with osn-api) and CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS are declared
-          # only while they hold a value. The guest site holds none.
+          # with osn-api), CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS and
+          # STRIPE_CONNECT_CLIENT_ID are declared only while they hold a value.
+          # The guest site holds none.
           CIRE_API_ARC_KEY_ID: ${{ secrets.CIRE_API_ARC_KEY_ID }}
           CIRE_API_ARC_PRIVATE_KEY: ${{ secrets.CIRE_API_ARC_PRIVATE_KEY }}
           CIRE_INTERNAL_REVOKE_SECRET: ${{ secrets.CIRE_INTERNAL_REVOKE_SECRET }}
           CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: ${{ secrets.CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS }}
           CIRE_OIDC_CLIENT_SECRET: ${{ secrets.CIRE_OIDC_CLIENT_SECRET }}
+          STRIPE_CONNECT_CLIENT_ID: ${{ secrets.STRIPE_CONNECT_CLIENT_ID }}
           STRIPE_PLATFORM_WEBHOOK_SECRET: ${{ secrets.STRIPE_PLATFORM_WEBHOOK_SECRET }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
@@ -933,9 +1018,17 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 30
+    # The order check reads the dev Environment's Deployment records and the
+    # Actions runs and jobs they link. A job-level block replaces the
+    # workflow's, so it names contents too.
+    permissions:
+      contents: read
+      deployments: read
+      actions: read
     concurrency:
       group: deploy-dev-zap
       cancel-in-progress: false
+      queue: max
     outputs:
       # False when the deploy or the compare failed: a Worker whose new
       # version may not have uploaded must not record success.
@@ -948,7 +1041,13 @@ jobs:
           echo "::error::force re-uploads every resource, so a plan can never be 'no changes'. Dispatch one or the other."
           exit 1
 
+      # Full history, from which the order check tells an older commit from a
+      # newer one. No later step fetches or pushes, so the job token, which
+      # can read deployments and Actions runs here, stays off the disk.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -984,8 +1083,29 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
+      # Two pushes close together each start a run, and the older commit's job
+      # can reach this stack's group after the newer one's has deployed.
+      # scripts/dev-deploy-order.ts writes deploy=false when the stack already
+      # passed on dev at a commit newer than this one, by the dev Environment's
+      # Deployment records; the snapshot and the deploy then skip, and the job
+      # succeeds with a line in the run summary naming both commits. It holds
+      # the job token alone. At main's newest commit it reads nothing.
+      - name: Refuse a commit older than one the stack already passed on dev
+        id: order
+        timeout-minutes: 5
+        run: bun run scripts/dev-deploy-order.ts --stack zap
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Refuse force or expect_no_change on a commit the stack has passed
+        if: ${{ (inputs.force == true || inputs.expect_no_change == true) && steps.order.outputs.deploy == 'false' }}
+        run: |
+          echo "::error::The stack already passed on dev at a newer commit, so this run deploys nothing: force would re-upload nothing and expect_no_change would prove nothing. Dispatch Deploy again."
+          exit 1
+
       - name: Record each Worker's newest deployment
         id: snapshot
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" zap_api
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
@@ -1001,6 +1121,7 @@ jobs:
       # and the secret below are set, before anything uploads.
       - name: Deploy the zap stack
         id: deploy
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         working-directory: zap/infra
         run: |
           set -o pipefail
@@ -1077,9 +1198,17 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 30
+    # The order check reads the dev Environment's Deployment records and the
+    # Actions runs and jobs they link. A job-level block replaces the
+    # workflow's, so it names contents too.
+    permissions:
+      contents: read
+      deployments: read
+      actions: read
     concurrency:
       group: deploy-dev-pulse
       cancel-in-progress: false
+      queue: max
     outputs:
       # False when the deploy or the compare failed: a Worker whose new
       # version may not have uploaded must not record success.
@@ -1092,7 +1221,13 @@ jobs:
           echo "::error::force re-uploads every resource, so a plan can never be 'no changes'. Dispatch one or the other."
           exit 1
 
+      # Full history, from which the order check tells an older commit from a
+      # newer one. No later step fetches or pushes, so the job token, which
+      # can read deployments and Actions runs here, stays off the disk.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
       - uses: actions/setup-node@v4
@@ -1172,8 +1307,29 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
+      # Two pushes close together each start a run, and the older commit's job
+      # can reach this stack's group after the newer one's has deployed.
+      # scripts/dev-deploy-order.ts writes deploy=false when the stack already
+      # passed on dev at a commit newer than this one, by the dev Environment's
+      # Deployment records; the snapshot and the deploy then skip, and the job
+      # succeeds with a line in the run summary naming both commits. It holds
+      # the job token alone. At main's newest commit it reads nothing.
+      - name: Refuse a commit older than one the stack already passed on dev
+        id: order
+        timeout-minutes: 5
+        run: bun run scripts/dev-deploy-order.ts --stack pulse
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Refuse force or expect_no_change on a commit the stack has passed
+        if: ${{ (inputs.force == true || inputs.expect_no_change == true) && steps.order.outputs.deploy == 'false' }}
+        run: |
+          echo "::error::The stack already passed on dev at a newer commit, so this run deploys nothing: force would re-upload nothing and expect_no_change would prove nothing. Dispatch Deploy again."
+          exit 1
+
       - name: Record each Worker's newest deployment
         id: snapshot
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" pulse_landing
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
@@ -1190,6 +1346,7 @@ jobs:
       # secret.
       - name: Deploy the pulse stack
         id: deploy
+        if: ${{ steps.order.outputs.deploy == 'true' }}
         working-directory: pulse/infra
         run: |
           set -o pipefail

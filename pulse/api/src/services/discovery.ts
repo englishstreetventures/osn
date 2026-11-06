@@ -18,7 +18,7 @@ export class DiscoveryValidationError extends Data.TaggedError("DiscoveryValidat
   readonly cause: unknown;
 }> {}
 
-export class DiscoveryError extends Data.TaggedError("DiscoveryError")<{
+class DiscoveryError extends Data.TaggedError("DiscoveryError")<{
   readonly cause: unknown;
 }> {}
 
@@ -40,7 +40,7 @@ const RadiusKm = Schema.Number.check(Schema.isBetween({ minimum: 0.1, maximum: 5
 const PriceMajor = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 99999.99 }));
 const CurrencySchema = Schema.Literals(SUPPORTED_CURRENCIES);
 
-export const DiscoveryParamsSchema = Schema.Struct({
+const DiscoveryParamsSchema = Schema.Struct({
   category: Schema.optional(CategoryString),
   from: Schema.optional(DateFromISOString),
   to: Schema.optional(DateFromISOString),
@@ -70,14 +70,12 @@ export const DiscoveryParamsSchema = Schema.Struct({
   }),
 );
 
-export type DiscoveryParams = Schema.Schema.Type<typeof DiscoveryParamsSchema>;
-
-export interface DiscoverySeriesSummary {
+interface DiscoverySeriesSummary {
   id: string;
   title: string;
 }
 
-export interface DiscoveryResult {
+interface DiscoveryResult {
   events: Event[];
   nextCursor: { startTime: string; id: string } | null;
   /**

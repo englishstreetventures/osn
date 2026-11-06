@@ -87,7 +87,7 @@ function providerOf(url: URL): MapsProvider | null {
 }
 
 /** One way to open the venue in a map: its words, and where it goes. */
-export interface MapsDestination {
+interface MapsDestination {
   label: string;
   href: string;
 }

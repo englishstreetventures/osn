@@ -18,7 +18,7 @@ packages:
   - "@pulse/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-11-05
 ---
 
 # Effect v4 API Shapes
@@ -126,7 +126,9 @@ Five more, and the first three fail quietly:
 
 `Logger.layer([…])` **replaces the whole active set**, so
 `Logger.tracerLogger` must be listed explicitly or log-to-span correlation
-disappears with no error and no failing type-check. Levels are string literals
+disappears with no error and no failing type-check (`@shared/observability`
+lists it wrapped in the same redaction as its other loggers, since it copies
+each line onto the span). Levels are string literals
 (`"Warn"`, not v3's `"Warning"`), the minimum level is
 `References.MinimumLogLevel` rather than `Logger.withMinimumLogLevel`,
 annotations live on the fiber rather than the logger's `Options`, and **the

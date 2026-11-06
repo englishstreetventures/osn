@@ -82,7 +82,7 @@ export interface PriorReply {
 }
 
 /** An incoming reply, after the route has normalised it. */
-export interface IncomingReply {
+interface IncomingReply {
   guestId: string;
   eventId: string;
   status: string;
@@ -292,7 +292,7 @@ const unseenIn = (weddingId: string, osnProfileId: string): SQL | undefined =>
   );
 
 /** One row of {@link buildUnseenHouseholdsQuery}: a (household, kind) group. */
-export interface UnseenHouseholdRow {
+interface UnseenHouseholdRow {
   familyId: string;
   familyName: string;
   kind: RsvpChangeKind;
@@ -352,7 +352,7 @@ export function buildUnseenHouseholdsQuery(db: Db, weddingId: string, osnProfile
 }
 
 /** One row of {@link buildUnseenPairsQuery}: a changed guest×event pair. */
-export interface UnseenPairRow {
+interface UnseenPairRow {
   guestId: string;
   eventId: string | null;
   /** The pair's oldest unseen seq in the window. */
@@ -400,7 +400,7 @@ export interface UnseenHousehold {
   at: Date;
 }
 
-export interface UnseenSummary {
+interface UnseenSummary {
   /** Households with an unseen change, among the rows read. */
   households: number;
   /** More rows are unseen than one read takes, so `households` is a floor. */

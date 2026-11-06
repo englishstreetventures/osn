@@ -1,5 +1,4 @@
 import { buttonClass } from "@cire/ui/button";
-import Eyebrow from "@cire/ui/eyebrow";
 
 import { OSN_ACCOUNT_URL } from "../lib/osn";
 
@@ -24,7 +23,6 @@ export default function SecurityPanel() {
   return (
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-1">
-        <Eyebrow>Security</Eyebrow>
         <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">
           Your devices &amp; passkeys
         </h2>

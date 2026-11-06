@@ -11,6 +11,9 @@
  * a shared file pointing at a product package inverts the layering and would
  * scan cire's classes into every musubi, pulse, lab and metrics build. */
 @source "../../../ui/src";
+/* No vendor view draws the hollow loading rows yet. A page that draws
+   `SkeletonOutline` needs this line gone. */
+@source not "../../../ui/src/skeleton-outline.tsx";
 
 /* ── The two ramps ──────────────────────────────────────────────────────────
  * Lifted wholesale from `cire/host`, deliberately value-for-value. The

@@ -3,7 +3,7 @@
 // the three notices, each its own URL. Plain links, so it works with no
 // JavaScript and each page prints on its own; the current page carries
 // `aria-current="page"` and the gold underline.
-export type PrivacyPage = 'overview' | 'hosts' | 'guests' | 'vendors'
+type PrivacyPage = 'overview' | 'hosts' | 'guests' | 'vendors'
 
 interface Props {
   readonly current: PrivacyPage
@@ -12,10 +12,10 @@ interface Props {
 const { current } = Astro.props
 
 const pages: ReadonlyArray<{ readonly id: PrivacyPage; readonly label: string; readonly href: string }> = [
-  { id: 'overview', label: 'Overview', href: '/privacy' },
-  { id: 'hosts', label: 'Hosts', href: '/privacy/hosts' },
-  { id: 'guests', label: 'Guests', href: '/privacy/guests' },
-  { id: 'vendors', label: 'Vendors', href: '/privacy/vendors' },
+  { id: 'overview', label: 'Overview', href: '/privacy/' },
+  { id: 'hosts', label: 'Hosts', href: '/privacy/hosts/' },
+  { id: 'guests', label: 'Guests', href: '/privacy/guests/' },
+  { id: 'vendors', label: 'Vendors', href: '/privacy/vendors/' },
 ]
 ---
 <nav class="privacy-nav" aria-label="Privacy notices">

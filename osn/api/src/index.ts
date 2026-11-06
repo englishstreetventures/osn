@@ -1,6 +1,7 @@
 import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { makeDbD1Live } from "@osn/db/service";
 import type { CoordinationNamespace } from "@shared/coordination";
+import { installWorkersTracing } from "@shared/observability/tracing";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 
@@ -11,7 +12,7 @@ import { createDurableCoordination } from "./lib/coordination/durable";
 import { selectEmailLayer } from "./lib/email-layer";
 import { readOsnRateLimitBindings, USER_TIERS } from "./lib/native-rate-limiters";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
-import { flushOsnTelemetry, osnLoggerLayer } from "./observability";
+import { osnLoggerLayer, runOsn } from "./observability";
 import * as accountErasure from "./services/account-erasure";
 import { setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
@@ -207,8 +208,8 @@ export async function buildAll(env: Env): Promise<App> {
 }
 
 /**
- * The omitted observability plugin used to sanitize the inbound
- * `x-request-id` and echo it back. On the Workers path it's off, so re-apply
+ * The observability plugin sanitizes the inbound `x-request-id` and echoes it
+ * back on Bun. On the Workers path it's off, so re-apply
  * the same guard at the entry: only echo a client-supplied id when it matches
  * the strict format; otherwise mint a fresh one. Never echo a client-controlled
  * value back untouched (log / header / terminal injection).
@@ -235,18 +236,15 @@ export interface OsnWorkerHandler {
    * `ctx` is OPTIONAL, and that is deliberate.
    *
    * workerd always passes an `ExecutionContext` as the third argument, and this
-   * handler needs it: `ctx.waitUntil` is the only sound way to drain buffered
-   * OTLP spans after the response has been produced (no fiber survives between
-   * requests on workerd — see `observability.ts`). Widening the signature was
-   * therefore unavoidable.
+   * handler needs it: its `tracing` is what mirrors the request's Effect spans
+   * into the Worker's Cloudflare trace, and `waitUntil` keeps background sends
+   * running after the response (`withBackgroundSink`).
    *
    * Making it optional rather than required keeps every two-argument caller
    * compiling and behaving exactly as before — `osn/api/tests/index-fetch.test.ts`
    * drives the real `handler.fetch(req, env)` with no context at all. Those
-   * callers simply skip the telemetry flush; nothing else changes, and a
-   * deployed Worker always has the context. A REQUIRED `ctx` would have been a
-   * breaking change to a deployed entrypoint for the sake of a stricter type
-   * that the runtime does not need.
+   * callers get no trace mirror and no background sink; a deployed Worker
+   * always has the context.
    */
   fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response>;
   scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void>;
@@ -254,6 +252,10 @@ export interface OsnWorkerHandler {
 
 export const handler: OsnWorkerHandler = {
   async fetch(request, env, ctx) {
+    // Mirror this invocation's Effect spans into its Cloudflare trace. First,
+    // before anything can open a span; without a context it clears instead.
+    installWorkersTracing(ctx?.tracing);
+
     // Tell the auth helpers which tier this is, from the binding rather than
     // `process.env`. The dev-OTP log line is gated on it, and a `process.env`
     // that reads empty on workerd would put a live OTP code in the log sink.
@@ -292,8 +294,8 @@ export const handler: OsnWorkerHandler = {
       }
     }
 
-    // Sanitize + echo the request id (the observability plugin used to do
-    // this; it's off on Workers). Inject the sanitized value on the way in so
+    // Sanitize + echo the request id (the observability plugin does this on
+    // Bun; it's off on Workers). Inject the sanitized value on the way in so
     // any downstream logging sees the safe id, and echo it on the response.
     const requestId = resolveRequestId(request);
     const forwarded = new Request(request, { headers: new Headers(request.headers) });
@@ -308,19 +310,6 @@ export const handler: OsnWorkerHandler = {
     const out = new Response(response.body, response);
     out.headers.set("x-request-id", requestId);
 
-    // Drain this request's spans to the OTLP collector. Scheduled only after
-    // `app.fetch` has resolved, so every span the request opened has ended, and
-    // through `waitUntil` so the isolate stays alive for the POST without the
-    // client waiting on it.
-    //
-    // This explicit drain is the ONLY reliable one on workerd — no fiber
-    // survives between requests, so the exporter's background interval either
-    // never fires or fires with no live context, and a failed background export
-    // disables the exporter (dropping spans) for 60 seconds. `flushOsnTelemetry`
-    // is a no-op when no OTLP endpoint is configured and can never reject; a
-    // caller that passed no `ExecutionContext` (unit tests) just skips it. See
-    // `shared/observability/src/tracing/otlp.ts`.
-    ctx?.waitUntil(flushOsnTelemetry());
     return out;
   },
 
@@ -345,14 +334,8 @@ export const handler: OsnWorkerHandler = {
   // an idempotent upsert; the once-per-isolate latch keeps every later cron
   // tick from re-POSTing. A failure here is logged and swallowed so a transient
   // downstream outage never aborts the sweeps (the next tick retries).
-  //
-  // No explicit telemetry flush here, unlike `fetch`: each sweep below runs
-  // through `Effect.provide(osnLoggerLayer)`, which opens AND closes that
-  // layer's scope around the run, and the OTLP exporter exports on scope close.
-  // Every sweep is already inside its own `ctx.waitUntil`, so the isolate stays
-  // alive for that POST. Switching these to the shared `runOsn` runtime would
-  // remove the scope close and therefore require a flush.
   async scheduled(_event, env, ctx) {
+    installWorkersTracing(ctx.tracing);
     setRuntimeTier(env.OSN_ENV);
     if (!env.DB) return;
     const dbLayer = makeDbD1Live(env.DB);
@@ -371,32 +354,30 @@ export const handler: OsnWorkerHandler = {
           internalServiceSecret: env.INTERNAL_SERVICE_SECRET,
           osnEnv: env.OSN_ENV,
         }).catch((err) =>
-          Effect.runPromise(
+          runOsn(
             Effect.logError("scheduled outbound ARC key registration failed", {
               reason: String(err),
-            }).pipe(Effect.provide(osnLoggerLayer)),
+            }),
           ),
         );
-        await Effect.runPromise(
+        await runOsn(
           accountErasure.runFanOutRetrySweep(fanoutUrls).pipe(
             Effect.catch((err) =>
               Effect.logError("scheduled fan-out retry sweep failed", { reason: String(err) }),
             ),
             Effect.provide(dbLayer),
-            Effect.provide(osnLoggerLayer),
           ),
         );
       })(),
     );
 
     ctx.waitUntil(
-      Effect.runPromise(
+      runOsn(
         accountErasure.runHardDeleteSweep().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled hard-delete sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
-          Effect.provide(osnLoggerLayer),
         ),
       ),
     );
@@ -405,13 +386,12 @@ export const handler: OsnWorkerHandler = {
     // redeemed code deletes itself; only abandoned or endpoint-spammed codes
     // outlive their 60s TTL, and left unswept they grow without bound.
     ctx.waitUntil(
-      Effect.runPromise(
+      runOsn(
         runExpiredAuthCodeSweep().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled OIDC code sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
-          Effect.provide(osnLoggerLayer),
         ),
       ),
     );
@@ -422,7 +402,7 @@ export const handler: OsnWorkerHandler = {
     // several ticks.
     const sweepChunks = rotatedSweepMaxChunks(env.OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS);
     ctx.waitUntil(
-      Effect.runPromise(
+      runOsn(
         Effect.gen(function* () {
           if (sweepChunks === "invalid") {
             yield* Effect.logWarning(
@@ -437,7 +417,6 @@ export const handler: OsnWorkerHandler = {
             Effect.logError("scheduled rotated-session sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
-          Effect.provide(osnLoggerLayer),
         ),
       ),
     );

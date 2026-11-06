@@ -9,7 +9,7 @@ import type { TaskRow } from "./tasks-store";
  * A task's holders with the picks still out laid over them: a seat picked off
  * leaves, and one picked on joins at the end, in the order it was picked.
  */
-export function withPicks(
+function withPicks(
   holders: readonly string[],
   picks: ReadonlyMap<string, boolean | undefined> | undefined,
 ): string[] {
@@ -33,7 +33,7 @@ export function readerFirst(holders: readonly string[], readerHostId: string | n
  * last, so only its own seat is taken from it: every other seat stays as the
  * cache has it, in the answer's order where the answer names it.
  */
-export function mergeHolders(
+function mergeHolders(
   cached: readonly string[],
   answered: readonly string[],
   hostId: string,
@@ -46,7 +46,7 @@ export function mergeHolders(
 }
 
 /** Why a write the organiser still wants was refused. */
-export type HolderRefusal = "not_in_wedding" | "failed";
+type HolderRefusal = "not_in_wedding" | "failed";
 
 interface HolderWritesOptions {
   /** Send one write: put the seat on the task, or take it off. */

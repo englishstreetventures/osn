@@ -11,7 +11,7 @@ import { apiUrl, weddingPath } from "./api";
 import type { Module } from "./dashboard-route";
 import { isPaidTier, isTier, type PaidTier, type Tier } from "./tiers";
 
-export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
+type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 const base = (weddingId: string) => weddingPath(weddingId, "/upgrade");
 
@@ -53,7 +53,7 @@ export interface Catalogue {
   upgrades: CatalogueEntry[];
 }
 
-export interface PurchaseState {
+interface PurchaseState {
   status: "pending" | "succeeded" | "failed" | "expired";
   /** The tier the purchase buys. `null` for a purchase that names no tier this
    *  build knows. */

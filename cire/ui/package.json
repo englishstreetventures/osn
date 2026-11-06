@@ -38,6 +38,7 @@
     "./sign-in-press": "./src/sign-in-press.ts",
     "./site-footer.astro": "./src/site-footer.astro",
     "./skeleton": "./src/skeleton.tsx",
+    "./skeleton-outline": "./src/skeleton-outline.tsx",
     "./sliding-pill": "./src/lib/sliding-pill.ts",
     "./username-input": "./src/username-input.tsx",
     "./wordmark": "./src/wordmark.tsx"
@@ -63,7 +64,6 @@
     "@solidjs/testing-library": "^0.8.10",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
-    "@vitest/browser": "5.0.5",
     "@vitest/browser-playwright": "5.0.5",
     "astro": "7.4.4",
     "happy-dom": "^21.0.4",

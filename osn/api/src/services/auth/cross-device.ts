@@ -394,5 +394,3 @@ export function createCrossDeviceModule(
     rejectCrossDeviceLogin,
   };
 }
-
-export type CrossDeviceModule = ReturnType<typeof createCrossDeviceModule>;

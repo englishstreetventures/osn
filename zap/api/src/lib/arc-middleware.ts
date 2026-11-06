@@ -28,7 +28,7 @@ interface RegisteredKey {
 
 const keyRegistry = new Map<string, RegisteredKey>(); // kid -> key
 
-export interface RegisterServiceKeyInput {
+interface RegisterServiceKeyInput {
   readonly serviceId: string;
   readonly keyId: string;
   readonly publicKeyJwk: string;
@@ -79,7 +79,7 @@ export function _resetServiceKeysForTests(): void {
   keyRegistry.clear();
 }
 
-export interface ArcCaller {
+interface ArcCaller {
   readonly iss: string;
   readonly aud: string;
   readonly scope: string;

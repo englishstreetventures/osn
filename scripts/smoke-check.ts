@@ -254,6 +254,16 @@ const sitePage = (origin: string, path: string): Probe => ({
 });
 
 /**
+ * The organiser portal's `/`, and the path cire-api's enquiry emails link
+ * (`/vendors/enquiries/<id>`), which no file answers: the portal's
+ * single-page fallback serves it.
+ */
+const organiserPortal = (origin: string): readonly Probe[] => [
+  sitePage(origin, "/"),
+  sitePage(origin, "/vendors/enquiries/smoke-check"),
+];
+
+/**
  * musubi social's Apple app-site association file, which iOS reads to offer
  * the app's passkeys on the site's host (osn/ios/project.yml). It is a hidden
  * file in the build, so an upload that drops dot-directories loses it.
@@ -346,11 +356,11 @@ export const SMOKE_TARGETS = {
     },
   },
   cire_host: {
-    productionSite: { worker: "cire-host", probes: (origin) => [sitePage(origin, "/")] },
+    productionSite: { worker: "cire-host", probes: organiserPortal },
     dev: {
       worker: "cire-host-dev",
       access: true,
-      probes: ({ origin }) => [sitePage(origin, "/")],
+      probes: ({ origin }) => organiserPortal(origin),
       needsMarketing: false,
     },
   },

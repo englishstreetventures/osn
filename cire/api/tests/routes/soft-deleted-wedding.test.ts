@@ -21,6 +21,7 @@ import { parseSessionToken } from "../../src/lib/cookie";
 import { createAssetsStub } from "../../src/services/invite-assets";
 import type { OsnOrgSummary } from "../../src/services/osn-bridge";
 import type { StripeClient } from "../../src/services/stripe";
+import type { StripeConnectOAuth } from "../../src/services/stripe-connect-oauth";
 import type { ZapChatClient } from "../../src/services/zap-bridge";
 import { appRequest, jsonBody } from "../test-helpers";
 import {
@@ -104,6 +105,7 @@ const LIMITER_OPTIONS = [
   "upgradeLimiter",
   "unlockCodeLimiter",
   "registryStripeLimiter",
+  "stripeOAuthCallbackLimiter",
 ] as const satisfies readonly (keyof AppOptions)[];
 
 const freshLimiters = (): Partial<AppOptions> =>
@@ -127,6 +129,14 @@ const stripe: StripeClient = {
   retrievePlatformCheckoutSession: unreached,
   expirePlatformCheckoutSession: unreached,
   retrievePrice: unreached,
+};
+// OAuth too, so its start and callback are on the app.
+const stripeConnectOAuth: StripeConnectOAuth = {
+  clientId: "ca_net",
+  redirectUri: "https://api.test/api/organiser/stripe/oauth/callback",
+  authorizeUrl: (state) => `https://connect.stripe.com/oauth/authorize?state=${state}`,
+  exchangeCode: unreached,
+  deauthorize: unreached,
 };
 
 type Fixture = {
@@ -181,6 +191,7 @@ async function fixture(deleted: boolean): Promise<Fixture> {
     ...freshLimiters(),
     osnTestKey: auth.key,
     stripe,
+    stripeConnectOAuth,
     stripeWebhookSecret: "whsec_net",
     stripePlatformWebhookSecret: "whsec_net_platform",
     assets,
@@ -466,6 +477,8 @@ const NOT_WEDDING_SCOPED: Record<string, string> = {
   "PUT /api/vendor/orgs/:orgId/listing": "a vendor org's own listing",
   "POST /api/stripe/webhook":
     "money settles into a soft-deleted wedding by decision; tests/routes/stripe-webhook.test.ts",
+  "GET /api/organiser/stripe/oauth/callback":
+    "Stripe's redirect, which names a wedding only through a state its start minted, and refuses a deleted one before the exchange; tests/routes/registry-stripe-oauth.test.ts",
   "POST /api/stripe/platform-webhook":
     "an upgrade settles into a soft-deleted wedding by decision; tests/routes/stripe-platform-webhook.test.ts",
   "GET /api/organiser/weddings":

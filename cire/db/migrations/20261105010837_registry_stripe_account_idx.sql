@@ -1,0 +1,12 @@
+-- An index on the Stripe account a wedding's gifts settle into.
+--
+-- Stripe's account events (`account.updated`, a deauthorization) name an
+-- account, never a wedding, and one account can now take gifts for several
+-- weddings of the owner who connected it. Both webhook writers update every
+-- `registry_settings` row naming the account, which without this read the
+-- whole table. PARTIAL: a wedding with no account has no entry.
+--
+-- Additive: CREATE INDEX only. The statement is drizzle-kit's, as `db:generate`
+-- wrote it; it matches cire/db/src/schema.ts and cire/api/src/db/setup.ts
+-- (`ddl-lockstep.test.ts`).
+CREATE INDEX `registry_settings_stripe_account_idx` ON `registry_settings` (`stripe_account_id`) WHERE stripe_account_id IS NOT NULL;

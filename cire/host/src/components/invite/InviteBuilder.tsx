@@ -45,7 +45,6 @@ import {
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Disclosure from "@cire/ui/disclosure";
-import Eyebrow from "@cire/ui/eyebrow";
 import { GLASS_FILL } from "@cire/ui/lib/glass";
 import Loading from "@cire/ui/loading";
 import SegmentedTabs from "@cire/ui/segmented-tabs";
@@ -970,7 +969,6 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       {/* Codes holds the message alone; the owner's codes sit above it. */}
       <Show when={props.view !== "codes"}>
         <header class="flex flex-col gap-1">
-          <Eyebrow>Invite builder</Eyebrow>
           <h2 class="font-display text-text text-ui-lg font-light">Customise your invite</h2>
           <p class="font-body text-text-muted text-ui-sm">
             Choose a template and its style, then write each part of the page in the order guests

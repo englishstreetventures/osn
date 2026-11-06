@@ -1,5 +1,23 @@
 # @shared/infra
 
+## 0.6.8
+
+### Patch Changes
+
+- e87ed59: cire-api's dev secret inventory declares `STRIPE_CONNECT_CLIENT_ID` (the Stripe Connect OAuth client id) while it holds a value. Both tiers forbid `STRIPE_API_URL` and `STRIPE_CONNECT_URL`, which point Stripe calls at a local stand-in.
+
+## 0.6.7
+
+### Patch Changes
+
+- 6dbdb99: Drop dependencies no file imports (`motion`, `jose`, `@solidjs/meta`, `@solidjs/testing-library`, `@shared/design-tokens`, `@effect/vitest`, `@opentelemetry/exporter-logs-otlp-http`, and the direct `@vitest/browser` that `@vitest/browser-playwright` already brings in), and stop exporting shared symbols used only inside their own file. No behaviour changes.
+
+## 0.6.6
+
+### Patch Changes
+
+- 7af11c1: In each dev stack job, every step between the order check and the deploy that reads a secret runs only when the order check lets the commit deploy: the snapshot and the deploy, and in the musubi job the step that derives osn-api's cire seed values. `@shared/infra`'s workflow tests hold `deploy.yml` to that.
+
 ## 0.6.5
 
 ### Patch Changes

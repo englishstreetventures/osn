@@ -9,7 +9,7 @@ import { type Accessor, createSignal, type Setter } from "solid-js";
 import type { WriteTracker } from "./task-writes";
 import { isWeddingClosed } from "./wedding-scope";
 
-export interface RereadCacheOptions {
+interface RereadCacheOptions {
   /** The portal's writes whose answers a read must not undo. */
   writes: WriteTracker;
   /**
@@ -20,7 +20,7 @@ export interface RereadCacheOptions {
   staleOnWriteEnd: boolean;
 }
 
-export interface RereadCache<T> {
+interface RereadCache<T> {
   /** The wedding's value, `null` until loaded. Mints the entry, so a view
    *  subscribes even from a cold cache. */
   accessor(weddingId: string): Accessor<T | null>;

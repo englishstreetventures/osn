@@ -10,6 +10,7 @@ import { createApp } from "../src/app";
 import type { AppOptions } from "../src/app";
 import { createDb, seedDb } from "../src/db/setup";
 import type { StripeClient } from "../src/services/stripe";
+import type { StripeConnectOAuth } from "../src/services/stripe-connect-oauth";
 import { appRequest, jsonBody, recordStatements, TEST_CF_IP } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 import { seedOrganiserSession } from "./test-helpers/organiser-session";
@@ -89,10 +90,20 @@ const unreachedStripe: StripeClient = {
   retrievePrice: unreached,
 };
 
+// OAuth too, so its start route is in the walk below.
+const unreachedOAuth: StripeConnectOAuth = {
+  clientId: "ca_walk",
+  redirectUri: "https://api.test/api/organiser/stripe/oauth/callback",
+  authorizeUrl: () => "https://connect.stripe.com/oauth/authorize",
+  exchangeCode: unreached,
+  deauthorize: unreached,
+};
+
 const deployedApp = createApp(createDb(":memory:"), {
   webOrigin: portalOrigins[0],
   allowedOrigins: portalOrigins,
   stripe: unreachedStripe,
+  stripeConnectOAuth: unreachedOAuth,
   stripeWebhookSecret: "whsec_test_connect",
   stripePlatformWebhookSecret: "whsec_test_platform",
 });

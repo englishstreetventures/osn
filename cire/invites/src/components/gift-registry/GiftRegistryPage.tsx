@@ -115,7 +115,7 @@ const GiftMoneyPanel = lazy(() =>
  * 401 read as an invitation rather than as a failure.
  */
 
-export type GiftRegistryAction = "claim" | "release";
+type GiftRegistryAction = "claim" | "release";
 
 /**
  * What the guest is told after a write. Pure, and exported, so every branch is

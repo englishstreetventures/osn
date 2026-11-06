@@ -1,7 +1,7 @@
 /**
  * `@shared/observability` — OSN's single source of truth for logging,
- * metrics, and tracing. See `CLAUDE.md` "Observability" section for
- * conventions and the rules every feature must follow.
+ * metrics, and tracing. Conventions and the rules every feature must follow:
+ * wiki/shared/observability/overview.md.
  */
 
 import { Layer } from "effect";
@@ -51,45 +51,29 @@ export {
 // Tracing
 //
 // `makeTracingLayer` comes straight from `./tracing/layer` rather than the
-// `./tracing` barrel: that barrel is the workerd-safe surface the two deployed
-// Workers import, so it deliberately does NOT reach the NodeSdk layer. This
-// root barrel is Bun-only (it already re-exports the Node OTel metric
-// exporters), so it is the right place to expose both.
+// `./tracing` barrel: that barrel is the workerd-safe surface the Workers
+// import, so it deliberately does NOT reach the NodeSdk layer. This root barrel
+// does, through `makeObservabilityLayer` below; a Worker that imports it keeps
+// NodeSdk out of its bundle only because the bundler drops unused exports.
 export { makeTracingLayer, otlpExporterUrl } from "./tracing/layer";
 export {
-  makeOtlpTracing,
+  installWorkersTracing,
   NoopTracingLive,
-  injectTraceContext,
-  extractTraceContext,
-  currentTraceId,
-  currentSpanId,
-  type OtlpTracing,
-  type OtlpTracingOptions,
+  WorkersTracingLive,
+  type WorkersSpan,
+  type WorkersTracing,
 } from "./tracing";
 
 // Elysia plugin + health routes
-export {
-  observabilityPlugin,
-  healthRoutes,
-  type ObservabilityPluginOptions,
-  type HealthRoutesOptions,
-} from "./elysia";
-
-// Instrumented fetch
-export { instrumentedFetch } from "./fetch";
+export { observabilityPlugin, healthRoutes, type HealthRoutesOptions } from "./elysia";
 
 /**
- * Combined observability layer — logger + tracing + metrics exporter.
+ * Combined Bun observability layer — the redacting logger + the NodeSdk OTLP
+ * layer. Build it once into the application's `ManagedRuntime` at boot, never
+ * per request (`wiki/shared/backend-patterns.md`):
  *
- * Provide this once at the top of your application:
- *
- *   const app = new Elysia()
- *     .use(observabilityPlugin({ serviceName: "pulse-api" }))
- *     .use(routes);
- *
- *   Effect.runPromise(
- *     myEffect.pipe(Effect.provide(makeObservabilityLayer(config)))
- *   );
+ *   const runtime = ManagedRuntime.make(makeObservabilityLayer(config));
+ *   const app = new Elysia().use(observabilityPlugin()).use(routes(runtime));
  */
 export const makeObservabilityLayer = (config: ObservabilityConfig): Layer.Layer<never> =>
   Layer.mergeAll(makeLoggerLayer(config), makeTracingLayer(config));

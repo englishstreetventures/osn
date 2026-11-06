@@ -75,10 +75,7 @@ import { createCoordinationProbe } from "./probe";
  * on `osn.coordination.store.operations` under `store`, retries included. The
  * count carries the store's name, the operation and the outcome only.
  */
-export function measured(
-  ns: CoordinationNamespace,
-  store: CoordinationStoreName,
-): CoordinationNamespace {
+function measured(ns: CoordinationNamespace, store: CoordinationStoreName): CoordinationNamespace {
   return {
     getByName(name, options) {
       const stub = ns.getByName(name, options);
@@ -257,7 +254,7 @@ export function createDurableJtiStore(
 }
 
 /** Discoverable passkey challenges: the first `claim` of a nonce wins. */
-export function createDurableChallengeClaimStore(
+function createDurableChallengeClaimStore(
   ns: CoordinationNamespace,
   onError: CoordinationErrorReporter,
 ): ChallengeClaimStore {

@@ -1,6 +1,5 @@
 import Button from "@cire/ui/button";
 import Card from "@cire/ui/card";
-import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
@@ -172,12 +171,9 @@ export default function ListingEditor(props: ListingEditorProps) {
     <Card>
       {/* Header row: title + listed badge */}
       <div class="flex items-start justify-between gap-4">
-        <div class="flex min-w-0 flex-col gap-0.5">
-          <Eyebrow>Directory listing</Eyebrow>
-          <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">
-            {props.orgName}
-          </h2>
-        </div>
+        <h2 class="font-display text-text text-ui-lg leading-ui-tight min-w-0 font-light">
+          {props.orgName}
+        </h2>
         <Show when={listing()}>
           {(l) =>
             l().awaitingConfirmation ? (

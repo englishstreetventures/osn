@@ -70,7 +70,7 @@ const isNonLocal = (env: EmailEnv): boolean => !!env.OSN_ENV && env.OSN_ENV !== 
  * `[vars]` to allow osn-api to boot WITHOUT Cloudflare email — transactional
  * mail is then discarded, not delivered. Unset = fail-closed (the default).
  */
-export const EMAIL_OPTIONAL_VAR = "OSN_EMAIL_OPTIONAL";
+const EMAIL_OPTIONAL_VAR = "OSN_EMAIL_OPTIONAL";
 
 /** Truthy strings that enable the degraded-email opt-in. */
 export const isEmailOptionalOptIn = (raw: string | undefined): boolean => {

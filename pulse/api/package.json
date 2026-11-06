@@ -1,6 +1,6 @@
 {
   "name": "@pulse/api",
-  "version": "0.28.7",
+  "version": "0.28.12",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -46,8 +46,7 @@
     "@zap/db": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.0.7",
-    "elysia": "^1.4.30",
-    "jose": "6.2.14"
+    "elysia": "^1.4.30"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",

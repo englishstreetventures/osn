@@ -33,7 +33,7 @@ export class RsvpNotFound extends Data.TaggedError("RsvpNotFound")<{
   readonly profileId: string;
 }> {}
 
-export class NotInvited extends Data.TaggedError("NotInvited")<{
+class NotInvited extends Data.TaggedError("NotInvited")<{
   readonly eventId: string;
   readonly profileId: string;
 }> {}
@@ -42,7 +42,7 @@ export class GuestListHidden extends Data.TaggedError("GuestListHidden")<{
   readonly eventId: string;
 }> {}
 
-export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
+class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
   readonly eventId: string;
 }> {}
 
@@ -55,7 +55,6 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
  * organiser invite flow and is rejected on upsertRsvp.
  */
 const RsvpStatusSchema = Schema.Literals(["going", "maybe", "not_going"]);
-export type RsvpStatus = Schema.Schema.Type<typeof RsvpStatusSchema>;
 
 const UpsertRsvpSchema = Schema.Struct({
   status: RsvpStatusSchema,
@@ -101,7 +100,7 @@ export interface RsvpWithProfile extends EventRsvp {
   isCloseFriend: boolean;
 }
 
-export interface RsvpCounts {
+interface RsvpCounts {
   going: number;
   maybe: number;
   not_going: number;

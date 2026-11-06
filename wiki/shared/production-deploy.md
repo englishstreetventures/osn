@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-06
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -42,7 +42,7 @@ last-reviewed: 2026-11-04
 > and through Alchemy, on every push ([[dev-environment]]). The manual `wrangler`
 > commands in section 5 remain the reference for what the production pipeline runs.
 >
-> Read alongside [[observability-setup]] (OTel/Grafana wiring) and
+> Read alongside [[observability-setup]] (Workers traces and logs) and
 > [[cire-auth]] (the two-auth model + the cire→osn ARC bridge).
 
 ⚠️ **Never put real secret values in this file or any committed file.** Set every secret
@@ -94,7 +94,6 @@ marked **TBD** blocks the deploy.
 | `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional, not set yet** — until both Workers hold it, sign out everywhere else and revoking cire's connection leave cire organiser sessions alone ([[sessions#Sign out everywhere else reaches cire]]). To turn it on: `openssl rand -base64 32`; store it as the `production` Environment secret of the same name; `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`. On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
 | osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_EXPORTER_OTLP_HEADERS` | osn-api + cire | **provision** (Grafana, section 1) |
 | cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
 | cire R2 buckets | cire-api | **DONE** — `cire-sheets`, `cire-assets` (the `-preview` pair was deleted 2026-07-27) |
 | cire `WEB_ORIGIN` allowlist (guest, organiser **and** vendor origins) | cire-api | **DONE — `https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com`** (reshuffle 2026-07-16: guest→`invite.`, organiser→`host.`; transitional apex + `app.` pruned post-cutover 2026-07-16) |
@@ -260,12 +259,14 @@ scope, so the owner switches the plan in the Cloudflare dashboard. The dev
 account stays on Free: a spent allowance there stops only dev sign-in. Why:
 [[coordination-store-on-durable-objects]].
 
-### 1.5 OTel / Grafana endpoint
+### 1.5 Observability
 
-Observability ships via OpenTelemetry → Grafana Cloud. Provision the OTLP endpoint and
-auth header per [[observability-setup]]. Then set `OTEL_EXPORTER_OTLP_ENDPOINT` and
-`OTEL_EXPORTER_OTLP_HEADERS` (plus `DEPLOYMENT_ENVIRONMENT=production`) on osn-api and
-the cire Worker.
+Nothing to provision. The Workers use Cloudflare's own Workers traces and Workers
+Logs, set by each Worker's `[observability]` block, and export nothing. If an
+`OTEL_*` secret is set on osn-api or cire-api from an earlier plan, nothing
+reads it: `loadConfig` parses `OTEL_EXPORTER_OTLP_HEADERS` only alongside an
+endpoint. `bunx wrangler secret delete <name> --env production` removes it. No metric has an export path yet
+(englishstreetventures/osn#501). See [[observability-setup]] and [[tracing]].
 
 ---
 
@@ -390,8 +391,6 @@ bunx wrangler secret put CLOUDFLARE_EMAIL_API_TOKEN --env <staging|production>
 bunx wrangler secret put INTERNAL_SERVICE_SECRET    --env <staging|production>
 # Turnstile bot protection (OPTIONAL — only after the widget exists, §3.4):
 bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
-# Observability (deferred export on workerd; header is a secret):
-bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <staging|production>
 ```
 
 | Name | How to set | Required? | Notes |
@@ -414,8 +413,6 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <staging|production>
 | `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in.** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when **no real provider** (`RESEND_API_KEY` / `CLOUDFLARE_*`) is set in a non-local env, instead of failing closed. **Set in no env today** — removed from prod `[vars]` in #160 once Resend delivery was confirmed, so production fails closed again. A real provider wins — the opt-in is ignored when `RESEND_API_KEY` (or the Cloudflare creds) is present. §1.1 |
 | `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`hello@cireweddings.com`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the production deploy job refuses to run while it exists as a secret. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `[env.<env>.vars]` | Recommended | Grafana OTLP gateway. Metric/trace **export is deferred on workerd** — the redacting logger is active, recording call-sites are no-ops until an exporter is attached. [[observability-setup]] |
-| `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | `Authorization=Basic <base64(instance:token)>`. [[observability-setup]] |
 | `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, and for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key (§6.2). Both answer 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. The `production` GitHub Environment holds the same value for the smoke-check step. |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. **Currently SET** on `osn-api-production` (#160), so the gates bite. Server half of the sitekey baked into the **musubi/social** build as `VITE_TURNSTILE_SITEKEY` (§3.3) — it was the organiser-portal build until the 2026-07-27 OIDC swap moved the ceremonies. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
@@ -470,7 +467,6 @@ quietly accepting tokens from anywhere.
 | `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` | **Optional** | What osn-api presents to `POST /internal/revoke-organiser-sessions`. Unset or shorter than 32 characters ⇒ the route answers 503, and osn-api's sign out everywhere else and cire connection revoke leave organiser sessions alone. The same value osn-api holds; how to set it is in the pre-deploy table at the top of this page. [[cire-auth]] |
 | `CIRE_R2_RECONCILE_DISABLED` | `wrangler.toml` `[env.production.vars]` (and every other tier's vars block) | **Yes — `"false"` or `"true"`** | Tier-wide switch for the cron's two R2 orphan reconcilers. `"true"` (any value but `"false"`) leaves both out of `scheduled`, logs `r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED` and emails `CIRE_OPS_EMAIL` each run; every other cron job still runs. It changes only with a deploy; to stop the reconcilers at once, around a `cire-db` restore, put `reconcile/stop` in each bucket instead ([[backup-dr]]). A dashboard edit is written back by the next deploy. Never a secret: it is a declared var. `tests/services/r2-reconcile.test.ts` fails unless every tier holds `"false"` or `"true"`. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). In a deployed tier cire-api refuses it: no mail is sent, and `email disabled: Resend misconfigured` is logged. The production deploy job refuses to run while it exists as a secret. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | Worker observability. [[observability-setup]] |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, the guest **`/api/claim`** + **`/api/rsvp`** endpoints require a valid Turnstile token and **fail-closed** (403 on missing/invalid/duplicate). Unset ⇒ those gates are skipped (guest flow unchanged). Same widget/secret as osn-api — the widget's domains must cover every gated origin. **Currently unset** on `cire-api-production`: a mismatched secret rejected every guest claim on 2026-07-20 and was deleted, which reverts the gate to a no-op. Create the widget in §3.4. (`src/index.ts` → `createTurnstileVerifier`). |
 | `GOOGLE_GEOCODING_API_KEY` | `wrangler secret put GOOGLE_GEOCODING_API_KEY` | **Optional (key-optional, fail-soft)** | Google Geocoding API key for the organiser per-event venue lookup (`POST /api/organiser/weddings/:id/settings/geocode`, driven from the Events tab's location editor). Unset ⇒ the endpoint answers `unavailable` and the editor falls back to manual lat/lng entry — nothing is ever sent to Google. **Before setting in prod: sign the Google Cloud DPA + confirm the EU→US transfer basis** (see `[[compliance/subprocessors]]`), restrict the key to the Geocoding API, **and set a daily quota cap** in the Google console — the per-IP edge limiter bounds each caller, but only a Google-side cap bounds aggregate spend across many IPs/accounts. (`src/index.ts` → `createGoogleGeocoder`.) |
 
@@ -670,6 +666,8 @@ bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production  # THIS endpoint
 
 `STRIPE_ACCOUNT_COUNTRY` is an ordinary var (default `AU` in code), in `wrangler.toml` under each tier's own `[env.<env>.vars]`. Stripe fixes an account's country at creation, so it is a per-deployment default rather than something a couple can change later.
 
+**Optional — a Stripe account the couple already have (Connect OAuth).** In the dashboard, Settings › Connect › Onboarding options › OAuth: turn it on, copy the live `ca_…` client id, and register the redirect URI `https://api.cireweddings.com/api/organiser/stripe/oauth/callback` (built on `CIRE_API_ORIGIN`). Then add `STRIPE_CONNECT_CLIENT_ID` to cire-api's production row in `shared/infra/src/secrets/inventory.ts`, set it in the `production` Environment and `bunx wrangler secret put STRIPE_CONNECT_CLIENT_ID --env production`. Unset ⇒ the portal offers no such choice; set but not a `ca_` id ⇒ the same, and the Worker logs `stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id`. See [[stripe-webhooks#Turn on Connect OAuth]].
+
 **Fail-closed.** `STRIPE_SECRET_KEY` unset ⇒ neither the Connect routes nor the upgrade routes are mounted, so a deployment with no Stripe account has no payment surface rather than one that 500s. `STRIPE_WEBHOOK_SECRET` unset ⇒ `/api/stripe/webhook` does not exist and guests are offered no money gift at all, because nothing would record one; the Worker logs `money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET` when it builds the app. Set both, then deploy. Upgrades need a third value, `STRIPE_PLATFORM_WEBHOOK_SECRET`, with its own warning (§3.9).
 
 ---
@@ -866,7 +864,11 @@ what holds it.
    theirs. A surface whose last dev record is older than that is held too. This does
    not heal by itself — dev only redeploys a stack on a push that touches it. Dispatch
    **Deploy** (which deploys every dev stack and leaves a fresh record for every
-   surface that passes); the next release then ships it.
+   surface that passes); the next release then ships it. A dev stack job's own record
+   counts only when its deploy step ran: a stack job that refused a commit older than
+   one its stack already passed on dev succeeds without deploying
+   ([[dev-environment#Concurrency]]). And a dev record counts only at a commit on
+   `origin/main`, since GitHub reports a run from a tag as on a branch of the tag's name.
 4. **`production is newer`** means production already runs a commit that contains the
    release commit: an older release was re-run in full. A release never ships an older
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke
@@ -1476,9 +1478,38 @@ Each Pages site moves one at a time, in the order cire vendor, cire host, cire l
 then `musubi.social` (englishstreetventures/osn#1787). Before each:
 
 - The site has run `staged` through at least one release, and the `site-parity` artifact
-  of the latest release shows no difference a real path relies on (an unknown path's 404
-  in place of Pages' 200, and Pages' `access-control-allow-origin: *`, are accepted
-  unless one does). Both comparisons, this one and the dev guest route comparison
+  of the latest release shows no difference a real path relies on. Four are expected
+  and accepted:
+  - Pages' `access-control-allow-origin: *`, which the Worker does not send (accepted by
+    the owner).
+  - HTML's `content-type`: `text/html` from the Worker, `text/html; charset=utf-8` from
+    Pages. Cloudflare's asset upload keeps the media type and drops the parameter, from
+    Alchemy and Wrangler alike, so no upload can set it, and every page of the four
+    staged sites declares `<meta charset="UTF-8">` within its first 1024 bytes, where
+    the browser looks when the header names no charset.
+  - JavaScript's `text/javascript` where Pages says `application/javascript`: the same
+    type.
+  - An unknown path on cire landing: the Worker answers 404, Pages 200 with its
+    single-page fallback. Every page the site links is a file. The organiser and vendor
+    portals, like musubi social, serve their own page there as Pages does
+    ([[infrastructure-as-code#Sites]]).
+
+  The comparison does not ask a directory page's address without its trailing slash
+  (`/login`, `/privacy`), which both redirect to the slash form, the Worker with a 307
+  and Pages with a 308. The owner accepted the 307 (englishstreetventures/osn#1988):
+  cire's own links name each page in the slash form, which CI checks after the build
+  ([[cire-development#Links to a site's own pages]]), so only an address typed or
+  linked from elsewhere meets the redirect.
+
+  *Measured 2026-11-05 — release run 41818903897: its `site-parity` report; each HTML
+  file of its `production-sites` artifact searched for `<meta charset` in its first 1024
+  bytes (byte 38 on every cire page, 137 on musubi social's); and
+  `curl -sS -D - -o /dev/null` of each built page's address, with and without the
+  slash, on both hosts. The staged host's `/_astro/theme-boot.B7YqAPRH.css` answers
+  `text/css` with ETag `f23e95daca37f70e89cfd58fba764a14`, the manifest hash Alchemy
+  gives the file uploaded as `text/css; charset=utf-8`.*
+
+  Both comparisons, this one and the dev guest route comparison
   ([[infrastructure-as-code#The guest route comparison]]), send smoke-check's CI user agent
   (`CI_USER_AGENT`) — the guest comparison's local Wrangler runtime too, whose calls to
   cire-api go out through a relay that sets it — and a refused run — the `site-parity` job failing on exit 3, its
@@ -1675,7 +1706,8 @@ from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
 | cire-api | `https://api.cireweddings.com/api/auth/session` | the same path | 200 `{"signedIn":false}`. cire-api has no health route — its root and `/health` answer 404 |
 | cire-invites | `https://invite.cireweddings.com/` and `/smoke-check-no-such-wedding` | the same paths, the redirect judged against `SMOKE_MARKETING_ORIGIN` | a redirect to the marketing site; a rendered page, 404 or 200 — so a broken design import fails it, and cire-api being down does not |
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
-| cire host, cire vendor, cire landing | the site Worker's `/`, on its spare host while staged (the Pages project has no check) | `/` | 200 HTML |
+| cire host | the site Worker's `/` and `/vendors/enquiries/smoke-check`, on its spare host while staged (the Pages project has no check) | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves |
+| cire vendor, cire landing | the site Worker's `/`, on its spare host while staged (the Pages project has no check) | `/` | 200 HTML |
 | musubi landing | `https://www.musubi.social/` | `/` | 200 HTML |
 | musubi social | the site Worker's `/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association`, on `next.musubi.social` while staged | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys |
 | pulse landing | none (`off` on production) | `/` and `/api/geo` | 200 HTML; 200 with a JSON object, from the Worker's own code |

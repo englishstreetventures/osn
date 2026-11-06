@@ -12,7 +12,7 @@ related:
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-05
 ---
 
 # Musubi Landing
@@ -26,8 +26,8 @@ API calls.
 ## Stack
 
 Same stack as [[cire-landing]]: **static Astro + SolidJS islands + Tailwind v4**
-(`output: "static"`, no Cloudflare adapter), Motion One available (`motion`) but
-the signature visuals use plain canvas + `requestAnimationFrame`. Builds to plain
+(`output: "static"`, no Cloudflare adapter). The signature visuals use plain
+canvas + `requestAnimationFrame`, with no animation library. Builds to plain
 HTML (`astro build`), which a Worker serves from its static assets.
 
 ## Deployment

@@ -89,11 +89,7 @@ function entryFor(weddingId: string): CacheEntry {
 
 /** A per-head line's amount: the expected guests while RSVPs are open, the
  *  confirmed ones after. Mirror of the server's `perHeadMinor`. */
-export function perHeadMinor(
-  unitPriceMinor: number,
-  headcount: Headcount,
-  rsvpsClosed: boolean,
-): number {
+function perHeadMinor(unitPriceMinor: number, headcount: Headcount, rsvpsClosed: boolean): number {
   return unitPriceMinor * (rsvpsClosed ? headcount.confirmed : headcount.expected);
 }
 

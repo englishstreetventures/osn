@@ -36,7 +36,7 @@ export type EventPanel = "details" | "rsvp";
 /** What the RSVP panel needs from the page, passed through unchanged. */
 type RsvpData = Omit<RsvpPanelProps, "event" | "onClose" | "active" | "onBusyChange">;
 
-export interface EventSheetProps extends RsvpData {
+interface EventSheetProps extends RsvpData {
   event: EventSummary;
   /**
    * The panel the sheet opens on — the one whose button the guest pressed.

@@ -27,8 +27,6 @@ import type { SessionCookieOptions } from "@shared/osn-auth-client/cookie";
 const SESSION_COOKIE_NAME = "pulse_web_session";
 const OIDC_TX_COOKIE_NAME = "pulse_oidc_tx";
 
-export type { SessionCookieOptions };
-
 export function buildWebSessionCookie(token: string, opts: SessionCookieOptions): string {
   return buildCookie(SESSION_COOKIE_NAME, token, opts);
 }

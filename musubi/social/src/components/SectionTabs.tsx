@@ -27,12 +27,12 @@ import { For, type JSX } from "solid-js";
  * buttons, because it promises navigation that is not there. Reach for
  * `@shared/ui`'s `Tabs` when the page can own real panels.
  */
-export interface SectionTab<T extends string> {
+interface SectionTab<T extends string> {
   value: T;
   label: string;
 }
 
-export interface SectionTabsProps<T extends string> {
+interface SectionTabsProps<T extends string> {
   /** Names the bar for a screen reader: "Connection filters", "Settings sections". */
   label: string;
   tabs: readonly SectionTab<T>[];

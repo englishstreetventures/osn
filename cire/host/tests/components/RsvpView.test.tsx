@@ -223,7 +223,9 @@ describe("RsvpView", () => {
     authFetchMock.mockResolvedValueOnce(json(view));
     render(() => <RsvpView weddingId="wed_a" />);
 
-    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+    // The tab, not the word: the outline drawn while the replies load holds a
+    // sample event's name too.
+    await waitFor(() => expect(tab("Ceremony")).toBeTruthy());
     expect(screen.getByText(/Answered by Maya/)).toBeTruthy();
     expect(screen.getByText(/Answered by Sam/)).toBeTruthy();
     expect(screen.getAllByText("linked musubi")).toHaveLength(1);
@@ -1498,7 +1500,7 @@ describe("RsvpView — plus-ones", () => {
     );
     // The page the line names, on the marketing site, in a new tab so the
     // open form keeps what was typed.
-    expect(link.getAttribute("href")).toBe("https://marketing.test/privacy");
+    expect(link.getAttribute("href")).toBe("https://marketing.test/privacy/");
     expect(link.target).toBe("_blank");
     expect(link.rel).toBe("noopener noreferrer");
     // Under the box it goes with, and outside its label.

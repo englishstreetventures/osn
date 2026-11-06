@@ -6,7 +6,7 @@ related:
   - "[[review-findings]]"
   - "[[contributing]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-05
 ---
 
 # Code Comments
@@ -23,7 +23,7 @@ rules below. It runs at `warn` while the existing references are cleaned up
 | Shape | Example | Why it goes |
 |---|---|---|
 | Tracker issue number | a number in the private tracker | Stops resolving when the issue closes. This repo is public and the tracker is private, so it is a disclosure as well as a dead link |
-| Review finding tag | a severity-and-number code from a review | Means nothing to a reader who cannot open the tracker, and nothing at all once the finding is closed |
+| Review finding tag | a severity-and-number code from a review | Means nothing to a reader without the review that raised it, and nothing at all once the finding is closed |
 | Phase or plan code | `O3:`, `Z4:`, `X1:` | The plan ships and the code refers to nothing |
 | Bug-history narration | "used to be", "was reported as" | Describes a state the code is no longer in |
 

@@ -103,7 +103,7 @@ export function pause(id: string) {
  */
 export const DEFAULT_DURATION = 4000;
 
-export interface UpsertInput extends ToastOptions {
+interface UpsertInput extends ToastOptions {
   tone: ToastTone;
   message: Toast["message"];
 }

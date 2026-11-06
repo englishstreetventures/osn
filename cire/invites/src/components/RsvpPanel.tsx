@@ -937,7 +937,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         <Show when={props.closed && dietaryOnFile()}>
           <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             Dietary requirements on file are shared with the caterers for this wedding. See our{" "}
-            <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
+            <a href="/privacy/" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
               privacy notice
               <span class="sr-only"> (opens in a new tab)</span>
             </a>
@@ -960,7 +960,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 {formatNames(ownWithDietaryData().map((m) => m.firstName))} — being stored and
                 shared with the caterers for this wedding. See our{" "}
                 <a
-                  href="/privacy"
+                  href="/privacy/"
                   target="_blank"
                   rel="noopener noreferrer"
                   class={proseLinkClass()}
@@ -995,7 +995,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 )}{" "}
                 See our{" "}
                 <a
-                  href="/privacy"
+                  href="/privacy/"
                   target="_blank"
                   rel="noopener noreferrer"
                   class={proseLinkClass()}

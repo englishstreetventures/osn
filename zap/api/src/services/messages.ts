@@ -20,19 +20,19 @@ import { NotC2bChat, NotC2cChat } from "./chats";
 // Tagged errors
 // ---------------------------------------------------------------------------
 
-export class ChatNotFound extends Data.TaggedError("ChatNotFound")<{
+class ChatNotFound extends Data.TaggedError("ChatNotFound")<{
   readonly id: string;
 }> {}
 
-export class NotChatMember extends Data.TaggedError("NotChatMember")<{
+class NotChatMember extends Data.TaggedError("NotChatMember")<{
   readonly chatId: string;
 }> {}
 
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
 
-export class ValidationError extends Data.TaggedError("ValidationError")<{
+class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 

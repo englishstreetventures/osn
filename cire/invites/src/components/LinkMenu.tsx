@@ -16,7 +16,7 @@ export interface LinkMenuItem {
   download?: string;
 }
 
-export interface LinkMenuProps {
+interface LinkMenuProps {
   /** The trigger's words, which are its name. */
   label: string;
   /** The menu's accessible name ("Add to calendar options"). */

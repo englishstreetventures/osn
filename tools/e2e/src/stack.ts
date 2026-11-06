@@ -192,11 +192,18 @@ export function appSpecs(): AppSpec[] {
         // A Stripe key and no Connect webhook secret: a deployment that could
         // open a payment page but never record the gift, so cire-api must offer
         // guests no money at all. The gift-list flows check that it does not.
-        // Not a real key, and nothing in a flow sends it anywhere. The one
-        // flow that reaches a Stripe route (`cire-registry-money`, onboarding as
-        // an owner who did not connect the account) is refused before the
-        // route calls Stripe.
+        // Not a real key, and it only ever reaches the Stripe stand-in
+        // (`src/stripe.ts`), which every Stripe call goes to. The one flow
+        // that reaches the Stripe routes (`cire-registry-money`) calls it only
+        // to connect an account the owner already has, through OAuth; its
+        // other steps are refused before a Stripe call or read cire's rows.
         STRIPE_SECRET_KEY: "e2e-placeholder-no-stripe-account",
+        STRIPE_API_URL: ORIGINS.stripe,
+        STRIPE_CONNECT_URL: ORIGINS.stripe,
+        // A client id of the right shape, which only the stand-in ever sees:
+        // with it and CIRE_API_ORIGIN, the portal offers "Connect a Stripe
+        // account you already have".
+        STRIPE_CONNECT_CLIENT_ID: "ca_e2eStandIn",
         // A Gold Price beside that key, and no platform webhook secret: a
         // deployment that means to sell a tier but could never grant one, so
         // cire-api mounts no upgrade route. The checklist flow checks that the
