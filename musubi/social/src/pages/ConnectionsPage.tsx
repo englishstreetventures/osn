@@ -34,7 +34,6 @@ const TABS: { value: Tab; label: string }[] = [
 
 export function ConnectionsPage() {
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
   const [tab, setTab] = createSignal<Tab>("all");
 
   // Single keyed resource for all four tabs. Rapid tab-switching
@@ -47,21 +46,26 @@ export function ConnectionsPage() {
     | { kind: "sent"; data: Awaited<ReturnType<typeof graphClient.listSentRequests>> }
     | { kind: "blocked"; data: Awaited<ReturnType<typeof graphClient.listBlocks>> };
 
+  // Keyed on the session object, not its token: a new session (signed in,
+  // switched profile) refetches, a silent token renewal does not.
   const [payload, { refetch: refetchPayload }] = createResource<
     TabPayload | undefined,
-    { tab: Tab; token: string }
+    { tab: Tab; session: object }
   >(
-    () => (token() ? { tab: tab(), token: token() } : undefined),
-    async ({ tab: t, token: tk }): Promise<TabPayload> => {
+    () => {
+      const current = session();
+      return current ? { tab: tab(), session: current } : undefined;
+    },
+    async ({ tab: t }): Promise<TabPayload> => {
       switch (t) {
         case "all":
-          return { kind: "all", data: await graphClient.listConnections(tk) };
+          return { kind: "all", data: await graphClient.listConnections() };
         case "pending":
-          return { kind: "pending", data: await graphClient.listPendingRequests(tk) };
+          return { kind: "pending", data: await graphClient.listPendingRequests() };
         case "sent":
-          return { kind: "sent", data: await graphClient.listSentRequests(tk) };
+          return { kind: "sent", data: await graphClient.listSentRequests() };
         case "blocked":
-          return { kind: "blocked", data: await graphClient.listBlocks(tk) };
+          return { kind: "blocked", data: await graphClient.listBlocks() };
       }
     },
   );
@@ -103,7 +107,7 @@ export function ConnectionsPage() {
     if (!target) return;
     setRemoveTarget(null);
     try {
-      await graphClient.removeConnection(token(), target.handle);
+      await graphClient.removeConnection(target.handle);
       toast.success(`Removed @${target.handle}`);
       refetchConnections();
     } catch {
@@ -113,7 +117,7 @@ export function ConnectionsPage() {
 
   async function acceptRequest(handle: string) {
     try {
-      await graphClient.acceptConnection(token(), handle);
+      await graphClient.acceptConnection(handle);
       toast.success(`Accepted @${handle}`);
       refetchPending();
       refetchConnections();
@@ -124,7 +128,7 @@ export function ConnectionsPage() {
 
   async function rejectRequest(handle: string) {
     try {
-      await graphClient.rejectConnection(token(), handle);
+      await graphClient.rejectConnection(handle);
       refetchPending();
     } catch {
       toast.error("Failed to reject request");
@@ -133,7 +137,7 @@ export function ConnectionsPage() {
 
   async function cancelSentRequest(handle: string) {
     try {
-      await graphClient.removeConnection(token(), handle);
+      await graphClient.removeConnection(handle);
       toast.success(`Cancelled request to @${handle}`);
       refetchSent();
     } catch {
@@ -143,7 +147,7 @@ export function ConnectionsPage() {
 
   async function unblock(handle: string) {
     try {
-      await graphClient.unblockProfile(token(), handle);
+      await graphClient.unblockProfile(handle);
       toast.success(`Unblocked @${handle}`);
     } catch {
       toast.error("Failed to unblock");

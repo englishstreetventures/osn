@@ -133,16 +133,42 @@ const CreateProfileResponseSchema = Schema.Struct({
 
 export const decodeCreateProfileResponse = Schema.decodeUnknownSync(CreateProfileResponseSchema);
 
-/** Extract the `sub` claim from a JWT payload without cryptographic verification. */
-export function extractJwtSub(jwt: string): string | null {
+/** The claims this package reads from a JWT, unverified and untyped until checked. */
+interface JwtClaims {
+  readonly sub?: unknown;
+  readonly iat?: unknown;
+  readonly exp?: unknown;
+}
+
+/** Decode a JWT's payload without cryptographic verification; null when it will not decode. */
+function decodeJwtPayload(jwt: string): JwtClaims | null {
   try {
     const payload = jwt.split(".")[1];
     if (!payload) return null;
     // JWT payloads use Base64URL encoding (RFC 7515) — convert to standard Base64
     const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = JSON.parse(atob(base64)) as { sub?: string };
-    return decoded.sub ?? null;
+    const decoded: unknown = JSON.parse(atob(base64));
+    return typeof decoded === "object" && decoded !== null ? (decoded as JwtClaims) : null;
   } catch {
     return null;
   }
+}
+
+/** Extract the `sub` claim from a JWT payload without cryptographic verification. */
+export function extractJwtSub(jwt: string): string | null {
+  const sub = decodeJwtPayload(jwt)?.sub;
+  return typeof sub === "string" ? sub : null;
+}
+
+/**
+ * The lifetime the issuer gave a JWT, `exp - iat`, in milliseconds. Null when
+ * either claim is missing or the two do not describe a positive span. Read
+ * without verification: the value only tunes when the client renews.
+ */
+export function extractJwtLifetimeMs(jwt: string): number | null {
+  const payload = decodeJwtPayload(jwt);
+  const iat = payload?.iat;
+  const exp = payload?.exp;
+  if (typeof iat !== "number" || typeof exp !== "number" || exp <= iat) return null;
+  return (exp - iat) * 1000;
 }

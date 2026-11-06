@@ -1,14 +1,17 @@
 /**
- * Plain-fetch client for the social graph API. No Effect — mirrors the
- * pattern in `./login.ts`. Each method calls the OSN core REST API with
- * Bearer token auth.
+ * Promise client for the social graph API. No Effect — mirrors the pattern in
+ * `./login.ts`. Each method calls the OSN core REST API through the page's
+ * `authFetch`, which supplies and renews the access token.
  */
 
 import { createAuthFetchers, qs } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
 
 export interface GraphClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 export interface ConnectionEntry {
@@ -54,29 +57,26 @@ export class GraphClientError extends Error {
 // ---------------------------------------------------------------------------
 
 export interface GraphClient {
-  listConnections(
-    token: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<{ connections: ConnectionEntry[] }>;
-  listPendingRequests(
-    token: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<{ pending: PendingRequestEntry[] }>;
-  listSentRequests(
-    token: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<{ sent: SentRequestEntry[] }>;
-  listBlocks(
-    token: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<{ blocks: ProfileEntry[] }>;
-  getConnectionStatus(token: string, handle: string): Promise<ConnectionStatus>;
-  sendConnectionRequest(token: string, handle: string): Promise<{ ok: true }>;
-  acceptConnection(token: string, handle: string): Promise<{ ok: true }>;
-  rejectConnection(token: string, handle: string): Promise<{ ok: true }>;
-  removeConnection(token: string, handle: string): Promise<{ ok: true }>;
-  blockProfile(token: string, handle: string): Promise<{ ok: true }>;
-  unblockProfile(token: string, handle: string): Promise<{ ok: true }>;
+  listConnections(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ connections: ConnectionEntry[] }>;
+  listPendingRequests(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ pending: PendingRequestEntry[] }>;
+  listSentRequests(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ sent: SentRequestEntry[] }>;
+  listBlocks(options?: { limit?: number; offset?: number }): Promise<{ blocks: ProfileEntry[] }>;
+  getConnectionStatus(handle: string): Promise<ConnectionStatus>;
+  sendConnectionRequest(handle: string): Promise<{ ok: true }>;
+  acceptConnection(handle: string): Promise<{ ok: true }>;
+  rejectConnection(handle: string): Promise<{ ok: true }>;
+  removeConnection(handle: string): Promise<{ ok: true }>;
+  blockProfile(handle: string): Promise<{ ok: true }>;
+  unblockProfile(handle: string): Promise<{ ok: true }>;
 }
 
 export function createGraphClient(config: GraphClientConfig): GraphClient {
@@ -89,47 +89,46 @@ export function createGraphClient(config: GraphClientConfig): GraphClient {
   // the barrel. Inside the factory there is no top-level statement left to
   // keep. These deletes return a JSON body; `organisations.ts` uses the
   // void-returning variant instead.
-  const { authGet, authPost, authPatch, authDelete } = createAuthFetchers(GraphClientError);
+  const { authGet, authPost, authPatch, authDelete } = createAuthFetchers(
+    GraphClientError,
+    config.authFetch,
+  );
 
   return {
-    listConnections: (token, options) =>
-      authGet<{ connections: ConnectionEntry[] }>(`${base}/connections${qs(options)}`, token),
+    listConnections: (options) =>
+      authGet<{ connections: ConnectionEntry[] }>(`${base}/connections${qs(options)}`),
 
-    listPendingRequests: (token, options) =>
-      authGet<{ pending: PendingRequestEntry[] }>(
-        `${base}/connections/pending${qs(options)}`,
-        token,
-      ),
+    listPendingRequests: (options) =>
+      authGet<{ pending: PendingRequestEntry[] }>(`${base}/connections/pending${qs(options)}`),
 
-    listSentRequests: (token, options) =>
-      authGet<{ sent: SentRequestEntry[] }>(`${base}/connections/sent${qs(options)}`, token),
+    listSentRequests: (options) =>
+      authGet<{ sent: SentRequestEntry[] }>(`${base}/connections/sent${qs(options)}`),
 
-    listBlocks: (token, options) =>
-      authGet<{ blocks: ProfileEntry[] }>(`${base}/blocks${qs(options)}`, token),
+    listBlocks: (options) => authGet<{ blocks: ProfileEntry[] }>(`${base}/blocks${qs(options)}`),
 
-    getConnectionStatus: (token, handle) =>
-      authGet<ConnectionStatus>(`${base}/connections/${encodeURIComponent(handle)}`, token),
+    getConnectionStatus: (handle) =>
+      authGet<ConnectionStatus>(`${base}/connections/${encodeURIComponent(handle)}`),
 
-    sendConnectionRequest: (token, handle) =>
-      authPost<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`, token),
+    sendConnectionRequest: (handle) =>
+      authPost<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`),
 
-    acceptConnection: (token, handle) =>
-      authPatch<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`, token, {
+    acceptConnection: (handle) =>
+      authPatch<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`, {
         action: "accept",
       }),
 
-    rejectConnection: (token, handle) =>
-      authPatch<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`, token, {
+    rejectConnection: (handle) =>
+      authPatch<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`, {
         action: "reject",
       }),
 
-    removeConnection: (token, handle) =>
-      authDelete<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`, token),
+    removeConnection: (handle) =>
+      authDelete<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`),
 
-    blockProfile: (token, handle) =>
-      authPost<{ ok: true }>(`${base}/blocks/${encodeURIComponent(handle)}`, token),
+    blockProfile: (handle) =>
+      authPost<{ ok: true }>(`${base}/blocks/${encodeURIComponent(handle)}`),
 
-    unblockProfile: (token, handle) =>
-      authDelete<{ ok: true }>(`${base}/blocks/${encodeURIComponent(handle)}`, token),
+    unblockProfile: (handle) =>
+      authDelete<{ ok: true }>(`${base}/blocks/${encodeURIComponent(handle)}`),
   };
 }

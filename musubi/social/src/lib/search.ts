@@ -1,12 +1,5 @@
 import type { SearchConnectionState, SearchResults } from "@osn/client";
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  onCleanup,
-  untrack,
-} from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 
 import { recommendationClient } from "./api";
 
@@ -61,11 +54,12 @@ export type SearchRow =
  * connection-status overrides that let a row flip to "Requested" without a
  * refetch that would reorder the list under the user's cursor.
  *
- * `token` is an accessor rather than a value so the controller can be created
- * once and keep working across a silent token refresh.
+ * `enabled` says whether a search may go out at all — false while signed
+ * out. The client supplies and renews the access token itself, so nothing here
+ * ever sees one.
  */
 export function createSearchController(
-  token: () => string,
+  enabled: () => boolean,
   options: { limit?: number; orgLimit?: number } = {},
 ): SearchController {
   const [query, setQuery] = createSignal("");
@@ -84,21 +78,19 @@ export function createSearchController(
   let inFlight: AbortController | null = null;
   onCleanup(() => inFlight?.abort());
 
-  // The source is the query *string*, not an object carrying the token: an
-  // object literal is never `===` to the last one, and reading `token()` here
-  // would make it a tracked dependency — so every silent token refresh (5-min
-  // TTL) would refire an identical search. The token is read untracked at call
-  // time instead, which still picks up a refreshed value on the next real query.
+  // The source is the query *string*, not an object: an object literal is
+  // never `===` to the last one, so every re-run would refire an identical
+  // search.
   const [results] = createResource(
     () => {
       const q = normaliseQuery(debounced());
-      return token() && q.length >= MIN_QUERY_LENGTH ? q : undefined;
+      return enabled() && q.length >= MIN_QUERY_LENGTH ? q : undefined;
     },
     async (q) => {
       inFlight?.abort();
       const controller = new AbortController();
       inFlight = controller;
-      return await recommendationClient.search(untrack(token), q, {
+      return await recommendationClient.search(q, {
         limit: options.limit,
         orgLimit: options.orgLimit,
         signal: controller.signal,

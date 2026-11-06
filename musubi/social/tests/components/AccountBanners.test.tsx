@@ -25,24 +25,15 @@ vi.mock("../../src/components/AccountBannerStack", () => {
 
 import { AccountBanners } from "../../src/components/AccountBanners";
 
-/** A `Resource`-shaped session accessor; only `session` is read here. */
-function authValue(session: { accessToken: string } | null) {
-  return {
-    session: Object.assign(() => session, {
-      state: "ready",
-      loading: false,
-      error: undefined,
-      latest: session,
-      refetch: () => {},
-      mutate: () => {},
-    }),
-  };
+/** Only `activeProfileId` is read here: null until a session exists. */
+function authValue(profileId: string | null) {
+  return { activeProfileId: () => profileId };
 }
 
-function renderGate(session: { accessToken: string } | null): () => JSX.Element {
+function renderGate(profileId: string | null): () => JSX.Element {
   return () => (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- only `session` is read
-    <AuthContext.Provider value={authValue(session) as any}>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- only `activeProfileId` is read
+    <AuthContext.Provider value={authValue(profileId) as any}>
       <AccountBanners />
     </AuthContext.Provider>
   );
@@ -65,7 +56,7 @@ describe("<AccountBanners />", () => {
   });
 
   it("mounts the stack once a session exists", async () => {
-    render(renderGate({ accessToken: "tkn" }));
+    render(renderGate("prof_1"));
 
     expect(await screen.findByTestId("stack")).toBeTruthy();
   });

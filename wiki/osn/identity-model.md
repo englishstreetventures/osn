@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 # Identity Model
 
@@ -143,7 +143,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 
 Every one of these values is on the reserved OIDC client-id deny-list (`RESERVED_OIDC_CLIENT_IDS`), so no relying party can register under a name whose tokens would collide with an internal verifier's pin.
 
-Access tokens live in `localStorage` and are the only auth secret there after C3. A 5-minute TTL caps the XSS blast radius — the companion change is client `authFetch` silent-refresh on 401 via the HttpOnly refresh cookie. Third-party OAuth clients receive `expires_in: 300` in the `/token` response.
+Access tokens live in `localStorage` and are the only auth secret there after C3. A 5-minute TTL caps the XSS blast radius — the companion is the client's `authFetch`, which renews the token through the HttpOnly refresh cookie before it expires and on a 401 ([[sessions#Renewal in the browser]]). Third-party OAuth clients receive `expires_in: 300` in the `/token` response.
 
 **Issuer pinning.** Access and step-up JWTs are signed with `iss = AuthConfig.issuerUrl` and every verify pins `issuer` with a **30s `clockTolerance`** (`signJwt` / `verifyJwt` in `osn/api/src/services/auth/helpers.ts`). A token minted by a different OSN deployment is rejected. The downstream `@shared/osn-auth-client` verifier carries the same contract — rollout is **verifier-first**: the tolerant verifier must deploy before the signer enforces `iss`, or every legacy iss-less token would be rejected the instant the signer rolls out.
 
@@ -199,7 +199,7 @@ interface AccountSession {
 
 ## Session load on mount — durable refresh across reloads
 
-`@osn/client` exposes `loadSession()` (the entry point the SolidJS `AuthProvider` calls on mount via the `session` resource). The access token is persisted in the `AccountSession` JSON alongside everything else, but its **5-minute TTL** is far shorter than the gap between sessions, so that copy almost always reads as a **stale access token after a page reload**. The HttpOnly `__Host-osn_session` refresh cookie (30-day sliding window) is what actually keeps the organiser signed in; `loadSession` must consult it rather than trust the cached access token alone.
+`@osn/client` exposes `loadSession()` (the entry point the SolidJS `AuthProvider` calls on mount via the `session` resource, on the page's one `createOsnAuthRuntime`). The access token is persisted in the `AccountSession` JSON alongside everything else, but its **5-minute TTL** is far shorter than the gap between sessions, so that copy almost always reads as a **stale access token after a page reload**. The HttpOnly `__Host-osn_session` refresh cookie (30-day sliding window) is what actually keeps the organiser signed in; `loadSession` must consult it rather than trust the cached access token alone.
 
 `loadSession` resolves three cases, in order (`osn/client/src/service.ts`):
 
@@ -213,8 +213,12 @@ interface AccountSession {
 
 **Single-flight + retry/backoff.** Both cold-start and rehydrate go through one shared, single-flighted cookie grant (`fetchTokenGrant`), so concurrent mounts fire **exactly one** `/token` — replaying a rotated cookie a second time would trip C2 reuse detection and revoke the family. The grant classifies failures:
 
-- **Terminal** (`/token` 4xx, e.g. `invalid_grant`): the cookie is genuinely gone/expired/rotated → fail fast, **no retry**, `loadSession` resolves to `null` (genuinely logged out, never throws).
-- **Transient** (network error, `429`, `5xx`): the cookie is probably still alive; the server just couldn't answer (cold Worker isolate, momentary blip) → **bounded exponential backoff** (3 attempts, ~0 + 200ms + 400ms) before giving up, so a single hiccup doesn't evict a live session.
+- **Terminal** (`/token` 4xx but 429, e.g. `invalid_grant`): the cookie is genuinely gone/expired/rotated: fail fast, **no retry**; `loadSession` resolves to `null` (genuinely logged out, never throws). The exception is a `400 invalid_grant` the issuer marks as leaving the cookie's status unknown (a lost rotation race, a storage error): it is retried once after 250 ms — see [[sessions#Renewal in the browser]].
+- **Transient** (`5xx`): the cookie is probably still alive; the server just couldn't answer (cold Worker isolate, momentary blip), so the grant gets **bounded exponential backoff** (3 attempts, ~0 + 200ms + 400ms) before giving up: a single hiccup must not evict a live session.
+- **Network** (`fetch` rejects; a CORS refusal looks the same): 2 attempts, ~0 + 200ms. A refused origin never becomes an allowed one on the next attempt.
+- **Rate limited** (`429`): 1 attempt, since a retry inside the same window would meet the same refusal. The failure carries `Retry-After`, which sets how long renewal pauses ([[sessions#Renewal in the browser]]).
+
+**Which profile a grant mints for.** `POST /token` takes an optional `profile_id`. The issuer mints the access token for it when the cookie session's account owns that profile, bound to the rotated session as any grant is; otherwise — no field, a profile that is gone, or another account's — for the account's default profile, so the grant says nothing about which profiles exist. A restricted recovery session ignores the field. Renewal in the browser names the active profile; the cold-start bootstrap, rehydrate and `refreshHeldSession` name none.
 
 This keeps the short access-token TTL (XSS blast-radius cap) intact while making the *session* durable: the user stays signed in across reloads for as long as the refresh cookie lives — **provided the app and the issuer share a registrable domain**. `__Host-osn_session` is `SameSite=Lax`, so a browser sends it on a credentialed `POST /token` only when the calling page is same-site with the issuer.
 

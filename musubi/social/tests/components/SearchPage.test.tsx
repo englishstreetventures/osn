@@ -101,7 +101,7 @@ describe("<SearchPage />", () => {
     // One character is a real search — the server scopes it to the caller's own
     // connections and organisations rather than the global index.
     await type("a");
-    expect(mocks.search).toHaveBeenCalledWith("tkn", "a", expect.anything());
+    expect(mocks.search).toHaveBeenCalledWith("a", expect.anything());
   });
 
   it("groups results under People and Organisations headings", async () => {
@@ -130,7 +130,6 @@ describe("<SearchPage />", () => {
     renderPage();
     await type("ali");
     expect(mocks.search).toHaveBeenCalledWith(
-      "tkn",
       "ali",
       expect.objectContaining({ limit: 15, orgLimit: 8 }),
     );
@@ -145,7 +144,7 @@ describe("<SearchPage />", () => {
     fireEvent.click(screen.getByText("Connect"));
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("tkn", "alice");
+    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("alice");
     await waitFor(() => expect(screen.getByText("Requested")).toBeDefined());
   });
 

@@ -1,11 +1,16 @@
 /**
  * Musubi: create an account with a passkey, sign out, sign back in with the
- * passkey, and keep the session across a reload.
+ * passkey, keep the session across a reload, add and remove an authenticator
+ * app behind passkey step-ups, keep the session past its access token's
+ * expiry, list the connected apps, and sign the page out when the issuer
+ * refuses to renew it.
  *
  * The session cookie is set by osn-api (`localhost:4000`) on responses to
  * Musubi's (`localhost:1422`) cross-origin fetches, so it only lands — and only
  * rides on later calls — when those fetches pass `credentials: "include"`.
  */
+
+import type { Request, Response } from "@playwright/test";
 
 import { ORIGINS, PEOPLE } from "../../src/config";
 import {
@@ -15,6 +20,7 @@ import {
   mailFor,
   otpFor,
   test,
+  totpCode,
 } from "../support/fixtures";
 
 const ada = PEOPLE.musubi;
@@ -115,6 +121,142 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
   });
   flow.check("session restored through POST /token", true, flow.saw("POST osn-api /token 200"));
+
+  const settingsTab = (name: string) =>
+    page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name, exact: true });
+
+  // Each step-up below is a passkey assertion the virtual authenticator
+  // answers. The code is computed from the setup key the page shows, on the
+  // suite clock the servers run on.
+  await flow.step("add an authenticator app", async () => {
+    await page.getByRole("link", { name: "Settings" }).first().click();
+    await settingsTab("Security").click();
+    await page.getByRole("button", { name: "Add an authenticator app" }).click();
+    await page.getByRole("button", { name: "Use passkey" }).click();
+    const secret = (await page.getByLabel("Or enter this setup key by hand").textContent()) ?? "";
+    await page.getByLabel("Digit 1").pressSequentially(totpCode(secret));
+    await page.getByRole("button", { name: "Confirm" }).click();
+    await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
+  });
+  flow.check(
+    "the authenticator app was enrolled",
+    true,
+    flow.saw("POST osn-api /totp/enroll/complete 200"),
+  );
+
+  await flow.step("remove the authenticator app", async () => {
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "Remove" }).click();
+    await page.getByRole("button", { name: "Use passkey" }).click();
+    await expect(page.getByRole("button", { name: "Add an authenticator app" })).toBeVisible();
+    // Leave the Security tab, so the next step's visit mounts its views again.
+    await settingsTab("Profile").click();
+  });
+  flow.check("the authenticator app was removed", true, flow.saw("DELETE osn-api /totp 200"));
+  flow.check(
+    "each step-up passed with the passkey",
+    2,
+    flow.count("POST osn-api /step-up/passkey/complete 200"),
+  );
+
+  // From here the page's clock runs ahead of the servers'. osn-api still takes
+  // the old access token, so only the client can know it is stale. Each step
+  // moves the page past the stored token's expiry and opens the Security tab,
+  // whose three views each make an authenticated GET. The checks are counts
+  // and sets, never request order across the three, which varies by run.
+  const SECURITY_GETS = ["/passkeys", "/totp/status", "/recovery/status"];
+  const securityGets = (suffix = "") =>
+    SECURITY_GETS.map((path) => flow.count(`GET osn-api ${path}${suffix}`));
+  const sum = (counts: number[]) => counts.reduce((a, b) => a + b, 0);
+  const pastExpiry = async () => {
+    // The number only; no token leaves the page.
+    const expiresAt = await page.evaluate(() => {
+      const raw = localStorage.getItem("@osn/client:account_session");
+      if (!raw) return null;
+      const account = JSON.parse(raw) as {
+        activeProfileId: string;
+        profileTokens: Record<string, { expiresAt: number }>;
+      };
+      return account.profileTokens[account.activeProfileId]?.expiresAt ?? null;
+    });
+    if (expiresAt === null) throw new Error("no stored access token");
+    const now = await page.evaluate(() => Date.now());
+    await page.clock.fastForward(expiresAt - now + 60_000);
+  };
+  const grantsBefore = flow.count("POST osn-api /token 200");
+  const okBefore = securityGets(" 200");
+  const refusedGetsBefore = sum(securityGets(" 401"));
+  // Whether the grant answered before any of the three GETs left the page.
+  const seen: string[] = [];
+  const onRequest = (request: Request) => {
+    const url = new URL(request.url());
+    if (url.origin === ORIGINS.osnApi && SECURITY_GETS.includes(url.pathname)) seen.push("get");
+  };
+  const onResponse = (response: Response) => {
+    const url = new URL(response.url());
+    if (url.origin === ORIGINS.osnApi && url.pathname === "/token") seen.push("grant");
+  };
+  await flow.step("the session outlives its access token", async () => {
+    page.on("request", onRequest);
+    page.on("response", onResponse);
+    await pastExpiry();
+    await page.getByRole("link", { name: "Settings" }).first().click();
+    await settingsTab("Security").click();
+    await expect(page.getByRole("button", { name: "Rename" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recovery codes" })).toBeVisible();
+    page.off("request", onRequest);
+    page.off("response", onResponse);
+  });
+  flow.check(
+    "one grant renews the stale token",
+    1,
+    flow.count("POST osn-api /token 200") - grantsBefore,
+  );
+  flow.check(
+    "each Security GET answered 200",
+    true,
+    securityGets(" 200").every((n, i) => n > okBefore[i]!),
+  );
+  flow.check("no Security GET refused", 0, sum(securityGets(" 401")) - refusedGetsBefore);
+  flow.check("the grant answered before any GET left", "grant", seen[0] ?? "");
+
+  await flow.step("list the connected apps", async () => {
+    await settingsTab("Connected apps").click();
+    await expect(
+      page.getByText("You haven't connected any apps to your Musubi account yet."),
+    ).toBeVisible();
+  });
+  flow.check(
+    "connected apps listed through authFetch",
+    true,
+    flow.saw("GET osn-api /oidc/connections 200"),
+  );
+
+  const refusedGrantsBefore = flow.count("POST osn-api /token 400");
+  const sentBefore = sum(securityGets());
+  await flow.step("a refused refresh signs the page out", async () => {
+    // The issuer no longer holds a session for this browser; the page still
+    // holds the account and its stale token.
+    await context.clearCookies({ name: "osn_session" });
+    await pastExpiry();
+    await settingsTab("Profile").click();
+    await settingsTab("Security").click();
+    await expect(page.getByText("Sign in to manage your settings.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+  });
+  flow.check(
+    "the refused grant was sent once",
+    1,
+    flow.count("POST osn-api /token 400") - refusedGrantsBefore,
+  );
+  flow.check("no Security GET sent after the refusal", 0, sum(securityGets()) - sentBefore);
+  flow.check(
+    "the stored account is gone",
+    true,
+    await page.evaluate(() => localStorage.getItem("@osn/client:account_session") === null),
+  );
 
   await flow.step("without the cookie, the reload is signed out", async () => {
     await context.clearCookies();

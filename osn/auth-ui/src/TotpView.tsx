@@ -35,12 +35,10 @@ import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
  */
 
 export interface TotpViewProps {
-  /** TOTP client, built via `createTotpClient({ issuerUrl })`. */
+  /** TOTP client, built via `createTotpClient({ issuerUrl, authFetch })`. */
   client: TotpClient;
-  /** Step-up client, built via `createStepUpClient({ issuerUrl })`. */
+  /** Step-up client, built via `createStepUpClient({ issuerUrl, authFetch })`. */
   stepUpClient: StepUpClient;
-  /** The caller's current access token. */
-  accessToken: string;
   /**
    * Executes the browser-side WebAuthn assertion for the step-up ceremony.
    * Kept caller-side so the host picks the WebAuthn wrapper.
@@ -63,9 +61,7 @@ function formatTs(ts: number | null): string {
 
 export function TotpView(props: TotpViewProps) {
   const [reloadKey, setReloadKey] = createSignal(0);
-  const [status] = createResource(reloadKey, () =>
-    props.client.status({ accessToken: props.accessToken }),
-  );
+  const [status] = createResource(reloadKey, () => props.client.status());
 
   // The only place the shared secret exists in this component. Cleared on
   // every exit from the enrolment panel, including unmount.
@@ -114,13 +110,11 @@ export function TotpView(props: TotpViewProps) {
       if (action === "enroll") {
         setEnrollment(
           await props.client.enrollBegin({
-            accessToken: props.accessToken,
             stepUpToken: token.token,
           }),
         );
       } else {
         await props.client.disable({
-          accessToken: props.accessToken,
           stepUpToken: token.token,
         });
         clearEnrollment();
@@ -145,7 +139,6 @@ export function TotpView(props: TotpViewProps) {
     setError(null);
     try {
       await props.client.enrollComplete({
-        accessToken: props.accessToken,
         code: code(),
         label: label().trim() || undefined,
       });
@@ -285,7 +278,6 @@ export function TotpView(props: TotpViewProps) {
         {(action) => (
           <StepUpDialog
             client={props.stepUpClient}
-            accessToken={props.accessToken}
             onToken={handleStepUp}
             onCancel={() => setPending(null)}
             runPasskeyCeremony={props.runPasskeyCeremony}

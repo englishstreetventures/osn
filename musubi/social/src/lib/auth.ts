@@ -1,4 +1,14 @@
+import { createOsnAuthRuntime } from "@osn/client";
+
 export const OSN_ISSUER_URL = import.meta.env.VITE_OSN_ISSUER_URL ?? "http://localhost:4000";
+
+/**
+ * The page's one auth runtime. Every `AuthProvider` on the page takes it, and
+ * every authenticated client is built with its `authFetch`, so the session
+ * cache and the single-flight `/token` grant are shared by all of them. It
+ * builds nothing until its first call: importing it costs no request.
+ */
+export const osnAuth = createOsnAuthRuntime({ issuerUrl: OSN_ISSUER_URL });
 
 /** The product name this app shows — in its own copy and in `@osn/auth-ui`'s. */
 export const PRODUCT_NAME = "Musubi";
