@@ -11,6 +11,7 @@
  * not part of the stack.
  */
 
+import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -395,6 +396,25 @@ export async function claimFromOrganiserAddress(context: BrowserContext): Promis
 /** A cookie in `context` by name, or undefined. */
 export async function cookieNamed(context: BrowserContext, url: string, name: string) {
   return (await context.cookies(url)).find((c) => c.name === name);
+}
+
+/**
+ * The code an authenticator app shows for `secret` (the base32 setup key) at
+ * the suite clock's now, which is the servers' now: RFC 6238 with SHA-1, six
+ * digits and a 30-second step, as `@shared/crypto/totp` verifies it.
+ */
+export function totpCode(secret: string): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const bits = [...secret.replace(/[\s=]/g, "").toUpperCase()]
+    .map((c) => alphabet.indexOf(c).toString(2).padStart(5, "0"))
+    .join("");
+  const key = Buffer.from((bits.match(/.{8}/g) ?? []).map((b) => Number.parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(suiteNow() / 30_000)));
+  const mac = createHmac("sha1", key).update(counter).digest();
+  const at = mac[mac.length - 1]! & 0xf;
+  const value = (mac.readUInt32BE(at) & 0x7fffffff) % 1_000_000;
+  return value.toString().padStart(6, "0");
 }
 
 /**
