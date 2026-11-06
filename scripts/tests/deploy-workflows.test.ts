@@ -1198,7 +1198,7 @@ describe("production-release.yml", () => {
     ).toEqual(["build", "plan", "site-parity", "sites"]);
   });
 
-  test("RP8: each Environment keeps its own window: a release leaves at most 11 records in production (27 releases) and 5 in production-records (60)", () => {
+  test("RP8: each Environment keeps its own window: a release leaves at most 10 records in production (30 releases) and 5 in production-records (60)", () => {
     // Counted with one attempt per job: a re-run, or a rejected approval,
     // leaves a record of its own.
     const moveOnly = (id: string) => /-verify$|^flip-detach-|^attach-/.test(id);
@@ -1211,9 +1211,9 @@ describe("production-release.yml", () => {
     const flip = 4;
     const unflip = 1 + 3 + 1 + 1;
     const most = Math.max(release, flip, unflip, 1);
-    expect(release).toBe(11);
-    expect(most).toBeLessThanOrEqual(11);
-    expect(Math.floor(MAX_RECORDS / most)).toBeGreaterThanOrEqual(27);
+    expect(release).toBe(10);
+    expect(most).toBeLessThanOrEqual(10);
+    expect(Math.floor(MAX_RECORDS / most)).toBeGreaterThanOrEqual(30);
     // One record job per site whose Worker serves its host: at most every
     // site a production stack deploys.
     const records = jobsIn(production, "production-records").length;
