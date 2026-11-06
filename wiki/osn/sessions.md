@@ -310,7 +310,7 @@ erasure (by account) and a detected reuse (by account and family).
 
 ## UI
 
-- `@osn/auth-ui/SessionsView` — a settings panel; no app mounts it (#2055). "(this device)" after the current session's device, Revoke button disabled for current, "Sign out everywhere else" with a synchronous `confirm()` (toast-style undo would leave the stolen-session window open).
+- `@osn/auth-ui/SessionsView` — a settings panel; no app mounts it (#2055). "This device" badge on current, Revoke button disabled for current, "Sign out everywhere else" with a synchronous `confirm()` (toast-style undo would leave the stolen-session window open).
 
 **Device / passkey management (#155).** The companion `@osn/auth-ui/PasskeysView` surfaces the *credential* side of device management — list / add / rename / remove passkeys, each destructive operation step-up-gated. It mounts in `@musubi/social`'s Settings Security section. Cire's organiser portal does not mount it: its `SecurityPanel` links to that section instead ([[passkey-primary]] §Surfaces that mount `<PasskeysView>`). New-device help (a backed-up/synced passkey, the cross-device QR ceremony above, or a recovery code) is covered on [[passkey-primary]].
 
