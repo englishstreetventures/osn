@@ -11,6 +11,8 @@
  *   scrolls sideways (`wrap-anywhere` on the address, one column of numbers);
  * - each number is a target at least 44px tall, its digits 24px in tabular
  *   figures, as the waiting screen draws the number;
+ * - "I didn't ask for this" sits under the numbers, inside the card, 44px
+ *   tall below `md` (`max-md:h-11`) and `Button`'s own `sm` 32px from it;
  * - Try again and Continue are 44px tall below `md` (`max-md:h-11`) and
  *   `Button`'s own `lg` 40px from `md` up;
  * - the error notice sits directly above Try again.
@@ -140,13 +142,26 @@ describe("ConfirmLinkPage on a bare musubi route", () => {
       expect(buttons[i]?.getBoundingClientRect().top).toBeGreaterThan(above?.bottom ?? 0);
     }
 
+    const decline = screen.getByRole("button", { name: "I didn't ask for this" });
+    const declineBox = decline.getBoundingClientRect();
+    expect(declineBox.top).toBeGreaterThan(buttons.at(-1)?.getBoundingClientRect().bottom ?? 0);
+    expect(declineBox.left).toBeGreaterThanOrEqual(cardBox.left);
+    expect(declineBox.right).toBeLessThanOrEqual(cardBox.right);
+    expect(declineBox.bottom).toBeLessThanOrEqual(cardBox.bottom);
+
     await page.screenshot({ path: `${SHOTS}/five-numbers-320.png` });
   });
 
-  it("makes each number a target at least 44px tall, with its digits 24px in tabular figures", async () => {
+  it("makes each number a target at least 44px tall, one under another as wide as the card allows, with its digits 24px in tabular figures", async () => {
     for (const viewport of [PHONE, DESKTOP]) {
       await atViewport(viewport);
       await mountOnRoute("confirmed");
+      const group = screen.getByRole("group").getBoundingClientRect();
+      const boxes = numbers().map((button) => button.getBoundingClientRect());
+      for (const box of boxes) expect(box.width).toBe(group.width);
+      for (let i = 1; i < boxes.length; i++) {
+        expect(boxes[i]?.top).toBeGreaterThan(boxes[i - 1]?.bottom ?? 0);
+      }
       for (const button of numbers()) {
         expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
         const digits = button.querySelector("[translate='no']") as HTMLElement;
@@ -159,6 +174,17 @@ describe("ConfirmLinkPage on a bare musubi route", () => {
       }
       cleanup();
     }
+  });
+
+  it("draws I didn't ask for this 44px tall below md and 32px from it", async () => {
+    await atViewport(PHONE);
+    await mountOnRoute("confirmed");
+    expect(buttonHeight("I didn't ask for this")).toBe(44);
+    cleanup();
+
+    await atViewport(DESKTOP);
+    await mountOnRoute("confirmed");
+    expect(buttonHeight("I didn't ask for this")).toBe(32);
   });
 
   it("draws Try again and Continue 44px tall below md", async () => {
