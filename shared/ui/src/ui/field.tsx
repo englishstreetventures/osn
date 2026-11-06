@@ -28,6 +28,8 @@
 
 import { children, createUniqueId, For, Show, untrack, type JSX } from "solid-js";
 
+import { LABEL_BASE, LABEL_SIZE_MD, LABEL_TONE_DEFAULT } from "./label-classes";
+
 /**
  * What {@link Field} hands its child: everything the control needs in order to
  * be named, described and marked wrong. Spread it onto the control.
@@ -76,10 +78,11 @@ const LABEL =
   "base:font-ui-body base:text-ui-ink-secondary base:text-ui-xs " +
   "base:tracking-ui-wider base:uppercase";
 
-// `Label`'s default look, written out rather than imported from `label.tsx`, so
-// this file pulls no variant helper into the apps that only draw the default.
-// `field-plain.browser.test.tsx` holds that the two paint alike.
-const PLAIN_LABEL = "base:font-medium base:leading-none base:text-ui-ink base:text-ui-base";
+// `Label`'s default look, from the strings `label.tsx` builds it with. Not
+// `labelVariants` itself, which would pull a variant helper into the apps that
+// only draw the default. `field-plain.browser.test.tsx` holds that the two
+// paint alike.
+const PLAIN_LABEL = `${LABEL_BASE} ${LABEL_TONE_DEFAULT} ${LABEL_SIZE_MD}`;
 
 /** The label, the control, the hint and the errors — in that order, wired. */
 export function Field(props: FieldProps) {
