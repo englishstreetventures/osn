@@ -12,7 +12,7 @@ last-reviewed: 2026-11-06
 
 > **Tier gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`), the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) and the couple's enquiry routes (`/api/organiser/weddings/:weddingId/enquiries/*`) all require the wedding to be on the **Crimson** plan tier (`weddingTier(db, "crimson")`). Requests from a wedding below it receive `402 { "error": "payment_required", "tier": "crimson" }`. The gate sits after the role check — see [[cire-entitlements]]. A host can buy Crimson from the portal, at an upgrade-from-Gold price when the wedding is on Gold; see [[cire-upgrades]].
 
-The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/production-release.yml` (dev: `deploy.yml`), and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist. Until that domain moves to a Worker, the cire stack also deploys the same production build to the staged `cire-vendor` Worker on `next.vendor.cireweddings.com` ([[infrastructure-as-code#Production sites]]).
+The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds in `.github/workflows/production-release.yml`'s `sites` job (dev: `deploy.yml`), and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist. The portal is `worker` in `shared/infra/src/production-sites.ts`: the cire stack deploys it to the `cire-vendor` Worker, which holds `vendor.cireweddings.com` once its flip release has moved the domain off the `cire-vendor` Pages project ([[infrastructure-as-code#Production sites]], [[production-deploy#5.7 Moving a site's domain from Pages to its Worker (a flip) 🔑]]).
 
 ---
 
@@ -228,7 +228,7 @@ The claim and listing routes, `createVendorPortalRoutes` in [`vendor-portal.ts`]
 
 ## Vendor portal (`cire/vendor`)
 
-The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS Cloudflare Pages app living in `cire/vendor/`. It is the browser surface vendors use after an organiser sends them a claim link.
+The vendor self-service portal (`vendor.cireweddings.com`) is a static Astro + SolidJS site living in `cire/vendor/`, served by the `cire-vendor` Worker's static assets. It is the browser surface vendors use after an organiser sends them a claim link.
 
 ### Screens (left-to-right user flow)
 
@@ -281,7 +281,7 @@ Two consequences worth knowing about outside the portal:
 The `/claim/?token=<raw>` URL carries a 256-bit claim secret. Two defences prevent it leaking:
 
 1. **Token-strip**: `ClaimApp` calls `history.replaceState(null, "", "/claim/")` on mount — the token leaves the address bar before any user action or navigation.
-2. **Referrer-Policy: no-referrer** header: set in `cire/vendor/public/_headers` (Cloudflare Pages static headers). Prevents any remaining `<a>` or `fetch` from forwarding the URL in a `Referer` header to third-party origins.
+2. **Referrer-Policy: no-referrer** header: set in `cire/vendor/public/_headers`, which the Worker's static assets apply as Pages did ([[infrastructure-as-code#Sites]]). Prevents any remaining `<a>` or `fetch` from forwarding the URL in a `Referer` header to third-party origins.
 
 ### Auth flow
 
