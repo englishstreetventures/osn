@@ -218,12 +218,12 @@ screen shows even when consent is on record (pinned in
   a different first screen. The value is advisory copy; tampering with it
   widens nothing, because the server re-derives every requirement when the
   decision arrives.
-- **`reason=create` leads with sign-up once, not every time** (2026-08-06).
-  The URL still says `create` after the account exists, so anything that
-  returns the user to the sign-in screen — a `login_required` replay, a
-  refused decision — used to reopen "Create your Musubi account" at someone
-  who had just made one, which reads as the flow having discarded the new
-  account. `initialMode` is therefore gated on `signedInHere()`: once a
+- **`reason=create` leads with sign-up once, not every time.**
+  The URL still says `create` after the account exists, so without a guard
+  anything that returns the user to the sign-in screen — a `login_required`
+  replay, a refused decision — would reopen "Create your Musubi account" at
+  someone who had just made one, which reads as the flow having discarded the
+  new account. `initialMode` is therefore gated on `signedInHere()`: once a
   ceremony has happened on this page, the way forward is signing in.
 - **A registration that leaves no session is the same loop, one layer down.**
   `POST /register/complete` returns the refresh token *only* as a
