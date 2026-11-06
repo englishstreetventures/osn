@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { LEGAL_ENTITY } from "@shared/legal";
 import type { SignalKind } from "@shared/realtime";
 import type { SignalEvent, SubscriptionOptions } from "@shared/realtime/client";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
@@ -239,6 +240,7 @@ import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
 import { registerUnsavedGuard } from "../../src/lib/unsaved-guard";
+import { pollDelayMs } from "../../src/lib/upgrade-return";
 import { hasCachedCatalogue, setCatalogue } from "../../src/lib/upgrade-store";
 import {
   __resetVendorsCache,
@@ -603,6 +605,102 @@ describe("OrganiserApp Dashboard", () => {
     expect(listReads).toBe(2);
     expect(window.location.search).toBe("");
     toastSuccess.mockReset();
+  });
+
+  /**
+   * Back from Stripe, the purchase answering each of `statuses` in turn (the
+   * last one repeats). `reads.list` counts reads of the wedding list alone.
+   * Fake timers go in before `render`: the poll starts at mount and schedules
+   * its first sleep straight after the first read. The caller restores real
+   * timers in a `finally`, and uses no `waitFor` meanwhile: its deadline is a
+   * faked `setTimeout` too, so a failure would hang.
+   */
+  function returnFromStripe(statuses: string[]) {
+    history.replaceState(null, "", "/?w=wed_a&m=registry&upgrade=upg_1");
+    const reads = { purchase: 0, list: 0 };
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/upgrade/purchases/upg_1")) {
+        const status = statuses[Math.min(reads.purchase, statuses.length - 1)];
+        reads.purchase += 1;
+        return new Response(JSON.stringify({ purchase: { status, tier: "gold" } }), {
+          status: 200,
+        });
+      }
+      if (url.endsWith("/api/organiser/weddings")) reads.list += 1;
+      return listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", tier: "ivory" }]);
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    render(() => <OrganiserApp />);
+    return reads;
+  }
+
+  /**
+   * A paid checkout that could not upgrade the wedding is refunded by the API
+   * on its own. The organiser is told so, with the address to write to, in a
+   * toast that stays until closed: the receipt is stripped from the URL, so
+   * nothing else in the portal will say it again.
+   */
+  it.each(["refunding", "auto_refunded", "refund_failed"])(
+    "ends the poll on a payment refunded automatically (%s), and says so with a contact address",
+    async (status) => {
+      // The organiser is back before the webhook lands; the payment then
+      // could not upgrade the wedding.
+      const reads = returnFromStripe(["pending", status]);
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(reads.purchase).toBe(1);
+        expect(toastError).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(pollDelayMs(0));
+        expect(reads.purchase).toBe(2);
+        expect(toastError).toHaveBeenCalledTimes(1);
+        const [shown, options] = toastError.mock.calls[0] as [HTMLElement, unknown];
+        expect(shown.textContent).toBe(
+          "Your payment could not upgrade this wedding, so we are refunding it in full. " +
+            `Questions? Write to us at ${LEGAL_ENTITY.contactEmail}.`,
+        );
+        const link = shown.querySelector("a");
+        expect(link?.getAttribute("href")).toBe(`mailto:${LEGAL_ENTITY.contactEmail}`);
+        expect(link?.textContent).toBe(LEGAL_ENTITY.contactEmail);
+        expect(options).toEqual({ duration: Number.POSITIVE_INFINITY, dismissible: true });
+
+        // The poll is over: no third read, never "still being confirmed", and
+        // nothing was granted, so the list the nav locks by is not read again.
+        await vi.advanceTimersByTimeAsync(pollDelayMs(1));
+        expect(reads.purchase).toBe(2);
+        expect(toastInfo).not.toHaveBeenCalled();
+        expect(toastSuccess).not.toHaveBeenCalled();
+        expect(reads.list).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("ends the poll on a purchase a person refunded, and says it no longer applies", async () => {
+    // A return URL opened again after an operator lowered the wedding with
+    // `grant-tier.ts --lower`.
+    const reads = returnFromStripe(["pending", "refunded"]);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads.purchase).toBe(1);
+      expect(toastInfo).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(pollDelayMs(0));
+      expect(reads.purchase).toBe(2);
+      expect(toastInfo).toHaveBeenCalledWith(
+        "That purchase was refunded, so it no longer applies to this wedding.",
+      );
+
+      await vi.advanceTimersByTimeAsync(pollDelayMs(1));
+      expect(reads.purchase).toBe(2);
+      expect(toastInfo).toHaveBeenCalledTimes(1);
+      expect(toastError).not.toHaveBeenCalled();
+      expect(toastSuccess).not.toHaveBeenCalled();
+      expect(reads.list).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("auto-opens a freshly created wedding's dashboard", async () => {

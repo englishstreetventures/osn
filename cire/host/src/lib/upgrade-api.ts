@@ -54,7 +54,22 @@ export interface Catalogue {
 }
 
 interface PurchaseState {
-  status: "pending" | "succeeded" | "failed" | "expired";
+  /**
+   * `refunding`, `auto_refunded` and `refund_failed` are a paid checkout the
+   * API could not grant and is giving back on its own; `refunded` is one a
+   * person refunded; `mismatch` is a row an earlier release left, which the
+   * API may still settle.
+   */
+  status:
+    | "pending"
+    | "succeeded"
+    | "failed"
+    | "expired"
+    | "refunded"
+    | "mismatch"
+    | "refunding"
+    | "auto_refunded"
+    | "refund_failed";
   /** The tier the purchase buys. `null` for a purchase that names no tier this
    *  build knows. */
   tier: PaidTier | null;
