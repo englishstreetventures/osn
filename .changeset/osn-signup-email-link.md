@@ -1,0 +1,12 @@
+---
+"@osn/api": minor
+"@osn/client": minor
+"@osn/auth-ui": minor
+"@musubi/social": minor
+"@shared/email": minor
+"@shared/observability": minor
+---
+
+Sign-up proves the address with an emailed link in place of the six-digit code. `POST /register/begin` answers a request id, a claim secret and a pairing number, and mails `<frontend origin>/verify/<request id>#<link secret>`; the link's page reads the candidates (`POST /email-link/:requestId/candidates`) and confirms (`POST /email-link/:requestId/confirm`) with the number picked, since the confirm step requires the number shown on the waiting screen. Confirming never signs anyone in: the tab that began polls `POST /register/:requestId/status` with its claim secret and gets the account and session once; `POST /register/:requestId/resend` sends another link for the same request. `/register/complete` is gone.
+
+`@osn/api` adds the shared email-link challenge for every flow that emails a link, the `email_link` ceremony store, the `registration_link_lockout` counter and the `registrationSendCap` limiter. `@osn/client` replaces `completeRegistration` with `registrationStatus` and `resendRegistrationLink`, and adds `createEmailLinkClient` and `emailLinkPurpose`. `@osn/auth-ui`'s `Register` waits on the link with `CheckEmailView`, survives a reload in the tab's `sessionStorage`, and exports `hasPendingSignUp`. `@musubi/social` serves the link's page at `/verify/:requestId`. `@shared/email` replaces `otp-registration` with `link-registration`. `@shared/observability` adds the email-link metric attributes and redacts the link and claim secrets and the pairing values.
