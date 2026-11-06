@@ -394,6 +394,52 @@ describe("guest email routes — after the RSVP deadline", () => {
     expect(await jsonBody(res)).toEqual({ error: "rsvp_closed" });
   });
 
+  // A removal made after the deadline would otherwise be final, and anyone
+  // holding the household code could make it. The seat may undo its own.
+  it("lets a seat give back an address it removed itself, hosts' or its own", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    await hostsAdded(db, cleo, ADDRESS);
+    expect((await remove(app, cookie, cleo)).status).toBe(200);
+    expect(optOuts(db)).toHaveLength(1);
+    setDeadline(db, "2020-01-01");
+
+    const back = await save(app, cookie, cleo);
+    expect(back.status).toBe(200);
+    expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+    expect(optOuts(db)).toHaveLength(0);
+
+    // The guest's own address, removed and given back the same way.
+    setDeadline(db, null);
+    const own = "cleo.own@example.test";
+    expect((await save(app, cookie, cleo, own)).status).toBe(200);
+    expect((await remove(app, cookie, cleo)).status).toBe(200);
+    setDeadline(db, "2020-01-01");
+    expect((await save(app, cookie, cleo, own)).status).toBe(200);
+    expect(emailRow(db, cleo)?.email).toBe(own);
+  });
+
+  it("refuses an address the seat did not remove, and one another seat removed", async () => {
+    const { db, app } = buildApp();
+    const bo = guestId(db, "Bo");
+    const cleo = guestId(db, "Cleo");
+    await hostsAdded(db, bo, ADDRESS);
+    const boCookie = await answeringAs(app, db, "Bo");
+    expect((await remove(app, boCookie, bo)).status).toBe(200);
+    const cleoCookie = await answeringAs(app, db, "Cleo");
+    setDeadline(db, "2020-01-01");
+
+    // Bo's wedding-wide withdrawal is not Cleo's to undo.
+    const other = await save(app, cleoCookie, cleo);
+    expect(other.status).toBe(403);
+    expect(await jsonBody(other)).toEqual({ error: "rsvp_closed" });
+    // And a new address is refused to the seat that withdrew another.
+    expect((await save(app, boCookie, bo, "bo.new@example.test")).status).toBe(403);
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+    expect(optOuts(db)).toHaveLength(1);
+  });
+
   it("still lets the guest remove their address", async () => {
     const { db, app } = buildApp();
     const cookie = await answeringAs(app, db, "Cleo");

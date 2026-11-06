@@ -22,7 +22,9 @@ import { readEmail } from "./utils";
  * removal says which happened. After the RSVP deadline the box takes no new or
  * changed address (the API refuses it too, 403 `rsvp_closed`): a stored address
  * shows with its Remove button alone, and the status region says why there is
- * no form.
+ * no form. A removal made then leaves one form, holding the removed address,
+ * which the guest can put back: the API takes that save alone, since a removal
+ * would otherwise be final for anyone holding the household code.
  *
  * Purely additive, like the account-link box: a failure says so in the box and
  * never touches the invite around it. Its buttons are named for the address
@@ -110,6 +112,10 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   // The server refused a save because RSVPs have closed, whatever this page's
   // clock says: its verdict is the one that counts.
   const [serverClosed, setServerClosed] = createSignal(false);
+  // The address this seat removed while RSVPs were closed: the one save the
+  // API still takes after the deadline is this one, which undoes the removal.
+  // Held on this page only; a reload forgets it.
+  const [removedAddress, setRemovedAddress] = createSignal<string | null>(null);
   const isClosed = () => props.closed === true || serverClosed();
   // What the status region says: the removal's note, else why there is no form.
   // After a removal while closed, the note keeps the reason beside it, since
@@ -197,6 +203,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         }
         if (refusal === "closed") {
           setServerClosed(true);
+          setRemovedAddress(null);
           return;
         }
         setError(
@@ -212,6 +219,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       const saved =
         typeof body === "object" && body !== null && "email" in body ? readEmail(body.email) : null;
       props.onChange(saved);
+      setRemovedAddress(null);
       setEditing(false);
       focusAfterRender(() => heading);
     } catch {
@@ -224,6 +232,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   async function remove(quiet = false) {
     if (busy()) return;
     const hostsAdded = props.email?.source === "organiser_attested";
+    const removed = props.email?.address ?? null;
     setBusy(true);
     setError(null);
     try {
@@ -249,7 +258,9 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
             : REMOVED_HOSTS_NOTE
           : REMOVED_OWN_NOTE,
       );
-      setDraft("");
+      // Closed, the form that follows offers this address back and no other.
+      setRemovedAddress(isClosed() ? removed : null);
+      setDraft(isClosed() && removed !== null ? removed : "");
       setConsent(false);
       setTouched(false);
       setEditing(true);
@@ -279,14 +290,17 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
           region inserted already holding its text is not reliably announced. */}
       <output
         class="text-text-muted text-ui-sm leading-ui-normal block font-light"
-        classList={{ "mb-3": status() !== "" && (!isClosed() || props.email !== null) }}
+        classList={{
+          "mb-3":
+            status() !== "" && (!isClosed() || props.email !== null || removedAddress() !== null),
+        }}
       >
         {status()}
       </output>
       <Show
         when={(isClosed() || !editing()) && props.email}
         fallback={
-          <Show when={!isClosed()}>
+          <Show when={!isClosed() || removedAddress() !== null}>
             <form class="flex flex-col gap-3" onSubmit={(e) => void save(e)}>
               <Show when={note() === ""}>
                 <p class="text-text-muted text-ui-sm leading-ui-normal font-light">
@@ -314,6 +328,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                   name="email"
                   autocomplete="email"
                   spellcheck={false}
+                  readOnly={isClosed()}
                   disabled={busy()}
                   aria-invalid={showInvalid() || refused() ? "true" : undefined}
                   aria-describedby={describedBy()}
@@ -368,7 +383,13 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                   aria-disabled={blocked() !== null ? "true" : undefined}
                   aria-describedby={blocked() !== null ? reasonId : undefined}
                 >
-                  {busy() ? "Saving…" : props.email ? "Use this email" : "Add email"}
+                  {busy()
+                    ? "Saving…"
+                    : props.email
+                      ? "Use this email"
+                      : isClosed()
+                        ? "Put it back"
+                        : "Add email"}
                 </Button>
                 <Show when={props.email}>
                   <Button

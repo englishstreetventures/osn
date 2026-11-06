@@ -161,6 +161,23 @@ function resolveSeat(
 export const guestEmailService = {
   resolveSeat,
 
+  /**
+   * Whether this seat itself removed `address` (already normalised), so that
+   * saving it again only undoes the seat's own removal. After the RSVP
+   * deadline that is the one save allowed: without it a removal made then, by
+   * anyone holding the household code, could never be undone.
+   */
+  withdrewOwn(seat: Seat, address: string): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const emailHash = yield* Effect.promise(() => hashGuestEmail(seat.weddingId, address));
+      return yield* holdsOwnOptOut({
+        weddingId: seat.weddingId,
+        emailHash,
+        guestId: seat.guestId,
+      });
+    });
+  },
+
   /** A household member's own stored address, or undefined for none (or a
    *  guest outside `familyId`). One read. */
   memberEmail(

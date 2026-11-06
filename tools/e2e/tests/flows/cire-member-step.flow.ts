@@ -22,7 +22,8 @@
  * Last, the browser's clock moves past the RSVP deadline: the box for the
  * member whose address is on file shows it with Remove alone, no field and no
  * Change button, and a removal still works, announced from the same status
- * region with the heading focused.
+ * region with the heading focused. The one address it then takes is the one
+ * just removed, which the guest puts back.
  *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
@@ -635,9 +636,25 @@ test("cire-member-step", async ({ page, context, flow }) => {
       "Removed. We’ve deleted that address from your invitation. RSVPs have closed, so we can’t take a new email address.",
     );
     await expect(closedBox.getByRole("heading", { name: "Wedding emails" })).toBeFocused();
-    await expect(closedBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`)).toHaveCount(0);
+    // The one address the closed box takes is the one just removed: the field
+    // holds it and cannot be edited.
+    const field = closedBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`);
+    await expect(field).toHaveValue(CIRE_HOUSEHOLD.correctedEmail);
+    await expect(field).toHaveJSProperty("readOnly", true);
     return status;
   });
   flow.check("the closed box's removal is saved", 200, closedRemoval);
   flow.check("the closed box's removal clears the stored address", "none", storedAddress());
+
+  const putBack = await flow.step("the guest puts the removed address back", async () => {
+    await closedBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+    const response = emailCall("PUT");
+    await closedBox.getByRole("button", { name: "Put it back" }).click();
+    const status = (await response).status();
+    await expect(closedBox.getByText(CIRE_HOUSEHOLD.correctedEmail)).toBeVisible();
+    await expect(closedBox.getByRole("button", { name: "Change email" })).toHaveCount(0);
+    return status;
+  });
+  flow.check("a closed box takes back the address the seat removed", 200, putBack);
+  flow.check("the address put back is stored", CIRE_HOUSEHOLD.correctedEmail, storedAddress());
 });

@@ -668,7 +668,8 @@ export const createClaimMemberRoutes = (
      * guest gave it themselves. Refused, in this order: a host preview
      * (403), a wedding without the member step (404), no member chosen or a
      * page showing another member (409), then for `PUT` a wedding whose RSVP
-     * deadline has passed (403 `rsvp_closed`; `DELETE` stays open), an address
+     * deadline has passed and the address is not one this seat removed itself
+     * (403 `rsvp_closed`; `DELETE` stays open), an address
      * that is not one (400), consent to words the page did not show (422), and an address
      * the seat did not withdraw itself once it holds its cap of opt-outs (429).
      * Never logs the address.
@@ -695,10 +696,16 @@ export const createClaimMemberRoutes = (
               memberStepOff,
               countOptOuts: true,
             });
-            // After the RSVP deadline a guest gives no new address; removing
-            // one stays open (the DELETE below is not gated).
-            if (seat.rsvpClosed) return yield* addressRefusal("rsvp_closed", set);
             const address = parseGuestEmail(body.email);
+            // After the RSVP deadline a guest gives no new address. The one
+            // save left is an address this seat removed itself, which undoes
+            // its own removal; removing stays open (the DELETE below is not
+            // gated). An address that is not one is no give-back.
+            if (seat.rsvpClosed) {
+              const givesBack =
+                address !== null && (yield* guestEmailService.withdrewOwn(seat, address));
+              if (!givesBack) return yield* addressRefusal("rsvp_closed", set);
+            }
             if (address === null) return yield* addressRefusal("invalid", set);
             if (body.consentVersion !== GUEST_EMAIL_CONSENT.version) {
               return yield* addressRefusal("consent_outdated", set);
