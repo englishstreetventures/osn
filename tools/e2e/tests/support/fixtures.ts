@@ -34,6 +34,7 @@ import {
   DB_FILES,
   DEV_LOGIN_SECRET,
   LOG_DIR,
+  MUSUBI_ORG,
   ORGANISER_ADDRESS,
   ORIGINS,
   REALTIME_KEEPALIVE,
@@ -525,6 +526,42 @@ export async function signInToCireHost(flow: Flow, page: Page, arriveAt?: string
     1,
     organiserSessions() - sessionsBefore,
   );
+}
+
+/**
+ * Signs `page`'s context in to Musubi as the dev profile and opens Musubi at
+ * `path`. Resolves to the access token Musubi holds, for API calls the flow
+ * makes as the same profile.
+ *
+ * osn-api's `/dev/login/form` leaves the session cookie, and the marker cookie
+ * Musubi reads, in the context's jar; Musubi then trades the cookie for a token
+ * through a credentialed `POST /token` on load, the one call this reads the
+ * token from. Only the first page load does that, so a flow that keeps its token
+ * valid navigates inside the app afterwards.
+ *
+ * Each call spends one `/dev/login` (10 a minute per address);
+ * `tests/flows.test.ts` counts the calls.
+ */
+export async function signInToMusubiAsDev(flow: Flow, page: Page, path: string): Promise<string> {
+  await flow.step("owner: get an OSN session from /dev/login", async () => {
+    const url = `${ORIGINS.osnApi}/dev/login/form`;
+    const response = await page.context().request.post(url, { form: { secret: DEV_LOGIN_SECRET } });
+    flow.recordRequest("POST", url, response.status());
+    expect(response.status(), "dev login").toBe(200);
+  });
+
+  return flow.step("owner: open Musubi signed in", async () => {
+    const tokenUrl = `${ORIGINS.osnApi}/token`;
+    const grant = page.waitForResponse(
+      (response) =>
+        response.url() === tokenUrl && response.request().method() === "POST" && response.ok(),
+    );
+    await page.goto(`${ORIGINS.musubi}${path}`);
+    const body = (await (await grant).json()) as { access_token?: string };
+    await expect(page.getByRole("button", { name: `@${MUSUBI_ORG.owner.handle}` })).toBeVisible();
+    expect(body.access_token, "access token from POST /token").toBeTruthy();
+    return body.access_token ?? "";
+  });
 }
 
 /** How many cire organiser sessions the dev profile holds. */

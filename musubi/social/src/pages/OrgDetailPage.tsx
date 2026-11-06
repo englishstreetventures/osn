@@ -1,3 +1,4 @@
+import { OrgClientError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
@@ -10,20 +11,35 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
+import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
 
-/** The two halves packed into the memoised `"<token>|<id>"` resource key. */
-type OrgResourceKey = { token: string; id: string };
+/** The two halves packed into the memoised `"<token>|<handle>"` resource key. */
+type OrgResourceKey = { token: string; handle: string };
 
 function parseKey(key: string): OrgResourceKey {
   const sep = key.indexOf("|");
-  return { token: key.slice(0, sep), id: key.slice(sep + 1) };
+  return { token: key.slice(0, sep), handle: key.slice(sep + 1) };
+}
+
+/** The HTTP status a failed request carried, when it got as far as a response. */
+function statusOf(error: unknown): number | undefined {
+  return error instanceof OrgClientError ? error.status : undefined;
+}
+
+/** A load that failed for a reason other than the ones the page names. */
+function LoadFailure(props: { message: string }) {
+  return (
+    <p class="text-destructive text-meta" role="alert">
+      {props.message} Reload and try again.
+    </p>
+  );
 }
 
 export function OrgDetailPage() {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ handle: string }>();
   const navigate = useNavigate();
   const { session } = useAuth();
   const token = () => session()?.accessToken ?? "";
@@ -31,22 +47,31 @@ export function OrgDetailPage() {
   // Stable memoised source key. Returning a fresh object per read
   // makes Solid's === equality check always fail, triggering a refetch
   // on every signal tick. A string key is referentially stable per
-  // (token, id) pair so the resource only refetches when one changes.
+  // (token, handle) pair so the resource only refetches when one changes.
   const resourceKey = createMemo(() => {
     const t = token();
-    const id = params.id;
-    return t && id ? `${t}|${id}` : false;
+    const handle = params.handle;
+    return t && handle ? `${t}|${handle}` : false;
   });
 
-  const [org, { refetch: refetchOrg }] = createResource(resourceKey, (key) => {
-    const { token: keyToken, id } = parseKey(key as string);
-    return orgClient.getOrg(keyToken, id);
+  const [org, { mutate: setOrg }] = createResource(resourceKey, async (key) => {
+    const { token: keyToken, handle } = parseKey(key as string);
+    return (await orgClient.getOrg(keyToken, handle)).organisation;
   });
 
-  const [members, { refetch: refetchMembers }] = createResource(resourceKey, (key) => {
-    const { token: keyToken, id } = parseKey(key as string);
-    return orgClient.listMembers(keyToken, id);
+  const [members, { mutate: setMembers }] = createResource(resourceKey, (key) => {
+    const { token: keyToken, handle } = parseKey(key as string);
+    return orgClient.listMembers(keyToken, handle);
   });
+
+  // What shows is chosen by `state`, never by `.error`: Solid keeps a failed
+  // load's error until the next load finishes, and the page stays mounted when
+  // only the handle changes, so `.error` can belong to the organisation before.
+  // Solid also throws when a failed resource is read, so values are read only
+  // in the `ready` state. A roster read by a non-member answers 403: the
+  // organisation is public, its member list is not.
+  const orgReady = () => (org.state === "ready" ? org() : undefined);
+  const memberRows = () => (members.state === "ready" ? members()?.members : undefined);
 
   const [showEdit, setShowEdit] = createSignal(false);
   const [editName, setEditName] = createSignal("");
@@ -54,7 +79,7 @@ export function OrgDetailPage() {
   const [saving, setSaving] = createSignal(false);
 
   function openEdit() {
-    const o = org();
+    const o = orgReady();
     if (o) {
       setEditName(o.name);
       setEditDesc(o.description ?? "");
@@ -66,13 +91,13 @@ export function OrgDetailPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await orgClient.updateOrg(token(), params.id, {
+      const { organisation } = await orgClient.updateOrg(token(), params.handle, {
         name: editName(),
         description: editDesc() || undefined,
       });
       toast.success("Organisation updated");
       setShowEdit(false);
-      refetchOrg();
+      setOrg(organisation);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update");
     } finally {
@@ -83,7 +108,7 @@ export function OrgDetailPage() {
   async function handleDelete() {
     if (!confirm("Delete this organisation? This cannot be undone.")) return;
     try {
-      await orgClient.deleteOrg(token(), params.id);
+      await orgClient.deleteOrg(token(), params.handle);
       toast.success("Organisation deleted");
       navigate("/organisations");
     } catch (err) {
@@ -91,11 +116,14 @@ export function OrgDetailPage() {
     }
   }
 
-  async function removeMember(profileId: string, handle: string) {
+  async function removeMember(profileHandle: string) {
     try {
-      await orgClient.removeMember(token(), params.id, profileId);
-      toast.success(`Removed @${handle}`);
-      refetchMembers();
+      await orgClient.removeMember(token(), params.handle, profileHandle);
+      toast.success(`Removed @${profileHandle}`);
+      setMembers(
+        (roster) =>
+          roster && { members: roster.members.filter((member) => member.handle !== profileHandle) },
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to remove member");
     }
@@ -104,12 +132,26 @@ export function OrgDetailPage() {
   return (
     <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
       <Show
-        when={!org.loading && org()}
+        when={orgReady()}
         fallback={
-          <div class="flex flex-col gap-3">
-            <div class="bg-muted/50 h-8 w-48 animate-pulse rounded" />
-            <div class="bg-muted/50 h-5 w-64 animate-pulse rounded" />
-          </div>
+          <Show
+            when={org.state === "errored"}
+            fallback={
+              <div class="flex flex-col gap-3">
+                <div class="bg-muted/50 h-8 w-48 animate-pulse rounded" />
+                <div class="bg-muted/50 h-5 w-64 animate-pulse rounded" />
+              </div>
+            }
+          >
+            {/* No organisation to title the page: the section's own head. */}
+            <h1 class="text-foreground text-display mb-6 font-medium">Organisations</h1>
+            <Show
+              when={statusOf(org.error) === 404}
+              fallback={<LoadFailure message="This organisation could not be loaded." />}
+            >
+              <EmptyNote>Organisation not found.</EmptyNote>
+            </Show>
+          </Show>
         }
       >
         {(orgData) => (
@@ -154,57 +196,63 @@ export function OrgDetailPage() {
                 <h2 class="text-foreground text-title font-medium">Members</h2>
               </div>
               <Show
-                when={!members.loading}
+                when={members.state !== "errored"}
                 fallback={
-                  <div class="flex flex-col gap-2">
-                    {Array.from({ length: 2 }, () => (
-                      <div class="bg-muted/50 h-12 animate-pulse rounded-lg" />
-                    ))}
-                  </div>
+                  <Show
+                    when={statusOf(members.error) === 403}
+                    fallback={<LoadFailure message="Members could not be loaded." />}
+                  >
+                    <EmptyNote size="section">
+                      Only members can see who belongs to this organisation.
+                    </EmptyNote>
+                  </Show>
                 }
               >
-                <div class="flex flex-col gap-1">
-                  <For each={members()?.members}>
-                    {(member) => (
-                      <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
-                        <Avatar class="h-8 w-8">
-                          <Show when={safeAvatarUrl(member.profile.avatarUrl)}>
-                            {(url) => (
-                              <AvatarImage
-                                src={url()}
-                                alt={member.profile.handle}
-                                referrerpolicy="no-referrer"
-                                loading="lazy"
-                              />
-                            )}
-                          </Show>
-                          <AvatarFallback>
-                            {member.profile.handle.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-title font-medium">
-                            {member.profile.displayName || `@${member.profile.handle}`}
-                          </p>
-                          <Show when={member.profile.displayName}>
-                            <p class="text-subtle text-meta">@{member.profile.handle}</p>
+                <Show
+                  when={members.state === "ready"}
+                  fallback={
+                    <div class="flex flex-col gap-2">
+                      {Array.from({ length: 2 }, () => (
+                        <div class="bg-muted/50 h-12 animate-pulse rounded-lg" />
+                      ))}
+                    </div>
+                  }
+                >
+                  <div class="flex flex-col gap-1">
+                    <For each={memberRows()}>
+                      {(member) => (
+                        <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                          {/* Initials only: a roster row carries no avatar. */}
+                          <Avatar class="h-8 w-8">
+                            <AvatarFallback>
+                              {member.handle.slice(0, 2).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div class="min-w-0 flex-1">
+                            <p class="text-foreground text-title truncate font-medium">
+                              {member.displayName || `@${member.handle}`}
+                            </p>
+                            <Show when={member.displayName}>
+                              <p class="text-subtle text-meta truncate">@{member.handle}</p>
+                            </Show>
+                          </div>
+                          <Badge variant="secondary">{member.role}</Badge>
+                          <Show when={member.role !== "admin"}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              class="h-7 max-md:h-10"
+                              aria-label={`Remove @${member.handle}`}
+                              onClick={() => removeMember(member.handle)}
+                            >
+                              Remove
+                            </Button>
                           </Show>
                         </div>
-                        <Badge variant="secondary">{member.role}</Badge>
-                        <Show when={member.role !== "admin"}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            class="h-7 max-md:h-10"
-                            onClick={() => removeMember(member.profile.id, member.profile.handle)}
-                          >
-                            Remove
-                          </Button>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
               </Show>
             </div>
           </>

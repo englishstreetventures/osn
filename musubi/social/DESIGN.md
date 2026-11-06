@@ -126,6 +126,15 @@ amending this file.
   rather than wrap or shrink.
 - **Toasts** = top-center below `md` (clear of keyboard + tab bar),
   bottom-right at `md+`.
+- **Empty states** = `EmptyNote` (`src/components/EmptyNote.tsx`): the dashed
+  `rounded-card` block, `size="page"` (`py-16`) for a page's whole content,
+  `size="section"` (`py-12`) for one list. It is an `<output>`, so a state
+  that replaces a skeleton is read out. Never draw the block by hand.
+- **A load that failed** for any reason the screen does not name is a
+  `text-destructive text-meta` line with `role="alert"` that ends "Reload and
+  try again." — never the empty-state block, which means "nothing here". A
+  screen whose head comes from what failed to load keeps its section's head
+  above the line (`OrgDetailPage` falls back to "Organisations").
 - The bare `/authorize` route renders with **no shell at any width**.
 
 ## Motion

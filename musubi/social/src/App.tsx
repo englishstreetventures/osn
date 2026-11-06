@@ -138,7 +138,7 @@ export default function App() {
       <Route path="/search" component={SearchPage} />
       <Route path="/discover" component={DiscoverPage} />
       <Route path="/organisations" component={OrganisationsPage} />
-      <Route path="/organisations/:id" component={OrgDetailPage} />
+      <Route path="/organisations/:handle" component={OrgDetailPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/authorize" component={AuthorizePage} />
       {/* Reachable signed-out on purpose: a notice you can only read once you have

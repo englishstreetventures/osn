@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAuthFetchers, safeErrorMessage, safeJson } from "../src/auth-fetch";
 
 class FakeError extends Error {
-  constructor(message: string) {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = "FakeError";
+    this.status = status;
   }
 }
 
@@ -89,24 +92,40 @@ describe("createAuthFetchers — authPost body handling", () => {
 });
 
 describe("createAuthFetchers — Invalid response on ok-but-unparseable body", () => {
-  it("authGet throws Invalid response: <status>", async () => {
+  it("authGet throws Invalid response: <status>, carrying the status", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authGet(url, TOKEN)).rejects.toThrow("Invalid response: 200");
+    await expect(authGet(url, TOKEN)).rejects.toMatchObject({
+      name: "FakeError",
+      message: "Invalid response: 200",
+      status: 200,
+    });
   });
 
-  it("authPost throws Invalid response: <status>", async () => {
+  it("authPost throws Invalid response: <status>, carrying the status", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authPost(url, TOKEN, { a: 1 })).rejects.toThrow("Invalid response: 200");
+    await expect(authPost(url, TOKEN, { a: 1 })).rejects.toMatchObject({
+      name: "FakeError",
+      message: "Invalid response: 200",
+      status: 200,
+    });
   });
 
-  it("authPatch throws Invalid response: <status>", async () => {
+  it("authPatch throws Invalid response: <status>, carrying the status", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authPatch(url, TOKEN, { a: 1 })).rejects.toThrow("Invalid response: 200");
+    await expect(authPatch(url, TOKEN, { a: 1 })).rejects.toMatchObject({
+      name: "FakeError",
+      message: "Invalid response: 200",
+      status: 200,
+    });
   });
 
-  it("authDelete throws Invalid response: <status>", async () => {
+  it("authDelete throws Invalid response: <status>, carrying the status", async () => {
     mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error("bad json")) });
-    await expect(authDelete(url, TOKEN)).rejects.toThrow("Invalid response: 200");
+    await expect(authDelete(url, TOKEN)).rejects.toMatchObject({
+      name: "FakeError",
+      message: "Invalid response: 200",
+      status: 200,
+    });
   });
 });
 
@@ -117,8 +136,21 @@ describe("createAuthFetchers — authDeleteVoid", () => {
   });
 
   it("throws on non-2xx", async () => {
-    mockFetch({ ok: false, json: () => Promise.resolve({ error: "boom" }) });
+    mockFetch({ ok: false, status: 403, json: () => Promise.resolve({ error: "boom" }) });
     await expect(authDeleteVoid(url, TOKEN)).rejects.toBeInstanceOf(FakeError);
+  });
+});
+
+describe("createAuthFetchers — a failed response's status reaches the error", () => {
+  it.each([
+    ["authGet", () => authGet(url, TOKEN)],
+    ["authPost", () => authPost(url, TOKEN, { a: 1 })],
+    ["authPatch", () => authPatch(url, TOKEN, { a: 1 })],
+    ["authDelete", () => authDelete(url, TOKEN)],
+    ["authDeleteVoid", () => authDeleteVoid(url, TOKEN)],
+  ] as const)("%s throws with the message and the status", async (_name, run) => {
+    mockFetch({ ok: false, status: 403, json: () => Promise.resolve({ error: "boom" }) });
+    await expect(run()).rejects.toMatchObject({ name: "FakeError", message: "boom", status: 403 });
   });
 });
 

@@ -14,12 +14,12 @@ import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 
-import { oauthClients } from "@osn/db/schema";
+import { accounts, oauthClients, organisationMembers, organisations, users } from "@osn/db/schema";
 import { applySchema as applyOsnSchema } from "@osn/db/testing";
 import { applySchema as applyPulseSchema } from "@pulse/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { CIRE_OIDC, CLOCK_T0, PULSE_OIDC } from "./config";
+import { CIRE_OIDC, CLOCK_T0, MUSUBI_ORG, PULSE_OIDC } from "./config";
 
 function freshDatabase(path: string): Database {
   if (existsSync(path)) {
@@ -49,16 +49,62 @@ function firstPartyClient(
   };
 }
 
-/** osn-api: the schema, plus Pulse and cire registered as first-party OIDC clients. */
+/**
+ * osn-api: the schema, Pulse and cire registered as first-party OIDC clients,
+ * and `MUSUBI_ORG`'s member profile with the organisation it owns.
+ */
 export function seedOsn(path: string): void {
   const sqlite = freshDatabase(path);
   try {
     // One transaction: on a file each autocommitted statement syncs its own journal.
     sqlite.transaction(() => {
       applyOsnSchema(sqlite);
-      drizzle({ client: sqlite })
-        .insert(oauthClients)
+      const db = drizzle({ client: sqlite });
+      db.insert(oauthClients)
         .values([firstPartyClient(PULSE_OIDC, "Pulse"), firstPartyClient(CIRE_OIDC, "Cire")])
+        .run();
+
+      // Parents first: the connection enforces foreign keys.
+      const { member, otherOrg } = MUSUBI_ORG;
+      const at = new Date(CLOCK_T0);
+      db.insert(accounts)
+        .values({
+          id: member.accountId,
+          email: member.email,
+          passkeyUserId: member.passkeyUserId,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      db.insert(users)
+        .values({
+          id: member.profileId,
+          accountId: member.accountId,
+          handle: member.handle,
+          displayName: member.name,
+          isDefault: true,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      db.insert(organisations)
+        .values({
+          id: otherOrg.id,
+          handle: otherOrg.handle,
+          name: otherOrg.name,
+          ownerId: member.profileId,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      db.insert(organisationMembers)
+        .values({
+          id: otherOrg.membershipId,
+          organisationId: otherOrg.id,
+          profileId: member.profileId,
+          role: "admin",
+          createdAt: at,
+        })
         .run();
     })();
   } finally {

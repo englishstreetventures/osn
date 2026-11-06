@@ -9,6 +9,7 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
@@ -65,14 +66,7 @@ export function OrganisationsPage() {
         </Show>
       </div>
 
-      <Show
-        when={session()}
-        fallback={
-          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-            Sign in to view your organisations.
-          </div>
-        }
-      >
+      <Show when={session()} fallback={<EmptyNote>Sign in to view your organisations.</EmptyNote>}>
         <Show
           when={!orgs.loading}
           fallback={
@@ -85,11 +79,7 @@ export function OrganisationsPage() {
         >
           <Show
             when={(orgs()?.organisations.length ?? 0) > 0}
-            fallback={
-              <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-                You're not part of any organisations yet.
-              </div>
-            }
+            fallback={<EmptyNote>You're not part of any organisations yet.</EmptyNote>}
           >
             <div class="flex flex-col gap-2">
               <For each={orgs()?.organisations}>

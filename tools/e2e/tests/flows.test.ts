@@ -75,10 +75,12 @@ describe("flow sources", () => {
   // (10 a minute, osn/api/src/routes/auth/dev-login.ts) and one osn-api
   // `/authorize` (20 a minute, `oidcAuthorize` in
   // osn/api/src/routes/auth/limiters.ts). A Pulse sign-in, `signInToPulse`,
-  // spends one `/authorize` too. All of it from the suite's one address, in
-  // fixed windows, so a sign-in past the budget fails only on a fast machine.
-  // Seven organiser sign-ins and two Pulse ones keep every window with room:
-  // 14 of the 15 redirect legs, 7 of the 10 dev logins, 9 of the 20 authorizes.
+  // spends one `/authorize` too. A Musubi sign-in as the dev profile,
+  // `signInToMusubiAsDev`, spends one `/dev/login` and nothing else. All of it
+  // from the suite's one address, in fixed windows, so a sign-in past the
+  // budget fails only on a fast machine. Seven organiser sign-ins, one Musubi
+  // one and two Pulse ones keep every window with room: 14 of the 15 redirect
+  // legs, 8 of the 10 dev logins, 9 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     // The support modules too, less the helpers' own definitions.
     const sources = dirs.flatMap((dir) =>
@@ -90,9 +92,11 @@ describe("flow sources", () => {
       sources.reduce((sum, source) => sum + (source.match(pattern)?.length ?? 0), 0);
     const signIns = count(/(?<!function )signInToCireHost\(|\/dev\/login\?/g);
     const pulseSignIns = count(/(?<!function )signInToPulse\(/g);
+    const musubiDevSignIns = count(/(?<!function )signInToMusubiAsDev\(/g);
     expect(signIns).toBeGreaterThan(0);
     expect(signIns).toBeLessThanOrEqual(7);
     expect(signIns + pulseSignIns).toBeLessThanOrEqual(9);
+    expect(signIns + musubiDevSignIns).toBeLessThanOrEqual(9);
   });
 
   // osn-api allows 5 sign-up begins a minute per client address

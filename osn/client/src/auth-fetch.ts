@@ -59,8 +59,14 @@ export interface AuthFetchers {
   authDeleteVoid(url: string, token: string, options?: AuthFetchOptions): Promise<void>;
 }
 
-/** Build the five `auth*` helpers, parameterised on the error class each caller throws. */
-export function createAuthFetchers(ErrorCtor: new (message: string) => Error): AuthFetchers {
+/**
+ * Build the five `auth*` helpers, parameterised on the error class each caller
+ * throws. The class is constructed with the message and the response's HTTP
+ * status; a class that has no use for the status takes the message alone.
+ */
+export function createAuthFetchers(
+  ErrorCtor: new (message: string, status: number) => Error,
+): AuthFetchers {
   async function authGet<T>(url: string, token: string, options?: AuthFetchOptions): Promise<T> {
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
@@ -68,10 +74,10 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     });
     const json = await safeJson<T>(res);
     if (!res.ok) {
-      throw new ErrorCtor(safeErrorMessage(json?.error, res.status));
+      throw new ErrorCtor(safeErrorMessage(json?.error, res.status), res.status);
     }
     if (json === null) {
-      throw new ErrorCtor(`Invalid response: ${res.status}`);
+      throw new ErrorCtor(`Invalid response: ${res.status}`, res.status);
     }
     return json;
   }
@@ -93,10 +99,10 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     });
     const json = await safeJson<T>(res);
     if (!res.ok) {
-      throw new ErrorCtor(safeErrorMessage(json?.error, res.status));
+      throw new ErrorCtor(safeErrorMessage(json?.error, res.status), res.status);
     }
     if (json === null) {
-      throw new ErrorCtor(`Invalid response: ${res.status}`);
+      throw new ErrorCtor(`Invalid response: ${res.status}`, res.status);
     }
     return json;
   }
@@ -118,10 +124,10 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     });
     const json = await safeJson<T>(res);
     if (!res.ok) {
-      throw new ErrorCtor(safeErrorMessage(json?.error, res.status));
+      throw new ErrorCtor(safeErrorMessage(json?.error, res.status), res.status);
     }
     if (json === null) {
-      throw new ErrorCtor(`Invalid response: ${res.status}`);
+      throw new ErrorCtor(`Invalid response: ${res.status}`, res.status);
     }
     return json;
   }
@@ -134,10 +140,10 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     });
     const json = await safeJson<T>(res);
     if (!res.ok) {
-      throw new ErrorCtor(safeErrorMessage(json?.error, res.status));
+      throw new ErrorCtor(safeErrorMessage(json?.error, res.status), res.status);
     }
     if (json === null) {
-      throw new ErrorCtor(`Invalid response: ${res.status}`);
+      throw new ErrorCtor(`Invalid response: ${res.status}`, res.status);
     }
     return json;
   }
@@ -154,7 +160,7 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     });
     if (!res.ok) {
       const json = await safeJson<{ error?: string }>(res);
-      throw new ErrorCtor(safeErrorMessage(json?.error, res.status));
+      throw new ErrorCtor(safeErrorMessage(json?.error, res.status), res.status);
     }
   }
 
