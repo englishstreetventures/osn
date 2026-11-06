@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-06
 ---
 
 # Social — Mobile UX analysis & plan
@@ -22,12 +22,18 @@ wrong and the phased plan that fixed it, scoped to the app only (per
 `DESIGN.md`, the shared `@shared/ui` primitives are never edited — cire and
 pulse consume them too).
 
-> **Superseded in one detail (2026-08-02):** the tab bar now carries a fifth
+> **Superseded in three details.** The tab bar carries a fifth
 > destination, **Search** (`/search`), because search is the one surface whose
-> reachable spot differs by shell — the desktop rail got a live combobox, and a
+> reachable spot differs by shell — the desktop rail has a live combobox, and a
 > header field on mobile is the least thumb-reachable place a search box can
-> go. `NAV_ITEMS` gained a `mobileOnly` flag so the rail filters it out. See
+> go. `NAV_ITEMS` has a `mobileOnly` flag so the rail filters it out. See
 > `DESIGN.md` §Responsive layout and [[social-graph]].
+>
+> Phase 1 below differs from the code in two more places. `Layout` mounts one
+> shell, not both: an `md` media-query signal picks the rail or the mobile
+> shell (`src/App.tsx`). And the signed-out top bar shows two buttons, "Sign
+> in" (`secondary`) and "Create account" (default), both `size="sm"`
+> (`MobileTopBar.tsx`).
 >
 > **All five phases shipped 2026-07-28** in the same PR as this audit.
 > The findings below are kept as the record of the pre-fix state; the Plan

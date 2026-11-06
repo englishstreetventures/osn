@@ -119,10 +119,9 @@ factor for no benefit, on exactly the hosts with fewest factors left.
 
 > [!note] Why it was not renamed to something like `noEmailFactor`
 > That name is more accurate and the rename was considered. Against it: the
-> prop has no callers, so a breaking change across a package three workspaces
-> consume would benefit nobody; and where no authenticator is enrolled — every
-> account until the TOTP surfaces shipped — the dialog really is passkey-only,
-> which is the state the name was written for. The ambiguity is closed by
+> prop has no callers and the package has one consumer, so renaming it would
+> gain nothing; and where no authenticator is enrolled, the dialog really is
+> passkey-only, which is the state the name was written for. The ambiguity is closed by
 > writing the meaning down here and in the prop's own TSDoc rather than by
 > moving it. Do not re-litigate without a caller to point at.
 

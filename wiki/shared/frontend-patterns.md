@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-06
 ---
 
 # Frontend Patterns
@@ -77,7 +77,7 @@ Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). 
 - `<PasskeysView />` — passkey rename / delete (step-up gated)
 - `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
 
-Any OSN app (Pulse, Zap, Social, future apps) imports these from `@osn/auth-ui/*` and injects a client from `@osn/client`.
+An app imports these from `@osn/auth-ui/*` and injects clients from `@osn/client`. `@musubi/social` is the one app that does today; its `DESIGN.md` §Auth surfaces lists where each view mounts, and `osn/auth-ui/DESIGN.md` holds the views' design rules.
 
 ## Lazy Loading
 

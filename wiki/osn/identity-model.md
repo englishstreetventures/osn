@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-06
 ---
 # Identity Model
 
@@ -290,7 +290,7 @@ Settings-surface operations over an account's existing credentials. All routes b
 
 ### Enrolment hardening
 
-- `residentKey: "required"` — discoverable-credential / conditional-UI login is mandatory.
+- `residentKey: "preferred"` — an authenticator that can hold a discoverable credential makes one, so it signs in through conditional UI; a FIDO2 security key without a resident-key slot registers as non-discoverable and signs in through the identifier form ([[passkey-primary#Accepting security keys]]).
 - `userVerification: "required"` — biometric or PIN, never silent sign-in.
 - `maxPasskeys = 10` per account, enforced at `begin` and re-checked race-safely at `complete`.
 
@@ -302,7 +302,7 @@ The challenge proves itself — 16 random bytes, an expiry and an HMAC over both
 
 ### Last-passkey guard
 
-`deletePasskey` refuses when this would be the final passkey AND the account has zero unused recovery codes. The user must first generate recovery codes or add a second passkey — otherwise the delete would lock them out of the account.
+`deletePasskey` refuses to delete an account's last passkey, whatever recovery codes the account holds (`osn/api/src/services/auth/passkey-management.ts`). To replace a passkey, the user adds the new one first, then deletes the old one.
 
 ## Multi-Account Roadmap
 

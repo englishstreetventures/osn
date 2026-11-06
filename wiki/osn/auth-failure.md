@@ -10,16 +10,16 @@ related:
   - "[[sessions]]"
   - "[[rate-limiting]]"
   - "[[email]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-06
 ---
 
 # Auth Flow Failure Runbook
 
 ## Symptoms
 
-- 401 / 400 responses from `/login/passkey/*`, `/login/recovery/complete`, `/register/*`, `/token`, or `/passkey/register/*`
+- 401 / 400 responses from `/login/passkey/*`, `/login/recovery/*`, `/register/*`, `/token`, or `/passkey/register/*`
 - Users cannot register or sign in
-- Step-up actions (`/recovery/generate`, `/account/email/*`, `/account/security-events/ack*`, `DELETE /passkeys/:id`) returning 401 or 400
+- Step-up actions (the routes in §5) answering `403 step_up_required`, 401 or 400
 - 429 spike on the `osn.auth.rate_limited` metric
 - "Sign out everywhere else" appearing to fail silently
 - Organiser (or any `@osn/client` consumer) reports **logged out on page reload** after a recent sign-in — see §4
@@ -32,9 +32,11 @@ Primary login is **passkey-only**. OTP and magic link are step-up / verification
 |---|---|
 | Register | `POST /register/{begin,complete}` → mandatory `POST /passkey/register/{begin,complete}` |
 | Login (passkey) | `POST /login/passkey/{begin,complete}` (identifier-bound or discoverable) |
-| Login (recovery) | `POST /login/recovery/complete` |
+| Login (recovery) | `POST /login/recovery/complete` (a recovery code); `POST /login/recovery/email/{begin,complete}` and `POST /login/recovery/totp/complete`, which mint a restricted session whose one permitted action is enrolling a passkey |
 | Refresh | `POST /token` (HttpOnly cookie only — body fallback removed) |
-| Step-up | `POST /step-up/{passkey,otp}/{begin,complete}` |
+| Step-up | `POST /step-up/{passkey,otp}/{begin,complete}`, `POST /step-up/totp/complete` |
+| Authenticator app | `POST /totp/enroll/{begin,complete}`, `DELETE /totp`, `GET /totp/status` |
+| Recovery codes | `POST /recovery/generate`, `GET /recovery/status`; `POST /recovery/disown`, the "this wasn't me" link in the recovery notice email |
 
 ## Diagnosis flow
 
@@ -95,7 +97,8 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| `step_up_required` on `/recovery/generate`, `/account/email/complete`, `/account/security-events/ack*`, `DELETE /passkeys/:id` | Token missing or wrong amr | Mint a token with `POST /step-up/{passkey,otp}/{begin,complete}`. Check the route's `allowedAmr` config |
+| `403 step_up_required` on `DELETE /account`, `GET /account/export`, `POST /recovery/generate`, `PATCH` or `DELETE /passkeys/:id`, `POST /account/security-events/:id/ack` or `/ack-all`, `POST /totp/enroll/begin`, `DELETE /totp` | Token missing or wrong amr | Mint a token with `POST /step-up/{passkey,otp}/{begin,complete}` or `POST /step-up/totp/complete`. Check the route's `allowedAmr` config |
+| `400` on `POST /account/email/complete` | `step_up_token` is a required body field there, so a missing one fails body validation; a bad code or a stale token is also `400 invalid_request` | Mint a fresh token and send it with the code |
 | Token rejected with `replay` | `jti` already consumed (`StepUpJtiStore`) | Mint a fresh token — they're single-use |
 | Token rejected with `aud_mismatch` | Cross-used as access token (or vice versa) | Step-up JWTs carry `aud: "osn-step-up"` |
 | Step-up token refused as "could not be verified" | The coordination store could not check the token's single use, so the guard failed closed | `coordination store call failed` with `store: step_up_jti` in Workers Logs; restore the store ([[coordination-store]]). Watch `osn.auth.step_up.verified{result}` |

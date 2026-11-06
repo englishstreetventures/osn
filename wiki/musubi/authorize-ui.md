@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-11-06
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -54,7 +54,7 @@ and `osn/client/tests/authorize.test.ts`.
 
 ## What arrives in the URL
 
-`?request=oar_<12hex>&reason=login|select_account|consent`
+`?request=oar_<12hex>&reason=login|select_account|consent|create`
 
 That is all. The OAuth parameters (client, scopes, redirect URI, state)
 are parked server-side; the page cannot see or alter them — a tampered
@@ -73,8 +73,8 @@ along. If the user opens the link in a *different* browser, every call
 
 | Call | When | Notes |
 |---|---|---|
-| `GET /authorize/context?request=<id>` | On load, and again after any sign-in | Returns `{ client: { clientId, name, logoUrl, firstParty }, scopes: string[], signedIn: boolean, profiles: PublicProfile[], linkedProfileId: string \| null }`. 404 ⇒ expired (10 min TTL), consumed, or wrong browser. |
-| `POST /authorize/decision` `{ requestId, profileId, approved }` | On Approve / Deny | Success ⇒ `{ redirectTo }` — assign `window.location`. The request id is single-use on success either way. |
+| `GET /authorize/context?request=<id>` | On load, and again after any sign-in | Returns `{ client: { clientId, name, logoUrl, firstParty, redirectDomain }, scopes: string[], signedIn: boolean, profiles: PublicProfile[], linkedProfileId: string \| null }`. 404 ⇒ expired (10 min TTL), consumed, or wrong browser. |
+| `POST /authorize/decision` `{ requestId, profileId, approved }` | On Allow / Cancel | Success ⇒ `{ redirectTo }` — assign `window.location`. The request id is single-use on success either way. |
 | Existing sign-in surface (`/passkey/login/*`, registration, recovery) | When `signedIn` is false or a fresh login is demanded | Reuse the `@osn/auth-ui` `<SignIn>`/`<Register>` components; no new auth UI. `AuthorizeSignIn` holds both and swaps between them — a "No account yet? Create one" link under sign-in, and Cancel back from registration. Without that second half, a relying party's "Create account" button would land on a screen demanding a passkey the visitor has not got. |
 
 ### Decision error handling — exhaustive
@@ -82,54 +82,78 @@ along. If the user opens the link in a *different* browser, every call
 | Response | Meaning | UI behaviour |
 |---|---|---|
 | `400 { error: "login_required" }` | The flow demands a session **created after the request was parked** (`prompt=login`, or `max_age` exceeded — including ageing out while sitting on this screen). The parked request is **still alive**. | Show "Please sign in again to continue", run the sign-in ceremony, then POST the **same** requestId again. Do not restart the flow. |
-| `400 { error: "invalid_request", error_description: "Unknown or expired request" }` | Expired (10 min), already consumed, or this browser doesn't hold the binding cookie. Deliberately indistinguishable. | Terminal: "This sign-in request has expired — go back to <app> and try again." No retry button. |
+| `400 { error: "invalid_request", error_description: "Unknown or expired request" }` | Expired (10 min), already consumed, or this browser doesn't hold the binding cookie. Deliberately indistinguishable. | Terminal: "This sign-in request has expired.", then "Go back to <app> and start again." No retry button. |
 | `401 { error: "unauthorized" }` | No session cookie at all. | Same as `login_required` but the sign-in is a first sign-in, not a re-auth. |
 | `400 { error: "invalid_client" }` | Client disabled mid-flow. | Terminal error naming no client details beyond what context already showed. |
 | `429` | Rate limited. | Generic "try again in a minute". |
 
 ## Screen states
 
-1. **Loading** — fetch context. 404 ⇒ *Expired* state.
-2. **Signed out** (`signedIn: false`, or arrived with `reason=login`) —
+1. **Loading** — "Checking this request…" while the context loads. 404 ⇒
+   *Ended* state.
+2. **Load error** — a context read that fails without ending the request (a
+   429, a dropped connection): "Could not load this request", the error's
+   message, and **Try again**, which reads the context again.
+3. **Signed out** (`signedIn: false`, or arrived with `reason=login` or
+   `reason=create`) —
    render the client card (name + logo + "wants to use your Musubi
    account") above the standard `<SignIn>` component, with a register
-   link. On success, re-fetch context and continue. A sign-in performed
+   link. With `reason=create` the panel opens on `<Register>` instead,
+   until a sign-in or registration has happened on this page (see
+   below). On success, re-fetch context and continue. A sign-in performed
    here creates a fresh session, which by construction satisfies
    `requireAuthAfter` — the retry loop needs no special casing.
-3. **Account** (`reason=select_account`, signed in, and no sign-in made on
+4. **Account** (`reason=select_account`, signed in, and no sign-in made on
    this page yet) — the client card, then "Signed in as" with the account's
    profile (avatar, display name, handle), or every profile as a toggle when
    there are two or more. Buttons: **Continue**, **Use another account**,
    **Cancel**. Shown for every account, one profile or many, and for
    first-party clients too. Continue fixes the profile and moves to consent
-   (state 5) — never straight to a decision, because the page sees only
+   (state 6) — never straight to a decision, because the page sees only
    `reason` and the app may have paired `select_account` with `consent`.
    Use another account opens the sign-in panel with a **Back** button; a
    sign-in there is itself the choice of account, so the account screen
    does not return after it.
-4. **Profile picker** (multiple profiles and no `linkedProfileId`, or
+5. **Profile picker** (multiple profiles and no `linkedProfileId`, or
    `reason=select_account` after a sign-in made on this page) — one card per profile (avatar, display name,
    handle). Default selection: `linkedProfileId` if present (this client
    already knows that profile — switching is allowed but changes the
    pairwise `sub` the client sees; say so in a caption), else the default
-   profile.
-5. **Consent** — the heart of the page:
+   profile. A **Cancel** under the cards posts `approved: false`, as Cancel
+   on the consent screen does.
+6. **Consent** — the heart of the page:
    - Client identity: `name`, `logoUrl` (render as `<img src>` ONLY —
      never interpolate into markup; treat the URL as untrusted even
      though registration now pins it to https).
+   - Under the name, the line that tells a real client from a look-alike:
+     a first-party client shows "Verified by Musubi" in success ink; a
+     third-party one shows a "Third-party app" pill and "sends you to
+     <`redirectDomain`>", the host the code will be delivered to.
    - Scope list, humanised: `openid` → "Confirm who you are",
      `profile` → "See your profile (name, handle, picture)", `email` →
      "See your email address" with the explicit warning that email is
      account-level and shared across apps (the one claim pairwise
      subjects cannot protect).
-   - The chosen profile (from state 3 or 4, collapsed to a switcher row).
-   - Buttons: **Approve** (primary) / **Cancel** (secondary). Cancel
+   - The chosen profile (from state 4 or 5, collapsed to a switcher row).
+   - Buttons: **Allow** (primary) / **Cancel** (secondary), and under them
+     "You can undo this later in your Musubi settings." Cancel
      POSTs `approved: false` — the relying party gets `access_denied`;
      it must NOT just close the tab, or the request lingers for its TTL.
-6. **Redirecting** — after either decision, assign `redirectTo`. Show
-   nothing clickable; the decision cannot be re-posted (single-use).
-7. **Expired / wrong browser** — terminal, with the app's name if context
-   was ever loaded, else generic.
+7. **Redirecting** — "Taking you back…" after either decision, while the
+   page assigns `redirectTo`. Show nothing clickable; the decision cannot
+   be re-posted (single-use).
+8. **Ended** — terminal: one heading, then "Go back to <app> and start
+   again." with the app's name if context was ever loaded, else "Go back to
+   the app you came from and try again." The heading says which ending:
+   - "This sign-in request has expired." — expired, consumed, or opened in
+     a different browser.
+   - "This app is no longer able to sign you in." — `invalid_client`.
+   - "This sign-in link is not valid." — the URL carries no well-formed
+     `request`.
+   - "This app keeps asking for a newer sign-in than we can provide. Go
+     back to the app and try again." — the decision still answered
+     `login_required` after two fresh sign-ins on this page, so the page
+     stops rather than ask for a third.
 
 First-party clients reach this page only on `prompt=select_account`,
 `prompt=login`, `prompt=create` or `prompt=consent`; otherwise the provider
@@ -194,12 +218,12 @@ screen shows even when consent is on record (pinned in
   a different first screen. The value is advisory copy; tampering with it
   widens nothing, because the server re-derives every requirement when the
   decision arrives.
-- **`reason=create` leads with sign-up once, not every time** (2026-08-06).
-  The URL still says `create` after the account exists, so anything that
-  returns the user to the sign-in screen — a `login_required` replay, a
-  refused decision — used to reopen "Create your Musubi account" at someone
-  who had just made one, which reads as the flow having discarded the new
-  account. `initialMode` is therefore gated on `signedInHere()`: once a
+- **`reason=create` leads with sign-up once, not every time.**
+  The URL still says `create` after the account exists, so without a guard
+  anything that returns the user to the sign-in screen — a `login_required`
+  replay, a refused decision — would reopen "Create your Musubi account" at
+  someone who had just made one, which reads as the flow having discarded the
+  new account. `initialMode` is therefore gated on `signedInHere()`: once a
   ceremony has happened on this page, the way forward is signing in.
 - **A registration that leaves no session is the same loop, one layer down.**
   `POST /register/complete` returns the refresh token *only* as a

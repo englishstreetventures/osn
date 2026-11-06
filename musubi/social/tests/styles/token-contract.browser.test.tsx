@@ -174,9 +174,14 @@ describe("the contract reaches the pixel", () => {
     // 14px title step — so a shared button is sized by musubi's type system
     // rather than by the library's.
     const { getByRole } = render(() => <Button>Save</Button>);
-    expect(getComputedStyle(getByRole("button")).fontSize).toBe(
+    const fontSize = getComputedStyle(getByRole("button")).fontSize;
+    expect(fontSize).toBe(
       getComputedStyle(document.documentElement).getPropertyValue("--ui-text-base").trim(),
     );
+    // DESIGN.md sets a default Button label at 14px. The line above holds the
+    // Button to the contract step; this one holds the step to that size, so a
+    // re-mapped `--ui-text-base` fails here too.
+    expect(fontSize).toBe("14px");
   });
 });
 

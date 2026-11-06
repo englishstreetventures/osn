@@ -46,8 +46,14 @@ that none of the three is ever the answer.
 Three rules, and they are the whole design:
 
 1. **The contract is library-facing.** `@shared/ui`, `@cire/ui` and
-   `@osn/auth-ui` write `ui-*` utilities. Application code never does — every
-   `bg-card` in pulse and `text-gold` in cire stays exactly as written.
+   `@osn/auth-ui` are held to `ui-*` utilities; `@osn/auth-ui`'s own class
+   attributes do not meet that yet (see the table under §Where the pieces
+   live). Application code is not held to them — every
+   `bg-card` in pulse and `text-gold` in cire stays exactly as written. An
+   app may still write one where it wants the contract's step or role:
+   pulse and cire take their type and tracking steps from the contract
+   (`text-ui-sm`, `tracking-ui-wider`), and cire its leading and radius
+   steps too.
    `@shared/toast` reaches the same end by a different route: it compiles no
    utilities at all and reads its own `--toast-*` properties from plain CSS
    ([[toast]]).
@@ -302,7 +308,7 @@ take. See [[component-lab]].
 | `@shared/design-tokens` | `tokens.css` (the contract), the conformance harness, and `CONTRACT_SCALES` / `SCALE_MIGRATION` which the scale codemod reads                                                                                                                                         |
 | `@shared/color`         | The OKLCH maths — parsing, conversion, contrast, `ensureContrast`. Lifted out of `@cire/theme` so no `@shared/*` package depends on a `@cire/*` one                                                                                                                   |
 | `@shared/ui`            | The primitives — `Button`, `Card`, `Modal`, `Field`, the rest — painted entirely in `ui-*` utilities                                                                                                                                                                  |
-| `@osn/auth-ui`          | The OSN auth views. Built out of `@shared/ui` primitives, so it inherits the contract through them — but its own class attributes still name the shadcn vocabulary, so it renders correctly only in an app that speaks it. `@musubi/social` is the one consumer today |
+| `@osn/auth-ui`          | The OSN auth views. Built out of `@shared/ui` primitives, so it inherits the contract through them — but its own class attributes still name the shadcn vocabulary, so it renders correctly only in an app that speaks it. `@musubi/social` is the one consumer today. Its rules: [`osn/auth-ui/DESIGN.md`](../../osn/auth-ui/DESIGN.md) |
 | `@cire/ui`              | cire's house components — see [[component-library]] for why two layers rather than one                                                                                                                                                                                |
 | `@shared/toast`         | Its own `--toast-*` properties in plain CSS, mapped once per app — the arrangement this contract generalises. See [[toast]]                                                                                                                                           |
 

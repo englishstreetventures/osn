@@ -7,7 +7,7 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-06
 ---
 
 # Step-up (sudo) tokens
@@ -73,7 +73,7 @@ The caller presents the token either as an `X-Step-Up-Token` header or a `step_u
 
 ## Ceremony
 
-Two factors, both authenticated via the caller's existing Bearer access token:
+Three factors — a passkey, an emailed code and an authenticator app — each authenticated via the caller's existing Bearer access token:
 
 | Route | Purpose |
 |---|---|
