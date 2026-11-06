@@ -99,6 +99,7 @@ shared/ui/src/
     ├── info-popover.tsx    ← InfoPopover (circled glyph beside a form label)
     ├── input.tsx           ← Input
     ├── label.tsx           ← Label
+    ├── label-classes.ts    ← Label's default classes, which Field's plain label shares — no class-variance-authority
     ├── menu-classes.ts     ← the menu's panel, row, label and separator classes — no Kobalte
     ├── menu-touch-classes.ts ← MENU_TOUCH, the guest site's 44px link-menu rows — no Kobalte
     ├── meter.tsx           ← Meter
@@ -616,8 +617,9 @@ control the field holds — an `Input`, a `Select`, a `UsernameInput`:
   `aria-invalid` is `"true"` while there is an error, and `Input`, `Select` and
   `Textarea` turn their edge to `--ui-danger` on it. The function runs once, so
   an error arriving does not rebuild the control and the caret stays put.
-- **Hint.** The secondary ink at `text-ui-xs`, snug. Read once and held, so a
-  hint written as JSX is built once.
+- **Hint.** The secondary ink at `text-ui-xs`, snug. Held, so a hint written as
+  JSX is built once, and still tracked: a hint that changes redraws, and one that
+  goes takes its `aria-describedby` entry with it.
 - **Errors.** Each a line at `text-ui-sm` in `--ui-danger`, 2px apart, inside one
   `role="alert"` group: a screen reader announces a message the moment it
   appears.
@@ -633,13 +635,13 @@ invalid: hold its message until blur or submit before passing it.
 | Value | Looks like | For |
 |---|---|---|
 | `caps` (default) | `font-ui-body`, the secondary ink, `text-ui-xs`, `tracking-ui-wider`, upper case | cire's portals and `@cire/ui`, every `Field` cire draws (`cire/host/DESIGN.md`) |
-| `plain` | `Label`'s default: weight 500, the full ink, `text-ui-base`, line height 1; family and tracking inherited; the words as written | an app whose forms put a `Label` over each control — Musubi and `@osn/auth-ui` |
+| `plain` | `Label`'s default: weight 500, the full ink, `text-ui-base`, line height 1; family and tracking inherited; the words as written | Musubi and `@osn/auth-ui`, whose forms put a `Label` over each control; neither uses `Field` yet (englishstreetventures/osn#2036) |
 
 Only the label changes; the hint, the errors, the gaps and the wiring are the
 same code in both. `labelHidden` wins over either: the label becomes `sr-only`,
-a 1px clipped box a screen reader still reads. `field.tsx` writes `Label`'s
-classes out rather than importing `label.tsx`, so cire's bundles carry no
-variant helper for a look they never draw; a browser test holds that the two
+a 1px clipped box a screen reader still reads. `field.tsx` and `label.tsx` take
+these classes from `label-classes.ts`, which holds no variant helper, so cire's
+bundles carry none for a look they never draw; a browser test holds that the two
 paint alike. A plain label that wraps sets its lines 1em apart, as `Label` does
 everywhere.
 
@@ -666,7 +668,7 @@ the code before `labelTreatment` existed; `field-plain.browser.test.tsx` holds t
 plain label against `Label` and the rest against the default;
 `form.browser.test.tsx` holds the wiring, the caret on a rejected save and the
 hidden label under both treatments; `tests/ui/field.test.tsx` holds the hint built
-once. The lab stories are `shared/ui/forms` → `Fields`, `PlainLabels` and
+once and still following a hint that changes, goes and comes back. The lab stories are `shared/ui/forms` → `Fields`, `PlainLabels` and
 `FieldPlayground` ([[component-lab]]).
 
 ### `DropdownMenu` — two looks, and rows that are checked, chosen or followed
@@ -1146,10 +1148,12 @@ Thin wrappers that apply consistent base styling and accept a `class` prop for o
 
 A file picker in cire is `@cire/ui`'s `FileInput`, whose button is cire's `quiet` pill; `Input type="file"` keeps `@shared/ui`'s plain `file:` base for the other apps.
 
-A labelled form control goes in a `Field` (§`Field`, above), which names it,
-describes it and marks it wrong. A bare `Label` is for the label
-half of a label/value pair (`tone="muted"`), or for a field `Field` cannot hold,
-such as one with an `InfoPopover` beside its label.
+Cire puts each labelled form control in a `Field` (§`Field`, above), which names
+it, describes it and marks it wrong. Musubi, `@osn/auth-ui` and pulse do not use
+`Field` yet: each of their forms puts a bare `Label` over its control
+(englishstreetventures/osn#2036 moves Musubi's and `@osn/auth-ui`'s). A bare
+`Label` is also the label half of a label/value pair (`tone="muted"`), and the
+label of a field `Field` cannot hold, such as one with an `InfoPopover` beside it.
 
 ```tsx
 import { Card } from "@shared/ui/ui/card";
