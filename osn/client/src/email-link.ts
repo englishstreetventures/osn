@@ -1,0 +1,110 @@
+/**
+ * The calls the page an emailed link opens makes, shared by every flow that
+ * emails a link. Unauthenticated, and no cookies: confirming never signs this
+ * browser in — the tab that began the flow gets the result.
+ *
+ * Each call answers the way the confirm page needs: every refusal (an unknown
+ * request, a wrong secret, a spent or expired one, a wrong pick) is
+ * `expired`, which ends the page; only a rate limit, a server error or no
+ * answer throws, which offers Try again.
+ */
+
+/** The flows whose links this client confirms, as the confirm page names them. */
+export type EmailLinkPurpose = "sign-up";
+
+/** Request-id prefixes, one per flow, as osn-api mints them. */
+const PURPOSE_BY_PREFIX = {
+  signup: "sign-up",
+} as const satisfies Record<string, EmailLinkPurpose>;
+
+type LinkPrefix = keyof typeof PURPOSE_BY_PREFIX;
+
+const isLinkPrefix = (prefix: string): prefix is LinkPrefix =>
+  Object.hasOwn(PURPOSE_BY_PREFIX, prefix);
+
+const REQUEST_ID = /^([a-z]+)_[a-f0-9]{12}$/;
+
+/** The flow an emailed link's request id belongs to, read off its prefix; null for anything else. */
+export function emailLinkPurpose(requestId: string): EmailLinkPurpose | null {
+  const prefix = REQUEST_ID.exec(requestId)?.[1];
+  return prefix !== undefined && isLinkPrefix(prefix) ? PURPOSE_BY_PREFIX[prefix] : null;
+}
+
+export class EmailLinkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmailLinkError";
+  }
+}
+
+export interface EmailLinkClientConfig {
+  /** OSN issuer base URL, e.g. http://localhost:4000 */
+  issuerUrl: string;
+}
+
+/** What the candidates read found. */
+export type EmailLinkCandidates =
+  | { readonly status: "ready"; readonly candidates: readonly string[] }
+  | { readonly status: "confirmed" }
+  | { readonly status: "expired" };
+
+export interface EmailLinkClient {
+  /**
+   * The numbers the confirm page offers, one of them the number the tab that
+   * began shows. `confirmed` when the request already is.
+   */
+  candidates(requestId: string, linkSecret: string): Promise<EmailLinkCandidates>;
+  /**
+   * Confirms with the reader's pick; `pick: null` says the number on their
+   * screen is not among the candidates. A wrong pick or a decline ends the
+   * request and answers `expired`.
+   */
+  confirm(
+    requestId: string,
+    input: { linkSecret: string; pick: string | null },
+  ): Promise<"confirmed" | "expired">;
+}
+
+/** The fields the two routes answer with; anything else in the body is ignored. */
+interface LinkAnswer {
+  readonly status?: unknown;
+  readonly pairingCandidates?: unknown;
+}
+
+export function createEmailLinkClient(config: EmailLinkClientConfig): EmailLinkClient {
+  const base = config.issuerUrl.replace(/\/$/, "");
+
+  /** POSTs `body`; null for a refusal, the JSON body otherwise; throws on a transient. */
+  async function post(path: string, body: unknown): Promise<LinkAnswer | null> {
+    const res = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429 || res.status >= 500) {
+      throw new EmailLinkError(`Request failed: ${res.status}`);
+    }
+    if (!res.ok) return null;
+    return (await res.json()) as LinkAnswer;
+  }
+
+  return {
+    async candidates(requestId, linkSecret) {
+      const body = await post(`/email-link/${encodeURIComponent(requestId)}/candidates`, {
+        linkSecret,
+      });
+      if (body?.status === "confirmed") return { status: "confirmed" };
+      if (body?.status === "ready" && Array.isArray(body.pairingCandidates)) {
+        return { status: "ready", candidates: body.pairingCandidates.map(String) };
+      }
+      return { status: "expired" };
+    },
+    async confirm(requestId, input) {
+      const body = await post(`/email-link/${encodeURIComponent(requestId)}/confirm`, {
+        linkSecret: input.linkSecret,
+        pairingPick: input.pick ?? "none",
+      });
+      return body?.status === "confirmed" ? "confirmed" : "expired";
+    },
+  };
+}
