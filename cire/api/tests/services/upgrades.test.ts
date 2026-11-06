@@ -1225,19 +1225,18 @@ describe("settlePurchase", () => {
       expect(sales(db)).toMatchObject([{ amount_minor: 5390, currency: "USD" }]);
     });
 
-    it("grants the tier bought when the wedding was lowered below the tier it was priced from", async () => {
+    it("grants a purchase priced from Gold while the wedding still holds Gold, and repairs it on a replay", async () => {
       const db = createDb();
       seedWedding(db, "wed_test", "gold");
       const { svc, purchaseId } = await paidPurchase(db, stubStripe(), CRIMSON);
       expect(purchases(db)[0]?.from_tier).toBe("gold");
-      // A refund of Gold while the from-Gold Crimson page was still open.
-      db.$client.exec(tierChangeToSql(buildTierChange("wed_test", "ivory", "ops", true)));
 
       expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("granted");
-      expect(tierRow(db)).toMatchObject({
-        tier: "crimson",
-        tier_granted_by: `stripe:${purchaseId}`,
-      });
+      expect(tierRow(db).tier).toBe("crimson");
+      // The grant lost, the row already reading succeeded: the replay heals it.
+      db.$client.exec("UPDATE weddings SET tier = 'gold' WHERE id = 'wed_test'");
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
+      expect(tierRow(db).tier).toBe("crimson");
       expect(sales(db)).toHaveLength(1);
     });
 
@@ -1411,6 +1410,44 @@ describe("settlePurchase", () => {
       expect(purchases(db)[0]?.status).toBe("auto_refunded");
       expect(tierRow(db).tier).toBe("ivory");
       expect(sales(db)).toEqual([]);
+    });
+
+    /**
+     * The from-Gold Crimson Price is the difference between the tiers. Paid
+     * after an operator lowered the wedding below Gold, granting Crimson would
+     * sell the whole tier at the difference's price, so the payment is
+     * refunded instead.
+     */
+    it("refunds a purchase priced from Gold paid after the wedding was lowered below Gold", async () => {
+      const db = createDb();
+      seedWedding(db, "wed_test", "gold");
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe, CRIMSON);
+      db.$client.exec(tierChangeToSql(buildTierChange("wed_test", "ivory", "ops", true)));
+
+      const logs = await captureLogs(async () => {
+        expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("auto_refunded");
+      });
+      expect(logs).toContain("not_from_tier");
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+      expect(stripe.refunds).toHaveLength(1);
+      expect(purchases(db)[0]).toMatchObject({ status: "auto_refunded", refund_id: "re_1" });
+    });
+
+    it("refunds a purchase priced from Gold when the lowering lands between its read and its grant", async () => {
+      const db = createDb();
+      seedWedding(db, "wed_test", "gold");
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe, CRIMSON);
+      beforeStatement(db, /^update "wedding_upgrade_purchases" set "status" = \?/, () => {
+        db.$client.exec("UPDATE weddings SET tier = 'ivory' WHERE id = 'wed_test'");
+      });
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("auto_refunded");
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+      expect(stripe.refunds).toHaveLength(1);
     });
 
     it("refunds a payment for a tier the wedding reached some other way while the page was open", async () => {

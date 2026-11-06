@@ -482,7 +482,7 @@ const NOT_WEDDING_SCOPED: Record<string, string> = {
   "GET /api/organiser/stripe/oauth/callback":
     "Stripe's redirect, which names a wedding only through a state its start minted, and refuses a deleted one before the exchange; tests/routes/registry-stripe-oauth.test.ts",
   "POST /api/stripe/platform-webhook":
-    "an upgrade settles into a soft-deleted wedding by decision; tests/routes/stripe-platform-webhook.test.ts",
+    "an upgrade paid for a soft-deleted wedding is refunded, never granted, by decision; tests/routes/stripe-platform-webhook.test.ts",
   "GET /api/organiser/weddings":
     "the caller's own list; its live/deleted split is tests/services/weddings.test.ts",
   "POST /api/organiser/weddings": "creates a new wedding",

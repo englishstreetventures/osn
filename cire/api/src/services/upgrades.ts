@@ -42,6 +42,7 @@ import {
   PAID_TIERS,
   type PaidTier,
   type Tier,
+  TIERS,
   tierAtLeast,
   tierService,
   tiersBelow,
@@ -84,21 +85,28 @@ const OPEN_STATUSES = ["pending", "expired", "failed", "mismatch"] as const;
 const isOpen = (status: string): boolean => (OPEN_STATUSES as readonly string[]).includes(status);
 
 /** Why a paid checkout of ours cannot upgrade the wedding. */
-type RefundReason = "no_tier" | "wedding_not_live" | "already_held";
+type RefundReason = "no_tier" | "wedding_not_live" | "not_from_tier" | "already_held";
 
 /**
  * Whether a paid session of the row's own must be refunded rather than
  * granted, and why — `null` when it grants.
  *
+ * `not_from_tier` is a purchase priced as an upgrade from a tier
+ * (`from_tier`, the from-Gold Crimson Price) for a wedding that no longer holds
+ * that tier: an operator lowered it while the page was open. Granting would
+ * sell the full tier at the difference's price, so it is refunded instead.
+ *
  * `already_held` is a wedding at or above the tier that did not get there by
  * this purchase: an operator's comp or an unlock code raised it while the page
- * was open, so the payment bought nothing. A wedding this purchase itself
- * raised (`tier_granted_by` names it) is a grant whose flip never landed, and
- * settles as a grant.
+ * was open, so the payment bought nothing.
+ *
+ * A wedding this purchase itself raised (`tier_granted_by` names it) is a
+ * grant whose flip never landed, and settles as a grant.
  */
 function refundReason(
   row: {
     id: string;
+    fromTier: "ivory" | "gold" | null;
     weddingLive: number | null;
     weddingTier: string | null;
     weddingGrantedBy: string | null;
@@ -107,13 +115,22 @@ function refundReason(
 ): RefundReason | null {
   if (tier === null) return "no_tier";
   if (!row.weddingLive) return "wedding_not_live";
-  if (
-    tierAtLeast(normaliseTier(row.weddingTier), tier) &&
-    row.weddingGrantedBy !== `stripe:${row.id}`
-  ) {
-    return "already_held";
-  }
+  if (row.weddingGrantedBy === `stripe:${row.id}`) return null;
+  const held = normaliseTier(row.weddingTier);
+  if (row.fromTier !== null && !tierAtLeast(held, row.fromTier)) return "not_from_tier";
+  if (tierAtLeast(held, tier)) return "already_held";
   return null;
+}
+
+/**
+ * The wedding still holds the tier a purchase was priced from — `undefined`
+ * (no condition) for one priced from nothing. Two values at most.
+ */
+function fromTierHeld(fromTier: "ivory" | "gold" | null): SQL | undefined {
+  if (fromTier === null) return undefined;
+  const held = TIERS.filter((t) => tierAtLeast(t, fromTier));
+  // oxlint-disable-next-line house/no-unbounded-in-array -- at most three values: drawn from TIERS
+  return inArray(weddings.tier, held);
 }
 
 /** The status a batched read-back found, or `undefined` for no row. */
@@ -284,6 +301,7 @@ interface PurchaseRef {
   tier: PaidTier | null;
   label: PaidTier | "unmapped";
   paymentIntentId: string | null;
+  fromTier: "ivory" | "gold" | null;
 }
 
 interface UpgradeServiceDeps {
@@ -447,13 +465,14 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
 
   /**
    * The wedding can take this purchase's grant now: it is live, and it is
-   * below the tier or was raised to it by this purchase. The grant batch's
+   * below the tier and still holds the tier the purchase was priced from, or
+   * was raised to it by this purchase. The grant batch's
    * flip carries it, so the read's decision still holds when the flip lands.
    */
-  const grantable = (weddingId: string, purchaseId: string, tier: PaidTier): SQL => {
+  const grantable = (purchase: PurchaseRef, tier: PaidTier): SQL => {
     // oxlint-disable-next-line house/no-unbounded-in-array -- at most two values: drawn from TIERS, below `tier`
-    const below = inArray(weddings.tier, tiersBelow(tier));
-    return sql`EXISTS (SELECT 1 FROM ${weddings} WHERE ${weddings.id} = ${weddingId} AND ${weddings.deletedAt} IS NULL AND (${below} OR ${weddings.tierGrantedBy} = ${`stripe:${purchaseId}`}))`;
+    const below = and(inArray(weddings.tier, tiersBelow(tier)), fromTierHeld(purchase.fromTier));
+    return sql`EXISTS (SELECT 1 FROM ${weddings} WHERE ${weddings.id} = ${purchase.weddingId} AND ${weddings.deletedAt} IS NULL AND (${below} OR ${weddings.tierGrantedBy} = ${`stripe:${purchase.id}`}))`;
   };
 
   /**
@@ -609,6 +628,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             status: weddingUpgradePurchases.status,
             sessionId: weddingUpgradePurchases.checkoutSessionId,
             paymentIntentId: weddingUpgradePurchases.paymentIntentId,
+            fromTier: weddingUpgradePurchases.fromTier,
             // The wedding as it is now, in the same read, for the refund
             // rules below. A LEFT JOIN, so a wedding that is gone reads as
             // not live rather than as no purchase.
@@ -652,6 +672,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         tier,
         label: tier ?? ("unmapped" as const),
         paymentIntentId: input.paymentIntentId ?? row.paymentIntentId,
+        fromTier: row.fromTier,
       };
 
       if (!isOpen(row.status)) return yield* after(db, purchase, row.status, input, depth);
@@ -728,7 +749,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                 // The read's decision, held again here: a delete or a comp
                 // landing between that read and this batch leaves the row
                 // open, and a fresh read refunds it.
-                grantable(purchase.weddingId, purchase.id, tier),
+                grantable(purchase, tier),
               ),
             )
             .returning({ id: weddingUpgradePurchases.id }),
@@ -744,7 +765,10 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               // buyer, so the grant names the purchase.
               grantedBy: `stripe:${purchase.id}`,
             },
-            purchaseReads(purchase.id, "succeeded"),
+            // A purchase priced from a tier raises only a wedding still on
+            // it, on a replay too: the difference's price never buys the
+            // whole tier.
+            and(purchaseReads(purchase.id, "succeeded"), fromTierHeld(purchase.fromTier)),
           ),
           // Keyed on the purchase, so a redelivery writes one row. Every
           // column, in the table's order; NOT NULL ones guarded as before.
@@ -1157,10 +1181,11 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
      * session grants nothing and is not refunded — it is not cire's to keep or
      * to give back.
      *
-     * A PAID CHECKOUT OF OURS ALWAYS UPGRADES THE WEDDING, whatever amount
-     * Checkout charged and whatever happened to the wedding's tier while the
-     * page was open. When it cannot — the product names no tier, the wedding
-     * is deleted, or the wedding already holds the tier some other way — the
+     * A PAID CHECKOUT OF OURS UPGRADES THE WEDDING OR IS REFUNDED, whatever
+     * amount Checkout charged. When it cannot grant — the product names no
+     * tier, the wedding is deleted, a purchase priced from a tier finds the
+     * wedding lowered below it, or the wedding already holds the tier some
+     * other way — the
      * row moves to `refunding` FIRST and the payment is refunded through
      * Stripe, so no later delivery can grant it. A refund Stripe refuses is
      * logged and counted (`refund_failed`), the row stays `refunding`, and the
