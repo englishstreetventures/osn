@@ -212,7 +212,10 @@ export function createApp(deps: AppDeps) {
   // AOT on (default). Mirrors cire's Workers app. The flag propagates to the
   // route plugins composed via `.use()` below.
   const base = new Elysia({ aot })
-    .use(cors({ origin: corsOrigins, credentials: true }))
+    // `maxAge` is in seconds. A waiting sign-up tab polls the same URL every few
+    // seconds; a cached preflight halves its requests. A narrowed allow-list
+    // reaches a browser within ten minutes.
+    .use(cors({ origin: corsOrigins, credentials: true, maxAge: 600 }))
     .onBeforeHandle(originGuard);
 
   // The per-request observability plugin is gated behind a deps flag: the Bun
