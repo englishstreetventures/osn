@@ -25,10 +25,11 @@
  * Gold alone, expands the rail again and scrolls to check it sticks below the
  * top bar.
  *
- * Last, in the same signed-in context, the owner buys Gold for an Ivory
- * wedding through the Stripe stand-in and is granted it, and opens a second
- * Gold checkout on a wedding then deleted while it is open, whose payment is
- * refunded and its owner mailed (`tests/support/cire-upgrade.ts`).
+ * Last, on the same signed-in page, the owner opens a Gold checkout for an
+ * Ivory wedding that is then deleted while the checkout is open, so its
+ * payment is refunded and its owner mailed, and buys Gold for another Ivory
+ * wedding through the Stripe stand-in and is granted it
+ * (`tests/support/cire-upgrade.ts`).
  */
 
 import { mkdirSync, readFileSync } from "node:fs";
@@ -542,7 +543,7 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     await expect.poll(railWidth).toBe(RAIL_EXPANDED);
     await expect(nav.getByText("Run sheet", { exact: true })).toBeVisible();
     const labels = await labelsOnFocus("Overview");
-    // Off the rail, so the final screenshot shows the rail with no label and
+    // Off the rail, so the rail screenshot shows the rail with no label and
     // no focus ring.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await panelHeading.hover();
@@ -573,6 +574,12 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   flow.check("rail: the page scrolled past the rail's own place", true, stuck.far);
   flow.check("rail: sticks below the top bar", true, stuck.below);
 
-  await buyGold(flow, page.context());
-  await refundGold(flow, page.context());
+  // The rail as the steps above leave it, before the upgrade steps take the
+  // page elsewhere and end on the grant, the flow's final screenshot.
+  await page.screenshot({
+    path: resolve(SCREENSHOT_DIR, "cire-checklist-starter", "rail-expanded.png"),
+    animations: "disabled",
+  });
+  await refundGold(flow, page);
+  await buyGold(flow, page);
 });
