@@ -235,8 +235,8 @@ write** (create, read and expire a session), **PaymentIntents: read** and
 charge expanded), and **Refunds: write** (refund, and list a payment's refunds).
 Without them each call is refused, the session probe answers 409 `processing`
 to a press of Upgrade, and a refund waits for a person; the logs carry Stripe's
-status and code ([[cire-upgrades#The refund]]). Turn on Settings → Customer emails →
-**Refunds** too: Stripe's receipt is the only notice a couple who deleted their
+status and code ([[cire-upgrades#The refund]]). Turn on **Refunds** under Settings, Customer emails,
+too: Stripe's receipt is the only notice a couple who deleted their
 wedding gets.
 
 ## After either secret changes

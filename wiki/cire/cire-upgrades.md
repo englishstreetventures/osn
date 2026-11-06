@@ -364,7 +364,7 @@ balance, and a person has to return it.
 Cron job 13 (`reconcile` in `cire/api/src/services/upgrades.ts`) finishes what
 a webhook could not. It runs wherever there is a `STRIPE_SECRET_KEY`, without
 the platform webhook's secret: a refund cire owes is asked for even where
-upgrades are no longer sold. Each run reads at most `RECONCILE_PER_RUN` (2)
+upgrades are not sold any more. Each run reads at most `RECONCILE_PER_RUN` (2)
 rows, least recently moved first (index `(status, updated_at)`):
 
 - a **`refunding`** row: the refund is tried again. One Stripe still refuses
@@ -374,10 +374,10 @@ rows, least recently moved first (index `(status, updated_at)`):
   delivery is still making, is never given up on. A refund Stripe accepted
   after a give-up still lands as `auto_refunded`;
 - a **`pending`** row whose session is older than a day: its session is read
-  from Stripe, with the charge. Paid → settled exactly as the webhook would
-  (grant, or refund). Paid and already refunded in full in the dashboard →
-  `refunded`, never a grant; a part refund still grants. Stripe's own
-  `expired` → closed `expired`. Anything else stays.
+  from Stripe, with the charge. A paid one is settled exactly as the webhook
+  would (grant, or refund). One paid and already refunded in full in the
+  dashboard is marked `refunded`, never granted; a part refund still grants.
+  Stripe's own `expired` closes it `expired`. Anything else stays.
 
 Every row read is moved to the back (`updated_at`), so one that keeps failing
 cannot hold every run's places. Each run also counts the `refund_failed`
