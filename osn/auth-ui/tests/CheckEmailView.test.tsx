@@ -160,6 +160,21 @@ describe("CheckEmailView — the wait before Resend", () => {
     expect(resend().disabled).toBe(false);
   });
 
+  it("updates the seconds in place, building the label once per wait", () => {
+    render(() => (
+      <CheckEmailView email={EMAIL} purpose="sign-up" status="waiting" onResend={() => {}} />
+    ));
+
+    const label = resend().firstElementChild;
+    const seconds = resend().querySelector(".tabular-nums");
+    expect(seconds?.textContent).toBe("30");
+
+    vi.advanceTimersByTime(3_000);
+    expect(resend().firstElementChild).toBe(label);
+    expect(resend().querySelector(".tabular-nums")).toBe(seconds);
+    expect(seconds?.textContent).toBe("27");
+  });
+
   it("keeps the countdown out of the live region", () => {
     render(() => (
       <CheckEmailView email={EMAIL} purpose="sign-up" status="waiting" onResend={() => {}} />

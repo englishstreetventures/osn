@@ -1,6 +1,15 @@
 import { Button } from "@shared/ui/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
-import { createSignal, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  type JSX,
+  Match,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+} from "solid-js";
 
 /**
  * The screen a flow shows after it has emailed a link: "Check your email".
@@ -132,13 +141,17 @@ export function CheckEmailView(props: CheckEmailViewProps) {
     }
   }
 
+  // Changes only when a wait starts or ends, so the label below is built once
+  // per wait and each tick rewrites the seconds' text in place.
+  const counting = createMemo(() => remaining() > 0);
+
   // One span, because `Button` is a flex row with a gap between its children;
   // the seconds take tabular figures so the centred label does not shift as
   // they tick down.
   const resendLabel = (): JSX.Element => {
     if (pending()) return "Sending…";
     if (expired()) return "Send a new link";
-    if (remaining() > 0) {
+    if (counting()) {
       return (
         <span>
           Resend in <span class="tabular-nums">{remaining()}</span>s
