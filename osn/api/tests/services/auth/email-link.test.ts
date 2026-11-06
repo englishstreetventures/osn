@@ -211,3 +211,147 @@ describe("a wrong pick's strike", () => {
     }).pipe(Effect.provide(h.layer));
   });
 });
+
+describe("retiring a request that did not park", () => {
+  it.live("leaves the sign-up that holds the address, whose link still finishes it", () => {
+    const h = harness();
+    const address = "release-other@example.com";
+    return Effect.gen(function* () {
+      const holder = yield* h.begun(address, "releaseholder");
+      const second = yield* settle(
+        h.auth.beginRegistration(address, "releasesecond", "1990-01-01"),
+      );
+      // The tab that began the second goes back and begins for another address.
+      yield* settle(
+        h.auth.beginRegistration(
+          "release-other-2@example.com",
+          "releasesecond",
+          "1990-01-01",
+          undefined,
+          { requestId: second.requestId, claimSecret: second.claimSecret },
+        ),
+      );
+
+      expect(yield* h.entry(second.requestId)).toBeNull();
+      expect(
+        yield* h.auth.confirmEmailLink(holder.requestId, {
+          linkSecret: holder.link.linkSecret,
+          pairingPick: holder.pairingCode,
+        }),
+      ).toBe("confirmed");
+      const done = yield* settle(h.auth.registrationStatus(holder.requestId, holder.claimSecret));
+      expect(done.status === "complete" && done.handle).toBe("releaseholder");
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
+describe("a write that loses its swap to a Resend", () => {
+  it.live("a right pick tries again on the entry the Resend wrote, and confirms it", () => {
+    const h = harness();
+    const address = "lost-confirm@example.com";
+    return Effect.gen(function* () {
+      const s = yield* h.begun(address, "lostconfirm");
+      // The pick reads first and hears back last; the Resend's read and swap
+      // land in between.
+      h.answerLate({ guess: 30, read: 10 });
+
+      const [picked, resent] = yield* settle(
+        Effect.all(
+          [
+            h.auth.confirmEmailLink(s.requestId, {
+              linkSecret: s.link.linkSecret,
+              pairingPick: s.pairingCode,
+            }),
+            h.auth.resendRegistration(s.requestId, s.claimSecret),
+          ],
+          { concurrency: "unbounded" },
+        ),
+      );
+      h.answerLate({});
+
+      expect(picked).toBe("confirmed");
+      expect(resent).toEqual({ status: "sent" });
+      const stored = yield* h.entry(s.requestId);
+      expect(stored?.status).toBe("confirmed");
+      expect(stored?.mailSecretHashes).toHaveLength(2);
+      // The Resend's link is kept: it reads the request as confirmed.
+      const resentLink = linksTo(h.recorded(), address)[1]!;
+      expect(
+        yield* h.auth.confirmEmailLink(s.requestId, {
+          linkSecret: resentLink.linkSecret,
+          pairingPick: s.pairingCode,
+        }),
+      ).toBe("confirmed");
+      const done = yield* settle(h.auth.registrationStatus(s.requestId, s.claimSecret));
+      expect(done.status).toBe("complete");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a decline tries again on the entry the Resend wrote, and keeps it declined", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      const s = yield* h.begun("lost-decline@example.com", "lostdecline");
+      h.answerLate({ guess: 30, read: 10 });
+
+      const [declined, resent] = yield* settle(
+        Effect.all(
+          [
+            h.auth.confirmEmailLink(s.requestId, {
+              linkSecret: s.link.linkSecret,
+              pairingPick: "none",
+            }),
+            h.auth.resendRegistration(s.requestId, s.claimSecret),
+          ],
+          { concurrency: "unbounded" },
+        ),
+      );
+      h.answerLate({});
+
+      expect(declined).toBe("declined");
+      expect(resent).toEqual({ status: "sent" });
+      const stored = yield* h.entry(s.requestId);
+      expect(stored?.status).toBe("declined");
+      expect(stored?.mailSecretHashes).toHaveLength(2);
+      expect(
+        yield* h.auth.confirmEmailLink(s.requestId, {
+          linkSecret: s.link.linkSecret,
+          pairingPick: "none",
+        }),
+      ).toBe("declined");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a second Resend tries again on the entry the first wrote, and both links go", () => {
+    const h = harness();
+    const address = "lost-resend@example.com";
+    return Effect.gen(function* () {
+      const s = yield* h.begun(address, "lostresend");
+      // Both Resends read before either writes.
+      h.answerLate({ read: 10 });
+
+      const answers = yield* settle(
+        Effect.all(
+          [
+            h.auth.resendRegistration(s.requestId, s.claimSecret),
+            h.auth.resendRegistration(s.requestId, s.claimSecret),
+          ],
+          { concurrency: "unbounded" },
+        ),
+      );
+      h.answerLate({});
+
+      expect(answers).toEqual([{ status: "sent" }, { status: "sent" }]);
+      const stored = yield* h.entry(s.requestId);
+      expect(stored?.status).toBe("pending");
+      expect(stored?.mailSecretHashes).toHaveLength(3);
+      const links = linksTo(h.recorded(), address);
+      expect(links).toHaveLength(3);
+      expect(
+        yield* h.auth.confirmEmailLink(s.requestId, {
+          linkSecret: links[2]!.linkSecret,
+          pairingPick: s.pairingCode,
+        }),
+      ).toBe("confirmed");
+    }).pipe(Effect.provide(h.layer));
+  });
+});
