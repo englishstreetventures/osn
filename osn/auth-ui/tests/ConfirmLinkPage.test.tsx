@@ -527,25 +527,25 @@ describe("ConfirmLinkPage — the words for each flow", () => {
     [
       "sign-up",
       `Confirming lets the device that asked finish signing up with ${EMAIL}.`,
-      "If you didn't, close this page and nothing will change.",
+      "If you didn't, choose “I didn't ask for this” below.",
       "finish signing up",
     ],
     [
       "recovery",
       "Confirming lets the device that asked back into your account. It also signs out every other device.",
-      "If you didn't, close this page and nothing will change.",
+      "If you didn't, choose “I didn't ask for this” below.",
       "get back into your account",
     ],
     [
       "step-up",
       "Confirming lets the device that asked go ahead with something sensitive, such as adding a passkey or deleting the account.",
-      "If you didn't, someone else may be signed in to your account. Close this page and sign out your other sessions.",
+      "If you didn't, someone else may be signed in to your account. Choose “I didn't ask for this” below, then sign out your other sessions.",
       "finish what you were doing",
     ],
     [
       "email-change",
       `Confirming sets ${EMAIL} as the email of the account that asked.`,
-      "If you didn't, close this page and nothing will change.",
+      "If you didn't, choose “I didn't ask for this” below.",
       "finish changing your email",
     ],
   ];

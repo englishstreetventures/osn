@@ -114,11 +114,11 @@ const EXPIRED_BODY =
   "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link.";
 
 const IF_NOT_ASKED = {
-  "sign-up": "If you didn't, close this page and nothing will change.",
-  recovery: "If you didn't, close this page and nothing will change.",
+  "sign-up": "If you didn't, choose “I didn't ask for this” below.",
+  recovery: "If you didn't, choose “I didn't ask for this” below.",
   "step-up":
-    "If you didn't, someone else may be signed in to your account. Close this page and sign out your other sessions.",
-  "email-change": "If you didn't, close this page and nothing will change.",
+    "If you didn't, someone else may be signed in to your account. Choose “I didn't ask for this” below, then sign out your other sessions.",
+  "email-change": "If you didn't, choose “I didn't ask for this” below.",
 } as const satisfies Record<ConfirmLinkPurpose, string>;
 
 const DECLINED_BODY = {
