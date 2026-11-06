@@ -2,15 +2,14 @@
 
 Pulse frontend — a SolidJS browser SPA.
 
-Talks to two backends over HTTP:
+Talks to one backend over HTTP: **`@pulse/api`**, on port 3001 locally, for
+events and RSVPs, through the Eden treaty client from `@pulse/api/client`
+(`src/lib/api.ts`).
 
-- **`@pulse/api`** on port 3001 for events/RSVPs (via Eden treaty client)
-- **`@osn/api`** on port 4000 for identity (registration, sign-in, tokens,
-  social graph)
-
-UI auth flows come entirely from `@osn/auth-ui` — `<Register>`, `<SignIn>`,
-and `<MagicLinkHandler>` — with `RegistrationClient` and `LoginClient`
-instances built once in `src/lib/authClients.ts` and injected as props.
+Sign-in is OIDC, with Pulse as a relying party (`src/lib/auth.ts`, on
+`@shared/rp-auth`). `@pulse/api`'s `/api/auth/oidc/start` sends the browser
+to the OSN issuer and takes the code back in exchange for a Pulse session
+cookie; the app holds that cookie and nothing else.
 
 ## Run
 
@@ -22,8 +21,9 @@ bun run --cwd pulse/web preview  # preview a production build
 
 ## Env
 
-Two hosts are configurable: `VITE_API_URL` (`@pulse/api`) and
-`VITE_OSN_ISSUER_URL` (`@osn/api`, the OIDC issuer). See `.env.example`.
+The app reads one host, `VITE_API_URL` (`@pulse/api`). See `.env.example`.
+The env files also set `VITE_OSN_ISSUER_URL`, which nothing under `src/`
+reads.
 
 Vite picks the file from its mode, and its mode already matches what we want:
 the dev server reads `.env.development`, `vite build` reads `.env.production`.

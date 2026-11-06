@@ -123,7 +123,7 @@ shared/ui/src/
 osn/auth-ui/src/
 ├── index.ts                ← the barrel; most views also have their own subpath
 │                             (RecoveryLoginForm and TurnstileWidget are barrel-only)
-├── SignIn.tsx              ← Button, Input, Label, OtpInput
+├── SignIn.tsx              ← Button, Input, Label
 ├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
 ├── CreateProfileForm.tsx   ← UsernameInput
 ├── PasskeysView.tsx  StepUpDialog.tsx  TotpView.tsx  SessionsView.tsx

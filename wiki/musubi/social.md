@@ -43,7 +43,7 @@ The app ships as a web build only.
 | `/discover` | `DiscoverPage` | Contact suggestions (`GET /recommendations/connections`) — mutual connections and shared organisations, each card saying which. See [[social-graph]] |
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
 | `/organisations/:handle` | `OrgDetailPage` | Org detail + member management, addressed by handle like every organisation route. Any signed-in profile sees the organisation; only members see its roster (the API answers anyone else `403`, and the page says so). A handle with no organisation shows "Organisation not found." |
-| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). `@simplewebauthn/browser` is split across two wrappers: `src/lib/webauthn-ceremony.ts` (assertion) ships with the security-events banner, and `src/lib/webauthn-registration.ts` (enrolment) only when the Security tab opens — see below. |
+| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkeys — add, rename, delete — then the authenticator app, then recovery codes; each change step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). The WebAuthn wrappers each view uses are in [[#Where the WebAuthn runtime ships]]. |
 | `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their Musubi account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
 
 `BARE_ROUTES` in `src/App.tsx` is the allow-list that strips the sidebar. Add
@@ -207,13 +207,18 @@ Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-prima
 
 ### Where the WebAuthn runtime ships
 
-`@osn/auth-ui` never imports `@simplewebauthn/browser`; each host app wires its own
-wrapper. This app has two, one per ceremony:
+`@osn/auth-ui`'s `SignIn` and `Register` import `startAuthentication` and
+`startRegistration` from `@simplewebauthn/browser` themselves, and
+`RecoveryLoginForm` imports `browserSupportsWebAuthn`. The views that run a
+ceremony for a signed-in account (`StepUpDialog` and the views that open it),
+and `RecoveryLoginForm`'s passkey enrolment, take a runner from the host
+instead. This app passes three:
 
 | Module | Ceremony | Reached from |
 |---|---|---|
-| `src/lib/webauthn-ceremony.ts` | assertion (sign-in / step-up) | `SecurityEventsBannerMount`, `SecuritySection` |
-| `src/lib/webauthn-registration.ts` | attestation (passkey enrolment) | `SecuritySection` only |
+| `src/lib/webauthn-ceremony.ts` | assertion (step-up) | `SecurityEventsBannerMount`, `SecuritySection` |
+| `src/lib/webauthn-registration.ts` | attestation (passkey enrolment) | `SecuritySection`, and the deferred wrapper below when its ceremony runs |
+| `src/lib/webauthn-registration-deferred.ts` | attestation, importing `webauthn-registration.ts` only when the ceremony runs | `AuthDialogs`, `AuthorizeSignIn` (passed to `SignIn` for recovery enrolment) |
 
 They are two modules, not one, because `SecurityEventsBannerMount` mounts on
 every route a signed-in user opens (see [[#Account-health banners]]) while
