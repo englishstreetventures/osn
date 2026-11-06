@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 
 # Component Library (Zaidan)
@@ -43,7 +43,7 @@ product layer, and which one a component belongs in is decided by
 | Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
-| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
+| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
 | `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Skeleton`, `SkeletonOutline`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
@@ -54,9 +54,9 @@ a named ceremony in the spec, so those stay in `osn/`.
 
 Who consumes what today: `@shared/ui` is a dependency of `musubi/social`,
 `pulse/web`, all four cire surfaces, `@cire/ui`, `@osn/auth-ui`, `tools/lab` and
-`tools/metrics`. `@osn/auth-ui` is consumed by `musubi/social` alone — it is the
-only surface that runs the ceremonies. `@cire/ui` is consumed by the four cire
-surfaces.
+`tools/metrics`. `@osn/auth-ui` is consumed by `musubi/social`, the only surface
+that runs the ceremonies, and by `tools/lab` for its stories. `@cire/ui` is
+consumed by the four cire surfaces.
 
 > [!warning] A primitive never imports upward
 > `@shared/ui` knows nothing of `@osn/client`, of a session, or of an app's
@@ -125,6 +125,8 @@ osn/auth-ui/src/
 │                             (RecoveryLoginForm and TurnstileWidget are barrel-only)
 ├── SignIn.tsx              ← Button, Input, Label
 ├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
+├── CheckEmailView.tsx      ← Button, Notice — the wait after a flow emails a link
+├── pairing-code.ts         ← isPairingCode: the number's format, for every view that draws one (not exported)
 ├── CreateProfileForm.tsx   ← UsernameInput
 ├── PasskeysView.tsx  StepUpDialog.tsx  TotpView.tsx  SessionsView.tsx
 ├── RecoveryCodesView.tsx   RecoveryLoginForm.tsx     ChangeEmailForm.tsx
@@ -1445,6 +1447,138 @@ action that goes nowhere stays a `<button>`, outside the sentence. A link that s
 with the word in its name and its title in a row under 14rem (`cire/host/DESIGN.md` §7). The guest site's pills are `md` at its 44px
 floor.
 
+### `@osn/auth-ui`'s `CheckEmailView` — the wait after a flow emails a link
+
+[CheckEmailView.tsx](../../osn/auth-ui/src/CheckEmailView.tsx) is the screen
+sign-up, recovery, step-up and email change show once they have emailed a link:
+"Check your email". It is presentational. The parent sends the link, polls for
+the confirmation and passes `status`; the view decides what the person sees and
+hears while they wait, and when Resend may be pressed. Its design rules — type,
+layout, states, errors, focus — are in
+[`osn/auth-ui/DESIGN.md`](../../osn/auth-ui/DESIGN.md); this section holds its
+props, the decisions behind them, the host's rules and the tests. Its sizes
+resolve through `musubi/social/DESIGN.md`'s mapping, the one app that renders
+it.
+
+| Prop | What it does |
+| --- | --- |
+| `email` | The address the link went to, in the body ink, with `translate="no"` so a browser's page translation cannot rewrite it. Absent, the view says "your email address": step-up mails the account's own address, which its tab does not hold |
+| `purpose` | `sign-up`, `recovery`, `step-up` or `email-change`. Picks the line saying what opening the link does, and recovery's wording below |
+| `status` | `waiting`; `expired`, which unlocks a new link at once; `error`, beside `errorMessage` (a generic line when it is empty) |
+| `onResend` | Called once per accepted press. A rejection is the parent's to report, through `status` |
+| `onChangeEmail` | "Use a different email". Absent, no button |
+| `resendWaitSeconds` | Seconds before Resend unlocks, after the view appears and after each press. 30 by default; anything not a positive number means no wait |
+| `pairingCode` | The number the page the link opens asks the person to pick, from the host; the view never makes one. Drawn only when it is one to six digits, 0-9 (`isPairingCode` in `osn/auth-ui/src/pairing-code.ts`); anything else draws nothing. Absent, the view is as it was without one |
+
+What it draws, in musubi's sizes through the contract: an `h3` at
+`text-ui-base` medium ("Check your email", or "Your link has expired"); one
+sentence at `text-ui-sm` in the secondary ink; the line saying what opening the
+link does, which an expired link drops; the number, when there is one, at
+`text-ui-xl` (musubi's `text-display`, 24px on a 30px line through
+`leading-ui-tight`), medium, in the body ink and tabular figures, with "Pick
+this number on the page the link opens." under it in the secondary ink, which an
+expired link also drops; then Resend and "Use a different email"
+as small ghost buttons, 40px tall below `md` (musubi's phone touch height,
+through `max-md:h-10` at the call site) and `Button`'s own 32px from `md` up. An
+expired link's Resend becomes the filled pill, "Send a new link". No code box
+and no other factor: the dialog around the view draws any way back. The number
+is not boxed either, because nothing is typed here; its size alone sets it
+apart, and it is the largest text in the view on purpose, larger than the
+heading, as the one thing the person carries to another screen
+(`musubi/social/DESIGN.md` §Typography gives `text-display` that role). The
+countdown is the disabled Resend button's own label, at `Button`'s disabled
+opacity like every other disabled `Button`: 3.03:1 on musubi's light surface and
+4.56:1 on its dark one, which WCAG 1.4.3 exempts for a disabled control.
+
+*Measured 2026-11-06 — the lab's `osn/auth-ui/CheckEmailView/WaitingBeforeResend` story at 360 and 1280px in Playwright's Chromium, the label's ink composited at its opacity over the painted card on a canvas*
+
+The number measures 14.55:1 on the light surface and 13.87:1 on the dark one,
+and its caption 6.58:1 and 6.15:1. Six digits, the most the format allows, are
+89px wide.
+
+*Measured 2026-11-06 — the lab's `WithPairingCode` and `PhoneWithPairingCode` stories at 320 and 1280px, light and dark, in Playwright's Chromium, each ink composited over the painted card on a canvas*
+
+A long address breaks where it must (`wrap-anywhere`), so a 320px
+column never scrolls sideways.
+
+- **The wait is read from the clock.** Each wait sets a deadline, and every tick
+  works out the seconds left from it, so a tab the browser held in the
+  background shows the true time on its next tick. Starting a wait stops the one
+  before, so one interval runs at a time, and the view stops it when it unmounts.
+- **What is read out.** The sentence and any error (an inline danger `Notice`)
+  sit in one `role="status"` region, so a press ("Sending a new link…", then "We
+  sent a new link"), an expiry and an error are announced. The countdown sits in
+  the disabled Resend button, outside the region, so it is never read out.
+- **The number.** It sits outside the region, so it is read once in the page's
+  order and not again each time the region changes. A visually hidden "Your
+  number:" comes before the digits in the same paragraph, so the line reads
+  "Your number: 47"; Chromium exposes the two as text runs of one paragraph, in
+  that order. The digits alone carry `translate="no"`. The number is in no
+  attribute and no `title`. After a resend with a number shown, the announced
+  sentence ends "Check the number again.", because a number that changes outside
+  the region is not read out; it never says the number is new, since two
+  requests can draw the same one. It stays in `error` and while a resend is
+  sending: the link already sent still stands.
+- **Focus.** The heading (`tabindex="-1"`) takes focus when the view appears,
+  because the form that sent the link has just gone, and again when a press
+  disables the focused Resend button. Focus never falls to `<body>`, which in a
+  Kobalte dialog would leave the trap restoring to a disabled button.
+- **Recovery promises nothing.** Recovery answers every address alike, so its
+  sentence reads "If ada@example.com has an account, a link is on its way". The
+  other three say "We sent a link to …", as the code screens they replace did.
+- **No motion of its own.** It declares no transition or animation; `Button`'s
+  colour transition is the only motion, which `musubi/social/DESIGN.md` allows.
+  The countdown is text, so the view is the same under reduced motion.
+
+For a host:
+
+- Mount it inside a dialog that is already open, as `Register` swaps its steps.
+  A Kobalte dialog that opens straight onto the view runs its own autofocus
+  after the view's, and takes the heading's focus away.
+- Both buttons are `type="button"`, so the view may sit inside a `<form>`.
+- For sign-up and recovery, pass the same `status` and `errorMessage` whether
+  or not the address has an account. A request for an address with no account
+  stays `waiting` and expires on the same timer as any other. An error that
+  depends on the caller, such as a rate limit or a failed Turnstile check, may
+  set `error`.
+- Set `status` back to `waiting` once a new link has been sent. While it stays
+  `expired`, Resend ignores the wait.
+- Recovery allows three sends a day per account
+  (`osn/api/src/services/auth/config.ts`), so its host should pass a longer
+  `resendWaitSeconds` than the default: at 30 seconds, a person spends the day's
+  sends in under two minutes.
+- Pass `pairingCode`: the number the request was given, for the page the link
+  opens to ask for. For sign-up and recovery, every request gets one, whether
+  or not the address has an account, so a number on screen says nothing about
+  the account.
+- A new link is a new request: pass its number before `onResend` resolves, and
+  before or with `status` going back to `waiting`, so the new number is on
+  screen when "Check the number again." is read out.
+- Show the number only on this tab. Never log it, and never put it in a URL,
+  the email, storage or an attribute.
+- A value that is not one to six digits draws nothing, so a host that passes the
+  wrong thing shows no number. The host's E2E reads the number off this screen
+  and picks it on the page the link opens, which catches that.
+
+`osn/auth-ui/tests/CheckEmailView.test.tsx` holds the wait, the one call per
+press, the region's words, the focus moves and the timer's end, the address's
+`translate="no"`, and the number: drawn or not, outside the region, its hidden
+label first, kept from translation, refused unless it is one to six digits
+(and then written nowhere, text or attribute), hidden while expired, kept in
+`error` and while sending, replaced when the host passes a new one, in no
+attribute, and "Check the number again." after a resend. `@osn/auth-ui` has no
+browser tier, so
+[`CheckEmailView.layout.browser.test.tsx`](../../musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx)
+in `@musubi/social` holds the layout in musubi's auth sheet under musubi's
+stylesheet: the long address that leaves a 320px phone's 288px column with
+nothing to scroll sideways, "Resend in 30s" as one run of text on one line,
+both buttons at 40px below `md` and 32px from it, and the six-digit number
+inside that column at 24px on a 30px line in tabular figures, its label a 1px
+box and the paragraph's accessible text "Your number: 123456"
+([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each
+state, every flow, a 320px phone, and the number at rest, across a resend and
+on a phone ([[component-lab]]).
+
 ## Adding a new component
 
 A primitive, in `@shared/ui`:
@@ -1484,7 +1618,9 @@ file lands in exactly one. `bun run --cwd shared/ui test:run` runs the first,
 project loads `cire/ui/tests/test-support/tailwind.css`, which maps cire's own
 two ramps (the literals the lab's `cire-mapping.ts` resolves) rather than a
 synthetic palette, so a contrast assertion there is a claim about cire's
-colours. `@osn/auth-ui` has a unit tier only.
+colours. `@osn/auth-ui` has a unit tier only; `@musubi/social`'s browser tier,
+where the views render, holds `CheckEmailView`'s layout (its section above
+names the file).
 
 The split exists because the unit project parses no stylesheet and computes no
 layout: it can assert a class list and a DOM shape, but not that a class emitted

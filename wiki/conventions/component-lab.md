@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-07
 ---
 
 # Component Lab
@@ -77,7 +77,13 @@ The sidebar title comes from each file's `meta.title`, not from its path, so
 moving a story does not move its row. The other two component layers —
 `@osn/auth-ui` and `@cire/ui`, see [[component-library]] — get stories as each
 component is added or changed, under [[#Stories for auth and cire components]].
-So far, in `tools/lab/src/stories/cire-ui/`:
+So far, in `tools/lab/src/stories/osn-auth-ui/`:
+
+| Sidebar title | File | Covers |
+| --- | --- | --- |
+| `osn/auth-ui/CheckEmailView` | `check-email-view.story.tsx` | One story per state in a `Card` the width of musubi's auth dialog, which paints the dialog's own `ui-surface`, with a stub Resend that settles after 600 ms: `WaitingBeforeResend` (the 30-second countdown), `WaitingResendReady` (press it for "Sending a new link…", then "We sent a new link"), `Expired`, `ErrorShown`; `EveryFlow` (sign-up, recovery's hedged sentence, step-up with no address and no "Use a different email", email change); `Phone` (two 320px frames with a long address); `WithPairingCode` (the number "47" under the line about the link); `WithPairingCodeResendReady` (each resend settles with the next number from a fixed run, so the old number shows while sending and the new one after, with "Check the number again."); `PhoneWithPairingCode` (the six-digit number beside a long address, and recovery's error state keeping its number, in 320px frames); `Playground` (flow, status, address, wait, error, the change button, the number). Light and dark through the lab's own toggle, since musubi's mapping is the lab's |
+
+And in `tools/lab/src/stories/cire-ui/`:
 
 | Sidebar title | File | Covers |
 | --- | --- | --- |
@@ -140,10 +146,11 @@ one per state. They live in the lab, not beside the component, for two reasons.
 Their fixtures stay out of app source, and cire's mutation run, which mutates
 every file under a cire package's `src/`, never sees them.
 
-- **Packages.** `tools/lab` depends on `@shared/ui` alone until a story needs
-  more. Add each workspace package a story imports with
-  `bun add <package>@workspace:* --cwd tools/lab`, `@osn/client` included for a
-  fixture.
+- **Packages.** `tools/lab` depends on the workspace packages its stories
+  import: `@shared/ui`, `@cire/ui`, `@osn/auth-ui`, `@shared/color` and
+  `@shared/design-tokens` today. Add each new one a story imports with
+  `bun add '<package>@workspace:*' --cwd tools/lab`, `@osn/client` included for a
+  fixture. The quotes keep zsh from reading `*` as a file glob.
 - **cire's colours.** Wrap the component in an element whose `style` is
   `cireStyle("dark")` or `cireStyle("light")`, from
   `tools/lab/src/stories/cire-ui/cire-mapping.ts`: one wrapper per ramp. That
