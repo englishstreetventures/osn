@@ -247,6 +247,14 @@ const MODAL_PADDING = {
  * The entry keeps its own `scale(0.98)` rather than `--ui-scale-enter`, which
  * sizes small floating panels: a full-width sheet scaled like a menu would move
  * its edges about 12px, and its rise already carries the entry.
+ *
+ * ## Two curves are keywords
+ *
+ * The exit and the backdrop's fade out run `ease-in`: a leaving curve, and no
+ * token names one. The backdrop's fade in runs `ease-out`, gentler on a fade
+ * than `--ui-ease-out`. Each declaration carries a short `motion-literal:` tag
+ * so `house/no-literal-motion` keeps it; the reason lives here because this
+ * string ships to the page, and a comment in it costs bytes in every app.
  */
 const MODAL_STYLE = `
 .ui-modal:not([open]) {
@@ -256,12 +264,12 @@ const MODAL_STYLE = `
 .ui-modal::backdrop {
   background-color: color-mix(in srgb, var(--ui-ground-deep, #18181b) 72%, transparent);
   opacity: 0;
-  /* motion-literal: a leaving curve, and no token names one */
+  /* motion-literal: exit curve */
   transition: opacity var(--ui-modal-exit, 150ms) ease-in;
 }
 .ui-modal[open]::backdrop {
   opacity: 1;
-  /* motion-literal: the keyword curve, gentler on a fade than --ui-ease-out */
+  /* motion-literal: fade curve */
   transition: opacity var(--ui-modal-enter, 250ms) ease-out;
 }
 @starting-style {
@@ -287,7 +295,7 @@ const MODAL_STYLE = `
 .ui-modal[data-closing] {
   opacity: 0;
   transform: translateY(var(--ui-distance-exit, 8px)) scale(var(--ui-scale-exit, 0.98));
-  /* motion-literal: a leaving curve, and no token names one */
+  /* motion-literal: exit curve */
   transition:
     opacity var(--ui-modal-exit, 150ms) ease-in,
     transform var(--ui-modal-exit, 150ms) ease-in;
@@ -297,7 +305,7 @@ const MODAL_STYLE = `
    full strength and drops the moment \`close()\` runs. */
 .ui-modal[data-closing]::backdrop {
   opacity: 0;
-  /* motion-literal: a leaving curve, and no token names one */
+  /* motion-literal: exit curve */
   transition: opacity var(--ui-modal-exit, 150ms) ease-in;
 }
 
