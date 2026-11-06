@@ -1,0 +1,5 @@
+---
+"@osn/auth-ui": minor
+---
+
+`@osn/auth-ui` gains `CheckEmailView` (`@osn/auth-ui/CheckEmailView`, and from the barrel): the "Check your email" screen a flow shows after it emails a link, for sign-up, recovery, step-up and email change. It shows the address and what opening the link does, unlocks Resend after a wait read from the clock (30 seconds by default), and offers "Use a different email" when the host passes a handler. The sentence and any error sit in one polite live region; the countdown stays out of it. Focus moves to the heading when the view appears and when Resend disables itself. Recovery's wording promises no send, since recovery answers every address alike. Nothing renders it yet.
