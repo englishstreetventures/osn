@@ -7,12 +7,13 @@ related:
   - "[[recovery-codes]]"
   - "[[step-up]]"
   - "[[dev-environment]]"
+  - "[[email-verification-api]]"
 packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-06
 ---
 
 # Passkey-Primary Login
@@ -412,6 +413,10 @@ identifier over 255 characters, longer than any account holds, is refused with
 Access tokens carry `aud: "osn-access"`; `verifyAccessToken` asserts it.
 This prevents any future token type minted with the same ES256 key from
 authenticating access-token routes by accident.
+
+## Related
+
+[[email-verification-api]] tracks the browser API that may one day verify an email address at sign-up.
 
 ## What was removed
 

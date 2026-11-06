@@ -70,6 +70,7 @@ The identity core: accounts, sessions, passkeys, step-up, OIDC, ARC tokens, the 
 - [[identity-model]] — accounts, profiles (users), organisations, multi-account
 - [[verified-identity]] — Yoti-style verified-attribute layer (Australian DVS / mDL / myID; SD-JWT VC) — design doc, not yet implemented
 - [[passkey-primary]] — passkey-only login contract (the only primary factor)
+- [[email-verification-api]] — where the browser Email Verification API stands, and the tests for turning our flag-gated sign-up path on or dropping it
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)
 - [[totp]] — RFC 6238 authenticator-app second factor: the encrypted secret, single use, the per-account lockout
