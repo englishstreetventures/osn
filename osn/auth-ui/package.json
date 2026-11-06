@@ -13,6 +13,7 @@
     ".": "./src/index.ts",
     "./ChangeEmailForm": "./src/ChangeEmailForm.tsx",
     "./CheckEmailView": "./src/CheckEmailView.tsx",
+    "./ConfirmLinkPage": "./src/ConfirmLinkPage.tsx",
     "./CreateProfileForm": "./src/CreateProfileForm.tsx",
     "./PasskeysView": "./src/PasskeysView.tsx",
     "./ProfileOnboarding": "./src/ProfileOnboarding.tsx",
