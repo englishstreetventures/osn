@@ -218,13 +218,20 @@ export function CheckEmailView(props: CheckEmailViewProps) {
           type="button"
           variant={expired() ? "default" : "ghost"}
           size="sm"
+          class="max-md:h-10"
           disabled={!canResend()}
           onClick={() => void resendLink()}
         >
           {resendLabel()}
         </Button>
         <Show when={props.onChangeEmail}>
-          <Button type="button" variant="ghost" size="sm" onClick={() => props.onChangeEmail?.()}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            class="max-md:h-10"
+            onClick={() => props.onChangeEmail?.()}
+          >
             Use a different email
           </Button>
         </Show>
