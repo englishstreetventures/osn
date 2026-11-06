@@ -33,6 +33,9 @@
    `DropdownMenu` needs these two lines gone. */
 @source not "../../../../shared/ui/src/ui/dropdown-menu.tsx";
 @source not "../../../../shared/ui/src/ui/menu-classes.ts";
+/* Nor the orb: no page here draws it. A page that draws `Orb` needs this
+   line gone. */
+@source not "../../../../shared/ui/src/ui/orb.tsx";
 /* The toast package's own styles. It reads the `--toast-*` custom properties
    the palette block below emits, so an invite's toasts are the organiser's
    colours with contrast already enforced against the surface they sit on. */

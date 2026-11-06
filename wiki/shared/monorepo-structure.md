@@ -77,7 +77,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Monorepo Structure
@@ -159,7 +159,7 @@ shared/
   toast/               # @shared/toast — SolidJS toasts themed through --toast-* custom properties
   turnstile/           # @shared/turnstile — key-optional, fail-closed Turnstile verifier
   typescript-config/   # @shared/typescript-config — base.json, node.json, solid.json
-  ui/                  # @shared/ui — the SolidJS primitives (Button, Card, Modal, Field, Table, Input, Select, …) plus clsx()
+  ui/                  # @shared/ui — the SolidJS primitives (Button, Card, Modal, Field, Table, Input, Select, Orb, …) plus clsx(); vendor/ holds the orb's upstream drawing engine
   openapi/             # generated OpenAPI documents — not a workspace
   swift/               # OSNShared — the local SPM package the iOS targets depend on; not a workspace
   test-config/         # shared Vitest guard config — not a workspace

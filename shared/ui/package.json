@@ -30,6 +30,10 @@
     "./ui/meter": "./src/ui/meter.tsx",
     "./ui/modal": "./src/ui/modal.tsx",
     "./ui/notice": "./src/ui/notice.tsx",
+    "./ui/orb": {
+      "types": "./src/ui/orb-api.ts",
+      "default": "./src/ui/orb.tsx"
+    },
     "./ui/otp-input": "./src/ui/otp-input.tsx",
     "./ui/popover": "./src/ui/popover.tsx",
     "./ui/props": "./src/ui/props.ts",

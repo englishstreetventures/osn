@@ -32,8 +32,8 @@ the decisions behind it.
 ## The catalogue
 
 `shared/ui` → **Everything** is every component `@shared/ui` exports on one page, each
-with its import path — the "what do we already have" view. Six sibling groups
-carry the variants and states, and all seven stories live together in
+with its import path — the "what do we already have" view. Seven sibling groups
+carry the variants and states, and all eight story files live together in
 `tools/lab/src/stories/shared-ui/`:
 
 | Sidebar title | File | Covers |
@@ -44,6 +44,7 @@ carry the variants and states, and all seven stories live together in
 | `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field, Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
+| `shared/ui/Orb` | `orb.story.tsx` | `States` (the nine states at 64 and 20px on the page's ground, ink following the light · dark toggle), `OnAccent` (the nine at 20px beside a label on the accent fill, ink the inverse of the page's), `Playground` (state, size, `dark`) |
 | `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu (the default look; `MenuItems` and `MenuItemsCireDark`/`MenuItemsCireLight` open on load with every row kind — radio, check, switch, link, disabled — in the default and the accent variant under cire's mapping), Popover, InfoPopover, Tooltip, Tabs |
 
 A second group, `design-system/*`, is the token contract ([[design-tokens]]) as
