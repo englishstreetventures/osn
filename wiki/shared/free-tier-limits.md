@@ -42,9 +42,9 @@ last-reviewed: 2026-11-06
 
 | Dependency | Used by | NOT used by |
 |---|---|---|
-| **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, and while staged `cire-host`, `cire-vendor`, `cire-landing`, `osn-social` | the Pages projects |
+| **Cloudflare Workers** | `osn-api`, **cire-api**, `zap-api`, `cire-invites` (guest SSR), and the site Workers the production stacks deploy: `musubi-landing`, `cire-vendor`, and while staged `cire-host`, `cire-landing`, `osn-social` | the Pages projects |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
-| **Cloudflare Pages** | `cire/host`, `cire/vendor`, `cire/landing`, `@musubi/social`, each until its domain moves to its Worker | the Workers |
+| **Cloudflare Pages** | `cire/host`, `cire/landing`, `@musubi/social`, each until its domain moves to its Worker; the `cire-vendor` project, deployed by no job, until its flip release moves `vendor.cireweddings.com` | the Workers |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) and the other bindings in its `wrangler.toml`; **osn-api**'s one-minute limiters, `RL_AUTH_IP_*` and `RL_USER_*` ([[rate-limiting]]) | — |
 | **Cloudflare Durable Objects** | **cire-api** `REALTIME_HUB` (`TopicHub`, realtime push — [[realtime]]); **osn-api** `COORDINATION` (`CoordinationStore`, the limiters longer than a minute, ceremonies, single-use claims and lockouts — [[coordination-store]]) | zap-api |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
@@ -321,7 +321,7 @@ size, 50K databases, 1 TB storage; overage is cheap ($0.001/M read, $1/M written
 
 ## Cloudflare Pages (Free)
 
-**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the production sites (`cire/host`, `cire/vendor`, `cire/landing`, `@musubi/social`), each until its domain moves to a Worker, and the stale musubi and pulse landing preview projects, which no workflow deploys. musubi landing serves from a production Worker, and each Pages site also runs a staged Worker on a spare host ([[infrastructure-as-code#Production sites]]); a request a site Worker answers from its static assets does not count against the Workers request limit ([Workers static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — re-verify). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
+**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the production sites (`cire/host`, `cire/vendor`, `cire/landing`, `@musubi/social`), each until its domain moves to a Worker, and the stale musubi and pulse landing preview projects, which no workflow deploys. musubi landing and cire vendor serve from production Workers (cire vendor once its flip release has run), and each staged Pages site also runs a Worker on a spare host ([[infrastructure-as-code#Production sites]]); a request a site Worker answers from its static assets does not count against the Workers request limit ([Workers static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) — re-verify). The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
 
 | Limit | Free value (re-verify) |
 |---|---|

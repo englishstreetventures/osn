@@ -68,7 +68,7 @@ export const SITE_SURFACES: readonly SiteSurface[] = [
  */
 export const PRODUCTION_SITE_MODES: PerSite<SiteMode> = {
   cire_host: "staged",
-  cire_vendor: "staged",
+  cire_vendor: "worker",
   cire_landing: "staged",
   osn_social: "staged",
   musubi_landing: "worker",

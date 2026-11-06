@@ -969,55 +969,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-  # ── cire vendor (Astro → Cloudflare Pages) ───────────────────────────────
-  # The vendor self-service portal, in the `cire-vendor` Pages project with
-  # vendor.cireweddings.com. Deploys the `sites` job's build.
-  deploy-cire-vendor:
-    name: Deploy cire/vendor — production
-    needs: [plan, build, sites, alchemy-plan]
-    if: ${{ !cancelled() && needs.plan.outputs.cire_vendor == 'true' && needs.build.result == 'success' && (needs.sites.result == 'success' || needs.sites.result == 'skipped') && (needs.alchemy-plan.result == 'success' || needs.alchemy-plan.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: production
-    concurrency:
-      group: deploy-production-cire-vendor
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      # The root's tree alone, which pins the Wrangler that deploys the
-      # site; nothing else here reads node_modules. No cache: the cache is
-      # shared with jobs that hold no secret.
-      - name: Install the root's dependencies
-        run: bun install --frozen-lockfile --filter osn
-
-      # The `sites` job's build, the one the stack's staged Worker serves.
-      - name: Fetch the built site
-        uses: actions/download-artifact@v4
-        with:
-          name: production-sites
-          path: ${{ runner.temp }}/production-sites
-
-      # Outside the checkout, and checked before any build reaches it: the
-      # sites job ran third-party build code with no secret, so only the
-      # site builds come in, never a file a later step runs.
-      - name: Check the built sites, then put them in place
-        id: place_sites
-        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
-
-      - name: Deploy cire/vendor to Cloudflare Pages
-        run: bunx wrangler pages deploy dist --project-name cire-vendor
-        working-directory: cire/vendor
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-
   # ── cire landing (Astro → Cloudflare Pages) ──────────────────────────────
   # The marketing site on the apex cireweddings.com, in the `cire-landing`
   # Pages project (wiki/cire/cire-landing.md). Deploys the `sites` job's
@@ -1690,6 +1641,23 @@ jobs:
           echo "::error::A smoke check failed, or the deployments could not be read; see the steps above."
           exit 1
 
+  # ── cire stack's record jobs ───────────────────────────────────────────────
+  # One per site whose Worker serves its production host. Each runs when the
+  # stack job deployed and its site's check passed, and leaves that site's
+  # Deployment record in `production-records`, named for the site:
+  # scripts/release-plan.ts reads records by job name. A staged site's
+  # record is its Pages job's.
+  record-cire-vendor:
+    name: Record cire/vendor — production
+    needs: [stack-cire-production]
+    if: ${{ !cancelled() && needs.stack-cire-production.outputs.deployed == 'true' && needs.stack-cire-production.outputs.cire_vendor_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production-records
+    timeout-minutes: 2
+    steps:
+      - name: Record the production deploy
+        run: echo "cire-vendor deployed and passed its smoke check in this run's cire stack job."
+
   # ── musubi stack, flip release: verify, then detach ─────────────────────
   # A release dispatched with `flip` moves one site's domain from its Pages
   # project to its Worker, in three jobs that each ask their own approval:
@@ -2091,7 +2059,6 @@ jobs:
         stack-cire-production,
         stack-musubi-production,
         deploy-cire-host,
-        deploy-cire-vendor,
         deploy-cire-landing,
         deploy-osn-social,
       ]

@@ -30,11 +30,12 @@ const PRODUCTION_LOG = [
 
 /**
  * The hosts each site's Worker holds now, as the domains step reads them:
- * each at the host its mode declares, so no domain changes.
+ * each at the host its mode declares, so no domain changes. Cire vendor's
+ * Worker serves its production host.
  */
 const LIVE_DOMAINS = {
   cire_host: ["next.host.cireweddings.com"],
-  cire_vendor: ["next.vendor.cireweddings.com"],
+  cire_vendor: ["vendor.cireweddings.com"],
   cire_landing: ["next.cireweddings.com"],
 };
 
@@ -98,30 +99,26 @@ describe("plan:guard, the cire stack's production plan guard", () => {
     expect(result.record).toMatchObject({ stack: "cire", plan: "changes", counts: { update: 2 } });
   }, 30_000);
 
-  test("G17: allows the move off the retired spare hosts with no flip or unflip, recording both; a Worker giving up another site's refuses", () => {
+  test("G17: allows the move off a retired spare host with no flip or unflip, recording it; a Worker giving up another site's refuses", () => {
     const swapLog = [
-      "[20:17:45.301] INFO (#1): Plan: 2 to update",
+      "[20:17:45.301] INFO (#1): Plan: 1 to update",
       "[20:17:45.301] INFO (#1): [CireHost] update",
       "[20:17:45.301] INFO (#1): [CireLanding] noop",
-      "[20:17:45.301] INFO (#1): [CireVendor] update",
+      "[20:17:45.301] INFO (#1): [CireVendor] noop",
       "",
     ].join("\n");
-    const retired = {
-      ...LIVE_DOMAINS,
-      cire_host: ["next-host.cireweddings.com"],
-      cire_vendor: ["next-vendor.cireweddings.com"],
-    };
+    const retired = { ...LIVE_DOMAINS, cire_host: ["next-host.cireweddings.com"] };
     const swap = guard(swapLog, retired);
     expect(swap.stdout).not.toContain("::error::");
     expect(swap.exitCode).toBe(0);
     expect(swap.record).toEqual({
       stack: "cire",
       plan: "changes",
-      counts: { update: 2 },
+      counts: { update: 1 },
       resources: [
         { fqn: "CireHost", kind: "custom-domain", action: "update" },
         { fqn: "CireLanding", kind: "custom-domain", action: "noop" },
-        { fqn: "CireVendor", kind: "custom-domain", action: "update" },
+        { fqn: "CireVendor", kind: "custom-domain", action: "noop" },
       ],
       bindings: [],
       flip: null,
@@ -130,11 +127,6 @@ describe("plan:guard, the cire stack's production plan guard", () => {
           site: "cire_host",
           added: ["next.host.cireweddings.com"],
           removed: ["next-host.cireweddings.com"],
-        },
-        {
-          site: "cire_vendor",
-          added: ["next.vendor.cireweddings.com"],
-          removed: ["next-vendor.cireweddings.com"],
         },
       ],
       unflip: null,

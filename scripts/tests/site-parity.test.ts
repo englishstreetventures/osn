@@ -10,6 +10,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  PRODUCTION_SITE_MODES,
+  type PerSite,
+  type SiteMode,
+} from "../../shared/infra/src/production-sites";
+import {
   differences,
   fillPattern,
   headerRules,
@@ -183,7 +188,20 @@ describe("runSiteParity", () => {
     return { fetch: fetch as unknown as typeof globalThis.fetch, calls, agents, accepts };
   }
 
-  async function parity(args: string[], hosts: ReturnType<typeof fakeHosts>, root = build(SITES)) {
+  /** Every cire site staged, so each comparison below has three sites to ask. */
+  const CIRE_STAGED: PerSite<SiteMode> = {
+    ...PRODUCTION_SITE_MODES,
+    cire_host: "staged",
+    cire_vendor: "staged",
+    cire_landing: "staged",
+  };
+
+  async function parity(
+    args: string[],
+    hosts: ReturnType<typeof fakeHosts>,
+    root = build(SITES),
+    modes: PerSite<SiteMode> = CIRE_STAGED,
+  ) {
     const lines: string[] = [];
     const slept: number[] = [];
     const out = join(root, "report.json");
@@ -195,6 +213,7 @@ describe("runSiteParity", () => {
       sleep: async (ms) => {
         slept.push(ms);
       },
+      modes,
     });
     return { code, output: lines.join(""), out, root, slept };
   }
@@ -219,6 +238,21 @@ describe("runSiteParity", () => {
     const again = await parity(["--stack", "cire"], fakeHosts(), first.root);
     expect(readFileSync(again.out, "utf8")).toBe(report);
     expect(JSON.parse(report)).toMatchObject({ stack: "cire", differing: 0 });
+  });
+
+  test("SP2: a site whose Worker serves its production host is not compared: today's modes leave cire vendor out", async () => {
+    const hosts = fakeHosts();
+    const today = await parity(["--stack", "cire"], hosts, build(SITES), PRODUCTION_SITE_MODES);
+    expect(today.code).toBe(0);
+    const origins = [...new Set(hosts.calls.map((url) => new URL(url).origin))].toSorted();
+    expect(origins).toEqual(
+      [
+        "https://next.host.cireweddings.com",
+        "https://host.cireweddings.com",
+        "https://next.cireweddings.com",
+        "https://cireweddings.com",
+      ].toSorted(),
+    );
   });
 
   test("SP3: a header that differs, or a host that does not answer, fails and is named", async () => {
