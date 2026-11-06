@@ -51,6 +51,26 @@ async function settle() {
   await vi.advanceTimersByTimeAsync(0);
 }
 
+const CAPTION = "Pick this number on the page the link opens.";
+
+/** The paragraph that draws the number, found by all of its text. */
+function numberParagraph(code: string): HTMLParagraphElement | undefined {
+  return Array.from(document.querySelectorAll("p")).find(
+    (p) => p.textContent === `Your number: ${code}`,
+  );
+}
+
+/** Every attribute in the document whose value holds `value`, as `TAG[name]`. */
+function attributesHolding(value: string): string[] {
+  const hits: string[] = [];
+  for (const element of document.querySelectorAll("*")) {
+    for (const attribute of element.attributes) {
+      if (attribute.value.includes(value)) hits.push(`${element.tagName}[${attribute.name}]`);
+    }
+  }
+  return hits;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -445,6 +465,238 @@ describe("CheckEmailView — the words for each flow", () => {
     expect(recovery?.textContent).toContain(
       "If that address has an account, a link is on its way.",
     );
+  });
+});
+
+describe("CheckEmailView — the number", () => {
+  it("shows the number and its caption when given one, and neither when not", () => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        pairingCode="47"
+        onResend={() => {}}
+      />
+    ));
+
+    expect(numberParagraph("47")).toBeDefined();
+    screen.getByText(CAPTION);
+
+    cleanup();
+    render(() => (
+      <CheckEmailView email={EMAIL} purpose="sign-up" status="waiting" onResend={() => {}} />
+    ));
+
+    expect(screen.queryByText(/Your number/)).toBeNull();
+    expect(screen.queryByText(CAPTION)).toBeNull();
+  });
+
+  it("keeps the number and its caption out of the live region", () => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        pairingCode="47"
+        onResend={() => {}}
+      />
+    ));
+
+    const number = numberParagraph("47") as HTMLParagraphElement;
+    expect(region().contains(number)).toBe(false);
+    expect(region().contains(screen.getByText(CAPTION))).toBe(false);
+    expect(region().textContent).not.toContain("Your number");
+    expect(region().textContent).not.toContain("47");
+  });
+
+  it("puts the hidden label before the digits in one paragraph, and keeps the digits out of page translation", () => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        pairingCode="47"
+        onResend={() => {}}
+      />
+    ));
+
+    const number = numberParagraph("47") as HTMLParagraphElement;
+    const label = number.firstChild as HTMLElement;
+    expect(label.textContent).toBe("Your number:");
+    expect(label.classList.contains("sr-only")).toBe(true);
+
+    const digits = number.querySelector('[translate="no"]') as HTMLElement;
+    expect(digits.textContent).toBe("47");
+    expect(digits.contains(label)).toBe(false);
+    expect(label.closest('[translate="no"]')).toBeNull();
+  });
+
+  it.each(["", " "])("shows nothing for %j", (value) => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        pairingCode={value}
+        onResend={() => {}}
+      />
+    ));
+
+    expect(screen.queryByText(/Your number/)).toBeNull();
+    expect(screen.queryByText(CAPTION)).toBeNull();
+  });
+
+  it.each(["9a", " 47", "47 ", "1234567", "-905", "4.7", "٤٧", "４７", "<b>12</b>"])(
+    "shows nothing for %j, which is not one to six digits, and writes it nowhere",
+    (value) => {
+      render(() => (
+        <CheckEmailView
+          email={EMAIL}
+          purpose="sign-up"
+          status="waiting"
+          pairingCode={value}
+          onResend={() => {}}
+        />
+      ));
+
+      expect(screen.queryByText(/Your number/)).toBeNull();
+      expect(screen.queryByText(CAPTION)).toBeNull();
+      expect(document.body.textContent).not.toContain(value.trim());
+      expect(attributesHolding(value.trim())).toEqual([]);
+    },
+  );
+
+  it.each(["0", "123456"])("shows %s, at the edge of the format", (code) => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        pairingCode={code}
+        onResend={() => {}}
+      />
+    ));
+
+    expect(numberParagraph(code)).toBeDefined();
+  });
+
+  it("hides the number while the link is expired, and shows the next request's once it is live", () => {
+    const [status, setStatus] = createSignal<CheckEmailStatus>("waiting");
+    const [code, setCode] = createSignal("47");
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status={status()}
+        pairingCode={code()}
+        onResend={() => {}}
+      />
+    ));
+
+    expect(numberParagraph("47")).toBeDefined();
+    setStatus("expired");
+    expect(screen.queryByText(/Your number/)).toBeNull();
+    expect(screen.queryByText(CAPTION)).toBeNull();
+
+    setCode("83");
+    setStatus("waiting");
+    expect(numberParagraph("83")).toBeDefined();
+    expect(document.body.textContent).not.toContain("47");
+  });
+
+  it("shows a new number in place of the old one", () => {
+    const [code, setCode] = createSignal("47");
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        pairingCode={code()}
+        onResend={() => {}}
+      />
+    ));
+
+    setCode("83");
+    expect(numberParagraph("83")).toBeDefined();
+    expect(document.body.textContent).not.toContain("47");
+  });
+
+  it("writes the number into no attribute", () => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        pairingCode="905172"
+        onResend={() => {}}
+        onChangeEmail={() => {}}
+      />
+    ));
+
+    expect(numberParagraph("905172")).toBeDefined();
+    expect(attributesHolding("905172")).toEqual([]);
+  });
+
+  it("keeps the number on screen in the error state and while a resend is pending", () => {
+    const [status, setStatus] = createSignal<CheckEmailStatus>("error");
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status={status()}
+        pairingCode="47"
+        resendWaitSeconds={0}
+        onResend={() => deferred().promise}
+      />
+    ));
+
+    expect(numberParagraph("47")).toBeDefined();
+    setStatus("waiting");
+    fireEvent.click(resend());
+    expect(region().textContent).toContain("Sending a new link…");
+    expect(numberParagraph("47")).toBeDefined();
+  });
+
+  it.each([
+    ["sign-up", `We sent a new link to ${EMAIL}. Check the number again.`],
+    ["recovery", `If ${EMAIL} has an account, a new link is on its way. Check the number again.`],
+  ] as const)(
+    "%s sends the person back to the number after a resend",
+    async (purpose, sentence) => {
+      render(() => (
+        <CheckEmailView
+          email={EMAIL}
+          purpose={purpose}
+          status="waiting"
+          pairingCode="47"
+          resendWaitSeconds={0}
+          onResend={() => Promise.resolve()}
+        />
+      ));
+
+      expect(region().textContent).not.toContain("Check the number");
+      fireEvent.click(resend());
+      await settle();
+      expect(region().textContent).toContain(sentence);
+    },
+  );
+
+  it("says nothing about a number after a resend when there is none", async () => {
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status="waiting"
+        resendWaitSeconds={0}
+        onResend={() => Promise.resolve()}
+      />
+    ));
+
+    fireEvent.click(resend());
+    await settle();
+    expect(region().textContent).toContain(`We sent a new link to ${EMAIL}.`);
+    expect(region().textContent).not.toContain("number");
   });
 });
 
