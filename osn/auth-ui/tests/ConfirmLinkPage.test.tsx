@@ -522,6 +522,202 @@ describe("ConfirmLinkPage — opening on an answer", () => {
   });
 });
 
+describe("ConfirmLinkPage — typing the number", () => {
+  const TYPE_LINE = "Type the number shown on the screen where you started.";
+
+  function typed(onConfirm: OnConfirm) {
+    return render(() => (
+      <ConfirmLinkPage purpose="recovery" email={EMAIL} typeNumber onConfirm={onConfirm} />
+    ));
+  }
+
+  function field(): HTMLInputElement {
+    return screen.getByLabelText(TYPE_LINE) as HTMLInputElement;
+  }
+
+  function confirmButton(): HTMLButtonElement {
+    return screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement;
+  }
+
+  function enter(value: string) {
+    fireEvent.input(field(), { target: { value } });
+  }
+
+  /** Dispatches a `beforeinput` at the end of the field; true when the page cancelled it. */
+  function refused(init: InputEventInit): boolean {
+    const input = field();
+    input.setSelectionRange(input.value.length, input.value.length);
+    const event = new InputEvent("beforeinput", { bubbles: true, cancelable: true, ...init });
+    input.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it("keeps Confirm disabled until the entry is one to six digits", () => {
+    typed(() => new Promise(() => {}));
+
+    expect(confirmButton().disabled).toBe(true);
+    for (const value of ["", "12a", "1234567", " 12", "١٢"]) {
+      enter(value);
+      expect(confirmButton().disabled).toBe(true);
+    }
+    for (const value of ["0", "123456"]) {
+      enter(value);
+      expect(confirmButton().disabled).toBe(false);
+    }
+  });
+
+  it("refuses an insertion that would put anything but digits, or a seventh digit, in the field", () => {
+    typed(() => new Promise(() => {}));
+
+    expect(refused({ inputType: "insertText", data: "a" })).toBe(true);
+    expect(refused({ inputType: "insertText", data: "7" })).toBe(false);
+    expect(refused({ inputType: "insertFromPaste", data: "12-34" })).toBe(true);
+    enter("123456");
+    expect(refused({ inputType: "insertText", data: "7" })).toBe(true);
+    expect(refused({ inputType: "deleteContentBackward" })).toBe(false);
+    expect(field().value).toBe("123456");
+    // A value that got a non-digit past the check, through autofill, can
+    // still be deleted.
+    enter("12a");
+    expect(refused({ inputType: "deleteContentBackward" })).toBe(false);
+  });
+
+  it("confirms on Enter once, only with a number, and keeps Enter from a form around the page", () => {
+    const onConfirm = vi.fn<OnConfirm>(() => new Promise(() => {}));
+    typed(onConfirm);
+
+    enter("12a");
+    expect(fireEvent.keyDown(field(), { key: "Enter" })).toBe(false);
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    enter("4821");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith("4821");
+  });
+
+  it("sends exactly what was typed, once, and holds everything still while it runs", () => {
+    const onConfirm = vi.fn<OnConfirm>(() => new Promise(() => {}));
+    typed(onConfirm);
+
+    enter("0730");
+    confirmButton().focus();
+    fireEvent.click(confirmButton());
+    fireEvent.click(confirmButton());
+    fireEvent.click(decline());
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith("0730");
+    expect(field().disabled).toBe(true);
+    expect(field().value).toBe("0730");
+    expect(confirmButton().disabled).toBe(true);
+    expect(decline().disabled).toBe(true);
+    expect(paragraph("You typed 0730. Confirming…")).not.toBeNull();
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it("lets the person decline with nothing typed", () => {
+    const onConfirm = vi.fn<OnConfirm>(() => new Promise(() => {}));
+    typed(onConfirm);
+
+    expect(field().value).toBe("");
+    expect(decline().disabled).toBe(false);
+    fireEvent.click(decline());
+    expect(onConfirm).toHaveBeenCalledWith(null);
+  });
+
+  it("never says the entry was wrong, in any state", async () => {
+    const WRONG = /wrong|incorrect|match|mistake|invalid|not the number/i;
+    const answers: (ConfirmOutcome | "throws")[] = ["throws", "expired", "confirmed"];
+    for (const answer of answers) {
+      const pending = deferred<ConfirmOutcome>();
+      const { container } = typed(() => pending.promise);
+      enter("12a");
+      expect(container.textContent).not.toMatch(WRONG);
+      enter("4821");
+      fireEvent.click(confirmButton());
+      if (answer === "throws") pending.reject(new Error("wrong number"));
+      else pending.resolve(answer);
+      await settle();
+      expect(container.textContent).not.toMatch(WRONG);
+      cleanup();
+    }
+  });
+
+  it("draws no numbers to pick, even if some are passed", () => {
+    render(() => (
+      <ConfirmLinkPage
+        purpose="recovery"
+        typeNumber
+        {...({ candidates: [...CANDIDATES] } as object)}
+        onConfirm={() => new Promise(() => {})}
+      />
+    ));
+
+    expect(screen.queryByRole("group")).toBeNull();
+    for (const number of CANDIDATES) expect(screen.queryByText(number)).toBeNull();
+    expect(field()).not.toBeNull();
+  });
+
+  it("will not type-check with numbers to pick and a number to type at once", () => {
+    render(() => (
+      // @ts-expect-error -- a page either offers numbers or asks for one to be typed.
+      <ConfirmLinkPage
+        purpose="recovery"
+        typeNumber
+        candidates={[...CANDIDATES]}
+        onConfirm={() => new Promise(() => {})}
+      />
+    ));
+    expect(screen.queryByRole("group")).toBeNull();
+  });
+
+  it("keeps the entry after a thrown error, and Try again sends it again", async () => {
+    const retry = deferred<ConfirmOutcome>();
+    const onConfirm = vi
+      .fn<OnConfirm>()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockReturnValueOnce(retry.promise);
+    typed(onConfirm);
+
+    enter("4821");
+    fireEvent.click(confirmButton());
+    await settle();
+
+    expect(shown(ERROR_LINE)).toHaveLength(1);
+    expect(paragraph("You typed 4821.")).not.toBeNull();
+    expect(field().disabled).toBe(true);
+    expect(field().value).toBe("4821");
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+    expect(decline().disabled).toBe(true);
+
+    fireEvent.click(tryAgain());
+    expect(onConfirm).toHaveBeenCalledTimes(2);
+    expect(onConfirm).toHaveBeenLastCalledWith("4821");
+    retry.resolve("expired");
+    await settle();
+    expect(heading().textContent).toBe(EXPIRED_HEADING);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("asks for digits the way a phone and a translator understand", () => {
+    typed(() => new Promise(() => {}));
+
+    const input = field();
+    expect(input.getAttribute("inputmode")).toBe("numeric");
+    expect(input.getAttribute("autocomplete")).toBe("off");
+    expect(input.getAttribute("spellcheck")).toBe("false");
+    expect(input.getAttribute("maxlength")).toBe("6");
+    expect(input.getAttribute("translate")).toBe("no");
+
+    enter("4821");
+    fireEvent.click(confirmButton());
+    const line = paragraph("You typed 4821. Confirming…");
+    expect(line?.querySelector("[translate='no']")?.textContent).toBe("4821");
+  });
+});
+
 describe("ConfirmLinkPage — the words for each flow", () => {
   const FLOWS: [ConfirmLinkPurpose, string, string, string][] = [
     [
