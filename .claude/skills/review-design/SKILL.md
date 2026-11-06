@@ -268,8 +268,8 @@ grep -nE '<pattern>' <file>                                      # every line of
 - An action takes the shape and the case its document gives it. In the cire
   apps an action is a pill (`cire/host/DESIGN.md` §4) and its label is in
   sentence case (§7, Labels), so a label in capitals or `uppercase` on an
-  action is a finding there. Musubi keeps ghost and link buttons flat
-  (`musubi/social/DESIGN.md` §Radii). Where the document is silent, the
+  action is a finding there. In Musubi every Button variant is a pill, ghost
+  and link included (`musubi/social/DESIGN.md` §Radii). Where the document is silent, the
   surface's sibling screens settle it.
 
 ### Colour and contrast

@@ -20,7 +20,7 @@ design skill, because a skill left to itself picks its own fonts and colours.
 | `pulse/landing` | `pulse/DESIGN.md`, `wiki/pulse/pulse-landing.md` |
 | `musubi/social` | `musubi/social/DESIGN.md`, `wiki/musubi/social-mobile-ux.md` |
 | `musubi/landing` | `wiki/musubi/osn-landing.md` |
-| `osn/auth-ui` | `wiki/shared/component-library.md`, `wiki/musubi/authorize-ui.md` |
+| `osn/auth-ui` | `osn/auth-ui/DESIGN.md`, then its host's `musubi/social/DESIGN.md` §Auth surfaces; `wiki/musubi/authorize-ui.md` for the `/authorize` screen |
 | `@shared/ui`, `@cire/ui`, `@shared/design-tokens` | `wiki/shared/component-library.md`, `wiki/shared/design-tokens.md` |
 | `@shared/email` templates | `wiki/shared/email.md` |
 | `tools/lab` | `wiki/conventions/component-lab.md` |
