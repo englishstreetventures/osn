@@ -1,5 +1,11 @@
 # @osn/api
 
+## 0.28.12
+
+### Patch Changes
+
+- f860728: Stop exporting symbols used only inside their own file, drop re-exports nothing imports, and delete declarations nothing reads. No behaviour changes.
+
 ## 0.28.11
 
 ### Patch Changes

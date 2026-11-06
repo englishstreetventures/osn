@@ -1,5 +1,11 @@
 # @zap/api
 
+## 0.9.44
+
+### Patch Changes
+
+- f860728: Stop exporting symbols used only inside their own file, drop re-exports nothing imports, and delete declarations nothing reads. No behaviour changes.
+
 ## 0.9.43
 
 ### Patch Changes

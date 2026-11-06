@@ -1,5 +1,11 @@
 # @osn/osn
 
+## 3.31.13
+
+### Patch Changes
+
+- a85cca2: Stop exporting symbols used only inside their own file, drop re-exports nothing imports, and delete declarations nothing reads. No behaviour changes.
+
 ## 3.31.12
 
 ### Patch Changes

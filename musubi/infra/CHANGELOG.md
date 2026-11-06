@@ -1,5 +1,11 @@
 # @musubi/infra
 
+## 0.2.9
+
+### Patch Changes
+
+- a85cca2: Stop exporting symbols used only inside their own file, drop re-exports nothing imports, and delete declarations nothing reads. No behaviour changes.
+
 ## 0.2.8
 
 ### Patch Changes
