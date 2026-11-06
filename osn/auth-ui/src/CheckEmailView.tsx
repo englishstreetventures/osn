@@ -132,10 +132,19 @@ export function CheckEmailView(props: CheckEmailViewProps) {
     }
   }
 
-  const resendLabel = () => {
+  // One span, because `Button` is a flex row with a gap between its children;
+  // the seconds take tabular figures so the centred label does not shift as
+  // they tick down.
+  const resendLabel = (): JSX.Element => {
     if (pending()) return "Sending…";
     if (expired()) return "Send a new link";
-    if (remaining() > 0) return `Resend in ${remaining()}s`;
+    if (remaining() > 0) {
+      return (
+        <span>
+          Resend in <span class="tabular-nums">{remaining()}</span>s
+        </span>
+      );
+    }
     return "Resend link";
   };
 
