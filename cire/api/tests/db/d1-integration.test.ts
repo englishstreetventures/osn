@@ -172,7 +172,7 @@ const MIGRATION_0076 = "0076_wedding_owners.sql";
 const MIGRATION_0091 = "0091_task_assignees.sql";
 const MIGRATION_TASK_RUN_TIME = "20261021153838_task_run_time.sql";
 const MIGRATION_SEATING_PLANS = "20261026040620_seating_plans.sql";
-const MIGRATION_CONTRIBUTION_CURRENCY = "20261103160929_contribution_currency_check.sql";
+const MIGRATION_CONTRIBUTION_CURRENCY = "20261106023546_contribution_currency_check.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -4726,7 +4726,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "runs migration 20261103160929_contribution_currency_check on D1's own SQLite: every gift kept, column for column, and a four-character currency refused",
+    "runs migration 20261106023546_contribution_currency_check on D1's own SQLite: every gift kept, column for column, and a four-character currency refused",
     async () => {
       // Its own instance, holding the live chain up to the migration before it
       // with two gifts, so the copy and the DROP TABLE run over rows that exist

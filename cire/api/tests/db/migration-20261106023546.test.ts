@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
 
-// Proof for migration 20261103160929_contribution_currency_check, which
+// Proof for migration 20261106023546_contribution_currency_check, which
 // rebuilds `registry_contributions` to add two CHECKs: `currency` is three
 // characters long, and `primary_currency` is NULL or three characters long.
 // The rebuild copies every gift; nothing about any gift may change, and a
@@ -15,7 +15,7 @@ import { listMigrations, migrationStatements } from "../../../../scripts/migrati
 // It is a live migration, so the chain before it is the live directory: the
 // baseline and everything after it, in the order wrangler runs them.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
-const MIG_CURRENCY_CHECK = "20261103160929_contribution_currency_check.sql";
+const MIG_CURRENCY_CHECK = "20261106023546_contribution_currency_check.sql";
 
 /** A file as wrangler sends it, one statement at a time, so a statement
  *  SQLite refuses throws here. */
@@ -81,7 +81,7 @@ function give(db: Database, id: string, currency: string, primaryCurrency: strin
   ).run(id, currency, primaryCurrency);
 }
 
-describe("migration 20261103160929 — a gift's currency is three characters", () => {
+describe("migration 20261106023546 — a gift's currency is three characters", () => {
   it("rebuilds a table no foreign key, trigger or view names", () => {
     // The rebuild's DROP TABLE cascades into any table whose foreign key points
     // here, and drops any trigger on it; the chain before it holds neither.
@@ -100,6 +100,37 @@ describe("migration 20261103160929 — a gift's currency is three characters", (
         )
         .all(),
     ).toEqual([]);
+    db.close();
+  });
+
+  it("keeps every index under its name and every foreign key, and changes no other table", () => {
+    // A later migration names an index to drop or replace it, and the lockstep
+    // test compares indexes by their columns alone, so a rebuild that renamed
+    // one would pass there. The other tables' triggers are re-checked by
+    // SQLite when the copy is renamed; they must come through unchanged.
+    const db = databaseBeforeCurrencyCheck();
+    const shape = () => ({
+      indexes: db
+        .query(
+          "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'registry_contributions' ORDER BY name",
+        )
+        .all(),
+      foreignKeys: db
+        .query(
+          'SELECT "table", "from", "to", on_update, on_delete FROM pragma_foreign_key_list(\'registry_contributions\') ORDER BY "from"',
+        )
+        .all(),
+      otherTables: db
+        .query(
+          "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE tbl_name <> 'registry_contributions' ORDER BY type, name",
+        )
+        .all(),
+    });
+    const before = shape();
+    expect(before.indexes).toHaveLength(6);
+    expect(before.foreignKeys).toHaveLength(3);
+    apply(db, MIG_CURRENCY_CHECK);
+    expect(shape()).toEqual(before);
     db.close();
   });
 

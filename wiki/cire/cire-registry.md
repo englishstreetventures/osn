@@ -95,7 +95,7 @@ One row per Stripe Checkout Session. `stripe_checkout_session_id` is **unique**,
 
 The guest's words are in `message`, and `note_hidden_at` / `note_hidden_by_osn_profile_id` (migration 0062) hide them from the couple's log the same way as on a claim — see [Hiding a note](#hiding-a-note).
 
-CHECK `length(currency) = 3`, and `primary_currency` is NULL or three characters long. Length only: the letters and their case are not checked, so the per-currency totals upper-case a code before grouping on it (`contributionsByCurrency` in `cire/api/src/services/registry.ts`). SQLite adds a CHECK only by rebuilding the table; `20261103160929_contribution_currency_check.sql` does, by hand, since nothing references the table ([[cire-development#Adding a column]]).
+CHECK `length(currency) = 3`, and `primary_currency` is NULL or three characters long. Length only: the letters and their case are not checked, so the per-currency totals upper-case a code before grouping on it (`contributionsByCurrency` in `cire/api/src/services/registry.ts`). SQLite adds a CHECK only by rebuilding the table; `20261106023546_contribution_currency_check.sql` does, by hand, since nothing references the table ([[cire-development#Adding a column]]).
 
 ### Invite copy
 
