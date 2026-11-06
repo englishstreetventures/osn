@@ -40,8 +40,7 @@
   background: var(--pulse-accent);
   transform-origin: left;
   transform: scaleX(0);
-  /* motion-literal: a progress fill growing to its step; no token has that job */
-  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--ui-dur-slow, 320ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .onb-progress-segment.is-active > span {
@@ -142,8 +141,7 @@
  * ------------------------------------------------------------------------- */
 
 .onb-step-enter {
-  /* motion-literal: a step arrives in 240ms; --ui-dur-base, a panel swap, is 200ms */
-  animation: onb-step-in 240ms var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+  animation: onb-step-in var(--ui-dur-base, 200ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
 }
 
 @keyframes onb-step-in {
@@ -311,12 +309,11 @@
   font-weight: 500;
   color: var(--foreground);
   cursor: pointer;
-  /* motion-literal: a chip's hover and choice at 160ms; no rung is that long for a hover (--ui-dur-fast is 120ms) */
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+    background var(--ui-dur-fast, 120ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+    transform var(--ui-dur-fast, 120ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+    box-shadow var(--ui-dur-fast, 120ms) var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .onb-chip:hover {
