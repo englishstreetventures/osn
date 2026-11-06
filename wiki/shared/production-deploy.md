@@ -1637,8 +1637,69 @@ fails the run, and its cleanup jobs still remove what it made; a re-run attempt 
 so dispatch a new run. A rerun reproduces the artifact's shape, verdicts and exit codes;
 the timings differ.
 
-*Unverified — the rehearsal has not run yet. Its first run on `main` sets the gap, the
-rollback time and the reach check's answer here, with the run's id and date.*
+##### What the first run measured
+
+[Run 42190767065](https://github.com/englishstreetventures/osn/actions/runs/42190767065), on
+`main` at `a28e0175b`, every job green. Times are UTC, 2026-11-06.
+
+| Step | Ran | What Cloudflare answered |
+|---|---|---|
+| Reach check | 08:52:21 | `GET /accounts`: one account, the dev account. `GET /zones`: the dev zone alone, none in another account. This is the dev deploy token's answer; `CLOUDFLARE_PAGES_DNS_TOKEN` holds fewer grants and has not been asked |
+| Detach | 08:56:37–08:56:38 | The domain came off the Pages project and its CNAME was deleted, each on the first request |
+| Flip | 08:56:56–08:57:08 | Alchemy ran 8 s. The spare host's custom domain was gone at 08:57:03 and the moved host's listed at 08:57:05 (`workerDomainListedMs` 8,521), and the deploy succeeded |
+| Check | 08:57:20 | The host's one record: a proxied, read-only `AAAA` to `100::` carrying `meta.origin_worker_id`, both shapes `pages-domain.ts` counts as a Worker's, so the host reads `free` |
+| Unflip | 08:57:34–09:00:08 | The Worker took its spare host back; Cloudflare served the spare again at 09:00:08 |
+| Attach | 09:00:20–09:02:54 | The CNAME and the domain went back on the project; Pages served at 09:01:27, and the domain read `active` at 09:02:54 |
+| Destroy, cleanup | 09:03:21–09:03:44 | Everything the run made was removed. The run's only error answer: a 404 (code 10007) reading the Worker's settings after the destroy, which is how that step confirms the Worker is gone |
+
+The move, as the watch job saw the edge every 2 s:
+
+- The host kept serving the Pages site for 16 s after the detach, to 08:56:54.
+- From 08:56:56 to 08:57:28 it gave mixed answers, alternating between the Pages site,
+  the Worker, and Cloudflare's 530 and 522 error pages.
+- From 08:57:30 it served the Worker on every request until the unflip.
+- `edgeGapMs` is 21,196: the last steady Pages answer to the first Worker answer. `gapMs`
+  is 29,486: the detach to the flip's first Worker answer.
+- The runner's resolver answered the host throughout (`clientDnsGapMs` is null), so the
+  gap was at Cloudflare's edge, not in DNS.
+
+The rollback:
+
+- `rollbackMs` is 232,989, about 3 min 53 s from the unflip's start to the first Pages
+  answer.
+- From the unflip to 08:58:33 the host mixed Worker answers, one Pages answer and 530 and
+  522 pages. From 08:58:35 to 09:01:27 it gave only 530 and 522: about 2 min 52 s with no
+  site at all.
+- After the attach, Pages served in 63.8 s (`pagesServingMs` 63,767) and the domain read
+  `active` in 150.7 s (`pagesDomainActiveMs` 150,701).
+
+The spare host: a flip moves the Worker's one custom domain from the spare host to the
+production host, since `siteDomain()` in
+[`shared/infra/src/production-sites.ts`](../../shared/infra/src/production-sites.ts) gives a
+`worker` site its production host alone and the plan guard lets a flip give the spare
+up. So the spare stops serving: in the run, `next.domain-move.<DEV_DOMAIN>` failed the TLS
+handshake from 08:57:04 until the unflip put the Worker back on it, and served again about
+2½ minutes after that deploy. Nothing reads a `worker` site's spare host: its smoke checks
+ask the production host, and `site-parity` compares only `staged` sites. An unflip
+release's smoke check asks the spare host again, and waits up to 240 s for a host its plan
+attaches (`scripts/smoke-budgets.ts`), which covers that.
+
+What it means for the first move, `vendor.cireweddings.com`:
+
+- Pages keeps serving for some seconds after step 3's detach, then the host serves no site
+  until step 4's deploy attaches the Worker. So the approval of step 4 and that job's
+  install, state check and plan are downtime, which the rehearsal does not include.
+  Once the deploy runs, expect about 30 s of mixed answers (the Pages site, the Worker,
+  and Cloudflare's 530 and 522 pages) before the Worker serves every request.
+- A rollback is the slow path: about 4 minutes from the unflip's deploy to the Pages site,
+  of which about 3 minutes serve no site at all, plus the wait for the attach job's
+  approval. Approve that job as soon as it asks, and prefer fixing the Worker forward when
+  the fault allows it.
+
+*Measured 2026-11-06 — Domain move rehearsal run 42190767065 on `main` at `a28e0175b`: its
+`domain-move-rehearsal-attempt-1` artifact (`intervals`; each step's `events`;
+`fragments.watch.timeline` for the edge answers; `fragments.preflight.calls` and
+`fragments.check.calls` for the reach and record answers).*
 
 ## 6. Optional: guest account-linking bridge (cire → osn)
 
