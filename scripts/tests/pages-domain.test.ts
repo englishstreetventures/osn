@@ -624,6 +624,18 @@ describe("what the token reaches", () => {
     }
   });
 
+  test("PD15: a refusal counts the zones of another account the token sees, and names none", async () => {
+    const result = await run(["check", "cire_host"], {
+      ...TODAY,
+      zones: [...ZONES, { ...other, name: "private-client.example", account: { id: other.id } }],
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(
+      "sees the zones cireweddings.com, musubi.social, and 1 in another account;",
+    );
+    expect(result.output).not.toContain("private-client.example");
+  });
+
   test("PD13: the zones are read once a run, from the token's own listing, however many sites", async () => {
     const result = await run(["check", "cire_host", "cire_vendor", "cire_landing"], TODAY);
     expect(result.code).toBe(0);
@@ -690,7 +702,7 @@ describe("pagesDnsApi", () => {
   // The domain move rehearsal records every answer through `observe` into an
   // artifact; the token must never reach it, and a retried read must show
   // each attempt, since the retries are part of what Cloudflare answered.
-  test("PD12: the observer sees every attempt, retries and failures included, and never the token", async () => {
+  test("PD14: the observer sees every attempt, retries and failures included, and never the token", async () => {
     const domains = `GET /accounts/${ACCOUNT}/pages/projects/cire-host/domains`;
     const api = fakeCloudflare({
       ...TODAY,

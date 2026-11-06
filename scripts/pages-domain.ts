@@ -322,8 +322,13 @@ export function pagesDnsApi(input: PagesDnsApiInput) {
         names.toSorted().join(" ") === wanted.join(" ") &&
         seen.every((zone) => typeof zone.id === "string" && zone.account?.id === account);
       if (!exact) {
+        // Another account's zone is counted, never named: the message reaches public logs.
+        const ours = seen
+          .filter((zone) => zone.account?.id === account)
+          .map((zone) => (typeof zone.name === "string" ? zone.name : "?"));
+        const foreign = seen.length - ours.length;
         throw new ApiError(
-          `the token sees the zones ${names.toSorted().join(", ") || "none"}${typeof count === "number" && count > seen.length ? ` and ${count - seen.length} more` : ""}; it must see exactly ${wanted.join(", ")}, each once, in the account CLOUDFLARE_ACCOUNT_ID names`,
+          `the token sees the zones ${ours.toSorted().join(", ") || "none"}${foreign > 0 ? `, and ${foreign} in another account` : ""}${typeof count === "number" && count > seen.length ? ` and ${count - seen.length} more` : ""}; it must see exactly ${wanted.join(", ")}, each once, in the account CLOUDFLARE_ACCOUNT_ID names`,
         );
       }
       return new Map(seen.map((zone) => [String(zone.name), String(zone.id)]));
