@@ -1613,7 +1613,7 @@ release uses ([[infrastructure-as-code#The domain move rehearsal]]):
 
 1. Make sure the `dev` Environment holds `CLOUDFLARE_DEV_PAGES_DNS_TOKEN` and
    `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN` ([[dev-environment#Two accounts, two Environments]]).
-2. Dispatch **Actions → Domain move rehearsal** on `main`. It asks no approval: the
+2. From the Actions tab, dispatch **Domain move rehearsal** on `main`. It asks no approval: the
    `dev` Environment has no reviewer. Each wait for Cloudflare gives up after 15 minutes
    (a Worker) or 20 (a Pages domain), and the watch job after two hours.
 3. Read the run summary, then the `domain-move-rehearsal-attempt-1` artifact

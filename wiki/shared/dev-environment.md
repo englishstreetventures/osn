@@ -307,7 +307,7 @@ account, for the free-tier alert's dev job ([[free-tier-limits]]).
 
 The domain move rehearsal ([[infrastructure-as-code#The domain move rehearsal]])
 reads two more, each an account API token on the dev account, made under
-**Manage Account → Account API Tokens**:
+**Manage Account**, then **Account API Tokens**:
 
 | Secret | Permissions, and nothing else | Read by |
 |---|---|---|
