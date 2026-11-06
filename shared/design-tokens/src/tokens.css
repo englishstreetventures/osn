@@ -281,7 +281,7 @@
     --ui-dur-slow: 320ms;
     /* A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on `--ui-modal-exit`. */
     --ui-dur-exit: 80ms;
-    /* Something arriving; an overlay leaving runs on it too. */
+    /* Something arriving; a Kobalte overlay leaving runs on it too. `Modal`'s exit runs `ease-in`. */
     --ui-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     /* Something moving between two places. */
     --ui-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);

@@ -288,8 +288,11 @@ site in the loaded row's shape (`bg-muted/50 animate-pulse`), which pulses in
 opacity.
 
 Where the app does not follow this yet: `@shared/ui`'s Dialog (as card and as
-sheet), Popover and default menu fade and scale from 95% as they open and
-close (`zoom-in-95`, `zoom-out-95`) (#2040).
+sheet), Popover and default menu run the shared overlay motion. They fade and
+scale from 96% as they open and to 98% as they close (`zoom-in`, `zoom-out`),
+and the popover and menu grow from their trigger
+(`wiki/shared/design-tokens.md` §Motion). They move to a fade with no scale,
+the owner's decision on #2034, when #2040 lands.
 
 ## Layout
 
