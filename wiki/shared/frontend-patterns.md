@@ -19,6 +19,7 @@ related:
   - "[[browser-tests]]"
   - "[[cire-development]]"
   - "[[cire-invite-designs]]"
+  - "[[house-lint-rules]]"
 packages:
   - "@cire/host"
   - "@pulse/web"
@@ -574,7 +575,10 @@ the screen is.
 trackpad gets the desk pace. Switch the duration tokens under the query rather
 than writing a second set of utilities: every motion that already reads a
 `--dur-*` token follows the input for free, and one written as a literal or as
-Tailwind's bare `transition` (150ms) does not. All four cire apps — the two
+Tailwind's bare `transition` (150ms) does not. A written literal fails lint
+(`house/no-literal-motion`, and `scripts/check-motion-literals.ts` for
+stylesheets and Astro files); the bare `transition` passes it
+([[house-lint-rules]] §Literal motion). All four cire apps — the two
 portals, the guest site and the marketing site — carry the same ladder and the
 same `pointer: fine` block, and `cire/vendor/tests/styles/tokens.test.ts` fails
 if any copy differs.

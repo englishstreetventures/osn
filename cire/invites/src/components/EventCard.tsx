@@ -348,6 +348,7 @@ export function EventCard(props: EventCardProps) {
                   `EventCard.browser.test.tsx` measures the real thing. */}
                 <span
                   aria-hidden="true"
+                  // oxlint-disable-next-line house/no-literal-motion -- the fill's sweep is SWEEP_DURATION_MS in rsvp-responded.ts, timed with the tick; longer than --dur-slow
                   class="bg-bloom absolute inset-0 origin-left transition-transform duration-500 ease-out"
                   classList={{ "scale-x-100": confirmed(), "scale-x-0": !confirmed() }}
                 />

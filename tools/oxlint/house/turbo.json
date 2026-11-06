@@ -1,0 +1,19 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // `no-literal-motion` imports its matcher from scripts/lib, outside this
+    // package, so the file is named here or an edit to it replays a cached
+    // green test and typecheck.
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "$TURBO_ROOT$/scripts/lib/motion-literals.ts"]
+    },
+    "typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/astro-typecheck.ts",
+        "$TURBO_ROOT$/scripts/lib/motion-literals.ts"
+      ]
+    }
+  }
+}

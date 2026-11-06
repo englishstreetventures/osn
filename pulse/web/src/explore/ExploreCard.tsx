@@ -101,7 +101,7 @@ export function ExploreCard(props: {
       </Show>
       <A
         href={`/events/${e().id}`}
-        class="group border-border bg-card hover:border-foreground/20 relative grid cursor-pointer overflow-hidden rounded-2xl border transition-all hover:-translate-y-px hover:shadow-md"
+        class="group border-border bg-card hover:border-foreground/20 relative grid cursor-pointer overflow-hidden rounded-2xl border transition-[border-color,translate,box-shadow] hover:-translate-y-px hover:shadow-md"
         classList={{
           "grid-cols-[180px_1fr]": !props.featured,
           "grid-cols-1": !!props.featured,

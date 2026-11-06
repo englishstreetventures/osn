@@ -11,6 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
+  - "[[house-lint-rules]]"
 last-reviewed: 2026-11-07
 ---
 
@@ -172,7 +173,10 @@ nearest number**: a hover timed on `--ui-dur-exit` because 80ms looked right
 would change pace the day exits do, and a sheet on `--ui-dur-fast` would stop
 following an app that slows its panels. `tokens.css` carries the same job as
 a one-line comment beside each value, and `CONTRACT_SCALAR_TOKENS.motion`
-lists them.
+lists them. A duration, delay or easing written out where a token belongs
+fails `house/no-literal-motion` in TypeScript and
+`scripts/check-motion-literals.ts` in `.css` and `.astro` files; a fallback
+inside `var()` passes ([[house-lint-rules]] §Literal motion).
 
 | Token | Value | Used for |
 | --- | --- | --- |
