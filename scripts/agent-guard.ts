@@ -530,12 +530,12 @@ const PRODUCTION_READ =
  * and `zap/infra`, and the `[env.production]` blocks of the `wrangler.toml`
  * files (`pulse/api` declares `pulse-db-prod`).
  */
-const PRODUCTION_DATABASES: readonly string[] = [
+const PRODUCTION_DATABASES: ReadonlySet<string> = new Set([
   "cire-db",
   "osn-db-prod",
   "zap-db-prod",
   "pulse-db-prod",
-];
+]);
 
 const isWrangler = (word: string): boolean => basename(word).replace(/@[^/]*$/, "") === "wrangler";
 
@@ -562,7 +562,7 @@ function productionDbRule(words: string[]): string | null {
     return null;
   if (isProductionEnv(rest)) return PRODUCTION_READ;
   const local = rest.includes("--local");
-  const named = positional.some((word) => PRODUCTION_DATABASES.includes(word));
+  const named = positional.some((word) => PRODUCTION_DATABASES.has(word));
   const devEnv = rest.some((word) => word === "--env=dev" || word === "-e=dev" || word === "-edev");
   const devEnvSpaced = rest.some(
     (word, k) => (word === "--env" || word === "-e") && rest[k + 1] === "dev",
