@@ -512,6 +512,20 @@ describe("the number on the waiting screen", () => {
     expect(again.requestId).not.toBe(s.requestId);
   });
 
+  it("ends an already-confirmed request when the reader declines, and no account is made", async () => {
+    const h = harness();
+    const s = await begun(h, "late-decline@example.com", "latedecline");
+    await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, s.pairingCode);
+
+    const res = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, "none");
+    expect(await res.json()).toEqual({ status: "declined" });
+    expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
+      status: "expired",
+    });
+    const handle = await h.app.handle(new Request("http://localhost/handle/latedecline"));
+    expect(await handle.json()).toEqual({ available: true });
+  });
+
   it("is given back to the tab that began on every pending poll, so a reloaded tab can show it", async () => {
     const h = harness();
     const s = await begun(h, "poll-number@example.com", "pollnumber");
