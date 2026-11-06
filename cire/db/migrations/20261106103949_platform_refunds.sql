@@ -5,7 +5,8 @@
 -- purchase id, the product, the PaymentIntent, what it took, why it could not
 -- grant, the refund's status and Stripe id, and when the owners were emailed.
 -- Like `platform_sales` it has no foreign key, no wedding id and no profile
--- id, so it outlives the purge and holds no personal data. The daily
+-- id, so it outlives the purge; its Stripe ids make it pseudonymous, not
+-- anonymous. The daily
 -- reconciliation retries a refund from here, so the purge no longer waits on
 -- one. New and empty: nothing to back-fill, since no deployed tier has sold an
 -- upgrade.

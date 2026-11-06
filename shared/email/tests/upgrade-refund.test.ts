@@ -27,11 +27,11 @@ describe("upgrade-refund", () => {
     expect(out.html).toContain('href="mailto:help@cire.example.test"');
   });
 
-  it("escapes the wedding's name in the HTML, and keeps the subject on one line", () => {
+  it("escapes the wedding's name in the HTML, and keeps it on one line", () => {
     const out = renderTemplate("upgrade-refund", { ...data, weddingName: "A\nB & <C>" });
     expect(out.html).toContain("B &amp; &lt;C&gt;");
     expect(out.html).not.toContain("<C>");
-    expect(out.subject).not.toMatch(/[\r\n]/);
+    expect(out.text).toContain("We could not upgrade A B & <C> to Gold");
   });
 
   it("reads plainly with no tier or amount to name", () => {
