@@ -70,6 +70,14 @@ describe("CheckEmailView — the wait before Resend", () => {
     expect(resend().disabled).toBe(true);
     expect(resend().textContent).toContain("30s");
 
+    // The label is one element, since the button is a flex row that spaces
+    // each child of its own.
+    expect(resend().childNodes).toHaveLength(1);
+    expect(resend().firstChild?.nodeType).toBe(Node.ELEMENT_NODE);
+    const seconds = resend().querySelector(".tabular-nums");
+    expect(seconds?.textContent).toBe("30");
+    expect(seconds?.parentElement).not.toBe(resend());
+
     vi.advanceTimersByTime(29_000);
     expect(resend().disabled).toBe(true);
     expect(resend().textContent).toContain("1s");
@@ -77,6 +85,19 @@ describe("CheckEmailView — the wait before Resend", () => {
     vi.advanceTimersByTime(1_000);
     expect(resend().disabled).toBe(false);
     expect(resend().textContent).toBe("Resend link");
+  });
+
+  it("rounds the time left up, so a late timer never unlocks Resend early", () => {
+    render(() => (
+      <CheckEmailView email={EMAIL} purpose="sign-up" status="waiting" onResend={() => {}} />
+    ));
+
+    // The clock runs 5 ms ahead of the timers, so the last tick lands 995 ms
+    // short of the deadline.
+    vi.setSystemTime(Date.now() + 5);
+    vi.advanceTimersByTime(29_000);
+    expect(resend().disabled).toBe(true);
+    expect(resend().textContent).toContain("1s");
   });
 
   it("honours a custom resendWaitSeconds", () => {
@@ -244,6 +265,7 @@ describe("CheckEmailView — what the live region says", () => {
     expect(region().textContent).toContain(`We sent a link to ${EMAIL}.`);
 
     fireEvent.click(resend());
+    expect(resend().textContent).toBe("Sending…");
     expect(region().textContent).toContain("Sending a new link…");
     first.resolve();
     await settle();
@@ -263,7 +285,7 @@ describe("CheckEmailView — what the live region says", () => {
   });
 
   it("offers a new link at once when the link has expired, and drops the waiting copy", () => {
-    const onResend = vi.fn();
+    const onResend = vi.fn().mockReturnValue(deferred().promise);
     render(() => (
       <CheckEmailView email={EMAIL} purpose="sign-up" status="expired" onResend={onResend} />
     ));
@@ -277,6 +299,8 @@ describe("CheckEmailView — what the live region says", () => {
     expect(resend().textContent).toBe("Send a new link");
     fireEvent.click(resend());
     expect(onResend).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toContain("Sending a new link…");
+    expect(region().textContent).not.toContain("Ask for a new link");
   });
 
   it("shows the error inside the live region, with a fallback when none is given", () => {
@@ -297,6 +321,44 @@ describe("CheckEmailView — what the live region says", () => {
     expect(region().textContent).toContain(`We sent a link to ${EMAIL}.`);
     setMessage(undefined);
     expect(region().textContent).toContain("Something went wrong. Try again in a moment.");
+    setMessage("   ");
+    expect(region().textContent).toContain("Something went wrong. Try again in a moment.");
+  });
+
+  it("shows no error outside the error status, even when a message is given", () => {
+    const [status, setStatus] = createSignal<CheckEmailStatus>("error");
+    render(() => (
+      <CheckEmailView
+        email={EMAIL}
+        purpose="sign-up"
+        status={status()}
+        errorMessage="Too many requests. Try again later."
+        onResend={() => {}}
+      />
+    ));
+
+    expect(region().textContent).toContain("Too many requests. Try again later.");
+    for (const quiet of ["waiting", "expired"] as const) {
+      setStatus("error");
+      expect(region().textContent).toContain("Too many requests. Try again later.");
+      setStatus(quiet);
+      expect(region().textContent).not.toContain("Too many requests. Try again later.");
+      expect(region().textContent).not.toContain("Something went wrong. Try again in a moment.");
+    }
+  });
+
+  it("shows no fallback sentence outside the error status when no message is given", () => {
+    const [status, setStatus] = createSignal<CheckEmailStatus>("error");
+    render(() => (
+      <CheckEmailView email={EMAIL} purpose="sign-up" status={status()} onResend={() => {}} />
+    ));
+
+    expect(region().textContent).toContain("Something went wrong. Try again in a moment.");
+    for (const quiet of ["waiting", "expired"] as const) {
+      setStatus("error");
+      setStatus(quiet);
+      expect(region().textContent).not.toContain("Something went wrong. Try again in a moment.");
+    }
   });
 });
 
@@ -313,9 +375,8 @@ describe("CheckEmailView — the words for each flow", () => {
       <CheckEmailView email={EMAIL} purpose={purpose} status="waiting" onResend={() => {}} />
     ));
 
-    expect(screen.getByText(`${line} This page will update when you do.`)).not.toBeNull();
+    screen.getByText(`${line} This page will update when you do.`);
     const others = LINES.filter(([other]) => other !== purpose).map(([, otherLine]) => otherLine);
-    expect(others).toHaveLength(3);
     for (const otherLine of others) {
       expect(screen.queryByText(new RegExp(otherLine))).toBeNull();
     }
