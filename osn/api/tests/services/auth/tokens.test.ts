@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import { rotatedSessions, sessions } from "@osn/db/schema";
+import { rotatedSessions, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { and, eq, lte } from "drizzle-orm";
 import { Effect, Fiber, Layer, Logger } from "effect";
@@ -10,6 +10,7 @@ import { sessionStatusUnknown } from "../../../src/lib/grant-failure";
 import * as metrics from "../../../src/metrics";
 import { createAuthService } from "../../../src/services/auth";
 import {
+  RECOVERY_TOKEN_AUDIENCE,
   ROTATED_SESSION_SWEEP_CHUNK,
   ROTATED_SESSION_SWEEP_MAX_CHUNKS,
   ROTATED_SESSION_SWEEP_PAUSE_MS,
@@ -57,6 +58,93 @@ const signIn = (email: string, handle: string) =>
     );
     return { profile, refreshToken: tokens.refreshToken };
   });
+
+/** Adds a non-default profile to the account. */
+const addProfile = (accountId: string, handle: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const id = "usr_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const ts = new Date();
+    yield* Effect.promise(() =>
+      db.insert(users).values({
+        id,
+        accountId,
+        handle,
+        displayName: null,
+        avatarUrl: null,
+        isDefault: false,
+        createdAt: ts,
+        updatedAt: ts,
+      }),
+    );
+    return id;
+  });
+
+/** The unverified payload of a JWT. */
+const payloadOf = (jwt: string): Record<string, unknown> =>
+  JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString("utf8")) as Record<
+    string,
+    unknown
+  >;
+
+describe("refreshTokens: the profile a grant names", () => {
+  it.effect("F20: mints for a profile the account owns, bound to the rotated session", () =>
+    Effect.gen(function* () {
+      const { profile, refreshToken } = yield* signIn("named@example.com", "named");
+      const second = yield* addProfile(profile.accountId, "named2");
+
+      const next = yield* auth.refreshTokens(refreshToken, second);
+
+      const claims = yield* auth.verifyAccessToken(next.accessToken);
+      expect(claims.profileId).toBe(second);
+      const bound = yield* auth.resolveSessionByBinding(
+        profile.accountId,
+        second,
+        claims.sessionBinding!,
+      );
+      expect(bound).toBe(hashSessionToken(next.refreshToken));
+    }).pipe(Effect.provide(createTestLayerWithSqlite().layer)),
+  );
+
+  it.effect(
+    "F21: another account's profile, or one that does not exist, gets the default profile",
+    () =>
+      Effect.gen(function* () {
+        const { profile, refreshToken } = yield* signIn("own@example.com", "own");
+        const stranger = yield* auth.registerProfile("stranger@example.com", "stranger");
+
+        const foreign = yield* auth.refreshTokens(refreshToken, stranger.id);
+        const missing = yield* auth.refreshTokens(foreign.refreshToken, "usr_000000000000");
+        const unnamed = yield* auth.refreshTokens(missing.refreshToken);
+
+        for (const grant of [foreign, missing, unnamed]) {
+          const claims = yield* auth.verifyAccessToken(grant.accessToken);
+          expect(claims.profileId).toBe(profile.id);
+        }
+      }).pipe(Effect.provide(createTestLayerWithSqlite().layer)),
+  );
+
+  it.effect("F22: a restricted recovery session ignores the profile it names", () =>
+    Effect.gen(function* () {
+      const user = yield* auth.registerProfile("named-rs@example.com", "namedrs");
+      const second = yield* addProfile(user.accountId, "namedrs2");
+      const restricted = yield* auth.issueRecoverySession(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+        "otp",
+      );
+
+      const next = yield* auth.refreshTokens(restricted.refreshToken, second);
+
+      const payload = payloadOf(next.accessToken);
+      expect(payload["sub"]).toBe(user.id);
+      expect(payload["aud"]).toBe(RECOVERY_TOKEN_AUDIENCE);
+    }).pipe(Effect.provide(createTestLayerWithSqlite().layer)),
+  );
+});
 
 describe("refreshTokens: the rotation record", () => {
   it.effect("writes one row for the rotated-out token, in its family, for a refresh TTL", () => {
