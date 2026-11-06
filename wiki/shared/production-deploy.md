@@ -1586,8 +1586,10 @@ approvals, one per job, in this order:
    more and runs the guard as in step 2, then deploys (which attaches the domain to the
    Worker, and updates the stack's other site Workers), and smoke-checks every site of
    the stack, the flip site on its production host, rolling each back on failure. The
-   other sites' uploads may lengthen the outage; that is not measured. The record job
-   then records the site in `production-records`. A guard refusal here
+   other sites' uploads may lengthen the outage; that is not measured. The site's
+   record job, which the pull request turning it to `worker` adds
+   (`record-<site>`, [[infrastructure-as-code#Production sites]]), then records it in
+   `production-records`. A guard refusal here
    stops before the deploy and leaves the host on neither Pages nor the Worker: roll
    back with an attach release (step 2 below; there is no Worker domain to remove).
 
