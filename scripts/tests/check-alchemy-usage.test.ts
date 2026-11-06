@@ -633,6 +633,7 @@ describe("console log settings that reach a public run log", () => {
     "export ALCHEMY_LOG_LEVEL=debug && CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev",
     "CI=true DO_NOT_TRACK=1 ALCHEMY_LOG_FORMAT=pretty bun alchemy plan --stage dev",
     "ALCHEMY_LOG_FORMAT=json bun run plan:dev",
+    "ALCHEMY_LOG_LEVEL=$LEVEL bun run deploy:dev",
   ])("refuses %j, whose variable reaches runs the guard cannot follow", (script) => {
     expect(problems(checkPackageScripts("p", manifest({ x: script })))).toEqual([LOG_VARIABLE_WHY]);
   });
@@ -683,6 +684,25 @@ jobs:
       - run: bun alchemy deploy --stage dev --yes
 `;
     expect(checkWorkflow("w", jobEnv)).toEqual([
+      { where: "w jobs.a.env", problem: LOG_VARIABLE_WHY },
+    ]);
+  });
+
+  test("refuses a job env that sets a low level on a step that runs Alchemy through a package script", () => {
+    const viaScript = `
+name: t
+on: workflow_dispatch
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    env:
+      ALCHEMY_LOG_LEVEL: debug
+    steps:
+      - env:
+          DO_NOT_TRACK: "1"
+        run: bun run deploy:dev 2>&1 | tee "$RUNNER_TEMP/alchemy.log"
+`;
+    expect(checkWorkflow("w", viaScript)).toEqual([
       { where: "w jobs.a.env", problem: LOG_VARIABLE_WHY },
     ]);
   });
