@@ -18,7 +18,7 @@ packages:
   - "@pulse/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Effect v4 API Shapes
@@ -135,7 +135,8 @@ from 4.0 memory:
   `NodeCrypto` from the platform package or a module's `layerWebCrypto`. An
   import of `effect/Crypto` fails when the module loads, and a type-check with
   `skipLibCheck` does not catch it in a dependency's declarations. Alchemy
-  2.0.0-beta.84 still imports it, so the repository patches that release
+  releases before 2.0.0-beta.85 import it and fail to load on 4.1; the
+  repository pins beta.85, which imports `effect/crypto/*`
   ([[infrastructure-as-code#Dependency review]]).
 - **HTTP request methods are typed `string`.** An exhaustive `switch` over a
   request's method needs a fallback or a guard with `HttpMethod.isHttpMethod`.
@@ -147,7 +148,10 @@ from 4.0 memory:
 
 Unchanged, and worth knowing because a dependency trips on it: a record whose
 values are optional, `Schema.Record(Schema.String, Schema.optional(Schema.String))`,
-still throws when it is built. Use `Schema.UndefinedOr` for the value.
+still throws when it is built. Use `Schema.UndefinedOr` for the value. The
+AWS SDK the Alchemy provider installs, `@distilled.cloud/aws`, declares one in
+its S3 module and builds each operation's schemas on first use, so only an
+operation that reaches it throws.
 
 ## Logging
 
