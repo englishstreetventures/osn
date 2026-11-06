@@ -1,5 +1,9 @@
-import { ConfirmLinkPage } from "@osn/auth-ui/ConfirmLinkPage";
-import { emailLinkPurpose } from "@osn/client";
+import {
+  ConfirmLinkPage,
+  type ConfirmLinkPurpose,
+  type ConfirmOutcome,
+} from "@osn/auth-ui/ConfirmLinkPage";
+import { emailLinkPurpose, type EmailLinkCandidates } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { useParams } from "@solidjs/router";
 import { createResource, Match, Show, Switch, type JSX } from "solid-js";
@@ -16,7 +20,9 @@ import { emailLinkSecret } from "../lib/email-link";
  * `index.tsx` has already taken the link's secret off the address bar. This
  * page reads the candidates with it, then hands `ConfirmLinkPage` the list
  * and the confirm call. The confirm step requires the number shown on the
- * waiting screen, so the person picks it here.
+ * waiting screen, so the person picks it here, or says they did not ask. A
+ * read that finds the request already confirmed, or refuses it, opens the
+ * page on that answer instead, with nothing to pick.
  *
  * Confirming never signs this browser in: the tab that began the sign-up holds
  * the claim secret and finishes there, on this device or another. So the page
@@ -38,9 +44,11 @@ export function VerifyEmailLinkPage() {
     },
   );
 
-  const confirm = async (pick: string) => {
+  // `pick` goes to the client exactly as the page gives it: a number, or
+  // `null` for "I didn't ask for this".
+  const confirm = async (pick: string | null): Promise<ConfirmOutcome> => {
     const secret = emailLinkSecret(requestId());
-    if (!secret) return "expired" as const;
+    if (!secret) return "expired";
     return emailLinkClient.confirm(requestId(), { linkSecret: secret, pick });
   };
 
@@ -66,33 +74,47 @@ export function VerifyEmailLinkPage() {
         <Match when={read.loading || !read()}>
           <p class="text-muted-foreground text-body text-center">Checking this link…</p>
         </Match>
-        <Match when={read()?.status === "expired"}>
-          <DeadLink />
-        </Match>
-        <Match when={read()?.status === "confirmed"}>
-          <Notice heading="Confirmed">
-            <p class="text-muted-foreground text-body mt-2">
-              Go back to where you started to finish. You can close this page.
-            </p>
-          </Notice>
-        </Match>
-        <Match when={read()?.status === "ready" ? read() : null}>
-          {(ready) => (
+        <Match when={read()}>
+          {(answer) => (
             <Show when={purpose()}>
-              {(flow) => (
-                <ConfirmLinkPage
-                  purpose={flow()}
-                  candidates={
-                    (ready() as { readonly candidates: readonly string[] }).candidates as string[]
-                  }
-                  onConfirm={confirm}
-                />
-              )}
+              {(flow) => <LinkCard purpose={flow()} read={answer()} onConfirm={confirm} />}
             </Show>
           )}
         </Match>
       </Switch>
     </main>
+  );
+}
+
+/** `ConfirmLinkPage` with the numbers read, or opened on the answer the read already gave. */
+function LinkCard(props: {
+  purpose: ConfirmLinkPurpose;
+  read: EmailLinkCandidates;
+  onConfirm: (pick: string | null) => Promise<ConfirmOutcome>;
+}) {
+  const ready = () => (props.read.status === "ready" ? props.read : null);
+  const opening = () => (props.read.status === "ready" ? null : props.read.status);
+  return (
+    <Switch>
+      <Match when={ready()}>
+        {(list) => (
+          <ConfirmLinkPage
+            purpose={props.purpose}
+            candidates={list().candidates}
+            onConfirm={props.onConfirm}
+          />
+        )}
+      </Match>
+      <Match when={opening()}>
+        {(answer) => (
+          <ConfirmLinkPage
+            purpose={props.purpose}
+            initialOutcome={answer()}
+            onConfirm={props.onConfirm}
+          />
+        )}
+      </Match>
+    </Switch>
   );
 }
 
