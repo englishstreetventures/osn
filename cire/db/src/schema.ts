@@ -1344,6 +1344,13 @@ export const registryContributions = sqliteTable(
     // and no metadata worth trusting — so this is the column the refund path
     // reads by. Without the index that read scans every gift on the platform.
     index("registry_contributions_payment_intent_idx").on(t.stripePaymentIntentId),
+    // `currency` is three characters long, and so is `primary_currency` when it
+    // is set. Length only: the letters and their case are not checked.
+    check("registry_contributions_currency_ck", sql`length(currency) = 3`),
+    check(
+      "registry_contributions_primary_currency_ck",
+      sql`primary_currency is null or length(primary_currency) = 3`,
+    ),
   ],
 );
 

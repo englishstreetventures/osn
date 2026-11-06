@@ -32,6 +32,7 @@ import { DDL } from "../../src/db/setup";
 //   with `INSERT INTO t SELECT * FROM __keep_t` must still match the REAL
 //   migrated order — which is exactly what the migrated DB here exhibits.
 // - Index NAMES are ignored; an index is (unique, columns, partial-WHERE).
+//   CHECK names are not: a CHECK is its constraint name and its expression.
 //   drizzle-kit spells column-level UNIQUE as a named `*_unique` index while
 //   the mirror DDL uses inline UNIQUE (an autoindex) — same constraint.
 // - Text primary keys count as NOT NULL on every surface. drizzle-kit emits
@@ -82,10 +83,16 @@ const normalizeExpr = (raw: string): string =>
 const sortByJson = <T>(items: T[]): T[] =>
   items.toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 
-/** Extracts every (normalised) CHECK expression from a CREATE TABLE statement. */
+/** One CHECK as `<name>: <normalised expression>`, so a constraint renamed on
+ *  one surface differs as much as one whose expression changed. */
+const checkEntry = (name: string | undefined, expr: string): string =>
+  `${name ?? "<unnamed>"}: ${normalizeExpr(expr)}`;
+
+/** Extracts every CHECK, named as {@link checkEntry} writes it, from a CREATE
+ *  TABLE statement. */
 function extractChecks(tableSql: string): string[] {
   const checks: string[] = [];
-  const re = /\bCHECK\s*\(/gi;
+  const re = /(?:\bCONSTRAINT\s+[`"]?(\w+)[`"]?\s+)?\bCHECK\s*\(/gi;
   let match: RegExpExecArray | null;
   while ((match = re.exec(tableSql))) {
     let depth = 1;
@@ -96,7 +103,7 @@ function extractChecks(tableSql: string): string[] {
       else if (tableSql[i] === ")") depth -= 1;
       i += 1;
     }
-    checks.push(normalizeExpr(tableSql.slice(start, i - 1)));
+    checks.push(checkEntry(match[1], tableSql.slice(start, i - 1)));
   }
   return checks.toSorted();
 }
@@ -316,7 +323,9 @@ function snapshotDrizzleTable(table: SQLiteTable): { name: string; shape: TableS
       columns,
       foreignKeys: sortByJson(foreignKeys),
       indexes: sortByJson(indexes),
-      checks: config.checks.map((c) => normalizeExpr(dialect.sqlToQuery(c.value).sql)).toSorted(),
+      checks: config.checks
+        .map((c) => checkEntry(c.name, dialect.sqlToQuery(c.value).sql))
+        .toSorted(),
     },
   };
 }

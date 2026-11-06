@@ -626,7 +626,9 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
   note_hidden_at INTEGER,
   note_hidden_by_osn_profile_id TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  CONSTRAINT registry_contributions_currency_ck CHECK (length(currency) = 3),
+  CONSTRAINT registry_contributions_primary_currency_ck CHECK (primary_currency is null or length(primary_currency) = 3)
 );
 CREATE INDEX IF NOT EXISTS registry_contributions_wedding_created_idx ON registry_contributions(wedding_id, created_at);
 CREATE INDEX IF NOT EXISTS registry_contributions_item_idx ON registry_contributions(item_id);

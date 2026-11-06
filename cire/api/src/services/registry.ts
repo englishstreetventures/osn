@@ -1174,9 +1174,9 @@ interface CurrencyTotal {
  * and reports the rest as a count. `retention.ts` groups the same way for the
  * same reason.
  *
- * The key is upper-cased: the column has no case constraint and is compared
- * case-sensitively, so the raw values would split one currency across two
- * groups.
+ * The key is upper-cased: the column's CHECK holds a code to three characters
+ * but not to one case, and the column compares case-sensitively, so the raw
+ * values would split one currency across two groups.
  */
 function contributionsByCurrency(
   weddingId: string,
