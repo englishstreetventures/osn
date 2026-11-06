@@ -43,7 +43,7 @@ product layer, and which one a component belongs in is decided by
 | Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
-| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
+| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
 | `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Skeleton`, `SkeletonOutline`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
@@ -54,9 +54,9 @@ a named ceremony in the spec, so those stay in `osn/`.
 
 Who consumes what today: `@shared/ui` is a dependency of `musubi/social`,
 `pulse/web`, all four cire surfaces, `@cire/ui`, `@osn/auth-ui`, `tools/lab` and
-`tools/metrics`. `@osn/auth-ui` is consumed by `musubi/social` alone — it is the
-only surface that runs the ceremonies. `@cire/ui` is consumed by the four cire
-surfaces.
+`tools/metrics`. `@osn/auth-ui` is consumed by `musubi/social`, the only surface
+that runs the ceremonies, and by `tools/lab` for its stories. `@cire/ui` is
+consumed by the four cire surfaces.
 
 > [!warning] A primitive never imports upward
 > `@shared/ui` knows nothing of `@osn/client`, of a session, or of an app's
@@ -125,6 +125,7 @@ osn/auth-ui/src/
 │                             (RecoveryLoginForm and TurnstileWidget are barrel-only)
 ├── SignIn.tsx              ← Button, Input, Label
 ├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
+├── CheckEmailView.tsx      ← Button, Notice — the wait after a flow emails a link
 ├── CreateProfileForm.tsx   ← UsernameInput
 ├── PasskeysView.tsx  StepUpDialog.tsx  TotpView.tsx  SessionsView.tsx
 ├── RecoveryCodesView.tsx   RecoveryLoginForm.tsx     ChangeEmailForm.tsx
@@ -1444,6 +1445,69 @@ action that goes nowhere stays a `<button>`, outside the sentence. A link that s
 (`cire/host/src/components/LinkPill.tsx`): `sm` at 28px, a destination's 14px mark before the word, and a 28px circle
 with the word in its name and its title in a row under 14rem (`cire/host/DESIGN.md` §7). The guest site's pills are `md` at its 44px
 floor.
+
+### `@osn/auth-ui`'s `CheckEmailView` — the wait after a flow emails a link
+
+[CheckEmailView.tsx](../../osn/auth-ui/src/CheckEmailView.tsx) is the screen
+sign-up, recovery, step-up and email change show once they have emailed a link:
+"Check your email". It is presentational. The parent sends the link, polls for
+the confirmation and passes `status`; the view decides what the person sees and
+hears while they wait, and when Resend may be pressed. `@osn/auth-ui` has no
+`DESIGN.md`, so its decisions are recorded here; its look follows
+`musubi/social/DESIGN.md`, the one app that renders it.
+
+| Prop | What it does |
+| --- | --- |
+| `email` | The address the link went to, in the body ink. Absent, the view says "your email address": step-up mails the account's own address, which its tab does not hold |
+| `purpose` | `sign-up`, `recovery`, `step-up` or `email-change`. Picks the line saying what opening the link does, and recovery's wording below |
+| `status` | `waiting`; `expired`, which unlocks a new link at once; `error`, beside `errorMessage` (a generic line when it is empty) |
+| `onResend` | Called once per accepted press. A rejection is the parent's to report, through `status` |
+| `onChangeEmail` | "Use a different email". Absent, no button |
+| `resendWaitSeconds` | Seconds before Resend unlocks, after the view appears and after each press. 30 by default; anything not a positive number means no wait |
+
+What it draws, in musubi's sizes through the contract: an `h3` at
+`text-ui-base` medium ("Check your email", or "Your link has expired"); one
+sentence at `text-ui-sm` in the secondary ink; the line saying what opening the
+link does, which an expired link drops; then Resend and "Use a different email"
+as small ghost buttons. An expired link's Resend becomes the filled pill, "Send a
+new link". No code box and no other factor: the dialog around the view draws any
+way back. A long address breaks where it must (`wrap-anywhere`), so a 320px
+column never scrolls sideways.
+
+- **The wait is read from the clock.** Each wait sets a deadline, and every tick
+  works out the seconds left from it, so a tab the browser held in the
+  background shows the true time on its next tick. Starting a wait stops the one
+  before, so one interval runs at a time, and the view stops it when it unmounts.
+- **What is read out.** The sentence and any error (an inline danger `Notice`)
+  sit in one `role="status"` region, so a press ("Sending a new link…", then "We
+  sent a new link"), an expiry and an error are announced. The countdown sits in
+  the disabled Resend button, outside the region, so it is never read out.
+- **Focus.** The heading (`tabindex="-1"`) takes focus when the view appears,
+  because the form that sent the link has just gone, and again when a press
+  disables the focused Resend button. Focus never falls to `<body>`, which in a
+  Kobalte dialog would leave the trap restoring to a disabled button.
+- **Recovery promises nothing.** Recovery answers every address alike, so its
+  sentence reads "If ada@example.com has an account, a link is on its way". The
+  other three say "We sent a link to …", as the code screens they replace did.
+- **No motion of its own.** It declares no transition or animation; `Button`'s
+  colour transition is the only motion, which `musubi/social/DESIGN.md` allows.
+  The countdown is text, so the view is the same under reduced motion.
+
+For a host:
+
+- Mount it inside a dialog that is already open, as `Register` swaps its steps.
+  A Kobalte dialog that opens straight onto the view runs its own autofocus
+  after the view's, and takes the heading's focus away.
+- Both buttons are `type="button"`, so the view may sit inside a `<form>`.
+- Recovery allows three sends a day per account
+  (`osn/api/src/services/auth/config.ts`), so its host should pass a longer
+  `resendWaitSeconds` than the default: at 30 seconds, a person spends the day's
+  sends in under two minutes.
+
+`osn/auth-ui/tests/CheckEmailView.test.tsx` holds the wait, the one call per
+press, the region's words, the focus moves and the timer's end. The lab's
+`osn/auth-ui/CheckEmailView` stories show each state, every flow and a 320px
+phone ([[component-lab]]).
 
 ## Adding a new component
 
