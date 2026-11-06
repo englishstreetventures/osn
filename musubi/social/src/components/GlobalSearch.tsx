@@ -46,10 +46,11 @@ function optionLabel(row: SearchRow): string {
  * share `createSearchController`, so debounce, abort and the optimistic status
  * overrides behave identically.
  */
-export function GlobalSearch(props: { token: string }) {
+export function GlobalSearch() {
   const navigate = useNavigate();
-  const controller = createSearchController(() => props.token, { limit: 6, orgLimit: 3 });
-  const actions = useSearchActions(() => props.token, controller);
+  // Mounted only for a signed-in user (`Sidebar`), so it is always enabled.
+  const controller = createSearchController(() => true, { limit: 6, orgLimit: 3 });
+  const actions = useSearchActions(controller);
 
   const [open, setOpen] = createSignal(false);
   const [activeIndex, setActiveIndex] = createSignal(-1);

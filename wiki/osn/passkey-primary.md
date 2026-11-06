@@ -13,7 +13,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 
 # Passkey-Primary Login
@@ -301,8 +301,8 @@ paths behave differently in four ways, each forced by the restriction:
   `POST /passkey/register/complete` returns no new token set — it clears
   `restrictedUntil` on the row but cannot rewrite a JWT already in the browser.
   Publishing it would announce a signed-in user whose token every ordinary route
-  rejects, and `listProfiles` uses a plain `fetch` with no silent refresh to
-  repair it. So a successful recovery ends by sending the user back to sign in
+  rejects, and renewing it through `authFetch` only re-mints the same
+  `osn-recovery` audience, so nothing would repair it. So a successful recovery ends by sending the user back to sign in
   with the passkey they now hold — which also proves the new credential works
   while they can still recover again if it does not.
 - **Expiry is its own screen**, not a 401 toast. Somebody who has just proved

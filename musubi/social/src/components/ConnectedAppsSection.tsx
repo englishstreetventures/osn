@@ -13,9 +13,9 @@ import { safeAvatarUrl } from "../lib/utils";
  * GDPR Art. 7(3) requires — "revoking must be as easy as granting". It replaced
  * a hardcoded, non-functional Pulse/Zap list.
  */
-export function ConnectedAppsSection(props: { accessToken: string }) {
+export function ConnectedAppsSection() {
   const [connections, { refetch }] = createResource(() =>
-    connectionsClient.list({ accessToken: props.accessToken }).then((r) => r.connections),
+    connectionsClient.list().then((r) => r.connections),
   );
   const [revoking, setRevoking] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
@@ -24,7 +24,7 @@ export function ConnectedAppsSection(props: { accessToken: string }) {
     setError(null);
     setRevoking(clientId);
     try {
-      await connectionsClient.revoke({ accessToken: props.accessToken, clientId });
+      await connectionsClient.revoke({ clientId });
       await refetch();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't revoke this app");

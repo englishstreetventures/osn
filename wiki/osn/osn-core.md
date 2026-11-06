@@ -19,7 +19,7 @@ related:
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
 dev-host: https://id.musubi.localhost
-last-reviewed: 2026-09-17
+last-reviewed: 2026-11-07
 ---
 
 # OSN Core
@@ -31,7 +31,7 @@ OSN Core is the identity stack every other OSN app builds on. It owns auth (pass
 | Package | Role |
 |---|---|
 | `@osn/api` | Binary server (port 4000). Hosts auth, graph, organisations, recommendations, S2S routes, and JWKS. |
-| `@osn/client` | Browser/SDK: `OsnAuthService`, `useAuth`, plus typed graph / organisation / recommendation clients. |
+| `@osn/client` | Browser/SDK: `createOsnAuthRuntime` (the page's one `OsnAuthService` and its renewing `authFetch`), `useAuth`, plus typed clients built on that `authFetch`. |
 | `@osn/db` | Drizzle + SQLite schema (accounts, profiles, passkeys, sessions, social graph, organisations, service accounts). |
 | `@osn/auth-ui` | SolidJS views for the ceremonies below: `<SignIn>`, `<Register>`, `<PasskeysView>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<TotpView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`, the profile forms, `<TurnstileWidget>`. |
 | `@shared/crypto` | ARC token primitives + recovery-code helpers. |

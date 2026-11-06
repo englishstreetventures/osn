@@ -16,14 +16,6 @@ import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
 
-/** The two halves packed into the memoised `"<token>|<handle>"` resource key. */
-type OrgResourceKey = { token: string; handle: string };
-
-function parseKey(key: string): OrgResourceKey {
-  const sep = key.indexOf("|");
-  return { token: key.slice(0, sep), handle: key.slice(sep + 1) };
-}
-
 /** The HTTP status a failed request carried, when it got as far as a response. */
 function statusOf(error: unknown): number | undefined {
   return error instanceof OrgClientError ? error.status : undefined;
@@ -42,27 +34,26 @@ export function OrgDetailPage() {
   const params = useParams<{ handle: string }>();
   const navigate = useNavigate();
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
 
-  // Stable memoised source key. Returning a fresh object per read
-  // makes Solid's === equality check always fail, triggering a refetch
-  // on every signal tick. A string key is referentially stable per
-  // (token, handle) pair so the resource only refetches when one changes.
+  // One memoised key for both resources, so they refetch together and only
+  // when the session object or the handle changes. The memo holds its object
+  // until one of the two does; a fresh object per read would refetch on every
+  // tick. Keyed on the session, not its token: a silent token renewal does not
+  // replace the session object, so it refetches nothing.
   const resourceKey = createMemo(() => {
-    const t = token();
+    const current = session();
     const handle = params.handle;
-    return t && handle ? `${t}|${handle}` : false;
+    return current && handle ? { session: current, handle } : false;
   });
 
-  const [org, { mutate: setOrg }] = createResource(resourceKey, async (key) => {
-    const { token: keyToken, handle } = parseKey(key as string);
-    return (await orgClient.getOrg(keyToken, handle)).organisation;
-  });
+  const [org, { mutate: setOrg }] = createResource(
+    resourceKey,
+    async (key) => (await orgClient.getOrg(key.handle)).organisation,
+  );
 
-  const [members, { mutate: setMembers }] = createResource(resourceKey, (key) => {
-    const { token: keyToken, handle } = parseKey(key as string);
-    return orgClient.listMembers(keyToken, handle);
-  });
+  const [members, { mutate: setMembers }] = createResource(resourceKey, (key) =>
+    orgClient.listMembers(key.handle),
+  );
 
   // What shows is chosen by `state`, never by `.error`: Solid keeps a failed
   // load's error until the next load finishes, and the page stays mounted when
@@ -91,7 +82,7 @@ export function OrgDetailPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const { organisation } = await orgClient.updateOrg(token(), params.handle, {
+      const { organisation } = await orgClient.updateOrg(params.handle, {
         name: editName(),
         description: editDesc() || undefined,
       });
@@ -108,7 +99,7 @@ export function OrgDetailPage() {
   async function handleDelete() {
     if (!confirm("Delete this organisation? This cannot be undone.")) return;
     try {
-      await orgClient.deleteOrg(token(), params.handle);
+      await orgClient.deleteOrg(params.handle);
       toast.success("Organisation deleted");
       navigate("/organisations");
     } catch (err) {
@@ -118,7 +109,7 @@ export function OrgDetailPage() {
 
   async function removeMember(profileHandle: string) {
     try {
-      await orgClient.removeMember(token(), params.handle, profileHandle);
+      await orgClient.removeMember(params.handle, profileHandle);
       toast.success(`Removed @${profileHandle}`);
       setMembers(
         (roster) =>

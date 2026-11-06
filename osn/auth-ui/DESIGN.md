@@ -42,19 +42,21 @@ Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
 | `SignIn` | `client` (`LoginClient`), `recoveryClient`, `productName`; `registrationClient` and `runPasskeyRegistration` (both, or recovery offers the recovery code only); `turnstileSiteKey`; `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `Register` | `client` (`RegistrationClient`), `productName`, `onCancel`; `turnstileSiteKey`; `onSuccess` | `AuthProvider`, `Toaster` |
 | `RecoveryLoginForm` | `client` (`RecoveryClient`); `registrationClient` and `runPasskeyRegistration`; `turnstileSiteKey`; `onSuccess`, `onCancel` | `AuthProvider` |
-| `PasskeysView` | `client`, `stepUpClient`, `accessToken`; `profileId` and `runPasskeyRegistration` (both, or "Add passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly` | — |
-| `TotpView` | `client` (`TotpClient`), `stepUpClient`, `accessToken`; `runPasskeyCeremony`, `passkeyOnly` | `Toaster` |
-| `RecoveryCodesView` | `client`, `stepUpClient`, `accessToken`, `productName`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `onSaved` | — |
-| `SecurityEventsBanner` | `client`, `stepUpClient`, `accessToken`, `productName`; `runPasskeyCeremony`, `totpClient`, `onVisibleCountChange` | — |
-| `SessionsView` | `client`, `accessToken` | — |
-| `ChangeEmailForm` | `accountClient`, `stepUpClient`, `accessToken`; `runPasskeyCeremony`, `onChanged` | — |
-| `StepUpDialog` | `client`, `accessToken`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `purpose` | — |
+| `PasskeysView` | `client`, `stepUpClient`; `profileId` and `runPasskeyRegistration` (both, or "Add passkey" is hidden); `runPasskeyCeremony`, `totpClient`, `passkeyOnly` | — |
+| `TotpView` | `client` (`TotpClient`), `stepUpClient`; `runPasskeyCeremony`, `passkeyOnly` | `Toaster` |
+| `RecoveryCodesView` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `onSaved` | — |
+| `SecurityEventsBanner` | `client`, `stepUpClient`, `productName`; `runPasskeyCeremony`, `totpClient`, `onVisibleCountChange` | — |
+| `SessionsView` | `client` | — |
+| `ChangeEmailForm` | `accountClient`, `stepUpClient`; `runPasskeyCeremony`, `onChanged` | — |
+| `StepUpDialog` | `client`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `purpose` | — |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
 | `ProfileSwitcher` | `checkHandle`, `onSwitch`, `onCreate` | `AuthProvider`, `Toaster` |
 | `TurnstileWidget` | `siteKey`, `onToken`; `onReady`, `theme`, `class` | — |
 
-The clients come from `@osn/client`. A ceremony runner is the host's own
+The clients come from `@osn/client`. A view takes no access token: the host
+builds each authenticated client with its auth runtime's `authFetch`
+(`createOsnAuthRuntime`), which sends the token and renews it. A ceremony runner is the host's own
 wrapper round `@simplewebauthn/browser`: the settings views and `StepUpDialog`
 take one and import no WebAuthn runtime. `SignIn` and `Register` import
 `startAuthentication` and `startRegistration` themselves, and

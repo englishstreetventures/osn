@@ -58,14 +58,7 @@ describe("StepUpDialog", () => {
 
     const onToken = vi.fn();
     const onCancel = vi.fn();
-    render(() => (
-      <StepUpDialog
-        client={asClient(stub)}
-        accessToken="acc"
-        onToken={onToken}
-        onCancel={onCancel}
-      />
-    ));
+    render(() => <StepUpDialog client={asClient(stub)} onToken={onToken} onCancel={onCancel} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
     await waitFor(() => expect(stub.otpBegin).toHaveBeenCalled());
@@ -86,7 +79,6 @@ describe("StepUpDialog", () => {
     render(() => (
       <StepUpDialog
         client={asClient(stub)}
-        accessToken="acc"
         onToken={onToken}
         onCancel={() => {}}
         runPasskeyCeremony={runPasskey}
@@ -102,14 +94,7 @@ describe("StepUpDialog", () => {
     stub.otpBegin.mockResolvedValue({ sent: true });
     stub.otpComplete.mockRejectedValue(new Error("Invalid or expired code"));
 
-    render(() => (
-      <StepUpDialog
-        client={asClient(stub)}
-        accessToken="acc"
-        onToken={() => {}}
-        onCancel={() => {}}
-      />
-    ));
+    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
     const input = await screen.findByRole("textbox");
@@ -131,7 +116,6 @@ describe("StepUpDialog", () => {
     render(() => (
       <StepUpDialog
         client={asClient(stub)}
-        accessToken="acc"
         onToken={onToken}
         onCancel={() => {}}
         runPasskeyCeremony={runPasskey}
@@ -154,7 +138,6 @@ describe("StepUpDialog", () => {
     render(() => (
       <StepUpDialog
         client={asClient(stub)}
-        accessToken="acc"
         onToken={() => {}}
         onCancel={() => {}}
         runPasskeyCeremony={runPasskey}
@@ -170,14 +153,7 @@ describe("StepUpDialog", () => {
   it("announces the failure rather than leaving it to be noticed", async () => {
     stub.otpBegin.mockRejectedValue(new Error("Could not send code"));
 
-    render(() => (
-      <StepUpDialog
-        client={asClient(stub)}
-        accessToken="acc"
-        onToken={() => {}}
-        onCancel={() => {}}
-      />
-    ));
+    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
     // A step-up failure is why the user cannot proceed. Rendering it in a
@@ -225,7 +201,6 @@ describe("StepUpDialog — authenticator app factor", () => {
     render(() => (
       <StepUpDialog
         client={asClient(stub)}
-        accessToken="acc"
         onToken={overrides.onToken ?? (() => {})}
         onCancel={() => {}}
         runPasskeyCeremony={async () => assertion}
@@ -261,7 +236,6 @@ describe("StepUpDialog — authenticator app factor", () => {
         <div data-testid="admits">
           <StepUpDialog
             client={asClient(stub)}
-            accessToken="acc"
             onToken={() => {}}
             onCancel={() => {}}
             runPasskeyCeremony={async () => assertion}
@@ -272,7 +246,6 @@ describe("StepUpDialog — authenticator app factor", () => {
         <div data-testid="under-test">
           <StepUpDialog
             client={asClient(stub)}
-            accessToken="acc"
             onToken={() => {}}
             onCancel={() => {}}
             runPasskeyCeremony={async () => assertion}
@@ -329,7 +302,6 @@ describe("StepUpDialog — authenticator app factor", () => {
 
     await waitFor(() =>
       expect(stub.totpComplete).toHaveBeenCalledWith({
-        accessToken: "acc",
         code: "123456",
         purpose: "recovery_generate",
       }),
@@ -373,7 +345,6 @@ describe("StepUpDialog — factors the ceremony would refuse", () => {
     return (
       <StepUpDialog
         client={asClient(stub)}
-        accessToken="acc"
         onToken={() => {}}
         onCancel={() => {}}
         runPasskeyCeremony={async () => assertion}

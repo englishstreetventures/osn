@@ -9,6 +9,7 @@ export * from "./passkeys";
 export * from "./recommendations";
 export * from "./recovery";
 export * from "./register";
+export * from "./runtime";
 export * from "./security-events";
 export * from "./service";
 export * from "./session-fetch";

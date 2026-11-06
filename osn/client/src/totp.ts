@@ -11,9 +11,13 @@
  * lives on `StepUpClient.totpComplete`.
  */
 
+import type { AuthFetch } from "./runtime";
+
 export interface TotpClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 export class TotpError extends Error {
@@ -45,48 +49,45 @@ export interface TotpStatus {
   createdAt: number | null;
 }
 
+/**
+ * A rejection of `authFetch` reaches the caller unchanged; a failed response
+ * becomes a `TotpError`.
+ */
 export interface TotpClient {
   /**
    * Start enrolment: mints a secret and returns it once. Requires a step-up
    * token minted with purpose `totp_enroll`. Nothing is stored against the
    * account until {@link TotpClient.enrollComplete} proves possession.
    */
-  enrollBegin(input: { accessToken: string; stepUpToken: string }): Promise<TotpEnrollment>;
+  enrollBegin(input: { stepUpToken: string }): Promise<TotpEnrollment>;
   /**
    * Finish enrolment with the first code from the authenticator. That code is
    * consumed by the act of enrolling, so the next ceremony needs the next one.
    */
-  enrollComplete(input: {
-    accessToken: string;
-    code: string;
-    label?: string;
-  }): Promise<{ enrolled: boolean }>;
+  enrollComplete(input: { code: string; label?: string }): Promise<{ enrolled: boolean }>;
   /**
    * Remove the credential. Requires a step-up token minted with purpose
    * `totp_disable`. Idempotent: removing nothing answers `{ disabled: false }`.
    */
-  disable(input: { accessToken: string; stepUpToken: string }): Promise<{ disabled: boolean }>;
+  disable(input: { stepUpToken: string }): Promise<{ disabled: boolean }>;
   /** Whether the account has a confirmed authenticator. Never returns a secret. */
-  status(input: { accessToken: string }): Promise<TotpStatus>;
+  status(): Promise<TotpStatus>;
 }
 
 async function request<T>(
+  authFetch: AuthFetch,
   url: string,
-  bearer: string,
   method: "GET" | "POST" | "DELETE",
   body?: unknown,
 ): Promise<T> {
   const init: RequestInit = {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${bearer}`,
-    },
+    headers: { "Content-Type": "application/json" },
     credentials: "include",
   };
   // A GET carries no body at all — `fetch` rejects one outright.
   if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await fetch(url, init);
+  const res = await authFetch(url, init);
   const json = (await res.json()) as T & { error?: string };
   if (!res.ok) {
     throw new TotpError(json.error ?? `Request failed: ${res.status}`);
@@ -96,23 +97,24 @@ async function request<T>(
 
 export function createTotpClient(config: TotpClientConfig): TotpClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  const { authFetch } = config;
 
   return {
     enrollBegin: (input) =>
-      request<TotpEnrollment>(`${base}/totp/enroll/begin`, input.accessToken, "POST", {
+      request<TotpEnrollment>(authFetch, `${base}/totp/enroll/begin`, "POST", {
         step_up_token: input.stepUpToken,
       }),
     enrollComplete: (input) =>
-      request<{ enrolled: boolean }>(`${base}/totp/enroll/complete`, input.accessToken, "POST", {
+      request<{ enrolled: boolean }>(authFetch, `${base}/totp/enroll/complete`, "POST", {
         code: input.code,
         // `JSON.stringify` drops an undefined label, so an unlabelled
         // enrolment posts the body the server treats as "no label".
         label: input.label,
       }),
     disable: (input) =>
-      request<{ disabled: boolean }>(`${base}/totp`, input.accessToken, "DELETE", {
+      request<{ disabled: boolean }>(authFetch, `${base}/totp`, "DELETE", {
         step_up_token: input.stepUpToken,
       }),
-    status: (input) => request<TotpStatus>(`${base}/totp/status`, input.accessToken, "GET"),
+    status: () => request<TotpStatus>(authFetch, `${base}/totp/status`, "GET"),
   };
 }

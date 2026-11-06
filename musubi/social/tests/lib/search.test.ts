@@ -47,47 +47,27 @@ afterEach(() => {
 });
 
 describe("createSearchController", () => {
-  it("re-reads the token accessor on each request", async () => {
-    // The contract that lets one controller outlive a silent token refresh.
-    // Access tokens have a 5-minute TTL, so capturing the token by value would
-    // 401 every user shortly after mount — and no component test catches it,
-    // because they all pass a constant token.
+  it("searches only while enabled, and never handles a token", async () => {
+    // Signed out, the controller must stay off the network; the client sends
+    // through the page's auth runtime, so no token reaches the call.
     await withRoot(async () => {
-      const [token, setToken] = createSignal("tkn-1");
-      const controller = createSearchController(token);
+      const [enabled, setEnabled] = createSignal(false);
+      const controller = createSearchController(enabled);
 
       controller.setQuery("ali");
       await settle();
-      expect(mocks.search).toHaveBeenLastCalledWith("tkn-1", "ali", expect.anything());
+      expect(mocks.search).not.toHaveBeenCalled();
 
-      setToken("tkn-2");
-      controller.setQuery("alic");
+      setEnabled(true);
       await settle();
-      expect(mocks.search).toHaveBeenLastCalledWith("tkn-2", "alic", expect.anything());
-    });
-  });
-
-  it("does not refetch when only the token changes", async () => {
-    // A token refresh must not refire an identical query — on desktop two
-    // controllers are mounted at once, so that would be two wasted scans.
-    await withRoot(async () => {
-      const [token, setToken] = createSignal("tkn-1");
-      const controller = createSearchController(token);
-
-      controller.setQuery("ali");
-      await settle();
-      expect(mocks.search).toHaveBeenCalledTimes(1);
-
-      setToken("tkn-2");
-      await settle();
-      expect(mocks.search).toHaveBeenCalledTimes(1);
+      expect(mocks.search).toHaveBeenLastCalledWith("ali", expect.anything());
     });
   });
 
   it("keeps the previous page on screen while the next one loads", async () => {
     await withRoot(async () => {
       mocks.search.mockResolvedValue(page("alice"));
-      const controller = createSearchController(() => "tkn");
+      const controller = createSearchController(() => true);
 
       controller.setQuery("ali");
       await settle();
@@ -111,7 +91,7 @@ describe("createSearchController", () => {
   it("reports a failed request instead of leaking an unhandled rejection", async () => {
     await withRoot(async () => {
       mocks.search.mockRejectedValue(new Error("Rate limited"));
-      const controller = createSearchController(() => "tkn");
+      const controller = createSearchController(() => true);
 
       controller.setQuery("ali");
       await settle();
@@ -127,11 +107,11 @@ describe("createSearchController", () => {
   it("aborts the in-flight request when the controller is disposed", async () => {
     await withRoot(async (dispose) => {
       let captured: AbortSignal | undefined;
-      mocks.search.mockImplementation((_t: string, _q: string, opts: { signal?: AbortSignal }) => {
+      mocks.search.mockImplementation((_q: string, opts: { signal?: AbortSignal }) => {
         captured = opts.signal;
         return new Promise(() => {});
       });
-      const controller = createSearchController(() => "tkn");
+      const controller = createSearchController(() => true);
 
       controller.setQuery("ali");
       await settle();
@@ -144,7 +124,7 @@ describe("createSearchController", () => {
 
   it("does not query below the minimum length, and strips a leading @", async () => {
     await withRoot(async () => {
-      const controller = createSearchController(() => "tkn");
+      const controller = createSearchController(() => true);
 
       // The floor is one character, not two: the server answers a single
       // character from the caller's own connections and organisations, so
@@ -158,11 +138,11 @@ describe("createSearchController", () => {
       controller.setQuery("@a");
       await settle();
       expect(controller.tooShort()).toBe(false);
-      expect(mocks.search).toHaveBeenCalledWith("tkn", "a", expect.anything());
+      expect(mocks.search).toHaveBeenCalledWith("a", expect.anything());
 
       controller.setQuery("@ab");
       await settle();
-      expect(mocks.search).toHaveBeenCalledWith("tkn", "ab", expect.anything());
+      expect(mocks.search).toHaveBeenCalledWith("ab", expect.anything());
     });
   });
 
@@ -172,7 +152,7 @@ describe("createSearchController", () => {
         people: [{ handle: "alice", displayName: null, avatarUrl: null, connectionStatus: "none" }],
         organisations: [{ handle: "acme", name: "Acme Inc", avatarUrl: null, isMember: false }],
       });
-      const controller = createSearchController(() => "tkn");
+      const controller = createSearchController(() => true);
 
       controller.setQuery("ac");
       await settle();

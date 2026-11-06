@@ -23,7 +23,6 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 export interface SessionsViewProps {
   client: SessionsClient;
-  accessToken: string;
 }
 
 function formatTs(ts: number | null): string {
@@ -34,7 +33,7 @@ function formatTs(ts: number | null): string {
 export function SessionsView(props: SessionsViewProps) {
   const [reloadKey, setReloadKey] = createSignal(0);
   const [sessions] = createResource(reloadKey, async () => {
-    const res = await props.client.list({ accessToken: props.accessToken });
+    const res = await props.client.list();
     return res.sessions;
   });
   const [error, setError] = createSignal<string | null>(null);
@@ -44,7 +43,7 @@ export function SessionsView(props: SessionsViewProps) {
     setBusy(true);
     setError(null);
     try {
-      await props.client.revoke({ accessToken: props.accessToken, id });
+      await props.client.revoke({ id });
       setReloadKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to revoke session");
@@ -60,7 +59,7 @@ export function SessionsView(props: SessionsViewProps) {
     setBusy(true);
     setError(null);
     try {
-      await props.client.revokeAllOther({ accessToken: props.accessToken });
+      await props.client.revokeAllOther();
       setReloadKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to revoke other sessions");

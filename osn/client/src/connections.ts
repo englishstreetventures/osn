@@ -11,9 +11,13 @@
  * Access-token authed like every other settings surface.
  */
 
+import type { AuthFetch } from "./runtime";
+
 export interface ConnectionsClientConfig {
   /** OSN issuer base URL, e.g. https://id.musubi.social */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 export class ConnectionsError extends Error {
@@ -35,27 +39,27 @@ export interface OidcConnection {
   grantedAt: number;
 }
 
+/**
+ * A rejection of `authFetch` reaches the caller unchanged; a failed response
+ * becomes a `ConnectionsError`.
+ */
 export interface ConnectionsClient {
-  list(input: { accessToken: string }): Promise<{ connections: OidcConnection[] }>;
-  revoke(input: { accessToken: string; clientId: string }): Promise<{ success: true }>;
+  list(): Promise<{ connections: OidcConnection[] }>;
+  revoke(input: { clientId: string }): Promise<{ success: true }>;
 }
 
-function withAuth(accessToken: string): RequestInit {
-  return {
-    credentials: "include",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-  };
-}
+const INIT: RequestInit = {
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+};
 
 export function createConnectionsClient(config: ConnectionsClientConfig): ConnectionsClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  const { authFetch } = config;
 
   return {
-    list: async (input) => {
-      const res = await fetch(`${base}/oidc/connections`, { ...withAuth(input.accessToken) });
+    list: async () => {
+      const res = await authFetch(`${base}/oidc/connections`, INIT);
       const json = (await res.json()) as { connections?: OidcConnection[]; error?: string };
       if (!res.ok || !Array.isArray(json.connections)) {
         throw new ConnectionsError(json.error ?? `Request failed: ${res.status}`);
@@ -63,10 +67,13 @@ export function createConnectionsClient(config: ConnectionsClientConfig): Connec
       return { connections: json.connections };
     },
     revoke: async (input) => {
-      const res = await fetch(`${base}/oidc/connections/${encodeURIComponent(input.clientId)}`, {
-        ...withAuth(input.accessToken),
-        method: "DELETE",
-      });
+      const res = await authFetch(
+        `${base}/oidc/connections/${encodeURIComponent(input.clientId)}`,
+        {
+          ...INIT,
+          method: "DELETE",
+        },
+      );
       const json = (await res.json()) as { success?: boolean; error?: string };
       if (!res.ok || json.success !== true) {
         throw new ConnectionsError(json.error ?? `Request failed: ${res.status}`);

@@ -9,9 +9,13 @@
  * to forge a DELETE.
  */
 
+import type { AuthFetch } from "./runtime";
+
 export interface SessionsClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 export class SessionsError extends Error {
@@ -38,28 +42,29 @@ export interface SessionSummary {
   isCurrent: boolean;
 }
 
+/**
+ * A rejection of `authFetch` reaches the caller unchanged; a failed response
+ * becomes a `SessionsError`.
+ */
 export interface SessionsClient {
-  list(input: { accessToken: string }): Promise<{ sessions: SessionSummary[] }>;
-  revoke(input: { accessToken: string; id: string }): Promise<{ revokedSelf: boolean }>;
-  revokeAllOther(input: { accessToken: string }): Promise<{ success: true }>;
+  list(): Promise<{ sessions: SessionSummary[] }>;
+  revoke(input: { id: string }): Promise<{ revokedSelf: boolean }>;
+  revokeAllOther(): Promise<{ success: true }>;
 }
 
-function withAuth(accessToken: string): RequestInit {
-  return {
-    credentials: "include",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-  };
-}
+// The cookie rides along: it is how the server marks the caller's own sessions.
+const INIT: RequestInit = {
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+};
 
 export function createSessionsClient(config: SessionsClientConfig): SessionsClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  const { authFetch } = config;
 
   return {
-    list: async (input) => {
-      const res = await fetch(`${base}/sessions`, { ...withAuth(input.accessToken) });
+    list: async () => {
+      const res = await authFetch(`${base}/sessions`, INIT);
       const json = (await res.json()) as { sessions?: SessionSummary[]; error?: string };
       if (!res.ok || !Array.isArray(json.sessions)) {
         throw new SessionsError(json.error ?? `Request failed: ${res.status}`);
@@ -67,8 +72,8 @@ export function createSessionsClient(config: SessionsClientConfig): SessionsClie
       return { sessions: json.sessions };
     },
     revoke: async (input) => {
-      const res = await fetch(`${base}/sessions/${encodeURIComponent(input.id)}`, {
-        ...withAuth(input.accessToken),
+      const res = await authFetch(`${base}/sessions/${encodeURIComponent(input.id)}`, {
+        ...INIT,
         method: "DELETE",
       });
       const json = (await res.json()) as {
@@ -81,9 +86,9 @@ export function createSessionsClient(config: SessionsClientConfig): SessionsClie
       }
       return { revokedSelf: json.revokedSelf === true };
     },
-    revokeAllOther: async (input) => {
-      const res = await fetch(`${base}/sessions/revoke-all-other`, {
-        ...withAuth(input.accessToken),
+    revokeAllOther: async () => {
+      const res = await authFetch(`${base}/sessions/revoke-all-other`, {
+        ...INIT,
         method: "POST",
         body: "{}",
       });

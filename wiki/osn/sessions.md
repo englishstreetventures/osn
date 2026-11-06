@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 
 # Session introspection + revocation
@@ -229,7 +229,33 @@ Rotation is single-use, but legitimate clients produce concurrent or retried gra
 
 **Reading the CAS result.** The rows-affected field differs per driver — bun:sqlite gives `{ changes }`, libsql `{ rowsAffected }`, and Cloudflare D1 `{ success, meta: { changes } }`. The CAS reads it through `rowsChanged` in `@shared/db-utils`, which knows all three. This is not a detail: the gate once read only the top-level fields, which is correct on the bun:sqlite the tests run against and always `undefined` on the D1 production runs. Every production refresh therefore deleted its session, skipped the replacement INSERT, and answered `400 invalid_grant` — sessions died at the first refresh after five minutes, and no prod session row ever had `last_used_at` move past `created_at`. Any new rows-affected check must go through the same helper.
 
-The client complements this with a shared single-flight (`osn/client`): the bootstrap and refresh paths dedupe the `/token` grant against each other so a bootstrap racing a refresh in one tab fires `/token` once. Cross-*tab* coordination (a Web Locks guard) is a possible follow-up; the server grace already prevents cross-tab races from revoking the family.
+The client complements this with a shared single-flight (`osn/client`): the bootstrap and refresh paths dedupe the `/token` grant against each other so a bootstrap racing a refresh in one tab fires `/token` once. That holds across the whole page because the page builds one auth service (§Renewal in the browser). Cross-*tab* coordination (a Web Locks guard) is a possible follow-up; the server grace already prevents cross-tab races from revoking the family, and the client retries a grant that lost the race (below).
+
+## Renewal in the browser
+
+Every authenticated request a Musubi page makes goes through one `authFetch`, the one on the page's `createOsnAuthRuntime` (`osn/client/src/runtime.ts`). The runtime is a `ManagedRuntime` over a single `OsnAuth` service, so the session cache and every single-flight guard exist once per page; `AuthProvider` takes the same runtime and every `create*Client` is built with its `authFetch`. No component or client holds an access token.
+
+What `authFetch` does with each request (`osn/client/src/service.ts`):
+
+1. **Reads what other tabs stored.** If another tab stored a later-expiring token for this tab's active profile, it is used and no grant is made. If the stored account is gone (another tab signed out, or saw the session end), the session ends here too, with no request. The active profile is never taken from storage: each tab acts as the profile its own screen shows.
+2. **Renews before sending.** A token within `min(30 s, half its lifetime)` of expiry (lifetime from its own `iat`/`exp`) is renewed first, so an expired token never leaves the page. The grant mints for the account's default profile; when another profile is active, the new token is switched back to it with `POST /profiles/switch` (cookie sent, so the new token is bound to the session) before the request goes out.
+3. **Sets `Authorization` itself**, whatever the caller passed, and sends.
+4. **On a 401, renews once and retries.** A second 401 ends the session.
+
+How a failed renewal ends:
+
+| What happened | Result |
+|---|---|
+| `/token` refused the grant (any 4xx but 429, except the case below) | session ended: cache and stored account cleared, `AuthProvider` set to signed out, the call rejects with `AuthExpiredError` |
+| `/token` answered `400 invalid_grant` but left the session's status unknown — the body names the rotation race or a `DatabaseError`, or the `osn_has_session` marker survived the response (`lib/grant-failure.ts` keeps it only then) | one retry after 250 ms; a second unknown answer counts as transient |
+| `/token` 429 or 5xx after the backoff ladder, or unreachable | session kept; the call rejects with `TokenRefreshError`; the next call tries again |
+| `/profiles/switch` answered 401 | session ended |
+| `/profiles/switch` answered 400 or 429 (the account's switch cap, a profile that is gone or not the account's, the address limiter) | the default profile becomes active, `AuthProvider` refetches the session from cache, the call rejects with `ActiveProfileResetError`; nothing is sent as the wrong profile |
+| `/profiles/switch` 5xx or unreachable | session and active profile kept; the call rejects with `TokenRefreshError` |
+
+`authFetch` rejects with what `fetch` rejected with when the request itself fails or is aborted, so a client sees the same `TypeError` or `AbortError` a bare `fetch` gives it. Ending a session never calls `/logout`: a refusal means the issuer has let the session go already, and the marker is the issuer's to retract.
+
+Held sessions stay outside all of this: `Register` and `RecoveryLoginForm` send their tokens through `RegistrationClient` themselves, and the recovery flow renews through `refreshHeldSession` (above).
 
 ## Reuse detection across isolates
 

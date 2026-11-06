@@ -25,7 +25,6 @@ import { runPasskeyRegistration } from "../lib/webauthn-registration";
  * when even that is gone.
  */
 export interface SecuritySectionProps {
-  accessToken: string;
   profileId: string;
 }
 
@@ -35,7 +34,6 @@ export default function SecuritySection(props: SecuritySectionProps) {
       <PasskeysView
         client={passkeysClient}
         stepUpClient={stepUpClient}
-        accessToken={props.accessToken}
         profileId={props.profileId}
         runPasskeyCeremony={runPasskeyCeremony}
         runPasskeyRegistration={runPasskeyRegistration}
@@ -46,7 +44,6 @@ export default function SecuritySection(props: SecuritySectionProps) {
         <TotpView
           client={totpClient}
           stepUpClient={stepUpClient}
-          accessToken={props.accessToken}
           runPasskeyCeremony={runPasskeyCeremony}
         />
       </section>
@@ -62,7 +59,6 @@ export default function SecuritySection(props: SecuritySectionProps) {
         <RecoveryCodesView
           client={recoveryClient}
           stepUpClient={stepUpClient}
-          accessToken={props.accessToken}
           runPasskeyCeremony={runPasskeyCeremony}
           totpClient={totpClient}
           productName={PRODUCT_NAME}

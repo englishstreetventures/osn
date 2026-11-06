@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 
 # Social
@@ -116,13 +116,13 @@ The rail (`GlobalSearch`) and the page (`SearchPage`) render the same results un
 
 ## Client surface
 
-Pages talk to `@osn/api` via three plain-fetch clients factored out of `@osn/client`:
+Pages talk to `@osn/api` via three Promise clients from `@osn/client`, built in `src/lib/api.ts` with the page runtime's `authFetch` (`src/lib/auth.ts`, `osnAuth`):
 
 - `createGraphClient` — connections, pending requests, close friends, blocks (`osn/client/src/graph.ts`)
 - `createOrgClient` — org CRUD and membership (`osn/client/src/organisations.ts`). Every method returns its route's success body as sent, and addresses an organisation and a member by handle. `osn/client/tests/organisations-contract.test.ts` holds the client to `shared/openapi/osn.json`: each call reaches a route the spec has, with query keys and a body it accepts, and `OrgSummary` and `OrgMember` name the fields the routes answer with. It runs as the package's `test:repo` project, which turbo reruns when the spec changes
 - `createRecommendationClient` — contact suggestions + search (`osn/client/src/recommendations.ts`). `search` returns people and organisations together and takes an `AbortSignal` because it backs typeahead: the caller aborts the in-flight request when the query changes, so a slow early keystroke can't land after a fast later one.
 
-All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. The helpers now live once in `osn/client/src/auth-fetch.ts`; each module calls `createAuthFetchers(ErrorCtor)` and gets back the set bound to its own error class, which is built with the message and the response's HTTP status. `OrgClientError` keeps the status as `status`, so `OrgDetailPage` can tell a missing organisation (`404`) and a roster a non-member may not read (`403`) from any other failure. The module is internal — `index.ts` does not export it, so the package's public surface is unchanged. It uses plain `fetch`, not `sessionFetch`: these clients send a bearer token in the `Authorization` header, so there is no session cookie for the native transport seam to supply.
+All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. The helpers now live once in `osn/client/src/auth-fetch.ts`; each module calls `createAuthFetchers(ErrorCtor, authFetch)` and gets back the set bound to its own error class, which is built with the message and the response's HTTP status. A rejection of `authFetch` (`AuthExpiredError`, a transport error, `TokenRefreshError`, `ActiveProfileResetError`) reaches the caller unchanged. `OrgClientError` keeps the status as `status`, so `OrgDetailPage` can tell a missing organisation (`404`) and a roster a non-member may not read (`403`) from any other failure. The module is internal — `index.ts` does not export it. Its requests say `credentials: "same-origin"`: `authFetch` defaults to `"include"`, and these routes read no cookie, so the session cookie stays off them.
 
 Each client calls `createAuthFetchers` **inside** its `create*Client` factory, not at module scope. This is load-bearing for bundle size, not style. A top-level call is a statement a bundler cannot drop, so it pinned all three modules into the entry chunk of every app importing the barrel — `musubi/social` paid about 0.9 KB gzipped on first paint. A `/* @__PURE__ */` annotation does **not** rescue it: neither esbuild nor rolldown will remove a declarator whose binding is a destructuring pattern. Keep the call inside the factory.
 
@@ -203,7 +203,7 @@ The move from `id.cireweddings.com` happened 2026-07-27 — see
 
 ## Auth
 
-Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. Access tokens live in `localStorage` (the only auth secret there after Copenhagen Book C3); the refresh token lives in an HttpOnly cookie. `OsnAuthService.authFetch` handles silent refresh on 401. A "Lost your passkey?" link routes to the recovery-code login form.
+Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. `src/lib/auth.ts` builds the page's one auth runtime, `osnAuth`; both providers (the shell's and the consent screen's sign-in island) take it, and every authenticated client in `src/lib/authClients.ts` and `src/lib/api.ts` is built with its `authFetch`, so no component holds or sends a token. Access tokens live in `localStorage` (the only auth secret there after Copenhagen Book C3); the refresh token lives in an HttpOnly cookie. `authFetch` renews the token before it expires and on a 401, and a refused renewal signs the page out — see [[sessions#Renewal in the browser]]. Resources key on the `session()` object, which a renewal does not replace, so a renewal refetches nothing. A "Lost your passkey?" link routes to the recovery-code login form.
 
 ### Where the WebAuthn runtime ships
 
@@ -250,7 +250,7 @@ Per-user limiters on the two recommendations endpoints, both fail-closed — 20 
 
 `musubi/social/tests/` covers the sidebar mount path under `AuthContext` + `MemoryRouter` using `@solidjs/testing-library` + `happy-dom`. The tests do not assert the full open-and-click interaction for the Kobalte dropdown: Kobalte's trigger relies on pointer-capture behaviour that happy-dom does not reproduce.
 
-`tests/lib/search.test.ts` drives `createSearchController` directly, covering three properties no component test can reach: the token accessor is re-read per request (so one controller survives a silent refresh — a captured token would 401 every user after five minutes), the previous page stays on screen while the next loads, and disposal aborts the in-flight request.
+`tests/lib/search.test.ts` drives `createSearchController` directly, covering three properties no component test can reach: it searches only while enabled (signed in) and never handles a token, the previous page stays on screen while the next loads, and disposal aborts the in-flight request.
 
 `tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, queries below the two-character minimum never leave the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter and click both activate the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
 

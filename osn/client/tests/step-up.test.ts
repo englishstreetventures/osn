@@ -1,6 +1,10 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
+import type { AuthFetch } from "../src/runtime";
 import { createStepUpClient, StepUpError } from "../src/step-up";
+
+/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
+const authFetch: AuthFetch = (input, init) => fetch(input, init);
 
 const okResponse = (body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -14,7 +18,7 @@ const errResponse = (body: unknown) =>
   });
 
 describe("createStepUpClient", () => {
-  const client = createStepUpClient({ issuerUrl: "https://osn.example.com" });
+  const client = createStepUpClient({ issuerUrl: "https://osn.example.com", authFetch });
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -27,13 +31,13 @@ describe("createStepUpClient", () => {
   });
 
   describe("passkeyBegin", () => {
-    it("POSTs /step-up/passkey/begin with Bearer auth and returns the challenge options", async () => {
+    it("POSTs /step-up/passkey/begin through authFetch and returns the challenge options", async () => {
       fetchMock.mockResolvedValue(okResponse({ options: { challenge: "abc" } }));
-      const result = await client.passkeyBegin({ accessToken: "acc_tok" });
+      const result = await client.passkeyBegin();
       expect(result).toEqual({ options: { challenge: "abc" } });
       const [url, init] = fetchMock.mock.calls[0]!;
       expect(url).toBe("https://osn.example.com/step-up/passkey/begin");
-      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer acc_tok");
+      expect(new Headers(init?.headers).get("authorization")).toBeNull();
     });
   });
 
@@ -41,7 +45,6 @@ describe("createStepUpClient", () => {
     it("returns the parsed step-up token envelope", async () => {
       fetchMock.mockResolvedValue(okResponse({ step_up_token: "eyJabc", expires_in: 300 }));
       const result = await client.passkeyComplete({
-        accessToken: "acc_tok",
         assertion: { id: "x" },
       });
       expect(result).toEqual({ token: "eyJabc", expiresIn: 300 });
@@ -51,15 +54,13 @@ describe("createStepUpClient", () => {
   describe("otpComplete", () => {
     it("parses step_up_token + expires_in", async () => {
       fetchMock.mockResolvedValue(okResponse({ step_up_token: "eyJotp", expires_in: 300 }));
-      const result = await client.otpComplete({ accessToken: "acc_tok", code: "123456" });
+      const result = await client.otpComplete({ code: "123456" });
       expect(result).toEqual({ token: "eyJotp", expiresIn: 300 });
     });
 
     it("throws a StepUpError when the server returns non-2xx", async () => {
       fetchMock.mockResolvedValue(errResponse({ error: "invalid_code" }));
-      await expect(client.otpComplete({ accessToken: "acc_tok", code: "000000" })).rejects.toThrow(
-        StepUpError,
-      );
+      await expect(client.otpComplete({ code: "000000" })).rejects.toThrow(StepUpError);
     });
   });
 });
