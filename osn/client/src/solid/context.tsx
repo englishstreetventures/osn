@@ -79,18 +79,17 @@ export function AuthProvider(props: AuthProviderProps) {
       run(Effect.flatMap(OsnAuth, (auth) => auth.loadSession())),
     );
 
-  // Gate profiles on session — only fetch when a session exists.
-  // SolidJS createResource with a source signal only fires the fetcher when
-  // the source is truthy, preventing wasted requests for unauthenticated users.
+  // Gate profiles on whether a session exists — not on the session object,
+  // which is new after every refetch: a profile switch or reset changes the
+  // active profile, not the account's list. SolidJS fires the fetcher only
+  // when the source turns truthy, so a signed-out page lists nothing. The
+  // calls that change the list (adopt, create, delete) refetch it themselves.
   const [profiles, { mutate: mutateProfiles, refetch: refetchProfiles }] = createResource<
     PublicProfile[] | null,
-    Session | null
+    true
   >(
-    () => session() ?? null,
-    (sess) => {
-      if (!sess) return Promise.resolve(null);
-      return run(Effect.flatMap(OsnAuth, (auth) => auth.listProfiles()));
-    },
+    () => (session() ? true : null),
+    () => run(Effect.flatMap(OsnAuth, (auth) => auth.listProfiles())),
   );
 
   const [activeProfileId, setActiveProfileId] = createSignal<string | null>(null);
@@ -98,8 +97,10 @@ export function AuthProvider(props: AuthProviderProps) {
   // The runtime changes the session on its own when a renewal is refused or
   // the active profile has to fall back to the default one. An ended session
   // is set to null, not refetched: a refetch would spend a `/token` grant the
-  // issuer has just refused. A reset refetches from the runtime's cache, which
-  // already holds the default profile's fresh token, so it sends nothing.
+  // issuer has just refused. A reset refetches the session from the runtime's
+  // cache, which already holds the default profile's fresh token, so it sends
+  // nothing; the profile list is keyed on a session existing, so it is not
+  // listed again.
   onCleanup(
     runtime.onSessionChange((change) => {
       if (change.kind === "ended") {

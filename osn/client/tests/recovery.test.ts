@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { createRecoveryClient, RecoveryError } from "../src/recovery";
-import type { AuthFetch } from "../src/runtime";
+import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
-/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
-const authFetch: AuthFetch = (input, init) => fetch(input, init);
+const authFetch = authFetchSpy();
 
 const config = { issuerUrl: "https://osn.example.com", authFetch };
 
@@ -68,6 +67,9 @@ describe("createRecoveryClient", () => {
   });
 
   afterEach(() => {
+    expectAllThroughAuthFetch(authFetch, "include", (url) =>
+      /\/recovery\/(generate|status)$/.test(new URL(url).pathname),
+    );
     vi.unstubAllGlobals();
   });
 

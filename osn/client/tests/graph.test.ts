@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createGraphClient, GraphClientError } from "../src/graph";
-import type { AuthFetch } from "../src/runtime";
+import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
-/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
-const authFetch: AuthFetch = (input, init) => fetch(input, init);
+const authFetch = authFetchSpy();
 
 const client = createGraphClient({ issuerUrl: "https://osn.example.com", authFetch });
 const base = "https://osn.example.com/graph";
@@ -21,6 +20,7 @@ function expectAuthHeader(call: Parameters<typeof fetch>) {
 }
 
 afterEach(() => {
+  expectAllThroughAuthFetch(authFetch, "same-origin");
   vi.unstubAllGlobals();
 });
 
@@ -215,7 +215,6 @@ describe("createGraphClient — error surface", () => {
     // per verb rather than trusting the message alone.
     mockFetch({ ok: false, json: () => Promise.resolve({ error: "Forbidden" }) });
     await expect(client.acceptConnection("alice")).rejects.toBeInstanceOf(GraphClientError);
-    mockFetch({ ok: false, json: () => Promise.resolve({ error: "Forbidden" }) });
     await expect(client.removeConnection("alice")).rejects.toBeInstanceOf(GraphClientError);
   });
 });

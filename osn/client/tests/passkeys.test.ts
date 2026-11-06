@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { createPasskeysClient, PasskeysError } from "../src/passkeys";
-import type { AuthFetch } from "../src/runtime";
+import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
-/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
-const authFetch: AuthFetch = (input, init) => fetch(input, init);
+const authFetch = authFetchSpy();
 
 /**
  * Wire-contract tests for `createPasskeysClient`. Mirrors the
@@ -80,6 +79,7 @@ describe("createPasskeysClient", () => {
   });
 
   afterEach(() => {
+    expectAllThroughAuthFetch(authFetch, "include");
     vi.unstubAllGlobals();
   });
 

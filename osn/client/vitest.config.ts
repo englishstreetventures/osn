@@ -3,12 +3,16 @@ import { defineConfig } from "vitest/config";
 
 /**
  * The test files that read files outside this package: the organisations
- * client's contract with `shared/openapi/osn.json`. They run as the `repo`
- * project (`test:repo`, which turbo reruns when the spec changes, `turbo.json`
- * here); every other file runs as the `package` project (`test`), cached on the
- * package's own files.
+ * client's contract with `shared/openapi/osn.json`, and the token grant's
+ * with that spec and with osn-api's grant-failure text. They run as the `repo`
+ * project (`test:repo`, which turbo reruns when those files change,
+ * `turbo.json` here); every other file runs as the `package` project
+ * (`test`), cached on the package's own files.
  */
-export const READS_REPO = ["tests/organisations-contract.test.ts"];
+export const READS_REPO = [
+  "tests/organisations-contract.test.ts",
+  "tests/token-grant-contract.test.ts",
+];
 
 export default defineConfig({
   plugins: [solid()],

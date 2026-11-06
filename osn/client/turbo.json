@@ -4,13 +4,19 @@
   "tasks": {
     // The `package` project reads only this package's files; the `repo`
     // project (vitest.config.ts) also reads shared/openapi/osn.json, the
-    // spec CI regenerates from osn-api's routes, so only it reruns when the
-    // spec changes.
+    // spec CI regenerates from osn-api's routes, and the two osn-api files
+    // that print a refused grant, so only it reruns when those change.
     "test": {
       "dependsOn": ["^build", "test:repo"]
     },
     "test:repo": {
-      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "$TURBO_ROOT$/shared/openapi/osn.json"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/shared/openapi/osn.json",
+        "$TURBO_ROOT$/osn/api/src/lib/grant-failure.ts",
+        "$TURBO_ROOT$/osn/api/src/services/auth/errors.ts"
+      ]
     }
   }
 }
