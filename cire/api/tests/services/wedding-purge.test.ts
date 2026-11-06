@@ -178,6 +178,26 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
       expect(exists(db, "wed_disputed")).toBe(true);
     });
 
+    // A refund cire owes needs its row to finish: the purge would cascade it
+    // away, and the payment would then read as nobody's.
+    it("an upgrade payment cire is still refunding, however old", async () => {
+      const db = makeDb();
+      seedWedding(db, "wed_refunding", daysAgo(60));
+      db.update(weddingUpgradePurchases)
+        .set({ status: "refunding", createdAt: daysAgo(90) })
+        .where(eq(weddingUpgradePurchases.weddingId, "wed_refunding"))
+        .run();
+      expect((await purge(db)).held).toBe(1);
+      expect(exists(db, "wed_refunding")).toBe(true);
+
+      // Refunded, it holds nothing.
+      db.update(weddingUpgradePurchases)
+        .set({ status: "auto_refunded" })
+        .where(eq(weddingUpgradePurchases.weddingId, "wed_refunding"))
+        .run();
+      expect((await purge(db)).purged).toBe(1);
+    });
+
     it("a change still writing", async () => {
       const db = makeDb();
       seedWedding(db, "wed_change", daysAgo(8));

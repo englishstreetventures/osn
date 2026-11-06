@@ -14,12 +14,15 @@ import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
 import {
   createUpgradeService,
   productsAbove,
+  RECONCILE_PER_RUN,
+  REFUND_GIVE_UP_MS,
   STALE_PENDING_MS,
   tierForProduct,
   UpgradeConflict,
   upgradeConflictReason,
 } from "../../src/services/upgrades";
-import { failLikeD1 } from "../test-helpers";
+import { beforeStatement, failLikeD1 } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 
 /**
@@ -77,9 +80,12 @@ function seedPurchase(
     status?: string;
     sessionId?: string | null;
     createdMs?: number;
+    /** When the row last moved. Defaults to its creation. */
+    updatedMs?: number;
     /** The Price the purchase opened at. Absent on a row written before
      *  purchases recorded one. */
     price?: { id: string; amountMinor: number; currency: string };
+    paymentIntentId?: string | null;
   },
 ) {
   const at = secondsAt(row.createdMs ?? BASE_MS);
@@ -87,9 +93,9 @@ function seedPurchase(
     .query(
       `INSERT INTO wedding_upgrade_purchases
          (id, wedding_id, entitlement, from_tier, status, checkout_session_id,
-          price_id, price_amount_minor, price_currency,
+          payment_intent_id, price_id, price_amount_minor, price_currency,
           created_by_osn_profile_id, created_at, updated_at)
-       VALUES (?, 'wed_test', ?, ?, ?, ?, ?, ?, ?, 'usr_owner', ?, ?)`,
+       VALUES (?, 'wed_test', ?, ?, ?, ?, ?, ?, ?, ?, 'usr_owner', ?, ?)`,
     )
     .run(
       row.id,
@@ -97,11 +103,12 @@ function seedPurchase(
       row.fromTier === undefined ? "ivory" : row.fromTier,
       row.status ?? "pending",
       row.sessionId ?? null,
+      row.paymentIntentId ?? null,
       row.price?.id ?? null,
       row.price?.amountMinor ?? null,
       row.price?.currency ?? null,
       at,
-      at,
+      row.updatedMs === undefined ? at : secondsAt(row.updatedMs),
     );
 }
 
@@ -122,6 +129,8 @@ const purchases = (db: Db) =>
     amount_minor: number | null;
     currency: string | null;
     payment_intent_id: string | null;
+    refund_id: string | null;
+    updated_at: number;
   }[];
 
 const sales = (db: Db) =>
@@ -159,6 +168,14 @@ interface StripeStub {
   onCreate?: () => void;
   /** Runs while Stripe expires a session, to drive a concurrent-write race. */
   onExpire?: () => void;
+  /** Each refund this code asked Stripe for. */
+  refunds: { paymentIntentId: string; idempotencyKey: string; purchaseId: unknown }[];
+  /** What every refund answers: accepted, or a refusal with Stripe's code. */
+  refund: "ok" | { status?: number; code?: string; reason?: string };
+  /** Runs while Stripe takes a refund, to drive a concurrent-write race. */
+  onRefund?: () => void;
+  /** The refund Stripe holds for a PaymentIntent naming the purchase, if any. */
+  found: string | null;
 }
 
 function stubStripe(): StripeStub {
@@ -172,6 +189,9 @@ function stubStripe(): StripeStub {
     failCreate: false,
     failExpire: false,
     failPrice: false,
+    refunds: [],
+    refund: "ok",
+    found: null,
     client: undefined as unknown as StripeClient,
   };
   let minted = 0;
@@ -208,6 +228,29 @@ function stubStripe(): StripeStub {
       stub.expired.push(sessionId);
       return Effect.void;
     },
+    createPlatformRefund(input: {
+      paymentIntentId: string;
+      idempotencyKey: string;
+      metadata: { purchaseId?: unknown };
+    }) {
+      stub.onRefund?.();
+      stub.refunds.push({
+        paymentIntentId: input.paymentIntentId,
+        idempotencyKey: input.idempotencyKey,
+        purchaseId: input.metadata.purchaseId,
+      });
+      const answer = stub.refund;
+      return answer === "ok"
+        ? Effect.succeed({ id: `re_${stub.refunds.length}` })
+        : Effect.fail(
+            new StripeError({
+              reason: answer.reason ?? "rejected",
+              status: answer.status,
+              code: answer.code,
+            }),
+          );
+    },
+    findPlatformRefund: () => Effect.succeed(stub.found === null ? null : { id: stub.found }),
   } as unknown as StripeClient;
   return stub;
 }
@@ -984,7 +1027,8 @@ describe("settlePurchase", () => {
     // At-least-once delivery makes a duplicate the ordinary case, not the edge.
     const db = createDb();
     seedWedding(db);
-    const { svc, purchaseId } = await paidPurchase(db, stubStripe());
+    const stripe = stubStripe();
+    const { svc, purchaseId } = await paidPurchase(db, stripe);
 
     await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }));
     expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
@@ -993,25 +1037,31 @@ describe("settlePurchase", () => {
     expect(sales(db)).toHaveLength(1);
     expect(purchases(db)[0]?.status).toBe("succeeded");
     expect(tierRow(db).tier).toBe("gold");
+    expect(stripe.refunds).toEqual([]);
   });
 
   /**
-   * THE CRASH POINT. Grant-then-flip means a retry finishes the job;
-   * flip-then-grant would leave a row reading `succeeded` with no tier and a
-   * retry that matches nothing.
+   * THE CRASH POINT. A row still open while the wedding already holds the tier
+   * this purchase granted (`tier_granted_by` names it) is a grant whose flip
+   * never landed: the retry finishes the job rather than reading the tier as
+   * held from elsewhere and refunding a customer who got what they paid for.
    */
   it("heals on redelivery when the flip never happened", async () => {
     const db = createDb();
     seedWedding(db);
-    const { svc, purchaseId } = await paidPurchase(db, stubStripe());
+    const stripe = stubStripe();
+    const { svc, purchaseId } = await paidPurchase(db, stripe);
 
     // Simulate the grant having landed while the flip did not.
-    db.$client.exec("UPDATE weddings SET tier = 'gold' WHERE id = 'wed_test'");
+    db.$client.exec(
+      `UPDATE weddings SET tier = 'gold', tier_source = 'purchase', tier_granted_by = 'stripe:${purchaseId}' WHERE id = 'wed_test'`,
+    );
     expect(purchases(db)[0]?.status).toBe("pending");
 
     expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("granted");
     expect(purchases(db)[0]?.status).toBe("succeeded");
     expect(sales(db)).toHaveLength(1);
+    expect(stripe.refunds).toEqual([]);
   });
 
   /**
@@ -1040,24 +1090,6 @@ describe("settlePurchase", () => {
   });
 
   /**
-   * A row is session-less between minting a session and storing its id, and the
-   * session is payable throughout. Rejecting the settle as a mismatch would
-   * lock out a customer who paid.
-   */
-  it("adopts a purchase whose session id was never stored", async () => {
-    const db = createDb();
-    seedWedding(db);
-    const svc = makeService(stubStripe().client, { t: BASE_MS });
-    seedPurchase(db, { id: "upg_orphan", product: "crimson", price: GOLD_PRICE });
-
-    expect(await run(db, svc.settlePurchase({ purchaseId: "upg_orphan", ...SETTLE }))).toBe(
-      "granted",
-    );
-    expect(tierRow(db).tier).toBe("crimson");
-    expect(purchases(db)[0]?.checkout_session_id).toBe("cs_1");
-  });
-
-  /**
    * A session can be paid in the moment before it is expired — by this code
    * replacing it, or by migration 0073 expiring every legacy pending row. The
    * money is as real as any other, so the row flips and the tier is granted.
@@ -1076,23 +1108,28 @@ describe("settlePurchase", () => {
     expect(sales(db)).toHaveLength(1);
   });
 
-  it("never lowers a wedding already on a higher tier, but still records the sale", async () => {
+  /**
+   * An earlier release marked a payment of another amount `mismatch` and
+   * granted nothing. Nothing writes the status now, and a resend of its own
+   * session's payment — from the Stripe dashboard — grants what was bought.
+   */
+  it("grants a legacy mismatch row when its own session's payment arrives again", async () => {
     const db = createDb();
     seedWedding(db);
-    const { svc, purchaseId } = await paidPurchase(db, stubStripe());
-    // An operator comped Crimson while the Gold checkout was open.
-    db.$client.exec(
-      "UPDATE weddings SET tier = 'crimson', tier_source = 'comp', tier_granted_by = 'script:ops' WHERE id = 'wed_test'",
-    );
-
-    expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("granted");
-    expect(tierRow(db)).toEqual({
-      tier: "crimson",
-      tier_source: "comp",
-      tier_granted_by: "script:ops",
+    seedPurchase(db, {
+      id: "upg_mis",
+      product: "gold",
+      status: "mismatch",
+      sessionId: "cs_1",
+      price: GOLD_PRICE,
     });
-    expect(purchases(db)[0]?.status).toBe("succeeded");
-    expect(sales(db)).toHaveLength(1);
+    const svc = makeService(stubStripe().client, { t: BASE_MS });
+
+    expect(
+      await run(db, svc.settlePurchase({ purchaseId: "upg_mis", ...SETTLE, paidAmountMinor: 100 })),
+    ).toBe("granted");
+    expect(tierRow(db).tier).toBe("gold");
+    expect(purchases(db)[0]).toMatchObject({ status: "succeeded", amount_minor: 100 });
   });
 
   it("settles a legacy per-module purchase into the tier that replaced it", async () => {
@@ -1115,55 +1152,28 @@ describe("settlePurchase", () => {
     }
   });
 
-  /**
-   * A paid purchase whose product names no tier is money taken for nothing.
-   * Answering it at all would end Stripe's retries — the only record that the
-   * delivery needs a human — so it is a defect: a 500 at the webhook.
-   */
-  it("dies on a paid purchase that maps to no tier, and writes nothing", async () => {
+  it("still settles a row that recorded no Price by the session it already holds", async () => {
+    // Rows written before purchases recorded a Price are bound to their own
+    // session, which only Stripe could have minted for this purchase.
     const db = createDb();
     seedWedding(db);
-    seedPurchase(db, { id: "upg_ai", product: "ai", fromTier: null, sessionId: "cs_1" });
+    seedPurchase(db, { id: "upg_old", product: "gold", status: "expired", sessionId: "cs_1" });
     const svc = makeService(stubStripe().client, { t: BASE_MS });
-    const name = CIRE_METRICS.upgradePurchaseSettled;
-    const before = await counterValue(name, { tier: "unmapped", outcome: "defect" });
-
-    const exit = await runExit(db, svc.settlePurchase({ purchaseId: "upg_ai", ...SETTLE }));
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) expect(Cause.hasDies(exit.cause)).toBe(true);
-    expect(tierRow(db).tier).toBe("ivory");
-    expect(purchases(db)[0]?.status).toBe("pending");
-    expect(sales(db)).toEqual([]);
-    expect(await counterValue(name, { tier: "unmapped", outcome: "defect" })).toBe(before + 1);
-  });
-
-  it("refuses a session id that belongs to a different purchase", async () => {
-    const db = createDb();
-    seedWedding(db);
-    const { svc, purchaseId } = await paidPurchase(db, stubStripe());
 
     expect(
-      await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, checkoutSessionId: "cs_other" })),
-    ).toBe("unknown");
-    expect(tierRow(db).tier).toBe("ivory");
-  });
-
-  it("grants nothing for a purchase this deployment has never heard of", async () => {
-    // The platform endpoint is shared with whatever else the Stripe account
-    // does, so an unknown id is ordinary rather than an error.
-    const db = createDb();
-    seedWedding(db);
-    const svc = makeService(stubStripe().client, { t: BASE_MS });
-    expect(await run(db, svc.settlePurchase({ purchaseId: "upg_nope", ...SETTLE }))).toBe(
-      "unknown",
-    );
-    expect(sales(db)).toEqual([]);
+      await run(
+        db,
+        svc.settlePurchase({ purchaseId: "upg_old", ...SETTLE, paidAmountMinor: 1234 }),
+      ),
+    ).toBe("granted");
+    expect(tierRow(db).tier).toBe("gold");
   });
 
   it("grants nothing when the session completed without payment", async () => {
     const db = createDb();
     seedWedding(db);
-    const { svc, purchaseId } = await paidPurchase(db, stubStripe());
+    const stripe = stubStripe();
+    const { svc, purchaseId } = await paidPurchase(db, stripe);
 
     expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, paid: false }))).toBe(
       "unpaid",
@@ -1171,44 +1181,51 @@ describe("settlePurchase", () => {
     expect(tierRow(db).tier).toBe("ivory");
     expect(purchases(db)[0]?.status).toBe("pending");
     expect(sales(db)).toEqual([]);
+    // No money moved, so there is nothing to give back.
+    expect(stripe.refunds).toEqual([]);
   });
 
-  /**
-   * A refund is an operator lowering the wedding with `grant-tier.ts --lower`,
-   * which also marks the purchase `refunded`. Stripe redelivers a completed
-   * session after a 500 and an operator can resend one from the dashboard, so
-   * the refund must hold against the same payment arriving again.
-   */
-  it("grants nothing for a purchase an operator refunded, however often it is redelivered", async () => {
+  it("counts each settle by the tier it bought", async () => {
+    const name = CIRE_METRICS.upgradePurchaseSettled;
+    const before = await counterValue(name, { tier: "crimson", outcome: "granted" });
     const db = createDb();
     seedWedding(db);
-    const { svc, purchaseId } = await paidPurchase(db, stubStripe());
-    expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("granted");
-
-    db.$client.exec(tierChangeToSql(buildTierChange("wed_test", "ivory", "ops", true)));
-    expect(purchases(db)[0]?.status).toBe("refunded");
-
-    const name = CIRE_METRICS.upgradePurchaseSettled;
-    const before = await counterValue(name, { tier: "gold", outcome: "refunded" });
-    expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("refunded");
-    expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("refunded");
-    expect(tierRow(db)).toEqual({
-      tier: "ivory",
-      tier_source: "comp",
-      tier_granted_by: "script:ops",
-    });
-    expect(purchases(db)[0]?.status).toBe("refunded");
-    expect(sales(db)).toHaveLength(1);
-    expect(await counterValue(name, { tier: "gold", outcome: "refunded" })).toBe(before + 2);
+    const { svc, purchaseId } = await paidPurchase(db, stubStripe(), CRIMSON);
+    await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }));
+    expect(await counterValue(name, { tier: "crimson", outcome: "granted" })).toBe(before + 1);
   });
 
   /**
-   * A purchase priced as an upgrade from Gold buys Crimson for a wedding that
-   * holds Gold. If the wedding has since been lowered below Gold, that payment
-   * did not buy Crimson for it.
+   * The owner's rule: a payment that went through upgrades the wedding. What a
+   * paid session of ours bought is the purchase row's tier, whatever the
+   * amount Checkout charged and whatever happened to the wedding's tier while
+   * the page was open.
    */
-  describe("priced from the tier the wedding held", () => {
-    it("grants nothing when the wedding has been lowered below that tier", async () => {
+  describe("a paid checkout of ours always grants", () => {
+    it("grants whatever amount and currency Checkout charged, and records what arrived", async () => {
+      // Tax, a discount or a converted currency on the Stripe page. The
+      // session is this row's own, so it sold this row's Price.
+      const db = createDb();
+      seedWedding(db);
+      const { svc, purchaseId } = await paidPurchase(db, stubStripe());
+
+      expect(
+        await run(
+          db,
+          svc.settlePurchase({ purchaseId, ...SETTLE, paidAmountMinor: 5390, paidCurrency: "usd" }),
+        ),
+      ).toBe("granted");
+      expect(tierRow(db).tier).toBe("gold");
+      expect(purchases(db)[0]).toMatchObject({
+        status: "succeeded",
+        amount_minor: 5390,
+        currency: "USD",
+        payment_intent_id: "pi_1",
+      });
+      expect(sales(db)).toMatchObject([{ amount_minor: 5390, currency: "USD" }]);
+    });
+
+    it("grants the tier bought when the wedding was lowered below the tier it was priced from", async () => {
       const db = createDb();
       seedWedding(db, "wed_test", "gold");
       const { svc, purchaseId } = await paidPurchase(db, stubStripe(), CRIMSON);
@@ -1216,40 +1233,15 @@ describe("settlePurchase", () => {
       // A refund of Gold while the from-Gold Crimson page was still open.
       db.$client.exec(tierChangeToSql(buildTierChange("wed_test", "ivory", "ops", true)));
 
-      const name = CIRE_METRICS.upgradePurchaseSettled;
-      const before = await counterValue(name, { tier: "crimson", outcome: "mismatch" });
-      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("mismatch");
-      expect(tierRow(db).tier).toBe("ivory");
-      expect(sales(db)).toEqual([]);
-      expect(purchases(db)[0]).toMatchObject({ status: "mismatch", amount_minor: 4900 });
-      expect(await counterValue(name, { tier: "crimson", outcome: "mismatch" })).toBe(before + 1);
-    });
-
-    it("grants it while the wedding holds that tier, and replays as a replay", async () => {
-      const db = createDb();
-      seedWedding(db, "wed_test", "gold");
-      const { svc, purchaseId } = await paidPurchase(db, stubStripe(), CRIMSON);
-
       expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("granted");
-      expect(tierRow(db).tier).toBe("crimson");
-      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
-      expect(tierRow(db).tier).toBe("crimson");
+      expect(tierRow(db)).toMatchObject({
+        tier: "crimson",
+        tier_granted_by: `stripe:${purchaseId}`,
+      });
       expect(sales(db)).toHaveLength(1);
     });
 
-    it("still repairs a missing tier when the row already reads succeeded", async () => {
-      const db = createDb();
-      seedWedding(db, "wed_test", "gold");
-      const { svc, purchaseId } = await paidPurchase(db, stubStripe(), CRIMSON);
-      db.$client.exec(
-        `UPDATE wedding_upgrade_purchases SET status = 'succeeded' WHERE id = '${purchaseId}';`,
-      );
-
-      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
-      expect(tierRow(db).tier).toBe("crimson");
-    });
-
-    it("grants a purchase priced from Ivory whatever the wedding holds now", async () => {
+    it("grants a purchase priced from Ivory when the wedding has since reached a lower paid tier", async () => {
       const db = createDb();
       seedWedding(db);
       const { svc, purchaseId } = await paidPurchase(db, stubStripe(), CRIMSON);
@@ -1261,129 +1253,775 @@ describe("settlePurchase", () => {
   });
 
   /**
-   * A settle grants only for the payment the purchase sold. The purchase id
-   * arrives in `client_reference_id`, which any payment on this Stripe account
-   * can carry, so the amount and currency paid are checked against the Price
-   * the purchase recorded when it opened.
+   * A payment that did not come from this platform's own checkout grants
+   * nothing and is not refunded: it is not ours to keep or to give back. The
+   * purchase id arrives in `client_reference_id`, which any payment on this
+   * Stripe account can carry, so "ours" is the session this row holds — the
+   * one id only cire's own create call could have written there.
    */
-  describe("against the Price the purchase opened at", () => {
-    it("grants nothing when the amount paid is not the Price's, and records what arrived", async () => {
+  describe("a payment that is not ours", () => {
+    it("grants and refunds nothing for a purchase this deployment has never heard of", async () => {
       const db = createDb();
       seedWedding(db);
-      const { svc, purchaseId } = await paidPurchase(db, stubStripe());
-      const name = CIRE_METRICS.upgradePurchaseSettled;
-      const before = await counterValue(name, { tier: "gold", outcome: "mismatch" });
-
-      expect(
-        await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, paidAmountMinor: 100 })),
-      ).toBe("mismatch");
-      expect(tierRow(db).tier).toBe("ivory");
+      const stripe = stubStripe();
+      const svc = makeService(stripe.client, { t: BASE_MS });
+      expect(await run(db, svc.settlePurchase({ purchaseId: "upg_nope", ...SETTLE }))).toBe(
+        "unknown",
+      );
       expect(sales(db)).toEqual([]);
-      // The row's own session paid it, so the row says money arrived and was
-      // not applied, rather than staying a live attempt.
-      expect(purchases(db)[0]).toMatchObject({
-        status: "mismatch",
-        amount_minor: 100,
-        currency: "AUD",
-        payment_intent_id: "pi_1",
+      expect(stripe.refunds).toEqual([]);
+    });
+
+    it("grants and refunds nothing for a session the purchase does not hold", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+
+      const logs = await captureLogs(async () => {
+        expect(
+          await run(
+            db,
+            svc.settlePurchase({ purchaseId, ...SETTLE, checkoutSessionId: "cs_other" }),
+          ),
+        ).toBe("unknown");
       });
-      expect(await counterValue(name, { tier: "gold", outcome: "mismatch" })).toBe(before + 1);
-
-      // A redelivery concludes the same, and still grants nothing.
-      expect(
-        await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, paidAmountMinor: 100 })),
-      ).toBe("mismatch");
+      expect(logs).toContain("upgrade settle for a session the purchase does not hold");
       expect(tierRow(db).tier).toBe("ivory");
+      expect(purchases(db)[0]).toMatchObject({ status: "pending", checkout_session_id: "cs_1" });
+      expect(stripe.refunds).toEqual([]);
     });
 
-    it("grants nothing when the currency paid is not the Price's", async () => {
-      const db = createDb();
-      seedWedding(db);
-      const { svc, purchaseId } = await paidPurchase(db, stubStripe());
-
-      expect(
-        await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, paidCurrency: "usd" })),
-      ).toBe("mismatch");
-      expect(tierRow(db).tier).toBe("ivory");
-      expect(sales(db)).toEqual([]);
-    });
-
-    it("leaves a session-less row alone when a payment of another amount names it", async () => {
-      // A session-less row is a live attempt whose own session is about to be
-      // stored. A payment that does not match it is not that session, so the
-      // attempt is left to finish.
+    /**
+     * A row is session-less only until its own session id is stored, and the
+     * payment page is handed out only after that. So a paid session naming a
+     * session-less row is never the row's own: it is adopted by nothing,
+     * whatever it charged and whatever the row's status.
+     */
+    it("grants and refunds nothing for a session naming a row that holds none", async () => {
       const db = createDb();
       seedWedding(db);
       seedPurchase(db, { id: "upg_live", product: "gold", price: GOLD_PRICE });
-      const svc = makeService(stubStripe().client, { t: BASE_MS });
+      seedPurchase(db, {
+        id: "upg_gone",
+        product: "crimson",
+        status: "failed",
+        price: GOLD_PRICE,
+        createdMs: BASE_MS + 1000,
+      });
+      const stripe = stubStripe();
+      const svc = makeService(stripe.client, { t: BASE_MS });
 
-      expect(
-        await run(
-          db,
-          svc.settlePurchase({ purchaseId: "upg_live", ...SETTLE, paidAmountMinor: 100 }),
-        ),
-      ).toBe("mismatch");
-      expect(tierRow(db).tier).toBe("ivory");
-      expect(purchases(db)[0]).toMatchObject({ status: "pending", checkout_session_id: null });
-    });
-
-    it("refuses to adopt a session onto a row that is no longer pending", async () => {
-      const db = createDb();
-      seedWedding(db);
-      for (const status of ["failed", "expired"]) {
-        seedPurchase(db, { id: `upg_${status}`, product: "gold", status, price: GOLD_PRICE });
-      }
-      const svc = makeService(stubStripe().client, { t: BASE_MS });
-
-      for (const status of ["failed", "expired"]) {
-        expect(
-          await run(db, svc.settlePurchase({ purchaseId: `upg_${status}`, ...SETTLE })),
-          status,
-        ).toBe("unknown");
+      for (const purchaseId of ["upg_live", "upg_gone"]) {
+        expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE })), purchaseId).toBe(
+          "unknown",
+        );
       }
       expect(tierRow(db).tier).toBe("ivory");
       expect(sales(db)).toEqual([]);
-      expect(purchases(db).map((r) => r.checkout_session_id)).toEqual([null, null]);
+      expect(purchases(db).map((r) => [r.status, r.checkout_session_id])).toEqual([
+        ["pending", null],
+        ["failed", null],
+      ]);
+      expect(stripe.refunds).toEqual([]);
     });
 
-    it("refuses to adopt a session onto a row that recorded no Price", async () => {
+    /**
+     * A refund is an operator lowering the wedding with `grant-tier.ts --lower`,
+     * which also marks the purchase `refunded`. Stripe redelivers a completed
+     * session after a 500 and an operator can resend one from the dashboard, so
+     * the refund must hold against the same payment arriving again — and cire
+     * must not refund it a second time.
+     */
+    it("grants and refunds nothing for a purchase an operator refunded, however often it is redelivered", async () => {
       const db = createDb();
       seedWedding(db);
-      seedPurchase(db, { id: "upg_bare", product: "gold" });
-      const svc = makeService(stubStripe().client, { t: BASE_MS });
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("granted");
 
-      expect(await run(db, svc.settlePurchase({ purchaseId: "upg_bare", ...SETTLE }))).toBe(
-        "unknown",
-      );
-      expect(tierRow(db).tier).toBe("ivory");
-    });
+      db.$client.exec(tierChangeToSql(buildTierChange("wed_test", "ivory", "ops", true)));
+      expect(purchases(db)[0]?.status).toBe("refunded");
 
-    it("still settles a row that recorded no Price by the session it already holds", async () => {
-      // Rows written before purchases recorded a Price are bound to their own
-      // session, which only Stripe could have minted for this purchase.
-      const db = createDb();
-      seedWedding(db);
-      seedPurchase(db, { id: "upg_old", product: "gold", status: "expired", sessionId: "cs_1" });
-      const svc = makeService(stubStripe().client, { t: BASE_MS });
-
-      expect(
-        await run(
-          db,
-          svc.settlePurchase({ purchaseId: "upg_old", ...SETTLE, paidAmountMinor: 1234 }),
-        ),
-      ).toBe("granted");
-      expect(tierRow(db).tier).toBe("gold");
+      const name = CIRE_METRICS.upgradePurchaseSettled;
+      const before = await counterValue(name, { tier: "gold", outcome: "refunded" });
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("refunded");
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("refunded");
+      expect(tierRow(db)).toEqual({
+        tier: "ivory",
+        tier_source: "comp",
+        tier_granted_by: "script:ops",
+      });
+      expect(purchases(db)[0]?.status).toBe("refunded");
+      expect(sales(db)).toHaveLength(1);
+      expect(stripe.refunds).toEqual([]);
+      expect(await counterValue(name, { tier: "gold", outcome: "refunded" })).toBe(before + 2);
     });
   });
 
-  it("counts each settle by the tier it bought", async () => {
-    const name = CIRE_METRICS.upgradePurchaseSettled;
-    const before = await counterValue(name, { tier: "crimson", outcome: "granted" });
+  /**
+   * When a paid checkout of ours cannot upgrade the wedding, cire gives the
+   * money back through Stripe and records it, rather than keeping a payment
+   * that bought nothing.
+   */
+  describe("a payment it cannot grant is refunded", () => {
+    const KEY = (purchaseId: string) => `cire-upgrade-refund-${purchaseId}`;
+
+    it("refunds a payment for a wedding deleted while its checkout was open", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      const name = CIRE_METRICS.upgradePurchaseSettled;
+      const before = await counterValue(name, { tier: "gold", outcome: "auto_refunded" });
+
+      const logs = await captureLogs(async () => {
+        expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("auto_refunded");
+      });
+
+      expect(stripe.refunds).toEqual([
+        { paymentIntentId: "pi_1", idempotencyKey: KEY(purchaseId), purchaseId },
+      ]);
+      expect(purchases(db)[0]).toMatchObject({
+        status: "auto_refunded",
+        refund_id: "re_1",
+        payment_intent_id: "pi_1",
+        amount_minor: 4900,
+        currency: "AUD",
+      });
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+      expect(logs).toContain("upgrade settle refunding a payment it cannot grant");
+      expect(logs).toContain("wedding_not_live");
+      expect(await counterValue(name, { tier: "gold", outcome: "auto_refunded" })).toBe(before + 1);
+    });
+
+    it("refunds a payment whose product names no tier, rather than answering 500 forever", async () => {
+      const db = createDb();
+      seedWedding(db);
+      seedPurchase(db, { id: "upg_ai", product: "ai", fromTier: null, sessionId: "cs_1" });
+      const stripe = stubStripe();
+      const svc = makeService(stripe.client, { t: BASE_MS });
+
+      expect(await run(db, svc.settlePurchase({ purchaseId: "upg_ai", ...SETTLE }))).toBe(
+        "auto_refunded",
+      );
+      expect(stripe.refunds).toHaveLength(1);
+      expect(purchases(db)[0]?.status).toBe("auto_refunded");
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+    });
+
+    it("refunds a payment for a tier the wedding reached some other way while the page was open", async () => {
+      // An operator comped Crimson, or an unlock code raised the wedding, while
+      // the Gold checkout was still payable: the payment bought nothing.
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec(
+        "UPDATE weddings SET tier = 'crimson', tier_source = 'comp', tier_granted_by = 'script:ops' WHERE id = 'wed_test'",
+      );
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("auto_refunded");
+      expect(tierRow(db)).toEqual({
+        tier: "crimson",
+        tier_source: "comp",
+        tier_granted_by: "script:ops",
+      });
+      expect(purchases(db)[0]?.status).toBe("auto_refunded");
+      expect(stripe.refunds).toHaveLength(1);
+      expect(sales(db)).toEqual([]);
+    });
+
+    /**
+     * Stripe saves a refused request under its idempotency key for a day and
+     * answers every repeat with the same refusal. The row stays `refunding`,
+     * and every attempt is logged and counted; the daily reconciliation, not a
+     * failing webhook, owns the next attempt. Once Stripe takes the refund, it
+     * lands.
+     */
+    it("keeps a refused refund pending, logs and counts each refusal, and lands it on a later attempt", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      stripe.refund = { status: 400, code: "balance_insufficient" };
+      const name = CIRE_METRICS.upgradePurchaseSettled;
+      const before = await counterValue(name, { tier: "gold", outcome: "refund_failed" });
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const logs = await captureLogs(async () => {
+          expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe(
+            "refund_failed",
+          );
+        });
+        expect(logs).toContain("upgrade refund failed");
+        expect(logs).toContain("balance_insufficient");
+        expect(purchases(db)[0]).toMatchObject({ status: "refunding", refund_id: null });
+      }
+      expect(await counterValue(name, { tier: "gold", outcome: "refund_failed" })).toBe(before + 2);
+
+      stripe.refund = "ok";
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("auto_refunded");
+      expect(purchases(db)[0]).toMatchObject({ status: "auto_refunded", refund_id: "re_3" });
+      // One key for the purchase, every attempt.
+      expect(new Set(stripe.refunds.map((r) => r.idempotencyKey))).toEqual(
+        new Set([KEY(purchaseId)]),
+      );
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+    });
+
+    it("records a payment someone already refunded by hand as refunded, and stops asking", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      stripe.refund = { status: 400, code: "charge_already_refunded" };
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("refunded");
+      expect(purchases(db)[0]).toMatchObject({ status: "refunded", refund_id: null });
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("refunded");
+      expect(stripe.refunds).toHaveLength(1);
+    });
+
+    /**
+     * A refund that ran at Stripe while this side timed out, retried after its
+     * key has gone: Stripe refuses it as already refunded. It is still cire's
+     * own refund, and recorded so — a later `refund.failed` must find it.
+     */
+    it("records cire's own earlier refund, found at Stripe, rather than a person's", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      stripe.refund = { status: 400, code: "charge_already_refunded" };
+      stripe.found = "re_earlier";
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("auto_refunded");
+      expect(purchases(db)[0]).toMatchObject({ status: "auto_refunded", refund_id: "re_earlier" });
+    });
+
+    it("answers a refund another delivery is making as in progress, not a refund failure", async () => {
+      // Stripe refuses a second request under a key one is still running.
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      stripe.refund = { status: 409, code: "idempotency_key_in_use" };
+      const name = CIRE_METRICS.upgradePurchaseSettled;
+      const before = await counterValue(name, { tier: "gold", outcome: "refund_failed" });
+
+      const logs = await captureLogs(async () => {
+        expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("refunding");
+      });
+      expect(logs).toContain("upgrade refund in progress elsewhere");
+      expect(logs).not.toContain("upgrade refund failed");
+      expect(await counterValue(name, { tier: "gold", outcome: "refund_failed" })).toBe(before);
+      expect(purchases(db)[0]?.status).toBe("refunding");
+    });
+
+    /**
+     * Two refusals no retry can change: there is no payment to refund, or the
+     * charge is disputed, so Stripe's dispute decides the money. Each ends at
+     * `refund_failed` at once, logged, for a person — rather than holding the
+     * wedding's data back from the purge while a retry fails every day.
+     */
+    it("hands a refund no retry can make to a person at once", async () => {
+      for (const [label, patch] of [
+        ["no payment intent", { paymentIntentId: null }],
+        ["disputed", {}],
+      ] as const) {
+        const db = createDb();
+        seedWedding(db);
+        const stripe = stubStripe();
+        if (label === "disputed") stripe.refund = { status: 400, code: "charge_disputed" };
+        const { svc, purchaseId } = await paidPurchase(db, stripe);
+        db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+
+        const logs = await captureLogs(async () => {
+          expect(
+            await run(db, svc.settlePurchase({ purchaseId, ...SETTLE, ...patch })),
+            label,
+          ).toBe("refund_failed");
+        });
+        expect(logs, label).toContain("upgrade refund failed");
+        expect(purchases(db)[0], label).toMatchObject({ status: "refund_failed", refund_id: null });
+        expect(stripe.refunds, label).toHaveLength(label === "disputed" ? 1 : 0);
+      }
+    });
+
+    it("refunds once, and grants nothing, however often the payment is redelivered", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("auto_refunded");
+      // Restored afterwards: the decision stands.
+      db.$client.exec("UPDATE weddings SET deleted_at = NULL WHERE id = 'wed_test'");
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
+
+      expect(stripe.refunds).toHaveLength(1);
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+      expect(purchases(db)[0]).toMatchObject({ status: "auto_refunded", refund_id: "re_1" });
+    });
+
+    /**
+     * Once cire has decided to refund, a later delivery must not grant — the
+     * wedding was restored, say, between the refused refund and its retry.
+     * Granting then would keep the tier and return the money.
+     */
+    it("finishes a refund it decided on, and never grants it, once the wedding is live again", async () => {
+      const db = createDb();
+      seedWedding(db);
+      seedPurchase(db, {
+        id: "upg_r",
+        product: "gold",
+        status: "refunding",
+        sessionId: "cs_1",
+        paymentIntentId: "pi_1",
+        price: GOLD_PRICE,
+      });
+      const stripe = stubStripe();
+      const svc = makeService(stripe.client, { t: BASE_MS });
+
+      expect(await run(db, svc.settlePurchase({ purchaseId: "upg_r", ...SETTLE }))).toBe(
+        "auto_refunded",
+      );
+      expect(stripe.refunds).toEqual([
+        { paymentIntentId: "pi_1", idempotencyKey: KEY("upg_r"), purchaseId: "upg_r" },
+      ]);
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+    });
+
+    /**
+     * The other direction: a purchase that was granted stays granted. A replay
+     * after the wedding was deleted, or reached a higher tier, is a replay —
+     * the money bought the tier when it arrived.
+     */
+    it("never refunds a purchase it granted, whatever has happened to the wedding since", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("granted");
+
+      db.$client.exec(
+        "UPDATE weddings SET tier = 'crimson', tier_granted_by = 'script:ops' WHERE id = 'wed_test'",
+      );
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
+
+      expect(stripe.refunds).toEqual([]);
+      expect(purchases(db)[0]?.status).toBe("succeeded");
+      expect(sales(db)).toHaveLength(1);
+    });
+
+    /**
+     * Two deliveries of one payment read the row before either writes, and
+     * reach opposite answers: the wedding was restored between them. Whichever
+     * write lands first decides, and the other follows it rather than doing
+     * its own: never a grant and a refund of the same payment.
+     */
+    it("follows a refund decided between its read and its grant", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      beforeStatement(db, /^update "wedding_upgrade_purchases" set "status" = \?/, () => {
+        db.$client.exec(
+          `UPDATE wedding_upgrade_purchases SET status = 'refunding', payment_intent_id = 'pi_1' WHERE id = '${purchaseId}'`,
+        );
+      });
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("auto_refunded");
+      expect(tierRow(db).tier).toBe("ivory");
+      expect(sales(db)).toEqual([]);
+      expect(stripe.refunds).toHaveLength(1);
+    });
+
+    /**
+     * The other race: a comp, or a delete, lands between the read that decided
+     * to grant and the batch that grants. The flip itself carries the decision,
+     * so it matches nothing, and a fresh read sends the payment to a refund.
+     */
+    it("refunds, not grants, when the wedding is deleted or comped between its read and its grant", async () => {
+      for (const change of [
+        "UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'",
+        "UPDATE weddings SET tier = 'crimson', tier_granted_by = 'script:ops' WHERE id = 'wed_test'",
+      ]) {
+        const db = createDb();
+        seedWedding(db);
+        const stripe = stubStripe();
+        const { svc, purchaseId } = await paidPurchase(db, stripe);
+        beforeStatement(db, /^update "wedding_upgrade_purchases" set "status" = \?/, () => {
+          db.$client.exec(change);
+        });
+
+        expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE })), change).toBe(
+          "auto_refunded",
+        );
+        expect(sales(db), change).toEqual([]);
+        expect(stripe.refunds, change).toHaveLength(1);
+        expect(purchases(db)[0]?.status, change).toBe("auto_refunded");
+      }
+    });
+
+    it("follows a grant landed between its read and its refund claim", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      beforeStatement(db, /^update "wedding_upgrade_purchases" set "status" = \?/, () => {
+        db.$client.exec(
+          `UPDATE wedding_upgrade_purchases SET status = 'succeeded' WHERE id = '${purchaseId}'`,
+        );
+      });
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
+      expect(stripe.refunds).toEqual([]);
+      expect(purchases(db)[0]?.status).toBe("succeeded");
+    });
+  });
+});
+
+describe("refundFailed", () => {
+  /**
+   * Stripe accepted the refund and the bank then returned it — a closed card,
+   * say. The money is back in cire's balance and a person has to return it
+   * another way, so the row says so and the failure is logged and counted.
+   */
+  it("marks our refund failed when the bank returns it, and ignores a refund that is not ours", async () => {
     const db = createDb();
     seedWedding(db);
-    const { svc, purchaseId } = await paidPurchase(db, stubStripe(), CRIMSON);
-    await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }));
-    expect(await counterValue(name, { tier: "crimson", outcome: "granted" })).toBe(before + 1);
+    seedPurchase(db, { id: "upg_r", product: "gold", status: "auto_refunded", sessionId: "cs_1" });
+    db.$client.exec("UPDATE wedding_upgrade_purchases SET refund_id = 're_1' WHERE id = 'upg_r'");
+    const svc = makeService(stubStripe().client, { t: BASE_MS });
+    const name = CIRE_METRICS.upgradePurchaseSettled;
+    const before = await counterValue(name, { tier: "gold", outcome: "refund_failed" });
+
+    expect(await run(db, svc.refundFailed({ purchaseId: "upg_r", refundId: "re_other" }))).toBe(
+      "ignored",
+    );
+    expect(await run(db, svc.refundFailed({ purchaseId: "upg_nope", refundId: "re_1" }))).toBe(
+      "ignored",
+    );
+    expect(purchases(db)[0]?.status).toBe("auto_refunded");
+
+    const logs = await captureLogs(async () => {
+      expect(await run(db, svc.refundFailed({ purchaseId: "upg_r", refundId: "re_1" }))).toBe(
+        "recorded",
+      );
+    });
+    expect(logs).toContain("upgrade refund failed at the bank");
+    expect(purchases(db)[0]).toMatchObject({ status: "refund_failed", refund_id: "re_1" });
+    expect(await counterValue(name, { tier: "gold", outcome: "refund_failed" })).toBe(before + 1);
+
+    // A redelivery records nothing again.
+    expect(await run(db, svc.refundFailed({ purchaseId: "upg_r", refundId: "re_1" }))).toBe(
+      "ignored",
+    );
+  });
+
+  /**
+   * A refund cire made can fail at the bank days later, after the purge has
+   * taken the deleted wedding's purchase row with it. The money is still owed,
+   * so a failed refund naming one of our purchases that moves no row is an
+   * error a person sees, never a silent acknowledgement.
+   */
+  it("logs and counts a failed refund of ours that matches no purchase it still holds", async () => {
+    const db = createDb();
+    seedWedding(db);
+    const svc = makeService(stubStripe().client, { t: BASE_MS });
+    const name = CIRE_METRICS.upgradePurchaseSettled;
+    const before = await counterValue(name, { tier: "unmapped", outcome: "refund_failed" });
+
+    const logs = await captureLogs(async () => {
+      expect(await run(db, svc.refundFailed({ purchaseId: "upg_purged", refundId: "re_9" }))).toBe(
+        "ignored",
+      );
+    });
+    expect(logs).toContain("upgrade refund failed at the bank");
+    expect(logs).toContain("re_9");
+    expect(await counterValue(name, { tier: "unmapped", outcome: "refund_failed" })).toBe(
+      before + 1,
+    );
+  });
+});
+
+describe("reconcile", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const paidSession = (paymentIntentId = "pi_1"): PlatformSessionState => ({
+    status: "complete",
+    payment: { paid: true, amountMinor: 4900, currency: "aud", paymentIntentId, refunded: false },
+  });
+
+  /**
+   * The webhook is the fast path, never the only one. A paid session whose
+   * delivery never landed — the endpoint was down past Stripe's retries, or
+   * storage failed every time — still upgrades the wedding once the daily run
+   * asks Stripe what happened.
+   */
+  it("grants a paid session whose webhook never landed", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_s", product: "gold", sessionId: "cs_1", price: GOLD_PRICE });
+    const stripe = stubStripe();
+    stripe.probe = paidSession();
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY + 1000 });
+
+    expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 0 });
+    expect(stripe.probed).toEqual(["cs_1"]);
+    expect(tierRow(db)).toMatchObject({ tier: "gold", tier_granted_by: "stripe:upg_s" });
+    expect(purchases(db)[0]?.status).toBe("succeeded");
+    expect(sales(db)).toHaveLength(1);
+  });
+
+  it("refunds a paid session whose webhook never landed, when it cannot grant", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_s", product: "gold", sessionId: "cs_1", price: GOLD_PRICE });
+    db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+    const stripe = stubStripe();
+    stripe.probe = paidSession();
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY + 1000 });
+
+    expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 0 });
+    expect(purchases(db)[0]).toMatchObject({ status: "auto_refunded", refund_id: "re_1" });
+    expect(stripe.refunds).toEqual([
+      { paymentIntentId: "pi_1", idempotencyKey: "cire-upgrade-refund-upg_s", purchaseId: "upg_s" },
+    ]);
+  });
+
+  it("closes a pending row whose session expired unpaid", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_s", product: "gold", sessionId: "cs_1", price: GOLD_PRICE });
+    const stripe = stubStripe();
+    stripe.probe = { status: "expired", stripeStatus: "expired" };
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY + 1000 });
+
+    expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 0 });
+    expect(purchases(db)[0]?.status).toBe("expired");
+    expect(tierRow(db).tier).toBe("ivory");
+    expect(stripe.refunds).toEqual([]);
+  });
+
+  /**
+   * The probe also answers `expired` for a session it cannot read plainly —
+   * open with no URL, or a status this code does not know. Closing on that
+   * would end, for good, the one row the sweep exists to finish.
+   */
+  it("closes nothing on a session Stripe did not itself call expired, and moves it to the back", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_s", product: "gold", sessionId: "cs_1", price: GOLD_PRICE });
+    const stripe = stubStripe();
+    stripe.probe = { status: "expired", stripeStatus: "something_new" };
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY + 5000 });
+
+    expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 1 });
+    expect(purchases(db)[0]).toMatchObject({
+      status: "pending",
+      updated_at: secondsAt(BASE_MS + DAY + 5000),
+    });
+  });
+
+  it("moves a session that completed unpaid to the back rather than stalling on it", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_s", product: "gold", sessionId: "cs_1", price: GOLD_PRICE });
+    const stripe = stubStripe();
+    stripe.probe = {
+      status: "complete",
+      payment: {
+        paid: false,
+        amountMinor: null,
+        currency: null,
+        paymentIntentId: null,
+        refunded: false,
+      },
+    };
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY + 5000 });
+
+    expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 1 });
+    expect(purchases(db)[0]).toMatchObject({
+      status: "pending",
+      updated_at: secondsAt(BASE_MS + DAY + 5000),
+    });
+    expect(tierRow(db).tier).toBe("ivory");
+  });
+
+  /**
+   * A person refunded the payment in the dashboard while its webhook kept
+   * failing — the customer asked where their upgrade was. The sweep records
+   * the refund; it never grants a tier for money already given back.
+   */
+  it("records a payment a person already refunded, and grants nothing", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_s", product: "gold", sessionId: "cs_1", price: GOLD_PRICE });
+    const stripe = stubStripe();
+    stripe.probe = {
+      status: "complete",
+      payment: {
+        paid: true,
+        amountMinor: 4900,
+        currency: "aud",
+        paymentIntentId: "pi_1",
+        refunded: true,
+      },
+    };
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY + 1000 });
+
+    expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 0 });
+    expect(purchases(db)[0]).toMatchObject({ status: "refunded", payment_intent_id: "pi_1" });
+    expect(tierRow(db).tier).toBe("ivory");
+    expect(sales(db)).toEqual([]);
+    expect(stripe.refunds).toEqual([]);
+  });
+
+  /**
+   * A refund that keeps failing is handed to a person before the purge may
+   * take its deleted wedding: past `REFUND_GIVE_UP_MS` the sweep stops asking,
+   * marks it `refund_failed` and says so.
+   */
+  it("gives a refund up to a person once it has failed for too long", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, {
+      id: "upg_r",
+      product: "gold",
+      status: "refunding",
+      sessionId: "cs_1",
+      paymentIntentId: "pi_1",
+    });
+    const stripe = stubStripe();
+    stripe.refund = { status: 400, code: "balance_insufficient" };
+    const svc = makeService(stripe.client, { t: BASE_MS + REFUND_GIVE_UP_MS + 1000 });
+
+    const logs = await captureLogs(async () => {
+      expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 0 });
+    });
+    expect(logs).toContain("upgrade refund given up");
+    expect(purchases(db)[0]).toMatchObject({ status: "refund_failed", refund_id: null });
+  });
+
+  it("retries a refund Stripe refused, and lands it", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, {
+      id: "upg_r",
+      product: "gold",
+      status: "refunding",
+      sessionId: "cs_1",
+      paymentIntentId: "pi_1",
+    });
+    const stripe = stubStripe();
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY });
+
+    expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 0 });
+    // A refunding row is not asked about at Stripe first: the refund is the step.
+    expect(stripe.probed).toEqual([]);
+    expect(purchases(db)[0]).toMatchObject({ status: "auto_refunded", refund_id: "re_1" });
+  });
+
+  it("asks nothing about a checkout still inside its session's lifetime, or a row that is done", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_open", product: "gold", sessionId: "cs_1", price: GOLD_PRICE });
+    seedPurchase(db, {
+      id: "upg_done",
+      product: "gold",
+      status: "succeeded",
+      sessionId: "cs_2",
+      createdMs: BASE_MS - 2 * DAY,
+    });
+    seedPurchase(db, {
+      id: "upg_bare",
+      product: "gold",
+      status: "failed",
+      createdMs: BASE_MS - 2 * DAY,
+    });
+    const stripe = stubStripe();
+    stripe.probe = paidSession();
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY - 1000 });
+
+    expect(await run(db, svc.reconcile())).toEqual({ read: 0, failed: 0 });
+    expect(stripe.probed).toEqual([]);
+    expect(purchases(db).find((r) => r.id === "upg_open")?.status).toBe("pending");
+  });
+
+  /**
+   * A row whose step keeps failing must not hold the run's few places for
+   * good: it is moved to the back, so the next run starts with another, and a
+   * run reads no more than its cap.
+   */
+  it("reads at most its cap a run, and moves a row that failed to the back", async () => {
+    const db = createDb();
+    seedWedding(db);
+    for (let i = 0; i < RECONCILE_PER_RUN + 1; i += 1) {
+      seedPurchase(db, {
+        id: `upg_${i}`,
+        product: "gold",
+        status: "refunding",
+        sessionId: `cs_${i}`,
+        paymentIntentId: `pi_${i}`,
+        createdMs: BASE_MS + i * 1000,
+      });
+    }
+    const stripe = stubStripe();
+    stripe.refund = { status: 400, code: "balance_insufficient" };
+    const clock = { t: BASE_MS + DAY };
+    const svc = makeService(stripe.client, clock);
+
+    const logs = await captureLogs(async () => {
+      expect(await run(db, svc.reconcile())).toEqual({
+        read: RECONCILE_PER_RUN,
+        failed: RECONCILE_PER_RUN,
+      });
+    });
+    expect(logs).toContain("balance_insufficient");
+    expect(stripe.refunds.map((r) => r.purchaseId)).toEqual(
+      Array.from({ length: RECONCILE_PER_RUN }, (_, i) => `upg_${i}`),
+    );
+
+    // The next run starts with the row the first left unread.
+    stripe.refunds.length = 0;
+    clock.t += DAY;
+    await captureLogs(() => run(db, svc.reconcile()));
+    expect(stripe.refunds[0]?.purchaseId).toBe(`upg_${RECONCILE_PER_RUN}`);
+  });
+
+  it("leaves a row whose session it could not ask about, and moves it to the back", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, { id: "upg_s", product: "gold", sessionId: "cs_1", price: GOLD_PRICE });
+    const stripe = stubStripe();
+    stripe.probe = "error";
+    const svc = makeService(stripe.client, { t: BASE_MS + DAY + 5000 });
+
+    const logs = await captureLogs(async () => {
+      expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 1 });
+    });
+    expect(logs).toContain("upgrade session probe failed");
+    expect(purchases(db)[0]).toMatchObject({
+      status: "pending",
+      updated_at: secondsAt(BASE_MS + DAY + 5000),
+    });
   });
 });
 

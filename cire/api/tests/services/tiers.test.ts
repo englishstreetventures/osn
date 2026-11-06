@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { families, guests, weddingEntitlements, weddings } from "@cire/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
@@ -274,35 +274,22 @@ describe("tierService.grant", () => {
   });
 });
 
-describe("tierService.tierGrantStatement with a tier the wedding must hold", () => {
+describe("tierService.tierGrantStatement with a condition of its own", () => {
   const grant = { source: "purchase" as const, grantedBy: "stripe:upg_1" };
-  const raise = (db: TestDb, w: string, heldAtLeast?: Tier) =>
-    tierService.tierGrantStatement(db, w, "crimson", grant, heldAtLeast).run();
 
-  it("raises only a wedding that holds it now, in the one statement", () => {
+  /**
+   * The upgrade settle folds the grant into a batch beside the write that
+   * decides whether the purchase was granted or refunded. The grant must
+   * follow that decision inside the batch, so a purchase cire is refunding
+   * never raises a tier however the batch interleaves with another delivery.
+   */
+  it("raises nothing while the condition is false, and raises once it holds", () => {
     const db = createDb();
-    const ivory = seedWedding(db, "wed_i", "ivory");
-    const gold = seedWedding(db, "wed_g", "gold");
-    raise(db, ivory, "gold");
-    raise(db, gold, "gold");
-    expect(tierRow(db, ivory)?.tier).toBe("ivory");
-    expect(tierRow(db, gold)?.tier).toBe("crimson");
-  });
-
-  it("without one, raises from any tier below", () => {
-    const db = createDb();
-    const ivory = seedWedding(db, "wed_i", "ivory");
-    raise(db, ivory);
-    expect(tierRow(db, ivory)?.tier).toBe("crimson");
-  });
-
-  it("matches nothing when the required tier is the target itself", () => {
-    // A purchase can never be priced from the tier it buys; if a row ever
-    // claimed it, the grant must change nothing rather than fail.
-    const db = createDb();
-    const gold = seedWedding(db, "wed_g", "gold");
-    tierService.tierGrantStatement(db, gold, "gold", grant, "gold").run();
-    expect(tierRow(db, gold)).toEqual({ tier: "gold", tierSource: null, tierGrantedBy: null });
+    const w = seedWedding(db, "wed_c", "ivory");
+    tierService.tierGrantStatement(db, w, "crimson", grant, sql`0 = 1`).run();
+    expect(tierRow(db, w)?.tier).toBe("ivory");
+    tierService.tierGrantStatement(db, w, "crimson", grant, sql`1 = 1`).run();
+    expect(tierRow(db, w)?.tier).toBe("crimson");
   });
 });
 

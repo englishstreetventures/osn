@@ -647,12 +647,14 @@ CREATE TABLE IF NOT EXISTS wedding_upgrade_purchases (
   price_currency TEXT,
   amount_minor INTEGER,
   currency TEXT,
+  refund_id TEXT,
   created_by_osn_profile_id TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_wedding_entitlement_idx ON wedding_upgrade_purchases(wedding_id, entitlement);
 CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_payment_intent_idx ON wedding_upgrade_purchases(payment_intent_id);
+CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_status_updated_idx ON wedding_upgrade_purchases(status, updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS wedding_upgrade_purchases_one_pending_uniq ON wedding_upgrade_purchases(wedding_id) WHERE status = 'pending';
 CREATE TABLE IF NOT EXISTS platform_sales (
   id TEXT PRIMARY KEY,

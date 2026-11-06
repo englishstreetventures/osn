@@ -6,7 +6,7 @@ import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
-import type { StripeClient } from "../../src/services/stripe";
+import { StripeError, type StripeClient } from "../../src/services/stripe";
 import { jsonBody } from "../test-helpers";
 
 /**
@@ -39,17 +39,33 @@ async function hmacHex(secret: string, payload: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function stripeStub(): StripeClient {
+/** Refunds the app asked Stripe for, and what the next one answers. */
+interface RefundLog {
+  calls: { paymentIntentId: string; idempotencyKey: string }[];
+  refuse: string | null;
+}
+
+function stripeStub(refunds: RefundLog): StripeClient {
   return {
     retrievePrice: () => Effect.succeed({ unitAmountMinor: 4900, currency: "AUD" }),
     createPlatformCheckoutSession: () =>
       Effect.succeed({ id: "cs_1", url: "https://pay.test/cs_1" }),
     retrievePlatformCheckoutSession: () => Effect.succeed({ status: "expired" as const }),
     expirePlatformCheckoutSession: () => Effect.void,
+    createPlatformRefund: (input: { paymentIntentId: string; idempotencyKey: string }) => {
+      refunds.calls.push({
+        paymentIntentId: input.paymentIntentId,
+        idempotencyKey: input.idempotencyKey,
+      });
+      return refunds.refuse === null
+        ? Effect.succeed({ id: `re_${refunds.calls.length}` })
+        : Effect.fail(new StripeError({ reason: "rejected", status: 400, code: refunds.refuse }));
+    },
   } as unknown as StripeClient;
 }
 
 function buildApp({ platformSecret = PLATFORM_SECRET as string | null } = {}) {
+  const refunds: RefundLog = { calls: [], refuse: null };
   const db = createDb(":memory:");
   seedDb(db);
   const app = createApp(db, {
@@ -59,13 +75,13 @@ function buildApp({ platformSecret = PLATFORM_SECRET as string | null } = {}) {
     webOrigin: "http://localhost:4321",
     allowedOrigins: ["http://localhost:4321"],
     organiserOrigin: "https://host.test",
-    stripe: stripeStub(),
+    stripe: stripeStub(refunds),
     stripePlatformWebhookSecret: platformSecret,
     stripeWebhookSecret: CONNECT_SECRET,
     upgradePrices: { crimson: "price_c" },
     upgradeLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
   });
-  return { app, db };
+  return { app, db, refunds };
 }
 type App = ReturnType<typeof buildApp>["app"];
 
@@ -168,18 +184,45 @@ describe("granting from a verified delivery", () => {
   });
 
   /**
-   * Money taken for a product that names no tier. A 2xx would end Stripe's
-   * retries — the only thing still saying a customer paid for nothing — so
-   * the endpoint answers 500 and grants nothing.
+   * Money taken for a product that names no tier is given back, rather than
+   * answered 500 until Stripe stops asking.
    */
-  it("answers 500, so Stripe retries, when the purchase names no tier", async () => {
-    const { app, db } = buildApp();
+  it("refunds a payment whose purchase names no tier", async () => {
+    const { app, db, refunds } = buildApp();
     seedPurchase(db, "ai");
 
     const res = await deliver(app, completed());
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "auto_refunded" });
+    expect(refunds.calls).toEqual([
+      { paymentIntentId: "pi_1", idempotencyKey: "cire-upgrade-refund-upg_1" },
+    ]);
     expect(tierOf(db)).toEqual(IVORY);
     expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 0 });
+  });
+
+  /**
+   * Checkout can charge something other than the Price — tax, a discount, a
+   * converted currency. The session is the purchase's own, so the payment
+   * bought the purchase's tier.
+   */
+  it("grants a payment of another amount than the Price, from the purchase's own session", async () => {
+    const { app, db } = buildApp();
+    seedPurchase(db);
+    const event = completed();
+    Object.assign(event.data.object as Record<string, unknown>, {
+      amount_total: 5390,
+      currency: "usd",
+    });
+
+    const res = await deliver(app, event);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "granted" });
+    expect(tierOf(db)).toMatchObject({ tier: "crimson", tier_granted_by: "stripe:upg_1" });
+    expect(db.$client.query("SELECT amount_minor, currency FROM platform_sales").get()).toEqual({
+      amount_minor: 5390,
+      currency: "USD",
+    });
   });
 
   it("is idempotent across redeliveries", async () => {
@@ -202,6 +245,9 @@ describe("granting from a verified delivery", () => {
     });
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "closed" });
     expect(tierOf(db)).toEqual(IVORY);
+    expect(
+      db.$client.query("SELECT status FROM wedding_upgrade_purchases WHERE id = 'upg_1'").get(),
+    ).toEqual({ status: "expired" });
   });
 });
 
@@ -235,7 +281,7 @@ describe("what must never grant", () => {
   it("grants nothing for a session that names no purchase of ours", async () => {
     // This endpoint belongs to the platform account, which does whatever else
     // it does. An unfamiliar session is ordinary, not an error.
-    const { app, db } = buildApp();
+    const { app, db, refunds } = buildApp();
     seedPurchase(db);
 
     const res = await deliver(app, {
@@ -246,23 +292,29 @@ describe("what must never grant", () => {
     });
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
     expect(tierOf(db)).toEqual(IVORY);
+    expect(refunds.calls).toEqual([]);
   });
 
   /**
    * The purchase id rides in `client_reference_id`, which any payment on this
-   * Stripe account can carry. A payment of another amount is acknowledged —
-   * a retry cannot change what was paid — and grants nothing.
+   * Stripe account can carry — a Payment Link lets the payer set it. A paid
+   * session that names a purchase of ours but is not the session the purchase
+   * holds did not come from cire's checkout: nothing granted, nothing refunded.
    */
-  it("answers 200 and grants nothing when the amount paid is not the Price's", async () => {
-    const { app, db } = buildApp();
+  it("grants and refunds nothing for a paid session naming our purchase that is not its own", async () => {
+    const { app, db, refunds } = buildApp();
     seedPurchase(db);
     const event = completed();
-    (event.data.object as Record<string, unknown>).amount_total = 100;
+    Object.assign(event.data.object as Record<string, unknown>, {
+      id: "cs_payment_link",
+      payment_intent: "pi_foreign",
+    });
 
     const res = await deliver(app, event);
     expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ received: true, outcome: "mismatch" });
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
     expect(tierOf(db)).toEqual(IVORY);
+    expect(refunds.calls).toEqual([]);
     expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 0 });
   });
 
@@ -348,18 +400,100 @@ describe("mounting", () => {
   });
 });
 
-describe("a soft-deleted wedding's upgrade", () => {
-  it("is still granted and its sale recorded, so a restore finds both", async () => {
+describe("a payment for a wedding deleted while its checkout was open", () => {
+  const deleteWedding = (db: ReturnType<typeof createDb>) =>
+    db.$client
+      .query("UPDATE weddings SET deleted_at = unixepoch() WHERE id = ?")
+      .run(BOOTSTRAP_WEDDING_ID);
+  const purchaseRow = (db: ReturnType<typeof createDb>) =>
+    db.$client
+      .query("SELECT status, refund_id FROM wedding_upgrade_purchases WHERE id = 'upg_1'")
+      .get();
+
+  it("is refunded through Stripe, and grants and records no sale", async () => {
+    const { app, db, refunds } = buildApp();
+    seedPurchase(db);
+    deleteWedding(db);
+
+    const res = await deliver(app, completed());
+
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "auto_refunded" });
+    expect(refunds.calls).toEqual([
+      { paymentIntentId: "pi_1", idempotencyKey: "cire-upgrade-refund-upg_1" },
+    ]);
+    expect(purchaseRow(db)).toEqual({ status: "auto_refunded", refund_id: "re_1" });
+    expect(tierOf(db)).toEqual(IVORY);
+    expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 0 });
+  });
+
+  /**
+   * A refund Stripe refuses is acknowledged: the purchase reads `refunding`,
+   * so nothing can grant it, and the daily reconciliation asks Stripe again.
+   * A 500 would only replay Stripe's saved refusal and count against the
+   * endpoint until Stripe disabled it.
+   */
+  it("acknowledges a refund Stripe refuses, keeping the purchase refunding for the next attempt", async () => {
+    const { app, db, refunds } = buildApp();
+    seedPurchase(db);
+    deleteWedding(db);
+    refunds.refuse = "balance_insufficient";
+
+    const res = await deliver(app, completed());
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "refund_failed" });
+    expect(purchaseRow(db)).toEqual({ status: "refunding", refund_id: null });
+
+    refunds.refuse = null;
+    const again = await deliver(app, completed());
+    expect(again.status).toBe(200);
+    expect(await jsonBody(again)).toEqual({ received: true, outcome: "auto_refunded" });
+    expect(purchaseRow(db)).toEqual({ status: "auto_refunded", refund_id: "re_2" });
+    expect(tierOf(db)).toEqual(IVORY);
+  });
+});
+
+describe("a refund the bank returned", () => {
+  const refundFailed = (refundId: string, purchaseId = "upg_1") => ({
+    id: "evt_rf",
+    type: "refund.failed",
+    created: nowSeconds(),
+    data: {
+      object: {
+        id: refundId,
+        object: "refund",
+        status: "failed",
+        payment_intent: "pi_1",
+        metadata: { purchaseId },
+      },
+    },
+  });
+
+  it("marks our refund failed, and leaves a refund that is not ours alone", async () => {
     const { app, db } = buildApp();
     seedPurchase(db);
     db.$client
       .query("UPDATE weddings SET deleted_at = unixepoch() WHERE id = ?")
       .run(BOOTSTRAP_WEDDING_ID);
+    await deliver(app, completed());
 
-    const res = await deliver(app, completed());
+    const other = await deliver(app, refundFailed("re_someone_else"));
+    expect(await jsonBody(other)).toEqual({ received: true, outcome: "ignored" });
 
-    expect(await jsonBody(res)).toEqual({ received: true, outcome: "granted" });
-    expect(tierOf(db)).toMatchObject({ tier: "crimson", tier_source: "purchase" });
-    expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 1 });
+    const res = await deliver(app, refundFailed("re_1"));
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "recorded" });
+    expect(
+      db.$client.query("SELECT status FROM wedding_upgrade_purchases WHERE id = 'upg_1'").get(),
+    ).toEqual({ status: "refund_failed" });
+  });
+
+  it("acknowledges a failed refund that names no purchase", async () => {
+    const { app } = buildApp();
+    const event = refundFailed("re_x");
+    (event.data.object as Record<string, unknown>).metadata = {};
+    const res = await deliver(app, event);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
   });
 });

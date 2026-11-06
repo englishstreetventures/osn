@@ -64,6 +64,8 @@ const configuredStripe: StripeClient = {
   createPlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
   retrievePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
   expirePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  createPlatformRefund: () => Effect.fail(new StripeError({ reason: "not used here" })),
+  findPlatformRefund: () => Effect.fail(new StripeError({ reason: "not used here" })),
   retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
 };
 

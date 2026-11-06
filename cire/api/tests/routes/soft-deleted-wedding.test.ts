@@ -128,6 +128,8 @@ const stripe: StripeClient = {
   createPlatformCheckoutSession: unreached,
   retrievePlatformCheckoutSession: unreached,
   expirePlatformCheckoutSession: unreached,
+  createPlatformRefund: unreached,
+  findPlatformRefund: unreached,
   retrievePrice: unreached,
 };
 // OAuth too, so its start and callback are on the app.

@@ -89,6 +89,8 @@ function stripeStub(
     retrievePlatformCheckoutSession: () =>
       Effect.fail(new StripeError({ reason: "not used here" })),
     expirePlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+    createPlatformRefund: () => Effect.fail(new StripeError({ reason: "not used here" })),
+    findPlatformRefund: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrieveAccount(accountId) {
       calls.push(`retrieveAccount:${accountId}`);

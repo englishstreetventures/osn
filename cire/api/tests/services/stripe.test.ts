@@ -458,19 +458,93 @@ describe("retrievePlatformCheckoutSession", () => {
    * and charges twice for one entitlement.
    */
   it("keeps complete and expired apart", async () => {
-    expect(await read({ id: "cs_u1", status: "complete" })).toEqual({ status: "complete" });
-    expect(await read({ id: "cs_u1", status: "expired" })).toEqual({ status: "expired" });
+    expect(await read({ id: "cs_u1", status: "complete" })).toMatchObject({ status: "complete" });
+    expect(await read({ id: "cs_u1", status: "expired" })).toEqual({
+      status: "expired",
+      stripeStatus: "expired",
+    });
   });
 
+  /**
+   * The daily reconciliation settles a paid session whose webhook never
+   * landed from this read alone, so what was paid has to come back with it.
+   * Anything Stripe did not say plainly reads as unpaid: settle grants and
+   * refunds nothing for an unpaid session.
+   */
+  it("says what a complete session paid, and reads anything unclear as unpaid", async () => {
+    expect(
+      await read({
+        id: "cs_u1",
+        status: "complete",
+        payment_status: "paid",
+        amount_total: 7900,
+        currency: "usd",
+        payment_intent: { id: "pi_u1", latest_charge: { amount_refunded: 0, refunded: false } },
+      }),
+    ).toEqual({
+      status: "complete",
+      payment: {
+        paid: true,
+        amountMinor: 7900,
+        currency: "usd",
+        paymentIntentId: "pi_u1",
+        refunded: false,
+      },
+    });
+    expect(
+      await read({ id: "cs_u1", status: "complete", payment_status: "unpaid", amount_total: "x" }),
+    ).toEqual({
+      status: "complete",
+      payment: {
+        paid: false,
+        amountMinor: null,
+        currency: null,
+        paymentIntentId: null,
+        refunded: false,
+      },
+    });
+  });
+
+  /**
+   * A person can refund a paid session in the dashboard while its webhook is
+   * still failing. The reconciliation must see that and record a refund, not
+   * grant a tier for money already given back.
+   */
+  it("says when some of a complete session's charge has been refunded, and asks for the charge", async () => {
+    const { impl, calls } = stubFetch(() =>
+      json({
+        id: "cs_u1",
+        status: "complete",
+        payment_status: "paid",
+        payment_intent: { id: "pi_u1", latest_charge: { amount_refunded: 4900 } },
+      }),
+    );
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    const state = await Effect.runPromise(client.retrievePlatformCheckoutSession("cs_u1"));
+    expect(state).toMatchObject({
+      status: "complete",
+      payment: { paymentIntentId: "pi_u1", refunded: true },
+    });
+    expect(calls[0]?.url).toContain("expand%5B%5D=payment_intent.latest_charge");
+  });
+
+  // Each says what Stripe actually called it, so a caller that closes a row
+  // for good can tell Stripe's own `expired` from this reading of it.
   it("treats an open session with no URL left as expired", async () => {
-    expect(await read({ id: "cs_u1", status: "open" })).toEqual({ status: "expired" });
+    expect(await read({ id: "cs_u1", status: "open" })).toEqual({
+      status: "expired",
+      stripeStatus: "open",
+    });
   });
 
   it("treats an unrecognised status as expired, never as complete", async () => {
     // The caller checks the wedding's tier before it ever probes, so a wrong
     // `expired` costs a second session for a tier the wedding does not hold. A
     // wrong `complete` would park a paying customer forever.
-    expect(await read({ id: "cs_u1", status: "something_new" })).toEqual({ status: "expired" });
+    expect(await read({ id: "cs_u1", status: "something_new" })).toEqual({
+      status: "expired",
+      stripeStatus: "something_new",
+    });
   });
 });
 
@@ -515,6 +589,105 @@ describe("expirePlatformCheckoutSession", () => {
     const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
     await Effect.runPromise(client.expirePlatformCheckoutSession("cs/../x"));
     expect(calls[0]?.url).toContain("/v1/checkout/sessions/cs%2F..%2Fx/expire");
+  });
+});
+
+describe("createPlatformRefund", () => {
+  const INPUT = {
+    paymentIntentId: "pi_u1",
+    metadata: { purchaseId: "upg_1" },
+    idempotencyKey: "cire-upgrade-refund-upg_1",
+  };
+
+  /**
+   * An upgrade is cire's own charge, so its refund is the platform's. Sent
+   * with a `Stripe-Account`, the request would ask a couple's account to
+   * refund a payment it never took.
+   */
+  it("refunds the payment in full, as the platform, under the caller's key", async () => {
+    const { impl, calls } = stubFetch(() => json({ id: "re_u1", status: "succeeded" }));
+    const client = createStripeClient({
+      secretKey: "sk_test",
+      apiBase: "https://stripe.test",
+      fetchImpl: impl,
+    });
+
+    expect(await Effect.runPromise(client.createPlatformRefund(INPUT))).toEqual({ id: "re_u1" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://stripe.test/v1/refunds");
+    expect(calls[0]?.init.method).toBe("POST");
+    const headers = calls[0]?.init.headers as Headers;
+    expect(headers.get("stripe-account")).toBeNull();
+    expect(headers.get("idempotency-key")).toBe("cire-upgrade-refund-upg_1");
+    const body = String(calls[0]?.init.body);
+    expect(body).toContain("payment_intent=pi_u1");
+    expect(body).toContain("metadata%5BpurchaseId%5D=upg_1");
+    // A full refund: no amount, so Stripe returns everything it took.
+    expect(body).not.toContain("amount");
+  });
+
+  it("accepts a refund Stripe is still processing", async () => {
+    const { impl } = stubFetch(() => json({ id: "re_u1", status: "pending" }));
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    expect(await Effect.runPromise(client.createPlatformRefund(INPUT))).toEqual({ id: "re_u1" });
+  });
+
+  it("fails on a refund that came back failed or canceled, or with no id", async () => {
+    for (const payload of [
+      { id: "re_u1", status: "failed" },
+      { id: "re_u1", status: "canceled" },
+      { status: "succeeded" },
+    ]) {
+      const { impl } = stubFetch(() => json(payload));
+      const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+      const failure = await Effect.runPromise(Effect.flip(client.createPlatformRefund(INPUT)));
+      expect(failure.reason, JSON.stringify(payload)).toBe("unexpected refund payload");
+    }
+  });
+
+  it("keeps Stripe's code when it refuses, and never its message", async () => {
+    const { impl } = stubFetch(() =>
+      json(
+        { error: { code: "charge_already_refunded", message: "Charge ch_1 has been refunded." } },
+        400,
+      ),
+    );
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    const failure = await Effect.runPromise(Effect.flip(client.createPlatformRefund(INPUT)));
+    expect(failure).toMatchObject({
+      reason: "rejected",
+      status: 400,
+      code: "charge_already_refunded",
+    });
+    expect(JSON.stringify(failure)).not.toContain("ch_1");
+  });
+});
+
+describe("findPlatformRefund", () => {
+  it("finds the refund of a PaymentIntent that names the purchase, and only that one", async () => {
+    const { impl, calls } = stubFetch(() =>
+      json({
+        data: [
+          { id: "re_hand", metadata: {} },
+          { id: "re_cire", metadata: { purchaseId: "upg_1" } },
+        ],
+      }),
+    );
+    const client = createStripeClient({
+      secretKey: "sk_test",
+      apiBase: "https://stripe.test",
+      fetchImpl: impl,
+    });
+
+    expect(await Effect.runPromise(client.findPlatformRefund("pi_u1", "upg_1"))).toEqual({
+      id: "re_cire",
+    });
+    expect(await Effect.runPromise(client.findPlatformRefund("pi_u1", "upg_2"))).toBeNull();
+    expect(calls[0]?.url).toBe("https://stripe.test/v1/refunds?payment_intent=pi_u1&limit=100");
+    expect(calls[0]?.init.method).toBe("GET");
+    const headers = calls[0]?.init.headers as Headers;
+    expect(headers.get("stripe-account")).toBeNull();
   });
 });
 

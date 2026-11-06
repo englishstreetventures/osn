@@ -198,8 +198,46 @@ export interface CreatePlatformCheckoutSessionInput {
  */
 export type PlatformSessionState =
   | { status: "open"; id: string; url: string }
-  | { status: "complete" }
-  | { status: "expired" };
+  | {
+      status: "complete";
+      /**
+       * What the session paid, as Stripe reports it. The daily reconciliation
+       * settles a session whose webhook never landed from this alone. Absent
+       * reads as unpaid.
+       */
+      payment?: PlatformSessionPayment;
+    }
+  | {
+      status: "expired";
+      /**
+       * Stripe's own status. `expired` is also the answer for an open session
+       * with no URL left and for a status this code does not know, so a caller
+       * that closes a row for good reads this, not `status`.
+       */
+      stripeStatus?: string | null;
+    };
+
+/** What a complete platform session took. */
+export interface PlatformSessionPayment {
+  /** `payment_status === "paid"`, and nothing else. */
+  paid: boolean;
+  amountMinor: number | null;
+  /** As Stripe sends it, lower-case. */
+  currency: string | null;
+  paymentIntentId: string | null;
+  /** Some of the charge has been refunded already — by a person, or by cire. */
+  refunded: boolean;
+}
+
+/** A refund of a platform charge. */
+export interface CreatePlatformRefundInput {
+  /** The PaymentIntent the Checkout Session created. Refunded in full. */
+  paymentIntentId: string;
+  metadata: StripeFormParams;
+  /** One per purchase, so a refund that ran but timed out here comes back
+   *  with its id rather than as a second attempt. */
+  idempotencyKey: string;
+}
 
 /** Enough of a Price to show it. The amount lives at Stripe, never here. */
 export interface StripePrice {
@@ -242,6 +280,23 @@ export interface StripeClient {
    * must read as "it may have been paid", never as "it is gone".
    */
   expirePlatformCheckoutSession(sessionId: string): Effect.Effect<void, StripeError>;
+  /**
+   * Refund a platform charge in full. Succeeds once Stripe has accepted the
+   * refund (`succeeded`, `pending` or `requires_action`); one that comes back
+   * `failed` or `canceled` is a failure, as is every refusal, which keeps
+   * Stripe's code (`charge_already_refunded`, `charge_disputed`, …).
+   */
+  createPlatformRefund(
+    input: CreatePlatformRefundInput,
+  ): Effect.Effect<{ id: string }, StripeError>;
+  /**
+   * The refund of a platform PaymentIntent that names `purchaseId` in its
+   * metadata — one cire made — or `null` when none does.
+   */
+  findPlatformRefund(
+    paymentIntentId: string,
+    purchaseId: string,
+  ): Effect.Effect<{ id: string } | null, StripeError>;
   /** The configured price of an upgrade, read from Stripe rather than stored. */
   retrievePrice(priceId: string): Effect.Effect<StripePrice, StripeError>;
 }
@@ -591,7 +646,12 @@ export function createStripeClient(config: StripeConfig): StripeClient {
     },
 
     retrievePlatformCheckoutSession(sessionId) {
-      return request("GET", `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`).pipe(
+      return request(
+        "GET",
+        // The charge rides along, so a complete session says whether any of it
+        // has been refunded since.
+        `/v1/checkout/sessions/${encodeURIComponent(sessionId)}?expand%5B%5D=payment_intent.latest_charge`,
+      ).pipe(
         Effect.map((payload): PlatformSessionState => {
           const session = payload as { id?: unknown; url?: unknown; status?: unknown };
           if (session?.status === "open") {
@@ -599,7 +659,7 @@ export function createStripeClient(config: StripeConfig): StripeClient {
               ? { status: "open", id: session.id, url: session.url }
               : // Open but with no URL left is somewhere nobody can pay, which
                 // is the same practical answer as an expired session.
-                { status: "expired" };
+                { status: "expired", stripeStatus: "open" };
           }
           // Anything Stripe does not call `open` or `complete` is over and
           // replaceable. Defaulting the UNKNOWN case to `expired` rather than
@@ -607,7 +667,40 @@ export function createStripeClient(config: StripeConfig): StripeClient {
           // caller checks the wedding's tier first: the cost of a wrong
           // `expired` is a second session for a tier the wedding does not hold,
           // while a wrong `complete` would park a paying customer forever.
-          return session?.status === "complete" ? { status: "complete" } : { status: "expired" };
+          const text = (value: unknown) =>
+            typeof value === "string" && value !== "" ? value : null;
+          if (session?.status !== "complete") {
+            return { status: "expired", stripeStatus: text(session?.status) };
+          }
+          const paid = payload as {
+            payment_status?: unknown;
+            amount_total?: unknown;
+            currency?: unknown;
+            payment_intent?: unknown;
+          };
+          // Expanded, the PaymentIntent is an object carrying its charge; a
+          // bare id means the expansion did not happen, so nothing is known
+          // about refunds and none is assumed.
+          const intent =
+            typeof paid.payment_intent === "object" && paid.payment_intent !== null
+              ? (paid.payment_intent as { id?: unknown; latest_charge?: unknown })
+              : null;
+          const charge =
+            typeof intent?.latest_charge === "object" && intent.latest_charge !== null
+              ? (intent.latest_charge as { amount_refunded?: unknown; refunded?: unknown })
+              : null;
+          return {
+            status: "complete",
+            payment: {
+              paid: paid.payment_status === "paid",
+              amountMinor: typeof paid.amount_total === "number" ? paid.amount_total : null,
+              currency: text(paid.currency),
+              paymentIntentId: intent ? text(intent.id) : text(paid.payment_intent),
+              refunded:
+                charge?.refunded === true ||
+                (typeof charge?.amount_refunded === "number" && charge.amount_refunded > 0),
+            },
+          };
         }),
       );
     },
@@ -627,6 +720,45 @@ export function createStripeClient(config: StripeConfig): StripeClient {
           return session?.status === "expired"
             ? Effect.void
             : Effect.fail(new StripeError({ reason: "unexpected expire payload" }));
+        }),
+      );
+    },
+
+    createPlatformRefund(input) {
+      return request(
+        "POST",
+        "/v1/refunds",
+        // No `amount`: a full refund of whatever the PaymentIntent took.
+        { payment_intent: input.paymentIntentId, metadata: input.metadata },
+        input.idempotencyKey,
+        // NO `stripeAccount`: the charge is the platform's, so its refund is.
+      ).pipe(
+        Effect.flatMap((payload) => {
+          const refund = payload as { id?: unknown; status?: unknown };
+          return typeof refund?.id === "string" &&
+            refund.status !== "failed" &&
+            refund.status !== "canceled"
+            ? Effect.succeed({ id: refund.id })
+            : Effect.fail(new StripeError({ reason: "unexpected refund payload" }));
+        }),
+      );
+    },
+
+    findPlatformRefund(paymentIntentId, purchaseId) {
+      return request(
+        "GET",
+        `/v1/refunds?payment_intent=${encodeURIComponent(paymentIntentId)}&limit=100`,
+      ).pipe(
+        Effect.map((payload) => {
+          const list = (payload as { data?: unknown })?.data;
+          const refunds = Array.isArray(list) ? list : [];
+          for (const item of refunds) {
+            const refund = item as { id?: unknown; metadata?: { purchaseId?: unknown } };
+            if (typeof refund?.id === "string" && refund.metadata?.purchaseId === purchaseId) {
+              return { id: refund.id };
+            }
+          }
+          return null;
         }),
       );
     },
