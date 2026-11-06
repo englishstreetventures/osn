@@ -13,8 +13,10 @@
  *   reads a list of candidates with the link secret, and confirms with a
  *   `POST` that carries the secret and the number the reader picked. The
  *   confirm step requires the number shown on the waiting screen: a wrong
- *   pick, or "none of these", ends the request at once. Nothing here answers a
- *   `GET`, since mail scanners open every link before a person does.
+ *   pick ends the request at once. The reader can instead say they did not
+ *   ask (`none`), which ends it too, and is answered `declined`, again on a
+ *   repeat. Nothing here answers a `GET`, since mail scanners open every link
+ *   before a person does.
  * - A confirm marks the request confirmed and does nothing else: it never
  *   mints a session, and no answer names the address or which candidate is
  *   right.
@@ -66,10 +68,10 @@ export const emailLinkIdPattern = (flow: EmailLinkFlow): string =>
 /** A link or claim secret: 32 bytes, hex. */
 export const EMAIL_LINK_SECRET_PATTERN = "^[a-f0-9]{64}$";
 
-/** A pick: a two-digit candidate, or `none` for "none of these is on my screen". */
+/** A pick: a two-digit candidate, or `none` for "I didn't ask for this". */
 export const EMAIL_LINK_PICK_PATTERN = "^(?:[0-9]{2}|none)$";
 
-/** The pick that says the waiting screen's number is not among the candidates. */
+/** The pick that says the reader did not ask for the request. */
 export const EMAIL_LINK_DECLINE = "none";
 
 const ANY_ID = new RegExp(EMAIL_LINK_ID_PATTERN);
@@ -99,9 +101,20 @@ export type EmailLinkCandidates =
   | { readonly status: "confirmed" }
   | { readonly status: "expired" };
 
+/** What a confirm answers: a number accepted, a decline accepted, or a refusal. */
+export type EmailLinkConfirmAnswer = "confirmed" | "declined" | "expired";
+
 /** What the tab that began learns from a poll. */
 export type EmailLinkPoll =
-  | { readonly state: "pending" }
+  | {
+      readonly state: "pending";
+      /**
+       * The number the waiting screen shows, so a tab that lost it (a reload)
+       * can show it again. Absent only when the server's key changed since the
+       * request began, and then no pick can confirm it either.
+       */
+      readonly pairingCode?: string;
+    }
   | { readonly state: "expired" }
   | { readonly state: "confirmed"; readonly entry: EmailLinkChallenge };
 
@@ -304,12 +317,27 @@ export function createEmailLinkModule(ctx: AuthContext) {
     timingSafeEqualString(entry.pairingHash, serverMac.pairingDigest(requestId, pairingPick));
 
   /**
+   * The request's number, recovered from its stored digest. Every candidate is
+   * compared, so the work is the same whichever matches.
+   */
+  const pairingOf = (requestId: string, entry: EmailLinkChallenge): string | undefined => {
+    let found: string | undefined;
+    for (const candidate of candidatesOf(requestId)) {
+      if (timingSafeEqualString(entry.pairingHash, serverMac.pairingDigest(requestId, candidate))) {
+        found = candidate;
+      }
+    }
+    return found;
+  };
+
+  /**
    * The candidates for the confirm page, for the holder of a link. A right
    * secret is answered from one read and counts nothing, so a reload, or a
    * scanner that runs the page's script, spends nothing. A wrong secret is
    * counted as a wrong confirm is, and the one that reaches the cap wipes the
    * request. A confirmed request answers `confirmed` and offers no list, so a
-   * page reloaded after its confirm cannot be made to pick again.
+   * page reloaded after its confirm cannot be made to pick again; a declined
+   * one is over, and answers `expired`.
    */
   const candidates = (
     requestId: string,
@@ -321,6 +349,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       if (!usable(entry)) return { status: "expired" } as const;
       if (holdsLink(entry, linkSecret)) {
         if (entry.status === "confirmed") return { status: "confirmed" } as const;
+        if (entry.status === "declined") return { status: "expired" } as const;
         return { status: "ready", pairingCandidates: candidatesOf(requestId) } as const;
       }
       const guessed = yield* guessEntry(links, requestId, MAX_OTP_ATTEMPTS);
@@ -328,26 +357,57 @@ export function createEmailLinkModule(ctx: AuthContext) {
       return { status: "expired" } as const;
     }).pipe(Effect.withSpan("auth.email_link.candidates"));
 
-  type Confirmed = { answer: "confirmed" | "expired"; outcome: EmailLinkConfirmOutcome };
+  type Confirmed = { answer: EmailLinkConfirmAnswer; outcome: EmailLinkConfirmOutcome };
   const REFUSED: Confirmed = { answer: "expired", outcome: "refused" };
   const WIPED: Confirmed = { answer: "expired", outcome: "wiped" };
   const WRONG_PICK: Confirmed = { answer: "expired", outcome: "wrong_pick" };
-  const DECLINED: Confirmed = { answer: "expired", outcome: "declined" };
+  const DECLINED: Confirmed = { answer: "declined", outcome: "declined" };
+  const REPEAT_DECLINE: Confirmed = { answer: "declined", outcome: "repeat" };
   const REPEAT: Confirmed = { answer: "confirmed", outcome: "repeat" };
   const CONFIRMED: Confirmed = { answer: "confirmed", outcome: "confirmed" };
+
+  /**
+   * Ends request `requestId` because the holder of its link did not ask for
+   * it. The entry is marked `declined` rather than deleted, so a repeat of the
+   * decline is answered the same way; nothing can confirm, claim or resend it
+   * after. The flow's pending entry is freed at once. A write that lost to
+   * another (a Resend, a confirm) is tried once more on what the store now
+   * holds; a request gone meanwhile (claimed, wiped) is refused.
+   */
+  const decline = (requestId: string, entry: EmailLinkChallenge) =>
+    Effect.gen(function* () {
+      let current: EmailLinkChallenge | null = entry;
+      for (let attempt = 0; attempt < 2 && usable(current); attempt++) {
+        if (current.status === "declined") return REPEAT_DECLINE;
+        const from: EmailLinkChallenge = current;
+        const won = yield* storeCall(links, "swap", () =>
+          links.swap(requestId, from, { ...from, status: "declined" }, remainingMs(from)),
+        );
+        if (won) {
+          yield* release(from.flow, from.subject, requestId).pipe(Effect.ignore);
+          return DECLINED;
+        }
+        current = yield* read(requestId);
+      }
+      if (!usable(current)) return REFUSED;
+      // Two writes lost: end the request outright, which a decline asks for.
+      yield* end(requestId, current);
+      return DECLINED;
+    });
 
   /**
    * Confirms request `requestId` for the holder of its link who picked the
    * waiting screen's number. Answers `confirmed` — again for a request already
    * confirmed, so a confirm whose answer was lost reads as done when retried —
-   * and `expired` for every refusal. A wrong pick or a decline ends the
-   * request at once, on a confirmed request too; a wrong pick also counts a
-   * strike against the flow's subject.
+   * and `expired` for every refusal. A wrong pick ends the request at once, on
+   * a confirmed request too, and counts a strike against the flow's subject.
+   * A decline (`none`) ends it too, counts nothing, and answers `declined`,
+   * again when repeated.
    */
   const confirm = (
     requestId: string,
     input: EmailLinkConfirmInput,
-  ): Effect.Effect<"confirmed" | "expired", CoordinationError> =>
+  ): Effect.Effect<EmailLinkConfirmAnswer, CoordinationError> =>
     Effect.gen(function* () {
       if (!ANY_ID.test(requestId)) return REFUSED;
       // Read and counted in one call, before the secret is compared.
@@ -359,16 +419,17 @@ export function createEmailLinkModule(ctx: AuthContext) {
         yield* end(requestId, entry);
         return WIPED;
       }
+      const declining = input.pairingPick === EMAIL_LINK_DECLINE;
+      // A declined request is over: its decline can be repeated, nothing else.
+      if (entry.status === "declined") return declining ? REPEAT_DECLINE : REFUSED;
+      // A decline is the reader refusing a request they did not start: it
+      // ends the request and counts nothing against them.
+      if (declining) return yield* decline(requestId, entry);
       if (!picksRight(requestId, entry, input.pairingPick)) {
-        // A decline is the reader refusing a request they did not start: it
-        // ends the request and counts nothing against them.
-        const declined = input.pairingPick === EMAIL_LINK_DECLINE;
-        if (!declined) {
-          const strikes = strikesOf(entry.flow, entry.subject);
-          yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
-        }
+        const strikes = strikesOf(entry.flow, entry.subject);
+        yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
         yield* end(requestId, entry);
-        return declined ? DECLINED : WRONG_PICK;
+        return WRONG_PICK;
       }
       if (entry.status === "confirmed") return REPEAT;
 
@@ -390,7 +451,11 @@ export function createEmailLinkModule(ctx: AuthContext) {
       Effect.map((result) => result.answer),
     );
 
-  /** The tab that began asks where its request stands. One store read. */
+  /**
+   * The tab that began asks where its request stands. One store read. A
+   * pending answer carries the request's number, so a tab that was reloaded
+   * shows it again without having kept it anywhere.
+   */
   const poll = (
     flow: EmailLinkFlow,
     requestId: string,
@@ -398,9 +463,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
   ): Effect.Effect<EmailLinkPoll, CoordinationError> =>
     Effect.gen(function* () {
       const entry = yield* held(flow, requestId, claimSecret);
-      if (!entry) return { state: "expired" } as const;
+      if (!entry || entry.status === "declined") return { state: "expired" } as const;
       if (entry.status === "confirmed") return { state: "confirmed", entry } as const;
-      return { state: "pending" } as const;
+      return { state: "pending", pairingCode: pairingOf(requestId, entry) } as const;
     });
 
   /**
@@ -434,6 +499,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       // the write.
       for (let attempt = 0; attempt < 2 && current; attempt++) {
         if (current.status === "confirmed") return { state: "confirmed" } as const;
+        if (current.status === "declined") return { state: "expired" } as const;
         if (current.mailSecretHashes.length >= EMAIL_LINK_MAX_SENDS) {
           return { state: "limit" } as const;
         }

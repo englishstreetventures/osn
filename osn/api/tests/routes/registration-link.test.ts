@@ -58,6 +58,22 @@ async function begun(h: ReturnType<typeof harness>, email: string, handle: strin
 const WRONG_SECRET = "0".repeat(64);
 const MINUTE = 60_000;
 
+/**
+ * A poll's body with its number reduced to its shape: two requests draw their
+ * numbers apart, so a decoy and a real request are compared on keys and form.
+ */
+function pollShape(body: unknown): unknown {
+  const { pairingCode, ...rest } = body as { pairingCode?: unknown };
+  if (pairingCode === undefined) return rest;
+  return {
+    ...rest,
+    pairingCode:
+      typeof pairingCode === "string" && /^[1-9][0-9]$/.test(pairingCode)
+        ? "two digits"
+        : pairingCode,
+  };
+}
+
 describe("a GET never approves", () => {
   it("answers 404 to a GET on the confirm route and on the link path, and the request stays pending", async () => {
     const h = harness();
@@ -72,7 +88,7 @@ describe("a GET never approves", () => {
 
     const poll = await statusThroughRoutes(h.app, s.requestId, s.claimSecret);
     expect(poll.status).toBe(200);
-    expect(await poll.json()).toEqual({ status: "pending" });
+    expect(await poll.json()).toEqual({ status: "pending", pairingCode: s.pairingCode });
   });
 });
 
@@ -138,7 +154,7 @@ describe("a taken address", () => {
       taken.body.claimSecret,
     );
     expect(takenPoll.status).toBe(freePoll.status);
-    expect(await takenPoll.json()).toEqual(await freePoll.json());
+    expect(pollShape(await takenPoll.json())).toEqual(pollShape(await freePoll.json()));
 
     const freeResend = await resendThroughRoutes(h.app, free.body.requestId, free.body.claimSecret);
     const takenResend = await resendThroughRoutes(
@@ -168,8 +184,8 @@ describe("a taken address", () => {
       const a = await statusThroughRoutes(h.app, free.body.requestId, free.body.claimSecret);
       const b = await statusThroughRoutes(h.app, taken.body.requestId, taken.body.claimSecret);
       return {
-        free: { status: a.status, body: await a.json() },
-        taken: { status: b.status, body: await b.json() },
+        free: { status: a.status, body: pollShape(await a.json()) },
+        taken: { status: b.status, body: pollShape(await b.json()) },
       };
     };
 
@@ -182,8 +198,8 @@ describe("a taken address", () => {
     expect(atStart.taken).toEqual(atStart.free);
     expect(midway.taken).toEqual(midway.free);
     expect(after.taken).toEqual(after.free);
-    expect(atStart.free.body).toEqual({ status: "pending" });
-    expect(midway.free.body).toEqual({ status: "pending" });
+    expect(atStart.free.body).toEqual({ status: "pending", pairingCode: "two digits" });
+    expect(midway.free.body).toEqual({ status: "pending", pairingCode: "two digits" });
     expect(after.free.body).toEqual({ status: "expired" });
   });
 });
@@ -464,13 +480,48 @@ describe("the number on the waiting screen", () => {
     expect(again.requestId).not.toBe(s.requestId);
   });
 
-  it("ends the request when the reader says the number is not among the candidates", async () => {
+  it("ends the request when the reader did not ask for it, and says so again when the decline is repeated", async () => {
     const h = harness();
-    const s = await begun(h, "decline@example.com", "decline");
-    const res = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, "none");
-    expect(await res.json()).toEqual({ status: "expired" });
+    const email = "decline@example.com";
+    const s = await begun(h, email, "decline");
+
+    // A decline whose answer was lost is sent again by the page's Try again,
+    // and must come back as the same answer.
+    for (let n = 0; n < 2; n++) {
+      const res = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, "none");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ status: "declined" });
+    }
+
     const right = await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, s.pairingCode);
     expect(await right.json()).toEqual({ status: "expired" });
+    expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
+      status: "expired",
+    });
+    expect(await (await resendThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
+      status: "expired",
+    });
+    expect(
+      await (await candidatesThroughRoutes(h.app, s.requestId, s.link.linkSecret)).json(),
+    ).toEqual({ status: "expired" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
+
+    // The address is free again at once.
+    const again = await begun(h, email, "decline");
+    expect(again.link.requestId).toBe(again.requestId);
+    expect(again.requestId).not.toBe(s.requestId);
+  });
+
+  it("is given back to the tab that began on every pending poll, so a reloaded tab can show it", async () => {
+    const h = harness();
+    const s = await begun(h, "poll-number@example.com", "pollnumber");
+    for (let n = 0; n < 2; n++) {
+      const poll = await statusThroughRoutes(h.app, s.requestId, s.claimSecret);
+      expect(await poll.json()).toEqual({ status: "pending", pairingCode: s.pairingCode });
+    }
+    await resendThroughRoutes(h.app, s.requestId, s.claimSecret);
+    const afterResend = await statusThroughRoutes(h.app, s.requestId, s.claimSecret);
+    expect(await afterResend.json()).toEqual({ status: "pending", pairingCode: s.pairingCode });
   });
 
   it("ends an already-confirmed request when another number is picked, and no account is made", async () => {
@@ -516,6 +567,7 @@ describe("the number on the waiting screen", () => {
     expect(res.status).toBeLessThan(500);
     expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
       status: "pending",
+      pairingCode: s.pairingCode,
     });
   });
 

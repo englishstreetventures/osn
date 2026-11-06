@@ -155,8 +155,13 @@ export interface EmailLinkChallenge {
   claimSecretHash: string;
   /** `serverMac.pairingDigest(requestId, pairing number)`. */
   pairingHash: string;
-  /** `confirmed` once a right link secret and pick were posted; the claim reads it. */
-  status: "pending" | "confirmed";
+  /**
+   * `confirmed` once a right link secret and pick were posted; the claim reads
+   * it. `declined` once the holder of a link said they did not ask: the request
+   * is over, and the entry stays only so a repeated decline gets the same
+   * answer.
+   */
+  status: "pending" | "confirmed" | "declined";
   /** Milliseconds. */
   expiresAt: number;
 }

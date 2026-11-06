@@ -43,7 +43,11 @@ import type { ProfileWithEmail, SessionMeta } from "./types";
 
 /** What a sign-up status poll answers. */
 export type RegistrationStatus =
-  | { readonly status: "pending" }
+  | {
+      readonly status: "pending";
+      /** The number the waiting screen shows, for a tab that has lost it. */
+      readonly pairingCode?: string;
+    }
   | { readonly status: "expired" }
   | { readonly status: "conflict" }
   | {
@@ -515,8 +519,9 @@ export function createRegistrationModule(
 
   /**
    * Step 2 of sign-up, polled by the tab that began with its claim secret.
-   * Answers `pending` until the link is confirmed, then creates the account
-   * and answers `complete` with a session, once. `expired` for every refusal:
+   * Answers `pending` until the link is confirmed, with the request's number
+   * so a reloaded tab can show it again without keeping it, then creates the
+   * account and answers `complete` with a session, once. `expired` for every refusal:
    * an unknown or expired request, a wrong claim secret, or a poll that lost
    * the claim to another. `conflict` when the handle was taken while the
    * person waited.
@@ -537,7 +542,9 @@ export function createRegistrationModule(
   ): Effect.Effect<RegistrationStatus, AuthError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       const polled = yield* links.poll("registration", requestId, claimSecret);
-      if (polled.state === "pending") return { status: "pending" } as const;
+      if (polled.state === "pending") {
+        return { status: "pending", pairingCode: polled.pairingCode } as const;
+      }
       if (polled.state === "expired") return { status: "expired" } as const;
       return yield* finishRegistration(requestId, polled.entry, sessionMeta).pipe(
         Effect.catchTag("AuthError", (e) =>

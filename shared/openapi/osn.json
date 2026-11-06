@@ -2515,6 +2515,7 @@
                     "status": {
                       "enum": [
                         "confirmed",
+                        "declined",
                         "expired"
                       ],
                       "type": "string"
@@ -11725,6 +11726,9 @@
                   "anyOf": [
                     {
                       "properties": {
+                        "pairingCode": {
+                          "type": "string"
+                        },
                         "status": {
                           "const": "pending",
                           "type": "string"

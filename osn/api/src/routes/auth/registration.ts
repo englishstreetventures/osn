@@ -193,7 +193,9 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
           body: t.Object({ claimSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }) }),
           response: {
             200: t.Union([
-              t.Object({ status: t.Literal("pending") }),
+              // The number the waiting screen shows, so a reloaded tab can
+              // show it again without keeping it.
+              t.Object({ status: t.Literal("pending"), pairingCode: t.Optional(t.String()) }),
               // Also "no such request" and "wrong claim secret": a stranger's
               // poll is indistinguishable from a lapsed one on purpose.
               t.Object({ status: t.Literal("expired") }),

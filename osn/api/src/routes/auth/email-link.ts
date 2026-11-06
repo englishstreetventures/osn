@@ -75,7 +75,8 @@ export function createEmailLinkRoutes(ctx: AuthRouteContext) {
       // -----------------------------------------------------------------------
       // Confirm: the link's secret and the number the reader picked. The
       // confirm step requires the number shown on the waiting screen; a wrong
-      // pick, or `none`, ends the request.
+      // pick ends the request. `none` says the reader did not ask: it ends the
+      // request too, and answers `declined`, again when repeated.
       // -----------------------------------------------------------------------
       .post(
         "/email-link/:requestId/confirm",
@@ -112,7 +113,11 @@ export function createEmailLinkRoutes(ctx: AuthRouteContext) {
           }),
           response: {
             200: t.Object({
-              status: t.Union([t.Literal("confirmed"), t.Literal("expired")]),
+              status: t.Union([
+                t.Literal("confirmed"),
+                t.Literal("declined"),
+                t.Literal("expired"),
+              ]),
             }),
             400: errorResponse,
             429: errorResponse,

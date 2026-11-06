@@ -373,12 +373,12 @@ export type CrossDeviceStep = "begin" | "poll" | "approve" | "reject";
 export type EmailLinkFlow = "registration";
 
 /**
- * What a confirm of an emailed link did: approved the request, approved it
- * again (a repeat of the right secret and pick), refused it, refused it and
- * wiped the request (the wrong secret that reached the cap), or ended the
+ * What a confirm of an emailed link did: approved the request, answered an
+ * accepted confirm or decline sent again (`repeat`), refused it, refused it
+ * and wiped the request (the wrong secret that reached the cap), or ended the
  * request because the pick was not the waiting screen's number (`wrong_pick`)
- * or the reader said it was not among the candidates (`declined`). Never the
- * number itself.
+ * or the reader said they did not ask for it (`declined`). Never the number
+ * itself.
  */
 export type EmailLinkConfirmOutcome =
   | "confirmed"
