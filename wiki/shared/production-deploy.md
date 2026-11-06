@@ -1474,6 +1474,9 @@ stated here.*
 
 ### 5.7 Moving a site's domain from Pages to its Worker (a flip) 🔑
 
+Before the first move, the domain move rehearsal has run clean on the dev account and
+its numbers are recorded below ([[#Rehearse the move on dev first]]).
+
 Each Pages site moves one at a time, in the order cire vendor, cire host, cire landing,
 then `musubi.social` (englishstreetventures/osn#1787). Before each:
 
@@ -1598,6 +1601,43 @@ to `<project>.pages.dev` if Pages did not make one.
 
 Each Pages project and its job keep deploying until `musubi.social` has moved and
 soaked, so the Pages copy a rollback returns to is current.
+
+#### Rehearse the move on dev first
+
+What a flip depends on, only Cloudflare can answer: what `CLOUDFLARE_PAGES_DNS_TOKEN`'s
+reach check reads, what Cloudflare does when a Worker custom domain is attached right
+after the host's Pages domain and CNAME go, how long the host is unreachable, and
+whether `attach` brings the Pages site back and how long that takes. **Domain move
+rehearsal** answers them on the dev account, with the same code and job shape a flip
+release uses ([[infrastructure-as-code#The domain move rehearsal]]):
+
+1. Make sure the `dev` Environment holds `CLOUDFLARE_DEV_PAGES_DNS_TOKEN` and
+   `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN` ([[dev-environment#Two accounts, two Environments]]).
+2. Dispatch **Actions → Domain move rehearsal** on `main`. It asks no approval: the
+   `dev` Environment has no reviewer. Each wait for Cloudflare gives up after 15 minutes
+   (a Worker) or 20 (a Pages domain), and the watch job after two hours.
+3. Read the run summary, then the `domain-move-rehearsal-attempt-1` artifact
+   (`domain-move-rehearsal.json`). Its `intervals` hold the numbers; each step's
+   fragment holds every Cloudflare answer it got, the DNS records and Worker custom
+   domains at the two hosts whole.
+
+| Question | Where the artifact answers it |
+|---|---|
+| What the reach check reads | `fragments.preflight.calls`: `GET /accounts` and `GET /zones` |
+| What Cloudflare does when the Worker takes the host | `fragments.flip`: the Worker's custom domains and the host's records, read every 4 s while Alchemy deploys; `workerDomainListedMs`. Alchemy retries a `HostnameAlreadyInUse` conflict for 16 s without logging it, so a conflict it got past shows only as that time |
+| How the precheck reads a flipped host | `fragments.check.state`, which must be `free`, and the records it read |
+| How long the host is unreachable | `edgeGapMs` (at Cloudflare's edge) and `clientDnsGapMs` (as the runner's resolver sees it: a visitor who looks the host up during the gap can keep the negative answer longer) |
+| Whether `attach` restores Pages, and how long it takes | `rollbackMs`, `pagesServingMs` and `pagesDomainActiveMs` |
+
+The rehearsal moves `domain-move.<DEV_DOMAIN>`, a host one label under its zone, as
+cire vendor and cire host are. It does not rehearse an apex (cire landing,
+`musubi.social`), and its gap leaves out the approval wait before step 4. A failed step
+fails the run, and its cleanup jobs still remove what it made; a re-run attempt refuses,
+so dispatch a new run. A rerun reproduces the artifact's shape, verdicts and exit codes;
+the timings differ.
+
+*Unverified — the rehearsal has not run yet. Its first run on `main` sets the gap, the
+rollback time and the reach check's answer here, with the run's id and date.*
 
 ## 6. Optional: guest account-linking bridge (cire → osn)
 

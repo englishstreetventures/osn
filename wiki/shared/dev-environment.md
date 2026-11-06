@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Dev environment (cire + OSN identity)
@@ -36,7 +36,9 @@ account, and a dev account is not a production account. Tests, not the
 Environment, keep it so: W8 in `shared/infra/tests/workflow-secrets.test.ts`
 holds `deploy.yml` to the dev account's credentials, and
 `shared/infra/tests/accounts.test.ts` holds `alchemy-state.yml` and the
-free-tier alert to theirs. The `dev` Environment holds neither
+free-tier alert to theirs, and
+`scripts/tests/domain-move-rehearsal-workflow.test.ts` holds the domain move
+rehearsal to the dev account's. The `dev` Environment holds neither
 `CLOUDFLARE_ACCOUNT_ID` nor `CLOUDFLARE_API_TOKEN_DEV`, the two names that
 point at the production account, and `secrets:check-github -- --tier dev`
 fails when it holds either ([[#The production account holds no dev tier]]).
@@ -268,7 +270,7 @@ done
 
 | Environment | Cloudflare account | Credential secrets | Reviewers |
 |---|---|---|---|
-| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` | none; branch policy `main` |
+| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY`, `CLOUDFLARE_DEV_PAGES_DNS_TOKEN`, `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN` | none; branch policy `main` |
 | `production` | the production account | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | required; branch policy `main` |
 
 The separate account is the hard boundary: `Workers Scripts: Edit` and
@@ -303,6 +305,18 @@ The read-only token, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY`, holds
 `Account Settings: Read`, `D1: Read` and `Account Analytics: Read` on the dev
 account, for the free-tier alert's dev job ([[free-tier-limits]]).
 
+The domain move rehearsal ([[infrastructure-as-code#The domain move rehearsal]])
+reads two more, each an account API token on the dev account, made under
+**Manage Account → Account API Tokens**:
+
+| Secret | Permissions, and nothing else | Read by |
+|---|---|---|
+| `CLOUDFLARE_DEV_PAGES_DNS_TOKEN` | Account · `Cloudflare Pages: Edit`; Zone · `DNS: Edit`, Zone Resources: Include · Specific zone · the `DEV_DOMAIN` zone. The same list as production's `CLOUDFLARE_PAGES_DNS_TOKEN`, one for one, so the rehearsal's reach check reads what production's would; if the production token holds anything more, this one holds it too | `scripts/domain-move-rehearsal.ts` alone, on runners that install nothing or before the job's install; it refuses the token unless `GET /accounts` lists exactly the dev account and `GET /zones` exactly the `DEV_DOMAIN` zone |
+| `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN` | Account · `Cloudflare Pages: Edit` | Wrangler's upload of the rehearsal's marker page, after the script checks the token reaches the dev account and no zone |
+
+Set each with `gh secret set <name> --env dev --repo englishstreetventures/osn`.
+The dev deploy token keeps the grants above: it gains no Pages permission.
+
 Repository scope holds no credential that can write to Cloudflare. It keeps
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_READONLY`, the production
 account's read-only pair, for the free-tier alert's production job, which
@@ -319,8 +333,8 @@ Before adding a workflow that touches Cloudflare, check what scope it resolves
 at: `grep -l CLOUDFLARE .github/workflows/*.yml`, then read each hit for an
 `environment:` line. `shared/infra/tests/accounts.test.ts` fails when a workflow
 reads a credential nobody classified, or when any workflow but
-`alchemy-state.yml`, `deploy.yml` and `free-tier-ceiling-alert.yml` reads a dev
-account credential. A workflow that declares no Environment and needs to write
+`alchemy-state.yml`, `deploy.yml`, `domain-move-rehearsal.yml` and
+`free-tier-ceiling-alert.yml` reads a dev account credential. A workflow that declares no Environment and needs to write
 has no credential to read — that is the design.
 
 ### The dev data is not reset
@@ -447,9 +461,11 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    scheme. `PUBLIC_TURNSTILE_SITEKEY` and `PUBLIC_GOOGLE_MAPS_EMBED_KEY` stay as
    they are. Leave `CIRE_DEV_OWNER_PROFILE_ID` unset until step 8.
 3. **Credentials.** `CLOUDFLARE_DEV_ACCOUNT_ID`;
-   `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` (the permissions in §2); and
+   `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` (the permissions in §2);
    `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` (`Account Settings: Read`,
-   `D1: Read`, `Account Analytics: Read`).
+   `D1: Read`, `Account Analytics: Read`); and the domain move rehearsal's
+   `CLOUDFLARE_DEV_PAGES_DNS_TOKEN` and `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN`
+   (their grants are in §2).
 4. **Worker secrets**, new values made for the dev account, never production's:
    - osn-api: `DEV_LOGIN_SECRET` (at least 32 characters), `INTERNAL_SERVICE_SECRET`
      (zap-api reads the same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`,
