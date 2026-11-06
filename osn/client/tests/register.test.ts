@@ -258,11 +258,11 @@ describe("createRegistrationClient", () => {
     });
 
     /**
-     * T-U1. Enrollment shares `postJson` with registration, so it inherits
+     * Enrollment shares `postJson` with registration, so it inherits
      * `credentials: "include"` — and it needs it for its own reason. The bearer
      * token names the *account*; the cookie names *which session is the
      * caller's own*, which is how `/passkey/register/complete` knows to spare
-     * that one when it revokes the rest (S-H1). Without the cookie the server
+     * that one when it revokes the rest. Without the cookie the server
      * falls back to the access token's `osn_sid` binding rather than failing,
      * so a regression here is silent — no test elsewhere would go red. Pinning
      * it at both cookie-dependent routes makes the header a property of the
