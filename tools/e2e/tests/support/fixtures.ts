@@ -410,7 +410,7 @@ export async function waitingScreenNumber(page: Page): Promise<string> {
 }
 
 /** The numbers an emailed link's confirm card offers, one button each. */
-function offeredNumbers(page: Page) {
+export function offeredNumbers(page: Page) {
   return page.getByRole("group", {
     name: "Pick the number shown on the screen where you started.",
   });

@@ -21,6 +21,7 @@ import {
   expect,
   linkFor,
   mailFor,
+  offeredNumbers,
   pickWrongNumberOnPage,
   test,
   waitingScreenNumber,
@@ -174,18 +175,54 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     waitingScreenNumber(page),
   );
   flow.check("the new waiting screen shows a two-digit number", true, /^\d{2}$/.test(secondCode));
+
+  // A reload loses the tab's page state; the stored wait brings it back, with
+  // the number the poll gives again.
+  await flow.step("register: a reload returns to the same wait", async () => {
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  });
+  flow.check(
+    "the reloaded waiting screen shows the same number",
+    secondCode,
+    await waitingScreenNumber(page),
+  );
   const secondLink = await linkFor(ada.email, 1);
   flow.check("the new link is a new request", true, secondLink.requestId !== link.requestId);
 
-  await flow.step("phone: open the new link", async () => {
+  // The first candidates read fails with a 503; the page says so, and Try
+  // again reads once more. The route stays installed (it passes every later
+  // request on), and only the first read is refused.
+  let refusedReads = 0;
+  await phone.route("**/email-link/*/candidates", async (route) => {
+    if (route.request().method() !== "POST" || refusedReads > 0) return route.fallback();
+    refusedReads += 1;
+    return route.fulfill({ status: 503, contentType: "application/json", body: "{}" });
+  });
+  await flow.step("phone: open the new link, and read again after a failed read", async () => {
     await phone.goto(secondLink.url);
+    await expect(
+      phone.getByRole("heading", { name: "We couldn't open this link just now" }),
+    ).toBeVisible();
+    await phone.getByRole("button", { name: "Try again" }).click();
     await expect(phone.getByRole("heading", { name: "Confirm this email" })).toBeVisible();
   });
+  flow.check("the failed read was refused once", 1, refusedReads);
 
   await flow.step("phone: pick the number and confirm", async () => {
     await confirmLinkOnPage(phone, secondCode);
     await expect(phone.getByRole("heading", { name: "Confirmed" })).toBeVisible();
   });
+
+  // The same link again, after the request is confirmed: a fresh page load
+  // (the address differs from the open page's only by its fragment, which
+  // would not reload it), one candidates read and no pick offered.
+  await flow.step("phone: the same link again says Confirmed and offers no number", async () => {
+    await phone.goto("about:blank");
+    await phone.goto(secondLink.url);
+    await expect(phone.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+  });
+  flow.check("a confirmed link offers no number", 0, await offeredNumbers(phone).count());
   flow.check(
     "the phone is offered no Continue",
     0,
