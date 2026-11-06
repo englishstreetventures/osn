@@ -48,8 +48,12 @@ Three rules, and they are the whole design:
 1. **The contract is library-facing.** `@shared/ui`, `@cire/ui` and
    `@osn/auth-ui` are held to `ui-*` utilities; `@osn/auth-ui`'s own class
    attributes do not meet that yet (see the table under §Where the pieces
-   live). Application code never writes them — every
-   `bg-card` in pulse and `text-gold` in cire stays exactly as written.
+   live). Application code is not held to them — every
+   `bg-card` in pulse and `text-gold` in cire stays exactly as written. An
+   app may still write one where it wants the contract's step or role:
+   pulse and cire take their type and tracking steps from the contract
+   (`text-ui-sm`, `tracking-ui-wider`), and cire its leading and radius
+   steps too.
    `@shared/toast` reaches the same end by a different route: it compiles no
    utilities at all and reads its own `--toast-*` properties from plain CSS
    ([[toast]]).

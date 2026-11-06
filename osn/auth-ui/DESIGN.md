@@ -23,6 +23,8 @@ types.
 **Hosts today.** `@musubi/social` is the one workspace that depends on the
 package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
+Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
+(#2056) and `ProfileSwitcher` (#2045). Only their package tests render them.
 
 **What a host supplies.**
 
@@ -103,7 +105,7 @@ utilities the views write themselves today: `text-ui-success` (`Register`),
 | Body copy | `text-sm` | the views' own paragraphs and lines |
 | Meta lines (dates, "(synced)", field hints) | `text-xs` | the list rows, the banner, `Register`'s field hints |
 | Names in a row | `font-medium` | `PasskeysView`, `TotpView`, `SessionsView`, `SecurityEventsBanner` |
-| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key |
+| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key; with `tracking-widest`, the code fields `ChangeEmailForm` and `StepUpDialog` draw themselves (§5) |
 
 The `@shared/ui` parts inside the views (Button, Input, Label, OtpInput, Card
 and Dialog titles) take the contract steps.
@@ -117,12 +119,16 @@ As built:
   header row with the view's heading and its Cancel, then one step at a time
   as a `flex-col gap-4` stack. Fields are a Label above the control; the
   primary Button spans the column.
-- **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`,
-  `ChangeEmailForm`) are a `flex-col gap-3` section: a header row with the
-  heading and, on the right, the panel's action as a `size="sm"` Button; then
-  the list, each row a bordered `rounded-md` box with a name, a meta line and
-  `outline` `sm` actions. `RecoveryCodesView` draws no heading; its host gives
-  it one.
+- **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`) are a
+  `flex-col gap-3` section: a header row with the heading and, on the right,
+  the panel's action (a `size="sm"` Button in `PasskeysView` and `TotpView`,
+  an `outline` Button at the default size in `SessionsView`); then the list,
+  each row a bordered `rounded-md` box with a name, a meta line and `outline`
+  `sm` actions. `RecoveryCodesView` draws no heading; its host gives it one.
+- **`ChangeEmailForm`** is the same `flex-col gap-3` column: its heading, then
+  one phase at a time. The email and code phases are each a labelled field
+  over a full-width Button; the step-up phase is `StepUpDialog`'s panel, and
+  the last a single line.
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
   border and wash: each event as a headline and a meta line, a footer line,
   and Acknowledge (`outline`, `sm`) at the right.
@@ -156,6 +162,20 @@ besides the default:
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
 | `ProfileSwitcher` | Avatar, Button, Dialog, Popover | `ghost`, `destructive` |
 | `TurnstileWidget` | — | — |
+
+**Drawn by hand.** Besides those parts, the views draw these controls
+themselves:
+
+- Raw `<input>`s: the new email and the code in `ChangeEmailForm`, and the
+  emailed code and the authenticator code in `StepUpDialog`, each
+  `bg-background rounded-md border px-3 py-2` inside a `<label>`.
+- A raw checkbox, "I've saved these codes somewhere safe.", in
+  `RecoveryCodesView`.
+- Text `<button>`s: "Lost your passkey?" in `SignIn` and "Resend code" in
+  `Register`, `text-primary text-sm font-medium` with an underline on hover;
+  each profile row and its delete control in `ProfileSwitcher`.
+- A `<details>` disclosure, "Signing in somewhere new?", under the list in
+  `PasskeysView`.
 
 ## 6. States per view
 
@@ -267,8 +287,8 @@ As built:
   the banner box in `SecurityEventsBanner`; inside the verify and passkey
   steps in `Register`, whose details step reports a failed send by toast
   alone. `Register` also shows field-level lines under the email and the date
-  of birth. All are `text-destructive`, at `text-sm`, except `SignIn`'s
-  and `TurnstileWidget`'s at `text-xs`.
+  of birth. All are `text-destructive`, at `text-sm`, except `SignIn`'s,
+  `TurnstileWidget`'s and `Register`'s two field-level lines, at `text-xs`.
 - **Toasts.** `SignIn`, `Register`, `TotpView`, `CreateProfileForm` and
   `ProfileSwitcher` also raise an error toast, and a success toast when an
   action completes ("Signed in", "Verification code sent", "Email verified",
@@ -323,6 +343,20 @@ Every focusable element in a view shows a visible focus indicator on
 a control the package draws itself takes the same treatment as `@shared/ui`'s
 Button, `focus-visible:ring-2 focus-visible:ring-ui-focus`. A focus indicator
 appears at once, never animated.
+
+**As it stands.** No class in `osn/auth-ui/src` draws a focus ring. The
+`@shared/ui` parts draw their own; every control the views draw by hand (§5)
+shows the browser's default outline instead:
+
+- the raw code and email `<input>`s in `ChangeEmailForm` and `StepUpDialog`
+  (#2041; `ChangeEmailForm`'s code field in #2056);
+- "Lost your passkey?" in `SignIn` and "Resend code" in `Register` (#2036);
+- the raw checkbox in `RecoveryCodesView`, the profile rows and delete
+  controls in `ProfileSwitcher`, and the "Signing in somewhere new?" summary in
+  `PasskeysView` (#2045).
+
+`ProfileSwitcher`'s rows also carry `transition-colors`, whose property list
+includes `outline-color`, so their outline fades in.
 
 ## 10. Words
 

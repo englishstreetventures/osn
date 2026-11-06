@@ -2,9 +2,18 @@
 
 Pulse frontend — a SolidJS browser SPA.
 
-Talks to one backend over HTTP: **`@pulse/api`**, on port 3001 locally, for
-events and RSVPs, through the Eden treaty client from `@pulse/api/client`
-(`src/lib/api.ts`).
+Its one backend is **`@pulse/api`**, on port 3001 locally, reached two ways.
+Events and onboarding go through the Eden treaty client from
+`@pulse/api/client` (`src/lib/api.ts`). RSVPs, series, venues, close friends
+and the calendar go through raw `fetch` wrappers (`src/lib/rsvps.ts` and the
+modules beside it), which keep those routes out of Eden's type chain; the
+comment at the top of `rsvps.ts` says why. Every wrapper but `venues.ts` calls
+through `authFetch` or `publicFetch` from `src/lib/auth.ts`, which set
+`credentials: "include"`; `venues.ts` makes public reads and sends no cookie.
+
+The browser also calls two third parties: Photon (`photon.komoot.io`) for
+place search (`src/lib/LocationInput.tsx`), and OpenStreetMap's tile servers
+for the map preview (`src/components/MapPreview.tsx`).
 
 Sign-in is OIDC, with Pulse as a relying party (`src/lib/auth.ts`, on
 `@shared/rp-auth`). `@pulse/api`'s `/api/auth/oidc/start` sends the browser
@@ -21,7 +30,8 @@ bun run --cwd pulse/web preview  # preview a production build
 
 ## Env
 
-The app reads one host, `VITE_API_URL` (`@pulse/api`). See `.env.example`.
+The app reads one configurable host, `VITE_API_URL` (`@pulse/api`). See
+`.env.example`.
 The env files also set `VITE_OSN_ISSUER_URL`, which nothing under `src/`
 reads.
 
@@ -32,8 +42,9 @@ secrets. Local overrides go in `.env.local`, which is ignored.
 
 A variable that should not be set must be left **commented out**, never set
 empty. An empty string is not nullish, so it defeats the
-`?? "http://localhost:…"` fallback in `src/lib/api.ts` and `src/lib/auth.ts`,
-and the app quietly issues requests relative to its own origin.
+`?? "http://localhost:…"` fallback in `src/lib/auth.ts` (and in
+`src/lib/venues.ts`, which reads the variable itself), and the app quietly
+issues requests relative to its own origin.
 
 One gap, deploy-time: `@pulse/api` has no route in any environment
 (`pulse/api/wrangler.toml`), so it has no hostname yet. `VITE_API_URL` stays

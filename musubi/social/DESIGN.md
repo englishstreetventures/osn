@@ -116,8 +116,8 @@ the test.
   which Musubi maps to `text-title` (14px), weight 500; `size="sm"` steps down
   to `--ui-text-sm`, `text-body` (13px).
   `tests/styles/token-contract.browser.test.tsx` holds the default size.
-- **Text fields** — `@shared/ui`'s `Input` sets 14px (`--ui-text-base`) from
-  768px up and 16px below (see the mobile input exception).
+- **Text fields** — `@shared/ui`'s `Input` sets 14px (`--ui-text-base`) at its
+  default size; below 768px Musubi's mobile input exception raises it to 16px.
 - **Mobile input exception** — form controls (`input`, `select`, `textarea`)
   render at **16px** below 768px (app-scoped rule in `App.css`). Mobile Safari
   zooms the page when a focused control is under 16px; this is the one
@@ -199,9 +199,27 @@ only when the OS explicitly asks for light, or the user opts into light.
 Every focusable element shows a focus indicator on `:focus-visible`, drawn in
 `--ring` (the contract's `--ui-focus`), which the contrast contract holds at
 3:1. `@shared/ui`'s Button draws it as `ring-2 ring-ui-focus`, and its text
-fields add a 2px offset. Draw a hand-made control's focus with the same
-`focus-visible:ring-2 focus-visible:ring-ui-focus`. Focus rings appear
-instantly, never animated.
+fields add a 2px offset. Draw a hand-made control's focus in the app's own
+name for that colour, `focus-visible:ring-2 focus-visible:ring-ring`. Focus
+rings appear instantly, never animated.
+
+Where the app does not follow this yet — known breaks include:
+
+- The account-menu triggers, in the rail (`Sidebar.tsx`) and the phone top bar
+  (`MobileTopBar.tsx`), pass `outline-none` and draw no ring, so keyboard
+  focus on them shows nothing (#2057).
+- One hand-drawn control draws the ring: the profile choice on `/authorize`'s
+  account screen (`AuthorizePage.tsx`), which writes the contract's
+  `ring-ui-focus`, the same colour. The rest draw none and show the browser's
+  own outline: the rail and bottom-bar links (`Sidebar`, `MobileNav`),
+  `SectionTabs`, the theme menu's options (`ThemeToggle`), the profile
+  switcher's rows (`ProfileSwitcherDialog`), the rows of `/authorize`'s
+  "Choose a profile" screen, the organisation list's rows, and the links
+  inside a sentence (`AuthorizeSignIn`'s "Create one", Discover's link to
+  search, the legal pages' contact address) (#2037).
+- Tailwind's `transition-colors` includes `outline-color`, so on a control
+  that carries it the browser's outline fades in rather than appearing at
+  once (#2037).
 
 In a contrast theme (Windows forced colours), which drops the ring, a
 `Button` focused from the keyboard draws a 2px system-colour outline 2px off
@@ -275,6 +293,10 @@ amending this file.
 
 Where the app does not follow this yet:
 
+- Three classes switch at `sm` (640px), not `md`: Discover's two grids of
+  suggestions, the loaded one and its placeholder (`sm:grid-cols-2`,
+  `DiscoverPage.tsx`), and the organisation list's description line
+  (`sm:block`, `OrganisationsPage.tsx`) (#2057).
 - Each app dialog passes a width cap (`max-w-sm`, or `max-w-xs` on the profile
   switcher), and the cap applies to the sheet too, so on a phone a sheet is no
   wider than the cap (#2038).
