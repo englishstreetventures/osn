@@ -245,6 +245,33 @@ describe("ConfirmLinkPage on a bare musubi route", () => {
   });
 });
 
+/** A colour painted over `under` on a one-pixel canvas, as the browser composites it. */
+function painted1px(under: string, colour: string): [number, number, number] {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const context = canvas.getContext("2d") as CanvasRenderingContext2D;
+  context.fillStyle = under;
+  context.fillRect(0, 0, 1, 1);
+  context.fillStyle = colour;
+  context.fillRect(0, 0, 1, 1);
+  const [r = 0, g = 0, b = 0] = context.getImageData(0, 0, 1, 1).data;
+  return [r, g, b];
+}
+
+/** WCAG's contrast ratio between two sRGB colours. */
+function contrast(a: [number, number, number], b: [number, number, number]) {
+  const lum = (rgb: [number, number, number]) => {
+    const [r, g, b2] = rgb.map((v) => {
+      const c = v / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b2;
+  };
+  const hi = Math.max(lum(a), lum(b));
+  const lo = Math.min(lum(a), lum(b));
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 /** The page in typed mode, as recovery's host draws it. */
 async function mountTyped(answer: "confirmed" | "throws") {
   render(() => (
@@ -297,6 +324,14 @@ describe("ConfirmLinkPage typing the number, on a bare musubi route", () => {
     expect(field.scrollWidth).toBe(field.clientWidth);
     // 16px type below 640px, so a phone's browser does not zoom on focus.
     expect(getComputedStyle(field).fontSize).toBe("16px");
+    // The field's edge, on the card it sits on, clears the 3:1 a control needs.
+    const cardFill = getComputedStyle(card).backgroundColor;
+    expect(
+      contrast(
+        painted1px(cardFill, getComputedStyle(field).borderTopColor),
+        painted1px(cardFill, cardFill),
+      ),
+    ).toBeGreaterThanOrEqual(3);
 
     await page.screenshot({ path: `${SHOTS}/typed-320.png` });
 
