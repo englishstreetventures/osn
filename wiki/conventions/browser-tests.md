@@ -378,7 +378,7 @@ than after them, runs the tier in three legs, each on its own runner:
 |---|---|
 | `cire-invites` | `@cire/invites` |
 | `cire-host` | `@cire/host` |
-| `rest` | `@musubi/social`, `@pulse/web`, `@shared/ui` |
+| `rest` | `@musubi/social`, `@pulse/web`, `@shared/ui`, `@cire/vendor`, `@cire/ui` |
 
 Within a leg the packages still run one at a time (`--concurrency=1`): each
 starts its own Vite server and Chromium, and several at once on one runner

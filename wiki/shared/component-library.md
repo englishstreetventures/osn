@@ -1471,8 +1471,15 @@ sentence at `text-ui-sm` in the secondary ink; the line saying what opening the
 link does, which an expired link drops; then Resend and "Use a different email"
 as small ghost buttons, 40px tall below `md` (musubi's phone touch height,
 through `max-md:h-10` at the call site) and `Button`'s own 32px from `md` up. An
-expired link's Resend becomes the filled pill, "Send a new link". No code box and no other factor: the dialog around the view draws any
-way back. A long address breaks where it must (`wrap-anywhere`), so a 320px
+expired link's Resend becomes the filled pill, "Send a new link". No code box
+and no other factor: the dialog around the view draws any way back. The
+countdown is the disabled Resend button's own label, at `Button`'s disabled
+opacity like every other disabled `Button`: 3.03:1 on musubi's light surface and
+4.56:1 on its dark one, which WCAG 1.4.3 exempts for a disabled control.
+
+*Measured 2026-11-06 — the lab's `osn/auth-ui/CheckEmailView/WaitingBeforeResend` story at 360 and 1280px in Playwright's Chromium, the label's ink composited at its opacity over the painted card on a canvas*
+
+A long address breaks where it must (`wrap-anywhere`), so a 320px
 column never scrolls sideways.
 
 - **The wait is read from the clock.** Each wait sets a deadline, and every tick
