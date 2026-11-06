@@ -12,8 +12,8 @@ export const meta = { title: "osn/auth-ui/ConfirmLinkPage", layout: "padded" as 
 
 /**
  * The page an emailed link opens, for sign-up, recovery, step-up and email
- * change. One story per state, in a column the width of the auth dialog the
- * first device showed (`max-w-sm`); the host route draws the page around it.
+ * change. One story per state, in the column the host route draws around it,
+ * as `AuthorizePage`'s `<main>` does (`max-w-md px-6`: a 400px card).
  * The colours are musubi's, which is the lab's own mapping, so the
  * **light · dark** toggle (or `?theme=dark`) is the theme check.
  *
@@ -63,9 +63,9 @@ function Pressed(props: { children: JSX.Element }) {
   return <div ref={box}>{props.children}</div>;
 }
 
-/** The host's column: the auth dialog's width. */
+/** The host route's column, padded as `AuthorizePage`'s `<main>` is. */
 function Column(props: { children: JSX.Element }) {
-  return <div class="w-full max-w-sm">{props.children}</div>;
+  return <div class="w-full max-w-md px-6">{props.children}</div>;
 }
 
 function state(title: string, intro: JSX.Element, page: () => JSX.Element): Story {
