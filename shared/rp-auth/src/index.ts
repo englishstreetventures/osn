@@ -7,7 +7,8 @@
  * The browser never sees an OSN token, never runs a WebAuthn ceremony, and
  * never holds a bearer token to leak. It does three things — ask the API who
  * is signed in, send the user off to sign in, and send the cookie along with
- * API calls.
+ * API calls. The first and last also run on a server that renders the app's
+ * pages, through the transport the app passes as `RpAuthConfig.fetch`.
  *
  * Why this exists rather than `@osn/client`: a WebAuthn ceremony may only run
  * on an origin same-site with the RP ID. Once identity moved to its own zone
@@ -32,13 +33,25 @@ export interface RpSession {
   expiresAt: string;
 }
 
+/** The call shape `RpAuthConfig.fetch` must have; any `fetch`-compatible function fits. */
+export type RpFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
 export interface RpAuthConfig {
-  /** Origin of the app's own API, e.g. `https://api.cireweddings.com`. */
+  /**
+   * Origin the auth routes are reached on, e.g. `https://api.cireweddings.com`,
+   * or the app's own origin when its API is mounted there. Read on every call,
+   * so a getter may answer differently in the browser and on a rendering
+   * server.
+   */
   apiBase: string;
-  /** Where the auth routes are mounted on that API. */
+  /** Where the auth routes are mounted under `apiBase`. */
   basePath?: string;
-  /** Test seam: injectable `fetch`. */
-  fetch?: typeof fetch;
+  /**
+   * The transport every call here goes through. Defaults to the global
+   * `fetch`, resolved per call. An app that renders on the server passes one
+   * that forwards the page request's session cookie there.
+   */
+  fetch?: RpFetch;
 }
 
 /**
@@ -72,7 +85,8 @@ const DEFAULT_BASE_PATH = "/api/auth";
 const authBase = (config: RpAuthConfig): string =>
   `${config.apiBase.replace(/\/+$/, "")}${config.basePath ?? DEFAULT_BASE_PATH}`;
 
-const doFetch = (config: RpAuthConfig): typeof fetch => config.fetch ?? fetch;
+const doFetch = (config: RpAuthConfig): RpFetch =>
+  config.fetch ?? ((input, init) => fetch(input, init));
 
 export interface SignInOptions {
   /**
@@ -273,9 +287,11 @@ export type AuthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promis
  * `fetch` that carries the session cookie and turns a 401 into
  * `AuthExpiredError`.
  *
- * `credentials: "include"` is forced rather than defaulted — the API is on a
- * different host from the app in every deployed tier, and the browser omits
- * cookies cross-origin without it.
+ * `credentials: "include"` is forced rather than defaulted. Where the API is
+ * on a different host from the app, the browser omits the cookie without it;
+ * where the API is mounted on the app's own origin it changes nothing. A
+ * transport that runs on a rendering server drops it, since workerd refuses
+ * the field.
  *
  * The transport is resolved per call, not captured here: apps build their
  * `authFetch` once at module load, and anything that replaces `globalThis.fetch`

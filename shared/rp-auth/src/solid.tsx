@@ -53,9 +53,11 @@ interface AuthProviderProps extends ParentProps {
 export function AuthProvider(props: AuthProviderProps) {
   const authFetch = createAuthFetch(props.config);
 
-  // The session probe runs on mount for every visitor, signed in or not. It is
-  // one request against the app's own API and it is the only way to know: the
-  // cookie is HttpOnly, so the browser cannot read it.
+  // The session probe runs for every visitor, signed in or not. It is one
+  // request against the app's own API and it is the only way to know: the
+  // cookie is HttpOnly, so the browser cannot read it. Under server rendering
+  // it runs on the server through `config.fetch`, and the browser hydrates
+  // that answer rather than asking again.
   const [session, { refetch, mutate }] = createResource<RpSession | null>(() =>
     fetchSession(props.config),
   );
