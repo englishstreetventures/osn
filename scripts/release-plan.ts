@@ -1191,8 +1191,9 @@ function flipBanner(release: ReleaseDecisions, flip: SiteSurface): string[] {
   }
   // The stack deploys every site it declares, a site whose content is
   // unchanged too: a build that bakes the release commit differs anyway.
+  const sites = stackSites(own);
   const siblings = release.decisions
-    .filter((d) => d.key !== flip && stackSites(own).includes(d.key))
+    .filter((d) => d.key !== flip && sites.includes(d.key))
     .map((d) => `\`${d.key}\` (${d.status})`);
   return [
     `> [!IMPORTANT]`,

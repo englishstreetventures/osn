@@ -1722,6 +1722,9 @@ describe("a production stack ships on its own record", () => {
           ship: false,
           status: "held back",
         });
+        expect(plan.decisions.find((d) => d.key === "osn_social")?.reason).toContain(
+          "; a flip release runs no job of its own for it, and its stack waits",
+        );
       });
     });
 
