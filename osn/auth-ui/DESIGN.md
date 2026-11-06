@@ -13,7 +13,7 @@ differ, with the issue that brings the code to the rule.
 ## 1. Scope and hosts
 
 **What the package exports.** One subpath per view in `package.json`
-(`ChangeEmailForm`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
+(`ChangeEmailForm`, `CheckEmailView`, `CreateProfileForm`, `PasskeysView`, `ProfileOnboarding`,
 `ProfileSwitcher`, `RecoveryCodesView`, `Register`, `SecurityEventsBanner`,
 `SessionsView`, `SignIn`, `StepUpDialog`, `TotpView`) and a barrel,
 `src/index.ts`, which also carries `RecoveryLoginForm`, `TurnstileWidget`,
@@ -23,8 +23,9 @@ types.
 **Hosts today.** `@musubi/social` is the one workspace that depends on the
 package. Its `DESIGN.md` §Auth surfaces says where each view mounts and what
 the app supplies ([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md)).
-Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
-(#2056) and `ProfileSwitcher` (#2045). Only their package tests render them.
+Four views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
+(#2056), `ProfileSwitcher` (#2045) and `CheckEmailView` (#2085). Only their
+tests render them, and `CheckEmailView` its lab stories too (§11).
 
 **What a host supplies.**
 
@@ -48,6 +49,7 @@ Three views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
 | `SecurityEventsBanner` | `client`, `stepUpClient`, `accessToken`, `productName`; `runPasskeyCeremony`, `totpClient`, `onVisibleCountChange` | — |
 | `SessionsView` | `client`, `accessToken` | — |
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`, `accessToken`; `runPasskeyCeremony`, `onChanged` | — |
+| `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `accessToken`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `purpose` | — |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
@@ -70,7 +72,8 @@ never names a host's own vocabulary, a raw palette colour or an arbitrary
 value.
 
 **As it stands.** The `@shared/ui` parts the views are built from render
-through the contract. The views' own classes do not yet (#2045). They name the
+through the contract, and so do `CheckEmailView`'s own classes, which are
+`ui-*` utilities alone. The other views' own classes do not yet (#2045). They name the
 shadcn colour vocabulary — `text-foreground`, `text-muted-foreground`,
 `text-destructive`, `text-primary`, `text-accent-foreground`, `bg-background`,
 `bg-muted`, `bg-accent`, `border-border` — Tailwind's default type steps and
@@ -87,9 +90,10 @@ utilities the views write themselves today: `text-ui-success` (`Register`),
   email code in `Register`, and the shared parts' own success states
   (`UsernameInput`, `OtpInput`).
 - `ui-warn` — a border and a wash: the `SecurityEventsBanner` box.
-- `ui-danger` — red, written today as `text-destructive`: every view's error
-  line, the field-level refusals in `Register`, and `RecoveryCodesView`'s
-  warning when an account has no recovery codes.
+- `ui-danger` — red, written today as `text-destructive`: every other view's
+  error line, the field-level refusals in `Register`, and `RecoveryCodesView`'s
+  warning when an account has no recovery codes. `CheckEmailView`'s error is an
+  inline danger `Notice`, which paints `ui-danger` itself.
 
 ## 3. Type
 
@@ -110,6 +114,13 @@ utilities the views write themselves today: `text-ui-success` (`Register`),
 The `@shared/ui` parts inside the views (Button, Input, Label, OtpInput, Card
 and Dialog titles) take the contract steps.
 
+`CheckEmailView` follows the rule. Its heading is `text-ui-base font-medium`,
+its lines `text-ui-sm` with `leading-ui-snug`, and the number a host passes as
+`pairingCode` is `text-ui-xl font-medium leading-ui-tight tabular-nums`. The
+number is the largest text in the view, larger than its heading, because it is
+the one thing the person carries to another screen. It takes tabular figures,
+not the Codes row's `font-mono`: it is read and picked, never typed or copied.
+
 ## 4. Layout
 
 As built:
@@ -129,6 +140,11 @@ As built:
   one phase at a time. The email and code phases are each a labelled field
   over a full-width Button; the step-up phase is `StepUpDialog`'s panel, and
   the last a single line.
+- **`CheckEmailView`** is a `flex-col gap-4` column for a step inside a dialog:
+  its `h3`; the live region (the sentence, then any error); the line about
+  opening the link; when there is one, the number over its caption
+  (`flex-col gap-1`), unboxed; then Resend and "Use a different email" as
+  full-width `ghost` `sm` Buttons, 40px tall below `md` (`max-md:h-10`).
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
   border and wash: each event as a headline and a meta line, a footer line,
   and Acknowledge (`outline`, `sm`) at the right.
@@ -158,6 +174,7 @@ besides the default:
 | `SessionsView` | Button | `outline` |
 | `SecurityEventsBanner` | Button | `outline` |
 | `ChangeEmailForm` | Button | — |
+| `CheckEmailView` | Button, Notice | `ghost` |
 | `CreateProfileForm` | Button, Input, Label, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
 | `ProfileSwitcher` | Avatar, Button, Dialog, Popover | `ghost`, `destructive` |
@@ -262,6 +279,18 @@ below to continue.", "Code", "Confirm identity & change email"); step-up, on
 the first Confirm, after which the change completes; done ("Your email is now
 {email}.").
 
+**`CheckEmailView`** — the wait after a flow emails a link. Where the host
+gives no `email`, "your email address" stands for the address, and recovery
+says "If that address has an account, …".
+
+| State | What shows |
+| --- | --- |
+| Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." when the host passes one; "Resend in {n}s", disabled, then "Resend link"; "Use a different email" when the host passes `onChangeEmail` |
+| Sending | "Sending a new link…"; Resend reads "Sending…" |
+| Sent again | "We sent a new link to {email}." (recovery: "If {email} has an account, a new link is on its way."), ending "Check the number again." when a number shows |
+| Error | The waiting copy, the number kept, and the host's `errorMessage` (or "Something went wrong. Try again in a moment.") under the sentence |
+| Expired | "Your link has expired"; "Ask for a new link to {email}."; no flow line and no number; "Send a new link" as the default Button, at once |
+
 **`CreateProfileForm`** — Handle (`UsernameInput`), "Display name (optional)",
 "Create profile" ("Creating..."), Cancel when the host gives `onCancel`.
 
@@ -289,6 +318,9 @@ As built:
   alone. `Register` also shows field-level lines under the email and the date
   of birth. All are `text-destructive`, at `text-sm`, except `SignIn`'s,
   `TurnstileWidget`'s and `Register`'s two field-level lines, at `text-xs`.
+  `CheckEmailView` shows the host's `errorMessage` as an inline danger
+  `Notice` under its sentence, inside the live region, so it is read out; it
+  raises no toast.
 - **Toasts.** `SignIn`, `Register`, `TotpView`, `CreateProfileForm` and
   `ProfileSwitcher` also raise an error toast, and a success toast when an
   action completes ("Signed in", "Verification code sent", "Email verified",
@@ -358,6 +390,11 @@ shows the browser's default outline instead:
 `ProfileSwitcher`'s rows also carry `transition-colors`, whose property list
 includes `outline-color`, so their outline fades in.
 
+`CheckEmailView` draws no control by hand. Its heading takes focus from code
+when the view appears and when Resend disables itself (`tabindex="-1"`, so
+never by Tab), and draws no indicator (`focus:outline-none`): it is where focus
+is put, not a control.
+
 ## 10. Words
 
 **The rule.** The product's name comes from the host through `productName`
@@ -378,8 +415,8 @@ no product.
   your authenticator app" in `StepUpDialog`, "Use my authenticator app" in
   `RecoveryLoginForm`); recovery code ("Use a recovery code", "Recovery
   code").
-- Going back: Cancel, Back, "Back to sign in", "← Use a different email",
-  "Start again".
+- Going back: Cancel, Back, "Back to sign in", "← Use a different email"
+  (`Register`), "Use a different email" (`CheckEmailView`), "Start again".
 
 ## 11. Tests
 
@@ -390,12 +427,21 @@ As built:
   `webauthn-browser.test.ts`, which runs the real `@simplewebauthn/browser`
   against a stubbed `navigator.credentials` for registration, authentication
   and conditional autofill. Run `bun run --cwd osn/auth-ui test:run`.
-- **No real-browser tier and no lab stories** for the package yet (#2045 adds
-  the lab).
+- **No real-browser tier** in the package. **Lab stories** for
+  `CheckEmailView` alone, `osn/auth-ui/CheckEmailView` in
+  `tools/lab/src/stories/osn-auth-ui/check-email-view.story.tsx`: one per
+  state, every flow, a 320px phone, and the number at rest, across a resend
+  and on a phone; the other views get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
   (`vi.mock("@osn/auth-ui/…")`) and check how the app wires them. The suites
   that run the real views are the end-to-end flows
   `tools/e2e/tests/flows/musubi-passkey.flow.ts` and
-  `tools/e2e/tests/flows/musubi-register-retry.flow.ts`.
+  `tools/e2e/tests/flows/musubi-register-retry.flow.ts`, and, for
+  `CheckEmailView`, which no flow reaches yet,
+  `musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx`: it
+  renders the view in Musubi's auth sheet in Chromium and holds its layout at
+  320px and 1280px (the long address, the countdown on one line, the 40px and
+  32px buttons, and the six-digit number at 24px in tabular figures with its
+  label read first).

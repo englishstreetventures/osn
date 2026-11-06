@@ -1453,9 +1453,12 @@ floor.
 sign-up, recovery, step-up and email change show once they have emailed a link:
 "Check your email". It is presentational. The parent sends the link, polls for
 the confirmation and passes `status`; the view decides what the person sees and
-hears while they wait, and when Resend may be pressed. `@osn/auth-ui` has no
-`DESIGN.md`, so its decisions are recorded here; its look follows
-`musubi/social/DESIGN.md`, the one app that renders it.
+hears while they wait, and when Resend may be pressed. Its design rules — type,
+layout, states, errors, focus — are in
+[`osn/auth-ui/DESIGN.md`](../../osn/auth-ui/DESIGN.md); this section holds its
+props, the decisions behind them, the host's rules and the tests. Its sizes
+resolve through `musubi/social/DESIGN.md`'s mapping, the one app that renders
+it.
 
 | Prop | What it does |
 | --- | --- |
