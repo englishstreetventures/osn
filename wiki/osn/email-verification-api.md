@@ -10,7 +10,7 @@ last-reviewed: 2026-11-06
 
 # Email Verification API status
 
-The record of where the browser Email Verification API stands, and of when our flag-gated sign-up path may become the default or go. Englishstreetventures/osn#2089 stays open until one of the two exit tests below passes. Re-check the status each time you read this page, and update the dates.
+The record of where the browser Email Verification API stands, and of when our flag-gated sign-up path may become the default or go. Issue englishstreetventures/osn#2089 stays open until one of the two exit tests below passes. Re-check the status each time you read this page, and update the dates.
 
 ## Status
 
