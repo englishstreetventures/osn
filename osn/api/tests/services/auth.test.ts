@@ -397,12 +397,20 @@ describe("sign-up through the emailed link", () => {
           "flow",
           "mailSecretHashes",
           "pairingHash",
+          "signUp",
           "status",
           "subject",
           "v",
         ].toSorted(),
       );
+      // The sign-up it parks, so it can park later; never the birthdate.
+      expect(entry!.signUp).toEqual({
+        email: "stored@example.com",
+        handle: "storeduser",
+        displayName: null,
+      });
       const stored = JSON.stringify(entry);
+      expect(stored).not.toContain("1990");
       const serverMac = createServerMac(config.sessionIpPepper);
       for (const candidate of serverMac.pairingCandidates(begun.requestId, 5)) {
         expect(stored).not.toContain(`"${candidate}"`);

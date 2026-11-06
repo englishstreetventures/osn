@@ -48,7 +48,7 @@ import type { AuthContext } from "./context";
 import type { CoordinationError } from "./errors";
 import { frontendOrigin, genId } from "./helpers";
 import { storeCall } from "./store-call";
-import type { EmailLinkChallenge, EmailLinkFlow } from "./stores";
+import type { EmailLinkChallenge, EmailLinkFlow, PendingSignUp } from "./stores";
 
 /** The request-id prefix of each flow. The confirm page reads the flow off it. */
 export const EMAIL_LINK_ID_PREFIX = {
@@ -123,6 +123,8 @@ export type EmailLinkResend =
   | {
       readonly state: "sent";
       readonly subject: string;
+      /** The sign-up the request parks at `subject`; registration only. */
+      readonly signUp?: PendingSignUp;
       readonly url: string;
       /** Milliseconds; the request's own expiry, unchanged by the Resend. */
       readonly expiresAt: number;
@@ -275,12 +277,14 @@ export function createEmailLinkModule(ctx: AuthContext) {
   /**
    * Opens a request of `flow` whose pending state sits at `subject`. One store
    * write, whatever the flow does next, so every branch of a flow's begin can
-   * make the same call.
+   * make the same call. A registration request carries `signUp`, the sign-up
+   * it parks at `subject`, so it can park later if it cannot now.
    */
   const open = (
     flow: EmailLinkFlow,
     subject: string,
     ttlMs: number,
+    signUp?: PendingSignUp,
   ): Effect.Effect<OpenedEmailLink, CoordinationError> =>
     Effect.gen(function* () {
       const requestId = genId(EMAIL_LINK_ID_PREFIX[flow]);
@@ -299,6 +303,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
         status: "pending",
         expiresAt,
       };
+      if (signUp) entry.signUp = signUp;
       yield* storeCall(links, "set", () => links.set(requestId, entry, ttlMs));
       return {
         requestId,
@@ -534,6 +539,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
           return {
             state: "sent",
             subject: from.subject,
+            signUp: from.signUp,
             url: linkUrl(requestId, linkSecret),
             expiresAt: from.expiresAt,
           } as const;

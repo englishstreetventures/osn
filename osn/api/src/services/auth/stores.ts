@@ -114,7 +114,8 @@ export interface RecoveryDisownToken {
  * A sign-up waiting for its emailed link, keyed by the normalised address (or,
  * for a taken address, its probe key). One live entry per key: a second begin
  * for the address finds it and parks nothing, so it cannot replace the request
- * someone else's link belongs to.
+ * someone else's link belongs to. That request parks here on a Resend once the
+ * key is empty.
  *
  * `requestId` names the {@link EmailLinkChallenge} this entry belongs to. Only
  * that request's claim creates the account, and only that request's wipe or
@@ -128,6 +129,13 @@ export interface PendingRegistration {
   requestId: string;
   expiresAt: number;
 }
+
+/**
+ * The sign-up a registration request parks at its address: the pending entry
+ * without the request it names and its expiry. A taken address's decoy holds
+ * an empty email and handle.
+ */
+export type PendingSignUp = Omit<PendingRegistration, "requestId" | "expiresAt">;
 
 /** The flows that prove an address with an emailed link. */
 export type EmailLinkFlow = "registration";
@@ -150,6 +158,12 @@ export interface EmailLinkChallenge {
    * its probe key. Never returned by any route.
    */
   subject: string;
+  /**
+   * Registration only, on every registration request: the sign-up to park at
+   * `subject`. A request whose begin found the address held parks it from
+   * here, on a Resend, once the address is free. No birthdate.
+   */
+  signUp?: PendingSignUp;
   /** The hash of every link sent for the request, newest last. */
   mailSecretHashes: string[];
   claimSecretHash: string;

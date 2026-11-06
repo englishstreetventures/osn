@@ -322,35 +322,69 @@ describe("a send-limit store that cannot answer", () => {
 });
 
 describe("POST /register/:requestId/resend", () => {
-  it.live("makes the same calls for a taken address's request as for a free one's", () => {
-    const h = harness();
-    return Effect.gen(function* () {
-      yield* h.auth.registerProfile("seq-rtaken@example.com", "seqrtaken");
-      const free = yield* h.auth.beginRegistration(
-        "seq-rfree@example.com",
-        "seqrfree",
-        "1990-01-01",
-      );
-      const taken = yield* h.auth.beginRegistration(
-        "seq-rtaken@example.com",
-        "seqrother",
-        "1990-01-01",
-      );
+  it.live(
+    "makes the same calls for a free address's request, a taken one's, and one whose address another sign-up holds or held",
+    () => {
+      const h = harness();
+      return Effect.gen(function* () {
+        yield* h.auth.registerProfile("seq-rtaken@example.com", "seqrtaken");
+        const free = yield* h.auth.beginRegistration(
+          "seq-rfree@example.com",
+          "seqrfree",
+          "1990-01-01",
+        );
+        const taken = yield* h.auth.beginRegistration(
+          "seq-rtaken@example.com",
+          "seqrother",
+          "1990-01-01",
+        );
+        const holder = yield* h.auth.beginRegistration(
+          "seq-rheld@example.com",
+          "seqrholder",
+          "1990-01-01",
+        );
+        const held = yield* h.auth.beginRegistration(
+          "seq-rheld@example.com",
+          "seqrheld",
+          "1990-01-01",
+        );
 
-      const freeResend = yield* h.record(
-        h.auth.resendRegistration(free.requestId, free.claimSecret),
-      );
-      const takenResend = yield* h.record(
-        h.auth.resendRegistration(taken.requestId, taken.claimSecret),
-      );
+        const freeResend = yield* h.record(
+          h.auth.resendRegistration(free.requestId, free.claimSecret),
+        );
+        const takenResend = yield* h.record(
+          h.auth.resendRegistration(taken.requestId, taken.claimSecret),
+        );
+        const heldResend = yield* h.record(
+          h.auth.resendRegistration(held.requestId, held.claimSecret),
+        );
+        // The holder ends; the held request's next Resend parks its sign-up.
+        yield* h.auth.beginRegistration(
+          "seq-rheld-2@example.com",
+          "seqrholder",
+          "1990-01-01",
+          undefined,
+          { requestId: holder.requestId, claimSecret: holder.claimSecret },
+        );
+        const parkingResend = yield* h.record(
+          h.auth.resendRegistration(held.requestId, held.claimSecret),
+        );
 
-      expect(freeResend).toEqual({
-        ops: ["email_link.read", "email_link.swap", "pending_registration.read"],
-        outcome: "ok",
-      });
-      expect(takenResend).toEqual(freeResend);
-    }).pipe(Effect.provide(h.layer));
-  });
+        expect(freeResend).toEqual({
+          ops: [
+            "email_link.read",
+            "email_link.swap",
+            "pending_registration.swap",
+            "pending_registration.read",
+          ],
+          outcome: "ok",
+        });
+        expect(takenResend).toEqual(freeResend);
+        expect(heldResend).toEqual(freeResend);
+        expect(parkingResend).toEqual(freeResend);
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
 });
 
 describe("a wrong pick whose delete the store fails", () => {

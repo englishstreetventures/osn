@@ -36,7 +36,9 @@ a flow keeps its own pending state beside it (sign-up's is
 The store entry (`email_link` ceremony store, keyed by request id) holds only
 SHA-256 hashes of the secrets, a keyed digest of the pairing number
 (`serverMac.pairingDigest`), the flow, the key of the flow's pending entry,
-`pending`, `confirmed` or `declined`, and the expiry. The candidates the page offers are
+`pending`, `confirmed` or `declined`, and the expiry. A sign-up request also
+holds the sign-up it parks (address, handle, display name; see
+[[#Sign-up]]). The candidates the page offers are
 derived from the request id under the server key (`serverMac.pairingCandidates`),
 never stored. The entry carries `v: 1`; any other shape is refused.
 
@@ -112,10 +114,21 @@ There is no `GET` on any of them: mail scanners open links before people do.
 ## Sign-up
 
 - **One live sign-up per address.** The pending entry is swapped in from
-  nothing, so a second begin for the address parks nothing and sends nothing.
-  `previous` — the request and claim secret of a sign-up this tab began and
-  left — retires that request first, so a person who goes back to fix the
-  handle can begin again at once.
+  nothing, so a second begin for the address parks nothing and sends nothing
+  while the first lives. `previous` — the request and claim secret of a
+  sign-up this tab began and left — retires that request first, so a person
+  who goes back to fix the handle can begin again at once.
+- **A request that did not park parks on a Resend.** Every sign-up request
+  carries the sign-up it parks: the address, handle and display name, never
+  the birthdate (a taken address's decoy carries none). Every Resend swaps
+  that in at the address from nothing, then reads the pending entry and mails
+  only when it names this request and holds an address. Where the address is
+  free — the sign-up that held it was retired, declined, wiped or expired —
+  the swap wins and the link goes out under a Resend's limits; where another
+  live sign-up holds it, the
+  swap cannot win, nothing goes, and the answer is `sent` as ever. A free
+  address's request, a taken one's and a held one's make the same four store
+  calls.
 - **Resend** sends another link for the same request; every link sent stays
   usable, three in all. A refused or failed send leaves the request live, and
   Resend is the retry.

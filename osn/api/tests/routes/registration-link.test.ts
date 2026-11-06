@@ -368,6 +368,48 @@ describe("resend", () => {
     expect(linksTo(h.recorded(), email)).toHaveLength(1);
   });
 
+  it("parks a second begin's sign-up on its Resend once the first has ended, and its link finishes it", async () => {
+    const h = harness();
+    const email = "parks-later@example.com";
+    // Two tabs, neither knowing of the other: no `previous`.
+    const first = await begun(h, email, "parksfirst");
+    const second = await beginThroughRoutes(h.app, { email, handle: "parkssecond" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
+
+    // While the first is live, the second's Resend mails nothing.
+    const whileHeld = await resendThroughRoutes(
+      h.app,
+      second.body.requestId,
+      second.body.claimSecret,
+    );
+    expect(await whileHeld.json()).toEqual({ status: "sent" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
+
+    // The first tab goes back and begins for another address, which retires it.
+    await beginThroughRoutes(h.app, {
+      email: "parks-later-2@example.com",
+      handle: "parksfirst",
+      previous: { requestId: first.requestId, claimSecret: first.claimSecret },
+    });
+
+    const resent = await resendThroughRoutes(h.app, second.body.requestId, second.body.claimSecret);
+    expect(await resent.json()).toEqual({ status: "sent" });
+    const links = linksTo(h.recorded(), email);
+    expect(links).toHaveLength(2);
+    expect(links[1]!.requestId).toBe(second.body.requestId);
+
+    const confirmed = await confirmThroughRoutes(
+      h.app,
+      links[1]!.requestId,
+      links[1]!.linkSecret,
+      second.body.pairingCode,
+    );
+    expect(await confirmed.json()).toEqual({ status: "confirmed" });
+    const done = await statusThroughRoutes(h.app, second.body.requestId, second.body.claimSecret);
+    expect(done.status).toBe(201);
+    expect(await done.json()).toMatchObject({ handle: "parkssecond", email });
+  });
+
   it("resends one address no more than six links an hour across requests, and always sends a begin's first", async () => {
     const h = harness();
     const email = "address-cap@example.com";

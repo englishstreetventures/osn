@@ -289,11 +289,11 @@ for (counted from the code, 2026-10-28):
 | Sign-up link `begin` | 2 (the request's `set`, then the pending entry's `swap`), after a D1 collision probe; 6 when `previous` retires an earlier request first (a `get`, a `consume`, then the pending entry's `get` and `delete`). The send's lockout lookup and, for a resend, its cap check run after the answer |
 | Sign-up link status, pending | 1 `get` |
 | Sign-up link status, completing | 3 (the request's `get`, the pending entry's `get`, the claim's `consume`), then the D1 insert; the pending entry's delete runs after the answer |
-| Sign-up link Resend | 3 (the request's `get`, its `swap`, the pending entry's `get`), then 1 to 2 after the answer: the lockout lookup, and the send cap's check unless the lockout already refuses |
+| Sign-up link Resend | 4 (the request's `get`, its `swap`, the pending entry's `swap` from nothing, which parks a request whose address is free and cannot win where an entry is live, then its `get`), then, when a link goes, 1 to 2 after the answer: the lockout lookup, and the send cap's check unless the lockout already refuses |
 | Sign-up link candidates | 1 `get` |
 | Sign-up link confirm, right pick | 2 (`guess`, then `swap`) |
 | Sign-up link confirm, decline | 4 (`guess`, `swap`, then the pending entry's `get` and `delete`) |
-| Sign-up link confirm, wrong pick | 5 (`guess`, the strike's `recordFailure`, then `consume`, and the pending entry's `get` and `delete`) |
+| Sign-up link confirm, wrong pick | 5 (`guess`, `consume`, the pending entry's `get` and `delete`, then the strike's `recordFailure`); when another write removed the request first, the request's re-read `get` takes the strike's place and no strike counts |
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |

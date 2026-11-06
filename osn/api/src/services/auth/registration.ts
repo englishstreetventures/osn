@@ -38,9 +38,16 @@ import {
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import { storeCall } from "./store-call";
-import type { EmailLinkChallenge, PendingRegistration } from "./stores";
+import type { EmailLinkChallenge, PendingRegistration, PendingSignUp } from "./stores";
 import type { TokensModule } from "./tokens";
 import type { ProfileWithEmail, SessionMeta } from "./types";
+
+/**
+ * What a taken address's request parks: no address and no handle, so nothing
+ * is ever mailed for it and no claim can finish it. A request that carries no
+ * sign-up parks the same.
+ */
+const DECOY_SIGN_UP: PendingSignUp = { email: "", handle: "", displayName: null };
 
 /** What a sign-up status poll answers. */
 export type RegistrationStatus =
@@ -250,7 +257,7 @@ export function createRegistrationModule(
    *  - A swap from nothing refuses to replace a live pending entry, so a
    *    second begin for someone's address cannot take over the request their
    *    link belongs to; of two begins at once, one parks and the other sends
-   *    nothing.
+   *    nothing until a Resend finds the address free.
    *  - `previous`, the request and claim secret of a sign-up this tab began
    *    before, retires that request and frees its address first, so a person
    *    who goes back to fix their handle can begin again at once. Without the
@@ -337,22 +344,17 @@ export function createRegistrationModule(
       // it and no claim can finish it.
       const key = taken ? serverMac.probeKey(normalisedEmail) : normalisedEmail;
       const ttlMs = otpTtl * 1000;
-      const opened = yield* links.open("registration", key, ttlMs);
-      const parked: PendingRegistration = taken
-        ? {
-            email: "",
-            handle: "",
-            displayName: null,
-            requestId: opened.requestId,
-            expiresAt: opened.expiresAt,
-          }
-        : {
-            email: normalisedEmail,
-            handle,
-            displayName: displayName ?? null,
-            requestId: opened.requestId,
-            expiresAt: opened.expiresAt,
-          };
+      const signUp: PendingSignUp = taken
+        ? DECOY_SIGN_UP
+        : { email: normalisedEmail, handle, displayName: displayName ?? null };
+      // The request carries the sign-up too, so a begin that finds the
+      // address held can park it on a Resend once the address is free.
+      const opened = yield* links.open("registration", key, ttlMs, signUp);
+      const parked: PendingRegistration = {
+        ...signUp,
+        requestId: opened.requestId,
+        expiresAt: opened.expiresAt,
+      };
       const written = yield* storeCall(stores.pendingRegistrations, "swap", () =>
         stores.pendingRegistrations.swap(key, null, parked, ttlMs),
       );
@@ -362,8 +364,8 @@ export function createRegistrationModule(
         pairingCode: opened.pairingCode,
         expiresAt: Math.floor(opened.expiresAt / 1000),
       };
-      // A request whose entry did not park is left to expire unconfirmed: its
-      // link is never sent.
+      // A request whose entry did not park sends no link now; its Resend
+      // parks it once the address is free.
       if (taken || !written) return answer;
 
       yield* logDevLink("registration", opened.url);
@@ -385,13 +387,17 @@ export function createRegistrationModule(
    * `EMAIL_LINK_MAX_SENDS` in all. Answers:
    *
    *  - `sent` — another link is on its way; also for a taken address's request
-   *    (nothing goes out) and for a request already confirmed (the next poll
-   *    finishes it, so nothing more is needed);
+   *    (nothing goes out), for a request whose address another live sign-up
+   *    holds (nothing goes out), and for a request already confirmed (the next
+   *    poll finishes it, so nothing more is needed);
    *  - `limit` — the request has sent all the links it may;
    *  - `expired` — no live request matches.
    *
-   * Like begin, it mails after the answer, and a taken address's request makes
-   * the same store calls as a free one's.
+   * A request whose begin found the address held parks its sign-up here, by a
+   * swap from nothing, once the sign-up that held it has ended; its link then
+   * goes. Every request makes that swap, which cannot win where an entry is
+   * live, so a free address's request, a taken one's and a held one's make the
+   * same store calls. Like begin, it mails after the answer.
    */
   const resendRegistration = (
     requestId: string,
@@ -402,6 +408,19 @@ export function createRegistrationModule(
       if (resent.state === "expired") return { status: "expired" } as const;
       if (resent.state === "limit") return { status: "limit" } as const;
       if (resent.state === "confirmed") return { status: "sent" } as const;
+      const parked: PendingRegistration = {
+        ...(resent.signUp ?? DECOY_SIGN_UP),
+        requestId,
+        expiresAt: resent.expiresAt,
+      };
+      yield* storeCall(stores.pendingRegistrations, "swap", () =>
+        stores.pendingRegistrations.swap(
+          resent.subject,
+          null,
+          parked,
+          Math.max(1, resent.expiresAt - Date.now()),
+        ),
+      );
       const pending = yield* storeCall(stores.pendingRegistrations, "get", () =>
         stores.pendingRegistrations.get(resent.subject),
       );
