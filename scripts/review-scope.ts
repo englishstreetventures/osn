@@ -57,11 +57,12 @@
  *
  * Git is read with `-z` and `--no-renames`: a name arrives whole however odd
  * it is, and a file moved out of `src/` still shows its old path. A diff with
- * no changes at all prints `full-state-design`, since it means the wrong
- * range was read and every review should look. Without a base, or when git
- * fails, it prints nothing and exits 1, which `prep-pr` also reads as
- * `full-state-design`.
- * Tests in `scripts/tests/review-scope.test.ts`.
+ * no changes at all prints `full-state`, since it means the wrong range was
+ * read: every review looks but the design review, which runs only when a
+ * changed file `designCandidate` accepts. Without a base, or when git fails,
+ * it prints nothing and exits 1, which `prep-pr` also reads as `full-state`,
+ * adding the design review when its own read of the changed files finds one
+ * that draws a screen. Tests in `scripts/tests/review-scope.test.ts`.
  */
 
 import { existsSync, lstatSync, readFileSync } from "node:fs";
@@ -304,13 +305,14 @@ export function designCandidate(change: ChangedPath): boolean {
 /** The verdict. `state`, whether the diff writes state, and `design`, whether
  * it changes how a screen looks, each add their suffix to `full`, in that
  * order; nothing lifts a trivial verdict, since a state is only ever written
- * from source and a screen only ever drawn from it. */
+ * from source and a screen only ever drawn from it. An empty list is
+ * `full-state` whatever the flags say: no changed file draws a screen. */
 export function reviewScope(
   changes: readonly ChangedPath[],
   state = false,
   design = false,
 ): ReviewScope {
-  if (changes.length === 0) return "full-state-design";
+  if (changes.length === 0) return "full-state";
 
   const classes = new Set(changes.map(changeClass));
   if (classes.has("other")) {

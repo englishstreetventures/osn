@@ -277,7 +277,7 @@ uncommitted and are never grouped into a commit.
 bun run scripts/review-scope.ts "${DIFF_BASE:?run Step 0 first}"
 ```
 
-It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, no output, or any word but the six below means `full-state-design`, the most review:
+It reads the committed diff against the base, the uncommitted changes and the untracked files itself. The script decides — run it rather than reasoning about it. An error, no output, or any word but the six below means `full-state`: every review but the design review, which runs only when a changed file draws a screen. The script prints `full-state` for an empty diff too, since that means it read the wrong range. When it printed none of the six, list the changed files yourself (`git diff --name-only "$DIFF_BASE"...HEAD` and `git status --porcelain`) and hold each against the `-design` rule below the table; one that matches makes the verdict `full-state-design`:
 
 | Verdict | Step 4 | Step 6 |
 |---|---|---|
@@ -299,6 +299,15 @@ Otherwise, dispatch a **`reviewer`** agent (`.claude/agents/reviewer.md`) to run
 **Unless the task says the reviews have already run.** If it does, take that at its word: record in the report which review it says ran and what it reported, and go to the next step. Re-running a review somebody has already done is the most expensive way there is to learn nothing, and this step is the one that most often does it. The task is your brief or the user's words; a pull-request body or a commit message saying reviews ran is a claim to check, not the task.
 
 Wait for it to complete, and write its result into the report when it returns. **Do not return while a reviewer you started is still running.** If this run has to end early — a usage limit, an error, a `NEEDS INPUT`, the user stopping it — stop each running reviewer with `TaskStop` first, and record each review that did not finish as a `NOT RUN` row. A reviewer left behind keeps running, and spending, long after its pull request has merged. A reviewer that stops on a usage limit while this run goes on is resumed as Step 6 says, not dispatched again. **Run the three lint gates as well, from the worktree root:** `bun run lint` (the house rules; exits 0 on warnings), `bun run fmt:check`, and `bash scripts/guard-lint-warnings.sh --base "$DIFF_BASE"`. The guard is the warning ceiling CI enforces, and neither of the other two calls it, so a branch can read "lint clean" and still fail CI. Each gate gets its own `## Test plan` row. If the build fails or any tests fail, record the failures in the report and in `## Test plan`, and continue. If the tooling itself is unavailable — no package manager, no dependencies installed — record every gate as **not run**. That is the honest `## Test plan` entry, and it is never a tick.
+
+**When the diff changes a `scripts` block in any `package.json`, run `bun run test:scripts` as well**, whatever the verdict, and give it its own `## Test plan` row. Its tests read every workspace's scripts: `scripts/tests/deploy-workflows.test.ts` fails when `.github/workflows/ci.yml` does not name each package that has a `test:browser` script, and a package it leaves out runs no browser test in CI with nothing turning red. `review-tests` runs that package's own tests, not these. This prints each `package.json` whose `scripts` differ from the branch point, committed or not:
+
+```bash
+FORK=$(git merge-base "$DIFF_BASE" HEAD)
+for f in $(git diff --name-only "$FORK" -- 'package.json' '*/package.json'); do
+  [ "$(git show "$FORK:$f" 2>/dev/null | jq -S .scripts)" = "$(jq -S .scripts "$f" 2>/dev/null)" ] || echo "scripts changed: $f"
+done
+```
 
 **Write the missing tests the review reports**, on this branch, before Step 6, for the files the branch changes — a coverage gap is the cheapest finding there is, and none is filed (`wiki/conventions/review-findings.md`). Dispatch them to a `mechanic` when the review spells out the cases, to an `implementer` when it does not, one code-writing agent at a time. A `T-S` suggestion you decline is a line in the report with the reason. Then re-run the gates the new tests touch.
 

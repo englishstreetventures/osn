@@ -272,7 +272,7 @@ Then the instructions themselves, for an `implementer` or `designer` hand-off:
 - Invoke the `new-feat` skill and follow it — it routes to the right sub-skills. Plan the implementation itself; do not wait for a plan from you.
 - Match repo conventions (`AGENTS.md`, the product's `wiki/<product>/<product>-development.md`), add the changeset, follow the observability rules, write tests — TDD where there is logic.
 - Invoke the `write-wiki` skill before editing any page under `wiki/`, and edit with Edit/Write in its own worktree. Say explicitly: the Obsidian MCP and the `obsidian` CLI both point at `main`'s `wiki/`; they read, never write.
-- **Commit on the branch; do not push and do not open a PR** — Step 4 owns that.
+- **Commit on the branch; do not push and do not open a PR** — Step 4 owns that. The one exception is the last stage of a Workflow builder, below.
 - On a decision it cannot resolve from the context and sensible defaults, **stop and return `NEEDS INPUT: <question> + options + recommendation`** rather than guess.
 
 Do not re-implement or second-guess its design. Its final message is a report to you, not to the user.
@@ -288,6 +288,18 @@ answered by re-dispatching the task to an `implementer` with the question in
 its brief, and the `agent:` line changes to say so.
 
 For a **large phase** — a plan with many independent tasks — tell the subagent to run `superpowers:subagent-driven-development` against the plan file instead of `new-feat`: a fresh implementer per task, a review per task, a review of the whole branch, all inside the one branch. Still one PR; `prep-pr` runs once at the end. That plugin's templates dispatch `general-purpose` with a `model`; tell the subagent to route them as `pick-agent` §Never `general-purpose` says — cheapest-tier implementer prompts to `mechanic`, the rest to `implementer`, the final whole-branch review to `reviewer`, per-task reviews left as the plugin dispatches them.
+
+**A builder that a Workflow script starts has no `Agent` tool.** It cannot dispatch `stress-plan`'s `attacker` or `prep-pr`'s `reviewer` agents, so its plan attack and its reviews would be its own. When a script runs the task, the script runs those passes as stages of their own, each an agent with its definition set, and splits the builder around them. Each builder stage picks up from the worktree's `NEW-FEAT.md`. The stages keep `prep-pr`'s order, so the Step 6 reviewers read the tests `review-tests` asked for:
+
+1. The builder runs `new-feat` up to its Step 3 and returns once `NEW-FEAT.md` holds the plan.
+2. An `attacker` stage attacks `NEW-FEAT.md` with `stress-plan` Step 2's prompt.
+3. The builder writes that report to `PLAN-REVIEW.md`, closes each finding as `stress-plan` Step 3 says, builds, and runs `prep-pr` Steps 0 to 5 without dispatching Step 4's review. It returns the verdict `scripts/review-scope.ts` printed. On `trivial` it runs the gates inline, as `prep-pr` Step 4 says, and the task goes to stage 7.
+4. A `reviewer` stage, alone in the worktree, runs `review-tests` as `prep-pr` Step 4 dispatches it.
+5. The builder writes the tests it reports missing and re-runs the gates they touch, as `prep-pr` Step 4 says. With none missing, this stage is skipped.
+6. `reviewer` stages run the Step 6 reviews the verdict calls for, together and not alone in the worktree, each with the effort `prep-pr` Step 6 gives it. `trivial-tests` calls for none.
+7. The builder runs the design review's `unmeasured` checks and fixes every finding, as `prep-pr` Step 6 says, then runs `prep-pr` from Step 7, pushing and opening the pull request itself.
+
+Each builder brief names the passes that run outside it, so it neither skips them nor runs them on itself; `prep-pr` takes the task's word that its reviews have run. The split stands in for this step's no-push rule and for Step 4's `prep-pr` run, for that task only.
 
 ### Step 4 — `prep-pr`, with findings fixed
 
@@ -317,6 +329,8 @@ Two rules for anything you dispatch into a worktree:
   worktree, as `prep-pr` Step 6 runs several: their tool grant has no `Edit` and
   their definition tells them never to change the checkout.
 
+**A task split into Workflow stages (Step 3) has been through `prep-pr` already,** and its last builder stage opened the pull request. Run the checks above on it, then move its card as the end of this step says; the rest of this step is for every other task.
+
 Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel, with the state review beside them when the diff writes state and the design review when it changes how a screen looks. `prep-pr` Steps 4 and 6 write the missing tests and fix every finding in the task's scope themselves; read the finding tally in its report rather than dispatching fixes again. A small fix outside the task's scope becomes a new task in this run's list: cut its worktree with Step 2 and dispatch it with Step 3 — one per task, batching every such fix the task found, one commit each — and it merges with the rest. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. An issue is left open only for work out of the feature's scope, something unrelated found mid-task, or a larger piece of work. When a task leaves more than two open that no pull request will close, check each against those three yourself from the tally, and send the subagent back once, naming the issue that fits none; one that fits stays open. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the PR body with the `write-pr` skill, push, and open the PR. Once it is open, move the issue's card to In Review (`next-batch` §Claim, step 4); in a frontend stack, only once the feature pull request is open.
 
 ### Step 5 — Retro, then watch, merge, tear down
@@ -328,6 +342,28 @@ complexity declared at Step 1. Under this skill that matters more than
 anywhere else: an orchestrated task's spend sits in subagent transcripts, and
 the card is the only place it is ever added up. Skip it and the task's own cost
 is unrecoverable once the worktree is torn down at the end of this step.
+
+**Every push must start CI.** After each push to a branch with an open pull
+request — yours, one a subagent reports, each branch a rebase carries up a
+stack — check that GitHub started `ci.yml` on the new head. Read it no sooner
+than two minutes after the push: at the next step boundary, or after a
+`sleep 120` run with `run_in_background` when nothing else is waiting. GitHub
+can take that long to create the run, so a `0` read sooner means nothing yet.
+The count:
+
+```bash
+sha=$(gh api repos/englishstreetventures/osn/pulls/<n> --jq .head.sha)
+gh api "repos/englishstreetventures/osn/actions/runs?head_sha=$sha&event=pull_request" \
+  --jq '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml")] | length'
+```
+
+`0` two minutes or more after the push is a blocked gate, never a pass. Nothing
+ran on that head, so green checks from an earlier head say nothing about it,
+and `wait-pr.sh` would only run out its deadline. Write `CI NOT RUN on <sha>`
+on the task's `gates:` line, neither queue nor park the pull request as green
+while it stands, and name it in the closing summary. A run of another workflow, such as the changeset check, does
+not count. A count above zero says only that CI started; the wait below says
+how it ended.
 
 **Then wait, with an end, and keep the polling out of your context.** Read the
 body first, with the check in the first bullet below: no session marks ready a
@@ -354,7 +390,7 @@ line and the shepherd report:
 
 - **Before any `gh pr ready` or merge, read the body**: `gh api repos/englishstreetventures/osn/pulls/<n> --jq .body | grep -iE '^[[:space:]>*-]*\*\*do not merge until'`, which matches the bold lead-in at the start of a line, in a list or a quote too, and not prose that only mentions it. While a line it prints stands, the pull request is not marked ready and not queued. On a draft every such line waits on the owner: the draft is parked, below. On a pull request the owner has marked ready, the line has been answered, and the session that merges it removes it. On any other ready pull request, a line that waits on the owner holds until their own words answer it (`wiki/conventions/review-findings.md` §What counts as the owner's answer). A line whose condition this run can see end — a pull request ahead of it in this run's merge queue (`bash scripts/wait-pr.sh --until-merged <m> 60` in the background), or a release workflow run already in progress, until `status: completed` — you wait for, then edit out of the body (`write-pr` Step 6) and go on. Park anything else as a waiting draft is parked, its `next:` naming the condition.
 - A draft that waits on the owner, all checks green → park it. Write `next:` in `ORCHESTRATE.md` naming what it waits on, leave its card In Review, remove the worktree this run created once the branch is pushed and `git -C <dir> status --porcelain` prints nothing, and name the draft in the closing summary. Once the owner has answered (`wiki/conventions/review-findings.md` §What counts as the owner's answer), a later run applies the answer through an `implementer` in a worktree of its own, cut from the branch (`git worktree add <dir> <branch>`), which keeps the pull request a draft, rewords its line to say the answer is applied, and tells the owner it is theirs to mark ready. Once they have, it merges as below.
-- All checks green, `mergeStateStatus: CLEAN` and no line from the body check still holding → **you** hand it to the merge queue with `gh pr merge <n> --squash --auto` (in a remote session, which has no GraphQL, the GitHub MCP `enable_pr_auto_merge` tool with the squash method). With the `main` ruleset's merge queue on, that queues it, and the queue re-runs CI on the pull request together with the ones ahead of it; without the queue, `--auto` merges once the required checks pass. Then wait for the merge itself, in the background: `bash scripts/wait-pr.sh --until-merged <n> 60`. Exit 0 is `MERGED`; exit 1 with "left the merge queue" means the group failed. Read that group's failing check as for any red check: a migration that clashes with one that merged first is regenerated on the new `main` (`wiki/conventions/commands.md` §Migrations), then pushed and queued again.
+- All checks green, `mergeStateStatus: CLEAN` and no line from the body check still holding → **you** hand it to the merge queue with `gh pr merge <n> --squash --auto` (in a remote session, which has no GraphQL, the GitHub MCP `enable_pr_auto_merge` tool with the squash method). With the `main` ruleset's merge queue on, that queues it, and the queue re-runs CI on the pull request together with the ones ahead of it; without the queue, `--auto` merges once the required checks pass. A linked stack whose pull requests all meet these three conditions, and which is not a frontend stack, is queued whole instead, with `gh stack merge` as `wiki/conventions/stacked-prs.md` §A whole stack says; a frontend stack merges one pull request at a time, as §Opening, approval and merge there says. Then wait for the merge itself, in the background: `bash scripts/wait-pr.sh --until-merged <n> 60`. For a whole stack, `<n>` is the highest pull request one round can land, `max_entries_to_build` up from the bottom; then queue the next round as that page says. Exit 0 is `MERGED`; exit 1 with "left the merge queue" means the group failed. Read that group's failing check as for any red check: a migration that clashes with one that merged first is regenerated on the new `main` (`wiki/conventions/commands.md` §Migrations), then pushed and queued again.
 - `DIRTY` or `BEHIND` → dispatch an **`implementer`** to rebase onto the latest `origin/main` (onto its parent branch for a pull request in a stack, then carry the change up: Step 0 §A frontend stack), resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests and `git push --force-with-lease`. Conflict resolution is a judgement call and a force-push is not recoverable, so neither belongs to the polling agent.
 - A check failure → first find out whose it is: a test or error line that also fails on `main`, or one the branch never touches that passes on a rerun, is not this branch's to fix (`review-pr` Step 4 has the commands). A real failure of the branch's → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
 - Once `MERGED`, **you** remove the worktree this run created and delete the local branch: `git -C <dir> status --porcelain` must print nothing first, since `--force` would take uncommitted work with it, then `git worktree remove --force <dir>`. Never leave one of those behind. A worktree another tool or session made — an adopted pull request's — stays where it is, and the closing summary names it.

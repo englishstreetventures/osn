@@ -122,7 +122,47 @@ GitHub reads closing keywords only on a pull request whose base is the default b
 
 ## Merge order
 
-With the `main` ruleset's merge queue on, `main` takes pull requests through it (`gh pr merge <n> --squash --auto`), testing each one on top of those ahead of it before it lands; [[commands#Migrations]] says why. A stack still merges bottom up, one at a time. When PR 1 merges, GitHub retargets PR 2 to `main`, provided PR 1 was merged rather than closed.
+With the `main` ruleset's merge queue on, `main` takes pull requests through it, testing each one on top of those ahead of it before it lands; [[commands#Migrations]] says why.
+
+### A whole stack
+
+Merge a linked stack whole when every pull request in it is ready, not a draft. A frontend stack ([[#Frontend: one component per pull request]]) merges one pull request at a time instead: each child needs the `range-diff` check in [[#Opening, approval and merge]] before it is released, and its component pull requests stay drafts until then, which `gh stack merge` refuses. A stack that was never linked, or one merged from a machine without `gh stack`, also merges one pull request at a time.
+
+```bash
+gh api repos/englishstreetventures/osn/pulls/<any PR in the stack> --jq .stack.number
+gh stack merge <stack number> --squash --yes
+```
+
+The second command adds the whole stack to the queue. Pass the stack's number, not a pull request's: the command reads a bare number as a stack number first. `--yes` skips the wizard it opens in an interactive terminal. The queue builds at most `max_entries_to_build` entries at once, so each round lands that many. The next entry still holds the squashed parents' original commits, so the queue removes it as a conflict. GitHub then rebases the rest onto `main` and their CI runs again; once it is green, the same command queues the next round. Read the live limits from the ruleset:
+
+```bash
+gh api repos/englishstreetventures/osn/rules/branches/main \
+  --jq '.[] | select(.type=="merge_queue") | .parameters | {max_entries_to_build, check_response_timeout_minutes}'
+```
+
+*Read 2026-11-06: `max_entries_to_build` 5, `check_response_timeout_minutes` 60.*
+
+- **Keep a stack within `max_entries_to_build`**, or have the owner raise it for the merge. Each round past it costs every pull request still waiting another CI run.
+- **Queue only once the stack's own CI has settled.** The queue gives a group `check_response_timeout_minutes` to report, and removes one still waiting for runners the stack's CI holds.
+- **A release between rounds can consume a changeset a waiting pull request edits.** GitHub's rebase then stops on that pull request, which still holds the original commits of the parent that merged. Rebase it by hand, taking the changeset's deletion; a wording change it carried goes to the line the release wrote in that package's `CHANGELOG.md`. A tip recorded locally is no use here, since GitHub rebases the stack on its own servers; use the parent's last head, which GitHub keeps after the merge as `refs/pull/<parent PR>/head`. In the branch's worktree:
+
+  ```bash
+  git fetch --no-tags origin "+refs/pull/<parent PR>/head:refs/remotes/origin/pr/<parent PR>" "+refs/heads/<branch>:refs/remotes/origin/<branch>" \
+    "+refs/heads/main:refs/remotes/origin/main"
+  git merge --ff-only refs/remotes/origin/<branch>
+  git rev-parse HEAD   # record it: the lease, and the base the branches above rebase from
+  if git merge-base --is-ancestor refs/remotes/origin/pr/<parent PR> HEAD; then
+    git rebase --onto refs/remotes/origin/main refs/remotes/origin/pr/<parent PR>
+  else
+    git rebase refs/remotes/origin/main   # GitHub had already moved it onto main
+  fi
+  ```
+
+  Then `bun install --frozen-lockfile`, and push with the lease pinned to the head you recorded, as [[#One pull request at a time]] does. Carry the branches above it up from that recorded head, as [[#Rebasing a stack]] says, then queue the next round.
+
+### One pull request at a time
+
+A child queued on its own with `gh pr merge <n> --squash --auto` waits for its parent to merge. When PR 1 merges, GitHub retargets PR 2 to `main`, provided PR 1 was merged rather than closed.
 
 The retarget is not enough. PR 2's branch still carries PR 1's original commits, and the squash put different ones on `main`, so PR 2 still holds PR 1's changes. Any file `main` has since deleted comes back with it, a changeset `release.yml` consumed included. Before queueing PR 2, rebase it past them and push:
 
@@ -135,8 +175,6 @@ git push --force-with-lease=<PR 2's branch>:<its recorded head> --force-if-inclu
 Pin the lease to the head you recorded. Every worktree shares one set of remote refs, so any session's `git fetch` refreshes a bare lease, and a commit pushed from elsewhere, such as a suggestion accepted in the web editor, would be overwritten without a word.
 
 PR 1's tip is gone by then: the merge deletes its branch on GitHub and Step 5 of `orchestrate` deletes it locally. Record it when PR 2 is cut and after every rebase, as `git merge-base <PR 1's branch> <PR 2's branch>`. Queue a child only once its base is `main`. Only `main` has a ruleset, so a child still based on its parent's branch has no queue and no required checks, and `--auto` merges it into the parent at once.
-
-`gh stack merge <pr-number>` merges every PR up to that one in one operation. It goes around the merge queue and the rebase above, so do not use it here.
 
 Merging out of order, or closing a parent without merging, orphans the children: their base branch is deleted and the diff turns into everything since `main`. If that happens, `git rebase --onto main <old-parent> <child>` and `gh api -X PATCH repos/englishstreetventures/osn/pulls/<child> -f base=main`.
 

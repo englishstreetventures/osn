@@ -56,11 +56,13 @@ Open pull requests come first, and fixing them counts against agent capacity. Ma
 
 ```bash
 gh api repos/englishstreetventures/osn/pulls/<pr> --jq '{state, merged, mergeable_state, sha: .head.sha}'
-gh api repos/englishstreetventures/osn/commits/<sha>/check-runs \
+gh api "repos/englishstreetventures/osn/commits/<sha>/check-runs?per_page=100" \
   --jq '.check_runs[] | select(.conclusion=="failure") | .name'
+gh api "repos/englishstreetventures/osn/actions/runs?head_sha=<sha>&event=pull_request" \
+  --jq '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml")] | length'
 ```
 
-Record CI red (the job and its decisive line), `dirty` or `behind` (a sibling PR that merged first changed the same lines), an owner question left in the comments, or no PR at all (the card is wrong: a question). `orchestrate` Step 5 does the fixing. A draft whose `**Do not merge until**` line waits on the owner (`prep-pr` Step 9) is not fix work while the owner has not answered: put it under Questions with that line, and count it among the pull requests waiting on the owner (Step 5). It is fix work when CI is red or it is `dirty`, and once the owner has answered (`wiki/conventions/review-findings.md` §What counts as the owner's answer — a comment can keep it waiting, never release it), when `orchestrate` Step 5 applies the answer; only the owner marks it ready. A pull request this pipeline did not write — another tool's, or one that never went through `prep-pr` — is adopted with `review-pr` instead (`orchestrate` §Adopting an open pull request).
+Record CI red (the job and its decisive line), CI never started (the last command prints `0` two minutes or more after the push: a blocked gate, `orchestrate` Step 5, not a clean head), `dirty` or `behind` (a sibling PR that merged first changed the same lines), an owner question left in the comments, or no PR at all (the card is wrong: a question). `orchestrate` Step 5 does the fixing. A draft whose `**Do not merge until**` line waits on the owner (`prep-pr` Step 9) is not fix work while the owner has not answered: put it under Questions with that line, and count it among the pull requests waiting on the owner (Step 5). It is fix work when CI is red or it is `dirty`, and once the owner has answered (`wiki/conventions/review-findings.md` §What counts as the owner's answer — a comment can keep it waiting, never release it), when `orchestrate` Step 5 applies the answer; only the owner marks it ready. A pull request this pipeline did not write — another tool's, or one that never went through `prep-pr` — is adopted with `review-pr` instead (`orchestrate` §Adopting an open pull request).
 
 ## Step 3 — In Progress: hands off
 
