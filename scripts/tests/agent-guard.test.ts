@@ -297,6 +297,39 @@ describe("10. quotes", () => {
   });
 });
 
+describe("18. production database reads", () => {
+  test("refuses wrangler d1 execute or export aimed at production", () => {
+    expect(
+      refused(
+        bash("bunx wrangler d1 execute cire-db --env production --remote --command 'SELECT 1'"),
+      ),
+    ).toBe(true);
+    expect(
+      refused(bash("cd cire/api && bunx --bun wrangler d1 execute osn-db --env=production")),
+    ).toBe(true);
+    expect(refused(bash("wrangler d1 export cire-db -e production --remote --output x.sql"))).toBe(
+      true,
+    );
+    expect(refused(bash("bunx wrangler d1 execute cire-db --remote --command 'SELECT 1'"))).toBe(
+      true,
+    );
+  });
+
+  test("lets dev and local databases through", () => {
+    expect(
+      refused(bash("bunx wrangler d1 execute cire-db-dev --remote --command 'SELECT 1'")),
+    ).toBe(false);
+    expect(refused(bash("bunx wrangler d1 execute cire-db --local --command 'SELECT 1'"))).toBe(
+      false,
+    );
+    expect(
+      refused(bash("bunx wrangler d1 execute cire-db --env dev --remote --command 'SELECT 1'")),
+    ).toBe(false);
+    expect(refused(bash("bunx wrangler secret put X --env production"))).toBe(false);
+    expect(refused(bash("echo 'wrangler d1 execute cire-db --env production'"))).toBe(false);
+  });
+});
+
 describe("17. fail open", () => {
   test("a missing message file and an unknown repo pass", () => {
     expect(refused(bash("git commit -F missing.txt"))).toBe(false);

@@ -522,6 +522,29 @@ function ghRule(words: string[], command: Command, state: State, ctx: Context): 
   return hasTrackerId(texts) ? trackerReason(`This \`gh ${area}\` text`) : null;
 }
 
+const PRODUCTION_READ =
+  "an agent never reads a production database, not even a read-only `SELECT`. Make the change safe in code instead: tolerate the old shape, let the migration guard itself, or add a release-time check that prints counts only. Dev databases may be read (AGENTS.md §Standing rules, Production data).";
+
+/** `wrangler d1 execute|export` aimed at production: `--env production`, or `cire-db` with `--remote`. */
+function productionDbRule(words: string[]): string | null {
+  const at = words.findIndex((word) => word === "wrangler" || word.endsWith("/wrangler"));
+  if (at < 0) return null;
+  const rest = words.slice(at + 1);
+  if (rest[0] !== "d1" || !["execute", "export"].includes(rest[1] ?? "")) return null;
+  const production = rest.some(
+    (word, k) =>
+      word === "--env=production" ||
+      word === "-e=production" ||
+      ((word === "--env" || word === "-e") && rest[k + 1] === "production"),
+  );
+  const bareCire =
+    rest.includes("cire-db") &&
+    rest.includes("--remote") &&
+    !rest.includes("--local") &&
+    !rest.some((word) => word === "--env" || word === "-e" || word.startsWith("--env="));
+  return production || bareCire ? PRODUCTION_READ : null;
+}
+
 function installRule(words: string[], state: State, ctx: Context): string | null {
   const verb = words[1] ?? "";
   if (words[0] !== "bun" || !["install", "i", "update", "add"].includes(verb)) return null;
@@ -566,6 +589,7 @@ function evaluate(group: Group, state: State, ctx: Context): string | null {
     const { words, unresolved } = argv(item);
     const reason =
       installRule(words, state, ctx) ??
+      productionDbRule(words) ??
       (words[0] === "git" ? gitRule(words, item, state, ctx) : null) ??
       (words[0] === "gh" ? ghRule(words, item, state, ctx) : null);
     if (reason !== null) return reason;

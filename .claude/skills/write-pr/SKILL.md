@@ -102,6 +102,8 @@ When a person has to do something, the owner reads it straight after the impact:
 
 Use `**Do not merge until**`, `**At deploy**` or `**After merging**`, and name the command, the workflow or the secret. A deploy step that appears only in the test plan or a closing paragraph is one the owner misses.
 
+A `**Do not merge until**` line never asks anyone to read a production database, and the body never quotes production rows; ask for a release-time check that prints counts only (`AGENTS.md` §Standing rules, Production data).
+
 **A pull request that waits on the owner is a draft, and its `**Do not merge until**` line says what for**: the decision or the approval, naming the public issue or the `###` decision that holds it. The first example above is one, since only the owner can approve that release. `prep-pr` Step 9 lists what makes a pull request wait on the owner, and says only the owner marks it ready:
 
 ```markdown
