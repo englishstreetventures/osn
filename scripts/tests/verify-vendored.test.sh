@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Tests for verify-vendored-anti-slop.sh. Plain-bash assertions (no bats
-# dependency), matching the sibling shell tests under scripts/.
+# Tests for verify-vendored.sh. Plain-bash assertions (no bats dependency),
+# matching the sibling shell tests under scripts/.
 #
-# The guard has no injection point for its checksum half — it hardcodes
-# `scripts/..` and `tools/oxlint/anti-slop` — so each case builds a throwaway
-# git repo with that same shape, copies the real script in, and runs it
-# there. That also means the cases never touch the repo's own vendored tree.
+# The guard resolves the repo root from its own location (`scripts/..`) when
+# none is passed, so each case builds a throwaway git repo with the real
+# repo's shape, copies the real script in, and runs it there, naming the tree
+# it checks. That also means the cases never touch the repo's own vendored
+# trees.
 #
 # Two sections: the checksum half (no base ref, exercises `shasum -c` and the
 # file-set diff) and the pin half (a base ref, exercises the upstream-commit
@@ -16,11 +17,11 @@
 # stale would get caught by the checksum half alone. The pin check is what's
 # left once the manifest can no longer out itself.
 #
-# Run: bash scripts/tests/verify-vendored-anti-slop.test.sh
+# Run: bash scripts/tests/verify-vendored.test.sh
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
-guard="$here/verify-vendored-anti-slop.sh"
+guard="$here/verify-vendored.sh"
 pass=0
 fail=0
 
@@ -28,7 +29,7 @@ fail=0
 make_fixture() {
   local root="$1"
   mkdir -p "$root/scripts" "$root/tools/oxlint/anti-slop/rules"
-  cp "$guard" "$root/scripts/verify-vendored-anti-slop.sh"
+  cp "$guard" "$root/scripts/verify-vendored.sh"
   printf 'export const plugin = {};\n' > "$root/tools/oxlint/anti-slop/index.ts"
   printf 'MIT\n' > "$root/tools/oxlint/anti-slop/LICENSE"
   printf 'export const rule = {};\n' > "$root/tools/oxlint/anti-slop/rules/no-any.ts"
@@ -44,9 +45,9 @@ make_fixture() {
 run_case() {
   local name="$1" root="$2" want="$3" mode="${4:-clean}" got
   if [ "$mode" = "gitdir" ]; then
-    GIT_DIR="$root/.git" bash "$root/scripts/verify-vendored-anti-slop.sh" >/dev/null 2>&1
+    GIT_DIR="$root/.git" bash "$root/scripts/verify-vendored.sh" tools/oxlint/anti-slop >/dev/null 2>&1
   else
-    bash "$root/scripts/verify-vendored-anti-slop.sh" >/dev/null 2>&1
+    bash "$root/scripts/verify-vendored.sh" tools/oxlint/anti-slop >/dev/null 2>&1
   fi
   got=$?
   if [ "$got" -eq "$want" ]; then
@@ -130,7 +131,7 @@ regen_sha() {
 make_fixture_pin() {
   local root="$1"
   mkdir -p "$root/scripts" "$root/tools/oxlint/anti-slop/rules"
-  cp "$guard" "$root/scripts/verify-vendored-anti-slop.sh"
+  cp "$guard" "$root/scripts/verify-vendored.sh"
   printf 'export const plugin = {};\n' > "$root/tools/oxlint/anti-slop/index.ts"
   printf 'export const rule = {};\n' > "$root/tools/oxlint/anti-slop/rules/no-any.ts"
   readme_with aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > "$root/tools/oxlint/anti-slop/README.md"
@@ -146,13 +147,13 @@ commit_all() {
 }
 
 # $3 is the expected exit status; $4, when "gitdir", exports GIT_DIR the way git
-# does for the hooks it runs.
+# does for the hooks it runs; $5 names the tree, as the caller spells it.
 run_case_pin() {
   local name="$1" root="$2" want="$3" mode="${4:-clean}" got
   if [ "$mode" = "gitdir" ]; then
-    GIT_DIR="$root/.git" bash "$root/scripts/verify-vendored-anti-slop.sh" HEAD~1 "$root" >/dev/null 2>&1
+    GIT_DIR="$root/.git" bash "$root/scripts/verify-vendored.sh" "${5:-tools/oxlint/anti-slop}" HEAD~1 "$root" >/dev/null 2>&1
   else
-    bash "$root/scripts/verify-vendored-anti-slop.sh" HEAD~1 "$root" >/dev/null 2>&1
+    bash "$root/scripts/verify-vendored.sh" "${5:-tools/oxlint/anti-slop}" HEAD~1 "$root" >/dev/null 2>&1
   fi
   got=$?
   if [ "$got" -eq "$want" ]; then
@@ -240,7 +241,7 @@ b="$tmp/badbase"
 make_fixture_pin "$b"
 printf 'unrelated\n' > "$b/scripts/other.sh"
 commit_all "$b"
-bash "$b/scripts/verify-vendored-anti-slop.sh" no-such-ref "$b" >/dev/null 2>&1
+bash "$b/scripts/verify-vendored.sh" tools/oxlint/anti-slop no-such-ref "$b" >/dev/null 2>&1
 got=$?
 if [ "$got" -eq 2 ]; then
   echo "ok   - an unfetched base ref exits 2 (exit $got)"
@@ -249,6 +250,91 @@ else
   echo "FAIL - an unfetched base ref exits 2 (got exit $got, want 2)"
   fail=$((fail + 1))
 fi
+
+# --- the tree argument --------------------------------------------------------
+
+# $3 is the expected exit status; the rest are the guard's arguments.
+run_case_args() {
+  local name="$1" root="$2" want="$3" got
+  shift 3
+  (cd "$root" && bash scripts/verify-vendored.sh "$@") >/dev/null 2>&1
+  got=$?
+  if [ "$got" -eq "$want" ]; then
+    echo "ok   - $name (exit $got)"
+    pass=$((pass + 1))
+  else
+    echo "FAIL - $name (got exit $got, want $want)"
+    fail=$((fail + 1))
+  fi
+}
+
+# A tree shaped like the orb engine: nested source, a licence, a README pin.
+add_orb_tree() {
+  local root="$1" v="$1/shared/ui/vendor/thinking-orbs"
+  mkdir -p "$v/engine"
+  printf 'export const paint = () => {};\n' > "$v/engine/core.ts"
+  printf 'export type OrbSize = 64 | 32 | 20;\n' > "$v/types.ts"
+  printf 'MIT\n' > "$v/LICENSE"
+  printf '# thinking-orbs (vendored)\n\npinned to commit `%s` (2026-09-22).\n' \
+    cccccccccccccccccccccccccccccccccccccccc > "$v/README.md"
+  (cd "$v" && find . ! -type d ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort \
+    | xargs shasum -a 256 > SHA256SUMS)
+}
+
+# B1: the orb tree's own shape. A one-byte edit to its engine fails.
+o="$tmp/orb-edit"
+make_fixture "$o"
+add_orb_tree "$o"
+commit_all "$o"
+printf 'export const paint = () => {}; \n' > "$o/shared/ui/vendor/thinking-orbs/engine/core.ts"
+run_case_args "a one-byte edit in a nested tree fails" "$o" 1 shared/ui/vendor/thinking-orbs
+
+# B2: the tree argument is required and stays inside the repo.
+g="$tmp/args"
+make_fixture "$g"
+run_case_args "no tree argument exits 2" "$g" 2
+run_case_args "an absolute tree path exits 2" "$g" 2 "$g/tools/oxlint/anti-slop"
+run_case_args "a tree path with a .. part exits 2" "$g" 2 tools/oxlint/../oxlint/anti-slop
+run_case_args "a tree path of only a slash exits 2" "$g" 2 /
+
+# B3: a directory with no manifest is not a vendored tree.
+mkdir -p "$g/tools/unlisted"
+printf 'export {};\n' > "$g/tools/unlisted/index.ts"
+run_case_args "a tree with no SHA256SUMS exits 2" "$g" 2 tools/unlisted
+
+# B4: two trees, one edited. The edited tree fails; the other still passes.
+t="$tmp/two-trees"
+make_fixture "$t"
+add_orb_tree "$t"
+commit_all "$t"
+printf 'export const plugin = { tampered: true };\n' > "$t/tools/oxlint/anti-slop/index.ts"
+run_case_args "an edit in one tree fails that tree" "$t" 1 tools/oxlint/anti-slop
+run_case_args "an edit in one tree leaves the other passing" "$t" 0 shared/ui/vendor/thinking-orbs
+
+# B5: this pull request's own case. The base has no orb tree; the head adds
+# it, pin line and all. Every file is new, and the pin "moved" from nothing.
+n2="$tmp/new-tree"
+make_fixture_pin "$n2"
+add_orb_tree "$n2"
+commit_all "$n2"
+run_case_pin "a newly added tree with a pin line passes" "$n2" 0 clean shared/ui/vendor/thinking-orbs
+
+# B6: a trailing slash names the same tree. Without the guard stripping it,
+# the exemptions never match `git diff --name-only`'s single-slash paths, so a
+# README-only edit would fail the pin half.
+s1="$tmp/slash-readme"
+make_fixture_pin "$s1"
+printf '\nA new paragraph about the re-vendor recipe.\n' >> "$s1/tools/oxlint/anti-slop/README.md"
+regen_sha "$s1"
+commit_all "$s1"
+run_case_pin "a trailing slash: a README-only edit passes" "$s1" 0 clean tools/oxlint/anti-slop/
+
+s2="$tmp/slash-edit"
+make_fixture_pin "$s2"
+printf 'export const plugin = { tampered: true };\n' > "$s2/tools/oxlint/anti-slop/index.ts"
+regen_sha "$s2"
+commit_all "$s2"
+run_case_pin "a trailing slash: a source edit with an unchanged pin fails" "$s2" 1 clean tools/oxlint/anti-slop/
 
 echo
 echo "passed: $pass, failed: $fail"
