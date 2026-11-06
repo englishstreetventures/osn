@@ -4,7 +4,7 @@ import {
   type CheckEmailStatus,
 } from "@osn/auth-ui/CheckEmailView";
 import { Card } from "@shared/ui/ui/card";
-import { For, type JSX, Show } from "solid-js";
+import { createSignal, For, type JSX, Show } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
 import { Eyebrow, Gallery, Mono } from "../design-system/chrome.tsx";
@@ -165,6 +165,95 @@ export const Phone: Story = {
   ),
 };
 
+export const WithPairingCode = state(
+  "with a number",
+  <>
+    The host passed <Mono>pairingCode="47"</Mono>. The number sits under the line about the link, at
+    musubi's display size in tabular figures, outside the live region, with a hidden "Your number:"
+    before it. The page the link opens asks the person to pick it.
+  </>,
+  () => (
+    <CheckEmailView
+      email={EMAIL}
+      purpose="sign-up"
+      status="waiting"
+      pairingCode="47"
+      onResend={stubResend}
+      onChangeEmail={() => {}}
+    />
+  ),
+);
+
+/** A fixed run of numbers, one per request, as a host would get from each begin. */
+const NUMBERS = ["47", "83", "12", "65"];
+
+/** Each resend settles with the next request's number already passed, as a host should. */
+function NumberedResend() {
+  const [turn, setTurn] = createSignal(0);
+  async function resend() {
+    await stubResend();
+    setTurn((n) => n + 1);
+  }
+  return (
+    <CheckEmailView
+      email={EMAIL}
+      purpose="sign-up"
+      status="waiting"
+      resendWaitSeconds={0}
+      pairingCode={NUMBERS[turn() % NUMBERS.length]}
+      onResend={resend}
+      onChangeEmail={() => {}}
+    />
+  );
+}
+
+export const WithPairingCodeResendReady = state(
+  "with a number, Resend ready",
+  <>
+    Press Resend: the old number stays while "Sending a new link…" shows, then the next request's
+    number replaces it and the announced sentence ends "Check the number again."
+  </>,
+  () => <NumberedResend />,
+);
+
+export const PhoneWithPairingCode: Story = {
+  render: () => (
+    <Gallery
+      title="osn/auth-ui CheckEmailView — a 320px phone, with a number"
+      intro={
+        <>
+          The widest number allowed, six digits, beside a long address; and recovery in its error
+          state, which keeps the number, since the link already sent still stands.
+        </>
+      }
+    >
+      <div class="flex flex-wrap items-start gap-6">
+        <DialogFrame width="phone">
+          <CheckEmailView
+            email={LONG_EMAIL}
+            purpose="sign-up"
+            status="waiting"
+            pairingCode="123456"
+            onResend={stubResend}
+            onChangeEmail={() => {}}
+          />
+        </DialogFrame>
+        <DialogFrame width="phone">
+          <CheckEmailView
+            email={LONG_EMAIL}
+            purpose="recovery"
+            status="error"
+            errorMessage="We couldn't check for your link. Keep this page open."
+            pairingCode="47"
+            onResend={stubResend}
+            onChangeEmail={() => {}}
+          />
+        </DialogFrame>
+      </div>
+    </Gallery>
+  ),
+};
+
 const FLOWS: { purpose: CheckEmailPurpose; email?: string; changeEmail: boolean; note: string }[] =
   [
     { purpose: "sign-up", email: EMAIL, changeEmail: true, note: "sign-up" },
@@ -226,12 +315,14 @@ interface PlaygroundArgs extends StoryArgs {
   resendWaitSeconds: number;
   errorMessage: string;
   changeEmail: boolean;
+  pairingCode: string;
 }
 
 /**
  * The wait is read when one starts, so a new value only shows on a fresh
  * view: the frame below is rebuilt whenever it changes. Clear the address to
- * see the wording with none.
+ * see the wording with none. A number of one to six digits is drawn; anything
+ * else, the empty default included, draws none.
  */
 export const Playground: Story<PlaygroundArgs> = {
   args: {
@@ -241,6 +332,7 @@ export const Playground: Story<PlaygroundArgs> = {
     resendWaitSeconds: 30,
     errorMessage: "",
     changeEmail: true,
+    pairingCode: "",
   },
   controls: {
     purpose: { kind: "select", options: PURPOSES },
@@ -257,6 +349,7 @@ export const Playground: Story<PlaygroundArgs> = {
             status={args.status}
             errorMessage={args.errorMessage || undefined}
             resendWaitSeconds={key.wait}
+            pairingCode={args.pairingCode || undefined}
             onResend={stubResend}
             onChangeEmail={args.changeEmail ? () => {} : undefined}
           />
