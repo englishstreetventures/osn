@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 
 # Social — Mobile UX analysis & plan
@@ -169,7 +169,9 @@ mobile shell; at and above it, today's rail is unchanged.
   (single source for both shells).
 - New `MobileNav.tsx`: fixed bottom tab bar (`md:hidden`), the four nav items
   with 20 px icons + `text-meta` labels, ≥48 px item height plus `pb-safe`,
-  active state = `text-foreground` vs `text-subtle`.
+  active state = `text-foreground` for icon and label; a resting tab writes
+  its label in `text-muted-foreground` and its icon in `text-subtle`, as the
+  rail does.
 - New `MobileTopBar.tsx`: slim sticky header (`md:hidden`) with the
   Musubi wordmark (no "Social" tag — at 320 px the signed-out bar has no
   room for it), `ThemeToggle`, and the account control — avatar

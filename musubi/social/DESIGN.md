@@ -37,13 +37,44 @@ light, `.dark` for dark).
 | --- | --- | --- | --- |
 | `--foreground` (`text-foreground`) | `#292929` | `#f2f2f2` | primary text; also `--primary`, the filled-CTA background |
 | `--muted-foreground` (`text-muted-foreground`) | `#5d5d5d` | `#a3a3a3` | secondary text (subtitles, descriptions) |
-| `--subtle` (`text-subtle`) | `#9e9e9e` | `#7a7a7a` | tertiary text and resting nav/content icons |
+| `--subtle` (`text-subtle`) | `#8d8d8d` | `#7a7a7a` | resting icons and ornaments; never text a reader needs |
 | `--background` | `#ffffff` | `#1c1c1c` | the page |
 | `--card`, `--popover` | `#ffffff` | `#242424` | cards, dialogs, menus |
 | `--muted` (and `--secondary`, `--accent`) | `#f4f4f4` | `#2b2b2b` | hover and fill surfaces |
 | `--border` | `#ececec` | `#333333` | hairline rule |
 | `--input` | `#e2e2e2` | `#3a3a3a` | control borders |
 | `--ring` | `#5d5d5d` | `#a3a3a3` | focus ring |
+
+Text a reader needs — a handle, a status, a hint, a "Loading…" line — takes
+`text-muted-foreground`, never `text-subtle`. `--subtle` is for resting icons
+and ornaments, and clears 3:1 (WCAG 1.4.11's floor for an icon) on every
+ground it rests on:
+
+| `--subtle` | on `--background` | on `--card`, `--popover` | on `--muted`, `--secondary`, `--accent` | on `muted/60` over the page |
+| --- | --- | --- | --- | --- |
+| Light `#8d8d8d` | 3.32:1 | 3.32:1 | 3.02:1 | 3.13:1 |
+| Dark `#7a7a7a` | 3.97:1 | 3.62:1 | 3.30:1 | 3.57:1 |
+
+*Measured 2026-11-07 — `contrastRatio` from `@shared/color` over the `App.css`
+values; `muted/60` composited first, each sRGB channel `0.6 × muted + 0.4 ×
+--background`. `tests/styles/design-token-contract.test.ts` re-checks 3:1 on
+the five contract grounds in both themes.*
+
+`text-subtle` rests in five places: the rail's small-caps "Social" tag, part of
+the wordmark, which WCAG 1.4.3 exempts as a logotype (`Sidebar.tsx`); the
+rail's and the bottom bar's resting nav icons (`Sidebar.tsx`, `MobileNav.tsx`);
+the theme menu's option icons (`ThemeToggle.tsx`); and the organisation list's
+row chevron (`OrganisationsPage.tsx`).
+
+### Borders
+
+- A bare `border` (any side) draws the hairline, `--border`. `App.css` sets
+  `border-color` in its base layer; Tailwind's preflight leaves it at
+  `currentColor`, which would draw ink.
+- A bare-bordered text field (`input`, `textarea`, `select`) draws `--input`,
+  the edge `@shared/ui`'s `Input` draws.
+- A class that names a colour (`border-border`, `border-input`,
+  `border-foreground`) wins over both, since utilities outrank the base layer.
 
 ### Status colours
 
@@ -91,8 +122,9 @@ themes.*
 `tests/styles/design-token-contract.test.ts` parses `App.css` and checks every
 role in the `@shared/design-tokens` contract in both themes: body ink, success
 and warn at 4.5:1 on every ground and surface, the focus ring at 3:1, and ink
-on a fill against that fill. Two roles carry a waiver, each with its reason in
-the test.
+on a fill against that fill. One role carries a waiver, with its reason in the
+test: `--ui-hairline-strong`, which takes `--input` (1.30:1 on the page in
+light, against a 3:1 floor).
 
 ## Typography
 
@@ -127,6 +159,15 @@ the test.
   Musubi maps the four where they belong and fills the gaps by continuing its
   own progression (§Token contract), so a shared part that asks for 16px, 20px
   or 32px gets it.
+- **Legal prose** — the body of `/privacy` and `/terms` sits in `.prose-legal`
+  (`App.css`, components layer), which `LegalDocument.tsx` puts round the body
+  alone, not the title, draft notice or "Last updated" line above it. `h2` is
+  `text-title` at 500 with 32px above and 8px below; `h3` `text-body` at 500,
+  20px above and 4px below; paragraphs and list items `text-body` at a 1.65
+  line height (`leading-ui-relaxed`, 21.45px), paragraphs 12px apart; lists
+  take discs or numbers, indented 20px; `strong` is 500. The line height is
+  the one place the scale's own leading gives way: a page of 13px text at 18px
+  reads as a wall.
 
 Where the app does not follow this yet — known breaks include:
 
@@ -134,10 +175,9 @@ Where the app does not follow this yet — known breaks include:
   weight 600 (#2040).
 - `@shared/ui`'s `Badge`: weight 600 (#2041). `AvatarFallback`: weight 600.
   `OtpInput`'s digits: 16px (`--ui-text-md`).
-- The legal pages: the title is `text-2xl font-semibold`, the draft notice and
-  the "Last updated" line `text-sm` (`LegalDocument.tsx`), and the pages'
-  headings and lists render as body text, because no `.prose-legal` rule
-  exists (#2037, #2039).
+- The legal pages' header: the title is `text-2xl font-semibold`, and the
+  draft notice and the "Last updated" line `text-sm` (`LegalDocument.tsx`)
+  (#2039).
 - Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
   and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`) and
@@ -149,9 +189,10 @@ Where the app does not follow this yet — known breaks include:
 ## Radii — two families + pill
 
 - **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows,
-  inputs, dropdown triggers, small controls; and, through the contract's
-  `--ui-radius-md`, `@shared/ui`'s Popover and menu panels and `OtpInput`'s
-  boxes.
+  dropdown triggers, small controls; text fields (`@shared/ui`'s `Input`,
+  `Textarea` and `Select`, through the contract's `--ui-radius-field`, which
+  Musubi maps to `--radius-md`); and, through `--ui-radius-md`, `@shared/ui`'s
+  Popover and menu panels and `OtpInput`'s boxes.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
   (`@shared/ui`'s `Card`), bordered rows, dialogs, empty states.
 - **pill** (`rounded-pill`; the contract's `--ui-radius-control` and
@@ -165,9 +206,9 @@ Where the app does not follow this yet — known breaks include:
 
 Where the app does not follow this yet — known breaks include:
 
-- `@shared/ui` text fields render as pills: Musubi maps no
-  `--ui-radius-field`, so fields fall back to the control radius (#2037).
-- `@shared/ui`'s default menu rows take `--ui-radius-sm`, 6px (#2037).
+- `@shared/ui`'s default menu rows take `--ui-radius-sm`, 6px (#2103). The
+  token stays 6px because `@shared/ui`'s drawn Checkbox, a 16px box, reads it
+  too, and would turn round at 8px.
 - Bare `rounded` (Tailwind's 4px) on the legal pages' draft notice
   (`LegalDocument.tsx`) and the organisation page's heading skeletons
   (`OrgDetailPage.tsx`).
@@ -177,7 +218,9 @@ Where the app does not follow this yet — known breaks include:
 - **14px** (`h-3.5 w-3.5`) — sidebar navigation icons
 - **20px** (`h-5 w-5`) — card / content icons (row chevrons, etc.) and the
   mobile bottom-tab-bar icons
-- Inline SVG, `stroke="currentColor"`; resting icons inherit `text-subtle`.
+- Inline SVG, `stroke="currentColor"`. A resting icon takes `text-subtle`; the
+  label beside it takes `text-muted-foreground` (the rail's links, the bottom
+  bar's tabs). An active nav item draws icon and label in `text-foreground`.
 
 ## Theme (light / dark)
 
@@ -196,40 +239,48 @@ only when the OS explicitly asks for light, or the user opts into light.
 
 ## Focus
 
-Every focusable element shows a focus indicator on `:focus-visible`, drawn in
-`--ring` (the contract's `--ui-focus`), which the contrast contract holds at
-3:1. `@shared/ui`'s Button draws it as `ring-2 ring-ui-focus`, and its text
-fields add a 2px offset. Draw a hand-made control's focus in the app's own
-name for that colour, `focus-visible:ring-2 focus-visible:ring-ring`. Focus
-rings appear instantly, never animated.
+Every element the keyboard reaches shows a focus mark on `:focus-visible`,
+drawn in `--ring` (the contract's `--ui-focus`), which the contrast contract
+holds at 3:1. A focus mark appears at once, never animated.
 
-In a contrast theme (Windows forced colours), which drops the ring, a
-`Button` focused from the keyboard draws a 2px system-colour outline 2px off
-instead.
+- **The base rule.** `App.css` outlines every `:focus-visible` element from
+  its base layer: 2px solid `--ui-focus`, 2px off (`--ui-focus-width`,
+  `--ui-focus-offset`). It reaches the elements the browser outlines anyway —
+  links, buttons, form fields, a `<summary>` — so a control drawn by hand needs
+  no focus class to show one.
+- **Inset where a box clips.** Where an outline 2px outside the element would
+  be cut off, the call site adds `focus-visible:-outline-offset-2`, which draws
+  the same ring just inside the element, as `@shared/ui`'s menu rows do. Today:
+  the bottom bar's tabs, whose cells run to the screen's edges (`MobileNav`);
+  `SectionTabs`, whose row scrolls sideways; and the theme menu's options,
+  inside a panel with 4px of padding (`ThemeToggle`).
+- **Parts that draw their own.** `@shared/ui`'s parts draw focus from the
+  utilities layer, which outranks the base rule, so each shows one mark, not
+  two: Button a ring (`ring-2 ring-ui-focus`) with its outline hidden
+  (`outline-hidden`), the text fields a ring 2px off. A hand-drawn control that
+  wants the ring instead writes `focus-visible:ring-2 focus-visible:ring-ring
+  focus-visible:outline-hidden`; the profile choice on `/authorize`'s account
+  screen does (`AuthorizePage.tsx`, in the contract's `ring-ui-focus`, the same
+  colour).
+- **Contrast themes.** Windows forced colours drop the ring, and
+  `outline-hidden` there is a 2px system-colour outline 2px off, so a `Button`
+  or the profile choice still shows focus. `outline-none` removes that outline
+  too: never pass it to an element that draws a ring.
 
 Where the app does not follow this yet — known breaks include:
 
 - The account-menu triggers, in the rail (`Sidebar.tsx`) and the phone top bar
   (`MobileTopBar.tsx`), pass `outline-none` and draw no ring, so keyboard
   focus on them shows nothing (#2057).
-- One hand-drawn control draws the ring: the profile choice on `/authorize`'s
-  account screen (`AuthorizePage.tsx`), which writes the contract's
-  `ring-ui-focus`, the same colour. The rest draw none and show the browser's
-  own outline: the rail and bottom-bar links (`Sidebar`, `MobileNav`),
-  `SectionTabs`, the theme menu's options (`ThemeToggle`), the profile
-  switcher's rows (`ProfileSwitcherDialog`), the rows of `/authorize`'s
-  "Choose a profile" screen, the organisation list's rows, and the links
-  inside a sentence (`AuthorizeSignIn`'s "Create one", Discover's link to
-  search, the legal pages' contact address) (#2037).
-- Tailwind's `transition-colors` includes `outline-color`, so on a control
-  that carries it the browser's outline fades in rather than appearing at
-  once (#2037).
 
 ## Motion
 
-The app adds colour and opacity transitions only (`transition-colors` on rows,
-tabs and controls), and no spatial motion of its own. Focus rings appear
-instantly, never animated. A loading placeholder is a block drawn at the call
+The app adds colour and opacity transitions only, and no spatial motion of its
+own. Rows, tabs and controls fade their colours with `transition-ui-colors`
+(`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
+same utility each cire app defines. Never `transition-colors` or
+`transition-all` on anything that takes focus: both fade the outline, so the
+focus mark arrives late. A loading placeholder is a block drawn at the call
 site in the loaded row's shape (`bg-muted/50 animate-pulse`), which pulses in
 opacity.
 
@@ -332,6 +383,12 @@ defines, and Tailwind's default type steps (`text-xs`, `text-sm`, `text-lg`,
 the contract mapping (§Token contract). So the views do not follow this file's
 four-step scale or its weights today (#2045).
 
+`App.css`'s base rules reach the views too: their bare-bordered rows
+(`PasskeysView`, `SessionsView`, `TotpView`, `RecoveryCodesView`) draw the
+hairline, the raw code and email fields in `StepUpDialog` and
+`ChangeEmailForm` draw the `--input` edge, and every control the views draw by
+hand shows the base focus outline (§Borders, §Focus).
+
 **Where each view mounts:**
 
 | View | Where | Host file |
@@ -376,8 +433,11 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   the toast accents; `--ui-danger` takes `--destructive`; `--ui-focus` takes
   `--ring`.
 - **Radius.** `--ui-radius-sm` 6px, `-md` 8px, `-lg` 16px (`--radius-card`),
-  `-pill` and `-control` a pill. No `--ui-radius-field` or `--ui-radius-sheet`
-  is set, so fields take the control radius and sheets the large radius.
+  `-pill` and `-control` a pill, `-field` 8px (`--radius-md`). No
+  `--ui-radius-sheet` is set, so sheets take the large radius.
+- **Base rules.** The bare-border and focus rules (§Borders, §Focus) read the
+  contract's `--ui-hairline`, `--ui-hairline-strong` and `--ui-focus`, so a
+  subtree that maps its own — the lab's cire column — draws its own colours.
 - **Type.**
 
   | Contract step | Musubi value |

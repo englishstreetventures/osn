@@ -37,19 +37,26 @@ export function MobileNav() {
           Adding a sixth NAV_ITEM means adding `grid-cols-6` here. */}
       <div class={clsx("grid h-14", gridCols(NAV_ITEMS.length))}>
         <For each={NAV_ITEMS}>
-          {(item) => (
-            <A
-              href={item.href}
-              aria-current={isNavActive(location.pathname, item.href) ? "page" : undefined}
-              class={clsx(
-                "active:bg-muted/60 flex flex-col items-center justify-center gap-1 transition-colors",
-                isNavActive(location.pathname, item.href) ? "text-foreground" : "text-subtle",
-              )}
-            >
-              <item.icon class="h-5 w-5" />
-              <span class="text-meta leading-none font-medium">{item.label}</span>
-            </A>
-          )}
+          {(item) => {
+            const active = () => isNavActive(location.pathname, item.href);
+            // The label is text a reader needs, so a resting tab writes it in
+            // secondary ink; the icon alone rests in `text-subtle`, as the
+            // rail's does. The cells run edge to edge, so the focus ring is
+            // drawn inside the cell, where the screen cannot clip it.
+            return (
+              <A
+                href={item.href}
+                aria-current={active() ? "page" : undefined}
+                class={clsx(
+                  "active:bg-muted/60 flex flex-col items-center justify-center gap-1 transition-ui-colors focus-visible:-outline-offset-2",
+                  active() ? "text-foreground" : "text-muted-foreground",
+                )}
+              >
+                <item.icon class={clsx("h-5 w-5", !active() && "text-subtle")} />
+                <span class="text-meta leading-none font-medium">{item.label}</span>
+              </A>
+            );
+          }}
         </For>
       </div>
     </nav>

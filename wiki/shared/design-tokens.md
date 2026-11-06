@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -142,7 +142,7 @@ value rather than one from the package: `control` to `md`, `sheet` to `lg`.
 | Role      | musubi               | pulse                            | cire                                     |
 | --------- | -------------------- | -------------------------------- | ---------------------------------------- |
 | `control` | pill                 | `--radius`, the same as its `md` | pill                                     |
-| `field`   | not mapped: a pill   | not mapped: `--radius`           | 14px                                     |
+| `field`   | `--radius-md`, 8px   | not mapped: `--radius`           | 14px                                     |
 | `sheet`   | not mapped: its `lg` | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
 
 cire's sized steps are 2px `hair`, 6px `sm`, 10px `md`, 16px `lg` and 999px

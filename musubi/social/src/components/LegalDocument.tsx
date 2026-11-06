@@ -21,7 +21,7 @@ export function LegalDocument(props: {
   children?: JSX.Element;
 }): JSX.Element {
   return (
-    <article class="prose-legal mx-auto w-full max-w-2xl px-6 py-12">
+    <article class="mx-auto w-full max-w-2xl px-6 py-12">
       {props.draft && (
         <p class="border-warn/40 bg-warn/10 mb-8 rounded border p-3 text-sm">
           <strong>Draft</strong> — this notice is not final. Some details of the operator are still
@@ -30,7 +30,8 @@ export function LegalDocument(props: {
       )}
       <h1 class="mb-1 text-2xl font-semibold">{props.title}</h1>
       <p class="text-muted-foreground mb-8 text-sm">Last updated: {props.updated}</p>
-      {props.children}
+      {/* The prose rules reach the body alone; the header above keeps its own classes. */}
+      <div class="prose-legal">{props.children}</div>
     </article>
   );
 }

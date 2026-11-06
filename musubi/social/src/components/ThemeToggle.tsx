@@ -80,11 +80,13 @@ export function ThemeToggle() {
         <For each={OPTIONS}>
           {(opt) => {
             const active = () => themePref() === opt.value;
+            // The focus ring sits inside the row, as the shared menu rows draw
+            // theirs: the panel's 4px padding leaves no room outside it.
             return (
               <button
                 type="button"
                 class={clsx(
-                  "text-body flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
+                  "text-body flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-ui-colors focus-visible:-outline-offset-2",
                   active()
                     ? "bg-muted text-foreground font-medium"
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",

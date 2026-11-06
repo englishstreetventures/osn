@@ -159,13 +159,12 @@ describe("the contract reaches the pixel", () => {
     expect(radius).toBeGreaterThanOrEqual(height / 2 - 0.5);
   });
 
-  it("gives a text field the control radius, since this app maps no field radius", () => {
-    // `rounded-ui-field` falls back to `--ui-radius-control`, and this app
-    // maps control alone, so an input keeps the corner its buttons have.
+  it("gives a text field the field radius, 8px, while its buttons stay pills", () => {
+    // `rounded-ui-field` falls back to `--ui-radius-control`, the pill, when an
+    // app maps no field radius. Musubi maps one, so a field takes the 8px
+    // corner DESIGN.md gives inputs and does not read as a search box.
     const { getByRole } = render(() => <Input aria-label="Name" />);
-    expect(getComputedStyle(getByRole("textbox")).borderTopLeftRadius).toBe(
-      token("--ui-radius-control"),
-    );
+    expect(getComputedStyle(getByRole("textbox")).borderTopLeftRadius).toBe("8px");
   });
 
   it("sizes a control from the contract's scale, not Tailwind's", () => {
@@ -182,6 +181,29 @@ describe("the contract reaches the pixel", () => {
     // Button to the contract step; this one holds the step to that size, so a
     // re-mapped `--ui-text-base` fails here too.
     expect(fontSize).toBe("14px");
+  });
+});
+
+describe("focus in normal colours", () => {
+  it("keeps Button's ring and draws no outline, under the app's base focus rule", async () => {
+    // `App.css` outlines every `:focus-visible` element from its base layer.
+    // Button hides its outline from the utilities layer, which outranks base
+    // whatever the specificity, so it shows its ring alone. The same rule
+    // written outside `@layer base` would win here and draw a grey outline
+    // 2px off the ring as well.
+    const { getByRole } = render(() => (
+      <div>
+        <button type="button">Before</button>
+        <Button>Save</Button>
+      </div>
+    ));
+    getByRole("button", { name: "Before" }).focus();
+    await userEvent.keyboard("{Tab}");
+    const button = getByRole("button", { name: "Save" });
+    expect(button.matches(":focus-visible")).toBe(true);
+    const style = getComputedStyle(button);
+    expect(style.outlineStyle).toBe("none");
+    expect(style.boxShadow).not.toBe("none");
   });
 });
 

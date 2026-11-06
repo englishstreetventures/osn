@@ -59,7 +59,7 @@ export function Sidebar() {
               <A
                 href={item.href}
                 class={clsx(
-                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-body font-medium transition-colors",
+                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-body font-medium transition-ui-colors",
                   isNavActive(location.pathname, item.href)
                     ? "bg-muted text-foreground"
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -109,7 +109,7 @@ export function Sidebar() {
             }
           >
             <AccountMenu
-              triggerClass="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors outline-none"
+              triggerClass="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-ui-colors outline-none"
               onSwitchProfile={() => setShowSwitcher(true)}
             >
               <Avatar class="h-8 w-8">
@@ -130,7 +130,7 @@ export function Sidebar() {
                   {activeProfile()?.displayName || `@${claims().handle ?? "..."}`}
                 </span>
                 <Show when={activeProfile()?.displayName}>
-                  <span class="text-subtle text-meta truncate">@{claims().handle}</span>
+                  <span class="text-muted-foreground text-meta truncate">@{claims().handle}</span>
                 </Show>
               </div>
             </AccountMenu>

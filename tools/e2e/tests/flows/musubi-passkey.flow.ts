@@ -1,6 +1,7 @@
 /**
  * Musubi: create an account with a passkey, sign out, sign back in with the
- * passkey, and keep the session across a reload.
+ * passkey, and keep the session across a reload. Signed in, it then measures
+ * and shoots Musubi's base styles (`musubi-surfaces.ts`).
  *
  * The session cookie is set by osn-api (`localhost:4000`) on responses to
  * Musubi's (`localhost:1422`) cross-origin fetches, so it only lands — and only
@@ -16,6 +17,7 @@ import {
   otpFor,
   test,
 } from "../support/fixtures";
+import { musubiSurfaces } from "../support/musubi-surfaces";
 
 const ada = PEOPLE.musubi;
 
@@ -115,6 +117,10 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
   });
   flow.check("session restored through POST /token", true, flow.saw("POST osn-api /token 200"));
+
+  // Signed in, after the check above has read the request log: the surfaces
+  // reload the page for the legal routes, and each reload posts to /token.
+  await musubiSurfaces(flow, page);
 
   await flow.step("without the cookie, the reload is signed out", async () => {
     await context.clearCookies();

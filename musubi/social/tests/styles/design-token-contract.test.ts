@@ -32,25 +32,19 @@ const SCOPES = [
 ] as const;
 
 /**
- * Two tokens musubi maps but cannot currently defend, both predating this
- * contract and both tracked.
+ * One token musubi maps but cannot currently defend, predating this contract.
  *
- * A waiver suppresses the assertion; it does not change what renders. Both are
- * still mapped, so components draw musubi's colours rather than falling back to
- * the package's neutral greyscale — the point of waiving is to stop a known,
- * filed defect blocking unrelated work, not to hide it.
+ * A waiver suppresses the assertion; it does not change what renders. The token
+ * is still mapped, so components draw musubi's colour rather than falling back
+ * to the package's neutral greyscale — the point of waiving is to stop a known
+ * defect blocking unrelated work, not to hide it.
  */
 const WAIVED = {
   "--ui-hairline-strong": [
     "`--input` is #e2e2e2 (1.30:1 on --background, 1.18:1 on --muted) and",
     "#3a3a3a in dark (1.50:1 / 1.24:1), against a 3:1 floor. The fix is a",
     "design decision — darken the border and lose the hairline look, or give",
-    "controls a perceivable fill and keep it. Tracked as osn-tracker#653.",
-  ].join(" "),
-  "--ui-ink-tertiary": [
-    "`--subtle` is #9e9e9e, 2.68:1 on --background and 2.44:1 on --muted in",
-    "light, against a 3:1 floor. Dark passes at 3.97 / 3.30. Tracked as",
-    "osn-tracker#653; the proposed fix is #8d8d8d.",
+    "controls a perceivable fill and keep it.",
   ].join(" "),
 } as const;
 

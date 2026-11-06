@@ -124,7 +124,7 @@ function PersonAction(props: {
         <span
           class={clsx(
             "text-meta shrink-0",
-            actionable() ? "text-foreground font-medium" : "text-subtle",
+            actionable() ? "text-foreground font-medium" : "text-muted-foreground",
           )}
         >
           {label()}
@@ -161,7 +161,7 @@ export function PersonRow(props: {
           {props.person.displayName || `@${props.person.handle}`}
         </p>
         <Show when={props.person.displayName}>
-          <p class="text-subtle text-meta truncate">@{props.person.handle}</p>
+          <p class="text-muted-foreground text-meta truncate">@{props.person.handle}</p>
         </Show>
       </div>
       <PersonAction
@@ -185,10 +185,10 @@ export function OrganisationRow(props: { organisation: OrganisationSearchResult 
       />
       <div class="min-w-0 flex-1">
         <p class="text-foreground text-body truncate font-medium">{props.organisation.name}</p>
-        <p class="text-subtle text-meta truncate">@{props.organisation.handle}</p>
+        <p class="text-muted-foreground text-meta truncate">@{props.organisation.handle}</p>
       </div>
       <Show when={props.organisation.isMember}>
-        <span class="text-subtle text-meta shrink-0">Member</span>
+        <span class="text-muted-foreground text-meta shrink-0">Member</span>
       </Show>
     </>
   );

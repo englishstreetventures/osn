@@ -221,7 +221,7 @@ export function OrgDetailPage() {
                   <div class="flex flex-col gap-1">
                     <For each={memberRows()}>
                       {(member) => (
-                        <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                        <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
                           {/* Initials only: a roster row carries no avatar. */}
                           <Avatar class="h-8 w-8">
                             <AvatarFallback>
@@ -233,7 +233,9 @@ export function OrgDetailPage() {
                               {member.displayName || `@${member.handle}`}
                             </p>
                             <Show when={member.displayName}>
-                              <p class="text-subtle text-meta truncate">@{member.handle}</p>
+                              <p class="text-muted-foreground text-meta truncate">
+                                @{member.handle}
+                              </p>
                             </Show>
                           </div>
                           <Badge variant="secondary">{member.role}</Badge>

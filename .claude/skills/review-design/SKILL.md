@@ -293,10 +293,11 @@ grep -nE '<pattern>' <file>                                      # every line of
 `outline|focus|ring|forced-colors|transition-(colors|all)`
 
 - Where the document says a focus ring never animates — `cire/host/DESIGN.md`
-  §4, Focus, for every cire app — `transition-colors` or `transition-all` on
-  anything that takes focus is a finding: both fade `outline-color` too, so the
-  ring arrives late. The Solution names the properties instead
-  (`transition-ui-colors` in the cire apps).
+  §4, Focus, for every cire app; `musubi/social/DESIGN.md` §Focus for Musubi —
+  `transition-colors` or `transition-all` on anything that takes focus is a
+  finding: both fade `outline-color` too, so the ring arrives late. The
+  Solution names the properties instead (`transition-ui-colors` in the cire
+  apps and Musubi).
 - A focus ring that is missing is not this lens's. An element that takes focus
   under `outline-none`, with no outline of its own on focus, shows no focus in a
   contrast theme (forced colours): `outline-none` removes the outline there too,
