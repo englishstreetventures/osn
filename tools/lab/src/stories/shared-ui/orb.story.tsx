@@ -1,8 +1,8 @@
+import { Button, type ButtonProps } from "@shared/ui/ui/button";
 import { Orb, type OrbProps, type OrbState } from "@shared/ui/ui/orb";
-import { createMemo, For } from "solid-js";
+import { For } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
-import { themeVersion } from "../design-system/measure.ts";
 
 export const meta = { title: "shared/ui/Orb", layout: "padded" as const };
 
@@ -20,79 +20,88 @@ const STATES = [
 
 const SIZES = [64, 20] as const satisfies readonly OrbProps["size"][];
 
-/**
- * Whether the lab is on its dark theme. Read through `themeVersion()`, which
- * bumps after `<html class>` changes, so an orb's ink follows the toggle.
- */
-function usePageDark(): () => boolean {
-  return createMemo(() => {
-    themeVersion();
-    return typeof document !== "undefined" && document.documentElement.classList.contains("dark");
-  });
-}
+const VARIANTS = [
+  "default",
+  "destructive",
+  "outline",
+  "secondary",
+  "ghost",
+  "link",
+] as const satisfies readonly NonNullable<ButtonProps["variant"]>[];
 
 /**
- * The nine states at both sizes on the page's own ground, ink following the
- * light · dark toggle. Under reduced motion each holds its still frame.
+ * The nine states at both sizes on the page's own ground. The ink is the text
+ * colour, so it follows the light · dark toggle with nothing set here. Each
+ * orb moves for five seconds, then holds its still frame; reload to see the
+ * motion again. Under reduced motion each holds its still frame from the start.
  */
-export const States = () => {
-  const dark = usePageDark();
-  return (
-    <div class="flex flex-col gap-8">
-      <For each={SIZES}>
-        {(size) => (
-          <section class="flex flex-col gap-3">
-            <h2 class="text-meta text-muted-foreground">{size}px</h2>
-            <div class="flex flex-wrap gap-6">
-              <For each={STATES}>
-                {(state) => (
-                  <figure class="flex w-20 flex-col items-center gap-2">
-                    <Orb state={state} size={size} dark={dark()} />
-                    <figcaption class="text-meta text-muted-foreground">{state}</figcaption>
-                  </figure>
-                )}
-              </For>
-            </div>
-          </section>
+export const States = () => (
+  <div class="flex flex-col gap-8">
+    <For each={SIZES}>
+      {(size) => (
+        <section class="flex flex-col gap-3">
+          <h3 class="text-meta text-subtle">{size}px</h3>
+          <div class="flex flex-wrap gap-6">
+            <For each={STATES}>
+              {(state) => (
+                <figure class="flex w-20 flex-col items-center gap-2">
+                  <Orb state={state} size={size} />
+                  <figcaption class="text-meta text-subtle">{state}</figcaption>
+                </figure>
+              )}
+            </For>
+          </div>
+        </section>
+      )}
+    </For>
+  </div>
+);
+
+/**
+ * The 20px orb inside a `Button` of each variant, beside its label, the way a
+ * busy button would hold it. Each orb takes its ink from its button's text
+ * colour: light on the filled variants in the light theme, dark on the rest.
+ */
+export const InButtons = () => (
+  <div class="flex flex-col gap-6">
+    <div class="flex flex-wrap items-center gap-3">
+      <For each={VARIANTS}>
+        {(variant) => (
+          <Button variant={variant}>
+            <Orb size={20} />
+            {variant}
+          </Button>
         )}
       </For>
     </div>
-  );
-};
-
-/**
- * The 20px orb on the accent fill, beside a label, as a busy filled button
- * draws it. The fill is the inverse of the page's ground, so the ink is too.
- */
-export const OnAccent = () => {
-  const dark = usePageDark();
-  return (
-    <div class="flex flex-wrap gap-3">
+    <div class="flex flex-wrap items-center gap-3">
       <For each={STATES}>
         {(state) => (
-          <span class="bg-ui-accent text-ui-on-accent rounded-ui-pill inline-flex items-center gap-2 px-4 py-2">
-            <Orb state={state} size={20} dark={!dark()} />
-            <span class="text-ui-sm">{state}</span>
-          </span>
+          <Button>
+            <Orb state={state} size={20} />
+            {state}
+          </Button>
         )}
       </For>
     </div>
-  );
-};
+  </div>
+);
 
 interface PlaygroundArgs extends StoryArgs {
   state: OrbState;
   size: number;
-  dark: boolean;
 }
 
-/** One orb with live args. `dark` is set by hand here, not by the theme. */
+/**
+ * One orb with live args. Like every orb it moves for five seconds and then
+ * holds still, an arg change included; reload the story to see it move again.
+ */
 export const Playground: Story<PlaygroundArgs> = {
   layout: "centered",
-  args: { state: "working", size: 64, dark: false },
+  args: { state: "working", size: 64 },
   controls: {
     state: { kind: "select", options: STATES },
     size: { kind: "select", options: SIZES },
   },
-  render: (args) => <Orb state={args.state} size={args.size === 20 ? 20 : 64} dark={args.dark} />,
+  render: (args) => <Orb state={args.state} size={args.size === 20 ? 20 : 64} />,
 };

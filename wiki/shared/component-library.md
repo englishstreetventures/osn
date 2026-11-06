@@ -365,25 +365,27 @@ beside the other overlays'.
 
 `Orb` draws one of the nine animations of
 [thinking-orbs](https://libraries.dev/orbs) into a canvas: a dotted sphere,
-in grey ink, that moves while something is in progress. It is decoration. The
+in the text colour it inherits, that moves while something is in progress.
+It is decoration. The
 canvas is `aria-hidden` with no role, no name and no tab stop, so it belongs
 inside a control whose own label says what is happening.
 
 ```tsx
 import { Orb } from "@shared/ui/ui/orb";
 
-<Orb size={20} state="working" dark={onDarkGround} />
+<Orb size={20} state="working" />
 ```
 
 | Prop | Values | Default |
 |---|---|---|
 | `size` | `20` or `64`, required: two designs upstream tuned by hand, each with its own dot count, dot size and speed | — |
 | `state` | `working`, `searching`, `solving`, `listening`, `connecting`, `weaving`, `composing`, `breathing`, `shaping` | `working` |
-| `dark` | `true` draws light ink for a dark ground; set it from the ground the orb sits on, which is not always the page's theme | `false` |
 | `class` | composed after the defaults | — |
 
-Nothing else is a prop: no speed, pause, tint or rest spread, since a spread
-could undo `aria-hidden`.
+Nothing else is a prop: no speed, pause, colour or rest spread, since a
+spread could undo `aria-hidden`. The canvas is `base:inline-block
+base:align-middle base:shrink-0`, so the 20px orb sits in a line of text, or
+beside a label in a flex row, without breaking it.
 
 **The engine is vendored, not a dependency.** `shared/ui/vendor/thinking-orbs/`
 holds upstream's `src/engine/` and `presets.ts` verbatim, its MIT `LICENSE`,
@@ -404,35 +406,52 @@ and `default` at `src/ui/orb.tsx`, which only the bundler follows into the
 engine. `orb-api.ts` is a `.ts` and not a `.d.ts` because `skipLibCheck` would
 leave a declaration file unchecked. `orb.tsx` declares its `Orb` as the type
 `orb-api.ts` declares, so the package's own check fails if the two disagree.
-**Nothing in `@shared/ui` imports `orb.tsx` by a relative path**: a consumer's
-type check would follow that import into the engine and fail.
+**Nothing under `src/` imports `orb.tsx` by a relative path** (the package's
+own tests may): a consumer's type check would follow that import into the
+engine and fail.
 
 **One loop draws every orb.** While at least one orb is mounted, the module
 holds one `requestAnimationFrame` loop, one `IntersectionObserver`, one
-`visibilitychange` listener and one reduced-motion query; they go when the last
-orb unmounts. Each frame paints every on-screen orb from the frame's timestamp,
-so two orbs of one state and size stay in phase. The loop asks for no frame
-while no orb is on screen, the tab is hidden or motion is reduced. Each orb
-paints once at mount and on any prop change, so an orb off screen still shows
-a frame. Each paint clears the canvas first.
+`ResizeObserver`, one `MutationObserver` on the root element, one
+`visibilitychange` listener and the media queries for reduced motion, colour
+scheme, forced colours and resolution; they go when the last orb unmounts.
+Each frame paints every moving orb from the frame's timestamp, so two orbs of
+one state and size stay in phase, and builds each state-and-size frame once
+however many orbs draw it. The loop asks for no frame while no orb is moving
+on screen, the tab is hidden or motion is reduced. Each orb paints once at
+mount and on any prop change, so an orb off screen still shows a frame. Each
+paint clears the canvas first.
 
-**Reduced motion** draws one still frame, at the time upstream's own component
-uses, and follows a change of the preference in either direction. The orb has
-no pause control: it marks a wait the reader cannot act during, the case WCAG
-2.2.2 treats as essential, so show it only while a request is in flight. Chromium
-sends no `change` event when `matches` is read between the preference changing
-and the event, and the loop reads it every frame, so the loop also checks for
-itself.
+**It moves for five seconds at most**, then holds one still frame, at the
+time upstream's own component uses. Moving content that starts by itself and
+runs past five seconds beside other content needs a way to pause it (WCAG
+2.2.2); an orb that stops at five needs none, whatever else the page lets the
+reader do. The five seconds run from the orb's first moving frame on screen.
+**Reduced motion** draws the same still frame from the start, and follows a
+change of the preference in either direction. Chromium sends no `change`
+event when `matches` is read between the preference changing and the event,
+and the loop reads it every frame, so the loop also checks for itself.
 
-**The bitmap** is the box the canvas measures at mount times the device pixel
-ratio, capped at 2. The box is `base:size-5` or `base:size-16`, so it follows
-the root font size, and measuring it keeps the dots sharp there. A later zoom
-or a move to another screen is not followed. Callers do not resize the box:
-the drawing is tuned for 20 and 64.
+**The bitmap** is the box the canvas takes times the device pixel ratio,
+capped at 2. The box is `base:size-5` or `base:size-16`, so it follows the
+root font size; the `ResizeObserver` measures it after layout, so no orb forces
+one, and until it has, the nominal size stands in. A change of ratio (a zoom,
+a move to another screen) refits every orb. Callers do not resize the box: the
+drawing is tuned for 20 and 64.
 
-**The ink is the engine's grey ramp**, not a `ui-*` token: a dark ink on light
-grounds and its mirror on dark ones. A forced-colours theme does not repaint a
-canvas, which is one more reason the label beside it carries the state.
+**The ink is the colour the canvas inherits** (`currentColor`), read from its
+computed style and resolved to sRGB by painting it into a one-pixel canvas, so
+an `oklch()` token or a forced-colours system colour reads as the browser
+draws it. The near dots take the colour; the far ones fade toward white, or
+toward black when the colour's luminance is above 0.179, the point where it
+has as much contrast with black as with white, which marks it as ink for a
+dark ground. So the orb reads on whatever ground its text is set for: `text-foreground`
+on the page, `text-ui-on-accent` in a filled button, `CanvasText` under forced
+colours. A moving orb re-reads the colour every frame; a still one when its
+props change, when the root element's `class`, `style` or `data-theme`
+changes, and when the colour-scheme or forced-colours preference changes. A
+still orb whose ancestor below the root changes colour keeps its ink until one
+of those.
 
 `cire/invites`, `cire/landing`, `cire/vendor` and `cire/host` leave `orb.tsx`
 out of their Tailwind scan (`@source not`), since none draws it. A page there
@@ -440,11 +459,16 @@ that starts drawing `Orb` needs its line gone, or the orb renders unsized.
 
 `shared/ui/tests/orb.browser.test.tsx` holds the guarantees in real Chrome,
 read back from the canvas's pixels: the still frame under reduced motion, and a
-change of preference both ways; motion otherwise; no painting off screen or in
-a hidden tab; two orbs in phase; one frame request per frame for three orbs;
-no frame left after the last unmounts; the backing store capped at 2× and
-taken from the measured box; light ink the mirror of dark; nine distinct still
-frames; a clear before each paint; nothing in the accessibility tree. It also
+change of preference both ways; motion otherwise, and the still frame with no
+frame requested once an orb has moved for five seconds; no painting off screen
+or in a hidden tab; two orbs in phase, and orbs of different states drawing
+their own frames at once; one frame request per frame for three orbs; no frame
+left after the last unmounts, and the shared listeners kept while one of two
+stays; the backing store capped at 2×, taken from the measured box, and refit
+when the size changes; a line of text left unbroken; ink in the inherited
+colour, a light colour mirrored, a coloured one tinting the dots, and a still
+orb following a colour change on the root; nine distinct still frames; a clear
+before each paint; nothing in the accessibility tree. It also
 writes the nine still frames at both sizes on a light and a dark ground to
 `e2e-artifacts/shared-ui-orb/`. The lab story is `shared/ui/Orb`
 ([[component-lab]]).
@@ -670,7 +694,7 @@ import CireButton from "@cire/ui/button";
 
 These are dependencies of `@shared/ui`. Consuming apps get them transitively — no extra installs needed.
 
-The orb's drawing engine is neither: it is upstream source vendored into
+The orb's drawing engine is not a dependency: it is upstream source vendored into
 `shared/ui/vendor/thinking-orbs/`, with no entry in `package.json` or
 `bun.lock` (§`Orb` above).
 
