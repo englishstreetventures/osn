@@ -74,12 +74,12 @@ export function isIsoTimestamp(value: string): boolean {
  *  with hours 00–23 and minutes 00–59. */
 const INSTANT_OFFSET_RE = /(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)$/;
 
-/** Mirror of `cire/api/src/lib/event-time.ts` `isEventInstant`, which a
- *  schedule save's Start and End must pass: an {@link isIsoTimestamp} value
- *  ending in a UTC offset. Surrounding spaces are allowed here because
- *  `toDesiredState` trims them before the save. */
+/** Mirror of `cire/api/src/lib/event-time.ts` `isEventInstant`, which a Start
+ *  or End a schedule save sets must pass: an {@link isIsoTimestamp} value
+ *  ending in a UTC offset, with no space around it. `toDesiredState` sends the
+ *  value as held, so an unchanged one reaches the API as it is stored. */
 export function isStoredTimestamp(value: string): boolean {
-  return isIsoTimestamp(value) && INSTANT_OFFSET_RE.test(value.trim());
+  return value === value.trim() && isIsoTimestamp(value) && INSTANT_OFFSET_RE.test(value);
 }
 
 /** Mirror of guest-event-validation.ts `parseHttpUrl` reduced to a predicate:

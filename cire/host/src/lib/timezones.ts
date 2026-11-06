@@ -26,8 +26,8 @@
  *  - and it is what keeps the formatter caches below BOUNDED. They key on the
  *    canonical form precisely because there are unboundedly many spellings of
  *    a zone that `Intl` will happily resolve, and `event.timezone` is not
- *    canonicalised anywhere upstream (both API front doors check that the zone
- *    resolves, and store it as sent).
+ *    canonicalised anywhere upstream (both API front doors check that a zone
+ *    they set resolves, and store it as sent).
  *
  * Deliberately NOT cached itself: it takes arbitrary strings, so caching by
  * INPUT would reintroduce the unbounded growth it exists to prevent.

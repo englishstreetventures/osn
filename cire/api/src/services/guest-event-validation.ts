@@ -5,7 +5,8 @@
  * Parser-parity is a design invariant (see [[guest-event-editor]] §3 / §9): the
  * sheet path (`services/spreadsheet.ts`, cell-level with row/column coords) and
  * the DesiredState path (field-level with entity paths) must never drift on what
- * they consider a valid value.
+ * they consider a valid value. The editor door holds a value to them where a
+ * save sets it, and takes one a save leaves as stored (`refusedEventFields`).
  *
  * This module is PURE — no Effect, no DB, no CSV framing. Each rule is a small
  * predicate/parser the two callers wrap with their own error shape. Extracting
@@ -20,6 +21,7 @@
 
 import { isSafeCssColor } from "@cire/theme";
 
+import { isEventInstant, isKnownTimeZone } from "../lib/event-time";
 import {
   MAX_RUN_OF_SHOW_LABEL,
   type ChildrenPolicy,
@@ -72,11 +74,66 @@ export function normaliseName(s: string): string {
 // event's time is a WALL CLOCK plus an IANA zone, and the UTC offset the stored
 // timestamp carries is DERIVED from that zone rather than typed. Both front
 // doors share it: the sheet path calls `parseWallTime` and stamps the offset;
-// the editor door's `ParsedEvent` calls `isEventInstant`, which also requires
-// the offset the editor stamped; `cire/host/src/lib/guest-validation.ts`
-// mirrors both. `events.start_at`/`end_at` are compared LEXICALLY against a
-// `YYYY-MM-DD` cutoff by the guest-data retention sweep (`services/retention.ts`),
-// so a stored value must begin with its date.
+// the editor door calls `isEventInstant` (through `refusedEventFields` below),
+// which also requires the offset the editor stamped;
+// `cire/host/src/lib/guest-validation.ts` mirrors both. `events.start_at`/`end_at`
+// are compared LEXICALLY against a `YYYY-MM-DD` cutoff by the guest-data
+// retention sweep (`services/retention.ts`), so a stored value must begin with
+// its date.
+
+/** The event fields an editor save is held to only where it sets them. */
+export type HeldEventField = "name" | "startAt" | "endAt" | "timezone";
+
+/** In the order a refusal names them. */
+export const HELD_EVENT_FIELDS: readonly HeldEventField[] = [
+  "name",
+  "startAt",
+  "endAt",
+  "timezone",
+];
+
+/**
+ * The rule each held field must pass to be stored as an editor save sends it:
+ * a name that is not blank; a Start that is an instant whose text begins with
+ * its date; an End that is `""` (no stated end) or such an instant; a zone the
+ * Worker resolves. The sheet door stores the same values after its parser has
+ * stamped the offset. A name may start with a formula marker (`+1 Drinks`), as
+ * the sheet stores one once it has taken the download's `'` guard back off.
+ */
+export const HELD_EVENT_RULES = {
+  name: (s: string) => s.trim().length > 0,
+  startAt: isEventInstant,
+  endAt: (s: string) => s === "" || isEventInstant(s),
+  timezone: isKnownTimeZone,
+} as const satisfies Readonly<Record<HeldEventField, (value: string) => boolean>>;
+
+/**
+ * The held fields of an editor-save event that fail their rule and differ from
+ * the values stored on the event it updates. `stored` is that event's row as
+ * the diff matched it, or undefined for an event the save adds, whose every
+ * field is held. A field equal to the stored one passes as stored: a row saved
+ * before these rules can hold a value they refuse, and a save that leaves it
+ * alone must not be refused for it. A stored field the caller did not read is
+ * undefined, so it never matches and the field is held.
+ *
+ * One field is held for another's sake: a Start, or an End other than `""`,
+ * that the save sets holds the zone too, changed or not. Its offset is
+ * derived from the zone, and on a zone that does not resolve the portal can
+ * only keep the stored offset or guess one, which `isEventInstant` cannot tell
+ * from the right one.
+ */
+export function refusedEventFields(
+  event: Pick<ParsedEvent, HeldEventField>,
+  stored: Partial<Pick<ParsedEvent, HeldEventField>> | undefined,
+): HeldEventField[] {
+  const changed = (field: HeldEventField) => event[field] !== stored?.[field];
+  const setsTime = changed("startAt") || (changed("endAt") && event.endAt !== "");
+  return HELD_EVENT_FIELDS.filter(
+    (field) =>
+      (changed(field) || (field === "timezone" && setsTime)) &&
+      !HELD_EVENT_RULES[field](event[field]),
+  );
+}
 
 /** Truthy tokens for an attendance cell. */
 const TRUTHY = new Set(["true", "yes", "1", "x"]);

@@ -278,10 +278,13 @@ describe("GuestsEditor", () => {
     });
   }
 
-  it("saves the guest list while an event holds a timezone only a schedule save checks", async () => {
-    // A guests save writes no event, so the API does not check an event's
-    // times or zone on it, and neither does this editor.
-    primeLoadWithEvents([{ ...EVENTS[0], timezone: "AEST" }]);
+  it("saves the guest list while an event holds stored values the checks refuse", async () => {
+    // A guests save writes no event, so the API checks no event field on it,
+    // and an unchanged one is taken as stored on any save. Neither does this
+    // editor wait on them.
+    primeLoadWithEvents([
+      { ...EVENTS[0], name: "", startAt: "2026-11-14T15:00", timezone: "AEST" },
+    ]);
     render(() => <GuestsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
 
@@ -316,7 +319,8 @@ describe("GuestsEditor", () => {
   });
 
   it("counts every error a guests save waits on, and none it does not", async () => {
-    // The duplicate name and the blank name count; the zone does not.
+    // The duplicate name counts. The stored blank name and zone do not: the
+    // save sends them as stored, and the API takes them so.
     primeLoadWithEvents([
       EVENTS[0],
       { ...EVENTS[0], id: "evt_2", slug: "ceremony-2", sortOrder: 1 },
@@ -330,7 +334,7 @@ describe("GuestsEditor", () => {
       screen.getByRole("button", { name: /Save changes/i }),
     )) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
-    expect(screen.getByText("Fix 2 errors before saving.")).toBeTruthy();
+    expect(screen.getByText("Fix 1 error before saving.")).toBeTruthy();
   });
 
   it("runs the save flow: preview → shared modal → apply → toast", async () => {

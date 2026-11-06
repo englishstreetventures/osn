@@ -11,7 +11,7 @@ related:
   - "[[free-tier-limits]]"
   - "[[cire-plus-ones]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-06
 ---
 # RSVP changes
 

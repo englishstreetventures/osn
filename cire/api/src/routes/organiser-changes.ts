@@ -11,13 +11,7 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { runCire } from "../observability";
-import {
-  ApplyBody,
-  ChangeScope,
-  DesiredState,
-  GuestsScopeDesiredState,
-  RevertBody,
-} from "../schemas/import";
+import { ApplyBody, ChangeScope, DesiredState, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
 import {
   claimChanges,
@@ -292,9 +286,7 @@ interface ChangeSummary {
  *    single-sheet upload stored `""` in the slot it didn't carry, so `scope`
  *    (not the stored bytes) decides which slots are read.
  *  - `kind = 'editor'` — the DesiredState JSON in the events key (guests key is
- *    an empty sentinel); JSON-decoded back under the schema its scope's body
- *    used at preview (`GuestsScopeDesiredState` for a guests save, else
- *    `DesiredState`).
+ *    an empty sentinel); JSON-decoded back to a DesiredState.
  *
  * Re-reading at apply is the TOCTOU defence: the DB may have shifted since
  * preview, so the plan is always freshly diffed against live state. For a
@@ -314,8 +306,7 @@ function desiredStateFromRow(
   return Effect.gen(function* () {
     if (row.kind === "editor") {
       const json = yield* fetchUpload(row.eventsR2Key);
-      const draft = scope === "guests" ? GuestsScopeDesiredState : DesiredState;
-      return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(draft))(json);
+      return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(DesiredState))(json);
     }
     const events =
       scope === "guests"
@@ -462,11 +453,6 @@ export const createOrganiserChangeRoutes = (
                   set.status = 413;
                   return { error: "Upload too large (max 1MB total)" };
                 }
-                const { eventsKey, guestsKey } = yield* storeUpload(
-                  eventsPayload,
-                  guestsPayload,
-                  changeId,
-                );
 
                 const plan: ImportPlan = yield* diffAgainstDb(
                   decoded.desiredState.events,
@@ -478,7 +464,16 @@ export const createOrganiserChangeRoutes = (
                     matchByName: decoded.matchByName,
                     createSource: decoded.createSource,
                     emails: emailModeFor(decoded.kind),
+                    holdChangedEventFields: decoded.kind === "editor",
                   },
+                );
+
+                // Stored only once the diff has taken the change, so a refused
+                // preview leaves nothing in R2 for the reconciler to sweep.
+                const { eventsKey, guestsKey } = yield* storeUpload(
+                  eventsPayload,
+                  guestsPayload,
+                  changeId,
                 );
 
                 const summary: ChangeSummary = {
@@ -567,6 +562,16 @@ export const createOrganiserChangeRoutes = (
                   }),
                 ),
                 Effect.catchTags(catchParseErrors(set)),
+                Effect.catchTag("InvalidEventFields", (e) =>
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning("change refused: an event field fails its rule", {
+                      changeKind: "editor",
+                      fields: e.fields.join(","),
+                    });
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
                 Effect.catchTag("StaleDesiredState", (e) =>
                   Effect.gen(function* () {
                     // The draft names rows or events that no longer resolve, so it
@@ -725,6 +730,8 @@ export const createOrganiserChangeRoutes = (
                     // The organiser saw the warnings on the preview; the apply
                     // reads nothing only they need.
                     warnings: false,
+                    // Held again against the rows as they are now, as at preview.
+                    holdChangedEventFields: row.kind === "editor",
                   },
                 );
 
@@ -883,6 +890,16 @@ export const createOrganiserChangeRoutes = (
                   }),
                 ),
                 Effect.catchTags(catchParseErrors(set)),
+                Effect.catchTag("InvalidEventFields", (e) =>
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning("change refused: an event field fails its rule", {
+                      changeKind: "editor",
+                      fields: e.fields.join(","),
+                    });
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
                 Effect.catchTag("StaleDesiredState", (e) =>
                   Effect.gen(function* () {
                     // The draft names rows or events that no longer resolve, so it
