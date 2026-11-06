@@ -28,9 +28,10 @@ import { isPairingCode } from "./pairing-code";
  *   factor: the dialog around the view draws any way back.
  * - **The number.** Where the host passes `pairingCode`, the view draws it
  *   large under the line about the link, with a caption: the page the link
- *   opens asks the person to pick it. It is display only, never boxed, and is
- *   checked by `isPairingCode`; anything else draws nothing. An expired link
- *   hides it, since its number died with it.
+ *   opens asks the person to pick it, or on recovery to type it. It is
+ *   display only, never boxed, and is checked by `isPairingCode`; anything
+ *   else draws nothing. An expired link hides it, since its number died with
+ *   it.
  * - **The wait is read from the clock.** Resend unlocks a set number of
  *   seconds after the view appears and after each accepted press. The time
  *   left is worked out from a deadline on every tick, not counted down, so a
@@ -87,10 +88,11 @@ export interface CheckEmailViewProps {
    */
   resendWaitSeconds?: number;
   /**
-   * The number the page the link opens asks the person to pick, from the
-   * request the host began; the view never makes one. Shown only when it is
-   * one to six digits, 0-9 (`isPairingCode`); anything else shows nothing.
-   * Pass the new request's number before a resend's `onResend` resolves.
+   * The number the page the link opens asks the person to pick (on recovery,
+   * to type), from the request the host began; the view never makes one.
+   * Shown only when it is one to six digits, 0-9 (`isPairingCode`); anything
+   * else shows nothing. Pass the new request's number before a resend's
+   * `onResend` resolves.
    */
   pairingCode?: string;
 }
@@ -104,6 +106,15 @@ const PURPOSE_LINE = {
   recovery: "Open it on any device to get back into your account.",
   "step-up": "Open it on any device to confirm it's you.",
   "email-change": "Open it on any device to confirm your new address.",
+} as const satisfies Record<CheckEmailPurpose, string>;
+
+// What the page the link opens asks the person to do with the number:
+// recovery's has them type it, every other flow's has them pick it from a few.
+const NUMBER_CAPTION = {
+  "sign-up": "Pick this number on the page the link opens.",
+  recovery: "Type this number on the page the link opens.",
+  "step-up": "Pick this number on the page the link opens.",
+  "email-change": "Pick this number on the page the link opens.",
 } as const satisfies Record<CheckEmailPurpose, string>;
 
 function waitSeconds(value: number | undefined): number {
@@ -261,7 +272,7 @@ export function CheckEmailView(props: CheckEmailViewProps) {
               <span class="sr-only">Your number:</span> <span translate="no">{shown()}</span>
             </p>
             <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
-              Pick this number on the page the link opens.
+              {NUMBER_CAPTION[props.purpose]}
             </p>
           </div>
         )}
