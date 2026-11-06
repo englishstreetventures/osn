@@ -32,10 +32,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "../src/ui/popover";
 import { Tooltip } from "../src/ui/tooltip";
 import {
   emulateMedia,
+  firstEvent,
   frames,
   rootMs,
   wait,
   watchAnimations,
+  watchNodes,
   type Started,
 } from "./test-support/motion";
 
@@ -294,17 +296,21 @@ describe("a tooltip leaving", () => {
   it("goes at once, with nothing animating on its way out", async () => {
     render(OVERLAYS.tooltip.view);
     const watch = watchAnimations();
-    await openPanel(OVERLAYS.tooltip);
-    const left = performance.now();
+    const panel = await openPanel(OVERLAYS.tooltip);
+    const left = firstEvent(OVERLAYS.tooltip.trigger(), "pointerleave");
+    const nodes = watchNodes('[role="tooltip"]');
     await userEvent.hover(away());
     await vi.waitFor(() => expect(OVERLAYS.tooltip.panel()).toBeNull(), {
       timeout: 2000,
       interval: 5,
     });
-    // Bound loosely: the close is a 0ms timer behind the browser's own pointer
-    // events, and a close held for an exit or a delay takes 300ms or more.
-    expect(performance.now() - left).toBeLessThan(250);
+    nodes.stop();
     watch.stop();
+    // Timed by the page's clock from the pointer leaving. The close is a 0ms
+    // timer; Kobalte's default close delay would hold the panel 300ms.
+    const gone = nodes.removed.find((s) => s.node === panel);
+    expect(gone, "the panel was never removed").toBeDefined();
+    expect(gone!.at - left()).toBeLessThan(150);
     expect(watch.started.filter((s) => s.name === "ui-exit")).toEqual([]);
     await wait(TOOLTIP_COOL);
   });

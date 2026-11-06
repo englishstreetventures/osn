@@ -74,3 +74,53 @@ export const frames = (n = 2) =>
 
 export const wait = (msToWait: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, msToWait));
+
+/*
+ * A timing bound measured between two of the page's own clock readings starts
+ * when the browser acted, not when a Playwright command returned. Command lag
+ * on a loaded runner then cannot push a "not yet" check past its moment, or
+ * let a wrong delay slip through a wide window.
+ */
+
+/** When `type` first fires on `target`, by the page's clock; `NaN` until it has. */
+export function firstEvent(target: Element, type: "pointerenter" | "pointerleave"): () => number {
+  let at = Number.NaN;
+  target.addEventListener(type, () => (at = performance.now()), { once: true });
+  return () => at;
+}
+
+/** One element matching the watched selector, as it entered or left the document. */
+export interface Seen {
+  node: HTMLElement;
+  /** `performance.now()` in the observer's callback, a microtask after the change. */
+  at: number;
+  /** Whether it carried `data-instant` when it arrived. */
+  instant: boolean;
+}
+
+/** Record every element matching `selector` added to or removed from the page until `stop()`. */
+export function watchNodes(selector: string): {
+  added: Seen[];
+  removed: Seen[];
+  stop: () => void;
+} {
+  const added: Seen[] = [];
+  const removed: Seen[] = [];
+  const each = (nodes: NodeList, into: Seen[], at: number) => {
+    for (const node of nodes) {
+      if (!(node instanceof HTMLElement)) continue;
+      const found = node.matches(selector) ? [node] : [];
+      found.push(...node.querySelectorAll<HTMLElement>(selector));
+      for (const el of found) into.push({ node: el, at, instant: el.hasAttribute("data-instant") });
+    }
+  };
+  const observer = new MutationObserver((records) => {
+    const at = performance.now();
+    for (const record of records) {
+      each(record.addedNodes, added, at);
+      each(record.removedNodes, removed, at);
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  return { added, removed, stop: () => observer.disconnect() };
+}
