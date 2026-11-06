@@ -54,7 +54,7 @@ jobs:
       # copy has to come before oxlint actually runs it, hence first step
       # after checkout, before install.
       - name: Verify vendored anti-slop matches its checksums
-        run: bash scripts/verify-vendored-anti-slop.sh
+        run: bash scripts/verify-vendored.sh tools/oxlint/anti-slop
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -684,21 +684,38 @@ jobs:
       # edited or a re-vendor that forgot the pin. Both are invisible to
       # `shasum -c`, because regenerating the manifest certifies whatever the
       # tree now holds.
-      - name: Verify vendored anti-slop matches its checksums
+      #
+      # Every tree `scripts/vendored-trees.txt` lists is checked: anti-slop and
+      # the orb engine in `@shared/ui`. The list is a file of its own rather
+      # than a search for SHA256SUMS files, so a branch that deletes a tree's
+      # manifest cannot also take the tree out of the check; the guard refuses
+      # a listed tree with no manifest. An empty list fails the step.
+      # The browser-test job runs the orb engine in parallel with this one, not
+      # after it; the lint job's own anti-slop check is the one that orders.
+      - name: Verify vendored trees match their checksums
         if: github.event_name != 'pull_request'
-        run: bash scripts/verify-vendored-anti-slop.sh
+        run: |
+          trees=$(grep -v -e '^#' -e '^$' scripts/vendored-trees.txt || true)
+          [ -n "$trees" ] || { echo "scripts/vendored-trees.txt lists no tree" >&2; exit 1; }
+          for tree in $trees; do
+            bash scripts/verify-vendored.sh "$tree"
+          done
 
       # `actions/checkout` clones at depth 1, so the base commit has to be
       # fetched before the guard can read it. One `--depth=1` fetch of that
       # single commit is enough: the guard diffs two trees, which needs no
       # common ancestor between them.
-      - name: Verify vendored anti-slop matches its checksums and pin
+      - name: Verify vendored trees match their checksums and pins
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          bash scripts/verify-vendored-anti-slop.sh "$BASE_SHA"
+          trees=$(grep -v -e '^#' -e '^$' scripts/vendored-trees.txt || true)
+          [ -n "$trees" ] || { echo "scripts/vendored-trees.txt lists no tree" >&2; exit 1; }
+          for tree in $trees; do
+            bash scripts/verify-vendored.sh "$tree" "$BASE_SHA"
+          done
 
       # The guard's own tests, beside the run that uses it. They exercise it in
       # throwaway git repos rather than this checkout — one case exports
@@ -706,8 +723,8 @@ jobs:
       # guard list the whole repo instead of the vendored subtree and blocked
       # every local commit; others build a base and a head commit to drive the
       # pin half. They run on every event, unlike the pin half itself.
-      - name: Test the vendored anti-slop guard
-        run: bash scripts/tests/verify-vendored-anti-slop.test.sh
+      - name: Test the vendored-tree guard
+        run: bash scripts/tests/verify-vendored.test.sh
 
       # release.yml's commit step runs only on main, after a merge, so this is
       # the one place its staging and message choice are seen to work before

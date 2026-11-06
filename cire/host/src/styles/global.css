@@ -11,6 +11,9 @@
  * a shared file pointing at a product package inverts the layering and would
  * scan cire's classes into every musubi, pulse, lab and metrics build. */
 @source "../../../ui/src";
+/* `@shared/design-tokens` scans `@shared/ui` for every app, but no portal page
+   draws the orb. A page that draws `Orb` needs this line gone. */
+@source not "../../../../shared/ui/src/ui/orb.tsx";
 
 /* ── The two ramps ──────────────────────────────────────────────────────────
  * Every colour in the portal is one of the custom properties below, and every

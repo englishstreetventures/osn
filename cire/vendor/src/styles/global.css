@@ -14,6 +14,9 @@
 /* No vendor view draws the hollow loading rows yet. A page that draws
    `SkeletonOutline` needs this line gone. */
 @source not "../../../ui/src/skeleton-outline.tsx";
+/* Nor the orb: no page here draws it. A page that draws `Orb` needs this
+   line gone. */
+@source not "../../../../shared/ui/src/ui/orb.tsx";
 
 /* ── The two ramps ──────────────────────────────────────────────────────────
  * Lifted wholesale from `cire/host`, deliberately value-for-value. The
