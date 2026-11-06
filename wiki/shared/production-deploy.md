@@ -1599,8 +1599,8 @@ is missing, so it puts the host back on Pages from either half. Then dispatch th
 again.
 
 **Never re-run a failed step 4.** Once its deploy has run, the Worker may hold the domain
-already, so the flip guard refuses the re-plan: the site's Worker no longer gains its
-production host. Fix forward with a release dispatched without `flip`, or roll back.
+already, so the flip guard refuses the re-plan: a Worker that holds its production host
+does not gain it. Fix forward with a release dispatched without `flip`, or roll back.
 
 **If only another site's smoke check failed in step 4**, the flip stands: that check
 rolled its own Worker back and failed the job, and the flip site's record job still runs
