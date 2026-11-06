@@ -256,10 +256,12 @@ const MODAL_STYLE = `
 .ui-modal::backdrop {
   background-color: color-mix(in srgb, var(--ui-ground-deep, #18181b) 72%, transparent);
   opacity: 0;
+  /* motion-literal: a leaving curve, and no token names one */
   transition: opacity var(--ui-modal-exit, 150ms) ease-in;
 }
 .ui-modal[open]::backdrop {
   opacity: 1;
+  /* motion-literal: the keyword curve, gentler on a fade than --ui-ease-out */
   transition: opacity var(--ui-modal-enter, 250ms) ease-out;
 }
 @starting-style {
@@ -285,6 +287,7 @@ const MODAL_STYLE = `
 .ui-modal[data-closing] {
   opacity: 0;
   transform: translateY(var(--ui-distance-exit, 8px)) scale(var(--ui-scale-exit, 0.98));
+  /* motion-literal: a leaving curve, and no token names one */
   transition:
     opacity var(--ui-modal-exit, 150ms) ease-in,
     transform var(--ui-modal-exit, 150ms) ease-in;
@@ -294,6 +297,7 @@ const MODAL_STYLE = `
    full strength and drops the moment \`close()\` runs. */
 .ui-modal[data-closing]::backdrop {
   opacity: 0;
+  /* motion-literal: a leaving curve, and no token names one */
   transition: opacity var(--ui-modal-exit, 150ms) ease-in;
 }
 

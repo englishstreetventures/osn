@@ -13,6 +13,7 @@
   }
 }
 .brand-pulse {
+  /* motion-literal: a looping pulse; its period is its own, and no token times a loop */
   animation: brand-pulse 2s infinite ease-out;
 }
 
@@ -27,6 +28,7 @@
   }
 }
 .live-dot {
+  /* motion-literal: a looping pulse; its period is its own, and no token times a loop */
   animation: live-pulse 1.8s infinite;
 }
 

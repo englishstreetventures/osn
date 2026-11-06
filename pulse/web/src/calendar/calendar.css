@@ -145,6 +145,7 @@
   font-weight: 500;
   cursor: pointer;
   border: 1px solid transparent;
+  /* motion-literal: the reminder strip's buttons fade at 150ms; pulse/web has no rung that long for a hover (--ui-dur-fast is 120ms) */
   transition:
     opacity 0.15s ease,
     background 0.15s ease;

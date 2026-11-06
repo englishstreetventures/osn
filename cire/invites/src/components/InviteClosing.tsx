@@ -91,6 +91,7 @@ const BAND_CAP_MIN_WIDTH = "1536px";
  * capped band already in place. The global `prefers-reduced-motion` clamp in
  * `src/styles/global.css` overrides this to 0.01ms.
  */
+// oxlint-disable-next-line house/no-literal-motion -- the band settling across its cap on a live resize; no rung is that slow
 export const BAND_WIDTH_TRANSITION_CLASS = "transition-[max-width] duration-500 ease-out";
 
 /**

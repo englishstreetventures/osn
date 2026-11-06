@@ -333,15 +333,18 @@ const STATES = [
   /* The fan opens once on arrival, from a closed stack. */
   @media (prefers-reduced-motion: no-preference) {
     .fan__slot {
+      /* motion-literal: the fan opening on arrival, choreography longer than --dur-slow */
       animation: fan-open 0.9s var(--ease-out) both;
     }
 
     .fan__slot[data-fan='left'],
     .fan__slot[data-fan='right'] {
+      /* motion-literal: the fan's stagger, part of its opening */
       animation-delay: 0.08s;
     }
 
     .fan__slot[data-fan^='far-'] {
+      /* motion-literal: the fan's stagger, part of its opening */
       animation-delay: 0.16s;
     }
   }
@@ -365,6 +368,7 @@ const STATES = [
     opacity: 0;
     visibility: hidden;
     transform: translateY(0.5rem);
+    /* motion-literal: the screens' cross-fade, choreography longer than --dur-slow; visibility flips once the fade ends */
     transition:
       opacity 0.45s var(--ease-out),
       transform 0.45s var(--ease-out),

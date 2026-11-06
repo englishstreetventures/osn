@@ -436,6 +436,7 @@ const STEPS: readonly Step[] = [
     opacity: 0;
     visibility: hidden;
     transform: translateY(0.5rem);
+    /* motion-literal: the panels' cross-fade, choreography longer than --dur-slow; visibility flips once the fade ends */
     transition:
       opacity 0.45s var(--ease-out),
       transform 0.45s var(--ease-out),

@@ -40,6 +40,7 @@
   background: var(--pulse-accent);
   transform-origin: left;
   transform: scaleX(0);
+  /* motion-literal: a progress fill growing to its step; no token has that job */
   transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -141,7 +142,8 @@
  * ------------------------------------------------------------------------- */
 
 .onb-step-enter {
-  animation: onb-step-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* motion-literal: a step arrives in 240ms; --ui-dur-base, a panel swap, is 200ms */
+  animation: onb-step-in 240ms var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
 }
 
 @keyframes onb-step-in {
@@ -163,6 +165,7 @@
 .pulse-ring {
   transform-box: fill-box;
   transform-origin: center;
+  /* motion-literal: the welcome rings' ripple, a loop with its own period and curve */
   animation: pulse-ring 2.4s ease-out infinite;
   opacity: 0;
 }
@@ -171,12 +174,15 @@
   animation-delay: 0s;
 }
 .pulse-ring-2 {
+  /* motion-literal: the ripple's stagger, a fraction of its 2.4s period */
   animation-delay: 0.45s;
 }
 .pulse-ring-3 {
+  /* motion-literal: the ripple's stagger, a fraction of its 2.4s period */
   animation-delay: 0.9s;
 }
 .pulse-ring-4 {
+  /* motion-literal: the ripple's stagger, a fraction of its 2.4s period */
   animation-delay: 1.35s;
 }
 
@@ -201,6 +207,7 @@
 .ember-ring {
   transform-box: fill-box;
   transform-origin: center;
+  /* motion-literal: the ember rings' ripple, a loop with its own period and curve */
   animation: ember-ring 2.6s ease-out infinite;
   opacity: 0;
 }
@@ -209,6 +216,7 @@
   animation-delay: 0s;
 }
 .ember-ring-2 {
+  /* motion-literal: the ember ripple's stagger, a fraction of its 2.6s period */
   animation-delay: 0.7s;
 }
 
@@ -232,6 +240,7 @@
 
 .location-pin-drop {
   transform-box: fill-box;
+  /* motion-literal: the pin's drop and bounce, choreography with its own overshooting curve */
   animation: pin-drop 700ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
@@ -255,6 +264,7 @@
 .location-pin-ring {
   transform-box: fill-box;
   transform-origin: center;
+  /* motion-literal: the pin's ring, a loop that starts as the drop lands */
   animation: location-ring 1.6s ease-out 0.55s infinite both;
   opacity: 0;
 }
@@ -301,6 +311,7 @@
   font-weight: 500;
   color: var(--foreground);
   cursor: pointer;
+  /* motion-literal: a chip's hover and choice at 160ms; no rung is that long for a hover (--ui-dur-fast is 120ms) */
   transition:
     border-color 160ms ease,
     background 160ms ease,
