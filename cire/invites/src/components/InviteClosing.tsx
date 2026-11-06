@@ -88,10 +88,13 @@ const BAND_CAP_MIN_WIDTH = "1536px";
 /**
  * How long the band takes to settle into or out of its cap. Only a live resize
  * across 1536px ever plays it; a guest who loads at a wide width sees the
- * capped band already in place. The global `prefers-reduced-motion` clamp in
- * `src/styles/global.css` overrides this to 0.01ms.
+ * capped band already in place. Slower than `--dur-slow`, which is sized for
+ * controls and panels, so it keeps its own time, scaled like every cire
+ * duration. The global `prefers-reduced-motion` clamp in `src/styles/global.css`
+ * overrides this to 0.01ms.
  */
-export const BAND_WIDTH_TRANSITION_CLASS = "transition-[max-width] duration-500 ease-out";
+export const BAND_WIDTH_TRANSITION_CLASS =
+  "transition-[max-width] duration-[calc(500ms*var(--motion-scale))] ease-out";
 
 /**
  * The band's shape when a crop carries no captured source dims (a legacy

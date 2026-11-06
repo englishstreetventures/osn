@@ -22,12 +22,14 @@ import { APP_URL, HOW_ANCHOR } from '../../lib/site'
       Open Pulse, see what&rsquo;s on tonight, and tap to go. The good nights start here.
     </p>
     <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+      {/* motion-literal: a button's hover; this site defines no motion tokens */}
       <a
         href={APP_URL}
         class="font-body w-full rounded-full bg-[var(--pulse-accent)] px-8 py-4 text-copy font-semibold text-[var(--color-bg)] transition-transform duration-200 hover:scale-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
       >
         Find events
       </a>
+      {/* motion-literal: a button's hover; this site defines no motion tokens */}
       <a
         href={HOW_ANCHOR}
         class="font-body w-full rounded-full border border-[var(--color-border)] bg-transparent px-8 py-4 text-copy font-semibold text-[var(--color-text)] transition-colors duration-200 hover:border-[var(--pulse-accent)] hover:text-[var(--pulse-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"

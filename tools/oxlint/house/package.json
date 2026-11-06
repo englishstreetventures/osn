@@ -11,7 +11,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "bun check --no-script",
-    "test": "bun test"
+    "test": "bun test --path-ignore-patterns='**/no-literal-motion.test.ts'",
+    "test:repo": "bun test tests/no-literal-motion.test.ts"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.88.0",

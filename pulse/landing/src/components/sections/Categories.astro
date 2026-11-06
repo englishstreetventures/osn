@@ -22,6 +22,7 @@ import { CATEGORIES } from '../../lib/site'
       {
         CATEGORIES.map((cat) => (
           <li>
+            {/* motion-literal: a card lifting on hover; this site defines no motion tokens */}
             <div
               class="group flex h-full flex-col items-start gap-4 rounded-2xl border p-6 transition-transform duration-200 hover:-translate-y-1"
               style={`border-color: color-mix(in oklab, var(--${cat.color}) 30%, transparent); background: color-mix(in oklab, var(--${cat.color}) 10%, var(--color-surface-raised));`}

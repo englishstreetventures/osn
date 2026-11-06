@@ -407,6 +407,35 @@
       }
     },
     {
+      // A motion takes its duration, delay and curve from a token chosen by
+      // its job — the shared --ui-dur-* and --ui-ease-*, or an app's own, as
+      // cire's --dur-* and --ease-* — so it follows the app's pace: cire's
+      // ladder shortens at a desk, and a written 200ms does not. The rule
+      // reports a literal in a transition or animation (class strings, style
+      // objects, injected stylesheets), Tailwind's duration-*, delay-* and
+      // ease-linear and their arbitrary forms, a named ease-* that reads
+      // Tailwind's own curve (outside cire, which sets --ease-out and
+      // --ease-in-out in its theme), and transition-all. A var()
+      // fallback, cire's calc(… * var(--motion-scale)) and anything under
+      // prefers-reduced-motion: reduce pass. oxlint never parses .css and
+      // skips .astro (ignorePatterns below), so
+      // scripts/check-motion-literals.ts runs the same matcher over those in
+      // CI. Product src/ only: lab stories and tests may time what they like.
+      // Every site was fixed or kept with its reason before this went on, so
+      // it starts at "error".
+      "files": [
+        "osn/*/src/**",
+        "musubi/*/src/**",
+        "pulse/*/src/**",
+        "cire/*/src/**",
+        "shared/*/src/**",
+        "zap/*/src/**"
+      ],
+      "rules": {
+        "house/no-literal-motion": "error"
+      }
+    },
+    {
       // The Bun-only dev entry, which never runs on workerd: there
       // `process.env` is native and complete at load.
       "files": ["cire/api/src/local.ts"],
