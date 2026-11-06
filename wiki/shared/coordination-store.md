@@ -29,7 +29,7 @@ osn-api keeps its short-lived shared state in one Durable Object class,
 `COORDINATION`. Every isolate of the deployed Worker sees the same state:
 
 - the rate limiters no native binding carries: the hour-window auth limiters, the per-account export limiter, the per-IP deletion and restore limiters, and the per-account caps (on the Bun dev server, every limiter);
-- the ceremony entries: identified passkey challenges, pending registrations and their emailed-link requests ([[email-links]]), emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens. A tab waiting on a sign-up link polls its request about once every two to ten seconds, one store read each: about seventy reads over the link's ten minutes at most, plus about four each time the person comes back to the tab;
+- the ceremony entries: identified passkey challenges, pending registrations and their emailed-link requests ([[email-links]]), emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens. A tab waiting on a sign-up link polls its request at 2, 5, 9.5, 16.25 and 26.25 seconds, then every 10: about 62 polls over the link's ten minutes. Each poll is one Worker request and one store read, and the browser adds at most one CORS preflight per ten minutes (`maxAge: 600` in `osn/api/src/app.ts`). Each time the person comes back to the tab adds about four store calls;
 - each code ceremony's guess count, kept on its entry;
 - the step-up token ids already used, and the discoverable passkey challenges already used, by nonce;
 - the three per-account lockout counters (recovery code, emailed recovery code, TOTP), and the per-address count of wrong picks on sign-up links;
@@ -284,10 +284,17 @@ for (counted from the code, 2026-10-28):
 | Route | Calls |
 |---|---|
 | Code `begin` (step-up OTP, TOTP enrolment, email change, recovery email) | 1 `write`, after any cap or limiter |
-| Registration `begin` | 1 `swap`, after a D1 collision probe |
-| Code `complete`, success | 1 `guess`, then the claim (email change: beside its D1 preflight, before the commit); registration instead deletes the entry once its insert lands, after the answer |
+| Code `complete`, success | 1 `guess`, then the claim (email change: beside its D1 preflight, before the commit) |
 | Recovery code sign-in, success | 1 (the lockout lookup); the reset runs after the answer, and only when the lookup counted a failure; it takes back only those failures |
 | TOTP step-up or TOTP recovery, success | 1 (the attempt count, an `increment`, beside the credential read); the reset runs after the answer, on every success, and takes back only this attempt's count. Two requests and a few rows written where a read alone would be one request, the price of counting each attempt before its code is compared |
+| Sign-up link `begin` | 2 (the request's `set`, then the pending entry's `swap`), after a D1 collision probe; 6 when `previous` retires an earlier request first (a `get`, a `consume`, then the pending entry's `get` and `delete`). The send's lockout lookup and, for a resend, its cap check run after the answer |
+| Sign-up link status, pending | 1 `get` |
+| Sign-up link status, completing | 3 (the request's `get`, the pending entry's `get`, the claim's `consume`), then the D1 insert; the pending entry's delete runs after the answer |
+| Sign-up link Resend | 3 (the request's `get`, its `swap`, the pending entry's `get`), then 1 to 2 after the answer: the lockout lookup, and the send cap's check unless the lockout already refuses |
+| Sign-up link candidates | 1 `get` |
+| Sign-up link confirm, right pick | 2 (`guess`, then `swap`) |
+| Sign-up link confirm, decline | 4 (`guess`, `swap`, then the pending entry's `get` and `delete`) |
+| Sign-up link confirm, wrong pick | 5 (`guess`, the strike's `recordFailure`, then `consume`, and the pending entry's `get` and `delete`) |
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |
@@ -295,7 +302,7 @@ for (counted from the code, 2026-10-28):
 | Recovery email `complete`, any refusal | 3 calls in 2 hops (the lockout lookup and the guess side by side, then the failure record) |
 | Recovery code sign-in, any refusal | 2 (the lockout lookup; then the failure record, beside the D1 read that classifies the refusal) |
 
-*Counted from the code on 2026-10-28 (`shared/coordination/src/store.ts`, `client.ts`, and the services under `osn/api/src/services/auth/`) against the pricing page's billing rules, not measured. The pricing page does not say how `deleteAlarm()` or `deleteAll()` are billed beyond "deletes are counted as rows written".*
+*Counted from the code on 2026-10-28, and the sign-up link rows on 2026-11-07 (`shared/coordination/src/store.ts`, `client.ts`, and the services under `osn/api/src/services/auth/`) against the pricing page's billing rules, not measured. The pricing page does not say how `deleteAlarm()` or `deleteAll()` are billed beyond "deletes are counted as rows written".*
 
 **Plans.** The production account is on **Workers Paid**: no daily cap, 1
 million Durable Object requests a month included, then $0.15 a million. The dev

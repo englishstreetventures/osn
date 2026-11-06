@@ -123,7 +123,9 @@ There is no `GET` on any of them: mail scanners open links before people do.
   `Register` holds it in memory, and a reloaded tab polls at once and shows the
   number the `pending` answer carries, which the server recovers from the
   stored digest. It polls one call at a time, from two seconds growing to ten,
-  and at once when the tab comes back into view.
+  and at once when the tab comes back into view. A full ten-minute wait is about
+  62 polls: one Worker request each, plus at most one CORS preflight per ten
+  minutes (`maxAge: 600`).
 
 ## Adding a flow
 
