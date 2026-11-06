@@ -11,6 +11,8 @@ import {
   Switch,
 } from "solid-js";
 
+import { isPairingCode } from "./pairing-code";
+
 /**
  * The screen a flow shows after it has emailed a link: "Check your email".
  *
@@ -24,6 +26,11 @@ import {
  *   link, one line saying what opening it does, then Resend and (where the
  *   address was typed here) "Use a different email". No code box, no other
  *   factor: the dialog around the view draws any way back.
+ * - **The number.** Where the host passes `pairingCode`, the view draws it
+ *   large under the line about the link, with a caption: the page the link
+ *   opens asks the person to pick it. It is display only, never boxed, and is
+ *   checked by `isPairingCode`; anything else draws nothing. An expired link
+ *   hides it, since its number died with it.
  * - **The wait is read from the clock.** Resend unlocks a set number of
  *   seconds after the view appears and after each accepted press. The time
  *   left is worked out from a deadline on every tick, not counted down, so a
@@ -32,7 +39,10 @@ import {
  * - **What is announced.** The sentence and any error sit in one polite live
  *   region, so a resend, an expiry and an error are read out. The countdown
  *   sits in the Resend button, outside the region, and a disabled button
- *   cannot hold focus, so the seconds are never read out as they change.
+ *   cannot hold focus, so the seconds are never read out as they change. The
+ *   number sits outside the region too, read once in the page's order with a
+ *   hidden "Your number:" before it; after a resend the region's sentence says
+ *   to check the number again, without naming it.
  * - **Focus.** The heading takes focus when the view appears, because the form
  *   that sent the link has just gone, and again when a press disables the
  *   focused Resend button, so focus never falls to the page.
@@ -76,6 +86,13 @@ export interface CheckEmailViewProps {
    * press. Defaults to 30. Anything that is not a positive number means no wait.
    */
   resendWaitSeconds?: number;
+  /**
+   * The number the page the link opens asks the person to pick, from the
+   * request the host began; the view never makes one. Shown only when it is
+   * one to six digits, 0-9 (`isPairingCode`); anything else shows nothing.
+   * Pass the new request's number before a resend's `onResend` resolves.
+   */
+  pairingCode?: string;
 }
 
 const DEFAULT_WAIT_SECONDS = 30;
@@ -180,6 +197,16 @@ export function CheckEmailView(props: CheckEmailViewProps) {
 
   const linkWord = () => (resent() ? "a new link" : "a link");
 
+  const code = createMemo(() => {
+    const value = props.pairingCode;
+    return isPairingCode(value) ? value : undefined;
+  });
+
+  // After a resend the number may have changed, and a screen reader does not
+  // hear it change, so the announced sentence sends the person back to it. It
+  // never says the number is new: two requests can draw the same one.
+  const checkNumber = () => (resent() && code() ? " Check the number again." : "");
+
   return (
     <div class="font-ui-body flex flex-col gap-4">
       <h3
@@ -203,10 +230,10 @@ export function CheckEmailView(props: CheckEmailViewProps) {
               <Show when={props.email} fallback="If that address has an account, ">
                 If {address()} has an account,{" "}
               </Show>
-              {linkWord()} is on its way.
+              {linkWord()} is on its way.{checkNumber()}
             </Match>
             <Match when={true}>
-              We sent {linkWord()} to {address()}.
+              We sent {linkWord()} to {address()}.{checkNumber()}
             </Match>
           </Switch>
         </p>
@@ -221,6 +248,23 @@ export function CheckEmailView(props: CheckEmailViewProps) {
         <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
           {PURPOSE_LINE[props.purpose]} This page will update when you do.
         </p>
+      </Show>
+
+      {/* Outside the live region, so it is read once in the page's order and
+          never again when the region changes. The hidden label makes the line
+          read "Your number: 47"; the digits alone are kept from page
+          translation. */}
+      <Show when={!expired() && code()}>
+        {(shown) => (
+          <div class="flex flex-col gap-1">
+            <p class="text-ui-xl text-ui-ink leading-ui-tight font-medium tabular-nums">
+              <span class="sr-only">Your number:</span> <span translate="no">{shown()}</span>
+            </p>
+            <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
+              Pick this number on the page the link opens.
+            </p>
+          </div>
+        )}
       </Show>
 
       <div class="flex flex-col gap-1">
