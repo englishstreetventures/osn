@@ -303,16 +303,20 @@ As built:
   passkey, which points to "Lost your passkey?".
 - **The sentence helpers.** `describePasskeyError` (this package) gives one
   fixed sentence for each way a passkey ceremony fails, read from the error's
-  `name` and the ceremony the caller names: "This device already has a
-  passkey" only when adding one. Its sentence for a refused passkey names no
+  `name` and the ceremony the caller names, `authentication` or
+  `registration`. A prompt the person closed, or one that timed out, reads
+  "That passkey didn't work. Try again." when signing in and "The passkey
+  wasn't added. Try again." when adding one. The signing-in sentence names no
   cause, so a view with another way in shows that way beside it, as `SignIn`
-  does with "Lost your passkey?". `describeAuthError` (`@osn/client`) gives
-  one for each server answer, read from the error's `status` and `code` and
-  the form the person submitted (`code`, `recovery`, `passkey` or `details`);
-  `describePasskeyError` hands a server error to it. Neither shows an error's message, a code or the
-  browser's own text, and neither tells apart two failures the server answers
-  the same way. The views do not call them yet: each shows `message` as above
-  (#2044).
+  does with "Lost your passkey?". "This device already has a passkey for this
+  account." appears only when adding one. `describeAuthError` (`@osn/client`)
+  gives one for each server answer or an expired session, read from the
+  error's `status` and `code` and the form the person submitted (`code`,
+  `recovery`, `passkey`, `new-passkey` or `details`). `describePasskeyError`
+  hands a server error to it, as `passkey` when signing in and `new-passkey`
+  when adding one. Neither shows an error's message, a code or the browser's
+  own text, and neither tells apart two failures the server answers the same
+  way. The views do not call them yet: each shows `message` as above (#2044).
 - A recovery session that runs out is its own state in `RecoveryLoginForm`
   ("That recovery session timed out"), not an error line.
 

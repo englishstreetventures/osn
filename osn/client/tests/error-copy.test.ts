@@ -51,6 +51,7 @@ const CONTEXTS: ReadonlyArray<AuthErrorContext | undefined> = [
   "code",
   "recovery",
   "passkey",
+  "new-passkey",
   "details",
 ];
 
@@ -118,6 +119,20 @@ describe("describeAuthError", () => {
     expect(describeAuthError(api(418, "made_up_code"))).toBe(GENERAL);
     for (const status of [400, 418, 500]) {
       expect(describeAuthError(api(status, "made_up_code"))).not.toContain("made_up_code");
+    }
+  });
+
+  it("C3: a known code at a status it is not sent with takes that status's class", () => {
+    for (const context of CONTEXTS) {
+      expect(describeAuthError(api(403, "unauthorized"), context)).toBe(
+        describeAuthError(api(403), context),
+      );
+      expect(describeAuthError(api(401, "step_up_required"), context)).toBe(
+        describeAuthError(api(401), context),
+      );
+      expect(describeAuthError(api(400, "not_found"), context)).toBe(
+        describeAuthError(api(400), context),
+      );
     }
   });
 
@@ -218,6 +233,18 @@ describe("describeAuthError", () => {
   });
 
   // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
+  // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
+  it("C7: each context gets its own sentence for a refused input, and a 409 its own", () => {
+    const refused = CONTEXTS.map((context) =>
+      describeAuthError(api(400, "invalid_request"), context),
+    );
+    expect(new Set(refused).size).toBe(CONTEXTS.length);
+    const changed = describeAuthError(api(409));
+    for (const other of [GENERAL, describeAuthError(api(403)), describeAuthError(api(404))]) {
+      expect(changed).not.toBe(other);
+    }
+  });
+
   it("C8: a client-wrapped transport failure gets the connection sentence, and nothing else does", () => {
     expect(CONNECTION).not.toBe(GENERAL);
     expect(CONNECTION.toLowerCase()).toContain("connect");

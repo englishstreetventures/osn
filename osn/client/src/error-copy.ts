@@ -10,10 +10,12 @@ import { isAuthExpiredError } from "./errors";
  *   account already named.
  * - `recovery`: a handle or email with a recovery code, emailed code or app
  *   code.
- * - `passkey`: a passkey the server refused.
+ * - `passkey`: a passkey the server refused when signing in or confirming it
+ *   is you.
+ * - `new-passkey`: a passkey being added that the server refused.
  * - `details`: a form of email, handle or date of birth.
  */
-export type AuthErrorContext = "code" | "recovery" | "passkey" | "details";
+export type AuthErrorContext = "code" | "recovery" | "passkey" | "new-passkey" | "details";
 
 /** The `error` codes osn-api sends to the routes this package's clients call. */
 export type OsnApiErrorCode =
@@ -52,6 +54,7 @@ const INPUT_BY_CONTEXT = {
   recovery:
     "That didn't work. Check your handle or email and the code, then try again. If it keeps failing, wait a while first.",
   passkey: "We couldn't verify that passkey. Try again.",
+  "new-passkey": "We couldn't add that passkey. Try again.",
   details: "Check the details you entered and try again.",
 } as const satisfies Record<AuthErrorContext, string>;
 
@@ -121,9 +124,9 @@ function byStatusClass(status: number, refusedInput: string): string {
  * message, the cause or any other field. Two failures the server answers the
  * same way therefore always read the same, so the sentence never reveals more
  * than the answer did — whether an account exists, or which of two inputs was
- * wrong. A `429` names the wait
- * without a time. Any other input — a thrown string, `null`, an error with no
- * status — gets the general sentence. Never throws.
+ * wrong. A `429` names the wait without a time. Any other input — a thrown
+ * string, `null`, an error with no status — gets the general sentence. Never
+ * throws.
  */
 export function describeAuthError(err: unknown, context?: AuthErrorContext): string {
   let status: unknown;

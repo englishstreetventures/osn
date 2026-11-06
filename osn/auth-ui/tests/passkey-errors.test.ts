@@ -54,14 +54,18 @@ async function failedCeremony(ceremony: Ceremony, error: unknown): Promise<unkno
 
 /** The names whose sentence is the same for both ceremonies. */
 const PINNED: Record<string, string> = {
-  NotAllowedError: "That passkey didn't work. Try again.",
   AbortError: "The passkey request was stopped. Try again.",
   SecurityError: "Your browser didn't allow a passkey here. Try another browser or device.",
   NotSupportedError: "This device can't use a passkey here. Try another device or a security key.",
   ConstraintError: "This device can't use a passkey here. Try another device or a security key.",
 };
+/** A closed prompt or a timeout: no passkey was used, or none was made. */
+const NOT_ALLOWED: Record<Ceremony, string> = {
+  authentication: "That passkey didn't work. Try again.",
+  registration: "The passkey wasn't added. Try again.",
+};
 const ALREADY_REGISTERED = "This device already has a passkey for this account.";
-const NAMES = [...Object.keys(PINNED), "InvalidStateError", "UnknownError"];
+const NAMES = [...Object.keys(PINNED), "NotAllowedError", "InvalidStateError", "UnknownError"];
 const GENERAL = "Something went wrong with the passkey. Try again.";
 
 describe("describePasskeyError", () => {
@@ -74,8 +78,8 @@ describe("describePasskeyError", () => {
       );
       // The library passes the browser's message straight through.
       expect((thrown as Error).message).toBe(CHROME_NOT_ALLOWED);
-      const sentence = describePasskeyError(thrown);
-      expect(sentence).toBe(PINNED.NotAllowedError);
+      const sentence = describePasskeyError(thrown, ceremony);
+      expect(sentence).toBe(NOT_ALLOWED[ceremony]);
       expect(sentence).not.toContain("w3.org");
       expect(sentence).not.toContain("operation");
       expect(sentence).not.toContain("See:");
@@ -86,18 +90,31 @@ describe("describePasskeyError", () => {
     "W2 (%s): a %s never shows its message",
     async (ceremony, name) => {
       const thrown = await failedCeremony(ceremony, new DOMException(`${MARKER} ${name}`, name));
-      expect(describePasskeyError(thrown)).not.toContain(MARKER);
-      expect(describePasskeyError(thrown, ceremony)).not.toContain(MARKER);
+      for (const asked of CEREMONIES) {
+        expect(describePasskeyError(thrown, asked)).not.toContain(MARKER);
+      }
     },
   );
 
   // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
   it.each(CEREMONIES.flatMap((c) => Object.keys(PINNED).map((n) => [c, n] as const)))(
-    "W3 (%s): a %s gets its own sentence, named ceremony or not",
+    "W3 (%s): a %s gets its own sentence in either ceremony",
     async (ceremony, name) => {
       const thrown = await failedCeremony(ceremony, new DOMException("browser text", name));
-      expect(describePasskeyError(thrown)).toBe(PINNED[name]);
-      expect(describePasskeyError(thrown, ceremony)).toBe(PINNED[name]);
+      for (const asked of CEREMONIES)
+        expect(describePasskeyError(thrown, asked)).toBe(PINNED[name]);
+    },
+  );
+
+  // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
+  it.each(CEREMONIES)(
+    "W3 (%s): a NotAllowedError gets the ceremony's own sentence",
+    async (ceremony) => {
+      const thrown = await failedCeremony(
+        ceremony,
+        new DOMException("browser text", "NotAllowedError"),
+      );
+      expect(describePasskeyError(thrown, ceremony)).toBe(NOT_ALLOWED[ceremony]);
     },
   );
 
@@ -108,13 +125,11 @@ describe("describePasskeyError", () => {
       new DOMException("browser text", "InvalidStateError"),
     );
     expect(describePasskeyError(adding, "registration")).toBe(ALREADY_REGISTERED);
-    expect(describePasskeyError(adding)).toBe(GENERAL);
     const using = await failedCeremony(
       "authentication",
       new DOMException("browser text", "InvalidStateError"),
     );
     expect(describePasskeyError(using, "authentication")).toBe(GENERAL);
-    expect(describePasskeyError(using)).toBe(GENERAL);
   });
 
   it("W4: anything it does not know gets the general sentence, without throwing", async () => {
@@ -141,15 +156,28 @@ describe("describePasskeyError", () => {
       Object.create(null) as object,
     ];
     for (const err of odd) {
-      expect(() => describePasskeyError(err)).not.toThrow();
-      expect(describePasskeyError(err)).toBe(GENERAL);
+      for (const ceremony of CEREMONIES) {
+        expect(() => describePasskeyError(err, ceremony)).not.toThrow();
+        expect(describePasskeyError(err, ceremony)).toBe(GENERAL);
+      }
+    }
+    // A ceremony from untyped code that is not one of the two.
+    const refused = new DOMException("x", "NotAllowedError");
+    for (const ceremony of ["__proto__", "constructor", "signup", undefined]) {
+      const asked = ceremony as unknown as Ceremony;
+      expect(() => describePasskeyError(refused, asked)).not.toThrow();
+      expect(describePasskeyError(refused, asked)).toBe(GENERAL);
     }
   });
 
   it("W5: no sentence blames a domain or names a product", () => {
-    const sentences = [...Object.values(PINNED), ALREADY_REGISTERED, GENERAL];
+    const sentences = [
+      ...Object.values(PINNED),
+      ...Object.values(NOT_ALLOWED),
+      ALREADY_REGISTERED,
+      GENERAL,
+    ];
     for (const name of NAMES) {
-      sentences.push(describePasskeyError({ name }));
       for (const ceremony of CEREMONIES) sentences.push(describePasskeyError({ name }, ceremony));
     }
     for (const sentence of sentences) {
@@ -157,21 +185,31 @@ describe("describePasskeyError", () => {
     }
   });
 
-  it("W6: a server refusal in a passkey flow gets the map's passkey sentence", () => {
+  it("W6: a server refusal in a passkey flow gets the map's sentence for that ceremony", () => {
     const refused = new LoginError("invalid_request", 400, "invalid_request");
-    expect(describePasskeyError(refused)).toBe(describeAuthError(refused, "passkey"));
-    expect(describePasskeyError(refused)).not.toBe(GENERAL);
+    const signingIn = describePasskeyError(refused, "authentication");
+    const adding = describePasskeyError(refused, "registration");
+    expect(signingIn).toBe(describeAuthError(refused, "passkey"));
+    expect(adding).toBe(describeAuthError(refused, "new-passkey"));
+    expect(adding).not.toBe(signingIn);
+    for (const sentence of [signingIn, adding]) {
+      expect(sentence).not.toBe(GENERAL);
+      expect(sentence).not.toBe(describeAuthError(refused));
+    }
     const limited = new LoginError("rate_limited", 429, "rate_limited");
-    expect(describePasskeyError(limited)).toBe(describeAuthError(limited));
-    expect(describePasskeyError(limited).toLowerCase()).toContain("wait");
+    for (const ceremony of CEREMONIES) {
+      expect(describePasskeyError(limited, ceremony)).toBe(describeAuthError(limited));
+      expect(describePasskeyError(limited, ceremony).toLowerCase()).toContain("wait");
+    }
   });
 
   it("W6: an expired session in a passkey flow gets the map's session sentence", () => {
     const session = describeAuthError(new AuthExpiredError({}));
     expect(session).not.toBe(GENERAL);
-    expect(describePasskeyError(new AuthExpiredError({}))).toBe(session);
-    expect(describePasskeyError({ _tag: "AuthExpiredError" })).toBe(session);
-    expect(describePasskeyError(new AuthExpiredError({}), "authentication")).toBe(session);
+    for (const ceremony of CEREMONIES) {
+      expect(describePasskeyError(new AuthExpiredError({}), ceremony)).toBe(session);
+      expect(describePasskeyError({ _tag: "AuthExpiredError" }, ceremony)).toBe(session);
+    }
   });
 
   it("W7: a passkey flow that cannot reach the server gets the connection sentence", async () => {
@@ -187,7 +225,7 @@ describe("describePasskeyError", () => {
       thrown = err;
     }
     expect(thrown).toBeInstanceOf(OsnApiError);
-    const sentence = describePasskeyError(thrown);
+    const sentence = describePasskeyError(thrown, "authentication");
     expect(sentence).toBe(describeAuthError(new OsnApiError("x", 0)));
     expect(sentence.toLowerCase()).toContain("connect");
     expect(sentence).not.toBe(GENERAL);

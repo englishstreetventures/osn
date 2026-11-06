@@ -1,8 +1,9 @@
 /**
  * Passkey management client. Drives Settings → Passkeys: list the
  * account's credentials, rename the user-editable label, or delete one.
- * `delete` requires a fresh step-up token (passkey or OTP amr); the
- * caller threads it through from the step-up ceremony.
+ * `rename` and `delete` require a fresh step-up token — by default only a
+ * passkey step-up, unless the server's config admits more; the caller
+ * threads it through from the step-up ceremony.
  */
 
 import { OsnApiError } from "./api-error";
@@ -36,7 +37,7 @@ export interface PasskeySummary {
 export interface PasskeysClient {
   list(input: { accessToken: string }): Promise<{ passkeys: PasskeySummary[] }>;
   /**
-   * Rename a passkey. Step-up gated (S-M2) so an XSS-captured access
+   * Rename a passkey. Step-up gated so an XSS-captured access
    * token cannot reshape labels to mislead the user before a delete.
    */
   rename(input: {
@@ -53,7 +54,7 @@ export interface PasskeysClient {
   /**
    * Begin enrolment of an additional passkey for the signed-in account.
    * Hits the same `/passkey/register/begin` endpoint used by first-passkey
-   * bootstrap; `stepUpToken` is REQUIRED here (S-H1) because the account
+   * bootstrap; `stepUpToken` is REQUIRED here because the account
    * already has ≥1 credential — a stolen access token alone must not
    * bind a new authenticator.
    *
@@ -135,7 +136,7 @@ export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClie
           step_up_token: input.stepUpToken,
         }),
       });
-      // T-U1: no shape check on the 2xx body — the options are forwarded
+      // No shape check on the 2xx body: the options are forwarded
       // exactly as the server sent them, and the browser is the thing that
       // rejects malformed ones.
       return readJson<PublicKeyCredentialCreationOptionsJSON>(PasskeysError, res);

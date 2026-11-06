@@ -48,7 +48,11 @@ const site = (
   readsBody = true,
 ): Site => ({ name, ErrorClass, call, readsBody });
 
-/** One entry per client method that can throw: every throw site in the package. */
+/**
+ * One entry per client method that can throw, except in the three modules
+ * built on `createAuthFetchers` (graph, organisations, recommendations),
+ * which share one throw site per helper: there, one method per helper.
+ */
 const SITES: Site[] = [
   site("login.passkeyBegin", LoginError, () => login.passkeyBegin("alice")),
   site("login.passkeyComplete", LoginError, () =>
@@ -157,7 +161,12 @@ const SITES: Site[] = [
     sessions.revokeAllOther({ accessToken: TOKEN }),
   ),
   site("graph.listConnections", GraphClientError, () => graph.listConnections(TOKEN)),
+  site("graph.removeConnection", GraphClientError, () => graph.removeConnection(TOKEN, "bob")),
   site("orgs.getOrg", OrgClientError, () => orgs.getOrg(TOKEN, "acme")),
+  site("orgs.createOrg", OrgClientError, () =>
+    orgs.createOrg(TOKEN, { handle: "acme", name: "Acme" }),
+  ),
+  site("orgs.updateOrg", OrgClientError, () => orgs.updateOrg(TOKEN, "acme", { name: "Acme" })),
   site("orgs.deleteOrg", OrgClientError, () => orgs.deleteOrg(TOKEN, "acme"), false),
   site("recs.search", RecommendationClientError, () => recs.search(TOKEN, "ali")),
 ];
@@ -253,6 +262,45 @@ describe("every client error carries the response's status and the server's code
       expect(err).toMatchObject({ status: 200, code: undefined });
     },
   );
+
+  /**
+   * A 2xx body of the wrong shape: a site with a shape check rejects, one
+   * without returns the body as sent, and `login.passkeyComplete` and
+   * `register.completeRegistration` fail decoding the session. None may read
+   * the body's `error` field as a code.
+   */
+  const settleWrongShape = async (s: Site) => {
+    stubFetch(() => json({ error: "rate_limited" }, 200));
+    try {
+      await s.call();
+      return undefined;
+    } catch (err) {
+      return { err };
+    }
+  };
+
+  it.each(SITES.filter((s) => s.readsBody).map((s) => [s.name, s] as const))(
+    "P5 %s: an `error` field in a 2xx body is never read as a code",
+    async (_name, s) => {
+      const err = (await settleWrongShape(s))?.err;
+      expect((err as { code?: unknown } | undefined)?.code).toBeUndefined();
+      // A client error, when it is one, is this site's own at the 2xx status.
+      const typed =
+        err instanceof OsnApiError
+          ? { status: err.status, own: err instanceof s.ErrorClass }
+          : undefined;
+      expect([undefined, { status: 200, own: true }]).toContainEqual(typed);
+    },
+  );
+
+  it("P5: some sites refuse a 2xx body of the wrong shape with their own error", async () => {
+    const typed = [];
+    for (const s of SITES.filter((x) => x.readsBody)) {
+      const outcome = await settleWrongShape(s);
+      if (outcome?.err instanceof OsnApiError) typed.push(s.name);
+    }
+    expect(typed.length).toBeGreaterThan(0);
+  });
 
   it.each(SITES.filter((s) => !s.readsBody).map((s) => [s.name, s] as const))(
     "P5 %s: reads no body on success, so an empty or non-JSON 2xx resolves",
