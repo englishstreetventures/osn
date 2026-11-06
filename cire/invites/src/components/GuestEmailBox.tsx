@@ -3,8 +3,9 @@ import Button, { proseLinkClass } from "@cire/ui/button";
 import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
-import { createSignal, createUniqueId, Show } from "solid-js";
+import { createEffect, createSignal, createUniqueId, on, Show } from "solid-js";
 
+import { moveFocus, pressedByPointer } from "./quiet-focus";
 import type { FamilyMember, MemberEmail } from "./types";
 import { readEmail } from "./utils";
 
@@ -18,8 +19,12 @@ import { readEmail } from "./utils";
  * `@cire/guest-email`; the API refuses a version that is not the one shown.
  * Removing deletes the address; removing one the hosts added also stops
  * wedding email to it until this seat gives it again, and the note after the
- * removal says which happened. It stays open after the RSVP deadline: an
- * address is not a reply.
+ * removal says which happened. After the RSVP deadline the box takes no new or
+ * changed address (the API refuses it too, 403 `rsvp_closed`): a stored address
+ * shows with its Remove button alone, and the status region says why there is
+ * no form. A removal made then leaves one form, holding the removed address,
+ * which the guest can put back: the API takes that save alone, since a removal
+ * would otherwise be final for anyone holding the household code.
  *
  * Purely additive, like the account-link box: a failure says so in the box and
  * never touches the invite around it. Its buttons are named for the address
@@ -43,6 +48,12 @@ interface GuestEmailBoxProps {
   /** The server holds no member, or another one: ask "Who are you?" again. */
   onMemberRequired: () => void;
   /**
+   * The wedding's RSVP deadline has passed: the box takes no new or changed
+   * address, and a stored one can only be removed. Read live, so a deadline
+   * that passes under a guest who is typing closes the form.
+   */
+  closed?: boolean;
+  /**
    * Placement and corner from the panel that hosts it. The box owns only its
    * own surface; its corner depends on whether that panel is itself a card.
    */
@@ -53,6 +64,10 @@ const INVALID_ADDRESS = "That doesn’t look like one email address. Please chec
 /** After removing an address the hosts added: the API records the opt-out. */
 const REMOVED_HOSTS_NOTE =
   "Removed. Your hosts won’t email that address about the wedding unless you add it again.";
+/** The same removal once RSVPs have closed, when no address can be added. */
+const REMOVED_HOSTS_NOTE_CLOSED = "Removed. Your hosts won’t email that address about the wedding.";
+/** Why there is no form: said in the status region, so the change is announced. */
+const CLOSED_NOTE = "RSVPs have closed, so we can’t take a new email address.";
 /** After removing the guest's own address, which leaves no opt-out to promise on. */
 const REMOVED_OWN_NOTE = "Removed. We’ve deleted that address from your invitation.";
 
@@ -69,9 +84,12 @@ function blockedReason(address: "empty" | "invalid" | "valid", consented: boolea
 }
 
 /** What the API's refusal means for the guest, by its `error` code. */
-async function refusalOf(res: Response): Promise<"member" | "invalid" | "outdated" | "other"> {
+async function refusalOf(
+  res: Response,
+): Promise<"member" | "closed" | "invalid" | "outdated" | "other"> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   if (res.status === 409) return "member";
+  if (body?.error === "rsvp_closed") return "closed";
   if (body?.error === "invalid_email") return "invalid";
   if (body?.error === "email_consent_outdated") return "outdated";
   return "other";
@@ -91,6 +109,25 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   // The status region's text: the note after a removal, until the next save.
   // Only a save leads back to a stored address, so it is the one that clears it.
   const [note, setNote] = createSignal("");
+  // The server refused a save because RSVPs have closed, whatever this page's
+  // clock says: its verdict is the one that counts.
+  const [serverClosed, setServerClosed] = createSignal(false);
+  // The address this seat removed while RSVPs were closed: the one save the
+  // API still takes after the deadline is this one, which undoes the removal.
+  // Held on this page only; a reload forgets it.
+  const [removedAddress, setRemovedAddress] = createSignal<string | null>(null);
+  const isClosed = () => props.closed === true || serverClosed();
+  // What the status region says: the removal's note, else why there is no form.
+  // After a removal while closed, the note keeps the reason beside it, since
+  // the removal also takes away the form.
+  const status = () =>
+    note() !== ""
+      ? isClosed()
+        ? `${note()} ${CLOSED_NOTE}`
+        : note()
+      : isClosed()
+        ? CLOSED_NOTE
+        : "";
 
   // Set when the guest leaves the field or presses the blocked save button;
   // cleared once the address is valid or empty. The field's own error waits
@@ -108,13 +145,28 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
     [showInvalid() ? invalidId : undefined, refused() ? errorId : undefined]
       .filter(Boolean)
       .join(" ") || undefined;
+  let section: HTMLElement | undefined;
   let heading: HTMLHeadingElement | undefined;
   let input: HTMLInputElement | undefined;
   // Each view replaces the button that was pressed, so focus moves on with
   // the view rather than falling to the page: to the field when editing
   // starts, to the heading once a save or a removal lands.
-  const focusAfterRender = (target: () => HTMLElement | undefined) =>
-    queueMicrotask(() => target()?.focus());
+  // `quiet` is a pointer's move, drawn without the keyboard's ring.
+  const focusAfterRender = (target: () => HTMLElement | undefined, quiet = false) =>
+    queueMicrotask(() => moveFocus(target(), quiet));
+
+  // The deadline passing takes the form from under a guest who may be typing:
+  // focus would fall to the page, so it moves to the heading, which sits above
+  // the status line that says why.
+  createEffect(
+    on(isClosed, (closed, was) => {
+      if (!closed || was !== false) return;
+      const active = document.activeElement;
+      if (active === null || active === document.body || section?.contains(active)) {
+        moveFocus(heading, false);
+      }
+    }),
+  );
 
   function startEditing() {
     setDraft(props.email?.address ?? "");
@@ -149,6 +201,11 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
           props.onMemberRequired();
           return;
         }
+        if (refusal === "closed") {
+          setServerClosed(true);
+          setRemovedAddress(null);
+          return;
+        }
         setError(
           refusal === "invalid"
             ? INVALID_ADDRESS
@@ -162,6 +219,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       const saved =
         typeof body === "object" && body !== null && "email" in body ? readEmail(body.email) : null;
       props.onChange(saved);
+      setRemovedAddress(null);
       setEditing(false);
       focusAfterRender(() => heading);
     } catch {
@@ -171,9 +229,10 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
     }
   }
 
-  async function remove() {
+  async function remove(quiet = false) {
     if (busy()) return;
     const hostsAdded = props.email?.source === "organiser_attested";
+    const removed = props.email?.address ?? null;
     setBusy(true);
     setError(null);
     try {
@@ -192,12 +251,20 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         return;
       }
       props.onChange(null);
-      setNote(hostsAdded ? REMOVED_HOSTS_NOTE : REMOVED_OWN_NOTE);
-      setDraft("");
+      setNote(
+        hostsAdded
+          ? isClosed()
+            ? REMOVED_HOSTS_NOTE_CLOSED
+            : REMOVED_HOSTS_NOTE
+          : REMOVED_OWN_NOTE,
+      );
+      // Closed, the form that follows offers this address back and no other.
+      setRemovedAddress(isClosed() ? removed : null);
+      setDraft(isClosed() && removed !== null ? removed : "");
       setConsent(false);
       setTouched(false);
       setEditing(true);
-      focusAfterRender(() => heading);
+      focusAfterRender(() => heading, quiet);
     } catch {
       setError("Couldn’t remove your email. Please try again.");
     } finally {
@@ -207,6 +274,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
 
   return (
     <section
+      ref={section}
       class={`border-gold/30 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby={headingId}
     >
@@ -214,7 +282,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         id={headingId}
         ref={heading}
         tabIndex={-1}
-        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic focus:outline-none"
+        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic"
       >
         Wedding emails
       </h3>
@@ -222,119 +290,130 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
           region inserted already holding its text is not reliably announced. */}
       <output
         class="text-text-muted text-ui-sm leading-ui-normal block font-light"
-        classList={{ "mb-3": note() !== "" }}
+        classList={{
+          "mb-3":
+            status() !== "" && (!isClosed() || props.email !== null || removedAddress() !== null),
+        }}
       >
-        {note()}
+        {status()}
       </output>
       <Show
-        when={!editing() && props.email}
+        when={(isClosed() || !editing()) && props.email}
         fallback={
-          <form class="flex flex-col gap-3" onSubmit={(e) => void save(e)}>
-            <Show when={note() === ""}>
-              <p class="text-text-muted text-ui-sm leading-ui-normal font-light">
-                Optional. Add your email so your hosts can send you news about the wedding through
-                Cire.
-              </p>
-            </Show>
-            <div>
-              <label for={inputId} class="font-body text-text-muted text-ui-sm block">
-                Your email, {props.member.firstName}
-              </label>
-              <Input
-                fill="ink"
-                size="touch"
-                class="mt-1.5"
-                id={inputId}
-                ref={input}
-                type="email"
-                value={draft()}
-                onInput={(e) => {
-                  setDraft(e.currentTarget.value);
-                  if (address() !== "invalid") setTouched(false);
-                }}
-                onBlur={() => setTouched(true)}
-                name="email"
-                autocomplete="email"
-                spellcheck={false}
-                disabled={busy()}
-                aria-invalid={showInvalid() || refused() ? "true" : undefined}
-                aria-describedby={describedBy()}
-              />
-              <Show when={showInvalid()}>
-                <p id={invalidId} class="text-error text-ui-sm mt-1.5">
-                  {INVALID_ADDRESS}
+          <Show when={!isClosed() || removedAddress() !== null}>
+            <form class="flex flex-col gap-3" onSubmit={(e) => void save(e)}>
+              <Show when={note() === ""}>
+                <p class="text-text-muted text-ui-sm leading-ui-normal font-light">
+                  Optional. Add your email so your hosts can send you news about the wedding through
+                  Cire.
                 </p>
               </Show>
-            </div>
-            <Checkbox
-              box="native"
-              size="sm"
-              align="start"
-              checked={consent()}
-              onChange={setConsent}
-              disabled={busy()}
-              label={
-                <>
-                  {GUEST_EMAIL_CONSENT.text} See our{" "}
-                  <a
-                    href="/privacy/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class={proseLinkClass()}
-                  >
-                    privacy notice
-                    <span class="sr-only"> (opens in a new tab)</span>
-                  </a>
-                  .
-                </>
-              }
-            />
-            <span
-              class="flex flex-wrap items-center gap-2"
-              onClick={(e) => {
-                // `Button` swallows the press without calling `onClick`, so the
-                // press is read here, as it bubbles from the blocked button.
-                if (blocked() !== null && e.target.closest("button[type=submit]")) {
-                  setTouched(true);
+              <div>
+                <label for={inputId} class="font-body text-text-muted text-ui-sm block">
+                  Your email, {props.member.firstName}
+                </label>
+                <Input
+                  fill="ink"
+                  size="touch"
+                  class="mt-1.5"
+                  id={inputId}
+                  ref={input}
+                  type="email"
+                  value={draft()}
+                  onInput={(e) => {
+                    setDraft(e.currentTarget.value);
+                    if (address() !== "invalid") setTouched(false);
+                  }}
+                  onBlur={() => setTouched(true)}
+                  name="email"
+                  autocomplete="email"
+                  spellcheck={false}
+                  readOnly={isClosed()}
+                  disabled={busy()}
+                  aria-invalid={showInvalid() || refused() ? "true" : undefined}
+                  aria-describedby={describedBy()}
+                />
+                <Show when={showInvalid()}>
+                  <p id={invalidId} class="text-error text-ui-sm mt-1.5">
+                    {INVALID_ADDRESS}
+                  </p>
+                </Show>
+              </div>
+              <Checkbox
+                box="native"
+                size="sm"
+                align="start"
+                checked={consent()}
+                onChange={setConsent}
+                disabled={busy()}
+                label={
+                  <>
+                    {GUEST_EMAIL_CONSENT.text} See our{" "}
+                    <a
+                      href="/privacy/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class={proseLinkClass()}
+                    >
+                      privacy notice
+                      <span class="sr-only"> (opens in a new tab)</span>
+                    </a>
+                    .
+                  </>
                 }
-              }}
-            >
-              {/* `aria-disabled`, not `disabled`, while the address or the
+              />
+              <span
+                class="flex flex-wrap items-center gap-2"
+                onClick={(e) => {
+                  // `Button` swallows the press without calling `onClick`, so the
+                  // press is read here, as it bubbles from the blocked button.
+                  if (blocked() !== null && e.target.closest("button[type=submit]")) {
+                    setTouched(true);
+                  }
+                }}
+              >
+                {/* `aria-disabled`, not `disabled`, while the address or the
                   consent blocks it: the button keeps its tab stop and its
                   reason, and `Button` swallows the press. Natively disabled
                   only while the request is in flight. */}
-              <Button
-                type="submit"
-                variant="cta"
-                disabled={busy()}
-                aria-disabled={blocked() !== null ? "true" : undefined}
-                aria-describedby={blocked() !== null ? reasonId : undefined}
-              >
-                {busy() ? "Saving…" : props.email ? "Use this email" : "Add email"}
-              </Button>
-              <Show when={props.email}>
                 <Button
-                  variant="subtle"
-                  size="sm"
-                  type="button"
-                  onClick={() => {
-                    setEditing(false);
-                    focusAfterRender(() => heading);
-                  }}
+                  type="submit"
+                  variant="cta"
                   disabled={busy()}
+                  aria-disabled={blocked() !== null ? "true" : undefined}
+                  aria-describedby={blocked() !== null ? reasonId : undefined}
                 >
-                  Keep it as it is
+                  {busy()
+                    ? "Saving…"
+                    : props.email
+                      ? "Use this email"
+                      : isClosed()
+                        ? "Put it back"
+                        : "Add email"}
                 </Button>
+                <Show when={props.email}>
+                  <Button
+                    variant="touchLink"
+                    type="button"
+                    onClick={(e) => {
+                      setEditing(false);
+                      focusAfterRender(() => heading, pressedByPointer(e));
+                    }}
+                    disabled={busy()}
+                  >
+                    Keep it as it is
+                  </Button>
+                </Show>
+              </span>
+              <Show when={blocked()}>
+                {(reason) => (
+                  <p id={reasonId} class="text-text-muted text-ui-sm leading-ui-normal font-light">
+                    {reason()}
+                  </p>
+                )}
               </Show>
-            </span>
-            <Show when={blocked()}>
-              {(reason) => (
-                <p id={reasonId} class="text-text-muted text-ui-sm leading-ui-normal font-light">
-                  {reason()}
-                </p>
-              )}
-            </Show>
-          </form>
+            </form>
+          </Show>
         }
       >
         {(stored) => (
@@ -343,23 +422,20 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
             <p class="text-text-muted text-ui-sm leading-ui-normal font-light">
               {stored().source === "guest"
                 ? "You added this. Your hosts can email you about the wedding here."
-                : "Your hosts added this. Change it if it’s wrong, or remove it to stop wedding emails to it."}
+                : isClosed()
+                  ? "Your hosts added this. Remove it to stop wedding emails to it."
+                  : "Your hosts added this. Change it if it’s wrong, or remove it to stop wedding emails to it."}
             </p>
-            <span class="flex flex-wrap items-center gap-2">
+            <span class="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <Show when={!isClosed()}>
+                <Button variant="touchLink" type="button" onClick={startEditing} disabled={busy()}>
+                  Change email
+                </Button>
+              </Show>
               <Button
-                variant="subtle"
-                size="sm"
+                variant="touchLink"
                 type="button"
-                onClick={startEditing}
-                disabled={busy()}
-              >
-                Change email
-              </Button>
-              <Button
-                variant="subtle"
-                size="sm"
-                type="button"
-                onClick={() => void remove()}
+                onClick={(e) => void remove(pressedByPointer(e))}
                 disabled={busy()}
               >
                 {busy() ? "Removing…" : "Remove email"}

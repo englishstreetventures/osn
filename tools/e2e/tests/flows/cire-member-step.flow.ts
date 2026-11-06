@@ -19,6 +19,12 @@
  * added, which records that seat's opt-out for the wedding, a hash of the
  * wedding and the address, on the suppression list.
  *
+ * Last, the browser's clock moves past the RSVP deadline: the box for the
+ * member whose address is on file shows it with Remove alone, no field and no
+ * Change button, and a removal still works, announced from the same status
+ * region with the heading focused. The one address it then takes is the one
+ * just removed, which the guest puts back.
+ *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
  * step and its attribution, and no musubi link box. That the flag, and not the
@@ -29,7 +35,7 @@ import { createHash } from "node:crypto";
 
 import type { Request, Route } from "@playwright/test";
 
-import { CIRE_HOUSEHOLD, DB_FILES, ORIGINS } from "../../src/config";
+import { CIRE_HOUSEHOLD, CIRE_RSVP_CLOSED_ISO, DB_FILES, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, test } from "../support/fixtures";
 
 /** The seeded Reception (`cire/db/seed/data/events.ts`); Bo and Cleo are invited. */
@@ -590,4 +596,65 @@ test("cire-member-step", async ({ page, context, flow }) => {
       .digest("hex"),
     hostsOptOut?.hash ?? "none",
   );
+
+  // After the deadline the box takes no address: it shows what is on file and
+  // the way to remove it. The browser's clock moves past the deadline; cire-api
+  // stays on the suite clock, so what changes is only what the invite offers
+  // (that the API refuses a save is proven in cire-api's own tests).
+  // The session now answers as the other member, who has no address, so the
+  // page asks again who is answering: Cleo, whose address is on file.
+  await flow.step("move the browser past the deadline and reopen the invite", async () => {
+    await page.clock.setSystemTime(Date.parse(CIRE_RSVP_CLOSED_ISO));
+    await page.reload();
+    await expect(page.getByText(`Answering as ${CIRE_HOUSEHOLD.otherMember}`)).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.getByRole("region", { name: "Wedding emails" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Not you?" }).click();
+    const group = page.getByRole("group", { name: "Who are you?" });
+    await group.getByRole("button", { name: CIRE_HOUSEHOLD.member, exact: true }).click();
+    await expect(page.getByText(`Answering as ${CIRE_HOUSEHOLD.member}`)).toBeVisible();
+  });
+
+  const closedBox = page.getByRole("region", { name: "Wedding emails" });
+  await flow.step("the closed box shows the address and no way to change it", async () => {
+    await expect(closedBox.getByText(CIRE_HOUSEHOLD.correctedEmail)).toBeVisible();
+    await expect(closedBox.getByRole("status")).toHaveText(/RSVPs have closed/);
+    await expect(closedBox.getByRole("button", { name: "Remove email" })).toBeVisible();
+    await expect(closedBox.getByRole("button", { name: "Change email" })).toHaveCount(0);
+    await expect(closedBox.getByRole("button", { name: /Add email|Use this email/ })).toHaveCount(
+      0,
+    );
+    await expect(closedBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`)).toHaveCount(0);
+  });
+
+  const closedRemoval = await flow.step("the guest still removes the address", async () => {
+    const response = emailCall("DELETE");
+    await closedBox.getByRole("button", { name: "Remove email" }).click();
+    const status = (await response).status();
+    await expect(closedBox.getByRole("status")).toHaveText(
+      "Removed. We’ve deleted that address from your invitation. RSVPs have closed, so we can’t take a new email address.",
+    );
+    await expect(closedBox.getByRole("heading", { name: "Wedding emails" })).toBeFocused();
+    // The one address the closed box takes is the one just removed: the field
+    // holds it and cannot be edited.
+    const field = closedBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`);
+    await expect(field).toHaveValue(CIRE_HOUSEHOLD.correctedEmail);
+    await expect(field).toHaveJSProperty("readOnly", true);
+    return status;
+  });
+  flow.check("the closed box's removal is saved", 200, closedRemoval);
+  flow.check("the closed box's removal clears the stored address", "none", storedAddress());
+
+  const putBack = await flow.step("the guest puts the removed address back", async () => {
+    await closedBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+    const response = emailCall("PUT");
+    await closedBox.getByRole("button", { name: "Put it back" }).click();
+    const status = (await response).status();
+    await expect(closedBox.getByText(CIRE_HOUSEHOLD.correctedEmail)).toBeVisible();
+    await expect(closedBox.getByRole("button", { name: "Change email" })).toHaveCount(0);
+    return status;
+  });
+  flow.check("a closed box takes back the address the seat removed", 200, putBack);
+  flow.check("the address put back is stored", CIRE_HOUSEHOLD.correctedEmail, storedAddress());
 });

@@ -426,13 +426,18 @@ function seatRefusal(
 
 /** A refused address: the bounded reason is logged and counted, never the address. */
 function addressRefusal(
-  reason: "invalid" | "consent_outdated",
+  reason: "invalid" | "consent_outdated" | "rsvp_closed",
   set: { status?: number | string },
 ): Effect.Effect<{ error: string }> {
   return Effect.logWarning("guest email refused", { reason }).pipe(
     Effect.andThen(
       Effect.sync(() => {
-        metricGuestEmailBlocked(reason);
+        // Counted as the reply and plus-one routes count a closed deadline.
+        metricGuestEmailBlocked(reason === "rsvp_closed" ? "deadline" : reason);
+        if (reason === "rsvp_closed") {
+          set.status = 403;
+          return { error: "rsvp_closed" };
+        }
         if (reason === "invalid") {
           set.status = 400;
           return { error: "invalid_email" };
@@ -662,8 +667,10 @@ export const createClaimMemberRoutes = (
      * the whole wedding when the hosts added it, for this seat alone when the
      * guest gave it themselves. Refused, in this order: a host preview
      * (403), a wedding without the member step (404), no member chosen or a
-     * page showing another member (409), then for `PUT` an address that is not
-     * one (400), consent to words the page did not show (422), and an address
+     * page showing another member (409), then for `PUT` a wedding whose RSVP
+     * deadline has passed and the address is not one this seat removed itself
+     * (403 `rsvp_closed`; `DELETE` stays open), an address
+     * that is not one (400), consent to words the page did not show (422), and an address
      * the seat did not withdraw itself once it holds its cap of opt-outs (429).
      * Never logs the address.
      */
@@ -690,6 +697,15 @@ export const createClaimMemberRoutes = (
               countOptOuts: true,
             });
             const address = parseGuestEmail(body.email);
+            // After the RSVP deadline a guest gives no new address. The one
+            // save left is an address this seat removed itself, which undoes
+            // its own removal; removing stays open (the DELETE below is not
+            // gated). An address that is not one is no give-back.
+            if (seat.rsvpClosed) {
+              const givesBack =
+                address !== null && (yield* guestEmailService.withdrewOwn(seat, address));
+              if (!givesBack) return yield* addressRefusal("rsvp_closed", set);
+            }
             if (address === null) return yield* addressRefusal("invalid", set);
             if (body.consentVersion !== GUEST_EMAIL_CONSENT.version) {
               return yield* addressRefusal("consent_outdated", set);

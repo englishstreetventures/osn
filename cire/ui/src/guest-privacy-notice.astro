@@ -29,7 +29,7 @@ const { level = 2 } = Astro.props
 const Section = level === 2 ? 'h2' : 'h3'
 const Sub = level === 2 ? 'h3' : 'h4'
 
-const updated = '2026-11-02'
+const updated = '2026-11-06'
 
 // The third-party lists are generated from the consent vendor registry, so the
 // notice cannot disagree with what the guest site's consent framework governs:
@@ -125,8 +125,9 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
     </li>
     <li>
       <strong>Your email address, if you or your hosts add one</strong> — so your hosts can
-      send you news about the wedding through us. You can add, change or remove your own on
-      your invitation. If your hosts add it, they confirm to us that you agreed, and your
+      send you news about the wedding through us. Until RSVPs close you can add, change or
+      remove your own on your invitation; after that you can still remove it, and put back
+      one you just removed. If your hosts add it, they confirm to us that you agreed, and your
       invitation shows it as added by them. With it we keep who added it, when, and the wording
       that was agreed to. We use it for nothing else.
     </li>
@@ -189,7 +190,9 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
       to your hosts when they add it. Remove the address on your invitation to withdraw it at
       any time, and we delete it. After that we will not email it to you about this wedding,
       even if it is added again, unless you add it back yourself; and if your hosts added it,
-      we will not email it to anyone else at the wedding either.
+      we will not email it to anyone else at the wedding either. Once RSVPs have closed you
+      can still remove your address, and put back one you removed, but you can no longer add
+      or change one on your invitation.
     </li>
     <li>
       <strong>The first-opened timestamp</strong> — so your hosts can tell a delivered
@@ -241,7 +244,8 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
   <p>
     Your email address, if one is held, is seen by your hosts and everyone helping them with
     the guest list. Your invitation shows it to whoever opens it with your household’s code and
-    says they are you, so that you can check and correct it, and never shows one member’s
+    says they are you, so that you can check it, and correct it until RSVPs close (after that,
+    ask your hosts), and never shows one member’s
     address to someone who says they are another.
   </p>
   <p>
