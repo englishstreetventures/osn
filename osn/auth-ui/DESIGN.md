@@ -51,7 +51,7 @@ Five views mount in no app: `SessionsView` (#2055), `ChangeEmailForm`
 | `SessionsView` | `client`, `accessToken` | — |
 | `ChangeEmailForm` | `accountClient`, `stepUpClient`, `accessToken`; `runPasskeyCeremony`, `onChanged` | — |
 | `CheckEmailView` | `purpose`, `status`, `onResend`; `email`, `errorMessage`, `onChangeEmail`, `resendWaitSeconds`, `pairingCode` (the host's rules for each are in [component-library §CheckEmailView](../../wiki/shared/component-library.md)) | — |
-| `ConfirmLinkPage` | `purpose`, `onConfirm`, and `candidates` or `initialOutcome` (one is required); `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
+| `ConfirmLinkPage` | `purpose`, `onConfirm`, and one of `candidates`, `typeNumber` (recovery) or `initialOutcome`; `email`, `onContinue` (the host's rules for each are in [component-library §ConfirmLinkPage](../../wiki/shared/component-library.md)) | — |
 | `StepUpDialog` | `client`, `accessToken`, `onToken`, `onCancel`; `runPasskeyCeremony`, `totpClient`, `passkeyOnly`, `title`, `reason`, `purpose` | — |
 | `CreateProfileForm` | `checkHandle`, `onSuccess`, `onCancel` | `AuthProvider`, `Toaster` |
 | `ProfileOnboarding` | `checkHandle`, `dismissible` | `AuthProvider`, `Toaster` (through `CreateProfileForm`) |
@@ -130,7 +130,10 @@ content; its lines `text-ui-sm` with `leading-ui-snug`. Each number it offers is
 `text-ui-xl font-medium leading-ui-tight tabular-nums` inside its Button, the
 size and figures the waiting screen draws the number in, so the person matches
 like with like. The number picked, repeated in "You picked {n}.", is
-`font-medium tabular-nums` at the line's size.
+`font-medium tabular-nums` at the line's size. Where recovery asks for the
+number to be typed, the field takes `Input`'s `code` face, mono with wide
+tracking, as the Codes row does: the person checks a typed value character by
+character. Its label is `Label` at `sm`, muted.
 
 ## 4. Layout
 
@@ -164,7 +167,10 @@ As built:
   ask for this" as a full-width `ghost` `sm` Button, 44px below `md`
   (`max-md:h-11`); then the line about the number picked, the slow line and
   the error `Notice`; then Try again or Continue, full-width default `lg`
-  Buttons, 44px below `md`. Left-aligned.
+  Buttons, 44px below `md`. With `typeNumber`, the numbers give way to a
+  `Label` over one `Input` (`size="touch"`, `face="code"`, `fill="ink"`) and a
+  full-width default `lg` Confirm, 44px below `md`, above the decline.
+  Left-aligned.
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
   border and wash: each event as a headline and a meta line, a footer line,
   and Acknowledge (`outline`, `sm`) at the right.
@@ -195,7 +201,7 @@ besides the default:
 | `SecurityEventsBanner` | Button | `outline` |
 | `ChangeEmailForm` | Button | — |
 | `CheckEmailView` | Button, Notice | `ghost` |
-| `ConfirmLinkPage` | Button, Card, Notice | `outline`, `ghost` |
+| `ConfirmLinkPage` | Button, Card, Input, Label, Notice | `outline`, `ghost` |
 | `CreateProfileForm` | Button, Input, Label, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
 | `ProfileSwitcher` | Avatar, Button, Dialog, Popover | `ghost`, `destructive` |
@@ -322,9 +328,10 @@ that asked."
 
 | State | What shows |
 | --- | --- |
+| Ready, typed (`typeNumber`) | As Ready, but "Type the number shown on the screen where you started." labels one field for up to six digits, and Confirm, disabled until the field holds one to six digits, comes before "I didn't ask for this"; Enter in the field does what Confirm does |
 | Ready | "Confirm this email"; the flow's sentence; "Only confirm if you asked for this. If you didn't, choose “I didn't ask for this” below." (step-up: "If you didn't, someone else may be signed in to your account. Choose … below, then sign out your other sessions."); "Pick the number shown on the screen where you started." and the numbers; "I didn't ask for this" |
-| Confirming | The same, every button disabled; "You picked {n}. Confirming…" or "Cancelling…"; after 10 seconds "This is taking longer than usual. Keep this page open." |
-| Error | The same, disabled; "You picked {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again |
+| Confirming | The same, every button disabled (typed: the field too, still holding the entry); "You picked {n}. Confirming…", "You typed {n}. Confirming…" or "Cancelling…"; after 10 seconds "This is taking longer than usual. Keep this page open." |
+| Error | The same, disabled (typed: Confirm gives way to Try again); "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again |
 | Confirmed | "Confirmed"; "Go back to where you started to {finish}. You can close this page.", or "Continue to {finish}." and Continue when the host passes `onContinue` |
 | Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
 | Expired | "This link no longer works"; "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link." The same for every refusal, a list the page cannot offer included |
@@ -437,7 +444,9 @@ never by Tab), and draws no indicator (`focus:outline-none`): it is where focus
 is put, not a control.
 
 `ConfirmLinkPage` draws no control by hand either: its numbers, the decline,
-Try again and Continue are `@shared/ui` Buttons, which draw their own ring. Its
+Try again, Confirm and Continue are `@shared/ui` Buttons, which draw their own
+ring, and its typed field is `@shared/ui`'s `Input`, whose ink fill draws a 2px
+outline 2px off. Its
 `h1` takes focus the same way, on mount and on every change, so a tapped
 number that disables itself never leaves focus on `<body>`.
 
@@ -481,7 +490,8 @@ As built:
   state, every flow, a 320px phone, and the number at rest, across a resend
   and on a phone; and for `ConfirmLinkPage`, `osn/auth-ui/ConfirmLinkPage` in
   `confirm-link-page.story.tsx`: one per state, three and five numbers, the
-  decline, an opening answer, every flow and a 320px phone. The other views
+  decline, an opening answer, every flow, a 320px phone, and the typed field
+  ready, confirming, after an error, refused and on a 320px phone. The other views
   get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
@@ -500,5 +510,6 @@ As built:
   renders it on a bare route in Chromium and holds, at 320px, five six-digit
   numbers and a long address with nothing to scroll sideways, and at 320px and
   1280px the numbers one under another, at least 44px tall in 24px tabular
-  figures, the decline and Try again at 44px below `md`, and the error notice
-  above Try again.
+  figures, the decline and Try again at 44px below `md`, the error notice above
+  Try again, and the typed field, Confirm and the decline inside the card at
+  44px or more, the field at 16px with an edge of at least 3:1.

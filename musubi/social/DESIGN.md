@@ -290,7 +290,9 @@ amending this file.
   at `size="lg"` with `max-md:h-11`: 40px from `md`, 44px below it. The
   numbers that page offers to pick from are full-width `outline` Buttons 48px
   tall at every width (`h-12`), and its "I didn't ask for this" a full-width
-  `ghost` `sm` Button, 44px below `md`. Tab rows scroll (`overflow-x-auto`)
+  `ghost` `sm` Button, 44px below `md`. Where it asks for the number to be
+  typed, the field is `Input` at `size="touch"`: 46px with 16px type below
+  640px, 44px above. Tab rows scroll (`overflow-x-auto`)
   rather than wrap or shrink.
 - **Toasts** = top-center below `md` (clear of keyboard + tab bar),
   bottom-right at `md+`.

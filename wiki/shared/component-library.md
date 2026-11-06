@@ -1586,7 +1586,8 @@ on a phone ([[component-lab]]).
 sign-up, recovery, step-up or email-change link opens: "Confirm this email",
 the numbers to pick from, and "I didn't ask for this". The page asks the person
 to pick the number shown on the waiting screen, which `CheckEmailView` draws
-from its `pairingCode`. It is presentational. The host route reads the link,
+from its `pairingCode`; with `typeNumber`, which recovery's host passes, it asks
+them to type that number instead. It is presentational. The host route reads the link,
 clears its secret from the address bar before anything else on the route can
 read the URL, reads the numbers with that secret, and passes `onConfirm`, which
 makes the confirm `POST`; the page decides when that call may run and what the
@@ -1600,7 +1601,8 @@ person sees and hears around it. Its look follows `musubi/social/DESIGN.md` and
 | `candidates` | The numbers to pick from, one of them the waiting screen's: three to five, all different, each one to six digits, 0-9 (`isPairingCode`). Drawn in the order given, exactly as written. Any other list draws the expired page |
 | `onConfirm` | Called with the number tapped, or `null` for "I didn't ask for this"; once per tap or Try again, never otherwise. Resolves `"confirmed"` for a number, `"declined"` for `null`, or `"expired"` for either; a throw, or any other answer, is an error the person can try again |
 | `onContinue` | Continue, after a confirm, where the host knows the person can carry on in this tab. Absent, the page sends them back to where they started |
-| `initialOutcome` | `"confirmed"` or `"expired"`: opens the page on that answer, with nothing to pick and no call. `candidates` may then be left out; the props type requires one of the two |
+| `initialOutcome` | `"confirmed"` or `"expired"`: opens the page on that answer, with nothing to pick and no call. `candidates` may then be left out |
+| `typeNumber` | `true`: one field to type the number in, in place of the numbers to pick. `onConfirm` receives the entry exactly as typed. Never with `candidates`. The props type requires one of `candidates`, `initialOutcome` and `typeNumber` |
 
 What it draws, in musubi's sizes through the contract: the shared `Card`
 (`padding="lg"`: the surface, the hairline, the 16px corner); an `h1` at
@@ -1610,13 +1612,19 @@ screen where you started.", one column of full-width `outline` Buttons 48px
 tall, each number at `text-ui-xl` medium in tabular figures, the size the
 waiting screen draws it; under them "I didn't ask for this", a full-width
 `ghost` `sm` Button, 44px below `md` and 32px from it. Try again and Continue are
-full-width filled pills, 40px on a desktop and 44px on a phone.
+full-width filled pills, 40px on a desktop and 44px on a phone. With
+`typeNumber`, in place of the numbers: the shared `Label` "Type the number shown
+on the screen where you started." over one shared `Input` (`size="touch"`: 46px
+with 16px type below 640px, so a phone does not zoom, 44px above; `face="code"`:
+mono with wide tracking, for a value checked character by character;
+`fill="ink"`, because it sits on the card rather than the page's ground), then a
+full-width Confirm, 40px and 44px like Try again, then the decline.
 
 | State | Heading | Body | Buttons |
 | --- | --- | --- | --- |
-| ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and that "I didn't ask for this" is below | the numbers; I didn't ask for this |
-| confirming | Confirm this email | The same; under the numbers "You picked {n}. Confirming…" (or "Cancelling…"); after 10 seconds, "This is taking longer than usual. Keep this page open." | every one disabled |
-| error | Confirm this email | The same, "You picked {n}.", then a danger `Notice` — "We couldn't confirm this email just now.", or "We couldn't cancel this just now." — directly above Try again, where `CheckEmailView` puts its error too | the numbers and the decline disabled; Try again |
+| ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and that "I didn't ask for this" is below | the numbers, or the field and Confirm (disabled until it holds one to six digits); I didn't ask for this |
+| confirming | Confirm this email | The same; "You picked {n}. Confirming…" or "You typed {n}. Confirming…" (or "Cancelling…"); after 10 seconds, "This is taking longer than usual. Keep this page open." | every one disabled, the field still holding the entry |
+| error | Confirm this email | The same, "You picked {n}." or "You typed {n}.", then a danger `Notice` — "We couldn't confirm this email just now.", or "We couldn't cancel this just now." — directly above Try again, where `CheckEmailView` puts its error too | the numbers, or the field, and the decline disabled; Try again |
 | confirmed | Confirmed | "Go back to where you started to …" and "You can close this page", or "Continue to …" with `onContinue` | none, or Continue |
 | declined | Cancelled | "Nothing was confirmed. You can close this page." (step-up: someone else may be signed in, so sign out the other sessions) | none |
 | expired | This link no longer works | It has expired or was used; if you confirmed it already, carry on where you started; if not, ask for a new link there. The same words for every refusal | none |
@@ -1637,6 +1645,16 @@ full-width filled pills, 40px on a desktop and 44px on a phone.
   page shows the same expired page as a used or out-of-date link, or a list it
   cannot offer. No state says a pick was wrong, and nothing offers the same
   numbers again.
+- **Or types it.** With `typeNumber` the page draws no numbers. The field takes
+  a numeric keyboard (`inputmode="numeric"`), no autocomplete and no spelling
+  help, at most six characters, and `translate="no"`. An insertion that would
+  leave anything but digits — a letter, a space, a dash in a paste, a seventh
+  digit — is refused at `beforeinput`, so the keystroke or paste does nothing;
+  what is already typed is never changed or stripped, so the page sends
+  exactly what the person typed. Nothing says the entry is wrong: Confirm, and
+  Enter in the field, stay inert until it holds one to six digits. Enter never
+  submits a form around the page. A number that is not the one shown is a
+  refusal like any other: the expired page.
 - **"I didn't ask for this"** sends `null` at once, with no second step, and a
   `"declined"` answer shows "Cancelled". It is the person's own act, so it reads
   differently from a refusal.
@@ -1693,8 +1711,20 @@ number reached from the keyboard draws a solid 2px outline 2px off.
 
 *Measured 2026-11-07 — the lab's `Ready` and `Confirming` stories at 1280px, light and dark, in Playwright's Chromium (`vite preview` of the built lab), each colour composited over the painted card on a one-pixel canvas; the contrast theme through `forcedColors: "active"`*
 
+The typed field's edge measures 3.45:1 on the light card and 5.18:1 on the dark
+one, its entry 13.46:1 and 12.47:1, its label 6.58:1 and 6.15:1; focus from the
+keyboard draws a solid 2px outline 2px off, 6.58:1 and 6.15:1, and the same in a
+contrast theme. Pressing "a" leaves "4821" as it was, and typing "12-3 4567"
+key by key leaves "123456".
+
+*Measured 2026-11-07 — the lab's `TypedNumber` story at 1280px and `TypedNumberPhone` at 320px, light and dark, in Playwright's Chromium (`vite preview` of the built lab), each colour composited over the painted card on a one-pixel canvas; the keystrokes through Playwright's keyboard*
+
 For a host:
 
+- For recovery, pass `typeNumber` and no `candidates`: the page asks the person
+  to type the number shown on the waiting screen. Never read the numbers for
+  recovery, and never show one. Send the entry as given; a number that is not
+  the one shown is refused like any other and resolves `"expired"`.
 - Read the numbers with the link's secret before the page renders, from a call
   that presents it; never keep, log or store them, and never put them in a URL
   or an attribute. Pass them already shuffled; the page keeps their order.
@@ -1735,7 +1765,10 @@ and kept from translation, each list the page refuses, a refusal identical to
 every other, no word that a pick was wrong, the decline and its answer, an
 answer that does not fit what was sent, Try again with the same attempt, the
 opening answer (and, through `typecheck`, a page given neither numbers nor an
-opening answer), each flow's words, the untranslated address, the focus moves,
+opening answer, or both numbers and `typeNumber`), the typed field — Confirm
+inert until one to six digits, each insertion it refuses, Enter once, the entry
+sent as typed and again on Try again, the decline with nothing typed, the
+field's attributes, no numbers drawn — each flow's words, the untranslated address, the focus moves,
 what the output says and the slow timer's end. `@osn/auth-ui` has no browser
 tier, so
 [`ConfirmLinkPage.layout.browser.test.tsx`](../../musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx)
@@ -1745,10 +1778,12 @@ and a long address fit a 272px card with nothing to scroll sideways; the
 numbers stand one under another at 320 and 1280px, each at least 44px tall
 with its digits 24px in tabular figures; "I didn't ask for this" sits under them
 at 44px below `md` and 32px from it; Try again and Continue are 44px below `md`
-and 40px from it; the number picked and the notice sit between the numbers and
+and 40px from it; typed, the field, Confirm and the decline fit the 272px card,
+each at least 44px tall, the field at 16px with an edge of at least 3:1, and
+Confirm 40px at 1280px; the number picked and the notice sit between the numbers and
 Try again ([[browser-tests]]). The lab's `osn/auth-ui/ConfirmLinkPage` stories
-show each state, every flow, the decline, an opening answer and a 320px phone
-([[component-lab]]).
+show each state, every flow, the decline, an opening answer, the typed field
+and two 320px phones ([[component-lab]]).
 
 ## Adding a new component
 
