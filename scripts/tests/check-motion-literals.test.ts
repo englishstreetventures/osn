@@ -10,7 +10,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { checkAstro, checkClassTokens, checkCss } from "../lib/motion-literals";
+import {
+  checkAstro,
+  checkClassTokens,
+  checkCss,
+  motionProperty,
+  themeEasingsFor,
+} from "../lib/motion-literals";
 
 /** The literals each finding names, in order. */
 function literals(findings: ReturnType<typeof checkCss>): string[][] {
@@ -119,6 +125,15 @@ describe("CSS declarations", () => {
     expect(found[0]?.line).toBe(7);
   });
 
+  test("reports a literal in a block where motion is on", () => {
+    const found = checkCss(`
+      @media (prefers-reduced-motion: no-preference) { .a { transition: opacity 200ms; } }
+      @media not (prefers-reduced-motion: reduce) { .b { transition: opacity 200ms; } }
+      @media (prefers-reduced-motion: reduce), (min-width: 0) { .c { transition: opacity 200ms; } }
+    `);
+    expect(literals(found)).toEqual([["200ms"], ["200ms"], ["200ms"]]);
+  });
+
   test("passes a zero time", () => {
     expect(
       checkCss(`.a { transition-delay: 0s; animation-delay: 0ms; transition: opacity 0s; }`),
@@ -158,6 +173,33 @@ describe("CSS declarations", () => {
     expect(literals(found)).toEqual([["0.3s"], ["0.7s"]]);
   });
 
+  test("a marker after a `;` on that line keeps the declaration it trails, not the next", () => {
+    const found = checkCss(
+      [
+        ".a {",
+        "  transition: opacity 200ms; /* motion-literal: a reason */",
+        "  animation: x 1s;",
+        "}",
+        ".b { animation-delay: 0.3s; /* motion-literal: a reason */ }",
+      ].join("\n"),
+    );
+    expect(literals(found)).toEqual([["1s"]]);
+    expect(found[0]?.line).toBe(3);
+  });
+
+  test("reads a vendor-prefixed or upper-case property as the property", () => {
+    const found = checkCss(`
+      .a { -webkit-transition: opacity 200ms; }
+      .b { -webkit-animation-duration: 1s; }
+      .c { TRANSITION: opacity 300ms EASE-OUT; }
+    `);
+    expect(literals(found)).toEqual([["200ms"], ["1s"], ["300ms", "EASE-OUT"]]);
+    expect(motionProperty("WebkitTransition")).toBe("transition");
+    expect(motionProperty("msTransitionDuration")).toBe("transition-duration");
+    expect(motionProperty("Transition")).toBe("transition");
+    expect(motionProperty("--transition")).toBeUndefined();
+  });
+
   test("a `;` or brace inside a comment or a string does not move the split", () => {
     const text = [
       ".a {", // 1
@@ -182,8 +224,11 @@ describe("CSS declarations", () => {
   });
 
   test("checks the classes an @apply writes", () => {
-    const found = checkCss(`.a { @apply transition-colors duration-200 ease-out; }`);
-    expect(found.map((f) => f.text)).toEqual(["duration-200"]);
+    const text = `.a { @apply transition-colors duration-200 ease-out; }`;
+    expect(checkCss(text).map((f) => f.text)).toEqual(["duration-200", "ease-out"]);
+    expect(checkCss(text, themeEasingsFor("cire/host/src/a.css")).map((f) => f.text)).toEqual([
+      "duration-200",
+    ]);
   });
 });
 
@@ -208,8 +253,15 @@ describe("class tokens", () => {
     ).toEqual(["duration-[300ms]", "delay-[.2s]", "ease-[cubic-bezier(0.4,0,0.2,1)]"]);
   });
 
-  test("passes the theme's named easings and reports `ease-linear`", () => {
-    expect(reported("ease-in ease-out ease-in-out ease-linear")).toEqual(["ease-linear"]);
+  test("passes the named easings a cire theme defines, and reports Tailwind's stock ones", () => {
+    const named = "ease-in ease-out ease-in-out ease-linear";
+    // Only cire's apps set `--ease-out` and `--ease-in-out` in their theme;
+    // no app sets `--ease-in`, so it is Tailwind's own curve everywhere.
+    const inCire = themeEasingsFor("/repo/cire/invites/src/components/Card.tsx");
+    expect(checkClassTokens(named, inCire).map((f) => f.text)).toEqual(["ease-in", "ease-linear"]);
+    expect(reported(named)).toEqual(["ease-in", "ease-out", "ease-in-out", "ease-linear"]);
+    expect(themeEasingsFor("pulse/web/src/components/Header.tsx").size).toBe(0);
+    expect(themeEasingsFor("tools/cire/src/x.ts").size).toBe(0);
   });
 
   test("reads an animate-[…] value as an animation shorthand", () => {
@@ -251,13 +303,14 @@ describe("class tokens", () => {
   test("sees through variants and `!`, and passes a motion-reduce override", () => {
     expect(
       reported(
-        "base:data-[expanded]:duration-200 !duration-300 duration-500! [&>svg]:delay-75 motion-reduce:duration-[0.01ms]",
+        "base:data-[expanded]:duration-200 !duration-300 duration-500! [&>svg]:delay-75 motion-reduce:duration-[0.01ms] motion-safe:duration-200",
       ),
     ).toEqual([
       "base:data-[expanded]:duration-200",
       "!duration-300",
       "duration-500!",
       "[&>svg]:delay-75",
+      "motion-safe:duration-200",
     ]);
   });
 
@@ -333,6 +386,31 @@ describe("Astro files", () => {
     ].join("\n");
     expect(checkAstro(text).map((f) => [f.line, f.text])).toEqual([[3, "transition-all"]]);
   });
+
+  test("a marker on the line above keeps that line's class in frontmatter and <script>, and no other", () => {
+    const text = [
+      "---", // 1
+      "// motion-literal: a reason", // 2
+      'const kept = "duration-200";', // 3
+      'const reported = "duration-300";', // 4
+      "---", // 5
+      "<script>", // 6
+      "/* motion-literal: a reason */", // 7
+      'el.className = "delay-150";', // 8
+      'el.className = "delay-75";', // 9
+      "</script>", // 10
+    ].join("\n");
+    expect(checkAstro(text).map((f) => [f.line, f.text])).toEqual([
+      [4, "duration-300"],
+      [9, "delay-75"],
+    ]);
+  });
+
+  test("judges a Tailwind named easing by the app the file belongs to", () => {
+    const text = '<a class="transition-colors ease-out">x</a>';
+    expect(checkAstro(text).map((f) => f.text)).toEqual(["ease-out"]);
+    expect(checkAstro(text, themeEasingsFor("cire/landing/src/pages/index.astro"))).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -378,8 +456,10 @@ async function withFixtureRoot(
 }
 
 const CLEAN = {
+  // `ease-out` reads cire's own theme token here, and Tailwind's stock curve
+  // anywhere else: the CLI judges each file by its path.
   "cire/host/src/styles/global.css":
-    ".a { transition: opacity var(--dur-fast) var(--ease-out); }\n",
+    ".a { transition: opacity var(--dur-fast) var(--ease-out); @apply ease-out; }\n",
   "pulse/landing/src/components/Faq.astro": '<a class="transition-colors">x</a>\n',
 };
 
@@ -391,11 +471,14 @@ describe("check-motion-literals CLI", () => {
         "musubi/landing/src/styles/global.css":
           ".a {\n  color: red;\n  transition: transform 0.2s ease;\n}\n",
         "shared/toast/src/x.astro": '<p>\n<a class="duration-200">x</a></p>\n',
+        "pulse/web/src/b.css": ".b { @apply ease-out; }\n",
       },
       async (root) => {
         const { exitCode, stdout, stderr } = await runCli(root);
         expect(stderr).toContain("::error file=musubi/landing/src/styles/global.css,line=3::");
         expect(stderr).toContain("::error file=shared/toast/src/x.astro,line=2::");
+        expect(stderr).toContain("::error file=pulse/web/src/b.css,line=1::`ease-out`");
+        expect(stderr).not.toContain("cire/host");
         expect(stdout).not.toContain(SUCCESS_LINE);
         expect(exitCode).not.toBe(0);
       },
@@ -417,7 +500,7 @@ describe("check-motion-literals CLI", () => {
         ...CLEAN,
         "cire/host/tests/fixture.css": ".a { transition: opacity 200ms; }",
         "tools/lab/src/lab.css": ".a { transition: opacity 200ms; }",
-        "cire/host/node_modules/x/src/a.css": ".a { transition: opacity 200ms; }",
+        "cire/host/src/node_modules/x/a.css": ".a { transition: opacity 200ms; }",
         "cire/host/dist/a.css": ".a { transition: opacity 200ms; }",
       },
       async (root) => {

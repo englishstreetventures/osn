@@ -2,12 +2,27 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
-    // `no-literal-motion` imports its matcher from scripts/lib, outside this
-    // package, so the file is named here or an edit to it replays a cached
-    // green test and typecheck.
+    // `no-literal-motion.test.ts` reads files outside this package: the
+    // matcher the rule imports from scripts/lib, the root oxlintrc.json that
+    // switches the rule on, and the three source trees its last test lints.
+    // It runs as `test:repo`, which names them, so the other suites stay
+    // cached when only those files change.
     "test": {
-      "inputs": ["$TURBO_DEFAULT$", "!**/*.md", "$TURBO_ROOT$/scripts/lib/motion-literals.ts"]
+      "dependsOn": ["^build", "test:repo"]
     },
+    "test:repo": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/scripts/lib/motion-literals.ts",
+        "$TURBO_ROOT$/oxlintrc.json",
+        "$TURBO_ROOT$/pulse/web/src/**",
+        "$TURBO_ROOT$/shared/ui/src/**",
+        "$TURBO_ROOT$/cire/invites/src/**"
+      ]
+    },
+    // The rule imports the matcher from scripts/lib, so a type error there is
+    // this package's too.
     "typecheck": {
       "inputs": [
         "$TURBO_DEFAULT$",

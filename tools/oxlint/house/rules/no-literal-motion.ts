@@ -22,10 +22,13 @@
  *   `animationDuration`), and `x.style.transition = …` or
  *   `x.style.setProperty("transition", …)`, as one declaration.
  *
- * A literal no token of its job can replace stays with its reason: inside CSS,
+ * The file's path decides whether Tailwind's `ease-out` and `ease-in-out` read
+ * the app's own theme token (cire) or Tailwind's stock curve (everywhere else).
+ *
+ * A literal no token's job fits stays with its reason: inside CSS,
  * `/* motion-literal: <reason> *\/` in the declaration, which keeps that
- * declaration and no other; on a class string, the house suppression with the
- * reason after `--`.
+ * declaration and no other; anywhere else, the house suppression with the
+ * reason after `--`, which keeps every report on the next line.
  */
 
 import { defineRule } from "@oxlint/plugins";
@@ -37,6 +40,7 @@ import {
   formatLiterals,
   MOTION_ADVICE,
   motionProperty,
+  themeEasingsFor,
 } from "../../../../scripts/lib/motion-literals.ts";
 
 /** A template literal's text, each interpolation standing in as a token reference. */
@@ -67,13 +71,15 @@ export const noLiteralMotionRule = defineRule({
     type: "suggestion",
     docs: {
       description:
-        "Disallow a literal duration, delay or easing in a transition or animation, a Tailwind duration-*, delay-*, ease-linear or arbitrary motion class, and `transition: all`. A motion takes its timing from a token chosen by its job, so it follows the app's pace.",
+        "Disallow a literal duration, delay or easing in a transition or animation, a Tailwind duration-*, delay-*, ease-linear or arbitrary motion class, a named ease-* that reads Tailwind's stock curve, and `transition: all`. A motion takes its timing from a token chosen by its job, so it follows the app's pace.",
     },
     messages: {
       literal: "`{{text}}` writes {{literals}}. {{advice}}",
     },
   },
   createOnce(context) {
+    let themeEasings = themeEasingsFor("");
+
     const report = (node: ESTree.Node, text: string, literals: readonly string[]): void => {
       context.report({
         node,
@@ -90,10 +96,16 @@ export const noLiteralMotionRule = defineRule({
 
     /** Report every literal in a string or template node. */
     const text = (node: ESTree.Node, value: string): void => {
-      for (const finding of checkString(value)) report(node, finding.text, finding.literals);
+      for (const finding of checkString(value, themeEasings)) {
+        report(node, finding.text, finding.literals);
+      }
     };
 
     return {
+      before() {
+        themeEasings = themeEasingsFor(context.filename);
+      },
+
       Literal(node) {
         if (typeof node.value === "string") text(node, node.value);
       },
