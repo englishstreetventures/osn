@@ -30,10 +30,24 @@ const VARIANTS = Object.keys({
   ghostDanger: 1,
   link: 1,
 } satisfies Record<Variant, 1>) as Variant[];
-const SIZES = Object.keys({ default: 1, sm: 1, lg: 1, icon: 1 } satisfies Record<
+const SIZES = Object.keys({ default: 1, sm: 1, lg: 1, icon: 1, inline: 1 } satisfies Record<
   Size,
   1
 >) as Size[];
+
+/** A (variant, size) pair `Button` accepts: its props are a union, per member. */
+type PairOf<P extends ButtonProps> = P extends unknown
+  ? { variant: NonNullable<P["variant"]>; size: NonNullable<P["size"]> }
+  : never;
+type Pair = PairOf<ButtonProps>;
+
+/** Every size at `variant`; `inline` goes with `link` only. */
+const pairsAt = (variant: Variant): Pair[] =>
+  SIZES.flatMap((size): Pair[] => {
+    if (size === "inline") return variant === "link" ? [{ variant, size }] : [];
+    if (size === "icon") return [{ variant, size }];
+    return [{ variant, size }];
+  });
 
 const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
   (
@@ -102,21 +116,21 @@ const seen = (o: ReturnType<typeof outline>) => [o.style, o.width, o.offset, alp
 
 describe("Button in a contrast theme", () => {
   for (const variant of VARIANTS) {
-    it.each(SIZES)(`${variant}, size %s, outlines keyboard focus`, async (size) => {
+    it.each(pairsAt(variant))(`${variant}, size $size, outlines keyboard focus`, async (pair) => {
       render(() => (
         <div data-testid="frame" style={{ padding: "12px", display: "inline-block" }}>
           <button type="button">Before</button>
-          <Button variant={variant} size={size} aria-label="Target">
-            {size === "icon" ? "+" : "Save"}
+          <Button {...pair} aria-label="Target">
+            {pair.size === "icon" ? "+" : "Save"}
           </Button>
         </div>
       ));
       const { now, settled } = await tabOnto(screen.getByRole("button", { name: "Target" }));
       expect(seen(now)).toEqual(["solid", "2px", "2px", true]);
       expect(settled).toEqual(now);
-      if (size === "default")
+      if (pair.size === "default" || pair.size === "inline")
         await page.screenshot({
-          path: shot(`focus-${variant}`),
+          path: shot(`focus-${variant}${pair.size === "inline" ? "-inline" : ""}`),
           element: screen.getByTestId("frame"),
         });
     });
@@ -164,6 +178,30 @@ describe("Button in a contrast theme", () => {
     const button = await tabOnto(screen.getByRole("button", { name: "Save" }), { from: input });
     expect(seen(box.settled)).toEqual(["solid", "2px", "2px", true]);
     expect(seen(button.now)).toEqual(seen(box.settled));
+  });
+
+  it("outlines keyboard focus on an inline link that wraps", async () => {
+    render(() => (
+      <div data-testid="frame" style={{ padding: "12px", width: "160px" }}>
+        <button type="button">Before</button>
+        <p>
+          See{" "}
+          <a href="#recovery" class={buttonVariants({ variant: "link", size: "inline" })}>
+            how to recover an account you can no longer reach
+          </a>
+          .
+        </p>
+      </div>
+    ));
+    const link = screen.getByRole("link");
+    const { now, settled } = await tabOnto(link);
+    expect(link.getClientRects().length).toBeGreaterThan(1);
+    expect(seen(now)).toEqual(["solid", "2px", "2px", true]);
+    expect(settled).toEqual(now);
+    await page.screenshot({
+      path: shot("focus-inline-wrapped"),
+      element: screen.getByTestId("frame"),
+    });
   });
 
   it("outlines keyboard focus on a link that wears `buttonVariants`", async () => {

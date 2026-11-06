@@ -2,7 +2,8 @@
  * How `Button` draws outside a contrast theme, held exactly: every computed
  * style it carries that a plain `<button>` beside it, in the same state, does
  * not, for each variant at the default size and each size at the default
- * variant, at rest and with keyboard focus.
+ * variant (`inline` at `link`, the one variant it goes with), at rest and with
+ * keyboard focus.
  *
  * pulse, musubi, `@osn/auth-ui` and the lab all draw this Button, so this file
  * is what lets a change to it claim that nothing moves outside a contrast
@@ -32,6 +33,16 @@ import "./test-support/tailwind.css";
 type Variant = NonNullable<ButtonProps["variant"]>;
 type Size = NonNullable<ButtonProps["size"]>;
 
+/**
+ * A (variant, size) pair `Button` accepts. Its props are a union — `inline`
+ * goes with `link` only — so a pair is typed per member, not as any variant
+ * with any size.
+ */
+type PairOf<P extends ButtonProps> = P extends unknown
+  ? { variant: NonNullable<P["variant"]>; size: NonNullable<P["size"]> }
+  : never;
+type Pair = PairOf<ButtonProps>;
+
 // Keyed objects rather than arrays, so a variant or size added to `Button`
 // without a line here is a type error rather than a look nobody holds.
 const VARIANTS = Object.keys({
@@ -43,17 +54,20 @@ const VARIANTS = Object.keys({
   ghostDanger: 1,
   link: 1,
 } satisfies Record<Variant, 1>) as Variant[];
-const SIZES = Object.keys({ default: 1, sm: 1, lg: 1, icon: 1 } satisfies Record<
+const SIZES = Object.keys({ default: 1, sm: 1, lg: 1, icon: 1, inline: 1 } satisfies Record<
   Size,
   1
 >) as Size[];
 
-const CASES: { variant: Variant; size: Size }[] = [
-  ...VARIANTS.map((variant) => ({ variant, size: "default" as Size })),
-  ...SIZES.filter((size) => size !== "default").map((size) => ({
-    variant: "default" as Variant,
-    size,
-  })),
+/** Each size at the default variant, or at the one variant it goes with. */
+const atSize = (size: Size): Pair =>
+  size === "inline" ? { variant: "link", size } : { variant: "default", size };
+
+// A size added later goes at the end of `SIZES`, so the cases, and the
+// snapshot keys, written before it stay as they were.
+const CASES: Pair[] = [
+  ...VARIANTS.map((variant): Pair => ({ variant, size: "default" })),
+  ...SIZES.filter((size) => size !== "default").map(atSize),
 ];
 
 const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
@@ -100,12 +114,12 @@ function differences(ours: Map<string, string>, theirs: Map<string, string>) {
   return out;
 }
 
-function renderCase(variant: Variant, size: Size) {
+function renderCase(pair: Pair) {
   render(() => (
     <div>
       <div data-testid="away" style={{ width: "40px", height: "40px" }} />
       <button type="button" aria-label="Before" />
-      <Button variant={variant} size={size} aria-label="Target" />
+      <Button {...pair} aria-label="Target" />
       <button type="button" aria-label="Plain" />
     </div>
   ));
@@ -117,8 +131,8 @@ function renderCase(variant: Variant, size: Size) {
 }
 
 describe("Button outside a contrast theme", () => {
-  it.each(CASES)("$variant, size $size, at rest", async ({ variant, size }) => {
-    const { away, target, plain } = renderCase(variant, size);
+  it.each(CASES)("$variant, size $size, at rest", async (pair) => {
+    const { away, target, plain } = renderCase(pair);
     await userEvent.hover(away);
     settle();
     expect(matchMedia("(forced-colors: active)").matches).toBe(false);
@@ -131,8 +145,8 @@ describe("Button outside a contrast theme", () => {
   // The plain button is read with keyboard focus too, so the browser's own
   // focus ring, whose colour the platform picks, is on both sides and drops
   // out.
-  it.each(CASES)("$variant, size $size, with keyboard focus", async ({ variant, size }) => {
-    const { away, target, plain } = renderCase(variant, size);
+  it.each(CASES)("$variant, size $size, with keyboard focus", async (pair) => {
+    const { away, target, plain } = renderCase(pair);
     await userEvent.hover(away);
     screen.getByRole("button", { name: "Before" }).focus();
     await userEvent.keyboard("{Tab}");
