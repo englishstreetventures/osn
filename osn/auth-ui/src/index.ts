@@ -1,4 +1,5 @@
 export { ChangeEmailForm } from "./ChangeEmailForm";
+export { CheckEmailView, type CheckEmailPurpose, type CheckEmailStatus } from "./CheckEmailView";
 export { CreateProfileForm } from "./CreateProfileForm";
 export { PasskeysView } from "./PasskeysView";
 export { ProfileOnboarding } from "./ProfileOnboarding";
