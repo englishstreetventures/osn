@@ -141,6 +141,9 @@ amending this file.
 
 Colour/opacity transitions only (`transition-colors`). No spatial motion added.
 Focus rings appear instantly, never animated.
+In a contrast theme (Windows forced colours), which drops the ring, a
+`Button` focused from the keyboard draws a 2px system-colour outline 2px off
+instead.
 
 ## What screens MUST share
 

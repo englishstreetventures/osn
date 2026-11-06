@@ -12,9 +12,21 @@ import { splitProps, type Component, type ComponentProps } from "solid-js";
  * red labels down a list reads as an error state rather than as a column of
  * controls. `destructive` is the other end of the same axis — red at rest, for
  * the button that finally commits the destruction, not the one that offers it.
+ *
+ * Keyboard focus draws a `--ui-focus` ring, which is a box shadow, and a
+ * Windows contrast theme (forced colours) drops box shadows. So the focused
+ * outline is hidden, not removed: `outline-hidden` is a transparent 2px
+ * outline 2px off that the theme paints in a system colour, and outside the
+ * theme it computes as `outline-none` does. It applies only while focused from
+ * the keyboard; at rest the theme would ring every button. Like the `ring-2`
+ * it stands in for, it is a fixed 2px and does not follow `--ui-focus-width`
+ * or `--ui-focus-offset`. The colour transition below covers the outline's
+ * colour, so focus starts one in the theme too, but the theme's colour stands
+ * in for every value it passes through: the outline reads the same at once as
+ * when settled (`button.browser.test.tsx`, in Chromium).
  */
 const buttonVariants = cva(
-  "base:inline-flex base:cursor-pointer base:items-center base:justify-center base:gap-2 base:whitespace-nowrap base:rounded-ui-control base:text-ui-base base:font-medium base:transition-colors base:focus-visible:outline-none base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:disabled:pointer-events-none base:disabled:opacity-50",
+  "base:inline-flex base:cursor-pointer base:items-center base:justify-center base:gap-2 base:whitespace-nowrap base:rounded-ui-control base:text-ui-base base:font-medium base:transition-colors base:focus-visible:outline-hidden base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:disabled:pointer-events-none base:disabled:opacity-50",
   {
     variants: {
       variant: {

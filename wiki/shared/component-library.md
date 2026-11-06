@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Component Library (Zaidan)
@@ -740,6 +740,10 @@ import { buttonVariants } from "@shared/ui/ui/button";
   Settings
 </A>;
 ```
+
+**Focus.** Keyboard focus draws a 2px `--ui-focus` ring, which is a box shadow, and hides the outline only while focused (`focus-visible:outline-hidden`) rather than removing it. A Windows contrast theme (forced colours) drops box shadows and paints that hidden outline in a system colour, 2px wide and 2px off, so focus stays visible there; outside the theme it computes as no outline at all. A pointer press draws neither. `buttonVariants` carries the classes, so a link styled as a button gets the same. The drawn `Checkbox` box, the drawn radio circle and the switch track spell their contrast-theme mark another way (`forced-colors:peer-focus-visible:outline-2`, whose colour is `currentColor`): the same style, width and offset, but the theme paints the checkbox's and `Button`'s in different system colours — under Chromium's emulation on macOS, `rgb(0, 0, 0)` for the box and `rgba(5, 0, 73, 0.8)` for `Button`. `Button`'s ring and outline are fixed at 2px and do not follow `--ui-focus-width` or `--ui-focus-offset`. The defaults are `base:` and so lose to any call site: an `outline-*` class passed to `Button`, or an unlayered app rule that sets `outline` on `:focus-visible`, takes the theme's only focus mark away. `shared/ui/tests/button.browser.test.tsx` holds the contrast theme; `shared/ui/tests/button-default.browser.test.tsx` holds every computed style outside it as a snapshot; and the `token-contract` browser tests in `@musubi/social` and `@pulse/web` check the outline under each app's own stylesheet. See [[browser-tests#Current coverage]].
+
+*Measured 2026-11-06 — a probe in `shared/ui`'s browser tier on macOS: under `emulateMedia({ forcedColors: "active" })`, Tab to a drawn `Checkbox` and to a `Button` and read `getComputedStyle(el).outlineColor` on the box and on the button*
 
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 

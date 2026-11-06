@@ -6,7 +6,7 @@ import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 
 /**
- * AZ-P-I1. `/authorize` is a cold cross-origin landing: the browser arrives
+ * `/authorize` is a cold cross-origin landing: the browser arrives
  * from the relying party with no warm connection to the OSN issuer, so
  * `GET /authorize/context` pays DNS + TCP + TLS before a byte moves. A
  * `preconnect` overlaps that handshake with the JS parse instead.
@@ -95,8 +95,8 @@ export function barrelIsSideEffectFree(source: string): boolean {
  * resolved id (via `resolveId`, deferring to Vite's own resolution first)
  * rather than a blanket `treeshake.moduleSideEffects` override, which would
  * also flip Rollup's default (side-effectful) assumption for every other
- * dependency in the graph and could silently keep dead code that used to be
- * dropped.
+ * dependency in the graph and could silently keep dead code Rollup would
+ * otherwise drop.
  */
 export function webauthnBarrelHasNoSideEffects(): Plugin {
   return {
@@ -151,7 +151,7 @@ export default defineConfig(async () => ({
         // pulling in `startRegistration`, which only `SecuritySection` (opened
         // rarely) needs. Splitting on the underlying method files forces
         // Rollup to place each method's compiled body in its own chunk.
-        manualChunks(id) {
+        manualChunks(id: string) {
           if (id.includes("@simplewebauthn/browser/esm/methods/startAuthentication")) {
             return "webauthn-authentication";
           }

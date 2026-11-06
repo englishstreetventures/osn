@@ -1,0 +1,7 @@
+{
+  // The tests, browser tier included. `../tsconfig.json` covers only `src`;
+  // this one adds the tests, so the `BrowserCommands` augmentation in
+  // `test-support/browser-commands.ts` and every call through it are checked.
+  "extends": "../tsconfig.json",
+  "include": ["../src", "./**/*"]
+}

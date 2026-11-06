@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-06
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -110,7 +110,11 @@ Three groups sit outside `@theme` as plain custom properties, because a
 component consumes them inside its own rule rather than as a utility:
 `--ui-focus-width` / `--ui-focus-offset`, the motion tokens
 (`--ui-dur-fast|base|slow`, `--ui-ease-out|in-out`) and `--ui-elev-1|2`.
-Aliasing those would generate utilities nobody spells. `CONTRACT_COLOR_TOKENS`
+Aliasing those would generate utilities nobody spells. No `@shared/ui`
+primitive reads the two focus tokens: it draws focus with Tailwind's fixed
+2px utilities (`ring-2`, `outline-2`, `outline-hidden` and their offsets), so
+a surface that sets them moves only the rules it writes itself, such as the
+lab's focus story. `CONTRACT_COLOR_TOKENS`
 and `CONTRACT_SCALAR_TOKENS` in `src/index.ts` are the enumerable form of both
 lists, and `tests/tokens-css-agrees.test.ts` fails if they and `tokens.css`
 drift apart.
