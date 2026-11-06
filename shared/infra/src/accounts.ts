@@ -63,6 +63,23 @@ export const DEV_READONLY_CREDENTIALS: readonly string[] = [
  */
 export const PAGES_DNS_CREDENTIALS: readonly string[] = ["CLOUDFLARE_PAGES_DNS_TOKEN"];
 
+/**
+ * The `dev` Environment's two tokens for the domain move rehearsal
+ * (.github/workflows/domain-move-rehearsal.yml), both account API tokens on
+ * the dev account. `CLOUDFLARE_DEV_PAGES_DNS_TOKEN` is the dev counterpart of
+ * CLOUDFLARE_PAGES_DNS_TOKEN, with the same grants on the dev account and the
+ * DEV_DOMAIN zone: only scripts/domain-move-rehearsal.ts reads it, on a runner
+ * that installs nothing or before its job's install, and refuses it unless it
+ * reaches exactly that account and zone, so no dependency's code ever holds
+ * it. `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN` holds Pages Edit alone: Wrangler
+ * uploads the rehearsal's marker page with it, after the script has checked
+ * it reaches the dev account and no zone.
+ */
+export const DEV_PAGES_CREDENTIALS: readonly string[] = [
+  "CLOUDFLARE_DEV_PAGES_DNS_TOKEN",
+  "CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN",
+];
+
 /** Repository-level credentials, outside both Environments: read-only access to the production account. */
 export const REPOSITORY_CREDENTIALS: readonly string[] = [
   "CLOUDFLARE_ACCOUNT_ID",
@@ -79,12 +96,15 @@ export function accountSecrets(tier: Tier): readonly string[] {
 
 /**
  * The credentials `tier`'s Environment must hold: its account's pair, and on
- * dev the read-only token, on production the Pages and DNS token. Sorted.
+ * dev the read-only token and the rehearsal's two Pages tokens, on
+ * production the Pages and DNS token. Sorted.
  */
 export function requiredCredentials(tier: Tier): readonly string[] {
   return [
     ...accountSecrets(tier),
-    ...(tier === "dev" ? DEV_READONLY_CREDENTIALS : PAGES_DNS_CREDENTIALS),
+    ...(tier === "dev"
+      ? [...DEV_READONLY_CREDENTIALS, ...DEV_PAGES_CREDENTIALS]
+      : PAGES_DNS_CREDENTIALS),
   ].toSorted();
 }
 
@@ -103,6 +123,7 @@ export function knownCredentials(): readonly string[] {
       ...accountSecrets("dev"),
       ...accountSecrets("production"),
       ...DEV_READONLY_CREDENTIALS,
+      ...DEV_PAGES_CREDENTIALS,
       ...PAGES_DNS_CREDENTIALS,
       ...REPOSITORY_CREDENTIALS,
     ]),

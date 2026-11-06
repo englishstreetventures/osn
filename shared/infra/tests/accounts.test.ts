@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   accountSecrets,
+  DEV_PAGES_CREDENTIALS,
   DEV_READONLY_CREDENTIALS,
   forbiddenCredentials,
   knownCredentials,
@@ -46,6 +47,8 @@ describe("TIER_ACCOUNTS", () => {
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN",
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
       "CLOUDFLARE_DEV_ACCOUNT_ID",
+      "CLOUDFLARE_DEV_PAGES_DNS_TOKEN",
+      "CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN",
     ]);
     // A name both forbidden and expected would fail the check whether or not
     // the Environment held it.
@@ -62,11 +65,29 @@ describe("TIER_ACCOUNTS", () => {
     // free-tier-ceiling-alert.yml's dev job fails every night without it.
     expect(knownCredentials()).toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
     expect(requiredCredentials("dev")).toEqual(
-      [...accountSecrets("dev"), "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY"].toSorted(),
+      [
+        ...accountSecrets("dev"),
+        "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
+        ...DEV_PAGES_CREDENTIALS,
+      ].toSorted(),
     );
     expect(forbiddenCredentials("production")).toContain(
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
     );
+  });
+
+  test("the domain move rehearsal's two dev Pages tokens are classified, required in dev and forbidden in production", () => {
+    // .github/workflows/domain-move-rehearsal.yml fails without either.
+    expect([...DEV_PAGES_CREDENTIALS]).toEqual([
+      "CLOUDFLARE_DEV_PAGES_DNS_TOKEN",
+      "CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN",
+    ]);
+    for (const name of DEV_PAGES_CREDENTIALS) {
+      expect(knownCredentials()).toContain(name);
+      expect(requiredCredentials("dev")).toContain(name);
+      expect(forbiddenCredentials("production")).toContain(name);
+      expect(forbiddenCredentials("dev")).not.toContain(name);
+    }
   });
 
   test("the Pages and DNS token is classified, required in production and forbidden in dev", () => {
@@ -103,9 +124,18 @@ describe("the credentials the workflows read", () => {
     ]);
   });
 
-  test("only alchemy-state.yml, deploy.yml and free-tier-ceiling-alert.yml reach the dev account", () => {
-    const allowed = new Set(["alchemy-state.yml", "deploy.yml", "free-tier-ceiling-alert.yml"]);
-    const dev = new Set([...accountSecrets("dev"), ...DEV_READONLY_CREDENTIALS]);
+  test("only alchemy-state.yml, deploy.yml, domain-move-rehearsal.yml and free-tier-ceiling-alert.yml reach the dev account", () => {
+    const allowed = new Set([
+      "alchemy-state.yml",
+      "deploy.yml",
+      "domain-move-rehearsal.yml",
+      "free-tier-ceiling-alert.yml",
+    ]);
+    const dev = new Set([
+      ...accountSecrets("dev"),
+      ...DEV_READONLY_CREDENTIALS,
+      ...DEV_PAGES_CREDENTIALS,
+    ]);
     for (const file of workflowFiles.filter((candidate) => !allowed.has(candidate))) {
       const reached = cloudflareSecrets(file).filter((name) => dev.has(name));
       expect({ file, reached }).toEqual({ file, reached: [] });
