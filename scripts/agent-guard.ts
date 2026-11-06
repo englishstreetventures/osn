@@ -525,6 +525,15 @@ function ghRule(words: string[], command: Command, state: State, ctx: Context): 
 const PRODUCTION_READ =
   "an agent never reads a production database, not even a read-only `SELECT`, and `wrangler d1 execute|export` is refused unless it is clearly local or dev. Run it with `--local`, or against the dev database by its dev name (`cire-db-dev`, `osn-db-dev`, `zap-db-dev`) with no production `--env`. Otherwise make the change safe in code: tolerate the old shape, let the migration guard itself, or add a release-time check that prints counts only (AGENTS.md §Standing rules, Production data).";
 
+/** Production D1 database names, from the Alchemy declarations and the `[env.production]` blocks of the `wrangler.toml` files. */
+const PRODUCTION_DATABASES: ReadonlySet<string> = new Set([
+  "cire-db",
+  "osn-db",
+  "osn-db-prod",
+  "zap-db-prod",
+  "pulse-db-prod",
+]);
+
 const isWrangler = (word: string): boolean => basename(word).replace(/@[^/]*$/, "") === "wrangler";
 
 /** Flags of `wrangler d1 execute|export` that take a value as the next word. */
@@ -560,17 +569,62 @@ function productionDbRule(words: string[]): string | null {
   if (at < 0) return null;
   const rest = words.slice(at + 1);
   const positional: string[] = [];
+  const positionAt: number[] = [];
   for (let k = 0; k < rest.length; k += 1) {
     const word = rest[k] ?? "";
     if (VALUE_FLAGS.has(word)) k += 1;
-    else if (!word.startsWith("-")) positional.push(word);
+    else if (!word.startsWith("-")) {
+      positional.push(word);
+      positionAt.push(k);
+    }
   }
   const verb = positional.findIndex((word) => word === "execute" || word === "export");
   if (verb < 0 || !positional.includes("d1")) return null;
   if (rest.includes("--local")) return null;
+  if (!isCleanDevCommand(words, rest, positional, positionAt, verb)) return PRODUCTION_READ;
+  return null;
+}
+
+/** Flags that redirect what a database name resolves to. */
+const REDIRECT_FLAG = /^(?:--config|--cwd|--env-file|-c)(?:=|$)|^-c[^-]/;
+
+/** Flags that may stand before the database name. */
+const SAFE_FLAGS: ReadonlySet<string> = new Set([
+  "--remote",
+  "--json",
+  "--yes",
+  "-y",
+  "--command",
+  "--file",
+  "--persist-to",
+  "--preview",
+  "--env",
+  "-e",
+  "--output",
+]);
+
+/**
+ * The one shape that passes without `--local`: exactly one positional after
+ * the verb, a `-dev` name; no redirecting flag; only known flags before it;
+ * and no word anywhere that is a production database name or env.
+ */
+function isCleanDevCommand(
+  words: string[],
+  rest: string[],
+  positional: string[],
+  positionAt: number[],
+  verb: number,
+): boolean {
+  if (positional.length !== verb + 2) return false;
   const database = positional[verb + 1] ?? "";
-  if (database.endsWith("-dev") && !namesProduction(words, rest)) return null;
-  return PRODUCTION_READ;
+  if (!database.endsWith("-dev")) return false;
+  if (namesProduction(words, rest)) return false;
+  if (rest.some((word) => REDIRECT_FLAG.test(word))) return false;
+  if (rest.some((word) => PRODUCTION_DATABASES.has(word))) return false;
+  const databaseAt = positionAt[verb + 1] ?? rest.length;
+  return rest
+    .slice(0, databaseAt)
+    .every((word) => !word.startsWith("-") || SAFE_FLAGS.has(word.split("=")[0] ?? ""));
 }
 
 function installRule(words: string[], state: State, ctx: Context): string | null {
