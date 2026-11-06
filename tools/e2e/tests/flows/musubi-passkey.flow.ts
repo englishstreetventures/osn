@@ -3,6 +3,11 @@
  * browser, picking the number the first shows — then a passkey; sign out, sign
  * back in with the passkey, and keep the session across a reload.
  *
+ * Before that, the first link is spent the wrong way: a `GET` on its routes
+ * approves nothing, and a number that is not the one shown ends the request,
+ * which the waiting tab learns on its own. A new link from the details, with
+ * a new number, is the one confirmed.
+ *
  * The session cookie is set by osn-api (`localhost:4000`) on responses to
  * Musubi's (`localhost:1422`) cross-origin fetches, so it only lands — and only
  * rides on later calls — when those fetches pass `credentials: "include"`.
@@ -16,7 +21,9 @@ import {
   expect,
   linkFor,
   mailFor,
+  pickWrongNumberOnPage,
   test,
+  waitingScreenNumber,
 } from "../support/fixtures";
 
 const ada = PEOPLE.musubi;
@@ -64,12 +71,8 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   });
 
   // The number the waiting screen shows, which the link's page asks for.
-  const pairingCode = await flow.step(
-    "register: read the number on the waiting screen",
-    async () => {
-      const number = page.locator("p", { hasText: "Your number:" }).locator('span[translate="no"]');
-      return ((await number.textContent()) ?? "").trim();
-    },
+  const pairingCode = await flow.step("register: read the number on the waiting screen", () =>
+    waitingScreenNumber(page),
   );
   flow.check("the waiting screen shows a two-digit number", true, /^\d{2}$/.test(pairingCode));
 
@@ -111,13 +114,76 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
   flow.check("the secret left the address bar", false, phone.url().includes("#"));
   flow.check("opening the link confirmed nothing", 0, confirms());
   flow.check(
+    "the page offers the waiting screen's number",
+    1,
+    await phone.getByRole("button", { name: pairingCode, exact: true }).count(),
+  );
+
+  // A mail scanner fetches what it finds; no route of the link's answers a GET.
+  const getStatuses = await flow.step("phone: a GET on the link's routes", async () => {
+    const statuses: number[] = [];
+    for (const route of ["confirm", "candidates"]) {
+      const url = `${ORIGINS.osnApi}/email-link/${link.requestId}/${route}`;
+      // oxlint-disable-next-line no-await-in-loop -- one request after the other
+      const response = await phone.request.get(url);
+      flow.recordRequest("GET", url, response.status());
+      statuses.push(response.status());
+    }
+    return statuses;
+  });
+  flow.check("a GET on the confirm route is not found", 404, getStatuses[0] ?? 0);
+  flow.check("a GET on the candidates route is not found", 404, getStatuses[1] ?? 0);
+  flow.check("the GETs confirmed nothing", 0, confirms());
+  flow.check(
     "the first browser still waits",
     true,
     await page.getByRole("heading", { name: "Check your email" }).isVisible(),
   );
 
+  const wrong = await flow.step("phone: pick a number that is not the one shown", async () => {
+    const picked = await pickWrongNumberOnPage(phone, pairingCode);
+    await expect(phone.getByRole("heading", { name: "This link no longer works" })).toBeVisible();
+    return picked;
+  });
+  flow.check("the number picked was not the one shown", true, wrong !== pairingCode);
+  flow.check(
+    "the wrong pick was answered",
+    true,
+    flow.saw("POST osn-api /email-link/:id/confirm 200"),
+  );
+
+  await flow.step("register: the first browser learns the link is gone", async () => {
+    await expect(page.getByRole("heading", { name: "Your link has expired" })).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+  flow.check(
+    "a wrong pick made no account",
+    false,
+    flow.saw("POST osn-api /register/:id/status 201"),
+  );
+
+  await flow.step("register: a new link from the details", async () => {
+    await page.getByRole("button", { name: "Send a new link" }).click();
+    await expect(page.getByLabel("Email")).toHaveValue(ada.email);
+    await expect(page.getByRole("button", { name: "Send verification link" })).toBeEnabled();
+    await page.getByRole("button", { name: "Send verification link" }).click();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  });
+  const secondCode = await flow.step("register: read the new number", () =>
+    waitingScreenNumber(page),
+  );
+  flow.check("the new waiting screen shows a two-digit number", true, /^\d{2}$/.test(secondCode));
+  const secondLink = await linkFor(ada.email, 1);
+  flow.check("the new link is a new request", true, secondLink.requestId !== link.requestId);
+
+  await flow.step("phone: open the new link", async () => {
+    await phone.goto(secondLink.url);
+    await expect(phone.getByRole("heading", { name: "Confirm this email" })).toBeVisible();
+  });
+
   await flow.step("phone: pick the number and confirm", async () => {
-    await confirmLinkOnPage(phone, pairingCode);
+    await confirmLinkOnPage(phone, secondCode);
     await expect(phone.getByRole("heading", { name: "Confirmed" })).toBeVisible();
   });
   flow.check(
@@ -141,6 +207,7 @@ test("musubi-passkey", async ({ page, context, browser, flow }) => {
     true,
     flow.saw("POST osn-api /register/:id/status 201"),
   );
+  flow.check("sign-up begun twice", 2, flow.count("POST osn-api /register/begin "));
   flow.check(
     "the first browser holds the session cookie",
     true,

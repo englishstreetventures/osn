@@ -400,14 +400,47 @@ export async function linkFor(email: string, after = 0): Promise<MailedLink> {
 }
 
 /**
- * On a page showing an emailed link's confirm card, picks `pairingCode` — the
- * number the tab that began shows — and confirms. `flows.test.ts` counts the
+ * The number the waiting screen ("Check your email") shows, which the link's
+ * page asks for: the digits after the hidden "Your number:" label.
+ */
+export async function waitingScreenNumber(page: Page): Promise<string> {
+  const number = page.locator("p", { hasText: "Your number:" }).locator('span[translate="no"]');
+  await expect(number).toBeVisible();
+  return ((await number.textContent()) ?? "").trim();
+}
+
+/** The numbers an emailed link's confirm card offers, one button each. */
+function offeredNumbers(page: Page) {
+  return page.getByRole("group", {
+    name: "Pick the number shown on the screen where you started.",
+  });
+}
+
+/**
+ * On a page showing an emailed link's confirm card, taps `pairingCode` — the
+ * number the tab that began shows — which confirms. `flows.test.ts` counts the
  * calls against osn-api's confirm budget.
  */
 export async function confirmLinkOnPage(page: Page, pairingCode: string): Promise<void> {
-  await page.getByRole("button", { name: pairingCode, exact: true }).click();
-  const confirm = page.getByRole("button", { name: "Confirm", exact: true });
-  if (await confirm.isVisible()) await confirm.click();
+  await offeredNumbers(page).getByRole("button", { name: pairingCode, exact: true }).click();
+}
+
+/**
+ * On a page showing an emailed link's confirm card, taps a number that is not
+ * `pairingCode`, and answers the number tapped. Counted as a confirm by
+ * `flows.test.ts`.
+ */
+export async function pickWrongNumberOnPage(page: Page, pairingCode: string): Promise<string> {
+  const offered = await offeredNumbers(page).getByRole("button").allTextContents();
+  const wrong = offered.map((text) => text.trim()).find((text) => text !== pairingCode);
+  if (wrong === undefined) throw new Error("the confirm card offered no other number");
+  await offeredNumbers(page).getByRole("button", { name: wrong, exact: true }).click();
+  return wrong;
+}
+
+/** On a page showing an emailed link's confirm card, says "I didn't ask for this". Counted as a confirm by `flows.test.ts`. */
+export async function declineLinkOnPage(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "I didn't ask for this", exact: true }).click();
 }
 
 /** Makes the mail stand-in refuse the next send to `email`, as Resend refuses an unverified sender. */

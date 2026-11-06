@@ -106,8 +106,9 @@ describe("flow sources", () => {
   // more is a 429 only on a machine fast enough to fit them in one minute. A
   // flow begins a sign-up by pressing "Send verification link" in Musubi's
   // dialog, resends with "Resend link", and confirms by pressing a number on
-  // the link's page, written exactly as the patterns below; `registerThroughApi`
-  // does one begin and one confirm.
+  // the link's page, right or wrong, or "I didn't ask for this" there, written
+  // exactly as the patterns below; `registerThroughApi` does one begin and one
+  // confirm.
   const countIn = (pattern: RegExp): number =>
     readdirSync(join(import.meta.dirname, "flows"))
       .map((file) => readFileSync(join(import.meta.dirname, "flows", file), "utf8"))
@@ -121,7 +122,9 @@ describe("flow sources", () => {
 
   test("the flows resend and confirm no more links than osn-api allows in a minute", () => {
     const resends = countIn(/name: "Resend link" \}\)\.click\(/g);
-    const confirms = countIn(/confirmLinkOnPage\(|registerThroughApi\(/g);
+    const confirms = countIn(
+      /confirmLinkOnPage\(|pickWrongNumberOnPage\(|declineLinkOnPage\(|registerThroughApi\(/g,
+    );
     expect(resends).toBeLessThanOrEqual(5);
     expect(confirms).toBeGreaterThan(0);
     expect(confirms).toBeLessThanOrEqual(10);

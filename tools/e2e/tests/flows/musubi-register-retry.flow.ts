@@ -1,13 +1,14 @@
 /**
- * Musubi: a sign-up whose first link the mail provider refuses.
+ * Musubi: a sign-up whose first link the mail provider refuses, then declined.
  *
  * The person is told a link was sent, as every sign-up is told. A refused send
  * leaves the request live, so "Resend link" sends a new link for the same
- * request, and confirming that link — on another device, picking the number
- * the waiting screen shows — creates the account in the tab that began.
- * osn-api's log says why the first send failed — the status, Resend's error
- * code and what its message meant — and never the address it was for or the
- * key it was sent with.
+ * request. That link opens on another device and offers the numbers, which a
+ * dead link would not, and "I didn't ask for this" there is answered
+ * "Cancelled": the request ends, no account is made, and the tab that began
+ * learns the link has expired. osn-api's log says why the first send failed —
+ * the status, Resend's error code and what its message meant — and never the
+ * address it was for or the key it was sent with.
  *
  * The mail stand-in refuses the first send the way Resend refuses a sender
  * domain it has not verified (`tools/e2e/src/mail.ts`).
@@ -15,7 +16,7 @@
 
 import { E2E_RESEND_KEY, ORIGINS, PEOPLE } from "../../src/config";
 import {
-  confirmLinkOnPage,
+  declineLinkOnPage,
   expect,
   linkFor,
   mailFor,
@@ -23,6 +24,7 @@ import {
   refusedMailCount,
   refuseNextMailTo,
   test,
+  waitingScreenNumber,
 } from "../support/fixtures";
 
 const grace = PEOPLE.musubiRetry;
@@ -72,21 +74,30 @@ test("musubi-register-retry", async ({ page, browser, flow }) => {
     await expect(page.getByText(/We sent a new link/)).toBeVisible();
   });
 
-  const number = page.locator("p", { hasText: "Your number:" }).locator('span[translate="no"]');
-  const pairingCode = ((await number.textContent()) ?? "").trim();
+  const pairingCode = await waitingScreenNumber(page);
   const link = await linkFor(grace.email);
 
   const phoneContext = await browser.newContext();
   const phone = await flow.newPage(phoneContext);
-  await flow.step("phone: confirm the resent link", async () => {
+  await flow.step("phone: the resent link offers the waiting screen's number", async () => {
     await phone.goto(link.url);
-    await confirmLinkOnPage(phone, pairingCode);
-    await expect(phone.getByRole("heading", { name: "Confirmed" })).toBeVisible();
+    await expect(phone.getByRole("heading", { name: "Confirm this email" })).toBeVisible();
+    await expect(phone.getByRole("button", { name: pairingCode, exact: true })).toBeVisible();
   });
+
+  await flow.step("phone: I didn't ask for this", async () => {
+    await declineLinkOnPage(phone);
+    await expect(phone.getByRole("heading", { name: "Cancelled" })).toBeVisible();
+  });
+  flow.check(
+    "the decline was answered",
+    true,
+    flow.saw("POST osn-api /email-link/:id/confirm 200"),
+  );
   await phoneContext.close();
 
-  await flow.step("register: the first browser finishes on its own", async () => {
-    await expect(page.getByRole("button", { name: "Enroll credential" })).toBeVisible({
+  await flow.step("register: the first browser learns the link is gone", async () => {
+    await expect(page.getByRole("heading", { name: "Your link has expired" })).toBeVisible({
       timeout: 20_000,
     });
   });
@@ -95,5 +106,9 @@ test("musubi-register-retry", async ({ page, browser, flow }) => {
   flow.check("sign-up begun once", 1, flow.count("POST osn-api /register/begin "));
   flow.check("the begin answered 200", true, flow.saw("POST osn-api /register/begin 200"));
   flow.check("the link resent", true, flow.saw("POST osn-api /register/:id/resend 200"));
-  flow.check("account created", true, flow.saw("POST osn-api /register/:id/status 201"));
+  flow.check(
+    "a declined sign-up made no account",
+    false,
+    flow.saw("POST osn-api /register/:id/status 201"),
+  );
 });
