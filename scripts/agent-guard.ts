@@ -525,24 +525,49 @@ function ghRule(words: string[], command: Command, state: State, ctx: Context): 
 const PRODUCTION_READ =
   "an agent never reads a production database, not even a read-only `SELECT`. Make the change safe in code instead: tolerate the old shape, let the migration guard itself, or add a release-time check that prints counts only. Dev databases may be read (AGENTS.md §Standing rules, Production data).";
 
-/** `wrangler d1 execute|export` aimed at production: `--env production`, or `cire-db` with `--remote`. */
-function productionDbRule(words: string[]): string | null {
-  const at = words.findIndex((word) => word === "wrangler" || word.endsWith("/wrangler"));
-  if (at < 0) return null;
-  const rest = words.slice(at + 1);
-  if (rest[0] !== "d1" || !["execute", "export"].includes(rest[1] ?? "")) return null;
-  const production = rest.some(
+/**
+ * Production D1 database names: `physicalName` in `cire/infra`, `musubi/infra`
+ * and `zap/infra`, and the `[env.production]` blocks of the `wrangler.toml`
+ * files (`pulse/api` declares `pulse-db-prod`).
+ */
+const PRODUCTION_DATABASES: readonly string[] = [
+  "cire-db",
+  "osn-db-prod",
+  "zap-db-prod",
+  "pulse-db-prod",
+];
+
+const isWrangler = (word: string): boolean => basename(word).replace(/@[^/]*$/, "") === "wrangler";
+
+const isProductionEnv = (rest: string[]): boolean =>
+  rest.some(
     (word, k) =>
       word === "--env=production" ||
       word === "-e=production" ||
+      word === "-eproduction" ||
       ((word === "--env" || word === "-e") && rest[k + 1] === "production"),
   );
-  const bareCire =
-    rest.includes("cire-db") &&
-    rest.includes("--remote") &&
-    !rest.includes("--local") &&
-    !rest.some((word) => word === "--env" || word === "-e" || word.startsWith("--env="));
-  return production || bareCire ? PRODUCTION_READ : null;
+
+/**
+ * `wrangler d1 execute|export` aimed at production: `--env production` in any
+ * spelling, or a production database name without `--local`. It looks for `d1`
+ * and the verb among the non-flag words, wherever they sit.
+ */
+function productionDbRule(words: string[]): string | null {
+  const at = words.findIndex(isWrangler);
+  if (at < 0) return null;
+  const rest = words.slice(at + 1);
+  const positional = rest.filter((word) => !word.startsWith("-"));
+  if (!positional.includes("d1") || !positional.some((w) => w === "execute" || w === "export"))
+    return null;
+  if (isProductionEnv(rest)) return PRODUCTION_READ;
+  const local = rest.includes("--local");
+  const named = positional.some((word) => PRODUCTION_DATABASES.includes(word));
+  const devEnv = rest.some((word) => word === "--env=dev" || word === "-e=dev" || word === "-edev");
+  const devEnvSpaced = rest.some(
+    (word, k) => (word === "--env" || word === "-e") && rest[k + 1] === "dev",
+  );
+  return named && !local && !devEnv && !devEnvSpaced ? PRODUCTION_READ : null;
 }
 
 function installRule(words: string[], state: State, ctx: Context): string | null {

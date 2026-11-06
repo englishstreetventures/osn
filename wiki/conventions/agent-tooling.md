@@ -38,7 +38,7 @@ A `PreToolUse` hook runs [`scripts/agent-guard.ts`](../../scripts/agent-guard.ts
 | `git commit` or `git push` on `main`, judged in the directory the command runs in (`cd`, `git -C`, a branch switch earlier in the line), and a push whose destination ref is `main` | Never commit to `main` |
 | A tracker finding ID in a commit message, in `gh pr` or `gh issue` text (`create`, `edit`, `comment`, `review`, `merge`, and a `close` or `reopen` comment) or `gh api` fields (inline, `--body-file`, `-F body=@file`, `--input`), or in a GitHub MCP write, unless it targets `englishstreetventures/osn-tracker` | Issues |
 | A Write or Edit of a test or spec file under a workspace's `src/`, in any worktree of this repository | Tests |
-| `wrangler d1 execute` or `export` with `--env production`, or on `cire-db` with `--remote` and neither `--local` nor `--env` | Production data |
+| `wrangler d1 execute` or `export` with `--env production`, or on a production database (`cire-db`, `osn-db-prod`, `zap-db-prod`, `pulse-db-prod`) without `--local` or `--env dev` | Production data |
 | An `Agent` call with no `subagent_type`, which starts `general-purpose` | Choose subagents by definition |
 
 It catches slips; it is not enforcement, and `AGENTS.md` keeps every rule for agents that run no hooks. It reads only the call itself, never file contents already in the repository. Every failure lets the call through: unreadable input, an unreadable file, a `git` error, a directory it cannot resolve, a thrown check.

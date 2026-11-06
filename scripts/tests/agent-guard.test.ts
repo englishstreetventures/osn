@@ -298,35 +298,41 @@ describe("10. quotes", () => {
 });
 
 describe("18. production database reads", () => {
-  test("refuses wrangler d1 execute or export aimed at production", () => {
-    expect(
-      refused(
-        bash("bunx wrangler d1 execute cire-db --env production --remote --command 'SELECT 1'"),
-      ),
-    ).toBe(true);
-    expect(
-      refused(bash("cd cire/api && bunx --bun wrangler d1 execute osn-db --env=production")),
-    ).toBe(true);
-    expect(refused(bash("wrangler d1 export cire-db -e production --remote --output x.sql"))).toBe(
-      true,
-    );
-    expect(refused(bash("bunx wrangler d1 execute cire-db --remote --command 'SELECT 1'"))).toBe(
-      true,
-    );
+  const refusals = [
+    "bunx wrangler d1 execute cire-db --env production --remote --command 'SELECT 1'",
+    "cd cire/api && bunx --bun wrangler d1 execute osn-db --env=production",
+    "wrangler d1 export cire-db -e production --remote --output x.sql",
+    "wrangler d1 execute osn-db -e=production",
+    "wrangler d1 execute osn-db -eproduction",
+    "wrangler d1 execute cire-db --remote --command 'SELECT 1'",
+    "wrangler d1 execute cire-db --remote=true --command 'SELECT 1'",
+    "wrangler d1 execute cire-db --command 'SELECT 1'",
+    "wrangler d1 execute osn-db-prod --remote --command 'SELECT 1'",
+    "wrangler d1 export zap-db-prod --remote --output x.sql",
+    "wrangler d1 execute pulse-db-prod --remote --command 'SELECT 1'",
+    "bunx wrangler@4.x d1 execute osn-db-prod --remote",
+    "npx wrangler d1 execute zap-db-prod",
+    "./node_modules/.bin/wrangler d1 execute cire-db --remote",
+    "bunx wrangler --config wrangler.toml d1 execute cire-db --remote",
+    "wrangler --env production d1 execute osn-db --command 'SELECT 1'",
+  ];
+  test.each(refusals)("refuses %s", (command) => {
+    expect(refused(bash(command))).toBe(true);
   });
 
-  test("lets dev and local databases through", () => {
-    expect(
-      refused(bash("bunx wrangler d1 execute cire-db-dev --remote --command 'SELECT 1'")),
-    ).toBe(false);
-    expect(refused(bash("bunx wrangler d1 execute cire-db --local --command 'SELECT 1'"))).toBe(
-      false,
-    );
-    expect(
-      refused(bash("bunx wrangler d1 execute cire-db --env dev --remote --command 'SELECT 1'")),
-    ).toBe(false);
-    expect(refused(bash("bunx wrangler secret put X --env production"))).toBe(false);
-    expect(refused(bash("echo 'wrangler d1 execute cire-db --env production'"))).toBe(false);
+  const allowed = [
+    "bunx wrangler d1 execute cire-db-dev --remote --command 'SELECT 1'",
+    "bunx wrangler d1 execute osn-db-dev --remote --command 'SELECT 1'",
+    "bunx wrangler d1 execute cire-db --local --command 'SELECT 1'",
+    "bunx wrangler d1 execute osn-db-prod --local --command 'SELECT 1'",
+    "bunx wrangler d1 execute cire-db --env dev --remote --command 'SELECT 1'",
+    "bunx wrangler d1 execute osn-db-dev --env=dev --remote",
+    "bunx wrangler d1 list",
+    "bunx wrangler secret put X --env production",
+    "echo 'wrangler d1 execute cire-db --env production'",
+  ];
+  test.each(allowed)("lets through %s", (command) => {
+    expect(refused(bash(command))).toBe(false);
   });
 });
 
