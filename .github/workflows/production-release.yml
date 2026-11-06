@@ -1427,8 +1427,10 @@ jobs:
         if: ${{ failure() && steps.plan.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/plan/cire.log"
 
-      # A flip changes one thing: the flip site's own update, with every other
-      # line a noop, and the plan equal to the approved one.
+      # A flip moves one domain: the flip site's Worker updates and gains its
+      # production host; the stack's other site Workers may update with their
+      # custom domains unchanged; nothing else changes; and the plan equals
+      # the approved one.
       - name: Guard the flip plan, and hold it to the approved one
         id: guard
         working-directory: cire/infra
@@ -1566,7 +1568,8 @@ jobs:
       # The plan approved at alchemy-plan may be hours old, and on a flip
       # release the domain has left Pages since. Plan again, with the force
       # the deploy uses, and deploy only what the guard allows and what equals
-      # the approved plan: on a flip, the flip site's update alone.
+      # the approved plan: on a flip, the flip site's move, and the other site
+      # Workers' updates with their custom domains unchanged.
       - name: Plan the cire stack again
         id: plan
         working-directory: cire/infra
@@ -1800,8 +1803,10 @@ jobs:
         if: ${{ failure() && steps.plan.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/plan/musubi.log"
 
-      # A flip changes one thing: the flip site's own update, with every other
-      # line a noop, and the plan equal to the approved one.
+      # A flip moves one domain: the flip site's Worker updates and gains its
+      # production host; the stack's other site Workers may update with their
+      # custom domains unchanged; nothing else changes; and the plan equals
+      # the approved one.
       - name: Guard the flip plan, and hold it to the approved one
         id: guard
         working-directory: musubi/infra
@@ -1938,7 +1943,8 @@ jobs:
       # The plan approved at alchemy-plan may be hours old, and on a flip
       # release the domain has left Pages since. Plan again, with the force
       # the deploy uses, and deploy only what the guard allows and what equals
-      # the approved plan: on a flip, the flip site's update alone.
+      # the approved plan: on a flip, the flip site's move, and the other site
+      # Workers' updates with their custom domains unchanged.
       - name: Plan the musubi stack again
         id: plan
         working-directory: musubi/infra
