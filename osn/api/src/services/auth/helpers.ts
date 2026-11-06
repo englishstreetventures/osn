@@ -539,8 +539,8 @@ export function looksLikeEmail(identifier: string): boolean {
 
 /**
  * Providers whose mail ignores dots in the local part, and the domain each
- * reads as: Gmail's two domains, one mailbox. The only extras the limiter key
- * takes on top of the `+tag` cut every domain gets.
+ * reads as: Gmail's two domains, one mailbox. The only extras the key takes
+ * on top of the `+tag` cut every domain gets.
  */
 const ONE_MAILBOX_PROVIDERS = new Map([
   ["gmail.com", { domain: "gmail.com" }],
@@ -548,16 +548,16 @@ const ONE_MAILBOX_PROVIDERS = new Map([
 ]);
 
 /**
- * `address` as a limiter's key, for the sign-up strike counter and the
- * Resend cap only: lowercased, the local part cut at its first `+` (when one
- * follows the first character) on every domain, and at a provider in
+ * `address` as the sign-up Resend cap's key, and for nothing else:
+ * lowercased, the local part cut at its first `+` (when one follows the first
+ * character) on every domain, and at a provider in
  * {@link ONE_MAILBOX_PROVIDERS} its dots dropped and the domain read as that
- * provider's. Every `+tag` variant of a local part then shares one count. On
- * a domain where `+` starts a distinct mailbox, two such mailboxes share one
- * count too, which only makes a limit stricter. Never stored, mailed or
- * shown, and never the key an account is looked up by: the account, the
- * pending sign-up and the mail keep the address as typed, lowercased. A value with no `@`, such as a probe
- * key, comes back lowercased and otherwise as given.
+ * provider's. Every `+tag` variant of a local part then shares one cap. On a
+ * domain where `+` names a different mailbox, one cap covers both. Never
+ * stored, mailed or shown, and never the key an account is looked up by: the
+ * strike counter, the account, the pending sign-up and the mail keep the
+ * address as typed, lowercased. A value with no `@` comes back lowercased and
+ * otherwise as given.
  */
 export function mailboxKey(address: string): string {
   const lower = address.toLowerCase();

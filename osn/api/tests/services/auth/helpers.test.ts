@@ -175,9 +175,9 @@ describe("logDevLink", () => {
   );
 });
 
-// The sign-up strike counter and the Resend cap key on this: every +tag
-// variant of a local part shares one count on any domain, Gmail's dotted
-// forms share one too, and a different local part never does.
+// The sign-up Resend cap keys on this: every +tag variant of a local part
+// shares one count on any domain, Gmail's dotted forms share one too, and a
+// different local part never does.
 describe("mailboxKey", () => {
   it.each([
     ["drops a +tag on any domain", "a+x@custom.example", "a@custom.example"],
@@ -203,6 +203,7 @@ describe("mailboxKey", () => {
     );
     expect([...keys]).toEqual(["x@gmail.com"]);
     expect(mailboxKey("a.b@gmail.com")).toBe(mailboxKey("ab+z@googlemail.com"));
+    expect(mailboxKey("a.b@gmail.com")).toBe(mailboxKey("ab@gmail.com"));
   });
 
   it("gives every +tag variant of a local part one key on any domain", () => {

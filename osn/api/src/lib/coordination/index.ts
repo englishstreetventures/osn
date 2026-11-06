@@ -57,7 +57,7 @@ export interface CoordinationStores {
   readonly recoveryLockoutStore: RecoveryLockoutStore;
   readonly recoveryOtpLockoutStore: RecoveryLockoutStore;
   readonly totpLockoutStore: RecoveryLockoutStore;
-  /** Wrong picks on sign-up links, per `mailboxKey`. */
+  /** Wrong picks on sign-up links, per address as typed (lowercased). */
   readonly registrationLinkLockoutStore: RecoveryLockoutStore;
   readonly profileSwitchCap: AccountCapLimiter;
   readonly emailChangeBeginCap: AccountCapLimiter;

@@ -425,6 +425,26 @@ describe("resend", () => {
     expect(linksTo(h.recorded(), other)).toHaveLength(2);
   });
 
+  it("counts Resends to every form of one Gmail address against one cap", async () => {
+    const h = harness();
+    // Two Resends on each of three requests: the key's six for the hour.
+    const forms = ["gcap.fold@gmail.com", "gcapfold+z@googlemail.com", "gcapfold@gmail.com"];
+    for (const [n, email] of forms.entries()) {
+      const s = await begun(h, email, `gcapfold${n}`);
+      const from = { "x-forwarded-for": `10.0.4.${n + 1}` };
+      await resendThroughRoutes(h.app, s.requestId, s.claimSecret, from);
+      await resendThroughRoutes(h.app, s.requestId, s.claimSecret, from);
+      expect(linksTo(h.recorded(), email)).toHaveLength(3);
+    }
+    // A fourth form gets its begin's first link, and its Resend mails nothing.
+    const email = "g.capfold+w@gmail.com";
+    const last = await begun(h, email, "gcapfold3");
+    await resendThroughRoutes(h.app, last.requestId, last.claimSecret, {
+      "x-forwarded-for": "10.0.4.200",
+    });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
+  });
+
   it("mails a +tag sign-up to the address as typed, and makes the account under it", async () => {
     const h = harness();
     const typed = "Exact.Name+Tag@Gmail.com";
@@ -778,34 +798,37 @@ describe("the number on the waiting screen", () => {
     expect(linksTo(h.recorded(), email)).toHaveLength(mailed);
   });
 
-  it("counts wrong picks on every address that reaches one Gmail mailbox together", async () => {
-    const h = harness();
-    const variants = ["foldstrike+a@gmail.com", "foldstrike+b@gmail.com", "foldstrike@gmail.com"];
-    expect(variants).toHaveLength(REGISTRATION_LINK_LOCKOUT_THRESHOLD);
-    for (const email of variants) {
-      const s = await begun(h, email, "foldstrike");
-      await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, await wrongPickFor(h, s));
-    }
-    const email = "foldstrike+c@gmail.com";
-    const after = await beginThroughRoutes(h.app, { email, handle: "foldstrike" });
-    expect(after.res.status).toBe(200);
-    expect(linksTo(h.recorded(), email)).toHaveLength(0);
-  });
-
-  it("counts wrong picks on every +tag variant of a local part together, on any domain", async () => {
+  it("counts wrong picks against the address as typed: a +tag variant keeps its own count", async () => {
     const h = harness();
     const struck = "splitstrike+x@custom.example";
     for (let n = 0; n < REGISTRATION_LINK_LOCKOUT_THRESHOLD; n++) {
       const s = await begun(h, struck, "splitstrike");
       await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, await wrongPickFor(h, s));
     }
-    // Another +tag variant of the same local part gets no link.
-    const variant = "splitstrike+y@custom.example";
-    await beginThroughRoutes(h.app, { email: variant, handle: "splitstrike" });
-    expect(linksTo(h.recorded(), variant)).toHaveLength(0);
-    // A different local part on the same domain still does.
-    const other = await begun(h, "splitstrike2@custom.example", "splitstrike");
-    expect(other.link.requestId).toBe(other.requestId);
+    // Another +tag variant of the same local part still gets its link.
+    const variant = await begun(h, "splitstrike+y@custom.example", "splitstrike");
+    expect(variant.link.requestId).toBe(variant.requestId);
+    // The struck address does not.
+    const mailed = linksTo(h.recorded(), struck).length;
+    await beginThroughRoutes(h.app, { email: struck, handle: "splitstrike" });
+    expect(linksTo(h.recorded(), struck)).toHaveLength(mailed);
+  });
+
+  it("counts wrong picks against the address as typed: Gmail's other forms keep their own count", async () => {
+    const h = harness();
+    const struck = "g.strike@gmail.com";
+    for (let n = 0; n < REGISTRATION_LINK_LOCKOUT_THRESHOLD; n++) {
+      const s = await begun(h, struck, "gstrike");
+      await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, await wrongPickFor(h, s));
+    }
+    for (const [n, email] of ["gstrike+z@googlemail.com", "gstrike@gmail.com"].entries()) {
+      await beginThroughRoutes(
+        h.app,
+        { email, handle: "gstrike" },
+        { "x-forwarded-for": `10.0.5.${n + 1}` },
+      );
+      expect(linksTo(h.recorded(), email)).toHaveLength(1);
+    }
   });
 
   it("counts nothing against an address for declining requests it did not start", async () => {

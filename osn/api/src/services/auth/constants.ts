@@ -39,10 +39,10 @@ export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
 export const EMAIL_LINK_PAIRING_CANDIDATES = 5;
 
 /**
- * Wrong picks on sign-up links per `mailboxKey`, per window, before no more
- * sign-up links go to any address with that key until the window passes. A
- * decline counts nothing. Keyed on the key's probe key; begin answers the same
- * either way.
+ * Wrong picks on sign-up links to one address, per window, before no more
+ * sign-up links go to it until the window passes. A decline counts nothing.
+ * Keyed on the probe key of the address exactly as typed, lowercased; begin
+ * answers the same either way.
  */
 export const REGISTRATION_LINK_LOCKOUT_THRESHOLD = 3;
 export const REGISTRATION_LINK_LOCKOUT_MS = 24 * 60 * 60 * 1000;

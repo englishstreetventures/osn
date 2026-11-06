@@ -180,15 +180,15 @@ export function createRegistrationModule(
    * Mails the sign-up link for `handle` to `address`, after the answer: the
    * caller forks it. The address's limits are read here, so they cost the
    * answer nothing and are reached only where a link goes out — never for a
-   * taken address. Both key on `mailboxKey(address)`, so every `+tag`
-   * variant of a local part shares one count. The mail goes to `address` as
-   * typed:
+   * taken address. The mail goes to `address` as typed:
    *
-   *  - no link goes to a key whose sign-up links drew three wrong picks
-   *    today;
-   *  - a Resend's link counts against the key's hourly cap, and goes no
-   *    further past it. A begin's first link does not count, so the newest
-   *    sign-up always gets its first link whatever Resends came before it.
+   *  - no link goes to an address whose sign-up links drew three wrong picks
+   *    today, counted under the address exactly as typed, lowercased;
+   *  - a Resend's link counts against the hourly cap of the address's
+   *    mailbox (`mailboxKey`: every `+tag` variant of a local part shares
+   *    one), and goes no further past it. A begin's first link does not
+   *    count, so the newest sign-up always gets its first link whatever
+   *    Resends came before it.
    *
    * Either store failing to answer sends nothing. A held-back or failed send
    * is counted and goes no further; the transport has already logged why a
@@ -203,11 +203,12 @@ export function createRegistrationModule(
     kind: "first" | "resend",
   ) =>
     Effect.gen(function* () {
-      const key = serverMac.probeKey(mailboxKey(address));
-      const strikes = yield* Effect.promise(() => registrationLinkLockoutStore.status(key));
+      const strikeKey = serverMac.probeKey(address.toLowerCase());
+      const capKey = serverMac.probeKey(mailboxKey(address));
+      const strikes = yield* Effect.promise(() => registrationLinkLockoutStore.status(strikeKey));
       const allowed =
         strikes.status === "open" &&
-        (kind === "first" || (yield* Effect.promise(() => registrationSendCap.check(key))));
+        (kind === "first" || (yield* Effect.promise(() => registrationSendCap.check(capKey))));
       if (!allowed) {
         metricEmailLinkSend("registration", "capped");
         return;
