@@ -656,7 +656,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
       // payment page out only after the write lands. So a session the row
       // does not hold — including any session for a row that holds none — was
       // never given to anyone by cire: it grants nothing and is not refunded.
-      if (row.sessionId === null || row.sessionId !== input.checkoutSessionId) {
+      if (row.sessionId !== input.checkoutSessionId) {
         yield* Effect.logError("upgrade settle for a session the purchase does not hold", {
           purchaseId: row.id,
           heldSessionId: row.sessionId,

@@ -525,7 +525,48 @@ describe("retrievePlatformCheckoutSession", () => {
       status: "complete",
       payment: { paymentIntentId: "pi_u1", refunded: true },
     });
+    expect(calls[0]?.init.method).toBe("GET");
     expect(calls[0]?.url).toContain("expand%5B%5D=payment_intent.latest_charge");
+  });
+
+  it("reads a PaymentIntent or charge Stripe did not expand as nothing refunded", async () => {
+    // A bare id carries no charge, so nothing is known about refunds and none
+    // is assumed; the id still names the payment.
+    expect(
+      await read({
+        id: "cs_u1",
+        status: "complete",
+        payment_status: "paid",
+        payment_intent: "pi_u1",
+      }),
+    ).toMatchObject({ payment: { paymentIntentId: "pi_u1", refunded: false } });
+    expect(
+      await read({
+        id: "cs_u1",
+        status: "complete",
+        payment_status: "paid",
+        payment_intent: { id: "pi_u1", latest_charge: "ch_u1" },
+      }),
+    ).toMatchObject({ payment: { paymentIntentId: "pi_u1", refunded: false } });
+    expect(
+      await read({
+        id: "cs_u1",
+        status: "complete",
+        payment_status: "paid",
+        currency: "",
+        payment_intent: null,
+      }),
+    ).toMatchObject({ payment: { paymentIntentId: null, currency: null, refunded: false } });
+    expect(await read({ id: "cs_u1" })).toEqual({ status: "expired", stripeStatus: null });
+    // A charge Stripe marks refunded in full says so without an amount.
+    expect(
+      await read({
+        id: "cs_u1",
+        status: "complete",
+        payment_status: "paid",
+        payment_intent: { id: "pi_u1", latest_charge: { refunded: true } },
+      }),
+    ).toMatchObject({ payment: { refunded: true } });
   });
 
   // Each says what Stripe actually called it, so a caller that closes a row
@@ -684,6 +725,13 @@ describe("findPlatformRefund", () => {
       id: "re_cire",
     });
     expect(await Effect.runPromise(client.findPlatformRefund("pi_u1", "upg_2"))).toBeNull();
+    // A refund with no id is nobody's to record.
+    const idless = stubFetch(() => json({ data: [{ metadata: { purchaseId: "upg_1" } }] }));
+    const bare = createStripeClient({ secretKey: "sk_test", fetchImpl: idless.impl });
+    expect(await Effect.runPromise(bare.findPlatformRefund("pi_u1", "upg_1"))).toBeNull();
+    const odd = stubFetch(() => json({ data: "nothing" }));
+    const oddClient = createStripeClient({ secretKey: "sk_test", fetchImpl: odd.impl });
+    expect(await Effect.runPromise(oddClient.findPlatformRefund("pi_u1", "upg_1"))).toBeNull();
     expect(calls[0]?.url).toBe("https://stripe.test/v1/refunds?payment_intent=pi_u1&limit=100");
     expect(calls[0]?.init.method).toBe("GET");
     const headers = calls[0]?.init.headers as Headers;

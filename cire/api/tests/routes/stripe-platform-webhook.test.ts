@@ -488,12 +488,27 @@ describe("a refund the bank returned", () => {
     ).toEqual({ status: "refund_failed" });
   });
 
-  it("acknowledges a failed refund that names no purchase", async () => {
+  it("acknowledges a failed refund that names no purchase, or carries no refund at all", async () => {
     const { app } = buildApp();
     const event = refundFailed("re_x");
     (event.data.object as Record<string, unknown>).metadata = {};
     const res = await deliver(app, event);
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "unknown" });
+
+    const bare = await deliver(app, { ...refundFailed("re_x"), data: {} });
+    expect(bare.status).toBe(200);
+    expect(await jsonBody(bare)).toEqual({ received: true, outcome: "unknown" });
+  });
+
+  it("acknowledges an event it does not handle, and touches no purchase", async () => {
+    const { app, db } = buildApp();
+    seedPurchase(db);
+    const res = await deliver(app, { ...refundFailed("re_1"), type: "charge.succeeded" });
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ received: true });
+    expect(
+      db.$client.query("SELECT status FROM wedding_upgrade_purchases WHERE id = 'upg_1'").get(),
+    ).toEqual({ status: "pending" });
   });
 });

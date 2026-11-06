@@ -179,21 +179,30 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
     });
 
     // A refund cire owes needs its row to finish: the purge would cascade it
-    // away, and the payment would then read as nobody's.
-    it("an upgrade payment cire is still refunding, however old", async () => {
+    // away, and the payment would then read as nobody's. It holds like a
+    // pending purchase, and the reconciliation hands it to a person first.
+    it("an upgrade payment cire is still refunding, under the hold and not once it has aged out", async () => {
       const db = makeDb();
-      seedWedding(db, "wed_refunding", daysAgo(60));
+      seedWedding(db, "wed_refunding", daysAgo(8));
+      const recent = new Date(NOW.getTime() - (PURGE_PENDING_HOLD_S - 3600) * 1000);
       db.update(weddingUpgradePurchases)
-        .set({ status: "refunding", createdAt: daysAgo(90) })
+        .set({ status: "refunding", createdAt: recent })
         .where(eq(weddingUpgradePurchases.weddingId, "wed_refunding"))
         .run();
       expect((await purge(db)).held).toBe(1);
       expect(exists(db, "wed_refunding")).toBe(true);
 
-      // Refunded, it holds nothing.
+      // Two hours later the row is past the hold.
+      const later = new Date(NOW.getTime() + 2 * 3600 * 1000);
+      expect((await purge(db, {}, later)).purged).toBe(1);
+    });
+
+    it("no upgrade payment cire has finished refunding", async () => {
+      const db = makeDb();
+      seedWedding(db, "wed_refunded", daysAgo(8));
       db.update(weddingUpgradePurchases)
-        .set({ status: "auto_refunded" })
-        .where(eq(weddingUpgradePurchases.weddingId, "wed_refunding"))
+        .set({ status: "auto_refunded", createdAt: daysAgo(1) })
+        .where(eq(weddingUpgradePurchases.weddingId, "wed_refunded"))
         .run();
       expect((await purge(db)).purged).toBe(1);
     });
