@@ -4,8 +4,8 @@
  * While busy the button keeps keyboard focus, says so to assistive technology
  * (`aria-busy`, `aria-disabled`), refuses activation from every route a
  * pointer, a key or a form's implicit submission can take, dims as a disabled
- * button does, and draws the 20px orb before its label. Not busy, it is the
- * Button it always was.
+ * button does except where that would fade its keyboard focus ring, and draws
+ * the 20px orb before its label. Not busy, it is the Button it always was.
  *
  * Each file runs in a frame of its own, so this one's orb loads once and stays
  * loaded: the first-load cases, and a failed load, are in
@@ -114,11 +114,15 @@ describe("a busy Button", () => {
         <Button busy={busy()} aria-disabled="true">
           Locked
         </Button>
+        <Button busy={busy()} aria-busy="true">
+          Syncing
+        </Button>
       </div>
     ));
     const save = screen.getByRole("button", { name: "Save" });
     const locked = screen.getByRole("button", { name: "Locked" });
-    for (const button of [save, locked]) {
+    const syncing = screen.getByRole("button", { name: "Syncing" });
+    for (const button of [save, locked, syncing]) {
       expect(button.getAttribute("aria-busy")).toBe("true");
       expect(button.getAttribute("aria-disabled")).toBe("true");
       expect(button.hasAttribute("disabled")).toBe(false);
@@ -126,8 +130,11 @@ describe("a busy Button", () => {
     setBusy(false);
     expect(save.hasAttribute("aria-busy")).toBe(false);
     expect(save.hasAttribute("aria-disabled")).toBe(false);
+    // A caller's own ARIA is theirs again once the button is not busy.
     expect(locked.hasAttribute("aria-busy")).toBe(false);
     expect(locked.getAttribute("aria-disabled")).toBe("true");
+    expect(syncing.getAttribute("aria-busy")).toBe("true");
+    expect(syncing.hasAttribute("aria-disabled")).toBe(false);
   });
 
   it("keeps keyboard focus when it turns busy", async () => {
@@ -146,6 +153,62 @@ describe("a busy Button", () => {
     await orbIn(button);
     expect(document.activeElement).toBe(button);
     expect(button.matches(":focus-visible")).toBe(true);
+
+    // Done waiting: the orb, the dimming and the pointer refusal all go.
+    setBusy(false);
+    expect(button.children).toHaveLength(0);
+    expect(button.getAttribute("class")).toBe(buttonVariants());
+    settle();
+    const style = getComputedStyle(button);
+    expect([style.opacity, style.pointerEvents]).toEqual(["1", "auto"]);
+  });
+
+  it("keeps its focus ring at 3:1 while busy and focused from the keyboard", async () => {
+    const [busy, setBusy] = createSignal(false);
+    render(() => (
+      <div data-testid="frame" style={{ padding: "8px", display: "inline-block" }}>
+        <button type="button">Before</button> <Button busy={busy()}>Save</Button>
+      </div>
+    ));
+    screen.getByRole("button", { name: "Before" }).focus();
+    await userEvent.keyboard("{Tab}");
+    const button = screen.getByRole("button", { name: "Save" });
+    settle();
+    const focused = ringOf(button);
+    setBusy(true);
+    await orbIn(button);
+    settle();
+
+    const busyRing = ringOf(button);
+    expect(busyRing).toEqual(focused);
+    const ground = getComputedStyle(document.documentElement).getPropertyValue("--ui-ground");
+    const opacity = Number(getComputedStyle(button).opacity);
+    expect(contrast(flatten(ground, busyRing.colour, opacity), ground)).toBeGreaterThanOrEqual(3);
+    await page.screenshot({ path: shot("focus-busy"), element: screen.getByTestId("frame") });
+  });
+
+  it("drops focus and submits nothing when it is disabled as well as busy", async () => {
+    const onSubmit = vi.fn((event: SubmitEvent) => event.preventDefault());
+    render(() => (
+      <form onSubmit={onSubmit}>
+        <input aria-label="Name" />
+        <Button type="submit" busy disabled>
+          Create
+        </Button>
+        <button type="button">After</button>
+      </form>
+    ));
+    const button = screen.getByRole("button", { name: "Create" });
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+
+    const field = screen.getByRole("textbox", { name: "Name" });
+    field.focus();
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "After" }));
+    field.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("calls no onClick from a pointer press, Enter or Space, and calls it again once done", async () => {
@@ -284,6 +347,43 @@ describe("a busy Button", () => {
     await page.screenshot({ path: shot("variants"), element: screen.getByTestId("frame") });
   });
 });
+
+/** The keyboard focus ring `element` draws: its colour and the rest of the shadow. */
+function ringOf(element: Element) {
+  const shadow = getComputedStyle(element).boxShadow;
+  const ring = /(rgba?\([^)]*\)) 0px 0px 0px 2px/.exec(shadow);
+  if (!ring) throw new Error(`no 2px ring in "${shadow}"`);
+  return { colour: ring[1]!, shadow };
+}
+
+/** `colour` painted at `opacity` over `ground`, read back as plain `rgb`. */
+function flatten(ground: string, colour: string, opacity: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.globalAlpha = opacity;
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** WCAG 2 contrast ratio of two opaque colours the canvas can parse. */
+function contrast(first: string, second: string) {
+  const luminance = (colour: string) => {
+    const [r, g, b] = flatten(colour, colour, 1)
+      .match(/\d+/g)!
+      .map((n) => {
+        const c = Number(n) / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+  };
+  const [x, y] = [luminance(first), luminance(second)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
 
 interface AXNode {
   ignored: boolean;

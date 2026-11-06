@@ -14,6 +14,11 @@ import { buttonVariants } from "../../src/ui/button";
  * a pair neither of those reaches, such as `link` at `sm`, cannot change
  * unseen when classes move between the base, the variants, the sizes and the
  * compound variants. Order and repeats are not held: neither changes the CSS.
+ *
+ * One class has gone on purpose: `sm` no longer carries the base string's
+ * `text-ui-base`, which its own `text-ui-sm` overrode only by coming later in
+ * Tailwind's output. Its computed size, 13px, is held by the snapshot in
+ * `button-default.browser.test.tsx`.
  */
 
 const BASE =
@@ -43,24 +48,27 @@ type Size = keyof typeof SIZES;
 /** The distinct classes in `strings`. */
 const classSet = (...strings: string[]) => new Set(strings.join(" ").split(/\s+/).filter(Boolean));
 
+/** What a pair carries now: what it carried before, less `sm`'s overridden step. */
+const expected = (variant: Variant, size: Size) => {
+  const set = classSet(BASE, VARIANTS[variant], SIZES[size]);
+  if (size === "sm") set.delete("base:text-ui-base");
+  return set;
+};
+
 const PAIRS = (Object.keys(VARIANTS) as Variant[]).flatMap((variant) =>
   (Object.keys(SIZES) as Size[]).map((size) => ({ variant, size })),
 );
 
 describe("buttonVariants for every existing pair", () => {
   it.each(PAIRS)("$variant at $size carries the classes it carried before", ({ variant, size }) => {
-    expect(classSet(buttonVariants({ variant, size }))).toEqual(
-      classSet(BASE, VARIANTS[variant], SIZES[size]),
-    );
+    expect(classSet(buttonVariants({ variant, size }))).toEqual(expected(variant, size));
   });
 
   it("with nothing passed, carries the default variant at the default size", () => {
-    expect(classSet(buttonVariants())).toEqual(classSet(BASE, VARIANTS.default, SIZES.default));
+    expect(classSet(buttonVariants())).toEqual(expected("default", "default"));
   });
 
   it("with only a variant, carries it at the default size", () => {
-    expect(classSet(buttonVariants({ variant: "link" }))).toEqual(
-      classSet(BASE, VARIANTS.link, SIZES.default),
-    );
+    expect(classSet(buttonVariants({ variant: "link" }))).toEqual(expected("link", "default"));
   });
 });
