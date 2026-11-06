@@ -3,6 +3,7 @@ import {
   type CheckEmailPurpose,
   type CheckEmailStatus,
 } from "@osn/auth-ui/CheckEmailView";
+import { Card } from "@shared/ui/ui/card";
 import { For, type JSX, Show } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
@@ -13,9 +14,9 @@ export const meta = { title: "osn/auth-ui/CheckEmailView", layout: "padded" as c
 /**
  * The screen every emailed-link flow shows while it waits: sign-up, recovery,
  * step-up and email change. One story per state, in a frame the width of
- * musubi's auth dialog (`max-w-sm`). The colours are musubi's, which is the
- * lab's own mapping, so the **light · dark** toggle (or `?theme=dark`) is the
- * theme check.
+ * musubi's auth dialog (`max-w-sm`) and painted with the dialog's surface. The
+ * colours are musubi's, which is the lab's own mapping, so the **light ·
+ * dark** toggle (or `?theme=dark`) is the theme check.
  *
  * Resend here is a stub that settles after 600 ms and sends nothing, so
  * "Sending a new link…" can be watched turning into the "new link" sentence.
@@ -29,15 +30,19 @@ function stubResend(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 600));
 }
 
-/** musubi's auth dialog: a 24rem card on the page ground. */
+/**
+ * musubi's auth dialog: a 24rem `Card`, or 20rem for a phone. `Card` paints
+ * `ui-surface`, the fill the dialog's `DialogContent` paints, so each theme
+ * shows the view on the ground it ships on.
+ */
 function DialogFrame(props: { children: JSX.Element; width?: "dialog" | "phone" }) {
   return (
-    <div
-      class="border-ui-hairline bg-ui-ground rounded-ui-lg shrink-0 border p-6"
-      classList={{ "w-full max-w-sm": props.width !== "phone", "w-80": props.width === "phone" }}
+    <Card
+      padding="lg"
+      class={props.width === "phone" ? "w-80 shrink-0" : "w-full max-w-sm shrink-0"}
     >
       {props.children}
-    </div>
+    </Card>
   );
 }
 

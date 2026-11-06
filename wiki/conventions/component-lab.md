@@ -82,7 +82,7 @@ So far, in `tools/lab/src/stories/osn-auth-ui/`:
 
 | Sidebar title | File | Covers |
 | --- | --- | --- |
-| `osn/auth-ui/CheckEmailView` | `check-email-view.story.tsx` | One story per state in a frame the width of musubi's auth dialog, with a stub Resend that settles after 600 ms: `WaitingBeforeResend` (the 30-second countdown), `WaitingResendReady` (press it for "Sending a new link…", then "We sent a new link"), `Expired`, `ErrorShown`; `EveryFlow` (sign-up, recovery's hedged sentence, step-up with no address and no "Use a different email", email change); `Phone` (two 320px frames with a long address); `Playground` (flow, status, address, wait, error, the change button). Light and dark through the lab's own toggle, since musubi's mapping is the lab's |
+| `osn/auth-ui/CheckEmailView` | `check-email-view.story.tsx` | One story per state in a `Card` the width of musubi's auth dialog, which paints the dialog's own `ui-surface`, with a stub Resend that settles after 600 ms: `WaitingBeforeResend` (the 30-second countdown), `WaitingResendReady` (press it for "Sending a new link…", then "We sent a new link"), `Expired`, `ErrorShown`; `EveryFlow` (sign-up, recovery's hedged sentence, step-up with no address and no "Use a different email", email change); `Phone` (two 320px frames with a long address); `Playground` (flow, status, address, wait, error, the change button). Light and dark through the lab's own toggle, since musubi's mapping is the lab's |
 
 And in `tools/lab/src/stories/cire-ui/`:
 
