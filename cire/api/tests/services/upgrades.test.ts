@@ -1683,6 +1683,28 @@ describe("settlePurchase", () => {
       expect(refundRecords(db)[0]?.owners_notified_at).not.toBeNull();
     });
 
+    it("tells nobody when another delivery records the earlier refund it found first", async () => {
+      const db = createDb();
+      seedWedding(db);
+      const stripe = stubStripe();
+      const { svc, purchaseId } = await paidPurchase(db, stripe);
+      db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_test'");
+      stripe.refund = { status: 400, code: "charge_already_refunded" };
+      stripe.found = "re_earlier";
+      beforeStatement(db, /^update "platform_refunds" set "status" = \?/, () => {
+        db.$client.exec(
+          `UPDATE wedding_upgrade_purchases SET status = 'auto_refunded', refund_id = 're_earlier' WHERE id = '${purchaseId}'; UPDATE platform_refunds SET status = 'auto_refunded', refund_id = 're_earlier' WHERE purchase_id = '${purchaseId}'`,
+        );
+      });
+
+      expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
+      expect(refundRecords(db)).toMatchObject([
+        { status: "auto_refunded", refund_id: "re_earlier" },
+      ]);
+      // The delivery that recorded it told the owners; this one tells nobody.
+      expect(notices).toEqual([]);
+    });
+
     it("answers a refund another delivery is making as in progress, not a refund failure", async () => {
       // Stripe refuses a second request under a key one is still running.
       const db = createDb();
@@ -2200,6 +2222,11 @@ describe("settlePurchase", () => {
       expect(await run(db, svc.settlePurchase({ purchaseId, ...SETTLE }))).toBe("replayed");
       expect(stripe.refunds).toEqual([]);
       expect(purchases(db)[0]?.status).toBe("succeeded");
+      // No record either: the daily run reads refunds from the record alone,
+      // so one beside a granted row would refund a payment that bought the tier.
+      expect(refundRecords(db)).toEqual([]);
+      await run(db, svc.reconcile());
+      expect(stripe.refunds).toEqual([]);
     });
   });
 });
@@ -2543,9 +2570,12 @@ describe("reconcile", () => {
       paymentIntentId: "pi_1",
     });
     const stripe = stubStripe();
+    // The give-up moves the record and the row together, as the daily run does,
+    // so only the record's `refund_failed` arm can take the acceptance.
     stripe.onRefund = () => {
       db.$client.exec(
-        "UPDATE wedding_upgrade_purchases SET status = 'refund_failed' WHERE id = 'upg_r'",
+        "UPDATE wedding_upgrade_purchases SET status = 'refund_failed' WHERE id = 'upg_r';" +
+          " UPDATE platform_refunds SET status = 'refund_failed' WHERE purchase_id = 'upg_r';",
       );
     };
     const svc = makeService(stripe.client, { t: BASE_MS });
@@ -2564,6 +2594,8 @@ describe("reconcile", () => {
       ),
     ).toBe("auto_refunded");
     expect(purchases(db)[0]).toMatchObject({ status: "auto_refunded", refund_id: "re_1" });
+    expect(refundRecords(db)[0]).toMatchObject({ status: "auto_refunded", refund_id: "re_1" });
+    expect(notices).toHaveLength(1);
   });
 
   /**

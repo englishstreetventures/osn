@@ -15,12 +15,7 @@ through Stripe (`POST /v1/refunds`, one idempotency key per purchase), recorded
 as `auto_refunded` with the refund id. A daily reconciliation (cron job 13)
 retries refused refunds, settles paid sessions whose webhook never landed, and
 hands a refund that keeps failing to a person (`refund_failed`); the platform
-endpoint handles `refund.failed`. Each refund has a record outside the
-wedding's cascade (`platform_refunds`, no personal data), written with the
-claim, so the purge never waits on a refund and the reconciliation completes
-one after the wedding is gone. Once Stripe accepts a refund, every owner of the
-wedding is emailed once (`upgrade-refund`). `@cire/db` gains `refund_id`, a
-`(status, updated_at)` index and status triggers on `wedding_upgrade_purchases`,
-and the `platform_refunds` table. The portal's
+endpoint handles `refund.failed`. `@cire/db` gains `refund_id` and a
+`(status, updated_at)` index on `wedding_upgrade_purchases`. The portal's
 return poll ends on an automatic refund, with the contact address from
 `@shared/legal`, and on a refund a person made.
