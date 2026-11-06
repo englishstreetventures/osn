@@ -1,4 +1,6 @@
+import { proseLinkClass } from "@cire/ui/button";
 import Loading from "@cire/ui/loading";
+import { LEGAL_ENTITY } from "@shared/legal";
 import type { SignalKind } from "@shared/realtime";
 import type { SignalEvent } from "@shared/realtime/client";
 import { useTopic } from "@shared/realtime/solid";
@@ -301,6 +303,20 @@ function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLef
 function initialRoute(): DashboardRoute {
   if (typeof window === "undefined") return LIST_ROUTE;
   return parseRoute(window.location.hash);
+}
+
+/**
+ * Run `show` once no modal dialog is open, waiting for each to close in turn.
+ * Every portal dialog is `@shared/ui`'s `Modal`, opened with `showModal()`, so
+ * an open `<dialog>` is a modal one.
+ */
+function whenNoModalOpen(show: () => void): void {
+  const open = document.querySelector("dialog[open]");
+  if (!open) {
+    show();
+    return;
+  }
+  open.addEventListener("close", () => whenNoModalOpen(show), { once: true });
 }
 
 function Dashboard() {
@@ -866,8 +882,10 @@ function Dashboard() {
    * Back from Stripe.
    *
    * The tier is raised by the webhook, not by this page, so all this does is
-   * ask what happened and refresh the list once it has. The params are
-   * stripped the moment they are read: `setRoute` rebuilds the URL as
+   * ask what happened and refresh the list once it has. Each settled status
+   * ends the poll with its own message; `pending` (and a legacy `mismatch`),
+   * a purchase not found and a failed read keep it going until the last
+   * attempt. The params are stripped the moment they are read: `setRoute` rebuilds the URL as
    * `pathname + search + hash` on every hash write and the login bounce carries
    * `search` through, so leaving them would re-run this on every later
    * navigation, refresh and bookmark.
@@ -933,6 +951,43 @@ function Dashboard() {
         }
         if (state?.status === "failed" || state?.status === "expired") {
           if (!cancelled) toast.error("That payment did not go through. Nothing was charged.");
+          return;
+        }
+        if (
+          state?.status === "refunding" ||
+          state?.status === "auto_refunded" ||
+          state?.status === "refund_failed"
+        ) {
+          // Paid, and the API could not upgrade the wedding, so it is giving
+          // the money back on its own. Pinned, because the receipt is gone
+          // from the URL and nothing else in the portal says it again. A plain
+          // identifier in the markup, so Solid builds the nodes once and no
+          // effect outlives them.
+          // Held while a modal dialog is open: a toast raised over one is
+          // inert, painted and never announced (`wiki/shared/toast.md`
+          // §topLayer), and this is the only notice of the refund.
+          const contact = LEGAL_ENTITY.contactEmail;
+          whenNoModalOpen(() => {
+            if (cancelled) return;
+            toast.error(
+              <span>
+                Your payment could not upgrade this wedding, so we are refunding it in full.
+                Questions? Write to us at{" "}
+                <a href={`mailto:${contact}`} class={proseLinkClass()}>
+                  {contact}
+                </a>
+                .
+              </span>,
+              { duration: Number.POSITIVE_INFINITY, dismissible: true },
+            );
+          });
+          return;
+        }
+        if (state?.status === "refunded") {
+          // A person refunded it — an operator lowering the wedding with
+          // `grant-tier.ts --lower` — so the poll meets it on a return URL
+          // opened again.
+          toast.info("That purchase was refunded, so it no longer applies to this wedding.");
           return;
         }
         // No sleep after the final attempt — there is nothing left to wait

@@ -1103,6 +1103,16 @@ top-level D1/R2 bindings (§3.2 nuance).
 > "SELECT id, deleted_at FROM weddings WHERE deleted_at IS NOT NULL"`, which lists
 > them), or do not roll back. See [[cire-auth#Soft-deleted weddings]].
 
+> [!warning]
+> **Rolling cire-api back past automatic upgrade refunds can grant a refunded payment.**
+> A Worker built before them refuses to grant only a `refunded` purchase, so a
+> redelivered payment for a `refunding`, `auto_refunded` or `refund_failed` one
+> would raise the tier after the money went back. Before rolling back past that
+> release, the owner lists them (`bunx wrangler d1 execute cire-db --env production
+> --remote --command "SELECT id, status FROM wedding_upgrade_purchases WHERE status
+> IN ('refunding', 'auto_refunded', 'refund_failed')"`) and marks each `refunded`,
+> or does not roll back. See [[cire-upgrades#Retention and compliance]].
+
 ### 5.3 cire/invites (guest SSR Worker) + cire/host, cire/vendor, cire/landing (Pages)
 
 CI builds each site with the prod `PUBLIC_*` vars (§3.3) baked in, then publishes. The

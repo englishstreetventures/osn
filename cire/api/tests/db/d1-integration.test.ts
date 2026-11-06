@@ -5504,6 +5504,74 @@ describe("cire/api over real D1 (Miniflare)", () => {
     MF_TIMEOUT_MS,
   );
 
+  it(
+    "refunds an upgrade on D1: the claim and its read-back in one batch, no grant, no sale",
+    async () => {
+      // The refund claim's UPDATE and the read of the status it left ride in
+      // one D1 batch; the read must see the write for the refund to be made.
+      const refunds: string[] = [];
+      const stripe = {
+        createPlatformRefund: (input: { idempotencyKey: string }) => {
+          refunds.push(input.idempotencyKey);
+          return Effect.succeed({ id: "re_d1" });
+        },
+      } as unknown as StripeClient;
+      const upgrades = createUpgradeService({
+        stripe,
+        catalogue: createUpgradeCatalogue({ stripe, prices: {} }),
+      });
+      const now = new Date();
+      await db.insert(weddingUpgradePurchases).values({
+        id: "upg_d1_refund",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "gold",
+        fromTier: "ivory",
+        status: "pending",
+        checkoutSessionId: "cs_d1_refund",
+        createdByOsnProfileId: "usr_test",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db
+        .update(weddings)
+        .set({ deletedAt: now })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+
+      const outcome = await run(
+        upgrades.settlePurchase({
+          purchaseId: "upg_d1_refund",
+          checkoutSessionId: "cs_d1_refund",
+          paid: true,
+          paidAmountMinor: 4900,
+          paidCurrency: "aud",
+          paymentIntentId: "pi_d1_refund",
+        }),
+      );
+      await db
+        .update(weddings)
+        .set({ deletedAt: null })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID));
+
+      expect(outcome).toBe("auto_refunded");
+      expect(refunds).toEqual(["cire-upgrade-refund-upg_d1_refund"]);
+      const [row] = await db
+        .select({
+          status: weddingUpgradePurchases.status,
+          refundId: weddingUpgradePurchases.refundId,
+        })
+        .from(weddingUpgradePurchases)
+        .where(eq(weddingUpgradePurchases.id, "upg_d1_refund"));
+      expect(row).toEqual({ status: "auto_refunded", refundId: "re_d1" });
+      expect(
+        await db
+          .select({ id: platformSales.purchaseId })
+          .from(platformSales)
+          .where(eq(platformSales.purchaseId, "upg_d1_refund")),
+      ).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
   /** Seat a second owner on the seeded wedding. */
   const seatSecondOwner = () =>
     db.insert(weddingHosts).values(ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_second"));

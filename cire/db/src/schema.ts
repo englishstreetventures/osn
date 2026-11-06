@@ -2038,14 +2038,29 @@ export const weddingUpgradePurchases = sqliteTable(
     // a Crimson bought outright from one bought as an upgrade from Gold. NULL on
     // every row written before 0073.
     fromTier: text("from_tier", { enum: ["ivory", "gold"] }),
-    // `refunded` is a paid purchase an operator has since taken back with
-    // `grant-tier.ts --lower`: a redelivered payment for it grants nothing.
-    // `mismatch` is a payment whose amount or currency is not what this
-    // purchase sold, or one priced from a tier the wedding no longer holds:
-    // the money arrived and nothing was granted, so a person has to refund it
-    // or apply it by hand.
+    // `refunded` is a paid purchase a person took back: an operator with
+    // `grant-tier.ts --lower`, or a refund made by hand before cire's own. A
+    // redelivered payment for it grants nothing.
+    // `refunding` is a paid checkout cire could not grant and has decided to
+    // refund, before Stripe has accepted the refund; `auto_refunded` is one
+    // Stripe accepted (`refund_id`); `refund_failed` is one whose refund then
+    // failed at the bank, so the money is back in cire's balance and a person
+    // has to return it. None of the three ever grants.
+    // `mismatch` was written by an earlier release for a payment of another
+    // amount than the Price. Nothing writes it now; settle treats it as open,
+    // so a resend of its own session's payment grants.
     status: text("status", {
-      enum: ["pending", "succeeded", "failed", "expired", "refunded", "mismatch"],
+      enum: [
+        "pending",
+        "succeeded",
+        "failed",
+        "expired",
+        "refunded",
+        "mismatch",
+        "refunding",
+        "auto_refunded",
+        "refund_failed",
+      ],
     })
       .notNull()
       .default("pending"),
@@ -2055,9 +2070,9 @@ export const weddingUpgradePurchases = sqliteTable(
     checkoutSessionId: text("checkout_session_id").unique(),
     paymentIntentId: text("payment_intent_id"),
     // The Stripe Price the purchase opened at, and what that Price charges,
-    // read from Stripe when the row is written. Settle grants only for a
-    // payment of exactly this amount and currency. NULL on every row written
-    // before 0073, which settle accepts only from the session it already holds.
+    // read from Stripe when the row is written. The session this row holds
+    // sold exactly this Price, so settle holds nothing to the amount. NULL on
+    // every row written before 0073.
     priceId: text("price_id"),
     priceAmountMinor: integer("price_amount_minor"),
     priceCurrency: text("price_currency"),
@@ -2065,6 +2080,9 @@ export const weddingUpgradePurchases = sqliteTable(
     // for. Null while pending.
     amountMinor: integer("amount_minor"),
     currency: text("currency"),
+    // The Stripe refund (`re_…`) cire made for a payment it could not grant.
+    // NULL until Stripe accepts it, and on every refund a person made.
+    refundId: text("refund_id"),
     // Who pressed buy. A webhook has no actor of its own, so the tier grant
     // records this purchase (`weddings.tier_granted_by = 'stripe:<id>'`) and
     // the buyer is read from here.
@@ -2075,6 +2093,9 @@ export const weddingUpgradePurchases = sqliteTable(
   (t) => [
     index("wedding_upgrade_purchases_wedding_entitlement_idx").on(t.weddingId, t.entitlement),
     index("wedding_upgrade_purchases_payment_intent_idx").on(t.paymentIntentId),
+    // The daily reconciliation's read: `refunding` and stale `pending` rows,
+    // least recently moved first. Without it that read scans the table.
+    index("wedding_upgrade_purchases_status_updated_idx").on(t.status, t.updatedAt),
     // At most ONE attempt in flight per wedding, whatever it buys: a wedding
     // can only be moving to one tier at a time, and a Gold page left open
     // beside a Crimson one could charge for both. The service resolves an

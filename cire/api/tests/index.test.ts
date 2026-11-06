@@ -1168,6 +1168,30 @@ describe("D1 session routing at the entry points", () => {
     expect(probe.bindingQueries).toEqual([]);
   }, 30_000);
 
+  /**
+   * The daily pass that finishes upgrade payments a webhook could not. It
+   * needs only a Stripe key — a refund cire owes is asked for even where no
+   * tier is sold any more — and with none there is nothing it could do.
+   */
+  it("runs the upgrade reconciliation where there is a Stripe key, on a session of its own", async () => {
+    const reads = (probe: Awaited<ReturnType<typeof runCron>>["probe"]) =>
+      probe.sessionQueries.filter((queries) =>
+        queries.some(
+          (q) =>
+            q.includes('from "wedding_upgrade_purchases"') &&
+            q.includes('order by "wedding_upgrade_purchases"."updated_at"'),
+        ),
+      );
+
+    const withKey = await runCron({ STRIPE_SECRET_KEY: "sk_test_cron" });
+    expect(withKey.pending).toHaveLength(12);
+    expect(reads(withKey.probe)).toHaveLength(1);
+
+    const without = await runCron();
+    expect(without.pending).toHaveLength(11);
+    expect(reads(without.probe)).toHaveLength(0);
+  }, 60_000);
+
   it("gives the realtime budget sweep a session of its own", async () => {
     const { probe } = await runCron();
     const sweep = probe.sessionQueries.filter((queries) =>

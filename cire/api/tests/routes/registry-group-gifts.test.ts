@@ -69,6 +69,8 @@ function stripeStub() {
     createPlatformCheckoutSession: unused,
     retrievePlatformCheckoutSession: unused,
     expirePlatformCheckoutSession: unused,
+    createPlatformRefund: unused,
+    findPlatformRefund: unused,
     retrievePrice: unused,
     createCheckoutSession() {
       minted += 1;

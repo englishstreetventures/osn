@@ -129,6 +129,8 @@ function stripeStub(account: StripeAccount | null = STANDARD) {
     createPlatformCheckoutSession: refuse,
     retrievePlatformCheckoutSession: refuse,
     expirePlatformCheckoutSession: refuse,
+    createPlatformRefund: refuse,
+    findPlatformRefund: refuse,
     retrievePrice: refuse,
   };
   return { client, calls };

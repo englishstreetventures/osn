@@ -35,18 +35,22 @@
  * **A 200 does not mean "granted".** Stripe retries any non-2xx for days, so
  * the only things that answer non-2xx are a body we cannot verify (400 — a
  * retry will not make it verifiable) and a database failure (500 — a retry
- * genuinely might). An event this product does not care about is a 200: this
+ * genuinely might). A refund Stripe refused is a 200 with `outcome:
+ * "refund_failed"`: the purchase reads `refunding`, and the daily
+ * reconciliation asks again once Stripe's saved refusal has gone, where a
+ * redelivery would only replay it. An event this product does not care about is a 200: this
  * endpoint belongs to the platform account, which does whatever else it does,
  * and refusing everything unfamiliar would turn that into a retry storm.
  */
 
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { MAX_EVENT_BYTES, readBoundedText } from "../lib/webhook-body";
 import { runCire } from "../observability";
+import { RefundFailedObject } from "../schemas/upgrade";
 import { verifyStripeWebhook } from "../services/stripe";
 import type { UpgradeService } from "../services/upgrades";
 
@@ -60,6 +64,12 @@ const CHECKOUT_COMPLETED = "checkout.session.completed";
  */
 const CHECKOUT_EXPIRED = "checkout.session.expired";
 const CHECKOUT_ASYNC_FAILED = "checkout.session.async_payment_failed";
+/**
+ * A refund Stripe accepted that the bank then returned: the money is back in
+ * the platform's balance and a person has to return it another way. Only a
+ * refund cire made for an upgrade it could not grant moves a purchase.
+ */
+const REFUND_FAILED = "refund.failed";
 
 export interface StripePlatformWebhookDeps {
   /** Stripe's signing secret for THIS endpoint. Absent ⇒ do not mount. */
@@ -165,6 +175,19 @@ export const createStripePlatformWebhookRoutes = (db: Db, deps: StripePlatformWe
               purchaseId,
               checkoutSessionId: sessionId,
               status: type === CHECKOUT_EXPIRED ? "expired" : "failed",
+            });
+            return { received: true, outcome };
+          }
+
+          if (type === REFUND_FAILED) {
+            // Decoded, not cast: only a refund cire made names a purchase id
+            // of cire's shape, and anything else is acknowledged unread.
+            const refund = Schema.decodeUnknownOption(RefundFailedObject)(envelope.data?.object);
+            if (Option.isNone(refund)) return { received: true, outcome: "unknown" };
+            const outcome = yield* deps.upgrades.refundFailed({
+              purchaseId: refund.value.metadata.purchaseId,
+              refundId: refund.value.id,
+              paymentIntentId: refund.value.payment_intent ?? null,
             });
             return { received: true, outcome };
           }

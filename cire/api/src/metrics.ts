@@ -675,14 +675,13 @@ type UpgradeCheckoutStartedAttrs = {
  *  row for — on a platform endpoint shared with whatever else the account does,
  *  that is a normal outcome rather than an error. `unpaid` should be zero while
  *  sessions are card-only; a non-zero count means that restriction slipped.
- *  `defect` is a paid purchase whose product maps to no tier: the delivery is
- *  answered 500 so Stripe retries it, and every count is a customer who paid
- *  and holds nothing until someone looks. `mismatch` is a payment whose amount
- *  or currency is not the Price the purchase opened at, or one priced from a
- *  tier the wedding no longer holds: acknowledged, nothing granted, and every
- *  count is money a person has to refund or apply by hand. `refunded` is a
- *  redelivery for a purchase an operator has taken back, which grants
- *  nothing. */
+ *  `auto_refunded` is a paid checkout cire could not grant — the product names
+ *  no tier, the wedding was deleted, or it already held the tier — whose
+ *  payment Stripe has accepted to refund. `refund_failed` is one refund
+ *  attempt Stripe refused or could not take, counted on every attempt, or a
+ *  refund the bank later returned: every count is a customer owed money until
+ *  a retry or a person returns it. `refunded` is a delivery for a purchase a
+ *  person has refunded, which grants nothing. */
 type UpgradeSettleOutcome =
   | "granted"
   | "replayed"
@@ -690,9 +689,9 @@ type UpgradeSettleOutcome =
   | "failed"
   | "expired"
   | "unknown"
-  | "defect"
-  | "mismatch"
-  | "refunded";
+  | "refunded"
+  | "auto_refunded"
+  | "refund_failed";
 type UpgradePurchaseSettledAttrs = {
   tier: UpgradeTier;
   outcome: UpgradeSettleOutcome;

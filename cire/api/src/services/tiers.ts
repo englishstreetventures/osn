@@ -260,27 +260,28 @@ interface TierGrant {
  * a replayed grant changes nothing. Lowering a tier is a deliberate operator
  * decision, made with `scripts/grant-tier.ts --lower`.
  *
- * `heldAtLeast` also requires the wedding to hold that tier now: a purchase
- * priced as an upgrade from Gold raises only a wedding still on Gold, checked
- * in the same statement that raises it.
+ * `onlyIf` is a further condition for a caller batching the grant beside the
+ * write that decides it: the upgrade settle raises a wedding only while the
+ * purchase reads `succeeded`, checked in the same statement that raises it.
  */
 function tierGrantStatement(
   db: Db,
   weddingId: string,
   tier: PaidTier,
   grant: TierGrant,
-  heldAtLeast?: Tier,
+  onlyIf?: SQL,
 ) {
-  const from = tiersBelow(tier).filter(
-    (held) => heldAtLeast === undefined || tierAtLeast(held, heldAtLeast),
-  );
-  return (
-    db
-      .update(weddings)
-      .set({ tier, tierSource: grant.source, tierGrantedBy: grant.grantedBy })
-      // oxlint-disable-next-line house/no-unbounded-in-array -- at most two values: `from` is drawn from TIERS, below `tier`
-      .where(and(eq(weddings.id, weddingId), inArray(weddings.tier, from)))
-  );
+  return db
+    .update(weddings)
+    .set({ tier, tierSource: grant.source, tierGrantedBy: grant.grantedBy })
+    .where(
+      and(
+        eq(weddings.id, weddingId),
+        // oxlint-disable-next-line house/no-unbounded-in-array -- at most two values: drawn from TIERS, below `tier`
+        inArray(weddings.tier, tiersBelow(tier)),
+        onlyIf,
+      ),
+    );
 }
 
 /**

@@ -18,19 +18,37 @@
  */
 
 import { weddingUpgradePurchases, weddings, platformSales } from "@cire/db";
-import { and, eq, gt, inArray, isNotNull, isNull, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  not,
+  notInArray,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { commitGroupedBatchesReturning, type Db, DbService, dbQuery, driverErrorText } from "../db";
+import { bound, commitBatchResults, type Db, DbService, dbQuery, driverErrorText } from "../db";
 import { metricUpgradeCheckoutStarted, metricUpgradePurchaseSettled } from "../metrics";
-import type { StripeClient } from "./stripe";
+import type { StripeClient, StripeError } from "./stripe";
 import {
+  isTier,
   normaliseTier,
   PAID_TIERS,
   type PaidTier,
   type Tier,
+  TIERS,
   tierAtLeast,
   tierService,
+  tiersBelow,
 } from "./tiers";
 import type { UpgradeCatalogue } from "./upgrade-catalogue";
 
@@ -58,6 +76,95 @@ class UpgradeWriteError extends Data.TaggedError("UpgradeWriteError")<{
 class UpgradeProviderError extends Data.TaggedError("UpgradeProviderError")<{
   readonly reason: string;
 }> {}
+
+/**
+ * The statuses a payment for the row's own session can still settle from.
+ * `expired` and `failed` because a session can be paid in the moment before
+ * the row is closed, and the money is as real as any other; `mismatch` is a
+ * row an earlier release refused, which a resend of its payment now settles.
+ */
+const OPEN_STATUSES = ["pending", "expired", "failed", "mismatch"] as const;
+
+const isOpen = (status: string): boolean => (OPEN_STATUSES as readonly string[]).includes(status);
+
+/** Why a paid checkout of ours cannot upgrade the wedding. */
+type RefundReason =
+  | "no_tier"
+  | "wedding_not_live"
+  | "unknown_tier"
+  | "not_from_tier"
+  | "already_held";
+
+/**
+ * Whether a paid session of the row's own must be refunded rather than
+ * granted, and why — `null` when it grants.
+ *
+ * `not_from_tier` is a purchase priced as an upgrade from a tier
+ * (`from_tier`, the from-Gold Crimson Price) for a wedding that no longer holds
+ * that tier: an operator lowered it while the page was open. Granting would
+ * sell the full tier at the difference's price, so it is refunded instead.
+ *
+ * `already_held` is a wedding at or above the tier that did not get there by
+ * this purchase: an operator's comp or an unlock code raised it while the page
+ * was open, so the payment bought nothing.
+ *
+ * A wedding this purchase itself raised (`tier_granted_by` names it) is a
+ * grant whose flip never landed, and settles as a grant.
+ */
+function refundReason(
+  row: {
+    id: string;
+    fromTier: "ivory" | "gold" | null;
+    weddingLive: number | null;
+    weddingTier: string | null;
+    weddingGrantedBy: string | null;
+  },
+  tier: PaidTier | null,
+): RefundReason | null {
+  if (tier === null) return "no_tier";
+  if (!row.weddingLive) return "wedding_not_live";
+  // A tier no build knows — only hand-written SQL makes one — is one the grant
+  // statement cannot raise from, so the payment is given back.
+  if (!isTier(row.weddingTier)) return "unknown_tier";
+  if (row.weddingGrantedBy === `stripe:${row.id}`) return null;
+  const held = normaliseTier(row.weddingTier);
+  if (row.fromTier !== null && !tierAtLeast(held, row.fromTier)) return "not_from_tier";
+  if (tierAtLeast(held, tier)) return "already_held";
+  return null;
+}
+
+/**
+ * The wedding still holds the tier a purchase was priced from — `undefined`
+ * (no condition) for one priced from nothing. Two values at most.
+ */
+function fromTierHeld(fromTier: "ivory" | "gold" | null): SQL | undefined {
+  if (fromTier === null) return undefined;
+  const held = TIERS.filter((t) => tierAtLeast(t, fromTier));
+  // oxlint-disable-next-line house/no-unbounded-in-array -- at most three values: drawn from TIERS
+  return inArray(weddings.tier, held);
+}
+
+/** The status a batched read-back found, or `undefined` for no row. */
+function readBack(result: unknown): string | undefined {
+  return Array.isArray(result) ? (result[0] as { status?: string } | undefined)?.status : undefined;
+}
+
+/**
+ * How many purchases one daily reconciliation reads. Each costs at most
+ * three Stripe calls and four D1 calls (six when a delete or a comp races its
+ * grant) inside the cron's shared invocation (`wiki/shared/free-tier-limits.md`),
+ * and the set is empty on any day every webhook landed.
+ */
+export const RECONCILE_PER_RUN = 2;
+
+/**
+ * How long, from the purchase's creation, the daily reconciliation keeps
+ * asking Stripe for a refund it refuses before it stops and hands the refund
+ * to a person (`refund_failed`). The purge holds the wedding either way until
+ * a person marks the purchase `refunded` (`purgeHeld` in
+ * `maintenance-sweeps.ts`).
+ */
+export const REFUND_GIVE_UP_MS = 13 * 24 * 60 * 60 * 1000;
 
 /**
  * Tell a unique-constraint violation from any other write failure, in the text
@@ -186,7 +293,27 @@ interface SettleInput {
 }
 
 /** What a settle attempt concluded. Mirrors the metric's bounded outcome set. */
-type SettleOutcome = "granted" | "replayed" | "unpaid" | "unknown" | "mismatch" | "refunded";
+type SettleOutcome =
+  | "granted"
+  | "replayed"
+  | "unpaid"
+  | "unknown"
+  | "refunded"
+  | "auto_refunded"
+  // A refund cire decided on that Stripe has not taken: refused (and counted),
+  // or handed to a person; or still running under another delivery's key.
+  | "refund_failed"
+  | "refunding";
+
+/** The purchase a settle is about, as the steps after its first read need it. */
+interface PurchaseRef {
+  id: string;
+  weddingId: string;
+  tier: PaidTier | null;
+  label: PaidTier | "unmapped";
+  paymentIntentId: string | null;
+  fromTier: "ivory" | "gold" | null;
+}
 
 interface UpgradeServiceDeps {
   stripe: StripeClient;
@@ -284,12 +411,18 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
    * evidence the session is dead, so it reads `unknown` — which every caller
    * answers by waiting, never by minting a second payment page.
    */
-  const probeSession = (purchaseId: string, sessionId: string) =>
-    deps.stripe.retrievePlatformCheckoutSession(sessionId).pipe(
-      Effect.catch((e: unknown) =>
+  const probeSession = (
+    purchaseId: string,
+    sessionId: string,
+    options: { withPayment?: boolean } = {},
+  ) =>
+    deps.stripe.retrievePlatformCheckoutSession(sessionId, options).pipe(
+      Effect.catch((e: StripeError) =>
         Effect.logError("upgrade session probe failed", {
           purchaseId,
-          reason: String(e),
+          reason: e.reason,
+          status: e.status,
+          code: e.code,
         }).pipe(Effect.as({ status: "unknown" as const })),
       ),
     );
@@ -301,10 +434,12 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
   const expireAtStripe = (purchaseId: string, sessionId: string) =>
     deps.stripe.expirePlatformCheckoutSession(sessionId).pipe(
       Effect.as(true),
-      Effect.catch((e: unknown) =>
+      Effect.catch((e: StripeError) =>
         Effect.logError("upgrade session expire failed", {
           purchaseId,
-          reason: String(e),
+          reason: e.reason,
+          status: e.status,
+          code: e.code,
         }).pipe(Effect.as(false)),
       ),
     );
@@ -339,30 +474,568 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     );
 
   /**
-   * Mark a purchase whose own session was paid but not granted, and record
-   * what arrived. Moves only a row still open (`pending` or `expired`) and
-   * still holding this session, so a replay changes nothing.
+   * The purchase reads `status` now, as a condition for a statement batched
+   * beside the write that moves it. The grant and the sales row follow the
+   * flip this way, so a purchase a concurrent delivery has decided to refund
+   * never raises a tier or records a sale, whatever order the two land in.
    */
-  const recordMismatch = (db: Db, purchaseId: string, input: SettleInput) =>
+  const purchaseReads = (purchaseId: string, status: string): SQL =>
+    sql`EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.id} = ${purchaseId} AND ${weddingUpgradePurchases.status} = ${status})`;
+
+  /**
+   * The wedding can take this purchase's grant now: it is live, and it is
+   * below the tier and still holds the tier the purchase was priced from, or
+   * was raised to it by this purchase. The grant batch's
+   * flip carries it, so the read's decision still holds when the flip lands.
+   */
+  const grantable = (purchase: PurchaseRef, tier: PaidTier): SQL => {
+    // oxlint-disable-next-line house/no-unbounded-in-array -- at most two values: drawn from TIERS, below `tier`
+    const below = and(inArray(weddings.tier, tiersBelow(tier)), fromTierHeld(purchase.fromTier));
+    return sql`EXISTS (SELECT 1 FROM ${weddings} WHERE ${weddings.id} = ${purchase.weddingId} AND ${weddings.deletedAt} IS NULL AND (${below} OR ${weddings.tierGrantedBy} = ${`stripe:${purchase.id}`}))`;
+  };
+
+  /**
+   * A payment intent to record: the one Stripe named, else whatever the row
+   * already holds, so a delivery that names none never erases one.
+   */
+  const paymentIntentOr = (paymentIntentId: string | null): SQL =>
+    sql`coalesce(${paymentIntentId}, ${weddingUpgradePurchases.paymentIntentId})`;
+
+  /** What a delivery says arrived, as the row records it. */
+  const arrived = (input: SettleInput) => ({
+    amountMinor: input.paidAmountMinor,
+    currency: input.paidCurrency?.toUpperCase() ?? null,
+    paymentIntentId: paymentIntentOr(input.paymentIntentId),
+  });
+
+  /** The row's status now, from a read batched after a guarded write. */
+  const statusReadBack = (db: Db, purchaseId: string) =>
+    db
+      .select({ status: weddingUpgradePurchases.status })
+      .from(weddingUpgradePurchases)
+      .where(eq(weddingUpgradePurchases.id, purchaseId));
+
+  /**
+   * Move a `refunding` row on, and say whether this call moved it. A refund
+   * Stripe accepted (`auto_refunded` with its id) also moves a row handed to a
+   * person that holds no refund id: the give-up can land while a refund that
+   * ran at Stripe is still on its way back, and that refund outranks it. A
+   * bank's failure keeps its refund id, so it is never overwritten here.
+   */
+  const leaveRefunding = (
+    db: Db,
+    purchaseId: string,
+    set: { status: "auto_refunded" | "refunded" | "refund_failed"; refundId?: string },
+  ) =>
     dbQuery(() =>
       db
         .update(weddingUpgradePurchases)
-        .set({
-          status: "mismatch",
-          paymentIntentId: input.paymentIntentId,
-          amountMinor: input.paidAmountMinor,
-          currency: input.paidCurrency?.toUpperCase() ?? null,
-          updatedAt: new Date(now()),
-        })
+        .set({ ...set, updatedAt: new Date(now()) })
         .where(
           and(
             eq(weddingUpgradePurchases.id, purchaseId),
-            inArray(weddingUpgradePurchases.status, ["pending", "expired"]),
-            eq(weddingUpgradePurchases.checkoutSessionId, input.checkoutSessionId),
+            set.status === "auto_refunded"
+              ? or(
+                  eq(weddingUpgradePurchases.status, "refunding"),
+                  and(
+                    eq(weddingUpgradePurchases.status, "refund_failed"),
+                    isNull(weddingUpgradePurchases.refundId),
+                  ),
+                )
+              : eq(weddingUpgradePurchases.status, "refunding"),
           ),
         )
-        .run(),
-    );
+        .returning({ id: weddingUpgradePurchases.id })
+        .all(),
+    ).pipe(Effect.map((rows) => !changedNone(rows)));
+
+  /**
+   * Refund a payment cire decided it cannot grant, and record what Stripe did.
+   * The row already reads `refunding` — the decision is committed before
+   * Stripe is asked, so no later delivery can grant it.
+   *
+   * ONE IDEMPOTENCY KEY PER PURCHASE. A refund that ran at Stripe while this
+   * call timed out comes back on the next attempt with its id. Stripe also
+   * keeps a refusal under the key for at least a day and answers every repeat
+   * with it, so a refused refund's next fresh attempt comes from the daily
+   * reconciliation a day or two later — never from a webhook answered 500,
+   * which would only replay the refusal and count against the endpoint.
+   *
+   * Two refusals no retry can change go to a person at once
+   * (`refund_failed`): no payment to refund, and a disputed charge, whose money
+   * the dispute decides. A call whose answer never arrived — Stripe
+   * unreachable, a timeout, a body nobody could read — and one another
+   * delivery is still making stay `refunding` (`"refunding"`), since a refund
+   * may exist at Stripe; only a refusal Stripe answered counts towards the
+   * reconciliation's give-up (`"refund_failed"`).
+   */
+  const refundPurchase = (
+    db: Db,
+    purchase: { id: string; label: PaidTier | "unmapped"; paymentIntentId: string | null },
+  ): Effect.Effect<SettleOutcome> =>
+    Effect.gen(function* () {
+      const refused = (
+        reason: string,
+        fields: { status?: number | undefined; code?: string | undefined },
+        final: boolean,
+      ) =>
+        Effect.gen(function* () {
+          metricUpgradePurchaseSettled(purchase.label, "refund_failed");
+          const handed = final
+            ? yield* leaveRefunding(db, purchase.id, { status: "refund_failed" })
+            : false;
+          // The code and status only: a Stripe message can quote the request.
+          yield* Effect.logError("upgrade refund failed", {
+            purchaseId: purchase.id,
+            reason,
+            ...fields,
+            handedToAPerson: handed,
+          });
+          return "refund_failed" as const;
+        });
+
+      /** No answer arrived, so a refund may exist at Stripe: ask again later. */
+      const unanswered = (reason: string) =>
+        Effect.gen(function* () {
+          metricUpgradePurchaseSettled(purchase.label, "refund_failed");
+          yield* Effect.logError("upgrade refund failed", {
+            purchaseId: purchase.id,
+            reason,
+            handedToAPerson: false,
+          });
+          return "refunding" as const;
+        });
+
+      if (purchase.paymentIntentId === null) return yield* refused("no payment intent", {}, true);
+      const paymentIntentId = purchase.paymentIntentId;
+
+      const attempt = yield* Effect.result(
+        deps.stripe.createPlatformRefund({
+          paymentIntentId,
+          metadata: { purchaseId: purchase.id },
+          idempotencyKey: `cire-upgrade-refund-${purchase.id}`,
+        }),
+      );
+
+      if (attempt._tag === "Success") {
+        const moved = yield* leaveRefunding(db, purchase.id, {
+          status: "auto_refunded",
+          refundId: attempt.success.id,
+        });
+        // Not moved: another delivery recorded the same refund first.
+        metricUpgradePurchaseSettled(purchase.label, moved ? "auto_refunded" : "replayed");
+        return moved ? ("auto_refunded" as const) : ("replayed" as const);
+      }
+
+      const error = attempt.failure;
+      const fields = { status: error.status, code: error.code };
+      if (error.code === "charge_already_refunded") {
+        // Refunded already: by cire, in a call that ran at Stripe while this
+        // side timed out and whose key has since gone, or by a person. Only
+        // cire's own refund carries this purchase's id.
+        const own = yield* Effect.result(
+          deps.stripe.findPlatformRefund(paymentIntentId, purchase.id),
+        );
+        if (own._tag === "Failure") return yield* unanswered(own.failure.reason);
+        const moved =
+          own.success !== null
+            ? yield* leaveRefunding(db, purchase.id, {
+                status: "auto_refunded",
+                refundId: own.success.id,
+              })
+            : yield* leaveRefunding(db, purchase.id, { status: "refunded" });
+        // Not moved: another delivery recorded it first.
+        const outcome = !moved ? "replayed" : own.success !== null ? "auto_refunded" : "refunded";
+        metricUpgradePurchaseSettled(purchase.label, outcome);
+        return outcome;
+      }
+      if (error.status === 409 && error.code?.startsWith("idempotency") === true) {
+        // Another delivery's request under the same key is still running at
+        // Stripe. Not a refusal: that one will record its answer.
+        yield* Effect.logWarning("upgrade refund in progress elsewhere", {
+          purchaseId: purchase.id,
+        });
+        return "refunding" as const;
+      }
+      if (error.reason !== "rejected" && error.reason !== "unexpected refund payload") {
+        return yield* unanswered(error.reason);
+      }
+      return yield* refused(error.reason, fields, error.code === "charge_disputed");
+    }).pipe(Effect.withSpan("cire.upgrade.refund"));
+
+  /**
+   * Settle a purchase from what Stripe says a session of its own paid. The
+   * ONLY place a tier is granted from a payment, and the only place an upgrade
+   * payment is refunded automatically. See `settlePurchase` below.
+   */
+  const settle = (input: SettleInput, depth = 0): Effect.Effect<SettleOutcome, never, DbService> =>
+    Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db
+          .select({
+            id: weddingUpgradePurchases.id,
+            weddingId: weddingUpgradePurchases.weddingId,
+            product: weddingUpgradePurchases.entitlement,
+            status: weddingUpgradePurchases.status,
+            sessionId: weddingUpgradePurchases.checkoutSessionId,
+            paymentIntentId: weddingUpgradePurchases.paymentIntentId,
+            fromTier: weddingUpgradePurchases.fromTier,
+            // The wedding as it is now, in the same read, for the refund
+            // rules below. A LEFT JOIN, so a wedding that is gone reads as
+            // not live rather than as no purchase.
+            weddingTier: weddings.tier,
+            weddingGrantedBy: weddings.tierGrantedBy,
+            weddingLive: sql<number>`(${weddings.id} IS NOT NULL AND ${weddings.deletedAt} IS NULL)`,
+          })
+          .from(weddingUpgradePurchases)
+          .leftJoin(weddings, eq(weddings.id, weddingUpgradePurchases.weddingId))
+          .where(eq(weddingUpgradePurchases.id, input.purchaseId))
+          .all(),
+      );
+      const row = rows[0];
+      if (row === undefined) {
+        // Not ours. The platform endpoint is shared with whatever else this
+        // Stripe account does, so this is an ordinary outcome, not an error.
+        yield* Effect.logWarning("upgrade settle for an unknown purchase", {
+          purchaseId: input.purchaseId,
+        });
+        return "unknown" as const;
+      }
+
+      // OURS is the session this row holds. Only `startPurchase` writes it,
+      // from Stripe's answer to cire's own create call, and it hands the
+      // payment page out only after the write lands. So a session the row
+      // does not hold — including any session for a row that holds none — was
+      // never given to anyone by cire: it grants nothing and is not refunded.
+      if (row.sessionId !== input.checkoutSessionId) {
+        yield* Effect.logError("upgrade settle for a session the purchase does not hold", {
+          purchaseId: row.id,
+          heldSessionId: row.sessionId,
+          checkoutSessionId: input.checkoutSessionId,
+        });
+        return "unknown" as const;
+      }
+
+      const tier = tierForProduct(row.product);
+      const purchase = {
+        id: row.id,
+        weddingId: row.weddingId,
+        tier,
+        label: tier ?? ("unmapped" as const),
+        paymentIntentId: input.paymentIntentId ?? row.paymentIntentId,
+        fromTier: row.fromTier,
+      };
+
+      if (!isOpen(row.status)) return yield* after(db, purchase, row.status, input, depth);
+
+      if (!input.paid) {
+        // Card-only sessions cannot complete unpaid, so this should never
+        // fire — but granting on an unpaid session is the one mistake that
+        // cannot be undone by a retry, so the check stays. No money moved,
+        // so there is nothing to refund either.
+        metricUpgradePurchaseSettled(purchase.label, "unpaid");
+        return "unpaid" as const;
+      }
+
+      const reason = refundReason(row, tier);
+      if (reason === null && tier !== null) return yield* grant(db, purchase, tier, input, depth);
+
+      yield* Effect.logError("upgrade settle refunding a payment it cannot grant", {
+        purchaseId: row.id,
+        reason,
+      });
+      const claimed = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          db
+            .update(weddingUpgradePurchases)
+            .set({ status: "refunding", ...arrived(input), updatedAt: new Date(now()) })
+            .where(
+              and(
+                eq(weddingUpgradePurchases.id, row.id),
+                // oxlint-disable-next-line house/no-unbounded-in-array -- OPEN_STATUSES is a four-member constant
+                inArray(weddingUpgradePurchases.status, [...OPEN_STATUSES]),
+                eq(weddingUpgradePurchases.checkoutSessionId, input.checkoutSessionId),
+                // The read's decision, held again here, as the grant's flip
+                // holds its own: a restore or a raise landing in between leaves
+                // the row open, and a fresh read grants it.
+                tier === null ? undefined : not(grantable(purchase, tier)),
+              ),
+            ),
+          statusReadBack(db, row.id),
+        ]),
+      );
+      // Whatever the row reads now decides: `refunding` from this claim or a
+      // concurrent one, or a grant that landed first.
+      return yield* after(db, purchase, readBack(claimed[1]), input, depth);
+    });
+
+  /**
+   * One D1 batch: flip the row to `succeeded`, then — each only while the row
+   * reads `succeeded` — raise the tier and write the sales row, then read the
+   * row back. D1 runs a batch atomically and in statement order. bun:sqlite has
+   * no `.batch()`, so the helper chains them in the same order.
+   *
+   * A row already `succeeded` is a replay: the flip matches nothing and the
+   * grant and the sale run again, both idempotent — the grant only ever
+   * raises, the sale is keyed on the purchase. NOTHING may short-circuit on
+   * "this row already reads succeeded": that is the state a crash between the
+   * flip and the grant would leave, and re-running is what repairs it.
+   */
+  const grant = (
+    db: Db,
+    purchase: PurchaseRef,
+    tier: PaidTier,
+    input: SettleInput,
+    depth: number,
+  ): Effect.Effect<SettleOutcome, never, DbService> =>
+    Effect.gen(function* () {
+      const currency = input.paidCurrency?.toUpperCase() ?? null;
+      const results = yield* dbQuery(() =>
+        commitBatchResults(db, [
+          db
+            .update(weddingUpgradePurchases)
+            .set({ status: "succeeded", ...arrived(input), updatedAt: new Date(now()) })
+            .where(
+              and(
+                eq(weddingUpgradePurchases.id, purchase.id),
+                // oxlint-disable-next-line house/no-unbounded-in-array -- OPEN_STATUSES is a four-member constant
+                inArray(weddingUpgradePurchases.status, [...OPEN_STATUSES]),
+                eq(weddingUpgradePurchases.checkoutSessionId, input.checkoutSessionId),
+                // The read's decision, held again here: a delete or a comp
+                // landing between that read and this batch leaves the row
+                // open, and a fresh read refunds it.
+                grantable(purchase, tier),
+              ),
+            )
+            .returning({ id: weddingUpgradePurchases.id }),
+          // Only ever raises the tier, so a replay — or a late delivery for a
+          // lower tier than the wedding has since reached — changes nothing.
+          tierService.tierGrantStatement(
+            db,
+            purchase.weddingId,
+            tier,
+            {
+              source: "purchase",
+              // A webhook has no actor of its own. The purchase names the
+              // buyer, so the grant names the purchase.
+              grantedBy: `stripe:${purchase.id}`,
+            },
+            // A purchase priced from a tier raises only a wedding still on
+            // it, on a replay too: the difference's price never buys the
+            // whole tier.
+            and(purchaseReads(purchase.id, "succeeded"), fromTierHeld(purchase.fromTier)),
+          ),
+          // Keyed on the purchase, so a redelivery writes one row. Every
+          // column, in the table's order; NOT NULL ones guarded as before.
+          db
+            .insert(platformSales)
+            .select(
+              db
+                .select({
+                  id: bound(newId("sal"), platformSales.id),
+                  purchaseId: weddingUpgradePurchases.id,
+                  entitlement: weddingUpgradePurchases.entitlement,
+                  amountMinor: bound(input.paidAmountMinor ?? 0, platformSales.amountMinor),
+                  currency: bound(currency ?? "", platformSales.currency),
+                  settledAt: bound(new Date(now()), platformSales.settledAt),
+                })
+                .from(weddingUpgradePurchases)
+                .where(
+                  and(
+                    eq(weddingUpgradePurchases.id, purchase.id),
+                    eq(weddingUpgradePurchases.status, "succeeded"),
+                  ),
+                ),
+            )
+            .onConflictDoNothing(),
+          statusReadBack(db, purchase.id),
+        ]),
+      );
+      const status = readBack(results[3]);
+      if (status === "succeeded") {
+        const outcome = changedNone(results[0]) ? "replayed" : "granted";
+        metricUpgradePurchaseSettled(tier, outcome);
+        return outcome;
+      }
+      // A refund claim, or a person, got there between the read and the batch,
+      // or the wedding moved so this payment can no longer grant.
+      return yield* after(db, purchase, status, input, depth);
+    });
+
+  /**
+   * What a row that is no longer open settles to. Reached from the first read,
+   * and from the read-back after a guarded write that another delivery beat,
+   * so it never opens a second write path of its own.
+   */
+  const after = (
+    db: Db,
+    purchase: PurchaseRef,
+    status: string | undefined,
+    input: SettleInput,
+    depth: number,
+  ): Effect.Effect<SettleOutcome, never, DbService> =>
+    Effect.gen(function* () {
+      // Still open after a guarded write: the wedding moved between the read
+      // and the batch. One fresh read decides again; there is no third.
+      if (status !== undefined && isOpen(status)) {
+        if (depth === 0) return yield* settle(input, 1);
+        yield* Effect.logError("upgrade settle could not decide", {
+          purchaseId: purchase.id,
+          status,
+        });
+        return "unknown" as const;
+      }
+      switch (status) {
+        case "succeeded":
+          // A replay of a granted purchase stays a grant, whatever has
+          // happened to the wedding since: the money bought the tier.
+          if (purchase.tier === null) return "replayed" as const;
+          return yield* grant(db, purchase, purchase.tier, input, depth);
+        case "refunding":
+          return yield* refundPurchase(db, purchase);
+        case "auto_refunded":
+        case "refund_failed":
+          metricUpgradePurchaseSettled(purchase.label, "replayed");
+          return "replayed" as const;
+        case "refunded":
+          metricUpgradePurchaseSettled(purchase.label, "refunded");
+          yield* Effect.logWarning("upgrade settle for a refunded purchase", {
+            purchaseId: purchase.id,
+          });
+          return "refunded" as const;
+        default:
+          // The row vanished between the read and the write (the purge), or
+          // holds a status this build does not know.
+          yield* Effect.logError("upgrade settle lost its purchase", {
+            purchaseId: purchase.id,
+            status: status ?? null,
+          });
+          return "unknown" as const;
+      }
+    });
+
+  /** Close a purchase Stripe says is over. Only ever moves a `pending` row. */
+  const failPurchase = (input: {
+    purchaseId: string;
+    checkoutSessionId: string;
+    status: "failed" | "expired";
+  }): Effect.Effect<"closed" | "ignored", never, DbService> =>
+    Effect.gen(function* () {
+      const db = yield* DbService;
+      const changed = yield* dbQuery(() =>
+        db
+          .update(weddingUpgradePurchases)
+          .set({ status: input.status, updatedAt: new Date(now()) })
+          .where(
+            and(
+              eq(weddingUpgradePurchases.id, input.purchaseId),
+              eq(weddingUpgradePurchases.status, "pending"),
+              eq(weddingUpgradePurchases.checkoutSessionId, input.checkoutSessionId),
+            ),
+          )
+          // The metric's label comes back with the write. An expiry is the
+          // ordinary end of an abandoned checkout, so re-reading the row we
+          // just wrote would spend a round trip on every one of them.
+          .returning({ product: weddingUpgradePurchases.entitlement })
+          .all(),
+      );
+      if (changedNone(changed)) return "ignored" as const;
+      const product = (changed as { product: string }[])[0]?.product;
+      if (product !== undefined) {
+        metricUpgradePurchaseSettled(
+          tierForProduct(product) ?? "unmapped",
+          input.status === "failed" ? "failed" : "expired",
+        );
+      }
+      return "closed" as const;
+    }).pipe(Effect.withSpan("cire.upgrade.failPurchase"));
+
+  /**
+   * One row of the daily reconciliation. `true` once the row has moved on;
+   * `false` leaves it for a later run.
+   */
+  const reconcileOne = (
+    db: Db,
+    row: {
+      id: string;
+      product: string;
+      status: string;
+      sessionId: string | null;
+      paymentIntentId: string | null;
+      createdAt: Date;
+    },
+  ): Effect.Effect<boolean, never, DbService> =>
+    Effect.gen(function* () {
+      if (row.status === "refunding") {
+        const outcome = yield* refundPurchase(db, {
+          id: row.id,
+          label: tierForProduct(row.product) ?? "unmapped",
+          paymentIntentId: row.paymentIntentId,
+        });
+        // In progress elsewhere, or unanswered: a refund may exist at Stripe,
+        // and no timer outranks it.
+        if (outcome === "refunding") return false;
+        if (outcome !== "refund_failed") return true;
+        if (now() - row.createdAt.getTime() < REFUND_GIVE_UP_MS) return false;
+        // Asked long enough. A person returns the money before the purge may
+        // take the deleted wedding this row belongs to.
+        const handed = yield* leaveRefunding(db, row.id, { status: "refund_failed" });
+        if (handed) {
+          yield* Effect.logError("upgrade refund given up; a person must return the money", {
+            purchaseId: row.id,
+          });
+        }
+        return true;
+      }
+      if (row.sessionId === null) return false;
+      const sessionId = row.sessionId;
+      const probe = yield* probeSession(row.id, sessionId, { withPayment: true });
+      if (probe.status === "expired") {
+        // Only Stripe's own `expired` closes the row: the probe answers
+        // `expired` for a session it cannot read plainly, too.
+        if (probe.stripeStatus !== "expired") return false;
+        yield* failPurchase({
+          purchaseId: row.id,
+          checkoutSessionId: sessionId,
+          status: "expired",
+        });
+        return true;
+      }
+      if (probe.status !== "complete" || probe.payment === undefined) return false;
+      const payment = probe.payment;
+      if (payment.paid && payment.refunded) {
+        // A person refunded it while its webhook kept failing. Record the
+        // refund; never grant a tier for money already given back.
+        yield* dbQuery(() =>
+          db
+            .update(weddingUpgradePurchases)
+            .set({
+              status: "refunded",
+              paymentIntentId: paymentIntentOr(payment.paymentIntentId),
+              updatedAt: new Date(now()),
+            })
+            .where(
+              and(
+                eq(weddingUpgradePurchases.id, row.id),
+                eq(weddingUpgradePurchases.status, "pending"),
+                eq(weddingUpgradePurchases.checkoutSessionId, sessionId),
+              ),
+            )
+            .run(),
+        );
+        return true;
+      }
+      const outcome = yield* settle({
+        purchaseId: row.id,
+        checkoutSessionId: sessionId,
+        paid: payment.paid,
+        paidAmountMinor: payment.amountMinor,
+        paidCurrency: payment.currency,
+        paymentIntentId: payment.paymentIntentId,
+      });
+      return outcome !== "unpaid" && outcome !== "unknown";
+    });
 
   return {
     /**
@@ -562,282 +1235,204 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     },
 
     /**
-     * Settle a purchase from a verified webhook delivery. The ONLY place a tier
-     * is granted from a payment.
+     * Settle a purchase from a verified webhook delivery, or from the daily
+     * reconciliation's read of the session. The ONLY place a tier is granted
+     * from a payment.
      *
-     * ORDER: verify → paid? → grant → sales → flip.
+     * OURS, AND WHAT IT BOUGHT. The purchase id comes from
+     * `client_reference_id`, which any payment on this Stripe account can
+     * carry, so it proves nothing. The session the row holds does: only this
+     * platform's own create call wrote it, and that session sold exactly the
+     * Price the row recorded, for the row's tier. A payment for any other
+     * session grants nothing and is not refunded — it is not cire's to keep or
+     * to give back.
      *
-     * THE INVARIANT, which matters more than the order: every delivery for a
-     * paid session re-runs the grant and the sales insert, both idempotent, and
-     * NOTHING short-circuits on "this row already reads succeeded". That state
-     * is exactly what a delivery dying between the flip and the grant leaves
-     * behind, so treating it as nothing-to-do would strand a customer who paid
-     * with no tier and no further chance to get one.
+     * A PAID CHECKOUT OF OURS UPGRADES THE WEDDING OR IS REFUNDED, whatever
+     * amount Checkout charged. When it cannot grant — the product names no
+     * tier, the wedding is deleted, a purchase priced from a tier finds the
+     * wedding lowered below it, or the wedding already holds the tier some
+     * other way — the
+     * row moves to `refunding` FIRST and the payment is refunded through
+     * Stripe, so no later delivery can grant it. A refund Stripe refuses is
+     * logged and counted (`refund_failed`), the row stays `refunding`, and the
+     * daily reconciliation asks again.
      *
-     * The order then makes the window as small as it can be — a crash after the
-     * flip has nothing left to lose, and the conditional UPDATE is only ever
-     * reporting whether THIS delivery was the first, never gating the work.
-     *
-     * A paid purchase whose product maps to no tier is a DEFECT, not an answer:
-     * the delivery is answered 500 so Stripe keeps retrying it while someone
-     * looks, because a 2xx would end the only record that money arrived for
-     * nothing.
-     *
-     * A grant is bound to the payment the purchase sold. The purchase id comes
-     * from `client_reference_id`, which any payment on this Stripe account can
-     * carry, so the amount and currency paid must be the Price the row
-     * recorded when it opened; anything else is a `mismatch` — logged, counted,
-     * nothing granted, and acknowledged, since a retry cannot change what was
-     * paid. A row's own session that paid the wrong amount marks the row
-     * `mismatch` with what arrived, so the money is findable.
-     *
-     * Two states on the row stop a grant that the invariant above would
-     * otherwise replay. A `refunded` purchase — one an operator took back with
-     * `grant-tier.ts --lower` — grants nothing however often its payment is
-     * redelivered. And a purchase priced as an upgrade from a tier
-     * (`from_tier`) grants only while the wedding still holds that tier: a
-     * from-Gold Crimson paid after the wedding was lowered to Ivory is a
-     * `mismatch`. A paying customer's replay is untouched by either: after a
-     * grant the wedding ranks at or above `from_tier`, and nothing but an
-     * operator writes `refunded`.
+     * Whichever of a grant and a refund claim lands first decides: each is a
+     * write guarded on the row still being open, and the loser follows what
+     * the row reads back.
      */
     settlePurchase(input: SettleInput): Effect.Effect<SettleOutcome, never, DbService> {
+      return settle(input).pipe(Effect.withSpan("cire.upgrade.settlePurchase"));
+    },
+
+    failPurchase,
+
+    /**
+     * Stripe says a refund cire made failed after it accepted it — the bank
+     * returned it. The money is back in cire's balance, so a person has to
+     * return it another way: the row says so, and the failure is logged and
+     * counted. Only the refund the row recorded moves it, so a refund that is
+     * not cire's changes nothing.
+     */
+    refundFailed(input: {
+      purchaseId: string;
+      refundId: string;
+      /** For the log, so a person can find the charge before returning money. */
+      paymentIntentId?: string | null;
+    }): Effect.Effect<"recorded" | "ignored", never, DbService> {
+      return Effect.gen(function* () {
+        const db = yield* DbService;
+        const changed = yield* dbQuery(() =>
+          db
+            .update(weddingUpgradePurchases)
+            .set({ status: "refund_failed", refundId: input.refundId, updatedAt: new Date(now()) })
+            .where(
+              and(
+                eq(weddingUpgradePurchases.id, input.purchaseId),
+                or(
+                  and(
+                    eq(weddingUpgradePurchases.status, "auto_refunded"),
+                    eq(weddingUpgradePurchases.refundId, input.refundId),
+                  ),
+                  // A refund Stripe accepted while cire's call timed out, so
+                  // its id was never recorded. Only cire's own create call
+                  // names a purchase in a refund's metadata, and the row's
+                  // `refunding` guard then keeps the late success off it.
+                  and(
+                    eq(weddingUpgradePurchases.status, "refunding"),
+                    isNull(weddingUpgradePurchases.refundId),
+                  ),
+                ),
+              ),
+            )
+            .returning({ product: weddingUpgradePurchases.entitlement })
+            .all(),
+        );
+        const product = (changed as { product: string }[])[0]?.product;
+        if (product === undefined) {
+          // Our refund, but no purchase this build still holds in
+          // `auto_refunded` with it: the purge took a deleted wedding's row,
+          // or the row moved since. The money is still owed, so a person
+          // must see it — unless this is a redelivery of one already recorded.
+          const rows = yield* dbQuery(() =>
+            db
+              .select({ status: weddingUpgradePurchases.status })
+              .from(weddingUpgradePurchases)
+              .where(
+                and(
+                  eq(weddingUpgradePurchases.id, input.purchaseId),
+                  eq(weddingUpgradePurchases.refundId, input.refundId),
+                ),
+              )
+              .all(),
+          );
+          if (rows[0]?.status !== "refund_failed") {
+            metricUpgradePurchaseSettled("unmapped", "refund_failed");
+            yield* Effect.logError("upgrade refund failed at the bank", {
+              purchaseId: input.purchaseId,
+              refundId: input.refundId,
+              paymentIntentId: input.paymentIntentId ?? null,
+              purchaseFound: false,
+            });
+          }
+          return "ignored" as const;
+        }
+        metricUpgradePurchaseSettled(tierForProduct(product) ?? "unmapped", "refund_failed");
+        yield* Effect.logError("upgrade refund failed at the bank", {
+          purchaseId: input.purchaseId,
+          refundId: input.refundId,
+          paymentIntentId: input.paymentIntentId ?? null,
+        });
+        return "recorded" as const;
+      }).pipe(Effect.withSpan("cire.upgrade.refundFailed"));
+    },
+
+    /**
+     * The daily pass that finishes what a webhook could not. It reads at most
+     * {@link RECONCILE_PER_RUN} rows, least recently moved first: a purchase
+     * cire decided to refund (`refunding`), whose refund it tries again, and a
+     * `pending` purchase whose session has outlived its payable day, whose
+     * session it asks Stripe about — settling a paid one exactly as the
+     * webhook would (grant, or refund when it cannot) and closing an expired
+     * one. A row whose step fails is moved to the back, so one that keeps
+     * failing does not hold every run's places.
+     */
+    reconcile(): Effect.Effect<{ read: number; failed: number }, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
         const rows = yield* dbQuery(() =>
           db
             .select({
               id: weddingUpgradePurchases.id,
-              weddingId: weddingUpgradePurchases.weddingId,
               product: weddingUpgradePurchases.entitlement,
               status: weddingUpgradePurchases.status,
               sessionId: weddingUpgradePurchases.checkoutSessionId,
-              priceAmountMinor: weddingUpgradePurchases.priceAmountMinor,
-              priceCurrency: weddingUpgradePurchases.priceCurrency,
-              fromTier: weddingUpgradePurchases.fromTier,
-              // The tier the wedding holds now, in the same read, for the
-              // from-tier rule below.
-              weddingTier: weddings.tier,
+              paymentIntentId: weddingUpgradePurchases.paymentIntentId,
+              createdAt: weddingUpgradePurchases.createdAt,
             })
             .from(weddingUpgradePurchases)
-            .leftJoin(weddings, eq(weddings.id, weddingUpgradePurchases.weddingId))
-            .where(eq(weddingUpgradePurchases.id, input.purchaseId))
+            .where(
+              or(
+                eq(weddingUpgradePurchases.status, "refunding"),
+                and(
+                  eq(weddingUpgradePurchases.status, "pending"),
+                  isNotNull(weddingUpgradePurchases.checkoutSessionId),
+                  lte(
+                    weddingUpgradePurchases.createdAt,
+                    new Date(now() - CHECKOUT_SESSION_LIFETIME_MS),
+                  ),
+                ),
+              ),
+            )
+            .orderBy(asc(weddingUpgradePurchases.updatedAt), asc(weddingUpgradePurchases.id))
+            .limit(RECONCILE_PER_RUN)
             .all(),
         );
-        const row = rows[0];
-        if (row === undefined) {
-          // Not ours. The platform endpoint is shared with whatever else this
-          // Stripe account does, so this is an ordinary outcome, not an error.
-          yield* Effect.logWarning("upgrade settle for an unknown purchase", {
-            purchaseId: input.purchaseId,
-          });
-          return "unknown";
-        }
 
-        if (row.sessionId !== null && row.sessionId !== input.checkoutSessionId) {
-          yield* Effect.logError("upgrade settle session mismatch", {
-            purchaseId: input.purchaseId,
-            heldSessionId: row.sessionId,
-          });
-          return "unknown";
-        }
-
-        // A NULL session id is ADOPTION: the row is session-less for the
-        // window between minting its session and storing the id, and the
-        // session is payable throughout, so rejecting it would lock out a
-        // customer who paid. That window exists only while the row is
-        // `pending`, and only a row that recorded its Price can hold the
-        // payment to an amount — anything else adopts nothing.
-        const adopting = row.sessionId === null;
-        if (
-          adopting &&
-          (row.status !== "pending" || row.priceAmountMinor === null || row.priceCurrency === null)
-        ) {
-          yield* Effect.logError("upgrade settle refused adoption", {
-            purchaseId: row.id,
-            status: row.status,
-            checkoutSessionId: input.checkoutSessionId,
-          });
-          return "unknown";
-        }
-
-        const tier = tierForProduct(row.product);
-
-        if (row.status === "refunded") {
-          metricUpgradePurchaseSettled(tier ?? "unmapped", "refunded");
-          yield* Effect.logWarning("upgrade settle for a refunded purchase", {
-            purchaseId: row.id,
-          });
-          return "refunded";
-        }
-
-        if (!input.paid) {
-          // Card-only sessions cannot complete unpaid, so this should never
-          // fire — but granting on an unpaid session is the one mistake that
-          // cannot be undone by a retry, so the check stays.
-          metricUpgradePurchaseSettled(tier ?? "unmapped", "unpaid");
-          return "unpaid";
-        }
-
-        if (tier === null) {
-          metricUpgradePurchaseSettled("unmapped", "defect");
-          yield* Effect.logError("upgrade settle unmappable product", {
-            purchaseId: row.id,
-            product: row.product,
-          });
-          return yield* Effect.die(new Error("upgrade purchase names no tier"));
-        }
-
-        // A row written before purchases recorded their Price has no amount to
-        // hold the payment to; it is settled only by the session it already
-        // holds, which the adoption rule above guarantees.
-        const paidCurrency = input.paidCurrency?.toUpperCase() ?? null;
-        if (
-          row.priceAmountMinor !== null &&
-          row.priceCurrency !== null &&
-          (input.paidAmountMinor !== row.priceAmountMinor || paidCurrency !== row.priceCurrency)
-        ) {
-          metricUpgradePurchaseSettled(tier, "mismatch");
-          yield* Effect.logError("upgrade settle amount mismatch", {
-            purchaseId: row.id,
-            checkoutSessionId: input.checkoutSessionId,
-            priceAmountMinor: row.priceAmountMinor,
-            priceCurrency: row.priceCurrency,
-            paidAmountMinor: input.paidAmountMinor,
-            paidCurrency,
-          });
-          // Only the row's own session marks the row. A payment naming a
-          // session-less row is not that row's session, and the attempt that
-          // owns the row is left to finish.
-          if (!adopting) yield* recordMismatch(db, row.id, input);
-          return "mismatch";
-        }
-
-        // Priced as an upgrade from a tier the wedding no longer holds: the
-        // payment bought this tier for a wedding on `from_tier`, which this
-        // one has since been lowered from. The grant statement below carries
-        // the same condition, so the rule holds even against a lowering that
-        // lands between this read and the batch.
-        const weddingTier = normaliseTier(row.weddingTier);
-        if (row.fromTier !== null && !tierAtLeast(weddingTier, row.fromTier)) {
-          metricUpgradePurchaseSettled(tier, "mismatch");
-          yield* Effect.logError("upgrade settle from a tier the wedding no longer holds", {
-            purchaseId: row.id,
-            checkoutSessionId: input.checkoutSessionId,
-            fromTier: row.fromTier,
-            weddingTier,
-          });
-          if (!adopting) yield* recordMismatch(db, row.id, input);
-          return "mismatch";
-        }
-
-        // ONE ROUND TRIP for all three writes. D1 runs a batch atomically and
-        // in statement order, so "grant, then sales, then flip" survives as
-        // ordering INSIDE the batch — and a crash can no longer land between
-        // the grant and the flip at all, which strengthens the invariant above
-        // rather than weakening it. bun:sqlite has no `.batch()`, so the helper
-        // chains them in the same order and the tests see no difference.
-        const flipped = yield* dbQuery(() =>
-          commitGroupedBatchesReturning(
-            db,
-            [
-              // Only ever raises the tier, so a replay — or a late delivery for
-              // a lower tier than the wedding has since reached — changes
-              // nothing.
-              [
-                tierService.tierGrantStatement(
-                  db,
-                  row.weddingId,
-                  tier,
-                  {
-                    source: "purchase",
-                    // A webhook has no actor of its own. The purchase names the
-                    // buyer, so the grant names the purchase.
-                    grantedBy: `stripe:${row.id}`,
-                  },
-                  row.fromTier ?? undefined,
-                ),
-              ],
-              // Keyed on the purchase, so a redelivery writes one row.
-              [
-                db
-                  .insert(platformSales)
-                  .values({
-                    id: newId("sal"),
-                    purchaseId: row.id,
-                    entitlement: row.product,
-                    amountMinor: input.paidAmountMinor ?? 0,
-                    currency: input.paidCurrency?.toUpperCase() ?? "",
-                    settledAt: new Date(now()),
-                  })
-                  .onConflictDoNothing(),
-              ],
-            ],
-            // The tail. Zero rows back means a previous delivery already did
-            // all of the above. An `expired` row flips too: a session can be
-            // paid in the moment before it is expired, and the money is then
-            // as real as any other.
+        let failed = 0;
+        for (const row of rows) {
+          const done = yield* reconcileOne(db, row).pipe(
+            Effect.catchDefect((cause) =>
+              Effect.logError("upgrade reconcile step failed", {
+                purchaseId: row.id,
+                cause: String(cause),
+              }).pipe(Effect.as(false)),
+            ),
+          );
+          if (done) continue;
+          failed += 1;
+          // To the back of the queue: a row still where it was must not hold
+          // the run's few places for good. A row that is done has always left
+          // the status it was read in. Guarded on that status, so a row that
+          // moved on meanwhile is untouched.
+          yield* dbQuery(() =>
             db
               .update(weddingUpgradePurchases)
-              .set({
-                status: "succeeded",
-                checkoutSessionId: input.checkoutSessionId,
-                paymentIntentId: input.paymentIntentId,
-                amountMinor: input.paidAmountMinor,
-                currency: input.paidCurrency?.toUpperCase() ?? null,
-                updatedAt: new Date(now()),
-              })
+              .set({ updatedAt: new Date(now()) })
               .where(
                 and(
                   eq(weddingUpgradePurchases.id, row.id),
-                  inArray(weddingUpgradePurchases.status, ["pending", "expired"]),
+                  eq(weddingUpgradePurchases.status, row.status),
                 ),
               )
-              .returning({ id: weddingUpgradePurchases.id }),
-          ),
-        );
-
-        const outcome: SettleOutcome = changedNone(flipped) ? "replayed" : "granted";
-        metricUpgradePurchaseSettled(tier, outcome === "granted" ? "granted" : "replayed");
-        return outcome;
-      }).pipe(Effect.withSpan("cire.upgrade.settlePurchase"));
-    },
-
-    /** Close a purchase Stripe says is over. Only ever moves a `pending` row. */
-    failPurchase(input: {
-      purchaseId: string;
-      checkoutSessionId: string;
-      status: "failed" | "expired";
-    }): Effect.Effect<"closed" | "ignored", never, DbService> {
-      return Effect.gen(function* () {
-        const db = yield* DbService;
-        const changed = yield* dbQuery(() =>
-          db
-            .update(weddingUpgradePurchases)
-            .set({ status: input.status, updatedAt: new Date(now()) })
-            .where(
-              and(
-                eq(weddingUpgradePurchases.id, input.purchaseId),
-                eq(weddingUpgradePurchases.status, "pending"),
-                eq(weddingUpgradePurchases.checkoutSessionId, input.checkoutSessionId),
-              ),
-            )
-            // The metric's label comes back with the write. An expiry is the
-            // ordinary end of an abandoned checkout, so re-reading the row we
-            // just wrote would spend a round trip on every one of them.
-            .returning({ product: weddingUpgradePurchases.entitlement })
-            .all(),
-        );
-        if (changedNone(changed)) return "ignored";
-        const product = (changed as { product: string }[])[0]?.product;
-        if (product !== undefined) {
-          metricUpgradePurchaseSettled(
-            tierForProduct(product) ?? "unmapped",
-            input.status === "failed" ? "failed" : "expired",
+              .run(),
           );
         }
-        return "closed";
-      }).pipe(Effect.withSpan("cire.upgrade.failPurchase"));
+        // Every day a refund waits for a person, say so: the hand-over's own
+        // log line is one line, and the purge keeps the wedding until then.
+        const waiting = yield* dbQuery(() =>
+          db
+            .select({ n: count() })
+            .from(weddingUpgradePurchases)
+            .where(eq(weddingUpgradePurchases.status, "refund_failed"))
+            .all(),
+        );
+        const owed = waiting[0]?.n ?? 0;
+        if (owed > 0) {
+          yield* Effect.logError("upgrade refunds waiting for a person", { count: owed });
+        }
+        return { read: rows.length, failed };
+      }).pipe(Effect.withSpan("cire.upgrade.reconcile"));
     },
 
     /**

@@ -647,12 +647,14 @@ CREATE TABLE IF NOT EXISTS wedding_upgrade_purchases (
   price_currency TEXT,
   amount_minor INTEGER,
   currency TEXT,
+  refund_id TEXT,
   created_by_osn_profile_id TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_wedding_entitlement_idx ON wedding_upgrade_purchases(wedding_id, entitlement);
 CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_payment_intent_idx ON wedding_upgrade_purchases(payment_intent_id);
+CREATE INDEX IF NOT EXISTS wedding_upgrade_purchases_status_updated_idx ON wedding_upgrade_purchases(status, updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS wedding_upgrade_purchases_one_pending_uniq ON wedding_upgrade_purchases(wedding_id) WHERE status = 'pending';
 CREATE TABLE IF NOT EXISTS platform_sales (
   id TEXT PRIMARY KEY,
@@ -770,6 +772,16 @@ WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS (
 )
 BEGIN
   SELECT RAISE(ABORT, 'seating table plan is not a plan of its event');
+END;
+CREATE TRIGGER IF NOT EXISTS wedding_upgrade_purchases_status_known BEFORE INSERT ON wedding_upgrade_purchases
+WHEN NEW.status NOT IN ('pending', 'succeeded', 'failed', 'expired', 'refunded', 'mismatch', 'refunding', 'auto_refunded', 'refund_failed')
+BEGIN
+  SELECT RAISE(ABORT, 'upgrade purchase status is not one cire writes');
+END;
+CREATE TRIGGER IF NOT EXISTS wedding_upgrade_purchases_status_known_update BEFORE UPDATE OF status ON wedding_upgrade_purchases
+WHEN NEW.status NOT IN ('pending', 'succeeded', 'failed', 'expired', 'refunded', 'mismatch', 'refunding', 'auto_refunded', 'refund_failed')
+BEGIN
+  SELECT RAISE(ABORT, 'upgrade purchase status is not one cire writes');
 END;
 CREATE TRIGGER IF NOT EXISTS vendors_status_stage BEFORE INSERT ON vendors
 WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'declined')

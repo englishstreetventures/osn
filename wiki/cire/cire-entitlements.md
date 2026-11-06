@@ -427,6 +427,12 @@ dashboard, and marking first means a delivery landing between the two
 statements already finds the purchase refunded. Setting Crimson, or raising
 without `--lower`, prints one statement and refunds nothing.
 
+A checkout still open when the wedding is lowered settles on its own once
+paid: a from-Gold Crimson page paid after a lowering below Gold is refunded
+automatically, never granted, and any other page grants the tier it sold
+([[cire-upgrades#Taking money and granting nothing]]). Expire the wedding's
+open Checkout Session in the Stripe dashboard first if neither is wanted.
+
 > [!warning]
 > A production D1 write is an owner step: an agent never runs it, and it needs explicit authorisation naming `cire-db`.
 > The owner gets that before applying the printed SQL with
