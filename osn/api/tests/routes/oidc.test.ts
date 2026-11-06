@@ -14,7 +14,7 @@
 import { createHash } from "node:crypto";
 
 import type { Db } from "@osn/db/service";
-import { makeLogEmailLive } from "@shared/email";
+import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
 import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
@@ -28,10 +28,10 @@ import { renderAuthorizeErrorPage } from "../../src/routes/auth/oidc";
 import { createAuthService, type AuthConfig } from "../../src/services/auth";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { settledHandle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { registeredResponse } from "../helpers/registration";
 import { createAuthRoutes, type AuthRateLimiters } from "../helpers/routes";
 
 const REDIRECT_URI = "https://rp.example.com/callback";
@@ -55,8 +55,8 @@ interface HandlesRequests {
 
 interface Harness {
   app: ReturnType<typeof createAuthRoutes>;
-  /** Latest OTP the log transport captured, for the registration flow. */
-  code: () => string | undefined;
+  /** Every mail the log transport captured, for reading a sign-up link back. */
+  recorded: () => readonly RecordedEmail[];
   seedClient: (overrides?: Partial<SeedClient>) => void;
   /** Raw DB handle — used to age sessions for auth_time / max_age tests. */
   sqlite: ReturnType<typeof createTestLayerWithSqlite>["sqlite"];
@@ -124,14 +124,7 @@ function setup(
     app,
     sqlite,
     layer,
-    code: () => {
-      const all = rec.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => rec.recorded(),
     seedClient: (overrides = {}) => seedClientRow(sqlite, overrides),
   };
 }
@@ -142,21 +135,7 @@ async function register(
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  await settledHandle(
-    h.app,
-    new Request("http://localhost/register/begin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, handle, birthdate: "1990-01-01" }),
-    }),
-  );
-  const res = await h.app.handle(
-    new Request("http://localhost/register/complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, code: h.code() }),
-    }),
-  );
+  const res = await registeredResponse(h.app, h.recorded, email, handle);
   const body = (await res.json()) as { session: { access_token: string } };
   const setCookie = res.headers.get("set-cookie") ?? "";
   const token = setCookie.split(";")[0];

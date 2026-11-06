@@ -22,7 +22,8 @@ import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
  * `wrangler.toml` binds them. Every other osn-api test runs the app under Bun
  * with the in-memory stores, and `tools/e2e` boots it under Bun too, so this is
  * the only place the Durable Object path runs as deployed: a step-up token
- * used once, a one-time code used once, an hour-window limiter that outlives a
+ * used once, a one-time code used once, a sign-up through an emailed link
+ * whose session is delivered once, an hour-window limiter that outlives a
  * restart, a recovery-code lockout and refresh-token reuse detection.
  *
  * It ends by writing `e2e-artifacts/osn-api-workerd/results.json`: each
@@ -153,6 +154,8 @@ interface CallOptions {
   /** Sent as an `application/x-www-form-urlencoded` body instead of JSON. */
   readonly form?: Readonly<Record<string, string>>;
   readonly query?: string;
+  /** The path the artifact records, where the real one holds a generated id. */
+  readonly recordedPath?: string;
 }
 
 interface Answer {
@@ -198,10 +201,11 @@ async function call(
     // Not JSON: recorded by status alone.
   }
   const error = typeof json["error"] === "string" ? json["error"] : undefined;
+  const recorded = options.recordedPath ?? path;
   steps.push(
     error === undefined
-      ? { step, method, path, status: res.status }
-      : { step, method, path, status: res.status, error },
+      ? { step, method, path: recorded, status: res.status }
+      : { step, method, path: recorded, status: res.status, error },
   );
   return { status: res.status, json, setCookies: res.headers.getSetCookie() };
 }
@@ -220,6 +224,24 @@ function codeMailedTo(to: string, after: number): string {
   const code = sent.at(-1)?.text.match(/\b(\d{6})\b/)?.[1];
   if (code === undefined) throw new Error(`no one-time code mailed to ${to}`);
   return code;
+}
+
+/**
+ * The newest sign-up link mailed to `to` after `after` mails. The link goes out
+ * after the answer, through the request's `waitUntil`, so this waits for it.
+ */
+async function linkMailedTo(
+  to: string,
+  after: number,
+): Promise<{ requestId: string; linkSecret: string }> {
+  for (let i = 0; i < 200; i++) {
+    const sent = mail.slice(after).filter((m) => m.to.includes(to));
+    const match = sent.at(-1)?.text.match(/\/verify\/(signup_[a-f0-9]{12})#([a-f0-9]{64})/);
+    if (match) return { requestId: match[1]!, linkSecret: match[2]! };
+    // eslint-disable-next-line no-await-in-loop -- polling for a send that runs after the answer
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`no sign-up link mailed to ${to}`);
 }
 
 /** A store object, reached through the binding the Worker uses. */
@@ -455,6 +477,59 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     });
     expect(successor.status).toBe(400);
     expect(successor.json["error"]).toBe("invalid_grant");
+  });
+
+  it("signs up through an emailed link and delivers the session once", async () => {
+    const address = "workerd-signup@example.com";
+    const before = mail.length;
+    const begin = await call("sign-up begun", "POST", "/register/begin", {
+      ip: MAIN_IP,
+      body: { email: address, handle: "workerdsignup", birthdate: "1990-01-01" },
+    });
+    expect(begin.status).toBe(200);
+    const requestId = begin.json["requestId"] as string;
+    const claimSecret = begin.json["claimSecret"] as string;
+    const pairingCode = begin.json["pairingCode"] as string;
+    const link = await linkMailedTo(address, before);
+    expect(link.requestId).toBe(requestId);
+
+    const candidates = await call(
+      "sign-up link candidates",
+      "POST",
+      `/email-link/${requestId}/candidates`,
+      {
+        ip: MAIN_IP,
+        body: { linkSecret: link.linkSecret },
+        recordedPath: "/email-link/:id/candidates",
+      },
+    );
+    expect(candidates.json["pairingCandidates"]).toContain(pairingCode);
+
+    for (const step of ["sign-up link confirmed", "sign-up link confirmed again"]) {
+      // eslint-disable-next-line no-await-in-loop -- the second confirm must follow the first
+      const confirmed = await call(step, "POST", `/email-link/${requestId}/confirm`, {
+        ip: MAIN_IP,
+        body: { linkSecret: link.linkSecret, pairingPick: pairingCode },
+        recordedPath: "/email-link/:id/confirm",
+      });
+      expect(confirmed.json).toEqual({ status: "confirmed" });
+      expect(confirmed.setCookies).toEqual([]);
+    }
+
+    const done = await call("sign-up claimed", "POST", `/register/${requestId}/status`, {
+      ip: MAIN_IP,
+      body: { claimSecret },
+      recordedPath: "/register/:id/status",
+    });
+    expect(done.status).toBe(201);
+    expect(sessionCookie(done)).toContain("osn_session=");
+
+    const again = await call("sign-up claimed again", "POST", `/register/${requestId}/status`, {
+      ip: MAIN_IP,
+      body: { claimSecret },
+      recordedPath: "/register/:id/status",
+    });
+    expect(again.json).toEqual({ status: "expired" });
   });
 
   it("sent nothing anywhere but the Resend stand-in", () => {

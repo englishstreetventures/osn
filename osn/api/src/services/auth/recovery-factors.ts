@@ -67,6 +67,7 @@ import {
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import {
+  frontendOrigin,
   genDisownToken,
   genId,
   genOtpCode,
@@ -120,15 +121,7 @@ export function createRecoveryFactorsModule(
   const otpTtlMinutes = RECOVERY_OTP_TTL_MS / 60_000;
 
   /**
-   * Where the "this wasn't me" link points.
-   *
-   * The origin is DERIVED, not configured: `authorizeUiUrl`'s origin, falling
-   * back to the first configured WebAuthn origin — the same precedence
-   * `buildInteractionRedirect` uses in `oidc.ts`, so the service has one answer
-   * to "where does the frontend live" rather than two that can disagree. A new
-   * `Env` key would have to be set in four wrangler environments and the
-   * dev-urls map before it was correct anywhere, and would be silently wrong
-   * until it was.
+   * Where the "this wasn't me" link points: {@link frontendOrigin}.
    *
    * The token rides in the **fragment**. Corporate mail scanners prefetch every
    * link in a message, and this one is single use — in the query string a
@@ -138,20 +131,10 @@ export function createRecoveryFactorsModule(
    * The page that turns this link into the POST lands with the UI phase of this
    * epic, englishstreetventures/osn#953.
    */
-  const disownUrl = (token: string): string => {
-    const configured = config.authorizeUiUrl;
-    const fallback = Array.isArray(config.origin) ? config.origin[0] : config.origin;
-    const base = configured ?? fallback ?? "";
-    let origin = base;
-    try {
-      origin = new URL(base).origin;
-    } catch {
-      // A malformed origin must not fail the recovery that is already
-      // committed. The notice still sends; the link is simply not usable.
-      origin = base;
-    }
-    return `${origin}/recovery/disown#token=${encodeURIComponent(token)}`;
-  };
+  // A malformed origin must not fail the recovery that is already committed:
+  // `frontendOrigin` answers it as given, so the notice still sends.
+  const disownUrl = (token: string): string =>
+    `${frontendOrigin(config)}/recovery/disown#token=${encodeURIComponent(token)}`;
 
   /*
    * Padding. The branches that must not be told apart pay for the store calls

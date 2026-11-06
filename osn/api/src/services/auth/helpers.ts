@@ -351,6 +351,41 @@ export function logDevOtp(purpose: string, code: string): Effect.Effect<void> {
   return Effect.logDebug(`[dev-otp] ${purpose} code=${code}`);
 }
 
+/**
+ * The emailed link, secret included, as a local-only debug line — so a local
+ * stack with no mail provider can still be signed up through. Gated exactly as
+ * {@link logDevOtp}.
+ */
+export function logDevLink(purpose: string, url: string): Effect.Effect<void> {
+  if (!isLocalEnv()) return Effect.void;
+  return Effect.logDebug(`[dev-link] ${purpose} ${url}`);
+}
+
+/**
+ * The origin of the web app that serves pages an email links to — the recovery
+ * notice's "this wasn't me" page and an emailed link's confirm page.
+ *
+ * Derived, not configured: `authorizeUiUrl`'s origin, falling back to the first
+ * configured WebAuthn origin, the same precedence `buildInteractionRedirect`
+ * uses in `routes/auth/oidc.ts`. One answer to "where does the frontend live"
+ * rather than two that can disagree, and no `Env` key that would have to be set
+ * in every wrangler environment before it was right anywhere. A malformed value
+ * is returned as given: the mail that carries the link is already committed,
+ * and it still sends with a link that does not work.
+ */
+export function frontendOrigin(config: {
+  readonly authorizeUiUrl?: string;
+  readonly origin: string | string[];
+}): string {
+  const fallback = Array.isArray(config.origin) ? config.origin[0] : config.origin;
+  const base = config.authorizeUiUrl ?? fallback ?? "";
+  try {
+    return new URL(base).origin;
+  } catch {
+    return base;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Session token helpers (Copenhagen Book C1)
 // ---------------------------------------------------------------------------

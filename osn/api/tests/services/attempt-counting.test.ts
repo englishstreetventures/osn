@@ -14,6 +14,7 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
+import { latestLinkTo, registerThroughService } from "../helpers/registration";
 
 /**
  * Every code-checking ceremony counts its guesses in the store, one atomic
@@ -85,6 +86,7 @@ function capture() {
   return {
     layer: Layer.merge(db.layer, email.layer),
     sqlite: db.sqlite,
+    recorded: () => email.recorded(),
     latest: (): string => {
       const all = codes();
       if (all.length === 0) throw new Error("no code captured");
@@ -330,25 +332,29 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     },
   );
 
-  it.live("registration: a burst of wrong codes spends the code; a new one works", () => {
+  it.live("registration: a burst of wrong link secrets spends the link; a new one works", () => {
     const mail = capture();
     const auth = createAuthService({ ...base, ...bundle() });
+    const address = "att-reg@example.com";
     return Effect.gen(function* () {
-      yield* settle(auth.beginRegistration("att-reg@example.com", "attreg", "1990-01-01"));
-      const right = mail.latest();
+      const begun = yield* settle(auth.beginRegistration(address, "attreg", "1990-01-01"));
+      const link = latestLinkTo(mail.recorded(), address)!;
+      const wrong = { linkSecret: "0".repeat(64), pairingPick: begun.pairingCode };
 
       yield* Effect.all(
         Array.from({ length: MAX_OTP_ATTEMPTS + BURST }, () =>
-          Effect.flip(auth.completeRegistration("att-reg@example.com", wrongFor(right))),
+          auth.confirmEmailLink(link.requestId, wrong),
         ),
         { concurrency: "unbounded" },
       );
 
-      const late = yield* Effect.flip(auth.completeRegistration("att-reg@example.com", right));
-      expect(late._tag).toBe("AuthError");
+      const late = yield* auth.confirmEmailLink(link.requestId, {
+        linkSecret: link.linkSecret,
+        pairingPick: begun.pairingCode,
+      });
+      expect(late).toBe("expired");
 
-      yield* settle(auth.beginRegistration("att-reg@example.com", "attreg", "1990-01-01"));
-      const done = yield* auth.completeRegistration("att-reg@example.com", mail.latest());
+      const done = yield* registerThroughService(auth, mail.recorded, address, "attreg");
       expect(done.handle).toBe("attreg");
     }).pipe(Effect.provide(mail.layer));
   });

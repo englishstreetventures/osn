@@ -40,6 +40,7 @@ export interface CeremonyStores {
   crossDeviceRequests: CeremonyStore<CrossDeviceRequest>;
   authorizeRequests: CeremonyStore<PendingAuthorizeRequest>;
   recoveryDisownTokens: CeremonyStore<RecoveryDisownToken>;
+  emailLinks: CeremonyStore<EmailLinkChallenge>;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,11 +110,54 @@ export interface RecoveryDisownToken {
   expiresAt: number;
 }
 
+/**
+ * A sign-up waiting for its emailed link, keyed by the normalised address (or,
+ * for a taken address, its probe key). One live entry per key: a second begin
+ * for the address finds it and parks nothing, so it cannot replace the request
+ * someone else's link belongs to.
+ *
+ * `requestId` names the {@link EmailLinkChallenge} this entry belongs to. Only
+ * that request's claim creates the account, and only that request's wipe or
+ * retirement removes the entry.
+ */
 export interface PendingRegistration {
+  /** Empty for the decoy parked for a taken address: nothing is ever sent to it. */
   email: string;
   handle: string;
   displayName: string | null;
-  codeHash: string;
+  requestId: string;
+  expiresAt: number;
+}
+
+/** The flows that prove an address with an emailed link. */
+export type EmailLinkFlow = "registration";
+
+/**
+ * One emailed-link request, keyed by its request id. The link carries the
+ * request id in its path and the link secret in its fragment; the tab that
+ * began holds the claim secret and shows the pairing number. Only SHA-256
+ * hashes of the two secrets are stored, and only a keyed digest of the pairing
+ * number; the candidates the confirm page shows are derived from the request
+ * id, never stored.
+ *
+ * `v` names the record's shape; an entry of any other shape is refused.
+ */
+export interface EmailLinkChallenge {
+  v: 1;
+  flow: EmailLinkFlow;
+  /**
+   * The key of the flow's own pending entry: for registration, the address or
+   * its probe key. Never returned by any route.
+   */
+  subject: string;
+  /** The hash of every link sent for the request, newest last. */
+  mailSecretHashes: string[];
+  claimSecretHash: string;
+  /** `serverMac.pairingDigest(requestId, pairing number)`. */
+  pairingHash: string;
+  /** `confirmed` once a right link secret and pick were posted; the claim reads it. */
+  status: "pending" | "confirmed";
+  /** Milliseconds. */
   expiresAt: number;
 }
 
@@ -369,6 +413,7 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       "recovery_disown",
       observer,
     ),
+    emailLinks: createInMemoryCeremonyStore<EmailLinkChallenge>("email_link", observer),
   };
 }
 

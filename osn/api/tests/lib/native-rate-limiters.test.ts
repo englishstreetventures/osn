@@ -29,7 +29,10 @@ function fallbackBundle(): AuthRateLimiters {
     (
       [
         "registerBegin",
-        "registerComplete",
+        "registerStatus",
+        "registerResend",
+        "emailLinkConfirm",
+        "emailLinkCandidates",
         "handleCheck",
         "passkeyLoginBegin",
         "passkeyLoginComplete",
@@ -209,9 +212,9 @@ describe("selectAuthRateLimiters — limiter routing", () => {
       RL_AUTH_IP_60_60: recordingBinding().binding,
     };
     const selected = selectAuthRateLimiters(bindings, fallbackBundle());
-    await selected.registerComplete.check("9.9.9.9");
+    await selected.emailLinkConfirm.check("9.9.9.9");
     await selected.passkeyRegisterBegin.check("9.9.9.9");
-    expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.registerComplete.ns}:9.9.9.9`);
+    expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.emailLinkConfirm.ns}:9.9.9.9`);
     expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.passkeyRegisterBegin.ns}:9.9.9.9`);
     expect(rec.keys[0]).not.toBe(rec.keys[1]);
   });

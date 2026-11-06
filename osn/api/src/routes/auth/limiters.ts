@@ -7,6 +7,8 @@ import {
   PROFILE_SWITCH_WINDOW_MS,
   RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
   RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  REGISTRATION_SENDS_PER_ADDRESS_MAX,
+  REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
 } from "../../services/auth/constants";
 
 /**
@@ -17,7 +19,23 @@ import {
  */
 export type AuthRateLimiters = Readonly<{
   registerBegin: RateLimiterBackend;
-  registerComplete: RateLimiterBackend;
+  /**
+   * Sign-up status poll (unauthenticated, per-IP). The tab that began polls
+   * every few seconds while it waits, so the budget is a polling one.
+   */
+  registerStatus: RateLimiterBackend;
+  /** Sign-up link Resend (unauthenticated, SENDS MAIL, per-IP). */
+  registerResend: RateLimiterBackend;
+  /**
+   * Emailed-link confirm (unauthenticated, per-IP). The 256-bit secret and the
+   * per-request wipe are the real gate; this is the brake on flooding.
+   */
+  emailLinkConfirm: RateLimiterBackend;
+  /**
+   * Emailed-link candidates read (unauthenticated, per-IP): the confirm page
+   * reads it once on load, again on a reload.
+   */
+  emailLinkCandidates: RateLimiterBackend;
   handleCheck: RateLimiterBackend;
   passkeyLoginBegin: RateLimiterBackend;
   passkeyLoginComplete: RateLimiterBackend;
@@ -161,7 +179,13 @@ export interface AuthRateLimitBudget extends RateLimitBudget {
  */
 export const AUTH_RATE_LIMITS = {
   registerBegin: { ns: "register_begin", maxRequests: 5, windowMs: MINUTE_MS },
-  registerComplete: { ns: "register_complete", maxRequests: 10, windowMs: MINUTE_MS },
+  // Polled by the waiting tab, two to ten seconds apart: the cross-device
+  // poll's budget.
+  registerStatus: { ns: "register_status", maxRequests: 60, windowMs: MINUTE_MS },
+  registerResend: { ns: "register_resend", maxRequests: 5, windowMs: MINUTE_MS },
+  // A person presses Confirm once, maybe twice; the recovery disown budget.
+  emailLinkConfirm: { ns: "email_link_confirm", maxRequests: 10, windowMs: MINUTE_MS },
+  emailLinkCandidates: { ns: "email_link_candidates", maxRequests: 20, windowMs: MINUTE_MS },
   // Generous headroom: handle-check fires as-you-type and login-begin is
   // auto-fired by the passkey conditional-UI / autofill ceremony per page
   // load. Both are cheap; the real gates are the `*Complete` endpoints, which
@@ -317,6 +341,13 @@ export const OSN_RATE_LIMITS = {
     store: "auth.recovery_email_begin_cap",
     maxRequests: RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
     windowMs: RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  },
+  // Keyed on the probe key of the address a sign-up link goes to, and checked
+  // only where one goes out. See `REGISTRATION_SENDS_PER_ADDRESS_MAX`.
+  registrationSendCap: {
+    store: "auth.registration_send_cap",
+    maxRequests: REGISTRATION_SENDS_PER_ADDRESS_MAX,
+    windowMs: REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
   },
 } as const satisfies Readonly<Record<string, NamedRateLimitBudget>>;
 

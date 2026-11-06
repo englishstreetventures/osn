@@ -107,9 +107,11 @@ export interface AppDeps {
   recoveryLockoutStore: CoordinationStores["recoveryLockoutStore"];
   recoveryOtpLockoutStore: CoordinationStores["recoveryOtpLockoutStore"];
   totpLockoutStore: CoordinationStores["totpLockoutStore"];
+  registrationLinkLockoutStore: CoordinationStores["registrationLinkLockoutStore"];
   profileSwitchCap: CoordinationStores["profileSwitchCap"];
   emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
   recoveryEmailBeginCap: CoordinationStores["recoveryEmailBeginCap"];
+  registrationSendCap: CoordinationStores["registrationSendCap"];
   /** The coordination round trip `GET /health/coordination` runs. */
   healthProbe: CoordinationStores["healthProbe"];
   /** Per-IP limiter in front of it: native where the Worker has the binding. */
@@ -189,9 +191,11 @@ export function createApp(deps: AppDeps) {
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     totpLockoutStore,
+    registrationLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryEmailBeginCap,
+    registrationSendCap,
     healthProbe,
     healthProbeLimiter,
     clientIpConfig,
@@ -274,9 +278,11 @@ export function createApp(deps: AppDeps) {
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
     totpLockoutStore,
+    registrationLinkLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryEmailBeginCap,
+    registrationSendCap,
   };
 
   return withDocs

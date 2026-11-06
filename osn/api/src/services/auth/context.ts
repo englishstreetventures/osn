@@ -15,6 +15,10 @@ import {
   PROFILE_SWITCH_WINDOW_MS,
   RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
   RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  REGISTRATION_LINK_LOCKOUT_MS,
+  REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+  REGISTRATION_SENDS_PER_ADDRESS_MAX,
+  REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "./constants";
@@ -76,12 +80,24 @@ export function createAuthContext(config: AuthConfig) {
       RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
       RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
     );
+  const registrationSendCap =
+    config.registrationSendCap ??
+    createInMemoryAccountCap(
+      REGISTRATION_SENDS_PER_ADDRESS_MAX,
+      REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS,
+    );
   // Per-account recovery-code lockout counter.
   const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
   // Per-account lockout for the email-OTP recovery path. Its own counter, so
   // grinding one recovery factor never locks the owner out of the other.
   const recoveryOtpLockoutStore =
     config.recoveryOtpLockoutStore ?? createInMemoryRecoveryLockoutStore();
+  const registrationLinkLockoutStore =
+    config.registrationLinkLockoutStore ??
+    createInMemoryRecoveryLockoutStore({
+      threshold: REGISTRATION_LINK_LOCKOUT_THRESHOLD,
+      lockoutMs: REGISTRATION_LINK_LOCKOUT_MS,
+    });
   // Per-account TOTP lockout. The in-memory default cannot fail; only a shared
   // store answers `"unknown"`, which every caller refuses.
   const totpLockoutStore =
@@ -119,8 +135,10 @@ export function createAuthContext(config: AuthConfig) {
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryEmailBeginCap,
+    registrationSendCap,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
+    registrationLinkLockoutStore,
     totpLockoutStore,
     hashIp,
     serverMac,

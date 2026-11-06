@@ -1,23 +1,24 @@
 /**
- * Account creation: the legacy direct `registerProfile`, the two-step
- * email-OTP registration ceremony, and the public handle-availability check.
+ * Account creation: the legacy direct `registerProfile`, sign-up through an
+ * emailed link (begin, resend, status), and the public handle-availability
+ * check.
  */
 
 import { accounts, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch, driverErrorText } from "@shared/db-utils";
-import { EmailError, EmailService } from "@shared/email";
+import { EmailService } from "@shared/email";
 import { eq, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
 
 import { forkBackground } from "../../lib/background";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
-import { metricAuthHandleCheck, metricAuthOtpSent, withAuthRegister } from "../../metrics";
-import { guessEntry, spendEntry } from "./attempts";
-import { MAX_OTP_ATTEMPTS, MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
+import { metricAuthHandleCheck, metricEmailLinkSend, withAuthRegister } from "../../metrics";
+import { spendEntry } from "./attempts";
+import { MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
 import type { AuthContext } from "./context";
+import type { EmailLinkModule } from "./email-link";
 import {
   AgeRestrictionError,
   AuthError,
@@ -30,18 +31,31 @@ import {
   BirthdateSchema,
   EmailSchema,
   genId,
-  genOtpCode,
   HandleSchema,
-  hashSessionToken,
-  logDevOtp,
-  MAX_IDENTIFIER_LENGTH,
+  logDevLink,
   now,
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import { storeCall } from "./store-call";
-import type { PendingRegistration } from "./stores";
+import type { EmailLinkChallenge, PendingRegistration } from "./stores";
 import type { TokensModule } from "./tokens";
 import type { ProfileWithEmail, SessionMeta } from "./types";
+
+/** What a sign-up status poll answers. */
+export type RegistrationStatus =
+  | { readonly status: "pending" }
+  | { readonly status: "expired" }
+  | { readonly status: "conflict" }
+  | {
+      readonly status: "complete";
+      readonly profileId: string;
+      readonly handle: string;
+      readonly email: string;
+      readonly displayName: string | null;
+      readonly accessToken: string;
+      readonly refreshToken: string;
+      readonly expiresIn: number;
+    };
 
 export function createRegistrationModule(
   ctx: AuthContext,
@@ -50,13 +64,16 @@ export function createRegistrationModule(
   // module factory wiring in index.ts stays uniform.
   _profiles: ProfilesModule,
   tokens: TokensModule,
+  links: EmailLinkModule,
 ) {
-  const { config, stores, otpTtl, serverMac } = ctx;
+  const { config, stores, otpTtl, serverMac, registrationSendCap, registrationLinkLockoutStore } =
+    ctx;
   const { issueTokens } = tokens;
 
   /**
-   * Registers a new profile (and its owning account). Fails if the email or handle is already taken.
-   * This is the only way to create a profile — OTP/magic/passkey flows are login-only.
+   * Registers a new profile (and its owning account) directly, with no proof of
+   * the address. Fails if the email or handle is already taken. Seed scripts
+   * and tests use it; people sign up through the emailed link below.
    * The email is stored and returned lower-cased, as `beginRegistration` stores it.
    */
   const registerProfile = (
@@ -155,92 +172,71 @@ export function createRegistrationModule(
     });
 
   /**
-   * How long a sign-up whose code may still arrive keeps its pending entry
-   * after the send failed: a retry inside it sends nothing, one after it sends
-   * a new code.
+   * Mails the sign-up link for `handle` to `address`, after the answer: the
+   * caller forks it. The address's limits are read here, so they cost the
+   * answer nothing and are reached only where a link goes out — never for a
+   * taken address: no link goes to an address whose sign-up links drew too
+   * many wrong picks or declines today, or that has had its links for the
+   * hour. Either store failing to answer sends nothing. A held-back or failed
+   * send is counted and goes no further; the transport has already logged why
+   * a send failed. The request stays live either way, and Resend on it is the
+   * retry.
    */
-  const UNKNOWN_DELIVERY_HOLD_MS = 60_000;
-
-  /**
-   * Whether a failed send might still have delivered its code. A refusal, a
-   * rate limit or a failed render sent nothing. A request that timed out or
-   * never got an answer may have reached Resend, which can still deliver it.
-   */
-  const deliveryOf = (error: unknown): "none" | "unknown" =>
-    error instanceof EmailError && error.reason !== "api_unreachable" ? "none" : "unknown";
-
-  /**
-   * Settle `parked`, the pending registration this begin wrote at `key`, after
-   * its code's send failed. It is one store call that names `parked`, so it
-   * touches no other entry: one spent since — by the cap, or by the
-   * registration its code completed — is not brought back, and one a later
-   * begin wrote once this one was spent or expired stays, since that one's
-   * code may have arrived.
-   *
-   * - Nothing was sent: `parked` goes, so a retry sends a new code.
-   * - The code may still arrive: `parked` stays, with at most
-   *   {@link UNKNOWN_DELIVERY_HOLD_MS} left to live, so the address gets no
-   *   second code at once and the person can retry a minute later. Deleting it
-   *   instead would let each begin mail the address again while sends are
-   *   slow. The stored value is the same one, so a guess that read it before
-   *   the hold still names it when it deletes.
-   *
-   * A store call that fails leaves the entry as it was, to expire.
-   *
-   * Holding the entry rewrites it, and a rewrite starts its guess count again.
-   * That allows at most one more cap's worth of guesses, inside the minute the
-   * entry is held, against a code whose send failed — a bound the cap's own
-   * arithmetic absorbs (ten six-digit guesses, not five).
-   */
-  const settleFailedSend = (
-    key: string,
-    parked: PendingRegistration,
-    delivery: "none" | "unknown",
-  ): Effect.Effect<void> =>
-    // Best effort: the send has already failed, and the caller's answer does
-    // not depend on this tidying.
-    Effect.promise(async () => {
-      if (delivery === "none") {
-        await stores.pendingRegistrations.delete(key, parked).catch(() => undefined);
+  const sendLink = (address: string, handle: string, url: string, ttlMinutes: number) =>
+    Effect.gen(function* () {
+      const key = serverMac.probeKey(address);
+      const strikes = yield* Effect.promise(() => registrationLinkLockoutStore.status(key));
+      const allowed =
+        strikes.status === "open" && (yield* Effect.promise(() => registrationSendCap.check(key)));
+      if (!allowed) {
+        metricEmailLinkSend("registration", "capped");
         return;
       }
-      const left = Math.min(parked.expiresAt - Date.now(), UNKNOWN_DELIVERY_HOLD_MS);
-      await stores.pendingRegistrations
-        .swap(key, parked, parked, Math.max(1, left))
-        .catch(() => false);
+      const emailSvc = yield* EmailService;
+      yield* emailSvc
+        .send({
+          template: "link-registration",
+          to: address,
+          data: { url, ttlMinutes, instanceName: config.instanceName, handle },
+        })
+        .pipe(
+          Effect.timeout("10 seconds"),
+          Effect.tap(() => Effect.sync(() => metricEmailLinkSend("registration", "sent"))),
+          Effect.catch(() => Effect.sync(() => metricEmailLinkSend("registration", "failed"))),
+        );
     });
 
   /**
-   * Step 1 of email-verified registration. Validates input, normalises the
-   * email to lowercase, generates an unbiased 6-digit OTP, stores a pending
-   * registration entry, and emails the code. No DB row is created yet.
+   * Step 1 of sign-up. Validates input, normalises the email to lowercase,
+   * opens an emailed-link request and parks the sign-up beside it, then mails
+   * the link. No account row is created yet.
+   *
+   * Answers `{ requestId, claimSecret, pairingCode, expiresAt }` to the tab
+   * that began. The tab keeps the claim secret and polls `registrationStatus`
+   * with it, and shows the pairing code, which the confirm step requires; the
+   * link goes only to the address.
    *
    * Security properties:
-   *  - Always returns `{ sent: true }` regardless of whether the email or
-   *    handle is already taken, and whether or not the code's email went out,
-   *    so neither the status nor the body says whether an address has an
-   *    account. Every branch answers after the one store call: the code's
-   *    send runs after the answer, so the time to answer does not say either.
-   *    The "is this handle free?" question is answered separately by the
-   *    public `/handle/:handle` endpoint, which is the appropriate channel
-   *    and can be rate-limited independently.
-   *  - A send that failed and sent nothing removes its own pending entry, so a
-   *    retry sends a new code rather than meeting the pending check for the
-   *    code's whole life. A send whose code may still arrive (timed out,
-   *    unreachable) holds its entry for a minute instead. The cost: a person
-   *    whose send failed is told a code was sent. The transport logs why
-   *    (`email.dispatch_failed`, or `email.dispatch_interrupted` on the
-   *    timeout), and `osn.email.send.attempts{outcome="failed"}` counts it;
-   *    this function's own attempt counter records the begin as `ok`.
-   *  - The pending-registrations store is self-bounding (CEREMONY_STORE_MAX
-   *    in-memory, per-entry TTL on the Durable Object store) and sweeps expired entries on
-   *    insert, so unauthenticated abuse can't grow it without bound.
-   *  - Refuses to overwrite a non-expired pending entry, so a second begin
-   *    for someone's address cannot reset the code they hold. The check and
-   *    the write are one store call (`swap` from nothing), so of two begins
-   *    that overlap, one parks its code and the other sends nothing.
-   *  - The local-only `Effect.logDebug` of the OTP is gated on
-   *    `OSN_ENV` being unset or `"local"`.
+   *  - Every branch — the address or handle taken, a sign-up already pending
+   *    for the address, a link sent — answers the same shape after the same
+   *    two store calls (the link request's write, then a swap from nothing on
+   *    the pending entry), and mails after the answer. Neither the body, the
+   *    status nor the time to answer says whether an address has an account.
+   *    A taken address gets a request whose link is never sent, so its poll
+   *    stays `pending` until it expires, as a real one's does unconfirmed.
+   *    "Is this handle free?" is answered by the public `/handle/:handle`.
+   *  - A swap from nothing refuses to replace a live pending entry, so a
+   *    second begin for someone's address cannot take over the request their
+   *    link belongs to; of two begins at once, one parks and the other sends
+   *    nothing.
+   *  - `previous`, the request and claim secret of a sign-up this tab began
+   *    before, retires that request and frees its address first, so a person
+   *    who goes back to fix their handle can begin again at once. Without the
+   *    claim secret it retires nothing.
+   *  - The pending store is self-bounding (CEREMONY_STORE_MAX in memory,
+   *    per-entry TTL on the Durable Object store).
+   *  - The local-only debug line with the link is gated on `OSN_ENV` being
+   *    unset or `"local"`.
    *
    * Validation errors (bad email format, bad handle format, reserved handle)
    * are still surfaced as ValidationError / AuthError because they're not
@@ -251,8 +247,9 @@ export function createRegistrationModule(
     handle: string,
     birthdate: string,
     displayName?: string,
+    previous?: { readonly requestId: string; readonly claimSecret: string },
   ): Effect.Effect<
-    { sent: boolean },
+    { requestId: string; claimSecret: string; pairingCode: string; expiresAt: number },
     AgeRestrictionError | AuthError | ValidationError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
@@ -268,7 +265,7 @@ export function createRegistrationModule(
       );
 
       // COPPA: hard-reject under-13 BEFORE any personal information is
-      // collected — before the OTP is sent and before we even probe for
+      // collected — before the link is sent and before we even probe for
       // email/handle collisions. The birthdate is used transiently here and is
       // never written to any store or table, so a rejected (or accepted)
       // registration leaves no date-of-birth behind. See [[compliance/coppa]].
@@ -284,9 +281,10 @@ export function createRegistrationModule(
       // persist and what we key the pending-registrations map by.
       const normalisedEmail = email.toLowerCase();
 
-      // The store sweeps expired entries and self-bounds (CEREMONY_STORE_MAX
-      // on the in-memory backend, per-entry TTL on the Durable Object store), so no explicit
-      // sweep / size cap is needed here any more.
+      if (previous) {
+        yield* links.retire("registration", previous.requestId, previous.claimSecret);
+      }
+
       // A single round-trip existence probe — UNION ALL of two indexed
       // single-table arms (see registerProfile for why not an OR across the
       // join). The collision branch below responds identically for either, so no
@@ -308,156 +306,127 @@ export function createRegistrationModule(
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      // Silently no-op when the email or handle already exists. The user
-      // can use the login flow if they already have an account; we don't
-      // confirm or deny their existence over an unauthenticated channel.
+      // The user can use the login flow if they already have an account; we
+      // don't confirm or deny their existence over an unauthenticated channel.
       const taken = collision.length > 0;
 
-      // Every branch — the address or handle taken, a code already pending,
-      // a code sent — makes the same one store call, a swap from nothing, so
-      // the branches cost the same in store round trips and fail together
-      // while the store is down. A swap that finds a live entry leaves it as
-      // it was, so a second begin for someone's address cannot reset the code
-      // they hold, however the two overlap. The taken branch makes it at the
-      // caller's probe key, which no `complete` reads; the value parked there
-      // holds a hash no code matches.
-      const code = genOtpCode();
-      const codeHash = hashSessionToken(code);
-      const expiresAt = Date.now() + otpTtl * 1000;
+      // A taken address parks at its probe key, which no live sign-up uses,
+      // and its pending entry holds no address, so nothing is ever mailed for
+      // it and no claim can finish it.
+      const key = taken ? serverMac.probeKey(normalisedEmail) : normalisedEmail;
+      const ttlMs = otpTtl * 1000;
+      const opened = yield* links.open("registration", key, ttlMs);
       const parked: PendingRegistration = taken
         ? {
             email: "",
             handle: "",
             displayName: null,
-            codeHash: hashSessionToken(genOtpCode() + genId("")),
-            expiresAt,
+            requestId: opened.requestId,
+            expiresAt: opened.expiresAt,
           }
         : {
             email: normalisedEmail,
             handle,
             displayName: displayName ?? null,
-            codeHash,
-            expiresAt,
+            requestId: opened.requestId,
+            expiresAt: opened.expiresAt,
           };
-      const key = taken ? serverMac.probeKey(normalisedEmail) : normalisedEmail;
       const written = yield* storeCall(stores.pendingRegistrations, "swap", () =>
-        stores.pendingRegistrations.swap(key, null, parked, otpTtl * 1000),
+        stores.pendingRegistrations.swap(key, null, parked, ttlMs),
       );
-      if (taken || !written) return { sent: true };
+      const answer = {
+        requestId: opened.requestId,
+        claimSecret: opened.claimSecret,
+        pairingCode: opened.pairingCode,
+        expiresAt: Math.floor(opened.expiresAt / 1000),
+      };
+      // A request whose entry did not park is left to expire unconfirmed: its
+      // link is never sent.
+      if (taken || !written) return answer;
 
-      yield* logDevOtp("registration", code);
+      yield* logDevLink("registration", opened.url);
 
-      // The EmailService layer decides where the code goes: the in-memory
-      // recorder locally and in tests, Resend in every deployed tier.
-      //
-      // The send runs after the answer, forked with a timeout as
-      // `beginEmailRecovery` forks its own. Awaiting it would make this branch
-      // answer a Resend round trip later than the taken and pending branches,
-      // which make the same one store call and return: the response time would
-      // say whether the address has an account, whatever the body says.
-      // `forkBackground` registers the fibre with the request's `waitUntil`,
-      // so the send still runs on workerd once the response is out.
-      //
-      // A send that fails — refused, unreachable, or slower than ten seconds —
-      // settles this request's pending entry (`settleFailedSend`): gone when
-      // nothing was sent, so "Resend code" sends a new code; held for a minute
-      // when the code may still arrive. The transport has already logged why
-      // the send failed.
-      const emailSvc = yield* EmailService;
-      yield* forkBackground(
-        emailSvc
-          .send({
-            template: "otp-registration",
-            to: normalisedEmail,
-            data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
-          })
-          .pipe(
-            Effect.timeout("10 seconds"),
-            Effect.tap(() => Effect.sync(() => metricAuthOtpSent("registration"))),
-            Effect.catch((error) => settleFailedSend(key, parked, deliveryOf(error))),
-          ),
-      );
+      // The send runs after the answer, forked with a timeout. Awaiting it
+      // would make this branch answer a mail round trip later than the taken
+      // and pending branches, and the response time would say whether the
+      // address has an account. `forkBackground` registers the fibre with the
+      // request's `waitUntil`, so the send still runs on workerd once the
+      // response is out.
+      yield* forkBackground(sendLink(normalisedEmail, handle, opened.url, otpTtl / 60));
 
-      return { sent: true };
+      return answer;
     }).pipe(withAuthRegister("begin"));
 
   /**
-   * Step 2 of email-verified registration. Verifies the OTP against the
-   * pending registration and, if valid, creates the account + profile rows
-   * and returns a full session (access + refresh tokens).
+   * Sends another link for a sign-up, to the tab that holds its claim secret.
+   * Every link sent stays usable until the request ends; at most
+   * `EMAIL_LINK_MAX_SENDS` in all. Answers:
    *
-   * The UI then immediately drives the `/passkey/register/*` flow using
-   * the returned access token to enroll the user's first passkey. Accounts
-   * without a passkey cannot make it past registration because the UI
-   * refuses to dismiss until enrollment succeeds, and `deletePasskey`
-   * refuses to drop below 1 — so every live account always has ≥1 passkey.
+   *  - `sent` — another link is on its way; also for a taken address's request
+   *    (nothing goes out) and for a request already confirmed (the next poll
+   *    finishes it, so nothing more is needed);
+   *  - `limit` — the request has sent all the links it may;
+   *  - `expired` — no live request matches.
    *
-   * Security properties:
-   *  - Constant-time OTP comparison (`timingSafeEqualString`).
-   *  - Per-entry attempt counter; after MAX_OTP_ATTEMPTS the entry is wiped,
-   *    capping brute-force probability at ~5/1_000_000 per registration.
-   *  - The pending entry is only deleted AFTER a successful insert. A losing
-   *    race against another insert (TOCTOU) leaves the pending entry intact
-   *    so the user can retry without burning their OTP.
-   *  - Insert relies on the DB-level UNIQUE constraint on email/handle as
-   *    the source of truth, mapping *uniqueness* violations to a clean
-   *    AuthError instead of leaking driver text. Any other
-   *    constraint failure surfaces as DatabaseError.
+   * Like begin, it mails after the answer, and a taken address's request makes
+   * the same store calls as a free one's.
    */
-  const completeRegistration = (
-    email: string,
-    code: string,
-    sessionMeta?: SessionMeta,
-  ): Effect.Effect<
-    {
-      profileId: string;
-      handle: string;
-      email: string;
-      displayName: string | null;
-      accessToken: string;
-      refreshToken: string;
-      expiresIn: number;
-    },
-    AuthError | DatabaseError | CoordinationError,
-    Db
-  > =>
+  const resendRegistration = (
+    requestId: string,
+    claimSecret: string,
+  ): Effect.Effect<{ status: "sent" | "limit" | "expired" }, CoordinationError, EmailService> =>
     Effect.gen(function* () {
-      const key = email.toLowerCase();
-      // Longer than any address an account can hold, and too long to key an entry.
-      if (key.length > MAX_IDENTIFIER_LENGTH) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      const resent = yield* links.resend("registration", requestId, claimSecret);
+      if (resent.state === "expired") return { status: "expired" } as const;
+      if (resent.state === "limit") return { status: "limit" } as const;
+      if (resent.state === "confirmed") return { status: "sent" } as const;
+      const pending = yield* storeCall(stores.pendingRegistrations, "get", () =>
+        stores.pendingRegistrations.get(resent.subject),
+      );
+      if (pending?.requestId === requestId && pending.email) {
+        const minutesLeft = Math.max(1, Math.ceil((resent.expiresAt - Date.now()) / 60_000));
+        yield* logDevLink("registration", resent.url);
+        yield* forkBackground(sendLink(pending.email, pending.handle, resent.url, minutesLeft));
       }
-      // Read and counted in one call, before the code is compared; see
-      // `attempts.ts`. The entry is deleted after the insert below, not
-      // claimed here, so an insert that loses a race leaves the code usable;
-      // the count and the UNIQUE constraints keep two right codes from both
-      // registering.
-      const guessed = yield* guessEntry(stores.pendingRegistrations, key, MAX_OTP_ATTEMPTS);
-      if (!guessed) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      return { status: "sent" } as const;
+    }).pipe(withAuthRegister("resend"));
+
+  /**
+   * Creates the account for a confirmed request and signs in the caller — the
+   * tab that holds the claim secret. The claim takes the request first, so of
+   * two polls at once exactly one gets here.
+   *
+   *  - The pending entry must still name this request and hold an address; a
+   *    taken address's never does.
+   *  - Insert relies on the DB-level UNIQUE constraints on email/handle as the
+   *    source of truth. A uniqueness violation (the handle went to someone
+   *    else while the person waited) fails as a conflict, and the pending
+   *    entry goes, so the person can begin again with another handle. Any
+   *    other failure puts the request back and keeps the pending entry, so the
+   *    next poll can try again.
+   *  - The pending entry is removed after the answer: the account exists
+   *    whatever happens to that call, and an entry left behind expires.
+   */
+  const finishRegistration = (
+    requestId: string,
+    link: EmailLinkChallenge,
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<RegistrationStatus, AuthError | DatabaseError | CoordinationError, Db> =>
+    Effect.gen(function* () {
+      const pending = yield* storeCall(stores.pendingRegistrations, "get", () =>
+        stores.pendingRegistrations.get(link.subject),
+      );
+      if (pending?.requestId !== requestId || !pending.email) {
+        return { status: "expired" } as const;
       }
-      const { entry: pending, standing } = guessed;
-      if (standing === "spent") {
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
-      }
-      if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        if (standing === "last") yield* spendEntry(stores.pendingRegistrations, key, pending);
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
-      }
+      const claimed = yield* links.claim(requestId, link);
+      if (!claimed) return { status: "expired" } as const;
 
       const { db } = yield* Db;
       const accountId = genId("acc_");
       const id = genId("usr_");
       const ts = now();
 
-      // Insert account + profile. The DB-level UNIQUE constraints on `email`
-      // and `handle` are the source of truth for race-free uniqueness; a
-      // UNIQUE violation here means another registration won the race (or
-      // the legacy `/register` endpoint was called concurrently), and we
-      // surface that as a clean AuthError without leaking driver text. Any
-      // other constraint failure (NOT NULL / FOREIGN KEY / CHECK) is a DB
-      // fault, not a user race, and surfaces as DatabaseError instead — see
-      // `UNIQUE_CONSTRAINT_ERROR` for why the match is narrowed this way.
       const inserted = yield* Effect.tryPromise({
         try: async () => {
           try {
@@ -482,32 +451,30 @@ export function createRegistrationModule(
             ]);
             return { ok: true as const };
           } catch (e) {
-            const msg = driverErrorText(e);
-            if (UNIQUE_CONSTRAINT_ERROR.test(msg)) {
-              return { ok: false as const, reason: "conflict" };
+            if (UNIQUE_CONSTRAINT_ERROR.test(driverErrorText(e))) {
+              return { ok: false as const };
             }
             throw e;
           }
         },
         catch: (cause) => new DatabaseError({ cause }),
-      });
+      }).pipe(Effect.tapError(() => links.unclaim(requestId, link).pipe(Effect.ignore)));
+
+      const tidy = forkBackground(
+        spendEntry(stores.pendingRegistrations, link.subject, pending).pipe(Effect.ignore),
+      );
 
       if (!inserted.ok) {
-        // Don't burn the pending entry — the user can still retry if the
-        // conflicting insert is rolled back. The collision is rare in
-        // practice (race window is microseconds).
-        return yield* Effect.fail(new AuthError({ message: "Email or handle already registered" }));
+        yield* tidy;
+        return yield* Effect.fail(
+          new AuthError({
+            message: "Email or handle already registered",
+            metricResult: "conflict",
+          }),
+        );
       }
 
-      // Success: only NOW delete the pending entry, and its guess count with
-      // it — after the answer, since the account exists whatever happens
-      // here. Only the entry this guess read goes. Nothing a later request
-      // writes can be at this key by then: once the account exists, `begin`
-      // finds the address taken and writes at its probe key. A store fault is
-      // not the caller's answer; an entry left behind expires with its TTL.
-      yield* forkBackground(
-        spendEntry(stores.pendingRegistrations, key, pending).pipe(Effect.ignore),
-      );
+      yield* tidy;
 
       const issued = yield* issueTokens(
         id,
@@ -520,6 +487,7 @@ export function createRegistrationModule(
       );
 
       return {
+        status: "complete",
         profileId: id,
         handle: pending.handle,
         email: pending.email,
@@ -527,8 +495,43 @@ export function createRegistrationModule(
         accessToken: issued.accessToken,
         refreshToken: issued.refreshToken,
         expiresIn: issued.expiresIn,
-      };
+      } as const;
     }).pipe(withAuthRegister("complete"));
+
+  /**
+   * Step 2 of sign-up, polled by the tab that began with its claim secret.
+   * Answers `pending` until the link is confirmed, then creates the account
+   * and answers `complete` with a session, once. `expired` for every refusal:
+   * an unknown or expired request, a wrong claim secret, or a poll that lost
+   * the claim to another. `conflict` when the handle was taken while the
+   * person waited.
+   *
+   * The UI then drives `/passkey/register/*` with the returned access token to
+   * enrol the first passkey, and refuses to dismiss until it does;
+   * `deletePasskey` refuses to drop below 1 — so every live account always has
+   * ≥1 passkey.
+   *
+   * No attempts counter: a waiting tab polls every few seconds and would bury
+   * the sign-up funnel. The span is `auth.register.status`; the finishing part
+   * counts as the funnel's `complete` step.
+   */
+  const registrationStatus = (
+    requestId: string,
+    claimSecret: string,
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<RegistrationStatus, AuthError | DatabaseError | CoordinationError, Db> =>
+    Effect.gen(function* () {
+      const polled = yield* links.poll("registration", requestId, claimSecret);
+      if (polled.state === "pending") return { status: "pending" } as const;
+      if (polled.state === "expired") return { status: "expired" } as const;
+      return yield* finishRegistration(requestId, polled.entry, sessionMeta).pipe(
+        Effect.catchTag("AuthError", (e) =>
+          e.metricResult === "conflict"
+            ? Effect.succeed({ status: "conflict" } as const)
+            : Effect.fail(e),
+        ),
+      );
+    }).pipe(Effect.withSpan("auth.register.status"));
 
   /**
    * Checks whether a handle is valid format and not yet taken.
@@ -562,7 +565,8 @@ export function createRegistrationModule(
   return {
     registerProfile,
     beginRegistration,
-    completeRegistration,
+    resendRegistration,
+    registrationStatus,
     checkHandle,
   };
 }

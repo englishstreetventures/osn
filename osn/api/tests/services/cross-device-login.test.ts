@@ -19,20 +19,14 @@ import {
   createTestLayer,
   createTestLayerWithSqlite,
 } from "../helpers/db";
+import { registerThroughService } from "../helpers/registration";
 
 function makeAuth() {
   const email = makeLogEmailLive();
   const svc = createAuthService(config);
   const layer = Layer.merge(createTestLayer(), email.layer);
   const captured = {
-    get code(): string | undefined {
-      const all = email.recorded();
-      for (let i = all.length - 1; i >= 0; i--) {
-        const m = all[i].text.match(/code is: (\d{6})/);
-        if (m) return m[1];
-      }
-      return undefined;
-    },
+    recorded: () => email.recorded(),
     reset: () => email.reset(),
     get lastTemplate(): string | undefined {
       const all = email.recorded();
@@ -90,9 +84,10 @@ describe("cross-device login", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       // Register a user first
-      yield* settle(svc.beginRegistration("cdl@example.com", "cdl_user", "1990-01-01"));
-      yield* svc.completeRegistration("cdl@example.com", captured.code!, {
-        uaLabel: "Device A",
+      yield* registerThroughService(svc, captured.recorded, "cdl@example.com", "cdl_user", {
+        sessionMeta: {
+          uaLabel: "Device A",
+        },
       });
       const profile = yield* svc.findProfileByEmail("cdl@example.com");
       expect(profile).not.toBeNull();
@@ -134,8 +129,7 @@ describe("cross-device login", () => {
   it.effect("approved session is consumed on first poll (one-time)", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("cdl2@example.com", "cdl_user2", "1990-01-01"));
-      yield* svc.completeRegistration("cdl2@example.com", captured.code!, {});
+      yield* registerThroughService(svc, captured.recorded, "cdl2@example.com", "cdl_user2");
       const profile = yield* svc.findProfileByEmail("cdl2@example.com");
 
       const { requestId, cdlSecret: secret } = yield* svc.beginCrossDeviceLogin();
@@ -165,8 +159,7 @@ describe("cross-device login", () => {
   it.effect("approve rejects wrong secret", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("cdl3@example.com", "cdl_user3", "1990-01-01"));
-      yield* svc.completeRegistration("cdl3@example.com", captured.code!, {});
+      yield* registerThroughService(svc, captured.recorded, "cdl3@example.com", "cdl_user3");
       const profile = yield* svc.findProfileByEmail("cdl3@example.com");
 
       const { requestId } = yield* svc.beginCrossDeviceLogin();
@@ -181,8 +174,7 @@ describe("cross-device login", () => {
   it.effect("approve fails on already-approved request", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("cdl4@example.com", "cdl_user4", "1990-01-01"));
-      yield* svc.completeRegistration("cdl4@example.com", captured.code!, {});
+      yield* registerThroughService(svc, captured.recorded, "cdl4@example.com", "cdl_user4");
       const profile = yield* svc.findProfileByEmail("cdl4@example.com");
 
       const { requestId, cdlSecret: secret } = yield* svc.beginCrossDeviceLogin();

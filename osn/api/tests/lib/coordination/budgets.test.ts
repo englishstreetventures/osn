@@ -104,6 +104,11 @@ function slots(bundle: CoordinationStores): Slot[] {
     (k) => bundle.recoveryEmailBeginCap.check(k),
     OSN_RATE_LIMITS.recoveryEmailBeginCap,
   );
+  add(
+    "registrationSendCap",
+    (k) => bundle.registrationSendCap.check(k),
+    OSN_RATE_LIMITS.registrationSendCap,
+  );
   return out;
 }
 
