@@ -55,7 +55,7 @@ function capture() {
 }
 
 const otp: SendEmailInput = {
-  template: "otp-registration",
+  template: "otp-step-up",
   to: RECIPIENT,
   data: { code: "424242", ttlMinutes: 10, instanceName: "Musubi" },
 };
@@ -96,7 +96,7 @@ describe("Resend transport: a failed send is logged", () => {
     expect(logged).toHaveLength(1);
     expect(logged[0]!.level).toBe("Error");
     expect(logged[0]!.annotations).toEqual({
-      template: "otp-registration",
+      template: "otp-step-up",
       reason: "api_unreachable",
     });
     expect(JSON.stringify(entries)).not.toContain("secret-upstream");
@@ -116,7 +116,7 @@ describe("Resend transport: a failed send is logged", () => {
       }).pipe(Effect.provide(transport()), Effect.provide(layer)),
     );
     expect(failures(entries).map((e) => e.annotations)).toEqual([
-      { template: "otp-registration", reason: "render_failed" },
+      { template: "otp-step-up", reason: "render_failed" },
     ]);
 
     const batch = capture();
@@ -136,7 +136,7 @@ describe("Resend transport: a failed send is logged", () => {
       }).pipe(Effect.provide(transport()), Effect.provide(batch.layer)),
     );
     expect(failures(batch.entries).map((e) => e.annotations)).toEqual([
-      { template: "otp-registration", reason: "render_failed", size: 2 },
+      { template: "otp-step-up", reason: "render_failed", size: 2 },
     ]);
   });
 
@@ -147,7 +147,7 @@ describe("Resend transport: a failed send is logged", () => {
 
     expect(failures(entries).map((e) => e.annotations)).toEqual([
       {
-        template: "otp-registration",
+        template: "otp-step-up",
         reason: "rate_limited",
         status: 429,
         resendError: "daily_quota_exceeded",
@@ -161,7 +161,7 @@ describe("Resend transport: a failed send is logged", () => {
 
     expect(Result.isFailure(result) && result.failure).toMatchObject({ reason: "dispatch_failed" });
     expect(failures(entries).map((e) => e.annotations)).toEqual([
-      { template: "otp-registration", reason: "dispatch_failed", status: 500 },
+      { template: "otp-step-up", reason: "dispatch_failed", status: 500 },
     ]);
   });
 
@@ -188,7 +188,7 @@ describe("Resend transport: a failed send is logged", () => {
       );
     const testing = await sendOnce();
     expect(failures(testing.entries)[0]!.annotations).toEqual({
-      template: "otp-registration",
+      template: "otp-step-up",
       reason: "dispatch_failed",
       status: 403,
       resendError: "validation_error",
@@ -216,7 +216,7 @@ describe("Resend transport: a failed send is logged", () => {
       {
         level: "Warn",
         message: "email.dispatch_interrupted",
-        annotations: { template: "otp-registration" },
+        annotations: { template: "otp-step-up" },
       },
     ]);
 
@@ -228,7 +228,7 @@ describe("Resend transport: a failed send is logged", () => {
       {
         level: "Warn",
         message: "email.dispatch_interrupted",
-        annotations: { template: "otp-registration", status: 403 },
+        annotations: { template: "otp-step-up", status: 403 },
       },
     ]);
   });
@@ -253,7 +253,7 @@ describe("Resend transport: a failed send is logged", () => {
     expect(Result.isFailure(result)).toBe(true);
     expect(failures(entries).map((e) => e.annotations)).toEqual([
       {
-        template: "otp-registration",
+        template: "otp-step-up",
         reason: "dispatch_failed",
         status: 403,
         size: 2,
@@ -269,7 +269,7 @@ describe("Resend transport: a failed send is logged", () => {
       label: "a 429",
       respond: () => resendError(429, "rate_limit_exceeded", "Too many requests."),
       logged: {
-        template: "otp-registration",
+        template: "otp-step-up",
         reason: "rate_limited",
         status: 429,
         size: 2,
@@ -281,7 +281,7 @@ describe("Resend transport: a failed send is logged", () => {
       respond: (): Response => {
         throw new TypeError("connect ECONNREFUSED 10.9.8.7:443");
       },
-      logged: { template: "otp-registration", reason: "api_unreachable", size: 2 },
+      logged: { template: "otp-step-up", reason: "api_unreachable", size: 2 },
     },
   ])(
     "logs a batch that failed with $label, with its size and no recipient",
@@ -330,7 +330,7 @@ describe("Resend transport: a failed send is logged", () => {
     );
 
   it("reads 4096 bytes of an error body and no more", async () => {
-    const refused = { template: "otp-registration", reason: "dispatch_failed", status: 400 };
+    const refused = { template: "otp-step-up", reason: "dispatch_failed", status: 400 };
     for (const [length, logged] of [
       [4096, { ...refused, resendError: "validation_error" }],
       [4097, refused],
@@ -367,7 +367,7 @@ describe("Resend transport: a failed send is logged", () => {
     expect(read.cancelled).toBe(true);
     expect(read.pulls).toBeLessThanOrEqual(5);
     expect(failures(entries)[0]!.annotations).toEqual({
-      template: "otp-registration",
+      template: "otp-step-up",
       reason: "dispatch_failed",
       status: 400,
     });
@@ -406,7 +406,7 @@ describe("Resend transport: a failed send is logged", () => {
     const { entries } = await sendOnce();
     expect(read.pulled).toBe(false);
     expect(failures(entries)[0]!.annotations).toEqual({
-      template: "otp-registration",
+      template: "otp-step-up",
       reason: "dispatch_failed",
       status: 400,
     });
@@ -444,7 +444,7 @@ describe("Resend transport: reading a refusal's body", () => {
           reason: "dispatch_failed",
         });
         expect(failures(entries).map((e) => e.annotations)).toEqual([
-          { template: "otp-registration", reason: "dispatch_failed", status: 403 },
+          { template: "otp-step-up", reason: "dispatch_failed", status: 403 },
         ]);
         expect(read.cancelled).toBe(true);
       }).pipe(Effect.provide(transport()), Effect.provide(layer));

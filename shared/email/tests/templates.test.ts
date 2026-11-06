@@ -8,18 +8,33 @@ import {
 } from "../src/templates";
 
 describe("renderTemplate", () => {
-  it("renders registration OTP with code + TTL", () => {
-    const out = renderTemplate("otp-registration", {
-      code: "000000",
+  it("renders the sign-up link with the handle it creates and how long it works", () => {
+    const url = "https://musubi.social/verify/signup_0123456789ab#" + "a".repeat(64);
+    const out = renderTemplate("link-registration", {
+      url,
       ttlMinutes: 10,
       instanceName: "Musubi",
+      handle: "ada",
     });
     expect(out.subject).toMatchInlineSnapshot(`"Verify your Musubi email"`);
-    expect(out.text).toContain("000000");
+    expect(out.text).toContain(url);
+    expect(out.text).toContain("@ada");
     expect(out.text).toContain("10 minutes");
-    expect(out.html).toContain("000000");
-    expect(out.html).toContain("10 minutes");
+    expect(out.html).toContain(`href="${url}"`);
+    expect(out.html).toContain("@ada");
     expect(out.html.startsWith("<!doctype html>")).toBe(true);
+  });
+
+  it("escapes the link in the href and the text of the HTML", () => {
+    const out = renderTemplate("link-registration", {
+      url: 'https://x.test/verify/a"><script>#s',
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+      handle: "ada",
+    });
+    expect(out.html).not.toContain("<script>");
+    expect(out.html).not.toContain('a"><');
+    expect(out.html).toContain("&lt;script&gt;");
   });
 
   it("renders email-change OTP with somebody-asked framing", () => {
@@ -106,7 +121,7 @@ describe("renderTemplate", () => {
   it("HTML-escapes template data (defence in depth)", () => {
     // OTP templates happen to accept digits-only in practice, but the
     // escape path should hold if template data ever carries markup.
-    const out = renderTemplate("otp-registration", {
+    const out = renderTemplate("otp-step-up", {
       code: "<script>",
       ttlMinutes: 10,
       instanceName: "Musubi",
@@ -141,7 +156,12 @@ describe("renderTemplate", () => {
       amountFormatted: "A$1,200.00",
       threadUrl: "https://example.test/thread/1",
     },
-    "otp-registration": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
+    "link-registration": {
+      url: "https://example.test/verify/signup_0123456789ab#secret",
+      ttlMinutes: 10,
+      instanceName: "Musubi",
+      handle: "ada",
+    },
     "otp-step-up": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
     "otp-email-change": { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
     "recovery-generated": { instanceName: "Musubi" },
@@ -226,7 +246,12 @@ describe("renderTemplate", () => {
 describe("account emails name the instance passed in", () => {
   const instanceName = "Acme & <Co>";
   const accountEmails = {
-    "otp-registration": { code: "000000", ttlMinutes: 10, instanceName },
+    "link-registration": {
+      url: "https://example.test/verify/signup_0123456789ab#secret",
+      ttlMinutes: 10,
+      instanceName,
+      handle: "ada",
+    },
     "otp-step-up": { code: "000000", ttlMinutes: 10, instanceName },
     "otp-email-change": { code: "000000", ttlMinutes: 10, instanceName },
     "otp-recovery": { code: "000000", ttlMinutes: 10, instanceName },

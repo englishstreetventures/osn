@@ -1,9 +1,8 @@
 /**
- * OTP-bearing email templates. All four share the same shape but differ
- * in framing: registration is "welcome, verify your address"; step-up is
- * "confirm a sensitive action"; recovery and email-change use the
- * "somebody asked for this" framing so a misdirected message is clearly junk
- * and useless as a phishing template.
+ * OTP-bearing email templates. All three share the same shape but differ
+ * in framing: step-up is "confirm a sensitive action"; recovery and
+ * email-change use the "somebody asked for this" framing so a misdirected
+ * message is clearly junk and useless as a phishing template.
  *
  * Each names the identity instance it comes from (`instanceName`), which the
  * sender passes in: this package names no product of its own.
@@ -33,15 +32,6 @@ const esc = (s: string): string =>
 
 const wrap = (bodyHtml: string): string =>
   `<!doctype html><html><body style="font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;max-width:480px;margin:0 auto;padding:24px">${bodyHtml}</body></html>`;
-
-export function renderRegistrationOtp(data: OtpData): RenderedEmail {
-  const name = data.instanceName;
-  const text = `Your ${name} verification code is: ${data.code}\n\nThis code expires in ${String(data.ttlMinutes)} minutes.`;
-  const html = wrap(
-    `<h2>Verify your ${esc(name)} email</h2><p>Your verification code is:</p><p style="font-size:24px;font-weight:600;letter-spacing:2px">${esc(data.code)}</p><p style="color:#666">This code expires in ${String(data.ttlMinutes)} minutes.</p>`,
-  );
-  return { subject: `Verify your ${name} email`, text, html };
-}
 
 export function renderStepUpOtp(data: OtpData): RenderedEmail {
   const name = data.instanceName;

@@ -54,7 +54,7 @@ describe("CloudflareEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "otp-step-up",
           to: "alice@example.com",
           data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
         });
@@ -76,7 +76,7 @@ describe("CloudflareEmailLive", () => {
     };
     expect(payload.to).toEqual([{ email: "alice@example.com" }]);
     expect(payload.from).toEqual({ email: "noreply@osn.test" });
-    expect(payload.subject).toBe("Verify your Musubi email");
+    expect(payload.subject).toBe("Confirm a sensitive action");
     expect(payload.text).toContain("000000");
     expect(payload.html).toContain("000000");
   });
@@ -140,7 +140,7 @@ describe("CloudflareEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-registration",
+        template: "otp-step-up",
         to: "alice@example.com",
         data: { code: "000000", ttlMinutes: 10, instanceName: "Musubi" },
       },
@@ -152,7 +152,7 @@ describe("CloudflareEmailLive", () => {
     await expectFailsWith(
       buildLayer(),
       {
-        template: "otp-registration",
+        template: "otp-step-up",
         to: "alice@example.com",
         data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
       },
@@ -185,7 +185,7 @@ describe("CloudflareEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         yield* email.send({
-          template: "otp-registration",
+          template: "otp-step-up",
           to: "alice@example.com",
           data: { code: "999888", ttlMinutes: 10, instanceName: "Musubi" },
         });

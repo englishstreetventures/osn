@@ -195,7 +195,7 @@ describe("ResendEmailLive.sendBatch", () => {
 
   it("fails as render_failed before calling out when one email cannot render", async () => {
     const broken = {
-      template: "otp-registration",
+      template: "otp-step-up",
       to: "c@example.test",
       data: { code: null as unknown as string, ttlMinutes: 10, instanceName: "Musubi" },
     } satisfies SendEmailInput;

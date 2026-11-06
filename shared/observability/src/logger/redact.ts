@@ -116,11 +116,8 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     "refresh_token",
     "idToken",
     "id_token",
-    // Enrollment token — single-use bearer returned by /register/complete
-    // (osn/core/src/routes/auth.ts:225 wire; osn/core/src/services/auth.ts:498
-    // service return) and sent back as `Authorization: Bearer <token>` for
-    // passkey enrollment (osn/client/src/register.ts:131,142). Same secrecy
-    // profile as accessToken.
+    // Enrollment token — a single-use bearer for passkey enrollment, sent as
+    // `Authorization: Bearer <token>`. Same secrecy profile as accessToken.
     "enrollmentToken",
     "enrollment_token",
     // Recovery codes (Copenhagen Book M2). Raw codes are returned once by
@@ -219,6 +216,22 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // rest — the plaintext must never appear in operator logs.
     "cdlSecret",
     "cdl_secret",
+
+    // --- Emailed links ---
+    // `linkSecret` is the 256-bit secret in an emailed link's fragment, posted
+    // to /email-link/:requestId/{candidates,confirm}. `claimSecret` is the
+    // 256-bit secret the tab that began a flow holds, posted to its status and
+    // resend routes; whoever holds it receives the session the flow mints.
+    // Both are stored only as SHA-256 hashes. `pairingCode` is the number the
+    // tab that began shows, `pairingCandidates` the list the confirm page
+    // offers, `pairingPick` the reader's choice: together they say which
+    // candidate is right, which only the tab that began may know. camelCase
+    // only: no snake_case spelling exists.
+    "linkSecret",
+    "claimSecret",
+    "pairingCode",
+    "pairingCandidates",
+    "pairingPick",
 
     // --- ARC token signing keys ---
     // `privateKey` is the parameter name on createArcToken /
