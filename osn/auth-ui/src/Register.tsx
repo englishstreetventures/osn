@@ -1,5 +1,4 @@
 import type {
-  BegunRegistration,
   PreviousRegistration,
   RegistrationClient,
   RegistrationStatus,
@@ -16,33 +15,20 @@ import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/brow
 import { createSignal, Show, onCleanup, onMount } from "solid-js";
 
 import { CheckEmailView, type CheckEmailStatus } from "./CheckEmailView";
+import {
+  hasPendingSignUp,
+  PENDING_KEY,
+  PREVIOUS_KEY,
+  readStored,
+  storedWaiting,
+  writeStored,
+  type Waiting,
+} from "./pending-sign-up";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
+export { hasPendingSignUp };
+
 type Step = "details" | "verify" | "passkey" | "done";
-
-/**
- * A sign-up this tab is waiting on: the request, and the address and handle
- * the view names. Not its number, which is never stored: the view holds it in
- * memory, and a reloaded tab gets it back from its first poll.
- */
-interface Waiting extends Omit<BegunRegistration, "pairingCode"> {
-  readonly email: string;
-  readonly handle: string;
-}
-
-/**
- * The sign-up this tab waits on, kept in `sessionStorage` so a reload — or a
- * phone discarding the tab while the person reads their mail — resumes the
- * wait rather than losing it. Per tab, never sent anywhere, never shared with
- * another site. No birthdate and no pairing number are kept.
- */
-const PENDING_KEY = "osn.signup.pending";
-/**
- * A sign-up this tab began and left (Cancel, a different email). The next
- * begin sends it as `previous`, which retires it, so the address is not held
- * by a request nobody waits on.
- */
-const PREVIOUS_KEY = "osn.signup.previous";
 
 /** The first poll waits this long after the link is sent; each later one longer, up to the cap. */
 const POLL_FIRST_MS = 2_000;
@@ -53,60 +39,6 @@ const LIMIT_LINE =
   "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again.";
 const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
 const CONFLICT_LINE = "That handle was taken while you waited. Choose another.";
-
-function readStored<T>(key: string): T | null {
-  try {
-    const raw = sessionStorage.getItem(key);
-    return raw === null ? null : (JSON.parse(raw) as T);
-  } catch {
-    return null;
-  }
-}
-
-function writeStored(key: string, value: unknown): void {
-  try {
-    if (value === null) sessionStorage.removeItem(key);
-    else sessionStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Storage disabled or full: the wait lives in memory for this page.
-  }
-}
-
-/** The stored wait, when it is whole and has not expired; clears one that has. */
-function storedWaiting(): Waiting | null {
-  const stored = readStored<Partial<Waiting>>(PENDING_KEY);
-  if (
-    !stored ||
-    typeof stored.requestId !== "string" ||
-    typeof stored.claimSecret !== "string" ||
-    typeof stored.email !== "string" ||
-    typeof stored.handle !== "string" ||
-    typeof stored.expiresAt !== "number"
-  ) {
-    if (stored) writeStored(PENDING_KEY, null);
-    return null;
-  }
-  if (stored.expiresAt * 1000 <= Date.now()) {
-    writeStored(PENDING_KEY, null);
-    return null;
-  }
-  return {
-    requestId: stored.requestId,
-    claimSecret: stored.claimSecret,
-    email: stored.email,
-    handle: stored.handle,
-    expiresAt: stored.expiresAt,
-  };
-}
-
-/**
- * Whether this tab is waiting on a sign-up link, so a host can reopen
- * `<Register>` after a reload and let it resume.
- */
-export function hasPendingSignUp(): boolean {
-  if (typeof sessionStorage === "undefined") return false;
-  return storedWaiting() !== null;
-}
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

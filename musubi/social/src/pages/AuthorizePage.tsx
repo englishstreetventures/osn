@@ -1,4 +1,4 @@
-import { hasPendingSignUp } from "@osn/auth-ui/Register";
+import { hasPendingSignUp } from "@osn/auth-ui/pending-sign-up";
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError, describeAuthError } from "@osn/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
