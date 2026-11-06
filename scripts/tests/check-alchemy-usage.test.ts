@@ -40,6 +40,7 @@ describe("checkPackageScripts", () => {
     "DO_NOT_TRACK=1 bun alchemy state read cire/dev --backend cloudflare",
     "DO_NOT_TRACK=1 bun alchemy state delete cire/dev --backend cloudflare",
     "DO_NOT_TRACK=1 bun alchemy state unsafe nuke --backend cloudflare",
+    "DO_NOT_TRACK=1 bun alchemy state migrate --backend cloudflare",
     "DO_NOT_TRACK=1 bun alchemy state --backend cloudflare bootstrap",
   ])("G2: refuses %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script })).length).toBeGreaterThan(0);
@@ -594,6 +595,65 @@ jobs:
           "bunx alchemy deploy",
         ]),
       ),
+    ).toHaveLength(1);
+  });
+});
+
+describe("console log settings that reach a public run log", () => {
+  test.each([
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level debug",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level=trace",
+    "CI=true DO_NOT_TRACK=1 bun alchemy --log-level ALL plan --stage dev",
+    "CI=true DO_NOT_TRACK=1 ALCHEMY_LOG_LEVEL=debug bun alchemy plan --stage dev",
+  ])("refuses %j, which prints Debug records", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test.each([
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run --log-format json",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-format=json",
+    "CI=true DO_NOT_TRACK=1 ALCHEMY_LOG_FORMAT=json bun alchemy plan --stage dev",
+  ])("refuses %j, under which Alchemy prints no plan", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toHaveLength(1);
+  });
+
+  test.each([
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level info",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level=warn",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-format pretty",
+  ])("passes %j", (script) => {
+    expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
+  });
+
+  test.each([
+    { env: 'env:\n  DO_NOT_TRACK: "1"\n  ALCHEMY_LOG_LEVEL: debug', stepEnv: "" },
+    { env: TRACK_OFF, stepEnv: "        env:\n          ALCHEMY_LOG_LEVEL: TRACE" },
+    { env: TRACK_OFF, stepEnv: "        env:\n          ALCHEMY_LOG_FORMAT: json" },
+  ])("refuses a workflow env that sets either for an Alchemy step, %j", ({ env, stepEnv }) => {
+    expect(
+      checkWorkflow("w", blockWorkflow(env, stepEnv, ["bun alchemy deploy --stage dev --yes"])),
+    ).toHaveLength(1);
+  });
+
+  test("passes a workflow env at info, and a step's own value over the workflow's", () => {
+    expect(
+      checkWorkflow(
+        "w",
+        blockWorkflow(
+          'env:\n  DO_NOT_TRACK: "1"\n  ALCHEMY_LOG_LEVEL: debug',
+          "        env:\n          ALCHEMY_LOG_LEVEL: info",
+          ["bun alchemy deploy --stage dev --yes"],
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  test("refuses makeBucketState in a stack file, called or not", () => {
+    expect(
+      checkStackSource("cire/infra/alchemy.run.ts", "const s = makeBucketState({ bucket });"),
+    ).toHaveLength(1);
+    expect(
+      checkStackSource("cire/infra/alchemy.run.ts", "const make = makeBucketState;"),
     ).toHaveLength(1);
   });
 });

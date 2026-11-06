@@ -35,11 +35,19 @@
  *    `--stage` that is neither `dev` nor `production`: without `--stage` the
  *    stage comes from `ALCHEMY_STAGE` in the environment, `--env-file` or
  *    `.env`, and a variable or expression may hold either.
+ *  - all three: no console log level below `info` (`--log-level` or
+ *    `ALCHEMY_LOG_LEVEL` at `all`, `trace` or `debug`), which prints Debug
+ *    records, whole failure causes among them, into a public run log; and no
+ *    `--log-format json` or `ALCHEMY_LOG_FORMAT=json`, under which Alchemy
+ *    prints no plan for the plan summary or the production plan guard to read.
+ *    A segment's own leading assignments are read, and in a workflow the
+ *    step, job and workflow `env`.
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
  *    state constructor name (`localState`, `inMemoryState`, `postgresState`,
  *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
- *    `InMemoryService`), called or not; no module that holds a state store,
- *    its lifecycle or a command that runs it, in any import form:
+ *    `makeBucketState`, `InMemoryService`), called or not; no module that
+ *    holds a state store, its lifecycle or a command that runs it, in any
+ *    import form:
  *    `alchemy/State`, `alchemy/Contributions`, `alchemy/Alchemist`,
  *    `alchemy/Cli/commands`, `@alchemy.run/sql/PostgresState`, and a
  *    provider's `StateStore`, `Alchemist`, `Contributions` or `Cli`, each with
@@ -74,6 +82,15 @@ const ALCHEMY_COMMAND = /(?:^|[\s;&|(`'"/])alchemy(?:@\S+)?\s+\S/m;
 /** The start of an Alchemy invocation inside a command line. */
 const INVOCATION = String.raw`\balchemy(?:@\S+)?\s+`;
 
+/** A console floor below Info, as `--log-level` and `ALCHEMY_LOG_LEVEL` spell it. */
+const LOW_LOG_LEVEL = /(?:all|trace|debug)/;
+
+const LOW_LOG_LEVEL_WHY =
+  "a console log level below info prints Debug records, which carry whole failure causes, into a public run log";
+
+const JSON_LOG_FORMAT_WHY =
+  "under the json log format Alchemy prints no plan, which the plan summary and the production plan guard read";
+
 const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] = [
   {
     pattern: new RegExp(
@@ -106,6 +123,20 @@ const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] =
   {
     pattern: new RegExp(String.raw`${INVOCATION}(?:[^\n]*?\s)?(?<!\bstate\s+)logs(?=\s|$)`),
     why: "prints a stage's Worker logs, which carry request paths, into a public run log",
+  },
+  {
+    pattern: new RegExp(
+      String.raw`(?:${INVOCATION}(?:[^\n]*?\s)?--log-level(?:=|\s+)|(?:^|\s)ALCHEMY_LOG_LEVEL=)${LOW_LOG_LEVEL.source}(?=\s|$)`,
+      "i",
+    ),
+    why: LOW_LOG_LEVEL_WHY,
+  },
+  {
+    pattern: new RegExp(
+      String.raw`(?:${INVOCATION}(?:[^\n]*?\s)?--log-format(?:=|\s+)|(?:^|\s)ALCHEMY_LOG_FORMAT=)json(?=\s|$)`,
+      "i",
+    ),
+    why: JSON_LOG_FORMAT_WHY,
   },
 ];
 
@@ -149,7 +180,7 @@ const STORE_EXPORT = String.raw`(?:state|bootstrap)`;
 
 /** A state constructor named anywhere, called or not, or a store export imported from a provider module. */
 const STATE_CONSTRUCTOR = new RegExp(
-  String.raw`\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|InMemoryService)\b|\bCloudflare\.state\b|\bimport\s*\{[^}]*\b${STORE_EXPORT}\b[^}]*\}\s*from\s*["']${PROVIDER_MODULE}["']`,
+  String.raw`\b(?:localState|inMemoryState|postgresState|makeLocalState|makePostgresState|makeHttpStateStore|makeBucketState|InMemoryService)\b|\bCloudflare\.state\b|\bimport\s*\{[^}]*\b${STORE_EXPORT}\b[^}]*\}\s*from\s*["']${PROVIDER_MODULE}["']`,
 );
 
 /**
@@ -353,6 +384,22 @@ interface CompositeAction {
   readonly runs?: { readonly steps?: readonly Step[] };
 }
 
+/** A step's refused console log settings: for each, the first env block that sets it decides. */
+function logSettingProblems(levels: readonly (EnvBlock | undefined)[]): string[] {
+  const first = (name: string): string | undefined => {
+    const value = levels.find((env) => env !== undefined && env[name] !== undefined)?.[name];
+    return value === undefined ? undefined : String(value);
+  };
+  const level = first("ALCHEMY_LOG_LEVEL");
+  const format = first("ALCHEMY_LOG_FORMAT");
+  return [
+    ...(level !== undefined && new RegExp(`^${LOW_LOG_LEVEL.source}$`, "i").test(level)
+      ? [LOW_LOG_LEVEL_WHY]
+      : []),
+    ...(format !== undefined && format.toLowerCase() === "json" ? [JSON_LOG_FORMAT_WHY] : []),
+  ];
+}
+
 /** The first env block that sets `DO_NOT_TRACK` decides; none set means on. */
 const telemetryOff = (...levels: readonly (EnvBlock | undefined)[]): boolean => {
   const decider = levels.find((env) => env !== undefined && env.DO_NOT_TRACK !== undefined);
@@ -377,6 +424,9 @@ function checkSteps(
     };
     if (!segments.every(segmentOff)) {
       findings.push({ where: at, problem: 'an Alchemy step needs DO_NOT_TRACK: "1" in its env' });
+    }
+    for (const problem of logSettingProblems([step.env, ...outer])) {
+      findings.push({ where: at, problem });
     }
     for (const segment of segments) findings.push(...forbidden(at, segment));
   }
