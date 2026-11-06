@@ -11,7 +11,6 @@ import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import { CLAIM_TTL_MS } from "../../src/services/changes";
 import {
-  AUTO_REFUND_HOLD_S,
   MAX_PURGES_PER_RUN,
   maintenanceSweeps,
   PURGE_PENDING_HOLD_S,
@@ -222,10 +221,9 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
           .where(eq(weddingUpgradePurchases.weddingId, "wed_owed"))
           .all(),
       ).toEqual([{ status: "auto_refunded" }]);
-      // Held while the bank can still return the refund, then purged.
-      expect((await purge(db)).held).toBe(1);
-      const afterHold = new Date(NOW.getTime() + (AUTO_REFUND_HOLD_S + 3600) * 1000);
-      expect((await purge(db, {}, afterHold)).purged).toBe(1);
+      // Held for 30 days while the bank can still return the refund, then purged.
+      expect((await purge(db, {}, new Date(NOW.getTime() + 29 * DAY_MS))).held).toBe(1);
+      expect((await purge(db, {}, new Date(NOW.getTime() + 31 * DAY_MS))).purged).toBe(1);
 
       // A refund handed to a person holds until they mark it refunded.
       const handed = makeDb();

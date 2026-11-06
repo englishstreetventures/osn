@@ -485,9 +485,14 @@ describe("a refund the bank returned", () => {
     const other = await deliver(app, refundFailed("re_someone_else"));
     expect(await jsonBody(other)).toEqual({ received: true, outcome: "ignored" });
 
-    const res = await deliver(app, refundFailed("re_1"));
-    expect(res.status).toBe(200);
-    expect(await jsonBody(res)).toEqual({ received: true, outcome: "recorded" });
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await deliver(app, refundFailed("re_1"));
+    });
+    expect(res?.status).toBe(200);
+    expect(await jsonBody(res as Response)).toEqual({ received: true, outcome: "recorded" });
+    // The alarm names the charge, so a person can find it before returning money.
+    expect(logs).toContain("pi_1");
     expect(
       db.$client.query("SELECT status FROM wedding_upgrade_purchases WHERE id = ?").get(OURS),
     ).toEqual({ status: "refund_failed" });
@@ -520,6 +525,11 @@ describe("a refund the bank returned", () => {
     const bare = await deliver(app, { ...refundFailed("re_x"), data: {} });
     expect(bare.status).toBe(200);
     expect(await jsonBody(bare)).toEqual({ received: true, outcome: "unknown" });
+
+    const { data: _data, ...noData } = refundFailed("re_x");
+    const none = await deliver(app, noData);
+    expect(none.status).toBe(200);
+    expect(await jsonBody(none)).toEqual({ received: true, outcome: "unknown" });
   });
 
   it("acknowledges an event it does not handle, and touches no purchase", async () => {
