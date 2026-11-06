@@ -265,9 +265,12 @@ function TypedIn(props: { value: string; children: JSX.Element }) {
     if (!input) return;
     input.value = props.value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    Array.from(box?.querySelectorAll("button") ?? [])
-      .find((button) => button.textContent === "Confirm")
-      ?.click();
+    // After the mount's own update, which holds Confirm disabled until it ends.
+    queueMicrotask(() =>
+      Array.from(box?.querySelectorAll("button") ?? [])
+        .find((button) => button.textContent === "Confirm")
+        ?.click(),
+    );
   });
   return <div ref={box}>{props.children}</div>;
 }
