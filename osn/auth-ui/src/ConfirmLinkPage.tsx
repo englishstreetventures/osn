@@ -209,17 +209,17 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
           </h1>
           <Switch>
             <Match when={asking()}>
-              <Show when={status() === "error"}>
-                <Notice tone="danger" size="inline">
-                  {ERROR_LINE}
-                </Notice>
-              </Show>
               <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{readySentence()}</p>
               <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
                 Only confirm if you asked for this. {IF_NOT_ASKED[props.purpose]}
               </p>
               <Show when={slow()}>
                 <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{SLOW_LINE}</p>
+              </Show>
+              <Show when={status() === "error"}>
+                <Notice tone="danger" size="inline">
+                  {ERROR_LINE}
+                </Notice>
               </Show>
             </Match>
             <Match when={status() === "confirmed"}>
