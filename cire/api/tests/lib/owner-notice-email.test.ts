@@ -213,15 +213,36 @@ describe("createOwnerNotices — an upgrade refund", () => {
   });
 
   it("names no tier and no amount it does not have", async () => {
-    const { notices, run, transport } = setup({}, ["usr_a"]);
-    await run(
-      notices.refundIssued({ weddingId: "wed_one", tier: null, amountMinor: null, currency: null }),
-    );
-    const [mail] = transport.batches[0] ?? [];
-    expect(mail?.template === "upgrade-refund" && mail.data).toMatchObject({
-      tierName: null,
-      amount: null,
-    });
+    for (const [amountMinor, currency] of [
+      [null, null],
+      [7900, null],
+      [null, "AUD"],
+    ] as const) {
+      const { notices, run, transport } = setup({}, ["usr_a"]);
+      await run(notices.refundIssued({ weddingId: "wed_one", tier: null, amountMinor, currency }));
+      const [mail] = transport.batches[0] ?? [];
+      expect(
+        mail?.template === "upgrade-refund" && mail.data,
+        `${amountMinor} ${currency}`,
+      ).toMatchObject({
+        tierName: null,
+        amount: null,
+      });
+    }
+  });
+
+  /** The caller records the owners as told only on a notice that went out. */
+  it("says whether it mailed anyone", async () => {
+    const sent = setup({}, ["usr_a"]);
+    const answer = (n: typeof sent) =>
+      Effect.runPromise(
+        n.notices
+          .refundIssued({ weddingId: "wed_one", tier: "gold", amountMinor: 7900, currency: "AUD" })
+          .pipe(Effect.provideService(DbService, n.db)),
+      );
+    expect(await answer(sent)).toBe(true);
+    const nobody = setup({}, ["usr_z"]);
+    expect(await answer(nobody)).toBe(false);
   });
 
   /**
