@@ -79,7 +79,7 @@ Sign-in and registration UI lives in `@osn/auth-ui/*` (not in individual apps). 
 - `<SessionsView />` — per-device session list + "sign out everywhere else"
 - `<PasskeysView />` — passkey rename / delete (step-up gated)
 - `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
-- `<CheckEmailView />` — the "Check your email" wait after a flow emails a link: the address, a Resend that unlocks after a wait, "Use a different email". Presentational; the parent sends and polls ([[component-library]])
+- `<CheckEmailView />` — the "Check your email" wait after a flow emails a link: the address, the number the page the link opens asks for (when the host passes one), a Resend that unlocks after a wait, "Use a different email". Presentational; the parent sends and polls ([[component-library]])
 
 An app imports these from `@osn/auth-ui/*` and injects clients from `@osn/client`. `@musubi/social` is the one app that does today; its `DESIGN.md` §Auth surfaces lists where each view mounts, and `osn/auth-ui/DESIGN.md` holds the views' design rules.
 

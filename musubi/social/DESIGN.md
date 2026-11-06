@@ -165,7 +165,7 @@ rule draws it on an element that does not name it (§Borders).
 
   | Utility | Size / line-height | Role |
   | --- | --- | --- |
-  | `text-display` | 24 / 30 | page titles (`h1`), large avatar initials |
+  | `text-display` | 24 / 30 | page titles (`h1`), large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, in tabular figures; larger than its dialog's heading on purpose) |
   | `text-title`   | 14 / 20 | person & org names, section headers, card titles, default Button labels |
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
