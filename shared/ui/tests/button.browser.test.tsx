@@ -10,10 +10,11 @@
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
 import { Button, buttonVariants, type ButtonProps } from "../src/ui/button";
+import { Checkbox } from "../src/ui/checkbox";
 
 import "./test-support/tailwind.css";
 
@@ -41,12 +42,17 @@ const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
     }
   ).emulateMedia(options);
 
-beforeEach(async () => {
+// Every test here wants the theme on, so it is set once for the file and
+// restored once after it, before any other file's tests run.
+beforeAll(async () => {
   await emulateMedia({ forcedColors: "active" });
 });
 
-afterEach(async () => {
+afterAll(async () => {
   await emulateMedia({ forcedColors: "none" });
+});
+
+afterEach(() => {
   cleanup();
 });
 
@@ -72,19 +78,23 @@ function outline(element: Element) {
 }
 
 /**
- * Tab onto `target` from the plain button before it, and read its outline
- * twice: at once, since a transition from a transparent colour would leave
- * nothing seen while it ran, and again with every animation finished.
+ * Tab onto `target` from `from` (the plain button before it unless named), and
+ * read the outline on `mark` (the target unless the mark is drawn on another
+ * element) twice: at once, since a transition from a transparent colour would
+ * leave nothing seen while it ran, and again with every animation finished.
  */
-async function tabOnto(target: HTMLElement) {
-  screen.getByRole("button", { name: "Before" }).focus();
+async function tabOnto(
+  target: HTMLElement,
+  { from, mark }: { from?: HTMLElement; mark?: Element } = {},
+) {
+  (from ?? screen.getByRole("button", { name: "Before" })).focus();
   await userEvent.keyboard("{Tab}");
   expect(matchMedia("(forced-colors: active)").matches).toBe(true);
   expect(document.activeElement).toBe(target);
   expect(target.matches(":focus-visible")).toBe(true);
-  const now = outline(target);
+  const now = outline(mark ?? target);
   for (const animation of document.getAnimations()) animation.finish();
-  return { now, settled: outline(target) };
+  return { now, settled: outline(mark ?? target) };
 }
 
 /** What makes an outline seen: drawn, its width and offset, and not transparent. */
@@ -134,6 +144,26 @@ describe("Button in a contrast theme", () => {
     expect(document.activeElement).toBe(button);
     expect(button.matches(":focus-visible")).toBe(false);
     expect(getComputedStyle(button).outlineStyle).toBe("none");
+  });
+
+  // The drawn Checkbox box spells its contrast-theme outline another way
+  // (`outline-2`, so its colour is `currentColor`), and the theme paints the
+  // two in different system colours (Chromium's emulation on macOS: the box
+  // rgb(0, 0, 0), Button rgba(5, 0, 73, 0.8)). So this holds the shape of the
+  // mark, not its colour.
+  it("draws a focus mark of the drawn Checkbox box's shape", async () => {
+    render(() => (
+      <div>
+        <button type="button">Before</button>
+        <Checkbox checked={false} label="Florals" />
+        <Button>Save</Button>
+      </div>
+    ));
+    const input = screen.getByRole("checkbox", { name: "Florals" });
+    const box = await tabOnto(input, { mark: input.nextElementSibling as Element });
+    const button = await tabOnto(screen.getByRole("button", { name: "Save" }), { from: input });
+    expect(seen(box.settled)).toEqual(["solid", "2px", "2px", true]);
+    expect(seen(button.now)).toEqual(seen(box.settled));
   });
 
   it("outlines keyboard focus on a link that wears `buttonVariants`", async () => {

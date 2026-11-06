@@ -16,8 +16,9 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
  * `forcedColors` emulates a Windows contrast theme, under which the browser
  * replaces author colours with system ones and drops `box-shadow`.
  *
- * Restore the preference in an `afterEach` (`{ reducedMotion: "no-preference" }`):
- * the browser context is shared across tests in a file, so a leaked preference
+ * Restore the preference (`{ reducedMotion: "no-preference" }`) in an
+ * `afterEach`, or in an `afterAll` when every test in the file wants it: the
+ * browser context is shared across tests in a file, so a leaked preference
  * silently changes every later assertion about animation.
  *
  * A twin of `cire/invites/tests/test-support/browser-commands.ts`, and
