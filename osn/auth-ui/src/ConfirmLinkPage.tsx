@@ -1,9 +1,20 @@
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Notice } from "@shared/ui/ui/notice";
-import { createSignal, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  Match,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+} from "solid-js";
 
 import type { CheckEmailPurpose } from "./CheckEmailView";
+import { isPairingCode } from "./pairing-code";
 
 /** The flows that email a link: the same four the waiting view serves. */
 export type ConfirmLinkPurpose = CheckEmailPurpose;
@@ -23,19 +34,27 @@ export interface ConfirmLinkPageProps {
    */
   email?: string;
   /**
-   * Makes the confirm call. Called once per press, never otherwise. Resolve
-   * `"expired"` for every answer that refuses the link — unknown, wrong
-   * secret, used or expired; over HTTP, every 4xx but 429. Throw only when no
-   * answer about the link came back (a network failure, a rate limit, a
-   * server error): a throw offers Try again, and a refused secret pressed
-   * again would spend the attempts the server allows before it wipes the
-   * request.
+   * The numbers the person picks from, one of them the number the waiting
+   * screen shows: three to five, all different, each one to six digits, 0-9
+   * (`isPairingCode`), already shuffled by the host. The page draws them in
+   * this order, exactly as written, and does not know which one is right. Any
+   * other list draws the expired page, with nothing to pick. Read them with the
+   * link's secret; never log or store them.
+   */
+  candidates: readonly string[];
+  /**
+   * Makes the confirm call with the number tapped, exactly as given. Called
+   * once per tap or Try again, never otherwise. Resolve `"expired"` for every
+   * answer that refuses the link — unknown, wrong secret, a number that is not
+   * the one shown, used or expired; over HTTP, every 4xx but 429. Throw only
+   * when no answer about the link came back (a network failure, a rate limit, a
+   * server error): a throw offers Try again, which sends the same number again.
    *
    * The secret goes in the request body, never in a path or query. The host
    * holds it in memory only — never in `sessionStorage`, `localStorage` or a
    * cookie — and keeps it out of anything it throws or logs.
    */
-  onConfirm: () => Promise<ConfirmOutcome>;
+  onConfirm: (pick: string) => Promise<ConfirmOutcome>;
   /**
    * Shown as Continue once confirmed, only where the host knows the person can
    * carry on in this tab. Absent, the page sends them back to where they began.
@@ -46,6 +65,12 @@ export interface ConfirmLinkPageProps {
 type Status = "ready" | "confirming" | "confirmed" | "expired" | "error";
 
 const SLOW_AFTER_MS = 10_000;
+
+const FEWEST_CANDIDATES = 3;
+
+const MOST_CANDIDATES = 5;
+
+const PICK_LINE = "Pick the number shown on the screen where you started.";
 
 const ERROR_LINE = "We couldn't confirm this email just now.";
 
@@ -72,30 +97,43 @@ const FINISH = {
   "email-change": "finish changing your email",
 } as const satisfies Record<ConfirmLinkPurpose, string>;
 
+/** A list the page can offer: three to five numbers, each well formed, none twice. */
+function offerable(candidates: readonly string[]): boolean {
+  if (candidates.length < FEWEST_CANDIDATES || candidates.length > MOST_CANDIDATES) return false;
+  if (!candidates.every((candidate) => isPairingCode(candidate))) return false;
+  return new Set(candidates).size === candidates.length;
+}
+
 /**
- * The page an emailed link opens: "Confirm this email", and one button.
+ * The page an emailed link opens: "Confirm this email", and the numbers to
+ * pick from.
  *
  * One page serves sign-up, recovery, step-up and email change. It is
  * presentational: the host route reads the link, clears its secret from the
- * address bar before anything else on the route can read the URL, and passes
- * `onConfirm`, which makes the confirm `POST`. The page decides when that call
- * may run and what the person sees and hears around it.
+ * address bar before anything else on the route can read the URL, reads the
+ * numbers with that secret, and passes `onConfirm`, which makes the confirm
+ * `POST`. The page decides when that call may run and what the person sees
+ * and hears around it.
  *
- * - **Only a press confirms.** Mail scanners open links before people do, so
- *   nothing on mount, on a prop change or on a timer calls `onConfirm`. The
- *   button disables itself the moment it is pressed, so one press is one call.
- * - **It says who gets what.** The link is often opened on a different device
- *   from the one that asked, and a stranger can ask for someone else's address
- *   and then talk them into pressing Confirm. So each flow's sentence says what
- *   confirming lets the device that asked do, and what to do if you did not ask.
+ * - **Only a tap confirms.** Mail scanners open links before people do, so
+ *   nothing on mount, on a prop change or on a timer calls `onConfirm`.
+ *   Tapping a number is the confirm: it sends that number, and every number
+ *   disables itself at once, so one tap is one call.
+ * - **The person picks the number the waiting screen shows.** The numbers are
+ *   drawn in the host's order, as written, in tabular figures and kept from
+ *   page translation. The page does not know which is right, and a list it
+ *   cannot offer draws the expired page rather than a broken pick.
+ * - **It says who gets what.** Each flow's sentence says what confirming lets
+ *   the device that asked do, and what to do if you did not ask.
  * - **Three answers.** `confirmed` and `expired` come back from `onConfirm`;
- *   anything thrown, or any other value, is an error that can be tried again.
- *   The error line is fixed: a thrown error's own text is never shown.
+ *   anything thrown, or any other value, is an error. Try again sends the same
+ *   number again, never a new pick. The error line is fixed: a thrown error's
+ *   own text is never shown. Every refusal shows the same expired page.
  * - **What is said aloud.** One polite `<output>`, mounted from the start and
  *   empty until something changes, says "Confirming…", a slow confirm, the
  *   error and each answer, heading word included. The heading takes focus when
  *   the page appears and on every change, so focus never falls to the page when
- *   the pressed button disables or goes.
+ *   the tapped number disables or goes.
  * - **No deadline.** Confirming is a write; abandoning it could offer "Try
  *   again" over an approval that went through. After ten seconds the page only
  *   says it is still working.
@@ -106,6 +144,12 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
 
   const [status, setStatus] = createSignal<Status>("ready");
   const [slow, setSlow] = createSignal(false);
+  const [picked, setPicked] = createSignal<string>();
+
+  const usable = createMemo(() => offerable(props.candidates));
+
+  /** What the page draws: a list it cannot offer reads as a link that no longer works. */
+  const view = (): Status => (status() === "ready" && !usable() ? "expired" : status());
 
   function stopSlowTimer() {
     if (slowTimer === undefined) return;
@@ -121,7 +165,8 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
   onMount(() => heading?.focus());
   onCleanup(stopSlowTimer);
 
-  async function confirm() {
+  async function confirm(pick: string) {
+    setPicked(pick);
     setSlow(false);
     show("confirming");
     slowTimer = setTimeout(() => {
@@ -130,7 +175,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
     }, SLOW_AFTER_MS);
     let next: Status = "error";
     try {
-      const outcome = await props.onConfirm();
+      const outcome = await props.onConfirm(pick);
       if (outcome === "confirmed" || outcome === "expired") next = outcome;
     } catch {
       // Shown as the fixed error line; the thrown text never reaches the page.
@@ -138,6 +183,11 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
     stopSlowTimer();
     setSlow(false);
     show(next);
+  }
+
+  function retry() {
+    const pick = picked();
+    if (pick !== undefined) void confirm(pick);
   }
 
   const address = (): JSX.Element =>
@@ -168,11 +218,13 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
       : `Go back to where you started to ${FINISH[props.purpose]}. You can close this page.`;
 
   const headingText = () => {
-    if (status() === "confirmed") return "Confirmed";
-    if (status() === "expired") return EXPIRED_HEADING;
+    if (view() === "confirmed") return "Confirmed";
+    if (view() === "expired") return EXPIRED_HEADING;
     return "Confirm this email";
   };
 
+  // From the page's own state, not `view()`: a list it cannot offer is drawn
+  // as expired from the start, and nothing has changed to be said.
   const spoken = () => {
     switch (status()) {
       case "ready":
@@ -188,13 +240,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
     }
   };
 
-  const asking = () => status() === "ready" || status() === "confirming" || status() === "error";
-
-  const buttonLabel = () => {
-    if (status() === "confirming") return "Confirming…";
-    if (status() === "error") return "Try again";
-    return "Confirm";
-  };
+  const asking = () => view() === "ready" || view() === "confirming" || view() === "error";
 
   return (
     <Card padding="lg">
@@ -213,36 +259,72 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
                 Only confirm if you asked for this. {IF_NOT_ASKED[props.purpose]}
               </p>
-              <Show when={slow()}>
-                <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{SLOW_LINE}</p>
-              </Show>
-              <Show when={status() === "error"}>
-                <Notice tone="danger" size="inline">
-                  {ERROR_LINE}
-                </Notice>
-              </Show>
             </Match>
-            <Match when={status() === "confirmed"}>
+            <Match when={view() === "confirmed"}>
               <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{confirmedSentence()}</p>
             </Match>
-            <Match when={status() === "expired"}>
+            <Match when={view() === "expired"}>
               <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{EXPIRED_BODY}</p>
             </Match>
           </Switch>
         </div>
 
         <Show when={asking()}>
-          <Button
-            type="button"
-            size="lg"
-            class="w-full max-md:h-11"
-            disabled={status() === "confirming"}
-            onClick={() => void confirm()}
-          >
-            {buttonLabel()}
+          {/* One column at every width: a number runs to six digits, and five
+              of them do not fit a row of the card. */}
+          <fieldset class="flex min-w-0 flex-col gap-2">
+            <legend class="text-ui-sm text-ui-ink-secondary leading-ui-snug mb-2">
+              {PICK_LINE}
+            </legend>
+            <For each={props.candidates}>
+              {(candidate) => (
+                <Button
+                  type="button"
+                  variant="outline"
+                  class="h-12 w-full"
+                  disabled={view() !== "ready"}
+                  onClick={() => void confirm(candidate)}
+                >
+                  <span
+                    class="text-ui-xl text-ui-ink leading-ui-tight font-medium tabular-nums"
+                    translate="no"
+                  >
+                    {candidate}
+                  </span>
+                </Button>
+              )}
+            </For>
+          </fieldset>
+        </Show>
+
+        <Show when={(view() === "confirming" || view() === "error") && picked()}>
+          {(pick) => (
+            <div class="flex flex-col gap-2">
+              <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
+                You picked{" "}
+                <span class="text-ui-ink font-medium tabular-nums" translate="no">
+                  {pick()}
+                </span>
+                .{view() === "confirming" ? " Confirming…" : ""}
+              </p>
+              <Show when={slow()}>
+                <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{SLOW_LINE}</p>
+              </Show>
+              <Show when={view() === "error"}>
+                <Notice tone="danger" size="inline">
+                  {ERROR_LINE}
+                </Notice>
+              </Show>
+            </div>
+          )}
+        </Show>
+
+        <Show when={view() === "error"}>
+          <Button type="button" size="lg" class="w-full max-md:h-11" onClick={retry}>
+            Try again
           </Button>
         </Show>
-        <Show when={status() === "confirmed" && props.onContinue}>
+        <Show when={view() === "confirmed" && props.onContinue}>
           <Button
             type="button"
             size="lg"
