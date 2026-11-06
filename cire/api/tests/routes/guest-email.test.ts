@@ -159,6 +159,15 @@ function optOuts(db: TestDb) {
 }
 
 describe("guest email routes — refusals", () => {
+  it("refuses a session cookie that names no session", async () => {
+    const { db, app } = buildApp();
+    const cleo = guestId(db, "Cleo");
+    const cookie = "cire_session=no-such-session";
+    expect((await save(app, cookie, cleo)).status).toBe(401);
+    expect((await remove(app, cookie, cleo)).status).toBe(401);
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+  });
+
   it("refuses a request with no household session", async () => {
     const { db, app } = buildApp();
     const res = await save(app, null, guestId(db, "Cleo"));
@@ -353,6 +362,36 @@ describe("guest email routes — after the RSVP deadline", () => {
     const late = await save(app, cookie, cleo, "cleo.late@example.test");
     expect(late.status).toBe(403);
     expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+  });
+
+  // The day is measured in the wedding's own zone, so the lock falls at the
+  // end of that day there, not in UTC: Sydney is UTC+10 in June.
+  it("measures the deadline day in the wedding's time zone", async () => {
+    const { db, app } = buildApp();
+    setSystemTime(new Date("2030-06-15T13:59:00.000Z"));
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    setDeadline(db, "2030-06-15", "Australia/Sydney");
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    setSystemTime(new Date("2030-06-15T14:00:01.000Z"));
+    const late = await save(app, cookie, cleo, "cleo.late@example.test");
+    expect(late.status).toBe(403);
+    expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+  });
+
+  // The deadline answers before the address and consent checks, so a closed
+  // wedding says so whatever the body holds.
+  it("answers a closed wedding before it reads the address or the consent", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    setDeadline(db, "2020-01-01");
+    const res = await call(app, "PUT", PATH, cookie, {
+      memberGuestId: guestId(db, "Cleo"),
+      email: "not an address",
+      consentVersion: "guest-email-2020-01-01",
+    });
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "rsvp_closed" });
   });
 
   it("still lets the guest remove their address", async () => {

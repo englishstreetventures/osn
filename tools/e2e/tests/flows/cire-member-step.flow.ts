@@ -639,4 +639,5 @@ test("cire-member-step", async ({ page, context, flow }) => {
     return status;
   });
   flow.check("the closed box's removal is saved", 200, closedRemoval);
+  flow.check("the closed box's removal clears the stored address", "none", storedAddress());
 });

@@ -252,6 +252,32 @@ it("keeps the email box, with removal only, for a member whose address is on fil
 // Removing the address empties the member's record, which is the condition
 // that kept the box away from a member who never had one. The box stays: its
 // status line carries the removal and its heading holds focus.
+// The deadline passes while the box is on screen for a member with no address:
+// the box stays, now without its form, rather than vanishing from under a guest
+// who may be typing.
+it("keeps the email box when the deadline passes while it is open", async () => {
+  const [state, setState] = createSignal<"open" | "closed">("open");
+  const [result, setResult] = createSignal<ClaimResult>(
+    household([member("Chidi"), member("Ada")], "g-Ada"),
+  );
+  const view = render(() => (
+    <LoginSection
+      apiUrl="https://api.test"
+      result={result()}
+      rsvpDeadlineState={state()}
+      onClaimed={() => {}}
+      onMemberChange={(update) => setResult(update(result()))}
+    />
+  ));
+  const field = await view.findByLabelText("Your email, Ada");
+  field.focus();
+  setState("closed");
+  await waitFor(() => expect(view.queryByLabelText("Your email, Ada")).toBeNull());
+  const box = view.getByRole("region", { name: "Wedding emails" });
+  expect(box.querySelector("output")?.textContent).toMatch(/RSVPs have closed/);
+  expect(document.activeElement).toBe(view.getByRole("heading", { name: "Wedding emails" }));
+});
+
 it("keeps the email box mounted, with its removal note, after the member removes the address once closed", async () => {
   vi.stubGlobal(
     "fetch",
