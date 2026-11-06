@@ -620,6 +620,10 @@ when the view appears, and when a send ends with Resend holding focus and the
 wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
 (`focus:outline-none`): it is where focus is put, not a control.
 
+`Register` puts focus on the handle field when a wait ends because the handle
+was taken: the waiting view that held focus is gone, and the handle field is
+where the alert asks the person to act.
+
 `ConfirmLinkPage` draws no control by hand either: its numbers, the decline,
 Try again, Confirm and Continue are `@shared/ui` Buttons, which draw their own
 ring, and its typed field is `@shared/ui`'s `Input`, whose ink fill draws a 2px

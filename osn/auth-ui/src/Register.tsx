@@ -113,6 +113,8 @@ export function Register(props: RegisterProps) {
   // one is redeemed by `/register/begin` (tokens are single-use — Cloudflare
   // only auto-refreshes on the ~300s expiry, not on consumption).
   let resetTurnstile: (() => void) | undefined;
+  // The handle box, for focus when a wait ends because the handle was taken.
+  let handleField: HTMLInputElement | undefined;
 
   // Names all three jobs the address does, so the choice of address is made
   // knowing the second: the address is a way back into an account whose
@@ -246,12 +248,14 @@ export function Register(props: RegisterProps) {
       setLinkStatus("expired");
     } else {
       // The handle went to someone else while the person waited. The request
-      // is spent; the details step offers the handle check again.
+      // is spent; the details step offers the handle check again, reads the
+      // reason out, and puts focus where the person picks another handle.
       writeStored(PENDING_KEY, null);
       setWaiting(null);
       setDetailsError(CONFLICT_LINE);
       setStep("details");
       onHandleInput(handle());
+      handleField?.focus();
     }
   }
 
@@ -519,6 +523,7 @@ export function Register(props: RegisterProps) {
             <div class="flex flex-col gap-1">
               <Label for="reg-handle">Handle</Label>
               <UsernameInput
+                ref={handleField}
                 id="reg-handle"
                 required
                 value={handle()}
@@ -569,7 +574,11 @@ export function Register(props: RegisterProps) {
             />
 
             <Show when={detailsError()}>
-              {(line) => <p class="text-destructive text-sm">{line()}</p>}
+              {(line) => (
+                <p role="alert" class="text-destructive text-sm">
+                  {line()}
+                </p>
+              )}
             </Show>
 
             <Button type="submit" disabled={!detailsValid() || busy()}>

@@ -706,6 +706,17 @@ describe("Register component", () => {
       await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
       expect(screen.getByText(/taken while you waited/i)).toBeTruthy();
     });
+
+    it("reads the reason out as an alert and puts focus on the handle field", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      expect(screen.getByRole("alert").textContent).toMatch(/taken while you waited/i);
+      expect(document.activeElement).toBe(screen.getByLabelText("Handle"));
+    });
   });
 
   describe("passkey step (mandatory)", () => {
