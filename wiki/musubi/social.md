@@ -130,6 +130,8 @@ Two more module boundaries in `@osn/client` exist for the same reason, since rol
 
 *Measured 2026-11-07 — `bunx --bun vite build` in `musubi/social`, gzip of the entry chunk plus every chunk it imports statically: 49,903 bytes with no `OsnApiError`; 51,952 with it in `errors.ts` and `safeJson` in `auth-fetch.ts`; 50,441 with `api-error.ts` alone; 50,059 with both modules.*
 
+*Re-measured 2026-11-07 — the same build, with `main` at `98a302733`; the entry chunk imports no other chunk, and Node's `zlib.gzipSync` at its default level gives 50,405 bytes with `osn/client` and `osn/auth-ui` checked out from `98a302733` (no `OsnApiError`) and 50,589 with both modules.*
+
 The two delete shapes are deliberately different and must not be merged. `graph.ts` uses `authDelete`, which parses and returns the JSON body; `organisations.ts` uses `authDeleteVoid`, which reads the body only on the error path. Both sets of routes answer `200` with `{ ok: true }` — the difference is that `OrgClient` declares `deleteOrg` and `removeMember` as `Promise<void>`, so that client discards the body rather than there being no body to read.
 
 ## Dev
