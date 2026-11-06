@@ -15,8 +15,8 @@
  * profiles, tokens and security-events, and `totp` is itself the last of the
  * others to be built.
  *
- * Everything previously importable from `services/auth` is re-exported
- * below, so external import paths are unchanged.
+ * The exports below are the names routes and tests import from
+ * `services/auth`; everything else is imported from its module directly.
  */
 
 import type { AuthConfig } from "./config";
@@ -38,53 +38,11 @@ import { createStepUpModule } from "./step-up";
 import { createTokensModule } from "./tokens";
 import { createTotpModule } from "./totp";
 
-export { AuthError, DatabaseError, OidcError, ValidationError } from "./errors";
 export type { OidcErrorCode } from "./errors";
 export type { AuthConfig } from "./config";
-export type { TotpStatus } from "./totp";
-export type { RecoveryEmailBeginResult } from "./recovery-factors";
-export type {
-  AuthorizeOutcome,
-  AuthorizeParams,
-  AuthorizeSession,
-  AuthorizeValidation,
-  ClientRegistrationInput,
-  ClientRegistrationResult,
-  DecisionInput,
-  DecisionResult,
-  ExchangeResult,
-  OidcClient,
-  OidcConnectionSummary,
-  OidcTokenResponse,
-  OwnedClientSummary,
-  ValidatedAuthorizeRequest,
-} from "./oidc";
+export type { AuthorizeSession } from "./oidc";
 export { validateClientRegistration } from "./oidc";
-export type {
-  AccountCapLimiter,
-  CeremonyStores,
-  ChallengeEntry,
-  CrossDeviceRequest,
-  PendingAuthorizeRequest,
-  PendingEmailChange,
-  PendingRecoveryOtp,
-  PendingRegistration,
-  RecoveryDisownToken,
-  RegistrationChallengeEntry,
-  PendingTotpEnrollment,
-  StepUpJtiStore,
-  StepUpOtpEntry,
-} from "./stores";
-export { createInMemoryJtiStore } from "./stores";
-export type {
-  PasskeySummary,
-  ProfileWithEmail,
-  PublicProfile,
-  SecurityEventSummary,
-  SessionMeta,
-  SessionSummary,
-  TokenSet,
-} from "./types";
+export type { PublicProfile } from "./types";
 
 export function createAuthService(config: AuthConfig) {
   const ctx = createAuthContext(config);

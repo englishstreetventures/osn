@@ -35,9 +35,6 @@ export function cookieName(config: CookieSessionConfig): string {
   return config.secure ? COOKIE_NAME_SECURE : COOKIE_NAME_LOCAL;
 }
 
-/** Both cookie names for redaction purposes. */
-export const SESSION_COOKIE_NAMES = [COOKIE_NAME_SECURE, COOKIE_NAME_LOCAL] as const;
-
 /**
  * Builds the Set-Cookie header value for a session token.
  * Max-Age = 30 days (2592000s), matching the server-side session TTL.

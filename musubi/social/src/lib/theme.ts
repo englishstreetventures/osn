@@ -10,7 +10,7 @@ import { createSignal } from "solid-js";
 // first paint to avoid a flash; keep the two in sync.
 
 export type ThemePref = "system" | "light" | "dark";
-export type ResolvedTheme = "light" | "dark";
+type ResolvedTheme = "light" | "dark";
 
 const STORAGE_KEY = "osn-theme";
 

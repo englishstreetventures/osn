@@ -67,7 +67,7 @@ export function useSearchActions(token: () => string, controller: SearchControll
   return { pending, connect, accept, activate };
 }
 
-export type SearchActions = ReturnType<typeof useSearchActions>;
+type SearchActions = ReturnType<typeof useSearchActions>;
 
 function ResultAvatar(props: { url: string | null; label: string; size: string }) {
   return (
@@ -107,7 +107,7 @@ function actionLabel(status: SearchConnectionState, busy: boolean): string {
  * announced as text and can't be triggered). The `/search` page is a plain
  * list, so it keeps real buttons.
  */
-export function PersonAction(props: {
+function PersonAction(props: {
   status: SearchConnectionState;
   busy: boolean;
   interactive?: boolean;

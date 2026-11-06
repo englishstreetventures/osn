@@ -29,12 +29,7 @@ import type { RecoveryLockoutStore } from "../recovery-lockout-store";
 import type { CoordinationBackend, CoordinationStoreName } from "./names";
 import type { CoordinationProbe } from "./probe";
 
-export type {
-  CeremonyStoreName,
-  CoordinationBackend,
-  CoordinationStoreName,
-  LockoutStoreName,
-} from "./names";
+export type { CoordinationBackend, CoordinationStoreName } from "./names";
 
 export interface CoordinationStores {
   readonly backend: CoordinationBackend;

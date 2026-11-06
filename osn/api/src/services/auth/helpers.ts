@@ -36,7 +36,7 @@ export function probeAccountId(): string {
  * `lookupId` keys the store; `secret` is what is compared, in constant time,
  * against the stored hash.
  */
-export interface DisownToken {
+interface DisownToken {
   readonly lookupId: string;
   readonly secret: string;
   readonly token: string;
@@ -175,14 +175,14 @@ export type IdTokenClaims = {
  * "at+jwt"`). It names the granted scope and nothing else — it is not an
  * `osn-access` token and never authenticates a first-party route.
  */
-export type OidcAccessTokenClaims = {
+type OidcAccessTokenClaims = {
   sub: string;
   aud: string;
   scope: string;
 };
 
 /** Every claim set {@link signJwt} accepts. */
-export type SignedJwtClaims =
+type SignedJwtClaims =
   | AccessTokenClaims
   | StepUpTokenClaims
   | IdTokenClaims
@@ -196,7 +196,7 @@ export type SignedJwtClaims =
  * every caller narrows the claims it needs — starting with `aud`, which is
  * what separates the token kinds (S-M2).
  */
-export type VerifiedJwtClaims = {
+type VerifiedJwtClaims = {
   readonly iss?: unknown;
   readonly sub?: unknown;
   readonly aud?: unknown;

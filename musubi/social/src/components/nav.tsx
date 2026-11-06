@@ -6,11 +6,11 @@ import type { JSX } from "solid-js";
  * class so each shell can size them (14px rail / 20px tab bar per DESIGN.md).
  */
 
-export interface NavIconProps {
+interface NavIconProps {
   class?: string;
 }
 
-export interface NavItem {
+interface NavItem {
   href: string;
   label: string;
   icon: (props: NavIconProps) => JSX.Element;
@@ -23,7 +23,7 @@ export interface NavItem {
   mobileOnly?: boolean;
 }
 
-export function IconConnections(props: NavIconProps) {
+function IconConnections(props: NavIconProps) {
   return (
     <svg
       class={props.class ?? "h-3.5 w-3.5"}
@@ -44,7 +44,7 @@ export function IconConnections(props: NavIconProps) {
 }
 
 /** Plain magnifier — search. */
-export function IconSearch(props: NavIconProps) {
+function IconSearch(props: NavIconProps) {
   return (
     <svg
       class={props.class ?? "h-3.5 w-3.5"}
@@ -67,7 +67,7 @@ export function IconSearch(props: NavIconProps) {
  * magnifier icon; two magnifiers side by side in the tab bar would read as
  * the same destination twice.
  */
-export function IconDiscover(props: NavIconProps) {
+function IconDiscover(props: NavIconProps) {
   return (
     <svg
       class={props.class ?? "h-3.5 w-3.5"}
@@ -87,7 +87,7 @@ export function IconDiscover(props: NavIconProps) {
   );
 }
 
-export function IconOrganisations(props: NavIconProps) {
+function IconOrganisations(props: NavIconProps) {
   return (
     <svg
       class={props.class ?? "h-3.5 w-3.5"}
@@ -106,7 +106,7 @@ export function IconOrganisations(props: NavIconProps) {
   );
 }
 
-export function IconSettings(props: NavIconProps) {
+function IconSettings(props: NavIconProps) {
   return (
     <svg
       class={props.class ?? "h-3.5 w-3.5"}

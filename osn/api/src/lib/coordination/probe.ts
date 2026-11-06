@@ -8,7 +8,7 @@
 import type { CoordinationClient } from "@shared/coordination";
 
 /** How long a probe entry lives if its remove never lands. */
-export const PROBE_TTL_MS = 60_000;
+const PROBE_TTL_MS = 60_000;
 
 export interface CoordinationProbe {
   /**
@@ -19,7 +19,7 @@ export interface CoordinationProbe {
 }
 
 /** The three calls a probe makes, as the coordination client answers them. */
-export type ProbeTarget = Pick<CoordinationClient, "write" | "read" | "remove">;
+type ProbeTarget = Pick<CoordinationClient, "write" | "read" | "remove">;
 
 function randomHex(bytes: number): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) =>

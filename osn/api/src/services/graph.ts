@@ -14,15 +14,15 @@ import { withGraphBlockOp, withGraphConnectionOp } from "../metrics";
 // `message` reaches clients verbatim via the routes' `safeError` allowlist
 // — construct with static string literals only, never interpolated
 // causes or user input. Pinned by tests/lib/safe-error-static-messages.test.ts.
-export class GraphError extends Data.TaggedError("GraphError")<{
+class GraphError extends Data.TaggedError("GraphError")<{
   readonly message: string;
 }> {}
 
-export class NotFoundError extends Data.TaggedError("NotFoundError")<{
+class NotFoundError extends Data.TaggedError("NotFoundError")<{
   readonly message: string;
 }> {}
 
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
 
@@ -30,7 +30,7 @@ export class DatabaseError extends Data.TaggedError("DatabaseError")<{
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ListOptions {
+interface ListOptions {
   /** Maximum rows to return. Clamped to 1–100. Default: 50. */
   limit?: number;
   /** Zero-based row offset for pagination. Default: 0. */
@@ -629,5 +629,3 @@ export function createGraphService() {
     listBlocks,
   };
 }
-
-export type GraphService = ReturnType<typeof createGraphService>;

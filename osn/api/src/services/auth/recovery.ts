@@ -516,5 +516,3 @@ export function createRecoveryModule(
     countActiveRecoveryCodes,
   };
 }
-
-export type RecoveryModule = ReturnType<typeof createRecoveryModule>;

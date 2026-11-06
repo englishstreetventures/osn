@@ -57,7 +57,7 @@ const PAGE_SIZE = 500;
  * consumer knows the full shape up front. `pulse.*` / `zap.*` are attempted
  * via ARC fan-out and may instead surface a `{"degraded":...}` line.
  */
-export const EXPORT_SECTIONS = [
+const EXPORT_SECTIONS = [
   "account",
   "profiles",
   "passkeys",

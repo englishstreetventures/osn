@@ -44,7 +44,7 @@ import { outsideFamilyOf } from "./auth/sessions";
 // ---------------------------------------------------------------------------
 
 /** 7-day soft-delete grace window. */
-export const ACCOUNT_DELETION_GRACE_SECONDS = 7 * 24 * 60 * 60;
+const ACCOUNT_DELETION_GRACE_SECONDS = 7 * 24 * 60 * 60;
 
 /** Per-bridge timeout — locked by `wiki/compliance/dsar.md` line 96. */
 const FANOUT_TIMEOUT_MS = 10_000;
@@ -59,7 +59,7 @@ const NOT_APPLICABLE_SENTINEL = -1;
  * — module-top `process.env` reads are not reliable for bindings there. Falls
  * back to the local dev ports when unset.
  */
-export interface FanOutUrls {
+interface FanOutUrls {
   pulseApiUrl?: string;
   zapApiUrl?: string;
 }
@@ -82,7 +82,7 @@ const resolveFanOutUrls = (urls: FanOutUrls = {}): FanOutBaseUrls => ({
 // Errors
 // ---------------------------------------------------------------------------
 
-export class AccountErasureDbError extends Data.TaggedError("AccountErasureDbError")<{
+class AccountErasureDbError extends Data.TaggedError("AccountErasureDbError")<{
   readonly cause: unknown;
 }> {}
 
@@ -95,7 +95,7 @@ export class DeletionAlreadyPendingError extends Data.TaggedError("DeletionAlrea
   readonly scheduledFor: number;
 }> {}
 
-export class BridgePurgeError extends Data.TaggedError("BridgePurgeError")<{
+class BridgePurgeError extends Data.TaggedError("BridgePurgeError")<{
   readonly service: DeletionFanoutService;
   readonly cause: unknown;
 }> {}
@@ -104,7 +104,7 @@ export class BridgePurgeError extends Data.TaggedError("BridgePurgeError")<{
 // Service
 // ---------------------------------------------------------------------------
 
-export interface RequestErasureInput {
+interface RequestErasureInput {
   readonly accountId: string;
   /** Hashed session id of the requesting session. Kept alive as the cancellation handle. */
   readonly cancelSessionId: string | null;
@@ -112,7 +112,7 @@ export interface RequestErasureInput {
   readonly reason?: string;
 }
 
-export interface RequestErasureOutput {
+interface RequestErasureOutput {
   readonly accountId: string;
   /** Unix seconds when the account is scheduled for hard delete. */
   readonly scheduledFor: number;
@@ -532,7 +532,7 @@ const claimPurge = (
  * not abort the parent — sweeper picks up the unfinished half on its next
  * cycle.
  */
-export const runFanOut = (
+const runFanOut = (
   job: Pick<DeletionJob, "accountId" | "pulseDoneAt" | "zapDoneAt" | "purgeStartedAt">,
   urls: FanOutUrls,
   nowSec: number,

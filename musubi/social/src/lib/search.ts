@@ -11,7 +11,7 @@ import {
 import { recommendationClient } from "./api";
 
 /** Keystroke settle time before a request goes out. */
-export const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * Mirrors `MIN_SEARCH_QUERY_LENGTH` on the server. Kept client-side too so a
@@ -24,10 +24,10 @@ export const SEARCH_DEBOUNCE_MS = 250;
  * reaches the global index from two. Raising the floor here would suppress that
  * first-keystroke answer entirely.
  */
-export const MIN_QUERY_LENGTH = 1;
+const MIN_QUERY_LENGTH = 1;
 
 /** Normalises the way the server does, so the two agree on "too short". */
-export function normaliseQuery(raw: string): string {
+function normaliseQuery(raw: string): string {
   return raw.trim().replace(/^@+/, "");
 }
 

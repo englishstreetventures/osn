@@ -12,7 +12,7 @@ import type { Effect } from "effect";
  * Verified ARC caller claims attached to the request context after
  * successful middleware validation.
  */
-export interface ArcCaller {
+interface ArcCaller {
   /** Issuer service ID (e.g. "pulse-api") */
   readonly iss: string;
   /** Audience (this service, e.g. "osn-api") */

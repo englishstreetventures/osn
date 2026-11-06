@@ -27,7 +27,7 @@ import type { SecurityEventSummary } from "./types";
  * never be pointed at an OTP template and mail a code to an account it looked
  * up itself.
  */
-export type SecurityNoticeTemplate =
+type SecurityNoticeTemplate =
   | "passkey-added"
   | "passkey-removed"
   | "totp-enrolled"

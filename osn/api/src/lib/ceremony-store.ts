@@ -29,7 +29,7 @@ export type CeremonyStoreBackend = "memory" | "durable_object";
 export type CeremonyStoreOp = "set" | "get" | "delete" | "guess" | "take" | "swap";
 
 /** Hooks an in-memory store calls as it works. */
-export interface CeremonyStoreObserver {
+interface CeremonyStoreObserver {
   /** Every operation; `stores.ts` counts these on the ceremony-store metric. */
   onOp?: (op: CeremonyStoreOp, namespace: CeremonyStoreName) => void;
   /**

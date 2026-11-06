@@ -968,5 +968,3 @@ export function createRecoveryFactorsModule(
     disownRecovery,
   };
 }
-
-export type RecoveryFactorsModule = ReturnType<typeof createRecoveryFactorsModule>;

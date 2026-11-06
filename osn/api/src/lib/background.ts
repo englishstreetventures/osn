@@ -19,7 +19,7 @@ import { Context, Effect } from "effect";
  * on workerd". That is why the telemetry drain was moved into `waitUntil`; it
  * applies just as much to a security notice or a recovery code.
  */
-export interface BackgroundSink {
+interface BackgroundSink {
   readonly add: (work: Promise<unknown>) => void;
 }
 
@@ -64,7 +64,7 @@ export function currentBackgroundSink(): BackgroundSink | undefined {
 }
 
 /** The one method of `ExecutionContext` this module needs. */
-export interface WaitUntilCtx {
+interface WaitUntilCtx {
   readonly waitUntil: (promise: Promise<unknown>) => void;
 }
 

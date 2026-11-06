@@ -74,7 +74,7 @@ const scopeLabel = (scope: string) => scopeCopy(scope)?.label ?? scope;
 const scopeDetail = (scope: string) => scopeCopy(scope)?.detail ?? null;
 
 /** The one place the page leaves for the relying party. */
-export function navigateTo(url: string) {
+function navigateTo(url: string) {
   window.location.assign(url);
 }
 

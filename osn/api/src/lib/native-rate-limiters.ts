@@ -74,7 +74,7 @@ export const ALL_TIERS: readonly TierName[] = [...AUTH_IP_TIERS, ...USER_TIERS];
  * `undefined` when no tier has that limit. A test fails if any one-minute auth
  * budget has no tier, so the fallback here is never what production runs.
  */
-export function authIpTierFor(maxRequests: number): TierName | undefined {
+function authIpTierFor(maxRequests: number): TierName | undefined {
   const name = `RL_AUTH_IP_${maxRequests}_60`;
   return AUTH_IP_TIERS.find((tier) => tier === name);
 }
@@ -186,7 +186,7 @@ export function selectAuthRateLimiters(
 }
 
 /** The non-auth limiters a native binding can carry: every one-minute one. */
-export interface OsnMinuteLimiters {
+interface OsnMinuteLimiters {
   readonly graphRateLimiter: RateLimiterBackend;
   readonly orgRateLimiter: RateLimiterBackend;
   readonly profileRateLimiters: ProfileRateLimiters;

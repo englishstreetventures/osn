@@ -13,14 +13,14 @@
  * WebAuthn `OSN_ORIGIN` — that defaults to 5173 for the SDK's example app and
  * is a distinct concern.
  */
-export const LOCAL_DEV_CORS_ORIGINS = [
+const LOCAL_DEV_CORS_ORIGINS = [
   "http://localhost:1420", // @pulse/web
   "http://localhost:1422", // @musubi/social
   "http://localhost:4321", // @cire/invites (guest "Link my Pulse account" island)
   "http://localhost:4322", // @cire/host (OSN passkey sign-in)
 ] as const;
 
-export type CorsEnv = Readonly<Record<string, string | undefined>>;
+type CorsEnv = Readonly<Record<string, string | undefined>>;
 
 /**
  * Strip trailing slash + lowercase scheme/host so an operator typo
