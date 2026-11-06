@@ -7,6 +7,7 @@ import { createEffect, createResource, createSignal, on, untrack, Show } from "s
 import { AddToCalendarButton } from "../../components/AddToCalendarButton";
 import { CommsSummary } from "../../components/CommsSummary";
 import { EventChatPlaceholder } from "../../components/EventChatPlaceholder";
+import { LocalTime } from "../../components/LocalTime";
 import { MapPreview } from "../../components/MapPreview";
 import { RsvpSection } from "../../components/RsvpSection";
 import { ShareEventButton } from "../../components/ShareEventButton";
@@ -141,8 +142,15 @@ export function EventDetailPage() {
                 </div>
                 <h1 class="text-foreground mb-1 text-2xl font-bold">{e().title}</h1>
                 <p class="text-muted-foreground mb-3 text-sm">
-                  {formatTime(e().startTime)}
-                  <Show when={e().endTime}>{(end) => <> – {formatTime(end())}</>}</Show>
+                  <LocalTime value={e().startTime} format={formatTime} />
+                  <Show when={e().endTime}>
+                    {(end) => (
+                      <>
+                        {" – "}
+                        <LocalTime value={end()} format={formatTime} />
+                      </>
+                    )}
+                  </Show>
                 </p>
                 <Show when={e().createdByName}>
                   {(name) => <p class="text-muted-foreground mb-3 text-xs">Hosted by {name()}</p>}

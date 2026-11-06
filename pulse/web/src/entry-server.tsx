@@ -1,11 +1,15 @@
 // @refresh reload
 import { createHandler, StartServer, type StartHandler } from "@solidjs/start/server";
 
+import { dateLocale } from "./lib/date-locale";
+
 const handler: StartHandler = createHandler(
   () => (
     <StartServer
       document={({ assets, children, scripts }) => (
-        <html lang="en">
+        // `data-date-locale`: the locale this request's dates are written in,
+        // which the browser's first render reads back (`lib/date-locale.ts`).
+        <html lang="en" data-date-locale={dateLocale()}>
           <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />

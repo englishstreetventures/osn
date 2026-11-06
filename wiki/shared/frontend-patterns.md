@@ -700,10 +700,26 @@ on:
   and take the real one in `onMount`. Text is worse: hydration keeps the
   server's text node, so a date formatted in the server's time zone stays
   that way until something re-renders it (see [[#Server-rendered islands]]).
-  Output only the browser can get right stays out of the server's HTML:
   `createInBrowser()` (`src/lib/hydration.ts`) is false on the server and while
-  hydrating, so `/calendar` writes each event's linked title and draws the
-  timeline, grouped by the reader's local day, once mounted.
+  hydrating, true once mounted: the switch for anything the browser should
+  redo in the reader's terms.
+- **Dates and times render on the server in the item's own zone with the zone
+  named, then re-render in the viewer's zone after mount.** `<LocalTime value
+  zone format />` (`src/components/LocalTime.tsx`) writes a
+  `<time datetime="<ISO>">`. Its `format(date, style)` gets the server's style
+  (the item's zone — its venue's or its series' when the page's data carries
+  one, else UTC — with `timeZoneName: "short"`, in the request's locale) until
+  the page mounts, and the reader's own zone and locale, zone unnamed, after.
+  The request's locale is the first `Accept-Language` tag the runtime can
+  format dates in, else `en` (`src/lib/date-locale.ts`); the server writes it
+  as `<html data-date-locale>` and the browser's first render reads it back,
+  so that render is the server's text byte for byte and hydration keeps it.
+  `pinZone` keeps the item's zone after mount where a screen is designed
+  around it (a venue's night and lineup). `<LocalNow>` does the same for text
+  read off the clock: the server writes a neutral greeting and no time of day.
+  A screen whose layout depends on the reader's day, the `/calendar` timeline,
+  is drawn after mount only; until then the server's list of linked titles
+  and dates stands.
 - **One transport for every API call.** `src/lib/transport.ts` picks the base per
   call (the browser's `/api` mount, or the API's own URL on the server), sends
   only the session cookie from the page request, sends it to no other origin,

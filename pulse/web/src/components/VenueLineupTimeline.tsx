@@ -1,7 +1,9 @@
 import { Card } from "@shared/ui/ui/card";
 import { For, Show } from "solid-js";
 
+import { type DateStyle, zoned } from "../lib/dates";
 import type { LineupSlot, LineupRole } from "../lib/venues";
+import { LocalTime } from "./LocalTime";
 
 interface Props {
   slots: LineupSlot[];
@@ -20,17 +22,18 @@ const ROLE_LABEL = {
 } satisfies Record<LineupRole, string>;
 
 /**
- * Format an ISO timestamp as "HH:MM" in the venue's local timezone.
- * Slot timestamps may cross midnight, so we deliberately render the
+ * Format an instant as "HH:MM" in the venue's local timezone, in both
+ * renderings (`pinZone`); the server's names the zone once, after the end
+ * time. Slot timestamps may cross midnight, so we deliberately render the
  * wall-clock time only — the date band on the parent component sets
  * the night's calendar context.
  */
-function formatSlotTime(iso: string, timezone: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, {
-    timeZone: timezone,
+function formatSlotTime(date: Date, style: DateStyle): string {
+  return date.toLocaleTimeString(style.locale, {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    ...zoned(style),
   });
 }
 
@@ -65,9 +68,19 @@ export function VenueLineupTimeline(props: Props) {
             return (
               <li class="flex items-baseline gap-4 p-4">
                 <div class="text-foreground w-28 shrink-0 font-mono text-xs tracking-wide tabular-nums">
-                  <span>{formatSlotTime(slot.slotStart, props.timezone)}</span>
+                  <LocalTime
+                    value={slot.slotStart}
+                    zone={props.timezone}
+                    pinZone
+                    format={(d, style) => formatSlotTime(d, { ...style, nameZone: false })}
+                  />
                   <span class="text-muted-foreground"> → </span>
-                  <span>{formatSlotTime(slot.slotEnd, props.timezone)}</span>
+                  <LocalTime
+                    value={slot.slotEnd}
+                    zone={props.timezone}
+                    pinZone
+                    format={formatSlotTime}
+                  />
                 </div>
                 <div class="min-w-0 flex-1">
                   <p

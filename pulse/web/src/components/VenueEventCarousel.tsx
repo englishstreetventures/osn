@@ -3,26 +3,32 @@ import { Card } from "@shared/ui/ui/card";
 import { A } from "@solidjs/router";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
+import { type DateStyle, zoned } from "../lib/dates";
 import { formatPrice } from "../lib/formatPrice";
 import type { VenueEvent } from "../lib/venues";
+import { LocalTime } from "./LocalTime";
 
 interface Props {
   events: VenueEvent[];
   heading?: string;
+  /** The venue's IANA zone: the server writes the dates in it. */
+  timezone?: string;
 }
 
 /**
- * Format a date as "Fri 7 Jun · 22:00" in the user's local time. The
+ * Format a date as "Fri 7 Jun · 22:00" in the user's local time once the page
+ * has mounted (the server writes it in the venue's zone, named). The
  * carousel is more about scanning than timezone fidelity — the
  * detailed page handles the canonical venue time.
  */
-function formatCardDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+function formatCardDate(date: Date, style: DateStyle): string {
+  return date.toLocaleString(style.locale, {
     weekday: "short",
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    ...zoned(style),
   });
 }
 
@@ -106,7 +112,11 @@ export function VenueEventCarousel(props: Props) {
                   </div>
                   <p class="line-clamp-2 text-sm font-semibold">{event.title}</p>
                   <p class="text-muted-foreground text-ui-xs mt-1 font-mono tracking-wide">
-                    {formatCardDate(event.startTime)}
+                    <LocalTime
+                      value={event.startTime}
+                      zone={props.timezone}
+                      format={formatCardDate}
+                    />
                   </p>
                 </div>
               </Card>

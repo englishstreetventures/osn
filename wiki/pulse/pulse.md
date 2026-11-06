@@ -61,7 +61,7 @@ The proxy builds the upstream URL as `PULSE_API_INTERNAL_URL` plus the mapped pa
 
 ### Server rendering
 
-Pages render on the server (`solidStart({ ssr: true })`, async mode, so resolved content is inline and readable without JavaScript). The rendering server calls pulse-api at `PULSE_API_INTERNAL_URL` with the page request's `pulse_web_session` and no other cookie ([`src/lib/transport.ts`](../../pulse/web/src/lib/transport.ts)); the browser hydrates that data rather than asking again. Every page response carries `Cache-Control: private, no-store` and `Vary: Cookie`. What this needs from components is in [[frontend-patterns#Server rendering in a SolidStart app]].
+Pages render on the server (`solidStart({ ssr: true })`, async mode, so resolved content is inline and readable without JavaScript). The rendering server calls pulse-api at `PULSE_API_INTERNAL_URL` with the page request's `pulse_web_session` and no other cookie ([`src/lib/transport.ts`](../../pulse/web/src/lib/transport.ts)); the browser hydrates that data rather than asking again. Every page response carries `Cache-Control: private, no-store` and `Vary: Cookie`. Dates are written by the server in the item's own zone (its venue's or series', else UTC) with the zone named, in the request's `Accept-Language` locale, and rewritten in the reader's zone once the page mounts (`<LocalTime>`). What this needs from components is in [[frontend-patterns#Server rendering in a SolidStart app]].
 
 Pulse has no deployed tier yet, so the mount runs only in the devloop and the E2E stack; `pulse-event-rsvp` proves it end to end ([[testing-patterns#The end-to-end suite]]).
 

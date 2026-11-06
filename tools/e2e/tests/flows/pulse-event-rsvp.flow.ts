@@ -48,6 +48,28 @@ const EVENT_TITLE = "E2E Launch Party";
 /** What `/calendar` says to a visitor the server did not recognise. */
 const SIGNED_OUT_CALENDAR = "Sign in to see the events you're going to.";
 
+/** The series' own zone, which its dates are server-rendered in. */
+const SERIES_ZONE = "Asia/Tokyo";
+/** The series' first occurrence. */
+const SERIES_FIRST = "2026-11-23T18:00:00.000Z";
+
+/** The fields Pulse web's `formatTime` writes an event's start with. */
+const EVENT_TIME: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+};
+
+/** An event time as the server writes it: in `timeZone`, the zone named, in `locale`. */
+const serverWritten = (iso: string, locale: string, timeZone: string): string =>
+  new Date(iso).toLocaleString(locale, { ...EVENT_TIME, timeZone, timeZoneName: "short" });
+
+/** The day of the month `iso` falls on in `timeZone`. */
+const dayIn = (iso: string, timeZone: string): string =>
+  new Intl.DateTimeFormat("en", { timeZone, day: "numeric" }).format(new Date(iso));
+
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
 /**
@@ -270,6 +292,84 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     )?.n ?? -1,
   );
 
+  const startIso = new Date(
+    (queryOne<{ start_time: number }>(
+      DB_FILES.pulse,
+      "SELECT start_time FROM events WHERE id = ?",
+      eventId,
+    )?.start_time ?? 0) * 1000,
+  ).toISOString();
+
+  await flow.step(
+    "visitor: the event's start is written by the server, in UTC, named",
+    async () => {
+      // No venue or series, so no zone of its own: UTC. `de-DE` reaches the
+      // server as Accept-Language and picks the locale.
+      const visitor = await browser.newContext({ javaScriptEnabled: false, locale: "de-DE" });
+      watchPulseApiOrigin(visitor, sentToPulseApi);
+      const visitorPage = await flow.newPage(visitor);
+      await visitorPage.goto(`${ORIGINS.pulseWeb}/events/${eventId}`);
+      const start = visitorPage.locator(`time[datetime="${startIso}"]`).first();
+      await expect(start).toBeVisible();
+      flow.check(
+        "server's date locale for Accept-Language de-DE",
+        "de-DE",
+        (await visitorPage.locator("html").getAttribute("data-date-locale")) ?? "missing",
+      );
+      flow.check(
+        "event start as the server writes it",
+        serverWritten(startIso, "de-DE", "UTC"),
+        (await start.textContent()) ?? "missing",
+      );
+      await visitor.close();
+    },
+  );
+
+  await flow.step("visitor in Auckland: the event's start turns local once hydrated", async () => {
+    const visitor = await browser.newContext({ timezoneId: "Pacific/Auckland", locale: "de-DE" });
+    watchPulseApiOrigin(visitor, sentToPulseApi);
+    const visitorPage = await flow.newPage(visitor);
+    const hydrationMessages: string[] = [];
+    visitorPage.on("console", (message) => {
+      if (/hydrat/i.test(message.text())) hydrationMessages.push(message.text());
+    });
+    visitorPage.on("pageerror", (error) => {
+      if (/hydrat/i.test(error.message)) hydrationMessages.push(error.message);
+    });
+    await visitorPage.goto(`${ORIGINS.pulseWeb}/events/${eventId}`);
+    await untilPulseHydrated(visitorPage);
+    const start = visitorPage.locator(`time[datetime="${startIso}"]`).first();
+    // Rewritten in the reader's zone and locale, with no zone named.
+    await expect(start).not.toContainText("UTC");
+    flow.check(
+      "event start as an Auckland reader sees it, on Auckland's day",
+      new Date(startIso).toLocaleString("de-DE", { ...EVENT_TIME, timeZone: "Pacific/Auckland" }),
+      (await start.textContent()) ?? "missing",
+    );
+    flow.check(
+      "Auckland's day is not UTC's",
+      true,
+      dayIn(startIso, "Pacific/Auckland") !== dayIn(startIso, "UTC"),
+    );
+    // The browser's first render writes the server's text in the browser's
+    // own ICU; hydration keeps the server's text only if the two agree.
+    flow.check(
+      "the browser writes the server's text byte for byte",
+      serverWritten(startIso, "de-DE", "UTC"),
+      await visitorPage.evaluate(
+        ([iso, options]) =>
+          new Date(iso).toLocaleString("de-DE", {
+            ...options,
+            timeZone: "UTC",
+            timeZoneName: "short",
+          }),
+        [startIso, EVENT_TIME] as const,
+      ),
+    );
+    flow.check("hydration messages on the event page", 0, hydrationMessages.length);
+    await visitor.close();
+  });
+
   await flow.step("host: cancel the event", async () => {
     const response = await pulseWrite(flow, page.request, "PATCH", `/events/${eventId}`, {
       status: "cancelled",
@@ -333,11 +433,38 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     const response = await pulseWrite(flow, page.request, "POST", "/series", {
       title: "E2E Weekly",
       rrule: "FREQ=WEEKLY;COUNT=3",
-      dtstart: "2026-11-23T18:00:00.000Z",
+      dtstart: SERIES_FIRST,
+      timezone: SERIES_ZONE,
     });
     expect(response.status(), "series created").toBe(201);
     return ((await response.json()) as { series: { id: string } }).series.id;
   });
+
+  await flow.step(
+    "visitor: a series' dates are written by the server in its own zone",
+    async () => {
+      const visitor = await browser.newContext({ javaScriptEnabled: false });
+      watchPulseApiOrigin(visitor, sentToPulseApi);
+      const visitorPage = await flow.newPage(visitor);
+      await visitorPage.goto(`${ORIGINS.pulseWeb}/series/${seriesId}`);
+      const first = visitorPage.locator(`time[datetime="${SERIES_FIRST}"]`);
+      await expect(first.first()).toBeVisible();
+      // The suite's browsers send Accept-Language en-AU (playwright.config.ts).
+      const expected = serverWritten(SERIES_FIRST, "en-AU", SERIES_ZONE);
+      const written = await first.allTextContents();
+      flow.check(
+        "first occurrence as the server writes it, in the series' zone",
+        expected,
+        written.find((text) => text === expected) ?? written.join(" | "),
+      );
+      flow.check(
+        "the series' zone puts it on another day than UTC",
+        true,
+        dayIn(SERIES_FIRST, SERIES_ZONE) !== dayIn(SERIES_FIRST, "UTC"),
+      );
+      await visitor.close();
+    },
+  );
 
   const cancelled = await flow.step("host: cancel the series", async () => {
     const response = await pulseWrite(flow, page.request, "DELETE", `/series/${seriesId}`);

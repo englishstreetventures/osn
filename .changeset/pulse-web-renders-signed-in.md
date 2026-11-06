@@ -16,6 +16,11 @@ pulse-api's `/internal/*`, `/health`, `/ready` and `/openapi*`, and any path
 that could name another host. The browser never calls pulse-api's own origin.
 
 - `@pulse/web`: `PULSE_API_INTERNAL_URL` (server-only) replaces `VITE_API_URL`.
+  Every date and time is written by the server in the item's own zone (its
+  venue's or series', else UTC) with the zone named, in the request's
+  `Accept-Language` locale, and rewritten in the reader's own zone and locale
+  once the page mounts (`<LocalTime>`), so a reader without JavaScript gets
+  real dates and hydration keeps the server's text.
 - `@pulse/api`: `PULSE_API_ORIGIN` is documented, and set in `wrangler.toml`,
   as the web origin that mounts it; no behaviour change.
 - `@shared/rp-auth`: `RpAuthConfig.fetch` takes any `fetch`-compatible

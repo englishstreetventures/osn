@@ -3,6 +3,8 @@ import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 
 import { Icon } from "../components/Icon";
+import { LocalTime } from "../components/LocalTime";
+import { type DateStyle, inZone, wallClock, zoneName } from "../lib/dates";
 import type { EventItem } from "../lib/types";
 
 /** Gradient class for events without an image — keyed by category. */
@@ -41,23 +43,32 @@ function initials(name: string): string {
     .slice(0, 2);
 }
 
-function fmtDate(d: Date) {
-  return {
-    mo: d.toLocaleString("en-US", { month: "short" }).toUpperCase(),
-    day: d.getDate(),
-    dow: d.toLocaleString("en-US", { weekday: "short" }).toUpperCase(),
-  };
+// The card's words are English by design, so its dates are `en-US` in both
+// renderings; only the zone changes (`lib/dates.ts`).
+const fmtMonth = (d: Date, style: DateStyle) =>
+  d.toLocaleString("en-US", { month: "short", ...inZone(style) }).toUpperCase();
+const fmtDayOfMonth = (d: Date, style: DateStyle) => String(wallClock(d, style).day);
+const fmtWeekday = (d: Date, style: DateStyle) =>
+  d.toLocaleString("en-US", { weekday: "short", ...inZone(style) }).toUpperCase();
+
+function fmtTime(d: Date, style: DateStyle) {
+  const { hour, minute } = wallClock(d, style);
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const h = hour % 12 || 12;
+  const zone = zoneName(d, style);
+  return `${h}:${minute.toString().padStart(2, "0")} ${ampm}${zone ? ` ${zone}` : ""}`;
 }
 
-function fmtTime(d: Date) {
-  let h = d.getHours();
-  const m = d.getMinutes();
-  const ampm = h >= 12 ? "PM" : "AM";
-  h = h % 12 || 12;
-  return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
-}
-
-function fmtDay(d: Date) {
+/** "Today", "Tomorrow" or a weekday for the reader; a plain date while the server's text stands. */
+function fmtDay(d: Date, style: DateStyle) {
+  if (!style.viewer) {
+    return d.toLocaleString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      ...inZone(style),
+    });
+  }
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const diff = Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -76,10 +87,7 @@ export function ExploreCard(props: {
   onMouseLeave?: () => void;
 }) {
   const e = () => props.event;
-  const date = () => new Date(e().startTime);
-  const dateParts = () => fmtDate(date());
-  const time = () => fmtTime(date());
-  const dayLabel = () => fmtDay(date());
+  const start = () => e().startTime;
   const ph = () => CATEGORY_PH[e().category ?? ""] ?? "ph-4";
   const glyph = () => CATEGORY_GLYPH[e().category ?? ""] ?? "\u25C9";
 
@@ -154,11 +162,13 @@ export function ExploreCard(props: {
               class="text-ui-xs font-semibold tracking-widest uppercase"
               style={{ color: "var(--pulse-accent-strong)" }}
             >
-              {dateParts().mo}
+              <LocalTime value={start()} format={fmtMonth} />
             </div>
-            <div class="mt-0.5 text-lg leading-none font-semibold">{dateParts().day}</div>
+            <div class="mt-0.5 text-lg leading-none font-semibold">
+              <LocalTime value={start()} format={fmtDayOfMonth} />
+            </div>
             <div class="text-muted-foreground text-ui-xs mt-0.5 tracking-wider uppercase">
-              {dateParts().dow}
+              <LocalTime value={start()} format={fmtWeekday} />
             </div>
           </div>
 
@@ -188,7 +198,10 @@ export function ExploreCard(props: {
             style={{ "font-family": "var(--font-mono)", color: "var(--pulse-accent-strong)" }}
           >
             <Icon name="clock" size={11} />
-            {dayLabel()} · {time()}
+            <LocalTime
+              value={start()}
+              format={(d, style) => `${fmtDay(d, style)} · ${fmtTime(d, style)}`}
+            />
           </div>
 
           {/* Title */}

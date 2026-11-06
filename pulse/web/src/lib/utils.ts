@@ -1,10 +1,14 @@
-export function formatTime(iso: string | Date): string {
-  return new Date(iso).toLocaleString(undefined, {
+import { type DateStyle, VIEWER, zoned } from "./dates";
+
+/** "Fri, Nov 20, 6:00 PM" in the style's zone and locale (the reader's by default). */
+export function formatTime(iso: string | Date, style: DateStyle = VIEWER): string {
+  return new Date(iso).toLocaleString(style.locale, {
     weekday: "short",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    ...zoned(style),
   });
 }
 

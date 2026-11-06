@@ -13,7 +13,9 @@ import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, For, Show } from "solid-js";
 
 import { Icon } from "../components/Icon";
+import { LocalNow, LocalTime } from "../components/LocalTime";
 import { setShowCreateForm } from "../lib/createEventSignal";
+import { type DateStyle, zoned } from "../lib/dates";
 import { TABS } from "../lib/tabs";
 import { displayNameOf, initialOf, safeAvatarUrl } from "../lib/utils";
 import { NavPill } from "./NavPill";
@@ -34,18 +36,31 @@ export function ExploreNav(props: {
   const name = createMemo(() => displayNameOf(session() ?? null));
   const avatar = createMemo(() => safeAvatarUrl(session()?.avatarUrl));
 
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const timeOfDay =
-    hour < 6
-      ? "late"
-      : hour < 12
-        ? "morning"
-        : hour < 17
-          ? "afternoon"
-          : hour < 21
-            ? "evening"
-            : "tonight";
+  // The greeting and the time of day are read off the reader's clock, which
+  // the server does not have: it writes a plain "Hello" and no time of day,
+  // and the browser fills both in once mounted (`LocalNow`). Today's date is
+  // written like any other (`LocalTime`).
+  const today = new Date();
+  const greeting = (now: Date, style: DateStyle) => {
+    if (!style.viewer) return "Hello";
+    const hour = now.getHours();
+    return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  };
+  const thisTimeOfDay = (now: Date, style: DateStyle) => {
+    if (!style.viewer) return "";
+    const hour = now.getHours();
+    const word =
+      hour < 6
+        ? "late"
+        : hour < 12
+          ? "morning"
+          : hour < 17
+            ? "afternoon"
+            : hour < 21
+              ? "evening"
+              : "tonight";
+    return ` this ${word}`;
+  };
   /** First name only — the greeting reads as a greeting, not a record. */
   const greetingName = () => name()?.split(" ")[0] ?? "";
 
@@ -183,16 +198,21 @@ export function ExploreNav(props: {
                 "box-shadow": "0 0 0 3px color-mix(in oklab, var(--badge-live) 30%, transparent)",
               }}
             />
-            <Show when={greetingName()} fallback={<>{greeting}</>}>
-              {greeting}, {greetingName()}
-            </Show>
+            <LocalNow format={greeting} />
+            <Show when={greetingName()}>, {greetingName()}</Show>
             {" · "}
             <b class="text-foreground font-semibold">
-              {new Date().toLocaleDateString("en-US", {
-                weekday: "long",
-                month: "short",
-                day: "numeric",
-              })}
+              <LocalTime
+                value={today}
+                format={(d, style) =>
+                  d.toLocaleDateString("en-US", {
+                    weekday: "long",
+                    month: "short",
+                    day: "numeric",
+                    ...zoned(style),
+                  })
+                }
+              />
             </b>
           </div>
           <h1
@@ -209,7 +229,10 @@ export function ExploreNav(props: {
             <span class="italic" style={{ color: "var(--pulse-accent)" }}>
               pulsing
             </span>{" "}
-            <span>nearby this {timeOfDay}.</span>
+            <span>
+              nearby
+              <LocalNow format={thisTimeOfDay} />.
+            </span>
           </h1>
         </div>
 

@@ -3,8 +3,10 @@ import { A, useParams } from "@solidjs/router";
 import { createMemo, createResource, For, Show } from "solid-js";
 
 import { Icon } from "../../../components/Icon";
+import { LocalTime } from "../../../components/LocalTime";
 import { VenueEventCarousel } from "../../../components/VenueEventCarousel";
 import { VenueLineupTimeline } from "../../../components/VenueLineupTimeline";
+import { type DateStyle, zoned } from "../../../lib/dates";
 import {
   computeOpenStatus,
   fetchEventLineup,
@@ -52,9 +54,10 @@ function pickFeaturedEvent(events: VenueEvent[]): VenueEvent | null {
   );
 }
 
-function formatNightDate(iso: string, timezone: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    timeZone: timezone,
+/** The night's date in the venue's zone, in both renderings; the server's names the zone. */
+function formatNightDate(date: Date, style: DateStyle): string {
+  return date.toLocaleDateString(style.locale, {
+    ...zoned(style),
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -239,7 +242,12 @@ export function VenueDetailPage() {
                 <section class="flex flex-col gap-2">
                   <p class="text-muted-foreground text-xs">
                     {e().status === "ongoing" ? "Tonight" : "Next night"} ·{" "}
-                    {formatNightDate(e().startTime, v().timezone)}
+                    <LocalTime
+                      value={e().startTime}
+                      zone={v().timezone}
+                      pinZone
+                      format={formatNightDate}
+                    />
                   </p>
                   <VenueLineupTimeline
                     slots={lineup() ?? []}
@@ -252,7 +260,11 @@ export function VenueDetailPage() {
 
             {/* Programme carousel */}
             <Show when={!events.loading}>
-              <VenueEventCarousel events={upcomingEvents()} heading={`Upcoming at ${v().name}`} />
+              <VenueEventCarousel
+                events={upcomingEvents()}
+                heading={`Upcoming at ${v().name}`}
+                timezone={v().timezone}
+              />
             </Show>
 
             {/* Full hours */}

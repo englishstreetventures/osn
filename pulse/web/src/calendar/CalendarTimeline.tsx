@@ -1,14 +1,16 @@
 import { A } from "@solidjs/router";
 import { For, Show } from "solid-js";
 
+import { LocalTime } from "../components/LocalTime";
 import { type CalendarEntry, formatRailDate, groupEntriesByDay } from "../lib/calendar";
 import { createInBrowser } from "../lib/hydration";
+import { formatTime } from "../lib/utils";
 import { CalendarEventCard } from "./CalendarEventCard";
 
 /**
- * The entries as the server writes them: each event's title, linked, in the
- * API's order. Days, dates and times are the reader's local ones, which only
- * the browser knows, so they wait for it.
+ * The entries as the server writes them: each event's title, linked, and its
+ * start in UTC with the zone named (`LocalTime`), in the API's order. The
+ * timeline groups by the reader's local day, which only the browser knows.
  */
 function ServerAgenda(props: { entries: CalendarEntry[] }) {
   return (
@@ -17,9 +19,14 @@ function ServerAgenda(props: { entries: CalendarEntry[] }) {
         {(entry) => (
           <li class="cal-card border-border bg-card rounded-xl border">
             <A href={`/events/${entry.event.id}`} class="block px-4 py-3">
-              <span class="text-ui-base leading-tight font-semibold tracking-tight">
+              <span class="text-ui-base block leading-tight font-semibold tracking-tight">
                 {entry.event.title}
               </span>
+              <LocalTime
+                value={entry.event.startTime}
+                format={formatTime}
+                class="text-muted-foreground text-ui-sm"
+              />
             </A>
           </li>
         )}
@@ -33,7 +40,7 @@ function ServerAgenda(props: { entries: CalendarEntry[] }) {
  * with a dated marker per day and that day's events listed to the right.
  *
  * Grouped by the reader's local day, so it is drawn in the browser only; the
- * server writes `ServerAgenda`, which the browser keeps until it has hydrated.
+ * server writes `ServerAgenda`, which the browser repeats until it has mounted.
  */
 export function CalendarTimeline(props: { entries: CalendarEntry[]; onChanged: () => void }) {
   const inBrowser = createInBrowser();

@@ -7,6 +7,7 @@ import { Show } from "solid-js";
 import { formatPrice } from "../lib/formatPrice";
 import type { EventItem } from "../lib/types";
 import { formatTime } from "../lib/utils";
+import { LocalTime } from "./LocalTime";
 
 function mapsUrl(event: EventItem): string | null {
   if (event.latitude != null && event.longitude != null) {
@@ -124,7 +125,7 @@ export function EventCard(props: {
           <Show when={props.event.location}>
             <span>{props.event.location}</span>
           </Show>
-          <span>{formatTime(props.event.startTime)}</span>
+          <LocalTime value={props.event.startTime} format={formatTime} />
         </div>
         <div class="mt-3 flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">

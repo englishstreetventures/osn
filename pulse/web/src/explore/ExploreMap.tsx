@@ -2,6 +2,7 @@ import { A } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { Icon } from "../components/Icon";
+import { createInBrowser } from "../lib/hydration";
 import type { EventItem } from "../lib/types";
 import type { MapBounds, VenuePin } from "../lib/venues";
 
@@ -277,6 +278,9 @@ function TimeScrubber(props: {
   onHourChange: (h: number) => void;
   ref?: (el: HTMLDivElement) => void;
 }) {
+  // The hour is UTC's until the page has mounted, and named so; then the
+  // reader's own (`ExploreMap`).
+  const inBrowser = createInBrowser();
   const displayHour = () => {
     const h = props.hour % 24;
     const ampm = h >= 12 ? "pm" : "am";
@@ -318,7 +322,8 @@ function TimeScrubber(props: {
             "letter-spacing": "-0.01em",
           }}
         >
-          {displayHour()}{" "}
+          {displayHour()}
+          {inBrowser() ? "" : " UTC"}{" "}
           <span
             class="text-muted-foreground text-ui-sm italic"
             style={{ "font-family": "var(--font-sans)" }}
@@ -387,7 +392,9 @@ export function ExploreMap(props: {
 }) {
   let wrapRef: HTMLDivElement | undefined;
   const [size, setSize] = createSignal({ w: 700, h: 900 });
-  const [hour, setHour] = createSignal(new Date().getHours());
+  // UTC's hour until mounted (the server has no reader's clock, and the
+  // browser's first render must match it), then the reader's own.
+  const [hour, setHour] = createSignal(new Date().getUTCHours());
   // The DOM zoom cluster's "Zoom in"/"Layers" buttons have never had a click
   // handler and stay inert — this signal has no way to change, unchanged.
   const [zoom] = createSignal(1);
@@ -396,6 +403,8 @@ export function ExploreMap(props: {
     x: number;
     y: number;
   } | null>(null);
+
+  onMount(() => setHour(new Date().getHours()));
 
   onMount(() => {
     if (!wrapRef) return;

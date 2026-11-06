@@ -4,6 +4,8 @@ import { Card } from "@shared/ui/ui/card";
 import { A, useParams } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
+import { LocalTime } from "../../components/LocalTime";
+import { inZone, wallClock } from "../../lib/dates";
 import { fetchSeries, fetchSeriesInstances } from "../../lib/series";
 import type { SeriesInstance, SeriesSummary } from "../../lib/series";
 import { formatTime } from "../../lib/utils";
@@ -59,7 +61,8 @@ function statusColour(status: SeriesInstance["status"]): string {
   return "text-muted-foreground";
 }
 
-function InstanceRow(props: { instance: SeriesInstance }) {
+/** One occurrence. Its dates are in the series' zone on the server, the reader's after. */
+function InstanceRow(props: { instance: SeriesInstance; timezone: string }) {
   const i = props.instance;
   return (
     <A
@@ -72,9 +75,21 @@ function InstanceRow(props: { instance: SeriesInstance }) {
           class="text-ui-xs font-medium tracking-wider uppercase"
           style="color: var(--pulse-accent-strong, currentColor)"
         >
-          {new Date(i.startTime).toLocaleString(undefined, { month: "short" })}
+          <LocalTime
+            value={i.startTime}
+            zone={props.timezone}
+            format={(d, style) =>
+              d.toLocaleString(style.locale, { month: "short", ...inZone(style) })
+            }
+          />
         </span>
-        <span class="text-xl leading-none font-semibold">{new Date(i.startTime).getDate()}</span>
+        <span class="text-xl leading-none font-semibold">
+          <LocalTime
+            value={i.startTime}
+            zone={props.timezone}
+            format={(d, style) => String(wallClock(d, style).day)}
+          />
+        </span>
       </div>
       <div class="min-w-0 flex-1">
         <div class="mb-1 flex items-center gap-2">
@@ -87,7 +102,7 @@ function InstanceRow(props: { instance: SeriesInstance }) {
         </div>
         <h3 class="text-foreground truncate text-sm font-semibold">{i.title}</h3>
         <p class="text-muted-foreground truncate text-xs">
-          {formatTime(i.startTime)}
+          <LocalTime value={i.startTime} zone={props.timezone} format={formatTime} />
           <Show when={i.venue}> · {i.venue}</Show>
         </p>
       </div>
@@ -201,7 +216,9 @@ function SeriesDetailPage() {
               <p class="text-muted-foreground py-8 text-center text-sm">No {scope()} instances.</p>
             </Show>
             <div class="flex flex-col gap-2">
-              <For each={instances() ?? []}>{(i) => <InstanceRow instance={i} />}</For>
+              <For each={instances() ?? []}>
+                {(i) => <InstanceRow instance={i} timezone={s().timezone} />}
+              </For>
             </div>
           </article>
         )}
