@@ -18,7 +18,10 @@ vi.mock("@osn/auth-ui/SignIn", () => ({
     </div>
   ),
 }));
+const pendingSignUp = vi.hoisted(() => ({ value: false }));
+
 vi.mock("@osn/auth-ui/Register", () => ({
+  hasPendingSignUp: () => pendingSignUp.value,
   Register: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="register">
       <span data-testid="register-product-name">{props.productName}</span>
@@ -89,6 +92,7 @@ function renderDialogs(
 
 afterEach(() => {
   cleanup();
+  pendingSignUp.value = false;
 });
 
 describe("<AuthDialogs /> — close-on-session invariant", () => {
@@ -190,5 +194,35 @@ describe("<AuthDialogs /> — close-on-session invariant", () => {
 
     expect(onShowRegisterChange).not.toHaveBeenCalled();
     expect(onShowSignInChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("<AuthDialogs /> — a sign-up waiting on its link", () => {
+  it("opens the register dialog on load, so the waiting view resumes after a reload", () => {
+    pendingSignUp.value = true;
+    const onShowRegisterChange = vi.fn();
+    renderDialogs(
+      makeAuth(() => null),
+      {},
+      { onShowRegisterChange },
+    );
+    expect(onShowRegisterChange).toHaveBeenCalledWith(true);
+  });
+
+  it("opens nothing when there is no waiting sign-up, or a session already exists", () => {
+    const onShowRegisterChange = vi.fn();
+    renderDialogs(
+      makeAuth(() => null),
+      {},
+      { onShowRegisterChange },
+    );
+    cleanup();
+    pendingSignUp.value = true;
+    renderDialogs(
+      makeAuth(() => SAMPLE_SESSION),
+      {},
+      { onShowRegisterChange },
+    );
+    expect(onShowRegisterChange).not.toHaveBeenCalledWith(true);
   });
 });

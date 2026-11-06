@@ -575,6 +575,29 @@ describe("<AuthorizePage />", () => {
     expect(await screen.findByText("Allow")).toBeDefined();
   });
 
+  it("leads with sign-up when this tab was waiting on a sign-up link before a reload", async () => {
+    sessionStorage.setItem(
+      "osn.signup.pending",
+      JSON.stringify({
+        requestId: "signup_000000000001",
+        claimSecret: "1".repeat(64),
+        pairingCode: "41",
+        expiresAt: Math.floor(Date.now() / 1000) + 600,
+        email: "alice@example.com",
+        handle: "alice",
+      }),
+    );
+    try {
+      mocks.getContext.mockResolvedValue(context({ signedIn: false, profiles: [] }));
+
+      renderPage(`?request=${REQUEST_ID}&reason=login`);
+
+      expect((await screen.findByText("finish sign-in")).dataset["initialMode"]).toBe("register");
+    } finally {
+      sessionStorage.clear();
+    }
+  });
+
   it("leads with sign-up when reason=create", async () => {
     mocks.getContext.mockResolvedValue(context({ signedIn: false, profiles: [] }));
 

@@ -1,3 +1,4 @@
+import { hasPendingSignUp } from "@osn/auth-ui/Register";
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError, describeAuthError } from "@osn/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
@@ -168,8 +169,10 @@ export function AuthorizePage() {
   const [signedInHere, setSignedInHere] = createSignal(false);
   // Which half of the sign-in panel leads; its loading placeholder takes the
   // same shape, so nothing jumps when the panel's code lands.
+  // A sign-up this tab was waiting on before a reload leads too, so its
+  // waiting view resumes and a link confirmed meanwhile finishes here.
   const panelMode = (): "register" | "signIn" =>
-    reason() === "create" && !signedInHere() ? "register" : "signIn";
+    (reason() === "create" || hasPendingSignUp()) && !signedInHere() ? "register" : "signIn";
   // `reason=select_account`: the app wants the person at the keyboard to say
   // which account this is, because the browser may be shared. The account
   // screen leads until they press Continue — or until they sign in on this
