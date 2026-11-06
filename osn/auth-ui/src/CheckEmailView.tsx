@@ -54,6 +54,12 @@ export interface CheckEmailViewProps {
    * `waiting` while the link is live; `expired` once it no longer works, which
    * unlocks a new link at once; `error` beside `errorMessage` when the parent's
    * last call failed.
+   *
+   * For sign-up and recovery, a host passes the same `status` and
+   * `errorMessage` whether or not the address has an account: a request for an
+   * address with no account stays `waiting` and expires on the same timer as
+   * any other. An error that depends on the caller, such as a rate limit or a
+   * failed Turnstile check, may set `error`.
    */
   status: CheckEmailStatus;
   /** Shown when `status` is `error`. A generic line stands in when it is empty. */
