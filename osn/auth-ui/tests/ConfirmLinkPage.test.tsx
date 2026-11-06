@@ -31,7 +31,7 @@ const EXPIRED_HEADING = "This link no longer works";
 const EXPIRED_BODY =
   "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link.";
 
-type OnConfirm = (pick: string) => Promise<ConfirmOutcome>;
+type OnConfirm = (pick: string | null) => Promise<ConfirmOutcome>;
 
 function candidate(number: string): HTMLButtonElement {
   return screen.getByRole("button", { name: number }) as HTMLButtonElement;
@@ -40,6 +40,10 @@ function candidate(number: string): HTMLButtonElement {
 function candidates(): HTMLButtonElement[] {
   const group = screen.queryByRole("group");
   return group ? ([...group.querySelectorAll("button")] as HTMLButtonElement[]) : [];
+}
+
+function decline(): HTMLButtonElement {
+  return screen.getByRole("button", { name: "I didn't ask for this" }) as HTMLButtonElement;
 }
 
 function tryAgain(): HTMLButtonElement {
@@ -155,6 +159,9 @@ describe("ConfirmLinkPage — only a tap confirms", () => {
     expect(onConfirm).toHaveBeenCalledWith("0730");
     expect(candidates()).toHaveLength(3);
     for (const button of candidates()) expect(button.disabled).toBe(true);
+    expect(decline().disabled).toBe(true);
+    fireEvent.click(decline());
+    expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(paragraph("You picked 0730. Confirming…")).not.toBeNull();
   });
 });
@@ -271,9 +278,11 @@ describe("ConfirmLinkPage — what each answer shows", () => {
     expect(container.textContent).not.toContain("Failed to fetch");
     expect(paragraph("You picked 1956.")).not.toBeNull();
     for (const button of candidates()) expect(button.disabled).toBe(true);
+    expect(decline().disabled).toBe(true);
     expect(tryAgain().disabled).toBe(false);
 
     fireEvent.click(candidate("4821"));
+    fireEvent.click(decline());
     expect(onConfirm).toHaveBeenCalledTimes(1);
 
     fireEvent.click(tryAgain());
@@ -359,6 +368,157 @@ describe("ConfirmLinkPage — what each answer shows", () => {
     fireEvent.click(buttons[0] as HTMLElement);
     expect(onContinue).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("group")).toBeNull();
+  });
+});
+
+describe("ConfirmLinkPage — I didn't ask for this", () => {
+  it("sends no number, once, and disables every choice while it runs", () => {
+    const pending = deferred<ConfirmOutcome>();
+    const onConfirm = vi.fn<OnConfirm>(() => pending.promise);
+    const { container } = page(onConfirm);
+
+    expect(decline().getAttribute("type")).toBe("button");
+    fireEvent.click(decline());
+    fireEvent.click(decline());
+    fireEvent.click(candidate("4821"));
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith(null);
+    expect(decline().disabled).toBe(true);
+    for (const button of candidates()) expect(button.disabled).toBe(true);
+    expect(paragraph("Cancelling…")).not.toBeNull();
+    expect(announcer(container).textContent).toBe("Cancelling…");
+    expect(container.textContent).not.toContain("You picked");
+  });
+
+  it.each([
+    ["sign-up", "Nothing was confirmed. You can close this page."],
+    [
+      "step-up",
+      "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.",
+    ],
+  ] as const)("shows %s's declined page, with nothing more to press", async (purpose, body) => {
+    const { container } = page(() => Promise.resolve<ConfirmOutcome>("declined"), { purpose });
+
+    fireEvent.click(decline());
+    await settle();
+
+    expect(heading().textContent).toBe("Cancelled");
+    expect(paragraph(body)).not.toBeNull();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(announcer(container).textContent).toBe(`Cancelled. ${body}`);
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it.each([
+    ["a decline answered confirmed", null, "confirmed"],
+    ["a number answered declined", "4821", "declined"],
+  ] as const)("treats %s as an error, never as that answer", async (_, attempt, answer) => {
+    const onConfirm = vi.fn<OnConfirm>(() => Promise.resolve<ConfirmOutcome>(answer));
+    const { container } = page(onConfirm);
+
+    fireEvent.click(attempt === null ? decline() : candidate(attempt));
+    await settle();
+
+    expect(heading().textContent).toBe("Confirm this email");
+    expect(container.textContent).not.toContain("Cancelled");
+    expect(container.textContent).not.toContain("Confirmed");
+    expect(tryAgain().disabled).toBe(false);
+  });
+
+  it("turns a thrown decline into its own line, and a Try again that sends no number again", async () => {
+    const retry = deferred<ConfirmOutcome>();
+    const onConfirm = vi
+      .fn<OnConfirm>()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockReturnValueOnce(retry.promise);
+    const { container } = page(onConfirm);
+
+    fireEvent.click(decline());
+    await settle();
+
+    expect(shown("We couldn't cancel this just now.")).toHaveLength(1);
+    expect(announcer(container).textContent).toBe("We couldn't cancel this just now.");
+    expect(shown(ERROR_LINE)).toHaveLength(0);
+    expect(decline().disabled).toBe(true);
+
+    fireEvent.click(tryAgain());
+    expect(onConfirm).toHaveBeenCalledTimes(2);
+    expect(onConfirm).toHaveBeenLastCalledWith(null);
+
+    retry.resolve("declined");
+    await settle();
+    expect(heading().textContent).toBe("Cancelled");
+  });
+
+  it("shows a refused decline exactly as any other refusal", async () => {
+    page(() => Promise.resolve<ConfirmOutcome>("expired"));
+    fireEvent.click(decline());
+    await settle();
+    const afterDecline = heading().parentElement?.textContent;
+    cleanup();
+
+    page(() => Promise.resolve<ConfirmOutcome>("expired"));
+    fireEvent.click(candidate("0730"));
+    await settle();
+    expect(heading().parentElement?.textContent).toBe(afterDecline);
+    expect(heading().textContent).toBe(EXPIRED_HEADING);
+  });
+});
+
+describe("ConfirmLinkPage — opening on an answer", () => {
+  it.each([
+    ["confirmed", "Confirmed", "Continue to finish signing up.", ["Continue"]],
+    ["expired", EXPIRED_HEADING, EXPIRED_BODY, []],
+  ] as const)(
+    "opens on %s with no numbers, and calls nothing",
+    async (opening, title, body, labels) => {
+      const onConfirm = vi.fn<OnConfirm>();
+      const onContinue = vi.fn();
+      const { container } = render(() => (
+        <ConfirmLinkPage
+          purpose="sign-up"
+          initialOutcome={opening}
+          onConfirm={onConfirm}
+          onContinue={onContinue}
+        />
+      ));
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(heading().textContent).toBe(title);
+      expect(paragraph(body)).not.toBeNull();
+      expect(document.activeElement).toBe(heading());
+      expect(screen.queryByRole("group")).toBeNull();
+      expect(announcer(container).textContent).toBe("");
+      expect(onConfirm).not.toHaveBeenCalled();
+      const buttons = screen.queryAllByRole("button");
+      expect(buttons.map((b) => b.textContent)).toEqual(labels);
+      for (const button of buttons) fireEvent.click(button);
+      expect(onContinue).toHaveBeenCalledTimes(labels.length);
+    },
+  );
+
+  it("will not type-check with neither numbers nor an opening answer", () => {
+    render(() => (
+      // @ts-expect-error -- a page needs `candidates`, or `initialOutcome` in their place.
+      <ConfirmLinkPage purpose="sign-up" onConfirm={() => new Promise(() => {})} />
+    ));
+    expect(heading().textContent).toBe(EXPIRED_HEADING);
+  });
+
+  it("ignores an opening answer it does not know, and shows the expired page", () => {
+    const onConfirm = vi.fn<OnConfirm>();
+    render(() => (
+      <ConfirmLinkPage
+        purpose="sign-up"
+        initialOutcome={"declined" as "expired"}
+        onConfirm={onConfirm}
+      />
+    ));
+
+    expect(heading().textContent).toBe(EXPIRED_HEADING);
+    expect(paragraph(EXPIRED_BODY)).not.toBeNull();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 });
 
@@ -613,6 +773,18 @@ describe("ConfirmLinkPage — around the page", () => {
     fireEvent.click(tryAgain());
     await settle();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    cleanup();
+    render(() => (
+      <form onSubmit={onSubmit}>
+        <ConfirmLinkPage
+          purpose="sign-up"
+          candidates={[...CANDIDATES]}
+          onConfirm={() => Promise.resolve<ConfirmOutcome>("declined")}
+        />
+      </form>
+    ));
+    fireEvent.click(decline());
+    await settle();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
