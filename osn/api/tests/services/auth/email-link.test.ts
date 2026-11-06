@@ -152,3 +152,62 @@ describe("a right pick and a decline at once", () => {
     }).pipe(Effect.provide(h.layer));
   });
 });
+
+describe("a wrong pick's strike", () => {
+  it.live("is counted once for two wrong picks that read the request together", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      const s = yield* h.begun("race-wrong@example.com", "racewrong");
+      // Both guesses run before either answers, so both read the live request.
+      h.answerLate({ guess: 20 });
+      const pick = { linkSecret: s.link.linkSecret, pairingPick: wrongPick(s.pairingCode) };
+
+      const answers = yield* settle(
+        Effect.all(
+          [h.auth.confirmEmailLink(s.requestId, pick), h.auth.confirmEmailLink(s.requestId, pick)],
+          { concurrency: "unbounded" },
+        ),
+      );
+      h.answerLate({});
+
+      expect(answers).toEqual(["expired", "expired"]);
+      expect(yield* h.entry(s.requestId)).toBeNull();
+      expect(h.strikes()).toBe(1);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("is not counted when the tab's claim took the request first", () => {
+    const h = harness();
+    const address = "race-claim@example.com";
+    return Effect.gen(function* () {
+      const s = yield* h.begun(address, "raceclaim");
+      yield* h.auth.confirmEmailLink(s.requestId, {
+        linkSecret: s.link.linkSecret,
+        pairingPick: s.pairingCode,
+      });
+      // The wrong pick reads the confirmed request at once and hears back
+      // late; the poll's two reads answer sooner, so its claim lands in
+      // between.
+      h.answerLate({ guess: 40, read: 10 });
+
+      const [wrong, done] = yield* settle(
+        Effect.all(
+          [
+            h.auth.confirmEmailLink(s.requestId, {
+              linkSecret: s.link.linkSecret,
+              pairingPick: wrongPick(s.pairingCode),
+            }),
+            h.auth.registrationStatus(s.requestId, s.claimSecret),
+          ],
+          { concurrency: "unbounded" },
+        ),
+      );
+      h.answerLate({});
+
+      expect(wrong).toBe("expired");
+      expect(done.status === "complete" && done.handle).toBe("raceclaim");
+      expect((yield* h.auth.findProfileByEmail(address))?.handle).toBe("raceclaim");
+      expect(h.strikes()).toBe(0);
+    }).pipe(Effect.provide(h.layer));
+  });
+});

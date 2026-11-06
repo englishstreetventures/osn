@@ -248,21 +248,28 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * is tried once more. The caller's answer does not wait on either: it is
    * `expired` whatever this manages, and a request whose delete failed twice
    * is left to expire.
+   *
+   * Answers whether this call ended the request: true when one of its deletes
+   * removed the entry, or when the store did not answer the last one tried;
+   * false when another write had already removed it.
    */
   const end = (requestId: string, entry: EmailLinkChallenge) =>
     Effect.gen(function* () {
       let current: EmailLinkChallenge | null = entry;
+      let ended = false;
       for (let attempt = 0; attempt < 2 && current; attempt++) {
         const from: EmailLinkChallenge = current;
         const removed = yield* storeCall(links, "consume", () =>
           links.consume(requestId, from),
         ).pipe(Effect.catch(() => Effect.succeed(null)));
+        ended = removed !== false;
         if (removed === true) break;
         if (removed === false) {
           current = yield* read(requestId).pipe(Effect.catch(() => Effect.succeed(null)));
         }
       }
       yield* release(entry.flow, entry.subject, requestId).pipe(Effect.ignore);
+      return ended;
     });
 
   /**
@@ -404,7 +411,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * waiting screen's number. Answers `confirmed` — again for a request already
    * confirmed, so a confirm whose answer was lost reads as done when retried —
    * and `expired` for every refusal. A wrong pick ends the request at once, on
-   * a confirmed request too, and counts a strike against the flow's subject.
+   * a confirmed request too, and counts a strike against the flow's subject
+   * when it is the call that ended the request.
    * A decline (`none`) ends it too, counts nothing, and answers `declined`,
    * again when repeated.
    */
@@ -430,9 +438,13 @@ export function createEmailLinkModule(ctx: AuthContext) {
       // ends the request and counts nothing against them.
       if (declining) return yield* decline(requestId, entry);
       if (!picksRight(requestId, entry, input.pairingPick)) {
-        const strikes = strikesOf(entry.flow, entry.subject);
-        yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
-        yield* end(requestId, entry);
+        // The strike counts only for the pick that ended the request: of two
+        // wrong picks at once one counts, and a pick that lost the request to
+        // the tab's claim counts nothing.
+        if (yield* end(requestId, entry)) {
+          const strikes = strikesOf(entry.flow, entry.subject);
+          yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
+        }
         return WRONG_PICK;
       }
       if (entry.status === "confirmed") return REPEAT;

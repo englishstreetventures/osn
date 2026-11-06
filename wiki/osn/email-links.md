@@ -86,7 +86,10 @@ There is no `GET` on any of them: mail scanners open links before people do.
   under the probe key of the address exactly as typed, lowercased: three in 24
   hours and no more sign-up links go to that address until the window passes,
   while begin answers as ever. Another `+tag` variant, or another of Gmail's
-  forms, keeps its own count.
+  forms, keeps its own count. Only the pick whose delete ended the request
+  counts (or one whose delete the store did not answer): of two wrong picks at
+  once one counts, and a pick that finds the tab's claim took the request
+  counts none.
 - **"I didn't ask for this"** (`pairingPick: "none"`) ends the request too,
   confirmed or not, counts nothing against the reader, and answers
   `declined`. The entry stays, marked `declined`, until it expires, so the same
