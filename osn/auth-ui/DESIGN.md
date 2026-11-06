@@ -124,7 +124,8 @@ its lines `text-ui-sm` with `leading-ui-snug`, and the number a host passes as
 `pairingCode` is `text-ui-xl font-medium leading-ui-tight tabular-nums`. The
 number is the largest text in the view, larger than its heading, because it is
 the one thing the person carries to another screen. It takes tabular figures,
-not the Codes row's `font-mono`: it is read and picked, never typed or copied.
+not the Codes row's `font-mono`: it is digits only, which tabular figures
+already set at one width, and it is read here, never typed or copied here.
 
 ## 4. Layout
 
@@ -363,7 +364,7 @@ says "If that address has an account, …".
 
 | State | What shows |
 | --- | --- |
-| Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." when the host passes one; "Resend in {n}s", disabled, then "Resend link"; "Use a different email" when the host passes `onChangeEmail` |
+| Waiting | "Check your email"; "We sent a link to {email}." (recovery: "If {email} has an account, a link is on its way."); the flow's line ("Open it on any device to finish signing up.", "… to get back into your account.", "… to confirm it's you.", "… to confirm your new address.") and "This page will update when you do."; the number and "Pick this number on the page the link opens." (recovery, whose page asks the person to type it: "Type this number on the page the link opens.") when the host passes one; "Resend in {n}s", disabled, then "Resend link"; "Use a different email" when the host passes `onChangeEmail` |
 | Sending | "Sending a new link…"; Resend reads "Sending…" |
 | Sent again | "We sent a new link to {email}." (recovery: "If {email} has an account, a new link is on its way."), ending "Check the number again." when a number shows |
 | Error | The waiting copy, the number kept, and the host's `errorMessage` (or "Something went wrong. Try again in a moment.") under the sentence |
@@ -616,8 +617,8 @@ As built:
 - **No real-browser tier** in the package. **Lab stories** for
   `CheckEmailView` alone, `osn/auth-ui/CheckEmailView` in
   `tools/lab/src/stories/osn-auth-ui/check-email-view.story.tsx`: one per
-  state, every flow, a 320px phone, and the number at rest, across a resend
-  and on a phone; the other views get theirs in #2045.
+  state, every flow, a 320px phone, and the number at rest, on recovery,
+  across a resend and on a phone; the other views get theirs in #2045.
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`
   and `token-contract.browser.test.tsx` hold the mapping the shared parts
   inside the views render through. Musubi's component tests mock the views
