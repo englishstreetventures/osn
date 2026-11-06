@@ -134,7 +134,14 @@ export interface CompleteRegistrationResult {
  * the account made.
  */
 export type RegistrationStatus =
-  | { readonly status: "pending" }
+  | {
+      readonly status: "pending";
+      /**
+       * The number the waiting screen shows, so a tab that lost it (a reload)
+       * shows it again. Never stored or logged.
+       */
+      readonly pairingCode?: string;
+    }
   | { readonly status: "expired" }
   | { readonly status: "conflict" }
   | ({ readonly status: "complete" } & CompleteRegistrationResult);
@@ -239,12 +246,18 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
     if (!res.ok) return { status: "expired" };
     const raw = await readJson<{
       status: string;
+      pairingCode?: unknown;
       profileId?: string;
       handle?: string;
       email?: string;
       session?: unknown;
     }>(RegistrationError, res);
-    if (raw.status === "pending" || raw.status === "expired" || raw.status === "conflict") {
+    if (raw.status === "pending") {
+      return typeof raw.pairingCode === "string"
+        ? { status: "pending", pairingCode: raw.pairingCode }
+        : { status: "pending" };
+    }
+    if (raw.status === "expired" || raw.status === "conflict") {
       return { status: raw.status };
     }
     if (raw.status !== "complete" || !raw.profileId || !raw.handle || !raw.email) {

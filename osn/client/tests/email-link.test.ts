@@ -45,13 +45,20 @@ describe("confirm", () => {
     });
   });
 
-  it("sends a decline as the pick `none`", async () => {
-    const calls = stub(() => json({ status: "expired" }));
-    await client.confirm(requestId, { linkSecret, pick: null });
+  it("sends a decline as the pick `none`, and answers declined", async () => {
+    const calls = stub(() => json({ status: "declined" }));
+    expect(await client.confirm(requestId, { linkSecret, pick: null })).toBe("declined");
     expect(JSON.parse(calls[0]!.init?.body as string)).toEqual({
       linkSecret,
       pairingPick: "none",
     });
+  });
+
+  it("answers only what was sent can earn: a number is never declined, a decline never confirmed", async () => {
+    stub(() => json({ status: "declined" }));
+    expect(await client.confirm(requestId, { linkSecret, pick: "47" })).toBe("expired");
+    stub(() => json({ status: "confirmed" }));
+    expect(await client.confirm(requestId, { linkSecret, pick: null })).toBe("expired");
   });
 
   it("reads every refusal as expired", async () => {

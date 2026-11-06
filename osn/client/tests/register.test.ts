@@ -165,6 +165,14 @@ describe("createRegistrationClient", () => {
       }
     });
 
+    it("passes a pending answer's number through, so a reloaded tab can show it", async () => {
+      stubFetch(() => jsonResponse({ status: "pending", pairingCode: "47" }));
+      expect(await client.registrationStatus(ids)).toEqual({
+        status: "pending",
+        pairingCode: "47",
+      });
+    });
+
     it("reads a refusal as expired, so a dead request ends the wait", async () => {
       for (const status of [400, 404, 422]) {
         stubFetch(() => jsonResponse({ error: "invalid_request" }, { status }));

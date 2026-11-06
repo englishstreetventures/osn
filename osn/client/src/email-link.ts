@@ -4,9 +4,9 @@
  * browser in — the tab that began the flow gets the result.
  *
  * Each call answers the way the confirm page needs: every refusal (an unknown
- * request, a wrong secret, a spent or expired one, a wrong pick) is
- * `expired`, which ends the page; only a rate limit, a server error or no
- * answer throws, which offers Try again.
+ * request, a wrong secret, a spent or expired one, a wrong pick, a refused
+ * decline) is `expired`, which ends the page; only a rate limit, a server
+ * error or no answer throws, which offers Try again.
  */
 
 /** The flows whose links this client confirms, as the confirm page names them. */
@@ -42,6 +42,12 @@ export interface EmailLinkClientConfig {
   issuerUrl: string;
 }
 
+/** What a confirm answered: the number accepted, the decline accepted, or a refusal. */
+export type EmailLinkConfirmAnswer = "confirmed" | "declined" | "expired";
+
+/** The pick that tells osn-api the reader did not ask for the request. */
+const DECLINE_PICK = "none";
+
 /** What the candidates read found. */
 export type EmailLinkCandidates =
   | { readonly status: "ready"; readonly candidates: readonly string[] }
@@ -55,14 +61,15 @@ export interface EmailLinkClient {
    */
   candidates(requestId: string, linkSecret: string): Promise<EmailLinkCandidates>;
   /**
-   * Confirms with the reader's pick; `pick: null` says the number on their
-   * screen is not among the candidates. A wrong pick or a decline ends the
-   * request and answers `expired`.
+   * Confirms with the reader's pick, sent exactly as given; `pick: null` says
+   * they did not ask for the request. A number answers `confirmed` or
+   * `expired` (a wrong pick ends the request); a decline answers `declined`,
+   * again when repeated, or `expired`.
    */
   confirm(
     requestId: string,
     input: { linkSecret: string; pick: string | null },
-  ): Promise<"confirmed" | "expired">;
+  ): Promise<EmailLinkConfirmAnswer>;
 }
 
 /** The fields the two routes answer with; anything else in the body is ignored. */
@@ -100,10 +107,14 @@ export function createEmailLinkClient(config: EmailLinkClientConfig): EmailLinkC
       return { status: "expired" };
     },
     async confirm(requestId, input) {
+      const declining = input.pick === null;
       const body = await post(`/email-link/${encodeURIComponent(requestId)}/confirm`, {
         linkSecret: input.linkSecret,
-        pairingPick: input.pick ?? "none",
+        pairingPick: declining ? DECLINE_PICK : input.pick,
       });
+      // Only the answer that fits what was sent: a number is never declined,
+      // and a decline never confirmed.
+      if (declining) return body?.status === "declined" ? "declined" : "expired";
       return body?.status === "confirmed" ? "confirmed" : "expired";
     },
   };
