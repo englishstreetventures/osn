@@ -40,9 +40,8 @@ const SIZES = {
 type Variant = keyof typeof VARIANTS;
 type Size = keyof typeof SIZES;
 
-/** The distinct classes in `strings`, sorted. */
-const classSet = (...strings: string[]) =>
-  [...new Set(strings.join(" ").split(/\s+/).filter(Boolean))].sort();
+/** The distinct classes in `strings`. */
+const classSet = (...strings: string[]) => new Set(strings.join(" ").split(/\s+/).filter(Boolean));
 
 const PAIRS = (Object.keys(VARIANTS) as Variant[]).flatMap((variant) =>
   (Object.keys(SIZES) as Size[]).map((size) => ({ variant, size })),

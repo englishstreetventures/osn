@@ -62,7 +62,9 @@ The engine declares a parameter it never reads, so the `./ui/orb` export points
 TypeScript at `src/ui/orb-api.ts`, a types-only module, and only the bundler
 follows `src/ui/orb.tsx` into the engine. Nothing under `src/` imports
 `orb.tsx` by a relative path (the package's own tests may): a consumer that
-sets `noUnusedParameters` would follow it and fail its type check.
+sets `noUnusedParameters` would follow it and fail its type check. `Button`
+imports it through the export, dynamically, for `busy`: the orb is a chunk of
+its own, fetched only by a page holding a `Button` that carries a `busy` prop.
 
 ## Tests
 
