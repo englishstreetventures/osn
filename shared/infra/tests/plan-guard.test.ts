@@ -716,6 +716,18 @@ describe("runPlanGuardCli", () => {
     expect(both.out).toBe(
       "::error::plan-guard: a release moves a domain one way: pass --flip or --unflip, never both\n",
     );
+    // Two different sites too: an unflip of cire_host beside a flip would let
+    // its Worker give up its production host.
+    const two = run(
+      [...logArgs, "--flip", "cire_vendor", "--unflip", "cire_host"],
+      pretty("Plan: 1 to update", "[CireVendor] update"),
+      STAGED_LIVE,
+      vendorWorker,
+    );
+    expect(two.code).toBe(2);
+    expect(two.out).toBe(
+      "::error::plan-guard: a release moves a domain one way: pass --flip or --unflip, never both\n",
+    );
     const flipped = run(
       [...logArgs, "--flip", "cire_vendor"],
       pretty("Plan: 1 to update", "[CireVendor] update"),

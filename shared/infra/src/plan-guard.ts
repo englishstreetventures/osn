@@ -300,7 +300,7 @@ function flipRefusals(input: GuardInput, flip: string): string[] {
     }
   }
   for (const change of domains?.changes ?? []) {
-    if (flipSite !== undefined && change.site === flipSite) continue;
+    if (change.site === flipSite) continue;
     refusals.push(
       `a flip release moves only ${flip}'s domain, and ${change.site}'s Worker would gain ${hostList(change.added)} and give up ${hostList(change.removed)}`,
     );
