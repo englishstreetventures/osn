@@ -340,6 +340,10 @@ describe("18. production database reads", () => {
     "wrangler d1 execute cire-db-dev --remote --command 'SELECT 1' cire-db",
     "wrangler d1 execute cire-db-dev --remote --file osn-db-prod",
     "wrangler d1 execute cire-db-dev --remote --file zap-db-prod",
+    "wrangler d1 execute cire-db-dev --remote --envFile .env.production",
+    "wrangler d1 execute cire-db-dev --remote --unknown value",
+    "wrangler d1 execute cire-db-dev --remote -yc other.toml",
+    "wrangler d1 execute cire-db-dev --remote --persistTo /tmp/x",
   ];
   test.each(refusals)("refuses %s", (command) => {
     expect(refused(bash(command))).toBe(true);

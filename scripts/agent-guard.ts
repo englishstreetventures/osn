@@ -569,26 +569,25 @@ function productionDbRule(words: string[]): string | null {
   if (at < 0) return null;
   const rest = words.slice(at + 1);
   const positional: string[] = [];
-  const positionAt: number[] = [];
   for (let k = 0; k < rest.length; k += 1) {
     const word = rest[k] ?? "";
     if (VALUE_FLAGS.has(word)) k += 1;
-    else if (!word.startsWith("-")) {
-      positional.push(word);
-      positionAt.push(k);
-    }
+    else if (!word.startsWith("-")) positional.push(word);
   }
   const verb = positional.findIndex((word) => word === "execute" || word === "export");
   if (verb < 0 || !positional.includes("d1")) return null;
   if (rest.includes("--local")) return null;
-  if (!isCleanDevCommand(words, rest, positional, positionAt, verb)) return PRODUCTION_READ;
+  if (!isCleanDevCommand(words, rest, positional, verb)) return PRODUCTION_READ;
   return null;
 }
 
 /** Flags that redirect what a database name resolves to. */
 const REDIRECT_FLAG = /^(?:--config|--cwd|--env-file|-c)(?:=|$)|^-c[^-]/;
 
-/** Flags that may stand before the database name. */
+/**
+ * The only flags the dev allow path accepts, anywhere in the command. Any
+ * other flag, including a camelCase spelling or a grouped short flag, refuses.
+ */
 const SAFE_FLAGS: ReadonlySet<string> = new Set([
   "--remote",
   "--json",
@@ -605,14 +604,13 @@ const SAFE_FLAGS: ReadonlySet<string> = new Set([
 
 /**
  * The one shape that passes without `--local`: exactly one positional after
- * the verb, a `-dev` name; no redirecting flag; only known flags before it;
+ * the verb, a `-dev` name; no redirecting flag; only known flags, anywhere;
  * and no word anywhere that is a production database name or env.
  */
 function isCleanDevCommand(
   words: string[],
   rest: string[],
   positional: string[],
-  positionAt: number[],
   verb: number,
 ): boolean {
   if (positional.length !== verb + 2) return false;
@@ -621,10 +619,7 @@ function isCleanDevCommand(
   if (namesProduction(words, rest)) return false;
   if (rest.some((word) => REDIRECT_FLAG.test(word))) return false;
   if (rest.some((word) => PRODUCTION_DATABASES.has(word))) return false;
-  const databaseAt = positionAt[verb + 1] ?? rest.length;
-  return rest
-    .slice(0, databaseAt)
-    .every((word) => !word.startsWith("-") || SAFE_FLAGS.has(word.split("=")[0] ?? ""));
+  return rest.every((word) => !word.startsWith("-") || SAFE_FLAGS.has(word.split("=")[0] ?? ""));
 }
 
 function installRule(words: string[], state: State, ctx: Context): string | null {
