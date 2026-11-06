@@ -703,7 +703,9 @@ curl -s -o /dev/null -w '%{http_code}\n' https://id.musubi.social/openapi/json  
 ```
 
 `pulse-api` has no deployed tier. Its `[env.dev.vars]` point at localhost for
-`wrangler dev --env dev` and leave `OSN_ENV` unset, which reads as `local`.
+`wrangler dev --env dev` and leave `OSN_ENV` unset, which reads as `local`. Its
+docs are read on its own origin: Pulse web mounts it under `/api` and refuses
+`/api/openapi*` there ([[pulse#One origin for the browser]]).
 
 ### Passkey-less sign-in on local and dev
 

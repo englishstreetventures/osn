@@ -673,6 +673,56 @@ writer already has the answer and a re-read would only cost a request.
 rule; `tests/designs/InviteHeader.ssr.test.tsx` and the unit test's
 `createRoot` case prove the second, since no tier here hydrates.
 
+## Server rendering in a SolidStart app
+
+`@pulse/web` renders every page on the server ([[pulse#Server rendering]]). Its
+API is mounted on its own origin under `/api`, so the app's session cookie
+reaches the rendering server with each page request, and the server forwards it
+to the API. What that asks of the code, each rule from a defect found turning it
+on:
+
+- **Render `async`, not `stream`.** `createHandler(fn, () => ({ mode: "async" }))`
+  in `src/entry-server.tsx`. Streaming sends Suspense content as a `<template>`
+  that a script swaps in, so a reader without JavaScript sees only the fallback.
+- **Read a resource inside a `<Suspense>`.** A resource read outside any boundary
+  renders its loading state into the HTML even once it has resolved; the
+  resolved value is only serialised for hydration. The layout puts its header
+  and onboarding gate inside its `<Suspense>`.
+- **Build no markup the server does not write.** JSX assigned to a `const` is
+  built when the component runs. The server builds it and drops it (a closed
+  popover never writes its content); the hydrating browser builds it too and
+  looks for nodes that are not there, a hydration mismatch. Make it a function
+  and call it where it is shown (`ShareEventButton`'s share grid).
+- **Start where the server started.** While hydrating, a first value the server
+  could not have — the viewport (`createIsMobile`), the document's classes
+  (`useIsDark` in `ExploreMap`), anything read from `document` or `window` —
+  renders a different branch than the HTML holds. Start at the server's value
+  and take the real one in `onMount`. Text is worse: hydration keeps the
+  server's text node, so a date formatted in the server's time zone stays
+  that way until something re-renders it (see [[#Server-rendered islands]]).
+  Output only the browser can get right stays out of the server's HTML:
+  `createInBrowser()` (`src/lib/hydration.ts`) is false on the server and while
+  hydrating, so `/calendar` writes each event's linked title and draws the
+  timeline, grouped by the reader's local day, once mounted.
+- **One transport for every API call.** `src/lib/transport.ts` picks the base per
+  call (the browser's `/api` mount, or the API's own URL on the server), sends
+  only the session cookie from the page request, sends it to no other origin,
+  and never passes `credentials`, which workerd refuses. A module-scope base
+  would be evaluated once for whichever side imported it first.
+- **Mark per-user HTML private.** The `createHandler` options function runs for
+  page renders only; it sets `Cache-Control: private, no-store` and
+  `Vary: Cookie` there.
+- **A press before hydration is lost.** Until the page hydrates, a
+  server-rendered control is markup with no handler. The layout sets
+  `<html data-hydrated>` on mount, inside its `<Suspense>`, and anything that
+  drives the page waits for it (`untilPulseHydrated` in the E2E fixtures).
+- **Under `vite dev`,** SolidStart builds the browser's route table on the first
+  request and schedules a hot update of the app 200 ms later, which re-renders
+  the first page a browser loads. `server.warmup.clientFiles: ["./src/app.tsx"]`
+  builds it as the server starts. Vite's dependency scan cannot follow the lazy
+  route modules, so `optimizeDeps.entries` scans every source file; a dependency
+  found later reloads a page that is already on screen.
+
 ## Client caches of server rows
 
 A client cache of server rows that re-reads them — on mount, after a thread, on

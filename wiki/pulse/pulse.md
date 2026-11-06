@@ -15,7 +15,8 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-05
+  - "[[frontend-patterns]]"
+last-reviewed: 2026-11-06
 ---
 
 # Pulse
@@ -25,9 +26,10 @@ Pulse is OSN's event management app. Users create, discover, and RSVP to events 
 ## Architecture
 
 ```
-@pulse/web (SolidStart, client-rendered)
+@pulse/web (SolidStart, server-rendered)
   ├── SolidJS frontend (src/)
-  └── Consumes @osn/client, @shared/ui, @pulse/api
+  ├── /api/* → @pulse/api (src/routes/api/[...path].ts)
+  └── Consumes @shared/rp-auth, @shared/ui, @pulse/api
 
 @pulse/api (Elysia + Eden, binary, port 3001)
   ├── Events CRUD + lifecycle
@@ -42,6 +44,26 @@ Pulse is OSN's event management app. Users create, discover, and RSVP to events 
 ### `@pulse/api` and `@osn/api`
 
 `@pulse/api` runs its own Elysia process on port 3001 and exposes `@pulse/api/client` (an Eden treaty wrapper) for the Pulse frontend. It imports `@pulse/db` and reaches OSN identity / graph data only through the bridge in `services/graphBridge.ts` (HTTP + ARC → `@osn/api` on port 4000). See [[s2s-patterns]].
+
+### One origin for the browser
+
+The browser talks to the Pulse web origin and nothing else. `@pulse/web` mounts `@pulse/api` under `/api` ([`src/routes/api/[...path].ts`](../../pulse/web/src/routes/api/[...path].ts), logic in [`src/lib/api-proxy.ts`](../../pulse/web/src/lib/api-proxy.ts)):
+
+| Browser path | Reaches `@pulse/api` at |
+|---|---|
+| `/api/auth/*` | `/api/auth/*`, unchanged |
+| `/api/<rest>` | `/<rest>` |
+| `/api/internal/*`, `/api/health`, `/api/ready`, `/api/openapi*` | nothing: `404` before any call |
+
+The proxy builds the upstream URL as `PULSE_API_INTERNAL_URL` plus the mapped path, refuses a path that could name another host or climb out of the mount, forwards the browser's `Origin` and `Cookie` so pulse-api's CSRF origin guard judges the browser's own request, drops `Authorization` and hop-by-hop headers, returns every `Set-Cookie` and every redirect unfollowed, and answers `502 {"error":"upstream_unavailable"}` when pulse-api is down.
+
+`PULSE_API_ORIGIN` is therefore the **web** origin: the OIDC redirect URI is `<web>/api/auth/oidc/callback`, and the `pulse_web_session` cookie the callback sets is host-only on the web host ([[sessions]]).
+
+### Server rendering
+
+Pages render on the server (`solidStart({ ssr: true })`, async mode, so resolved content is inline and readable without JavaScript). The rendering server calls pulse-api at `PULSE_API_INTERNAL_URL` with the page request's `pulse_web_session` and no other cookie ([`src/lib/transport.ts`](../../pulse/web/src/lib/transport.ts)); the browser hydrates that data rather than asking again. Every page response carries `Cache-Control: private, no-store` and `Vary: Cookie`. What this needs from components is in [[frontend-patterns#Server rendering in a SolidStart app]].
+
+Pulse has no deployed tier yet, so the mount runs only in the devloop and the E2E stack; `pulse-event-rsvp` proves it end to end ([[testing-patterns#The end-to-end suite]]).
 
 ## Key Features
 

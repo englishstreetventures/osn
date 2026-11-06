@@ -7,7 +7,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[contributing]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-11-06
 ---
 
 # Devloop URLs
@@ -67,7 +67,7 @@ Nothing collides, and no worktree has to wait for another to give up a port. The
 
 Because that branch prefix exists, no app can be told where its siblings live from a committed `.env`: the answer differs per worktree.
 
-`@shared/dev-urls` derives it instead. Its `dev-env` launcher fronts each `dev:app`, reads the app's own `PORTLESS_URL`, splits off the shared prefix and TLD, and rebuilds every sibling's origin from them. It then exports the same environment variables the deployed tiers set — `OSN_ISSUER_URL`, `OSN_RP_ID`, `OSN_ORIGIN`, `OSN_CORS_ORIGIN`, `DEV_LOGIN_RETURN_ORIGINS`, `WEB_ORIGIN`, `CIRE_API_ORIGIN`, `PULSE_CORS_ORIGIN`, `PUBLIC_API_URL`, `VITE_API_URL` and the rest.
+`@shared/dev-urls` derives it instead. Its `dev-env` launcher fronts each `dev:app`, reads the app's own `PORTLESS_URL`, splits off the shared prefix and TLD, and rebuilds every sibling's origin from them. It then exports the same environment variables the deployed tiers set — `OSN_ISSUER_URL`, `OSN_RP_ID`, `OSN_ORIGIN`, `OSN_CORS_ORIGIN`, `DEV_LOGIN_RETURN_ORIGINS`, `WEB_ORIGIN`, `CIRE_API_ORIGIN`, `PULSE_CORS_ORIGIN`, `PUBLIC_API_URL`, `PULSE_API_INTERNAL_URL` and the rest.
 
 ```mermaid
 flowchart LR
@@ -77,6 +77,8 @@ flowchart LR
 ```
 
 No app source knows portless exists; every app keeps reading the variables it already read. Those values win over `.env`, because under portless a `localhost:4321` origin names a host nothing is listening on.
+
+Pulse's browser never uses `https://api.pulse.localhost`. `@pulse/web` mounts pulse-api under `/api` on `https://pulse.localhost`, so `dev-env` gives pulse-api `PULSE_API_ORIGIN=https://pulse.localhost` (its OIDC callback and session cookie are the web host's), and gives `@pulse/web` the server-only `PULSE_API_INTERNAL_URL=https://api.pulse.localhost`, which its rendering server and its `/api` mount call ([[pulse#One origin for the browser]]).
 
 ## Adding an app
 

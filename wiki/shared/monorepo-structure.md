@@ -77,7 +77,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Monorepo Structure
@@ -110,7 +110,7 @@ musubi/                # Musubi — our implementation of OSN
   landing/             # @musubi/landing — Astro + Solid marketing site (port 4324)
   infra/               # @musubi/infra — the Alchemy stack `musubi`: osn-api, its D1 and seed, musubi social, musubi landing (dev only today)
 pulse/
-  web/                 # @pulse/web — SolidStart app, client-rendered
+  web/                 # @pulse/web — SolidStart app, server-rendered; mounts @pulse/api under /api
     src/               #   SolidJS frontend
   api/                 # @pulse/api — Elysia + Eden events server (port 3001)
   db/                  # @pulse/db — Drizzle + SQLite (events, RSVPs)
