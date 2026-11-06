@@ -43,7 +43,7 @@ product layer, and which one a component belongs in is decided by
 | Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
-| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
+| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
 | `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Skeleton`, `SkeletonOutline`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
@@ -126,6 +126,7 @@ osn/auth-ui/src/
 ├── SignIn.tsx              ← Button, Input, Label
 ├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
 ├── CheckEmailView.tsx      ← Button, Notice — the wait after a flow emails a link
+├── ConfirmLinkPage.tsx     ← Button, Card, Notice — the page an emailed link opens
 ├── pairing-code.ts         ← isPairingCode: the number's format, for every view that draws one (not exported)
 ├── CreateProfileForm.tsx   ← UsernameInput
 ├── PasskeysView.tsx  StepUpDialog.tsx  TotpView.tsx  SessionsView.tsx
@@ -1578,6 +1579,102 @@ box and the paragraph's accessible text "Your number: 123456"
 ([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each
 state, every flow, a 320px phone, and the number at rest, across a resend and
 on a phone ([[component-lab]]).
+
+### `@osn/auth-ui`'s `ConfirmLinkPage` — the page an emailed link opens
+
+[ConfirmLinkPage.tsx](../../osn/auth-ui/src/ConfirmLinkPage.tsx) is what a
+sign-up, recovery, step-up or email-change link opens: "Confirm this email" and
+one button. It is presentational. The host route reads the link, clears its
+secret from the address bar, and passes `onConfirm`, which makes the confirm
+`POST`; the page decides when that call may run and what the person sees and
+hears around it. Its look follows `musubi/social/DESIGN.md`, as
+`CheckEmailView`'s does.
+
+| Prop | What it does |
+| --- | --- |
+| `purpose` | `sign-up`, `recovery`, `step-up` or `email-change` — the type is `CheckEmailView`'s, so a new flow is a type error in both copy tables. Picks what confirming is said to do |
+| `email` | The address the link went to, in the body ink. Absent, the page says "this address", which is the usual case: the link carries no address |
+| `onConfirm` | The confirm call. Called once per press and never otherwise. Resolves `"confirmed"` or `"expired"`; a throw, or any other value, is an error the person can try again |
+| `onContinue` | Continue, after a confirm, where the host knows the person can carry on in this tab. Absent, the page sends them back to where they started |
+
+What it draws, in musubi's sizes through the contract: the shared `Card`
+(`padding="lg"`: the surface, the hairline, the 16px corner); an `h1` at
+`text-ui-base` medium; the sentences at `text-ui-sm` in the secondary ink; one
+full-width filled pill, `size="lg"` with `max-md:h-11`, so 40px on a desktop and
+44px on a phone. Only one button is ever on the page.
+
+| State | Heading | Body | Button |
+| --- | --- | --- | --- |
+| ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and what to do if you did not | Confirm |
+| confirming | Confirm this email | The same; after 10 seconds, "This is taking longer than usual. Keep this page open." | Confirming…, disabled |
+| error | Confirm this email | A danger `Notice`, "We couldn't confirm this email just now.", above the ready lines | Try again |
+| confirmed | Confirmed | "Go back to where you started to …" and "You can close this page", or "Continue to …" with `onContinue` | none, or Continue |
+| expired | This link no longer works | It has expired or was used; if you confirmed it already, carry on where you started; if not, ask for a new link there | none |
+
+- **Only a press confirms.** Mail scanners open links before people do, so
+  nothing on mount, on a prop change or on a timer calls `onConfirm`. The button
+  disables itself the moment it is pressed: no click reaches a disabled button,
+  so one press is one call.
+- **It says who gets what.** The link is often opened on another device, and a
+  stranger can start a flow for someone else's address and then talk them into
+  pressing Confirm. So each flow says what confirming lets _the device that
+  asked_ do: finish signing up; get into the account, signing out every other
+  device (recovery's completion revokes every session,
+  `osn/api/src/services/auth/recovery-factors.ts`); something sensitive such as
+  adding a passkey (step-up); set this address as the account's email. Every
+  flow says what to do if you did not ask. For step-up that is not "nothing will
+  change": an unasked step-up means someone may be signed in, so it says to sign
+  out the other sessions.
+- **The page keeps its own state.** The guarantees above then hold in one
+  tested place rather than in four hosts, and the answer to the one call is the
+  only source of truth. A host that later learns the answer before the press,
+  from a read that does not consume the request, would add an optional prop the
+  page reads once on mount; nothing passes one today.
+- **What is said aloud.** One `sr-only` `<output>` with `aria-live="polite"`
+  and `aria-atomic="true"`, mounted from the start and empty until something
+  changes, as `AuthorizePage`'s is ([[authorize-ui]]). It says "Confirming…",
+  the slow line, the error, and each answer with its heading word ("Confirmed.
+  Go back to …"). The heading sits outside it.
+- **Focus.** The heading (`tabindex="-1"`) takes focus on mount and on every
+  change. At a press that moves focus off the button it just disabled, so focus
+  never falls to `<body>`. When the answer comes focus is usually already on the
+  heading, which is why the output carries the heading word.
+- **The error text is fixed.** A thrown error's own message ("Failed to fetch",
+  or whatever detail a host's error carries) never reaches the page.
+- **No deadline.** Confirming is a write. Abandoning it could offer "Try again"
+  over an approval that went through, which `AuthorizePage`'s decision call
+  avoids for the same reason. After 10 seconds the page only says it is still
+  working.
+- **Left-aligned**, unlike `AuthorizePage`'s centred terminal cards, which hold
+  one sentence each. This card holds two or three sentences and sometimes a
+  `Notice` with its mark; centred, both edges go ragged and the mark floats.
+- **No motion of its own.** `Button`'s colour transition is the only one.
+
+For a host:
+
+- Resolve `"expired"` for every answer that refuses the link — unknown, wrong
+  secret, used or expired. Throw only when no answer about the link came back:
+  a network failure, a rate limit, a server error. Try again has no cap, and
+  needs none on those terms; a refused secret thrown instead would let each
+  press spend one of the wrong-secret attempts the server allows before it wipes
+  the request.
+- The page is the card alone. Draw the page around it — `<main>`, the column,
+  centring, the safe areas — as `AuthorizePage` draws its own, with no app
+  shell around it.
+- Its buttons are `type="button"`, so the page may sit inside a `<form>`.
+
+`osn/auth-ui/tests/ConfirmLinkPage.test.tsx` holds the no-press guarantee, the
+one call per press, each answer's page, the fixed error line, each flow's words,
+the focus moves, what the output says and the slow timer's end. The lab's
+`osn/auth-ui/ConfirmLinkPage` stories show each state, every flow and a 320px
+phone ([[component-lab]]). At a 320px viewport, padded as `AuthorizePage` pads
+its column, the card is 272px wide, a long address breaks inside it and the
+page does not scroll sideways.
+
+_Measured 2026-11-06 — Playwright at a 320px viewport over the built lab's
+`osn/auth-ui/ConfirmLinkPage/Phone` story: `document.documentElement.scrollWidth`
+320, each card 272px with `scrollWidth` equal to `clientWidth`, the button 44px
+tall._
 
 ## Adding a new component
 
