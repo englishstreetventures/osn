@@ -18,7 +18,7 @@
 "@zap/infra": patch
 ---
 
-Every workspace runs `effect` 4.1.2, with `@effect/platform-bun`,
+Every workspace that uses Effect runs `effect` 4.1.2, with `@effect/platform-bun`,
 `@effect/platform-node`, `@effect/sql-d1`, `@effect/opentelemetry` and
 `@effect/vitest` at 4.1.2 and the root overrides for
 `@effect/platform-node-shared` and `@effect/sql-d1` with them. The stacks run

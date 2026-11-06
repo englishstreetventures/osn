@@ -27,6 +27,8 @@ Every v3 form below will not compile, and the v4 form beside it is what to
 write instead. This page exists because the v3 shapes are still what a model
 reaches for from memory and what every pre-2026-09 example on the internet
 shows — knowing that a rename happened is not enough to write the new name.
+`## Changed in 4.1` does the same for the 4.0 forms that the 4.1 release
+removed or reshaped.
 
 Every backend package is on v4. Which packages use Effect, and why the pin is
 exact rather than caret, is in [[contributing#Technology Choices]] — kept there
