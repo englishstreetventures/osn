@@ -143,8 +143,18 @@ describe("isKnownTimeZone", () => {
     }
   });
 
-  it("refuses a name too long to be a zone", () => {
-    expect(isKnownTimeZone("x".repeat(65))).toBe(false);
+  it("refuses a name too long to be a zone without asking Intl", () => {
+    // No zone name comes near 64 characters, and a miss is never remembered,
+    // so a longer stored value would pay a formatter build on every edit.
+    const built = vi.spyOn(Intl, "DateTimeFormat");
+    try {
+      expect(isKnownTimeZone("x".repeat(65))).toBe(false);
+      expect(built).not.toHaveBeenCalled();
+      expect(isKnownTimeZone("y".repeat(64))).toBe(false);
+      expect(built).toHaveBeenCalled();
+    } finally {
+      built.mockRestore();
+    }
   });
 });
 

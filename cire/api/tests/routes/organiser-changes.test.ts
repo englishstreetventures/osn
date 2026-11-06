@@ -37,6 +37,7 @@ import {
   recordStatements,
   setTier,
 } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -1530,6 +1531,10 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       ["a start with no seconds", { startAt: "2026-11-14T15:00+11:00" }],
       ["an offset written without its colon", { startAt: "2026-11-14T15:00:00+1100" }],
       ["a start in UTC", { startAt: "2026-11-14T04:00:00Z" }],
+      [
+        "a start west of UTC",
+        { startAt: "2026-11-14T15:00:00-05:00", timezone: "America/New_York" },
+      ],
       ["an end", { endAt: "2026-11-14T17:00:00+11:00" }],
       ["a timezone in other letter case", { timezone: "australia/sydney" }],
       // An upload stores these too: it takes the download's `'` guard back off.
@@ -1817,6 +1822,98 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
       expect(res.status).toBe(400);
       expect(storedRow(db, legacyId)).toMatchObject({ ...LEGACY, dressCodeDescription: "Bright" });
+    });
+
+    it("saves a new event beside it, and logs a refusal by field name only", async () => {
+      const { app, db } = await legacyWedding();
+      const draft = draftFromDb(db);
+      const reception = draft.events.find((e) => e.name === "Reception")!;
+      const added = {
+        ...reception,
+        id: undefined,
+        name: "Sangeet",
+        sortOrder: draft.events.length,
+      };
+      await applyChange(app, await scheduleSave(app, [...draft.events, added]));
+      expect(db.select().from(events).where(eq(events.name, "Sangeet")).all()).toHaveLength(1);
+
+      const logs = await captureLogs(async () => {
+        const bad = { ...added, name: "Haldi", startAt: "Saturday at four", timezone: "AEST" };
+        const res = await scheduleSave(app, [...draftFromDb(db).events, bad]);
+        expect(res.status).toBe(400);
+      });
+      expect(logs).toContain("change refused: an event field fails its rule");
+      expect(logs).toContain("startAt,timezone");
+      expect(logs).not.toContain("Saturday at four");
+      expect(logs).not.toContain("AEST");
+    });
+
+    /** Fix the legacy row and move the head, as another change committing would. */
+    function commitFixBehind(db: ReturnType<typeof buildApp>["db"], legacyId: string) {
+      db.update(events)
+        .set({ startAt: "2026-09-18T16:00:00+10:00" })
+        .where(eq(events.id, legacyId))
+        .run();
+      const [wedding] = db
+        .select({ rev: weddings.changeRev })
+        .from(weddings)
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .all();
+      db.update(weddings)
+        .set({ changeRev: wedding!.rev + 1 })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+    }
+
+    // A change that commits after the request read the head, and before the
+    // diff read the rows, makes the draft's value as loaded read as a change.
+    it("tells the editor to reload when another change lands between the head read and the rows read", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      beforeStatement(db, / from "events" /, () => commitFixBehind(db, legacyId));
+
+      const res = await scheduleSave(app, draft.events);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
+    });
+
+    it("answers head_moved at apply when another change lands before its rows read", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      draft.events.find((e) => e.id === legacyId)!.dressCodeDescription = "Bright colours";
+      const preview = await scheduleSave(app, draft.events);
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      beforeStatement(db, / from "events" /, () => commitFixBehind(db, legacyId));
+
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe("head_moved");
+    });
+
+    it("answers head_moved before it holds a field, when another save fixed the row first", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const first = draftFromDb(db);
+      first.events.find((e) => e.id === legacyId)!.dressCodeDescription = "Bright colours";
+      const pending = await scheduleSave(app, first.events);
+      expect(pending.status).toBe(200);
+      const { changeId } = (await pending.json()) as { changeId: string };
+
+      const second = draftFromDb(db);
+      Object.assign(
+        second.events.find((e) => e.id === legacyId)!,
+        {
+          startAt: "2026-09-18T16:00:00+10:00",
+          timezone: "Australia/Brisbane",
+        },
+      );
+      await applyChange(app, await scheduleSave(app, second.events));
+
+      // The first draft's Start and zone now differ from the row, and are ones
+      // the checks refuse; the head check answers first.
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe("head_moved");
     });
   });
 

@@ -746,18 +746,20 @@ describe("EventsEditor", () => {
       expect(warning.textContent).toContain(message);
     }
 
-    // Picking a zone stamps its offset on both times: three of the four go.
-    fireEvent.change(screen.getByLabelText("Timezone"), { target: { value: "Australia/Sydney" } });
-    await waitFor(() =>
-      expect(
-        screen.getByText(/These saved details need fixing/).closest("div")!.textContent,
-      ).not.toMatch(/Choose a timezone|Re-enter/),
-    );
-
-    // A change that is still refused is an error, and shuts Save.
+    // A change that is still refused is an error, and shuts Save. The row then
+    // says so once, as an error: the drawer lists the stored values beside it.
     fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "   " } });
     await waitFor(() => expect(save.disabled).toBe(true));
     expect(screen.getByText(/Fix 1 error before saving/)).toBeTruthy();
+    expect(screen.getByText("This event has errors — open it to fix them.")).toBeTruthy();
+    expect(screen.queryByText("Saved details need fixing — open it to see them.")).toBeNull();
+    expect(screen.getByText(/These saved details need fixing/)).toBeTruthy();
+
+    // Picking a zone stamps its offset on both times: the three stored values
+    // left go, and only the name's error is said.
+    fireEvent.change(screen.getByLabelText("Timezone"), { target: { value: "Australia/Sydney" } });
+    await waitFor(() => expect(screen.queryByText(/These saved details need fixing/)).toBeNull());
+    expect(screen.getByText("Event name is required.")).toBeTruthy();
   });
 
   it("shows an empty zone as empty, not as the first zone in the database", async () => {

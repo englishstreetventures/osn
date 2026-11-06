@@ -22,6 +22,7 @@ import {
   currentEventsAsParsed,
   decodeChangeBody,
   headRevision,
+  refuseUnlessMoved,
   PREVIEW_EXPIRES_AFTER_MS,
   underClaim,
 } from "../services/changes";
@@ -466,6 +467,10 @@ export const createOrganiserChangeRoutes = (
                     emails: emailModeFor(decoded.kind),
                     holdChangedEventFields: decoded.kind === "editor",
                   },
+                ).pipe(
+                  Effect.catchTag("InvalidEventFields", (refusal) =>
+                    refuseUnlessMoved(weddingId, baseRevision, refusal),
+                  ),
                 );
 
                 // Stored only once the diff has taken the change, so a refused
@@ -562,6 +567,15 @@ export const createOrganiserChangeRoutes = (
                   }),
                 ),
                 Effect.catchTags(catchParseErrors(set)),
+                Effect.catchTag("MovedSinceRead", () =>
+                  Effect.gen(function* () {
+                    // The rows the field check read are newer than the draft.
+                    yield* Effect.logWarning("change refused: draft older than the latest change", {
+                      changeKind: "editor",
+                    });
+                    return staleDraft(set);
+                  }),
+                ),
                 Effect.catchTag("InvalidEventFields", (e) =>
                   Effect.gen(function* () {
                     yield* Effect.logWarning("change refused: an event field fails its rule", {
@@ -733,6 +747,10 @@ export const createOrganiserChangeRoutes = (
                     // Held again against the rows as they are now, as at preview.
                     holdChangedEventFields: row.kind === "editor",
                   },
+                ).pipe(
+                  Effect.catchTag("InvalidEventFields", (refusal) =>
+                    refuseUnlessMoved(weddingId, baseRevision, refusal),
+                  ),
                 );
 
                 // The attestation covers the addresses the preview showed, with
@@ -890,6 +908,19 @@ export const createOrganiserChangeRoutes = (
                   }),
                 ),
                 Effect.catchTags(catchParseErrors(set)),
+                Effect.catchTag("MovedSinceRead", (e) =>
+                  Effect.sync(() => {
+                    // The rows the field check read are newer than the preview,
+                    // as when the head check above trips.
+                    set.status = 409;
+                    return {
+                      error: "State changed — re-preview",
+                      reason: "head_moved" as const,
+                      baseRevision: e.baseRevision,
+                      currentRevision: e.currentRevision,
+                    };
+                  }),
+                ),
                 Effect.catchTag("InvalidEventFields", (e) =>
                   Effect.gen(function* () {
                     yield* Effect.logWarning("change refused: an event field fails its rule", {

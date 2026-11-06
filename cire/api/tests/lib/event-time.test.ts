@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn } from "bun:test";
 
 import {
   formatWallTime,
@@ -100,6 +100,20 @@ describe("isKnownTimeZone", () => {
       expect(isKnownTimeZone(real)).toBe(true);
     }
     expect(isKnownTimeZone("Asia/\u212Aolkata")).toBe(false);
+  });
+
+  it("refuses a name too long to be a zone without asking Intl", () => {
+    // No zone name comes near 64 characters, and a miss is never cached, so a
+    // longer stored value would pay a formatter build on every lookup.
+    const built = spyOn(Intl, "DateTimeFormat");
+    try {
+      expect(isKnownTimeZone("x".repeat(65))).toBe(false);
+      expect(built).not.toHaveBeenCalled();
+      expect(isKnownTimeZone("y".repeat(64))).toBe(false);
+      expect(built).toHaveBeenCalled();
+    } finally {
+      built.mockRestore();
+    }
   });
 
   it("never lets a refused spelling read a real zone's cached answer", () => {

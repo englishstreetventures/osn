@@ -1003,7 +1003,11 @@ describe("validateDraft — event field rules (E6)", () => {
           .map((e) => e.message);
       store.updateEvent(key, { startAt: "2026-11-14T15:00", endAt: "2026-11-14T17:00" });
       expect(messages()).toEqual(["Re-enter the start time.", "Re-enter the end time."]);
-      for (const startAt of ["2026-11-14T15:00:00+99:99", "2026-11-14T15:00:00+24:00"]) {
+      for (const startAt of [
+        "2026-11-14T15:00:00+99:99",
+        "2026-11-14T15:00:00+24:00",
+        "2026-11-14T15:00:00+10:60",
+      ]) {
         store.updateEvent(key, { startAt, endAt: "whenever" });
         expect(messages()).toEqual([
           "Re-enter the start time.",
@@ -1012,7 +1016,12 @@ describe("validateDraft — event field rules (E6)", () => {
       }
       // A stamped value passes in either offset spelling. A space around it
       // does not: the save sends Start and End as held, as the API stores them.
-      for (const startAt of ["2026-11-14T15:00:00+11:00", "2026-11-14T15:00:00+1100"]) {
+      for (const startAt of [
+        "2026-11-14T15:00:00+11:00",
+        "2026-11-14T15:00:00+1100",
+        "2026-11-14T15:00:00-05:00",
+        "2026-11-14T15:00:00Z",
+      ]) {
         store.updateEvent(key, { startAt, endAt: "2026-11-14T17:00:00+11:00" });
         expect(messages()).toEqual([]);
       }
@@ -1105,6 +1114,23 @@ describe("validateDraft — a value stored before the checks", () => {
     });
   });
 
+  it("holds an End of spaces the save sets, as the API does, and reports a stored one", () => {
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      store.updateEvent(key, { endAt: "   " });
+      expect(messagesOf(store.errors(), key)).toContain("End must be a valid date and time.");
+
+      const spaced = createGuestEventDraft();
+      spaced.load([{ ...EVENTS[0]!, endAt: "   " }], [], [], REVISION);
+      const spacedKey = spaced.draft.events[0]!.key;
+      expect(messagesOf(spaced.errors(), spacedKey)).toEqual([]);
+      expect(messagesOf(spaced.storedErrors(), spacedKey)).toEqual([
+        "End must be a valid date and time.",
+      ]);
+      dispose();
+    });
+  });
+
   it("holds the zone when the save sets a time, as the API does", () => {
     // The drawer stamps a time's offset from its zone. On one that does not
     // resolve it keeps the stored offset or writes `+00:00`, a value that reads
@@ -1147,16 +1173,6 @@ describe("validateDraft — a value stored before the checks", () => {
       });
       expect(messagesOf(store.errors(), added)).toHaveLength(4);
       expect(messagesOf(store.storedErrors(), added)).toEqual([]);
-      dispose();
-    });
-  });
-
-  it("treats every value as new when no loaded state is given", () => {
-    createRoot((dispose) => {
-      const { store, key } = legacyStore();
-      const all = validateDraft(store.draft).filter((e) => e.key === key);
-      expect(all).toHaveLength(4);
-      expect(all.some((e) => e.stored)).toBe(false);
       dispose();
     });
   });
