@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 3.0.33
+
+### Patch Changes
+
+- Updated dependencies [3f628a0]
+  - @osn/client@2.19.0
+
 ## 3.0.32
 
 ### Patch Changes
