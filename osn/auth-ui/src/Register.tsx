@@ -20,8 +20,12 @@ import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
 type Step = "details" | "verify" | "passkey" | "done";
 
-/** A sign-up this tab is waiting on: the request, and what the view shows. */
-interface Waiting extends BegunRegistration {
+/**
+ * A sign-up this tab is waiting on: the request, and the address and handle
+ * the view names. Not its number, which is never stored: the view holds it in
+ * memory, and a reloaded tab gets it back from its first poll.
+ */
+interface Waiting extends Omit<BegunRegistration, "pairingCode"> {
   readonly email: string;
   readonly handle: string;
 }
@@ -30,7 +34,7 @@ interface Waiting extends BegunRegistration {
  * The sign-up this tab waits on, kept in `sessionStorage` so a reload — or a
  * phone discarding the tab while the person reads their mail — resumes the
  * wait rather than losing it. Per tab, never sent anywhere, never shared with
- * another site. No birthdate is kept.
+ * another site. No birthdate and no pairing number are kept.
  */
 const PENDING_KEY = "osn.signup.pending";
 /**
@@ -75,7 +79,6 @@ function storedWaiting(): Waiting | null {
     !stored ||
     typeof stored.requestId !== "string" ||
     typeof stored.claimSecret !== "string" ||
-    typeof stored.pairingCode !== "string" ||
     typeof stored.email !== "string" ||
     typeof stored.handle !== "string" ||
     typeof stored.expiresAt !== "number"
@@ -87,7 +90,13 @@ function storedWaiting(): Waiting | null {
     writeStored(PENDING_KEY, null);
     return null;
   }
-  return stored as Waiting;
+  return {
+    requestId: stored.requestId,
+    claimSecret: stored.claimSecret,
+    email: stored.email,
+    handle: stored.handle,
+    expiresAt: stored.expiresAt,
+  };
 }
 
 /**
@@ -153,6 +162,9 @@ export function Register(props: RegisterProps) {
   const [busy, setBusy] = createSignal(false);
   // The request this tab waits on, and what the waiting view says about it.
   const [waiting, setWaiting] = createSignal<Waiting | null>(resumed);
+  // The number the waiting view shows: from the begin, or, after a reload,
+  // from the first poll. Memory only — never stored, logged or put in a URL.
+  const [pairingCode, setPairingCode] = createSignal<string | undefined>(undefined);
   const [linkStatus, setLinkStatus] = createSignal<CheckEmailStatus>("waiting");
   const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
   const [detailsError, setDetailsError] = createSignal<string | null>(null);
@@ -293,6 +305,7 @@ export function Register(props: RegisterProps) {
       pollDelay = POLL_MAX_MS;
       schedulePoll(pollDelay);
     } else if (answer.status === "pending") {
+      if (answer.pairingCode !== undefined) setPairingCode(answer.pairingCode);
       pollDelay = Math.min(pollDelay * POLL_GROWTH, POLL_MAX_MS);
       schedulePoll(pollDelay);
     } else if (answer.status === "expired") {
@@ -320,7 +333,9 @@ export function Register(props: RegisterProps) {
   onMount(() => {
     window.addEventListener("focus", pollOnReturn);
     document.addEventListener("visibilitychange", pollOnReturn);
-    if (waiting()) startPolling();
+    // A resumed wait polls at once: its number is not kept, and the link may
+    // have been confirmed while the tab was gone.
+    if (waiting()) void pollNow();
   });
   onCleanup(() => {
     disposed = true;
@@ -329,8 +344,9 @@ export function Register(props: RegisterProps) {
     document.removeEventListener("visibilitychange", pollOnReturn);
   });
 
-  /** Waits on `request`, in this tab and in its storage. */
-  function waitOn(request: Waiting) {
+  /** Waits on `request`, in this tab and in its storage; its number in memory only. */
+  function waitOn(request: Waiting, code: string) {
+    setPairingCode(code);
     setWaiting(request);
     setLinkStatus("waiting");
     setLinkError(undefined);
@@ -347,6 +363,7 @@ export function Register(props: RegisterProps) {
     const request = waiting();
     stopPolling();
     setWaiting(null);
+    setPairingCode(undefined);
     writeStored(PENDING_KEY, null);
     if (request) {
       const previous: PreviousRegistration = {
@@ -391,7 +408,16 @@ export function Register(props: RegisterProps) {
       // never replays a single-use token and gets rejected
       // `timeout-or-duplicate`.
       if (turnstileOn()) resetTurnstile?.();
-      waitOn({ ...begun, email: email(), handle: handle() });
+      waitOn(
+        {
+          requestId: begun.requestId,
+          claimSecret: begun.claimSecret,
+          expiresAt: begun.expiresAt,
+          email: email(),
+          handle: handle(),
+        },
+        begun.pairingCode,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send the link");
     } finally {
@@ -455,6 +481,7 @@ export function Register(props: RegisterProps) {
   function finish(done: Extract<RegistrationStatus, { status: "complete" }>) {
     stopPolling();
     setWaiting(null);
+    setPairingCode(undefined);
     writeStored(PENDING_KEY, null);
     writeStored(PREVIOUS_KEY, null);
     setProfileId(done.profileId);
@@ -624,7 +651,7 @@ export function Register(props: RegisterProps) {
             <CheckEmailView
               purpose="sign-up"
               email={request().email}
-              pairingCode={request().pairingCode}
+              pairingCode={pairingCode()}
               status={linkStatus()}
               errorMessage={linkError()}
               onResend={resendLink}

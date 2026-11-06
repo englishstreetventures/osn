@@ -111,6 +111,12 @@ const sampleSession = {
   scopes: [],
 };
 
+/** The number the waiting view shows, or null: the digits after its hidden "Your number:". */
+function shownNumber(): string | null {
+  const label = screen.queryByText("Your number:");
+  return label?.parentElement?.querySelector('[translate="no"]')?.textContent ?? null;
+}
+
 function fillEmail(value: string) {
   const input = screen.getByLabelText(/Email/) as HTMLInputElement;
   fireEvent.input(input, { target: { value } });
@@ -380,6 +386,34 @@ describe("Register component", () => {
       });
     });
 
+    it("shows the number the begin gave on the waiting view, and never writes it to storage", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({
+        status: "pending",
+        pairingCode: begun().pairingCode,
+      });
+      renderRegister();
+      await submitDetailsAs();
+      expect(shownNumber()).toBe(begun().pairingCode);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stub.registrationStatus).toHaveBeenCalledTimes(1);
+
+      const stored = JSON.parse(sessionStorage.getItem("osn.signup.pending") ?? "null") as Record<
+        string,
+        unknown
+      >;
+      expect(Object.keys(stored)).toEqual(
+        expect.arrayContaining(["claimSecret", "email", "expiresAt", "handle", "requestId"]),
+      );
+      expect(Object.keys(stored)).toHaveLength(5);
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)!;
+        expect(Object.values(JSON.parse(sessionStorage.getItem(key)!) as object)).not.toContain(
+          begun().pairingCode,
+        );
+      }
+    });
+
     it("stops polling, and leaves no timer or listener behind, once the view is gone", async () => {
       stub.beginRegistration.mockResolvedValue(begun());
       stub.registrationStatus.mockResolvedValue({ status: "pending" });
@@ -575,20 +609,22 @@ describe("Register component", () => {
       expect(screen.queryByText(/Your link has expired/)).toBeNull();
     });
 
-    it("resumes the wait after a reload, and drops a stored wait that has expired", async () => {
+    it("resumes the wait after a reload, polling at once for the number, and drops a stored wait that has expired", async () => {
+      const { pairingCode, ...request } = begun();
       sessionStorage.setItem(
         "osn.signup.pending",
-        JSON.stringify({ ...begun(), email: "alice@example.com", handle: "alice" }),
+        JSON.stringify({ ...request, email: "alice@example.com", handle: "alice" }),
       );
-      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.registrationStatus.mockResolvedValue({ status: "pending", pairingCode });
       const resumed = renderRegister();
       expect(screen.getByText(/Check your email/)).toBeTruthy();
       expect(screen.getByText(/alice@example.com/)).toBeTruthy();
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(0);
       expect(stub.registrationStatus).toHaveBeenCalledWith({
         requestId: begun().requestId,
         claimSecret: begun().claimSecret,
       });
+      await waitFor(() => expect(shownNumber()).toBe(pairingCode));
       resumed.unmount();
 
       sessionStorage.setItem(
