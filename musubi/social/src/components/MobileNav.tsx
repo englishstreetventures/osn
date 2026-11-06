@@ -41,15 +41,20 @@ export function MobileNav() {
             const active = () => isNavActive(location.pathname, item.href);
             // The label is text a reader needs, so a resting tab writes it in
             // secondary ink; the icon alone rests in `text-subtle`, as the
-            // rail's does. The cells run edge to edge, so the focus ring is
-            // drawn inside the cell, where the screen cannot clip it.
+            // rail's does. The current tab draws a 2px bar along its top edge
+            // as well as full ink, as `SectionTabs` underlines its current
+            // tab, so ink is not the only mark. The cells run edge to edge,
+            // so the focus ring is drawn inside the cell, where the screen
+            // cannot clip it.
             return (
               <A
                 href={item.href}
                 aria-current={active() ? "page" : undefined}
                 class={clsx(
-                  "active:bg-muted/60 flex flex-col items-center justify-center gap-1 transition-ui-colors focus-visible:-outline-offset-2",
-                  active() ? "text-foreground" : "text-muted-foreground",
+                  "active:bg-muted/60 flex flex-col items-center justify-center gap-1 border-t-2 transition-ui-colors focus-visible:-outline-offset-2",
+                  active()
+                    ? "border-foreground text-foreground"
+                    : "text-muted-foreground border-transparent",
                 )}
               >
                 <item.icon class={clsx("h-5 w-5", !active() && "text-subtle")} />

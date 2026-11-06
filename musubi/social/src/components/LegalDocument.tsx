@@ -23,14 +23,15 @@ export function LegalDocument(props: {
   return (
     <article class="mx-auto w-full max-w-2xl px-6 py-12">
       {props.draft && (
-        <p class="border-warn/40 bg-warn/10 mb-8 rounded border p-3 text-sm">
-          <strong>Draft</strong> — this notice is not final. Some details of the operator are still
-          to be confirmed, and this banner disappears once they are.
+        <p class="border-warn/40 bg-warn/10 text-body mb-8 rounded-lg border p-3">
+          <strong class="font-medium">Draft</strong> — this notice is not final. Some details of the
+          operator are still to be confirmed, and this banner disappears once they are.
         </p>
       )}
-      <h1 class="mb-1 text-2xl font-semibold">{props.title}</h1>
-      <p class="text-muted-foreground mb-8 text-sm">Last updated: {props.updated}</p>
-      {/* The prose rules reach the body alone; the header above keeps its own classes. */}
+      <h1 class="text-foreground text-display mb-1 font-medium">{props.title}</h1>
+      <p class="text-muted-foreground text-body mb-8">Last updated: {props.updated}</p>
+      {/* The prose rules reach the body alone; the page head above is a page
+          title and its subtitle, on the app's scale. */}
       <div class="prose-legal">{props.children}</div>
     </article>
   );

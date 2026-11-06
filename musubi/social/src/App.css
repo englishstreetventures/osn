@@ -294,8 +294,10 @@ html {
  * cire column) draws its own colours.
  *
  * A bare `border` draws the hairline, not ink: Tailwind's preflight leaves
- * `border-color` at `currentcolor`. A bare-bordered text field draws the field
- * edge `@shared/ui`'s `Input` draws.
+ * `border-color` at `currentcolor`. A bare-bordered text field keeps the ink
+ * edge: its fill is the ground's, so the edge alone shows where it is, and the
+ * field edge `@shared/ui`'s `Input` draws (`--ui-hairline-strong`) sits under
+ * the 3:1 a control's boundary needs.
  *
  * A focused element the keyboard reached gets the house ring as an outline:
  * `--ui-focus` (3:1 on every ground, per the contrast contract), 2px, 2px off.
@@ -315,7 +317,7 @@ html {
   input,
   textarea,
   select {
-    border-color: var(--ui-hairline-strong, currentcolor);
+    border-color: currentcolor;
   }
 
   :focus-visible {

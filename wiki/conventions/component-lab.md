@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-07
 ---
 
 # Component Lab
@@ -200,7 +200,10 @@ workspace's `src/` (permanent bench). Both are found.
 **The lab imports `musubi/social/src/App.css` rather than copying tokens.** That
 file is the source of truth for `--background`, the `.dark` block and the `base:`
 variant every `@shared/ui` class is written against. A second copy drifts. The cost
-is that Musubi's look is the lab's default. A story with its own design language
+is that Musubi's look is the lab's default, base rules included: every story
+inherits Musubi's hairline on a bare `border`, its 2px `--ui-focus` outline on
+`:focus-visible`, and its `transition-ui-colors` utility, which `tools/lab/src/lab.css`
+does not define again. A story with its own design language
 sets the `--ui-*` contract inline on a wrapper instead of importing its own CSS
 ([[#Stories for auth and cire components]]).
 

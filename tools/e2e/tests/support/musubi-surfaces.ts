@@ -1,10 +1,13 @@
 /**
  * Musubi's base styles, measured and pictured: the ink a resting label takes,
- * the hairline a bare `border` draws, the colour fade that leaves the focus
- * ring out, the house focus outline (inset where a box would clip it), the
- * 8px corner a text field's edge sits on, and the legal pages' prose. Each rule
- * lives in `musubi/social/src/App.css` and reaches many screens at once, so a
- * lost rule shows here before it shows on any one of them.
+ * the hairline a bare `border` draws and the ink edge a bare field keeps, the
+ * colour fade that leaves the focus ring out, the house focus outline (inset
+ * where a box would clip it), the 8px corner a text field's edge sits on, the
+ * theme menu's radio rows, the bar that marks the current bottom-bar tab, and
+ * the legal pages' head and prose. Each rule lives in
+ * `musubi/social/src/App.css` or one shared shell part and reaches many
+ * screens at once, so a lost rule shows here before it shows on any one of
+ * them.
  *
  * `musubi-passkey` calls it while signed in, after its own `POST /token`
  * check, so it spends no sign-in of its own (`tests/flows.test.ts` counts
@@ -52,7 +55,9 @@ async function at(page: Page, size: { width: number; height: number }, colorSche
   );
 }
 
-const primaryBar = (page: Page) => page.getByRole("navigation", { name: "Primary" });
+// By selector, not role: a modal menu or dialog hides the rest of the page from
+// the accessibility tree, and `at()` still has to find the shell behind it.
+const primaryBar = (page: Page) => page.locator('nav[aria-label="Primary"]');
 const rail = (page: Page) => page.locator("aside");
 
 /** One computed property of `target`. */
@@ -130,18 +135,21 @@ async function shoot(
 
 /** Rail, bottom bar, borders and focus, on the signed-in Connections page. */
 async function shell(flow: Flow, page: Page): Promise<void> {
-  await at(page, DESKTOP, "light");
   const discover = rail(page).getByRole("link", { name: "Discover" });
 
   for (const colorScheme of SCHEMES) {
     await at(page, DESKTOP, colorScheme);
-    const [div, field] = await page.evaluate(() => {
+    const [div, field, ink] = await page.evaluate(() => {
       const box = document.createElement("div");
       box.className = "border";
       const input = document.createElement("input");
       input.className = "border";
       document.body.append(box, input);
-      const read = [getComputedStyle(box).borderTopColor, getComputedStyle(input).borderTopColor];
+      const read = [
+        getComputedStyle(box).borderTopColor,
+        getComputedStyle(input).borderTopColor,
+        getComputedStyle(input).color,
+      ];
       box.remove();
       input.remove();
       return read;
@@ -152,8 +160,8 @@ async function shell(flow: Flow, page: Page): Promise<void> {
       div ?? "",
     );
     flow.check(
-      `shell (${colorScheme}): a bare-bordered field draws the field edge`,
-      await painted(discover, "var(--input)"),
+      `shell (${colorScheme}): a bare-bordered field keeps its ink edge`,
+      ink ?? "",
       field ?? "",
     );
   }
@@ -210,7 +218,9 @@ async function shell(flow: Flow, page: Page): Promise<void> {
   await at(page, PHONE, "light");
   const bar = primaryBar(page);
   const tab = bar.getByRole("link", { name: "Discover" });
+  const current = bar.getByRole("link", { name: "Connections" });
   await settled(tab);
+  await settled(current);
   flow.check(
     "bottom bar: a resting tab's label is secondary ink",
     await painted(tab, "var(--muted-foreground)"),
@@ -220,6 +230,21 @@ async function shell(flow: Flow, page: Page): Promise<void> {
     "bottom bar: a resting tab's icon is --subtle",
     await painted(tab, "var(--subtle)"),
     await computed(tab.locator("svg"), "color"),
+  );
+  flow.check(
+    "bottom bar: the current tab draws a 2px bar on its top edge",
+    "2px",
+    await computed(current, "border-top-width"),
+  );
+  flow.check(
+    "bottom bar: the current tab's bar is full ink",
+    await painted(current, "var(--foreground)"),
+    await computed(current, "border-top-color"),
+  );
+  flow.check(
+    "bottom bar: a resting tab draws no bar",
+    "rgba(0, 0, 0, 0)",
+    await computed(tab, "border-top-color"),
   );
   await flow.step("surfaces: reach a bottom-bar tab from the keyboard", () =>
     tabTo(page, bar.getByRole("link", { name: "Search" }), tab),
@@ -241,12 +266,115 @@ async function shell(flow: Flow, page: Page): Promise<void> {
   );
 }
 
-/** Settings → Security: the rows and rules a bare `border` draws, as hairlines. */
+/**
+ * The rail's theme menu and account trigger, then the phone's account trigger
+ * and the profile switcher it opens: the shared radio rows, and the house
+ * outline on two controls drawn by hand.
+ */
+async function menus(flow: Flow, page: Page): Promise<void> {
+  await at(page, DESKTOP, "light");
+  // Out of the way of every menu, so no row takes the pointer's highlight.
+  await page.mouse.move(0, 0);
+  const theme = rail(page).getByRole("button", { name: /^Theme:/ });
+  const rows = page.getByRole("menuitemradio");
+  await flow.step("surfaces: open the theme menu from the keyboard", async () => {
+    await theme.focus();
+    await page.keyboard.press("Enter");
+    await expect(rows).toHaveCount(3);
+    await expect(rows.first()).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(rows.nth(1)).toBeFocused();
+  });
+  flow.check(
+    "theme menu: the theme in force is the checked radio row",
+    "System",
+    (await page.getByRole("menuitemradio", { checked: true }).textContent()) ?? "",
+  );
+  flow.check(
+    "theme menu: a focused row takes the sunk fill",
+    await painted(rows.nth(1), "var(--ui-surface-sunk)"),
+    await computed(rows.nth(1), "background-color"),
+  );
+  await flow.step("surfaces: shoot the theme menu", async () => {
+    await shoot(page, "theme-menu", () => expect(rows.nth(1)).toBeFocused(), {
+      widths: [DESKTOP],
+    });
+    await page.keyboard.press("Escape");
+    await expect(rows).toHaveCount(0);
+  });
+
+  await at(page, DESKTOP, "light");
+  const account = rail(page).getByRole("button", { name: /@/ });
+  await flow.step("surfaces: reach the rail's account menu from the keyboard", () =>
+    tabTo(page, rail(page).locator("nav a").last(), account),
+  );
+  flow.check(
+    "rail: the account menu's trigger takes the house outline",
+    "solid 2px 2px",
+    await outline(account),
+  );
+
+  await at(page, PHONE, "light");
+  const header = page.locator("header");
+  const avatar = header.getByRole("button").last();
+  await flow.step("surfaces: reach the top bar's account menu from the keyboard", () =>
+    tabTo(page, header.getByRole("button", { name: /^Theme:/ }), avatar),
+  );
+  flow.check(
+    "top bar: the account menu's trigger takes the house outline",
+    "solid 2px 2px",
+    await outline(avatar),
+  );
+  const switcher = page.getByRole("dialog");
+  const profile = switcher.getByRole("button").first();
+  await flow.step("surfaces: open the profile switcher from the keyboard", async () => {
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("menuitem", { name: "Switch profile" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(profile).toBeVisible();
+    // The dialog holds focus; Tab lands on its one row as a keyboard user's would.
+    await page.keyboard.press("Tab");
+    await expect(profile).toBeFocused();
+    expect(await profile.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+  });
+  flow.check(
+    "profile switcher: a focused row draws its outline inside the row",
+    "solid 2px -2px",
+    await outline(profile),
+  );
+  await flow.step("surfaces: shoot a focused profile row", async () => {
+    await shoot(page, "profile-switcher-focus", () => expect(profile).toBeFocused(), {
+      widths: [PHONE],
+    });
+    await page.keyboard.press("Escape");
+    await expect(switcher).toHaveCount(0);
+  });
+}
+
+/**
+ * Settings: the Profile section's hint in secondary ink and its field on the
+ * 8px corner, then Security's rows and rules, drawn as hairlines.
+ */
 async function security(flow: Flow, page: Page): Promise<void> {
   const row = page.locator("li.rounded-md.border").first();
-  await flow.step("surfaces: open Settings → Security", async () => {
+  const hint = page.getByText("Handles cannot be changed.", { exact: true });
+  await flow.step("surfaces: open Settings → Profile", async () => {
     await at(page, DESKTOP, "light");
     await rail(page).getByRole("link", { name: "Settings" }).click();
+    await expect(hint).toBeVisible();
+  });
+  flow.check(
+    "settings: a field's hint is secondary ink",
+    await painted(hint, "var(--muted-foreground)"),
+    await computed(hint, "color"),
+  );
+  const handle = page.locator("input[disabled]").first();
+  flow.check(
+    "settings: a text field takes the 8px field corner",
+    "8px",
+    await computed(handle, "border-top-left-radius"),
+  );
+  await flow.step("surfaces: open Settings → Security", async () => {
     await page
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name: "Security" })
@@ -255,6 +383,11 @@ async function security(flow: Flow, page: Page): Promise<void> {
     await expect(row).toBeVisible();
   });
   flow.check(
+    "security: a passkey row draws a 1px edge",
+    "1px",
+    await computed(row, "border-top-width"),
+  );
+  flow.check(
     "security: a passkey row's edge is the hairline",
     await painted(row, "var(--border)"),
     await computed(row, "border-top-color"),
@@ -262,6 +395,11 @@ async function security(flow: Flow, page: Page): Promise<void> {
   const rule = page
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "Recovery codes" }) });
+  flow.check(
+    "security: the rule between sections is 1px",
+    "1px",
+    await computed(rule, "border-top-width"),
+  );
   flow.check(
     "security: the rule between sections is the hairline",
     await painted(rule, "var(--border)"),
@@ -275,7 +413,7 @@ async function security(flow: Flow, page: Page): Promise<void> {
   );
 }
 
-/** `/privacy` and `/terms`: the body on Musubi's scale, the header left alone. */
+/** `/privacy` and `/terms`: the page head and the body, on Musubi's scale. */
 async function legal(flow: Flow, page: Page): Promise<void> {
   for (const [view, title] of [
     ["privacy", "Privacy Notice"],
@@ -295,10 +433,12 @@ async function legal(flow: Flow, page: Page): Promise<void> {
     flow.check(`${view}: a section heading is 14px at 500`, "14px 500", await type(h2));
     flow.check(`${view}: a paragraph is 13px`, "13px", await computed(p, "font-size"));
     flow.check(`${view}: a paragraph's line is 1.65`, "21.45px", await computed(p, "line-height"));
+    flow.check(`${view}: the title is 24px at 500`, "24px 500", await type(heading));
+    const updated = page.getByText(/^Last updated:/);
     flow.check(
-      `${view}: the "Last updated" line keeps its own line height`,
-      "20px",
-      await computed(page.getByText(/^Last updated:/), "line-height"),
+      `${view}: the "Last updated" line is a 13px subtitle on an 18px line`,
+      "13px 18px",
+      `${await computed(updated, "font-size")} ${await computed(updated, "line-height")}`,
     );
     if (view === "privacy") {
       flow.check(
@@ -333,6 +473,7 @@ async function legal(flow: Flow, page: Page): Promise<void> {
 export async function musubiSurfaces(flow: Flow, page: Page): Promise<void> {
   const viewport = page.viewportSize();
   await shell(flow, page);
+  await menus(flow, page);
   await security(flow, page);
   await legal(flow, page);
   if (viewport) await page.setViewportSize(viewport);

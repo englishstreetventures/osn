@@ -109,7 +109,7 @@ export function Sidebar() {
             }
           >
             <AccountMenu
-              triggerClass="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-ui-colors outline-none"
+              triggerClass="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-ui-colors"
               onSwitchProfile={() => setShowSwitcher(true)}
             >
               <Avatar class="h-8 w-8">

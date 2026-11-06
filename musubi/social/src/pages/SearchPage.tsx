@@ -44,7 +44,7 @@ export function SearchPage() {
           <label class="sr-only" for="search-page-input">
             Search people and organisations
           </label>
-          <span class="text-muted-foreground pointer-events-none text-sm" aria-hidden="true">
+          <span class="text-muted-foreground text-title pointer-events-none" aria-hidden="true">
             @
           </span>
           <Input

@@ -124,7 +124,7 @@ export function GlobalSearch(props: { token: string }) {
           padding, and this is the treatment `@shared/ui`'s own `UsernameInput`
           gives the same glyph. */}
       <div class="flex items-center gap-2">
-        <span class="text-muted-foreground pointer-events-none text-sm" aria-hidden="true">
+        <span class="text-muted-foreground text-title pointer-events-none" aria-hidden="true">
           @
         </span>
         <Input

@@ -171,8 +171,9 @@ themselves:
 - Raw `<input>`s: the new email and the code in `ChangeEmailForm`, and the
   emailed code and the authenticator code in `StepUpDialog`, each
   `bg-background rounded-md border px-3 py-2` inside a `<label>`. The `border`
-  names no colour; in Musubi a bare-bordered field draws `--input`, the edge
-  `@shared/ui`'s `Input` draws.
+  names no colour; in Musubi a bare-bordered field keeps its ink edge
+  (`currentColor`), since `--input`, the edge `@shared/ui`'s `Input` draws,
+  sits under 3:1 (`musubi/social/DESIGN.md` §Borders).
 - A raw checkbox, "I've saved these codes somewhere safe.", in
   `RecoveryCodesView`.
 - Text `<button>`s: "Lost your passkey?" in `SignIn` and "Resend code" in

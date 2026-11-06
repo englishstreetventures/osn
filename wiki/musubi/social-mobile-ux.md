@@ -2,7 +2,7 @@
 title: Social — Mobile UX analysis & plan
 description: Why @musubi/social is unusable on phones today, and the phased plan to fix it
 tags: [app, identity, ux, mobile, plan]
-status: shipped
+status: completed
 packages:
   - "@musubi/social"
 related:
@@ -169,9 +169,10 @@ mobile shell; at and above it, today's rail is unchanged.
   (single source for both shells).
 - New `MobileNav.tsx`: fixed bottom tab bar (`md:hidden`), the four nav items
   with 20 px icons + `text-meta` labels, ≥48 px item height plus `pb-safe`,
-  active state = `text-foreground` for icon and label; a resting tab writes
-  its label in `text-muted-foreground` and its icon in `text-subtle`, as the
-  rail does.
+  active state = `text-foreground` for icon and label plus a 2px
+  `--foreground` bar along the tab's top edge, so ink is not its only mark; a
+  resting tab writes its label in `text-muted-foreground` and its icon in
+  `text-subtle`, as the rail does.
 - New `MobileTopBar.tsx`: slim sticky header (`md:hidden`) with the
   Musubi wordmark (no "Social" tag — at 320 px the signed-out bar has no
   room for it), `ThemeToggle`, and the account control — avatar

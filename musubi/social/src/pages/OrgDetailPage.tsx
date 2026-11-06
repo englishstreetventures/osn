@@ -138,8 +138,8 @@ export function OrgDetailPage() {
             when={org.state === "errored"}
             fallback={
               <div class="flex flex-col gap-3">
-                <div class="bg-muted/50 h-8 w-48 animate-pulse rounded" />
-                <div class="bg-muted/50 h-5 w-64 animate-pulse rounded" />
+                <div class="bg-muted/50 h-8 w-48 animate-pulse rounded-lg" />
+                <div class="bg-muted/50 h-5 w-64 animate-pulse rounded-lg" />
               </div>
             }
           >
