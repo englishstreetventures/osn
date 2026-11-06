@@ -1376,4 +1376,63 @@ describe("domain-move-rehearsal.ts", () => {
     const source = readFileSync(join(import.meta.dir, "..", "domain-move-rehearsal.ts"), "utf8");
     expect(source).toContain('spawn("bun", ["run", "--cwd", "shared/infra", script]');
   });
+
+  test("R17a: a token that sees another account's zone fails the reach check without naming that zone, in the fragment or the log", async () => {
+    const w = world({
+      zones: [
+        { id: ZONE_ID, name: DOMAIN, account: { id: ACCOUNT } },
+        { id: "z-foreign", name: "private-client.example", account: { id: "f".repeat(32) } },
+      ],
+    });
+    const result = await run(["preflight", ...OUT], w, DNS_ENV);
+    expect(result.code).toBe(1);
+    expect(writes(result.calls)).toEqual([]);
+    expect(JSON.stringify(result.fragment)).not.toContain("private-client.example");
+    expect(result.output).not.toContain("private-client.example");
+    const zonesCall = (result.fragment.calls as { path: string; result: unknown }[]).find((call) =>
+      call.path.startsWith("/zones"),
+    );
+    expect(zonesCall?.result).toEqual({
+      inTheAccount: [{ name: DOMAIN, status: null }],
+      outsideTheAccount: 1,
+    });
+  });
+
+  test("R19d: the job token goes to GitHub alone, and a Cloudflare step sends no job token", async () => {
+    const w = onPages();
+    w.jobs = [{ name: ATTACH_JOB_NAME, status: "completed" }];
+    const watched = await run(["watch", ...OUT], w, { ...GH_ENV, CLOUDFLARE_API_TOKEN: API_TOKEN });
+    expect(watched.calls.length).toBeGreaterThan(0);
+    expect(watched.calls.every((call) => call.url.startsWith(GITHUB))).toBe(true);
+    const waited = await run(["wait-watch", ...OUT], w, GH_ENV);
+    expect(waited.calls.every((call) => call.url.startsWith(GITHUB))).toBe(true);
+    const detachRun = await run(["detach", ...OUT], onPages(), {
+      ...DNS_ENV,
+      GITHUB_TOKEN: GH_TOKEN,
+    });
+    expect(detachRun.calls.length).toBeGreaterThan(0);
+    expect(detachRun.calls.every((call) => call.url.startsWith(API))).toBe(true);
+    expect(detachRun.calls.some((call) => call.auth?.includes(GH_TOKEN) === true)).toBe(false);
+  });
+
+  test("R16b: cleanup deletes the CNAMEs first, and keeps the project when a CNAME delete fails", async () => {
+    const w = world({
+      projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`, HOST] } },
+      records: { [HOST]: [cname("c1", HOST, PROJECT)] },
+    });
+    w.flaky[`DELETE /zones/${ZONE_ID}/dns_records/c1`] = [failed(500, 0)];
+    const result = await run(["cleanup", ...OUT], w, DNS_ENV);
+    expect(result.code).toBe(1);
+    expect(Object.keys(w.projects)).toEqual([PROJECT]);
+    const w2 = world({
+      projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`, HOST] } },
+      records: { [HOST]: [cname("c1", HOST, PROJECT)] },
+    });
+    const clean = await run(["cleanup", ...OUT], w2, DNS_ENV);
+    expect(clean.code).toBe(0);
+    const order = writes(clean.calls).map((call) => `${call.method} ${call.url.slice(API.length)}`);
+    expect(order.indexOf(`DELETE /zones/${ZONE_ID}/dns_records/c1`)).toBeLessThan(
+      order.indexOf(`DELETE /accounts/${ACCOUNT}/pages/projects/${PROJECT}`),
+    );
+  });
 });

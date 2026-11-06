@@ -337,12 +337,13 @@ function redactText(text: string, secrets: readonly string[]): string {
   return hidden.replace(/[0-9a-f]{32}/gi, "<id>");
 }
 
-function redact(value: Json, secrets: readonly string[]): Json {
-  if (typeof value === "string") return redactText(value, secrets);
-  if (Array.isArray(value)) return value.map((item: Json) => redact(item, secrets));
+/** `value` with `change` applied to every string in it, keys left as they are. */
+function mapStrings(value: Json, change: (text: string) => string): Json {
+  if (typeof value === "string") return change(value);
+  if (Array.isArray(value)) return value.map((item: Json) => mapStrings(item, change));
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, redact(item, secrets)]),
+      Object.entries(value).map(([key, item]) => [key, mapStrings(item, change)]),
     );
   }
   return value;
@@ -407,13 +408,44 @@ function projectResult(path: string, result: Json, account: string): Json {
     };
   }
   if (bare === "/zones") {
-    return items.map((zone) => ({
-      name: fieldOf(zone, "name"),
-      status: fieldOf(zone, "status"),
-      inTheAccount: fieldOf(fieldOf(zone, "account"), "id") === account,
-    }));
+    const inAccount = items.filter((zone) => fieldOf(fieldOf(zone, "account"), "id") === account);
+    return {
+      inTheAccount: inAccount.map((zone) => ({
+        name: fieldOf(zone, "name"),
+        status: fieldOf(zone, "status"),
+      })),
+      // Another account's zone is counted, never named.
+      outsideTheAccount: items.length - inAccount.length,
+    };
   }
   return allowList(result);
+}
+
+/** The names of the zones in a `GET /zones` answer that belong to another account than `account`. */
+function foreignZoneNames(path: string, body: Json, account: string): string[] {
+  if ((path.split("?")[0] ?? "") !== "/zones") return [];
+  const result = fieldOf(body, "result");
+  const items = Array.isArray(result) ? (result as readonly Json[]) : [];
+  return items.flatMap((zone) => {
+    const name = fieldOf(zone, "name");
+    return fieldOf(fieldOf(zone, "account"), "id") !== account && typeof name === "string"
+      ? [name]
+      : [];
+  });
+}
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Replaces each of `names` where it stands as a whole host name in `text`. */
+function withholdNames(text: string, names: readonly string[]): string {
+  return names.reduce(
+    (current, name) =>
+      current.replace(
+        new RegExp(`(?<![A-Za-z0-9.-])${escapeRegExp(name)}(?![A-Za-z0-9-]|\\.[A-Za-z0-9])`, "g"),
+        "<another account's zone>",
+      ),
+    text,
+  );
 }
 
 interface CallEntry {
@@ -495,13 +527,23 @@ class Recorder {
     return new Date(at).toISOString();
   }
 
+  /**
+   * `text` with every secret and 32-hex id replaced, and every zone name a
+   * `GET /zones` answer showed in another account withheld: a token with the
+   * wrong reach must not publish the names of zones it should not see.
+   */
   redact(text: string): string {
-    return redactText(text, this.#secrets);
+    return withholdNames(redactText(text, this.#secrets), this.#foreignZones);
   }
+
+  readonly #foreignZones: string[] = [];
 
   /** One attempt at a Cloudflare call; the same answer again to the same path counts on the last entry. */
   call(attempt: ObservedAttempt): void {
     const body = asJson(attempt.body);
+    for (const name of foreignZoneNames(attempt.path, body, this.#account)) {
+      if (!this.#foreignZones.includes(name)) this.#foreignZones.push(name);
+    }
     const field = (key: string) => this.#scrub(fieldOf(body, key));
     const entry = {
       method: attempt.method,
@@ -542,7 +584,7 @@ class Recorder {
   }
 
   #scrub(value: Json): Json {
-    return redact(value, this.#secrets);
+    return mapStrings(value, (text) => this.redact(text));
   }
 
   /** One probe or lookup; the same outcome as the host's last one in this view extends that run. */
@@ -597,9 +639,15 @@ interface Context {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly hosts: RehearsalHosts;
   readonly account: string;
-  readonly token: string;
-  readonly record: Recorder;
+  /**
+   * The Cloudflare client, holding the step's Cloudflare token; on a step
+   * that holds the GitHub token instead it holds no token at all, so no edit
+   * can send the GitHub token to Cloudflare.
+   */
   readonly api: PagesDnsApi;
+  /** The job token, on wait-watch and watch alone: sent only to api.github.com. */
+  readonly githubToken: string;
+  readonly record: Recorder;
 }
 
 interface StepResult {
@@ -919,11 +967,12 @@ interface Job {
 /** This run attempt's jobs, or null when GitHub did not answer. */
 async function runJobs(ctx: Context): Promise<readonly Job[] | null> {
   const { env } = ctx;
+  if (ctx.githubToken === "") return null;
   const path = `/repos/${env.GITHUB_REPOSITORY ?? ""}/actions/runs/${env.GITHUB_RUN_ID ?? ""}/attempts/${env.GITHUB_RUN_ATTEMPT ?? "1"}/jobs?per_page=100`;
   try {
     const response = await ctx.input.fetch(`https://api.github.com${path}`, {
       headers: {
-        authorization: `Bearer ${ctx.token}`,
+        authorization: `Bearer ${ctx.githubToken}`,
         accept: "application/vnd.github+json",
         "user-agent": CI_USER_AGENT,
       },
@@ -1121,9 +1170,25 @@ async function destroy(ctx: Context): Promise<StepResult> {
 const isRehearsalTarget = (content: string): boolean =>
   content.startsWith(REHEARSAL_PROJECT_PREFIX) && content.endsWith(".pages.dev");
 
+/**
+ * Removes what the rehearsal made in Pages and DNS, CNAMEs first: a project
+ * goes only once no record of the zone points at it, so no failed write can
+ * leave a rehearsal host pointing at a `pages.dev` name another account could
+ * take. A failed write ends the step there.
+ */
 async function cleanup(ctx: Context): Promise<StepResult> {
   const zones = await ctx.api.reach([ctx.hosts.zone]);
   const hosts = bothHosts(ctx);
+  const located = await Promise.all(
+    hosts.map((host) => locateHost(ctx.api, zones, ctx.hosts.zone, host, [])),
+  );
+  await Promise.all(
+    located.flatMap(({ host, zone, records }) =>
+      records
+        .filter((record) => record.type === "CNAME" && isRehearsalTarget(record.content))
+        .map((record) => ctx.api.deleteRecord(zone, record.id, host)),
+    ),
+  );
   const ours = (await ctx.api.projects()).filter((held) =>
     held.name.startsWith(REHEARSAL_PROJECT_PREFIX),
   );
@@ -1140,16 +1205,6 @@ async function cleanup(ctx: Context): Promise<StepResult> {
         `deleting the Pages project ${project.name}`,
       );
     }),
-  );
-  const located = await Promise.all(
-    hosts.map((host) => locateHost(ctx.api, zones, ctx.hosts.zone, host, [])),
-  );
-  await Promise.all(
-    located.flatMap(({ host, zone, records }) =>
-      records
-        .filter((record) => record.type === "CNAME" && isRehearsalTarget(record.content))
-        .map((record) => ctx.api.deleteRecord(zone, record.id, host)),
-    ),
   );
   const projectsLeft = (await ctx.api.projects())
     .filter((held) => held.name.startsWith(REHEARSAL_PROJECT_PREFIX))
@@ -1434,12 +1489,13 @@ export async function runRehearsal(input: RehearsalInput): Promise<number> {
   record.flush();
   const api = pagesDnsApi({
     account,
-    token,
+    token: github ? "" : token,
     fetch: input.fetch,
     sleep: input.sleep,
     observe: (seen) => record.call(seen),
   });
-  const ctx: Context = { input, env, hosts, account, token, record, api };
+  const githubToken = github ? token : "";
+  const ctx: Context = { input, env, hosts, account, api, githubToken, record };
   const finish = (code: number, message: string): number => {
     const said = record.redact(message);
     record.fragment.exitCode = code;
