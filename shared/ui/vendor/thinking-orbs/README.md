@@ -34,7 +34,8 @@ follows `src/ui/orb.tsx` in here.
 
 thinking-orbs is also published on npm. Vendoring takes it out of reach of any
 scanner keyed on `bun.lock`, so whoever re-vendors checks the upstream
-repository's issues and the npm package's advisories first.
+repository's issues and the npm package's advisories first, and the code owner
+of `shared/ui/vendor/` (`.github/CODEOWNERS`) confirms it in review.
 
 ## Checking the tree against upstream
 
@@ -62,8 +63,10 @@ the files one by one rather than a tarball.
 
 ## Re-vendoring
 
-From the repository root, with `$d` filled by the command above at the new
-commit:
+From the repository root, run the fetch lines of the command above, from
+`pin=` through the `LICENSE` download, with `pin` set to the new commit. Skip
+its last two lines: they check the files against the old manifest, and every
+changed file would print `FAILED`. Then:
 
 ```bash
 v=shared/ui/vendor/thinking-orbs
@@ -84,7 +87,8 @@ upstream's `src/engine/` gains or loses a file, change the list in the fetch
 command too.
 
 `scripts/verify-vendored.sh shared/ui/vendor/thinking-orbs` is the guard; CI's
-`script-tests` job runs it on every tree that has a `SHA256SUMS`. It fails when
+`script-tests` job runs it on every tree `scripts/vendored-trees.txt` lists,
+this one included. It fails when
 a file differs from the manifest, the tracked file set differs from it, a file
 is anything but `100644` (or `120000` for a symlink), or, on a pull request, a
 file other than `README.md` and `SHA256SUMS` changed while the pin line above

@@ -685,15 +685,20 @@ jobs:
       # `shasum -c`, because regenerating the manifest certifies whatever the
       # tree now holds.
       #
-      # Every tree with a SHA256SUMS is checked — anti-slop and the orb engine
-      # in `@shared/ui` today — so a tree added later needs no new line here.
+      # Every tree `scripts/vendored-trees.txt` lists is checked: anti-slop and
+      # the orb engine in `@shared/ui`. The list is a file of its own rather
+      # than a search for SHA256SUMS files, so a branch that deletes a tree's
+      # manifest cannot also take the tree out of the check; the guard refuses
+      # a listed tree with no manifest. An empty list fails the step.
       # The browser-test job runs the orb engine in parallel with this one, not
       # after it; the lint job's own anti-slop check is the one that orders.
       - name: Verify vendored trees match their checksums
         if: github.event_name != 'pull_request'
         run: |
-          for sums in $(git ls-files '*/SHA256SUMS'); do
-            bash scripts/verify-vendored.sh "$(dirname "$sums")"
+          trees=$(grep -v -e '^#' -e '^$' scripts/vendored-trees.txt || true)
+          [ -n "$trees" ] || { echo "scripts/vendored-trees.txt lists no tree" >&2; exit 1; }
+          for tree in $trees; do
+            bash scripts/verify-vendored.sh "$tree"
           done
 
       # `actions/checkout` clones at depth 1, so the base commit has to be
@@ -706,8 +711,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          for sums in $(git ls-files '*/SHA256SUMS'); do
-            bash scripts/verify-vendored.sh "$(dirname "$sums")" "$BASE_SHA"
+          trees=$(grep -v -e '^#' -e '^$' scripts/vendored-trees.txt || true)
+          [ -n "$trees" ] || { echo "scripts/vendored-trees.txt lists no tree" >&2; exit 1; }
+          for tree in $trees; do
+            bash scripts/verify-vendored.sh "$tree" "$BASE_SHA"
           done
 
       # The guard's own tests, beside the run that uses it. They exercise it in
