@@ -64,7 +64,7 @@ export const BAND_CAP_CLASS = {
 } as const;
 
 /** A pack's events-column cap, as {@link BAND_CAP_CLASS} keys it. */
-export type BandCap = keyof typeof BAND_CAP_CLASS;
+type BandCap = keyof typeof BAND_CAP_CLASS;
 
 /**
  * The same caps in CSS pixels, for `sizes` — which has no access to a custom
@@ -101,7 +101,7 @@ export const BAND_WIDTH_TRANSITION_CLASS = "transition-[max-width] duration-500 
  */
 const LEGACY_CROP_ASPECT = 16 / 9;
 
-export interface InviteClosingProps {
+interface InviteClosingProps {
   /**
    * The closing section's visibility switch, from the claim response. Off ⇒
    * render nothing even with content. Absent (an API older than the switch)

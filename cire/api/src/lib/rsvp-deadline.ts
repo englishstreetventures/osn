@@ -172,7 +172,7 @@ function effectiveZone(timezone: string | null | undefined): string {
 }
 
 /** A wedding's deadline, resolved to one instant and one open/closed answer. */
-export interface ResolvedRsvpDeadline {
+interface ResolvedRsvpDeadline {
   /** Date-only ISO (`YYYY-MM-DD`) exactly as stored. */
   date: string;
   /** The zone actually applied — the stored one, or UTC when it was absent. */

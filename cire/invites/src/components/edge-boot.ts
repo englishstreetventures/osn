@@ -24,7 +24,7 @@ export const EDGE_BOTTOM_CLASS = "has-safe-bottom";
 /** Class on each strip element. */
 export const EDGE_STRIP_CLASS = "edge-strip";
 /** Smallest strip height. Safari needs at least 5px visible to sample the colour. */
-export const EDGE_MIN_PX = 12;
+const EDGE_MIN_PX = 12;
 /** Attribute on the hero root element. The loop reads its position. */
 export const EDGE_HERO_ATTR = "data-edge-hero";
 /** Used when a colour cannot be read or is not a hex value. */
@@ -41,7 +41,7 @@ export function parseInsetPx(value: string): number {
 }
 
 /** Which edges get a strip. */
-export interface EdgeFlags {
+interface EdgeFlags {
   top: boolean;
   bottom: boolean;
 }
@@ -127,7 +127,7 @@ export const EDGE_BOOT_SCRIPT = `(function () {
 })();`;
 
 /** A pair of insets in px. */
-export interface Insets {
+interface Insets {
   top: number;
   bottom: number;
 }

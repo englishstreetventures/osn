@@ -9,13 +9,11 @@
 
 import { CanvasTexture, LinearFilter } from "three";
 
-/** The envelope's paper: a warm ivory that reads as paper on a dark or a light invite. */
-export const PAPER = "#f2ebdd";
 /** The card's paper edge, a shade brighter than the envelope. */
 export const CARD_PAPER = "#fbf8f1";
 
 /** A seeded pseudo-random source in [0, 1). */
-export function seeded(seed: number): () => number {
+function seeded(seed: number): () => number {
   let s = seed >>> 0 || 1;
   return () => {
     s = (s * 1664525 + 1013904223) >>> 0;
@@ -217,7 +215,7 @@ export function shadowTexture(): CanvasTexture {
 }
 
 /** The seal face's colour map and bump map. */
-export interface SealFace {
+interface SealFace {
   readonly map: CanvasTexture;
   readonly bump: CanvasTexture;
 }

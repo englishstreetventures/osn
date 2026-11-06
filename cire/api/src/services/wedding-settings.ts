@@ -13,7 +13,7 @@ import { reanchorTemplateDueDates } from "./tasks";
  *  Deliberately location-free: an event's place is its venue name and
  *  free-text `address`, so the wedding holds only the MAIN currency +
  *  budget. */
-export type WeddingProfile = {
+type WeddingProfile = {
   id: string;
   slug: string;
   displayName: string;
@@ -33,7 +33,7 @@ export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
   readonly weddingId: string;
 }> {}
 
-export class SettingsWriteError extends Data.TaggedError("SettingsWriteError")<{
+class SettingsWriteError extends Data.TaggedError("SettingsWriteError")<{
   readonly reason: string;
   readonly cause?: unknown;
 }> {}
@@ -47,7 +47,7 @@ export class SettingsWriteError extends Data.TaggedError("SettingsWriteError")<{
  * closes at the end of that day in its own zone), which is what an organiser
  * who wants to stop taking replies actually needs.
  */
-export class RsvpDeadlineInPast extends Data.TaggedError("RsvpDeadlineInPast")<{
+class RsvpDeadlineInPast extends Data.TaggedError("RsvpDeadlineInPast")<{
   readonly date: string;
   readonly timezone: string | null;
 }> {}

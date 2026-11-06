@@ -19,8 +19,6 @@ export const SERVICE_CATEGORIES = [
   { key: "other", label: "Other" },
 ] as const;
 
-export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number]["key"];
-
 export function categoryLabel(key: string): string {
   return SERVICE_CATEGORIES.find((c) => c.key === key)?.label ?? key;
 }

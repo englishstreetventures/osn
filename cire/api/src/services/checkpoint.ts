@@ -38,7 +38,7 @@ export const BEFORE_IMAGE_RETENTION = 10;
  * The change's preview reached {@link PREVIEW_EXPIRES_AFTER_MS} before its
  * before-image was stored. Nothing was stored.
  */
-export class PreviewExpired extends Data.TaggedError("PreviewExpired") {}
+class PreviewExpired extends Data.TaggedError("PreviewExpired") {}
 
 /**
  * Serialise the wedding's current state at `"snapshot"` fidelity and store it as

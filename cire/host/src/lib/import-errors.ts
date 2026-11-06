@@ -80,7 +80,7 @@ function at(body: ImportErrorBody, detail: string): string {
 
 /** Where the change the guest cap refused came from: a sheet upload or an
  *  editor save. */
-export type CapacitySource = "import" | "editor";
+type CapacitySource = "import" | "editor";
 
 interface CapacityCopy {
   /** The sentence's subject. */

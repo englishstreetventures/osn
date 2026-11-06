@@ -33,7 +33,7 @@
 
 import { DEFAULT_DESIGN_ID, type DesignId } from "@cire/invite-designs";
 
-export interface DesignPreviewLayout {
+interface DesignPreviewLayout {
   /** Where the hero's title block sits in the frame. */
   readonly heroAnchor: "center" | "bottom-left";
   /** How section copy (eyebrow / heading / body) is aligned. */

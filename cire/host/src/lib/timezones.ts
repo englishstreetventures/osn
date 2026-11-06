@@ -231,7 +231,7 @@ function allZones(): Set<string> {
 }
 
 /** One `<optgroup>` of the timezone dropdown. */
-export interface TimeZoneGroup {
+interface TimeZoneGroup {
   label: string;
   zones: string[];
 }

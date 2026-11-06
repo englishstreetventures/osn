@@ -125,7 +125,7 @@ export const Z_LAYER = {
   CONSENT: 200,
 } as const;
 
-export type ZLayer = keyof typeof Z_LAYER;
+type ZLayer = keyof typeof Z_LAYER;
 
 /**
  * Matching Tailwind class strings — the literals the v4 scanner picks up.

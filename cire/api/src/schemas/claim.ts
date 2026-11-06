@@ -58,7 +58,7 @@ export const DressSwatch = Schema.Struct({
 });
 export type DressSwatch = Schema.Schema.Type<typeof DressSwatch>;
 
-export const EventSummary = Schema.Struct({
+const EventSummary = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   description: Schema.String,
@@ -114,9 +114,9 @@ export const EventSummary = Schema.Struct({
     }),
   ),
 });
-export type EventSummary = Schema.Schema.Type<typeof EventSummary>;
+type EventSummary = Schema.Schema.Type<typeof EventSummary>;
 
-export const FamilyMember = Schema.Struct({
+const FamilyMember = Schema.Struct({
   guestId: Schema.String,
   firstName: Schema.String,
   lastName: Schema.String,
@@ -127,9 +127,9 @@ export const FamilyMember = Schema.Struct({
   // Set on a plus-one: the member who brought them, who is listed just before.
   plusOneOf: Schema.NullOr(Schema.String),
 });
-export type FamilyMember = Schema.Schema.Type<typeof FamilyMember>;
+type FamilyMember = Schema.Schema.Type<typeof FamilyMember>;
 
-export const RsvpSummary = Schema.Struct({
+const RsvpSummary = Schema.Struct({
   guestId: Schema.String,
   eventId: Schema.String,
   status: Schema.String,
@@ -138,7 +138,7 @@ export const RsvpSummary = Schema.Struct({
   dietaryConsentCurrent: Schema.Boolean,
   submittedBy: Schema.optional(Schema.NullOr(ReplySubmitter)),
 });
-export type RsvpSummary = Schema.Schema.Type<typeof RsvpSummary>;
+type RsvpSummary = Schema.Schema.Type<typeof RsvpSummary>;
 
 /**
  * The wedding's "kindly respond by" date, resolved to one instant. `null` on the
@@ -149,7 +149,7 @@ export type RsvpSummary = Schema.Schema.Type<typeof RsvpSummary>;
  * hours: the client re-derives `closed` from `closesAt` as the clock moves, and
  * the server re-checks on every write regardless (403 `rsvp_closed`).
  */
-export const RsvpDeadline = Schema.Struct({
+const RsvpDeadline = Schema.Struct({
   /** Date-only ISO (`YYYY-MM-DD`), inclusive of its whole day. */
   date: Schema.String,
   /** IANA zone the date is measured in (`UTC` when the wedding stored none). */
@@ -158,7 +158,7 @@ export const RsvpDeadline = Schema.Struct({
   closesAt: Schema.String,
   closed: Schema.Boolean,
 });
-export type RsvpDeadline = Schema.Schema.Type<typeof RsvpDeadline>;
+type RsvpDeadline = Schema.Schema.Type<typeof RsvpDeadline>;
 
 /**
  * The household's Pulse account-link state, carried in the claim and restore

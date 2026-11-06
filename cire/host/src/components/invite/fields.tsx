@@ -223,7 +223,7 @@ export function HiddenSectionIcon(props: { class?: string; strokeWidth?: number 
  * change, and announces the flip (`role="status"`) so a screen-reader user hears
  * the new state the moment their edit changes it.
  */
-export function SegmentBadge(props: { state: SectionState }) {
+function SegmentBadge(props: { state: SectionState }) {
   const shown = () => props.state === "shown";
   return (
     <Chip
@@ -249,7 +249,7 @@ export function SegmentBadge(props: { state: SectionState }) {
  * What a switchable section's card needs: the state the badge shows, the switch
  * and its setter, and the words for why a hidden section is hidden.
  */
-export interface SectionVisibility {
+interface SectionVisibility {
   state: SectionState;
   visible: boolean;
   onChange: (visible: boolean) => void;

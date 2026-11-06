@@ -13,7 +13,7 @@ import { heroState, type HeroContent } from "./invite-emptiness";
  * so one width is enough for the backdrop — no responsive `srcset` needed.
  */
 export const VARIANT_WIDTHS = { thumb: 320, card: 800, hero: 1600, "hero-bg": 1600 } as const;
-export type VariantName = keyof typeof VARIANT_WIDTHS;
+type VariantName = keyof typeof VARIANT_WIDTHS;
 
 // The hero backdrop always requests the `hero-bg` variant: the blur radius is now
 // a per-wedding server value (migration 0018; 0 ⇒ the server renders it sharp),

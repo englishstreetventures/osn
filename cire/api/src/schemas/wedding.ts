@@ -9,8 +9,8 @@ import { MAX_DISPLAY_NAME } from "../lib/slug";
  *  - `simple` — 6-char hash, shorter friendlier codes.
  *  - `secure` — 10-char hash, harder to guess (default).
  */
-export const CodeStyle = Schema.Literals(["simple", "secure"]);
-export type CodeStyle = Schema.Schema.Type<typeof CodeStyle>;
+const CodeStyle = Schema.Literals(["simple", "secure"]);
+type CodeStyle = Schema.Schema.Type<typeof CodeStyle>;
 
 /**
  * Body for `POST /api/organiser/weddings`. The owner is taken from the verified

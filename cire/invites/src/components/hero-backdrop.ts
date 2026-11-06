@@ -7,9 +7,9 @@ import { createEffect, createSignal, onMount, type Accessor } from "solid-js";
  * leaving a permanently-invisible 0-opacity <img> pinned over the gradient.
  * `pending` keeps it at 0 opacity only until the first load/error resolves.
  */
-export type HeroBackdropState = "pending" | "loaded" | "error";
+type HeroBackdropState = "pending" | "loaded" | "error";
 
-export interface HeroBackdrop {
+interface HeroBackdrop {
   state: Accessor<HeroBackdropState>;
   /** Attach to the backdrop <img ref={…}> — powers the SSR already-loaded check. */
   setImgRef: (el: HTMLImageElement) => void;

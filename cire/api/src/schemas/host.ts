@@ -5,8 +5,8 @@ import { Effect, Schema } from "effect";
  *  straight into `hostsService.add()`. `owner` is accepted: every route that
  *  takes this is `weddingOwner()`, and only an owner makes an owner. The
  *  legacy `host` value is not accepted from clients. */
-export const HostRoleSchema = Schema.Literals(["owner", "editor", "viewer", "helper"]);
-export type HostRoleSchema = Schema.Schema.Type<typeof HostRoleSchema>;
+const HostRoleSchema = Schema.Literals(["owner", "editor", "viewer", "helper"]);
+type HostRoleSchema = Schema.Schema.Type<typeof HostRoleSchema>;
 
 /**
  * Body for `POST /api/organiser/weddings/:weddingId/hosts`. The wedding comes
@@ -35,7 +35,7 @@ export type UpdateHostRoleBody = Schema.Schema.Type<typeof UpdateHostRoleBody>;
 /** A helper's run-sheet scope as a client may write it — mirrors
  *  `RunSheetScope` in `services/hosts.ts`, which the route proves by passing a
  *  decoded `scope` straight into `hostsService.setRunSheetScope()`. */
-export const RunSheetScopeSchema = Schema.Literals(["own", "full"]);
+const RunSheetScopeSchema = Schema.Literals(["own", "full"]);
 
 /** Body for `PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/run-sheet-scope`. */
 export const UpdateRunSheetScopeBody = Schema.Struct({

@@ -101,7 +101,7 @@ const REVERT_CONFIRM = {
  * an event it removed stay unlinked, and those removed with it stay removed.
  * Empty when the change met no linked task.
  */
-export function linkedTasksRevertNote(summary: ChangeSummaryCounts): string {
+function linkedTasksRevertNote(summary: ChangeSummaryCounts): string {
   const kept = summary.linkedTasksKept ?? 0;
   const removed = summary.linkedTasksRemoved ?? 0;
   const tasks = (n: number) => `${n} checklist ${n === 1 ? "task" : "tasks"}`;

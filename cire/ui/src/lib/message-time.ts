@@ -25,7 +25,7 @@
  * `RangeError` that would take the whole thread down with it.
  */
 
-export interface TimeOptions {
+interface TimeOptions {
   /** The moment "today" is measured from; `Date.now()` when left out. */
   readonly now?: number;
   /** A BCP 47 tag; the runtime's own when left out. */
@@ -35,7 +35,7 @@ export interface TimeOptions {
 }
 
 /** What these functions need of a message. */
-export interface Timed {
+interface Timed {
   readonly sentAt: number;
 }
 
@@ -48,7 +48,7 @@ export function usableTime(at: number): boolean {
 }
 
 /** More than this since the message before, and a new segment opens. */
-export const SEGMENT_GAP_MS = 60 * 60 * 1000;
+const SEGMENT_GAP_MS = 60 * 60 * 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

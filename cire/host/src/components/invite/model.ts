@@ -246,7 +246,7 @@ export function sampleCopy(value: string, fallback: string, max = 90): string {
  * snapshot — which is what lets the save bar show live "Unsaved changes"
  * state (the old signal-per-field + non-reactive snapshot shape could not).
  */
-export interface InviteDraft {
+interface InviteDraft {
   heroTitle: string;
   heroSubtitle: string;
   storyEyebrow: string;
@@ -274,7 +274,7 @@ export interface InviteDraft {
 }
 
 /** One switch per switchable section; `true` shows the section when it has content. */
-export type SectionSwitches = Record<VisibilitySection, boolean>;
+type SectionSwitches = Record<VisibilitySection, boolean>;
 
 export function emptyDraft(): InviteDraft {
   return {

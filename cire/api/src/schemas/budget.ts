@@ -49,7 +49,7 @@ const PerHead = Schema.Struct({
   unitPriceMinor: UnitPrice,
   eventIds: Schema.optional(Schema.NullOr(EventIds)),
 });
-export type PerHeadBody = Schema.Schema.Type<typeof PerHead>;
+type PerHeadBody = Schema.Schema.Type<typeof PerHead>;
 
 // A per-head line's estimate is computed from the RSVPs, so a body that makes a
 // line per head and also names a fixed estimate contradicts itself.

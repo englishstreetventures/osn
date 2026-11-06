@@ -61,7 +61,7 @@ const pass = (
  * What a mount may ask the gate's one query to read as well. At most one: each
  * is its own query shape, written for the one route that needs it.
  */
-export type WeddingMemberOptions =
+type WeddingMemberOptions =
   | { readonly inviteImages?: true; readonly rsvpDigest?: never }
   | { readonly rsvpDigest?: true; readonly inviteImages?: never };
 

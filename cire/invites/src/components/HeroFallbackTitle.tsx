@@ -15,7 +15,7 @@ const ALIGN = {
   end: "items-end",
 } as const;
 
-export type HeroFallbackTitleAlign = keyof typeof ALIGN;
+type HeroFallbackTitleAlign = keyof typeof ALIGN;
 
 interface HeroFallbackTitleProps {
   /** The pack's title type: font, colour, size, text alignment, wrapping. */

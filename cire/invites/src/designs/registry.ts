@@ -4,7 +4,7 @@ import ClassicDocument from "./classic/Document.astro";
 import GalaDocument from "./gala/Document.astro";
 
 /** One renderable design pack. */
-export interface DesignEntry {
+interface DesignEntry {
   /** Full-page Astro document — owns fonts, preloads, and which islands ship. */
   Document: typeof ClassicDocument;
 }

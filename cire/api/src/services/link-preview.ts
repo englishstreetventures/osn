@@ -77,24 +77,24 @@ export type BlockReason =
   | "lookup_budget";
 
 /** 400-class: the URL (or a hop of it) is one we refuse to fetch. */
-export class LinkPreviewBlocked extends Data.TaggedError("LinkPreviewBlocked")<{
+class LinkPreviewBlocked extends Data.TaggedError("LinkPreviewBlocked")<{
   readonly reason: BlockReason;
 }> {}
 
 /** 502-class: the page could not be fetched — network, timeout, non-2xx, redirect cap. */
-export class LinkPreviewFetchFailed extends Data.TaggedError("LinkPreviewFetchFailed")<{
+class LinkPreviewFetchFailed extends Data.TaggedError("LinkPreviewFetchFailed")<{
   readonly reason: "network" | "timeout" | "status" | "too_many_redirects";
 }> {}
 
 /** 415-class: it answered, but with something that is not an HTML document. */
-export class LinkPreviewUnusableContent extends Data.TaggedError("LinkPreviewUnusableContent")<{
+class LinkPreviewUnusableContent extends Data.TaggedError("LinkPreviewUnusableContent")<{
   readonly contentType: string;
 }> {}
 
 /** 422-class: a real HTML page with no image we are willing to offer. */
-export class LinkPreviewNoImages extends Data.TaggedError("LinkPreviewNoImages") {}
+class LinkPreviewNoImages extends Data.TaggedError("LinkPreviewNoImages") {}
 
-export type LinkPreviewError =
+type LinkPreviewError =
   | LinkPreviewBlocked
   | LinkPreviewFetchFailed
   | LinkPreviewUnusableContent
@@ -635,7 +635,7 @@ async function readCapped(response: Response, maxBytes: number): Promise<string>
  * know we will refuse — it is a claim by the same server that would lie about
  * it, so the real enforcement is still on what actually arrives.
  */
-export type CappedBytes =
+type CappedBytes =
   | { readonly ok: true; readonly bytes: Uint8Array }
   | { readonly ok: false; readonly reason: "too_large" };
 
@@ -677,7 +677,7 @@ export async function readCappedBytes(response: Response, maxBytes: number): Pro
  * One guard per operation: the host memo is a per-request cache, never a shared
  * one an attacker could prime.
  */
-export interface UrlGuard {
+interface UrlGuard {
   readonly resolveHost: HostResolver;
   /** Memo of host → allowed, so six images on one host cost one lookup. */
   readonly seen: Map<string, boolean>;
@@ -770,12 +770,12 @@ export type GuardedFetchFailure =
       readonly reason: "network" | "timeout" | "status" | "too_many_redirects";
     };
 
-export type GuardedFetchResult =
+type GuardedFetchResult =
   /** The body is UNREAD — the caller reads it under its own cap. */
   | { readonly ok: true; readonly response: Response; readonly finalUrl: URL }
   | { readonly ok: false; readonly failure: GuardedFetchFailure };
 
-export interface GuardedFetchArgs {
+interface GuardedFetchArgs {
   readonly url: string;
   readonly guard: UrlGuard;
   readonly fetchImpl: typeof fetch;

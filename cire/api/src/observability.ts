@@ -47,7 +47,7 @@ import { Layer, ManagedRuntime, type Effect } from "effect";
  */
 let builtLayer: Layer.Layer<never> | undefined;
 
-export const cireLoggerLayer: Layer.Layer<never> = Layer.suspend(() => {
+const cireLoggerLayer: Layer.Layer<never> = Layer.suspend(() => {
   builtLayer ??= Layer.merge(
     makeLoggerLayer(loadConfig({ serviceName: "cire-api" })),
     WorkersTracingLive,

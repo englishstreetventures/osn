@@ -64,7 +64,7 @@ function entryFor(weddingId: string): CacheEntry {
  * the server's `last_message_at DESC, id DESC`, so pages merged here sit where
  * the server would have put them.
  */
-export function byNewestFirst(a: EnquiryListItem, b: EnquiryListItem): number {
+function byNewestFirst(a: EnquiryListItem, b: EnquiryListItem): number {
   return b.lastMessageAt - a.lastMessageAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 }
 

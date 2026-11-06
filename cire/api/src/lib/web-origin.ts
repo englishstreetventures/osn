@@ -44,7 +44,7 @@ export function webOriginProblem(raw: string, isDeployed: () => boolean): string
 }
 
 /** The `createApp` options that `WEB_ORIGIN`'s three entries set. */
-export interface SiteOriginOptions {
+interface SiteOriginOptions {
   /** Entry 1: the guest invite site. */
   webOrigin?: string;
   /** Entry 2: the organiser portal. */

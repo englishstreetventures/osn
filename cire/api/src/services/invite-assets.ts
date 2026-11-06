@@ -147,7 +147,7 @@ export function fetchAsset(key: string): Effect.Effect<StoredAsset, AssetR2Error
  * transform path still needs the bytes buffered (it feeds them through the Images
  * binding + sniffs nothing here), so it keeps {@link fetchAsset}.
  */
-export interface StreamedAsset {
+interface StreamedAsset {
   body: ReadableStream<Uint8Array>;
   contentType: string;
 }

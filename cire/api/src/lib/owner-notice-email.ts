@@ -53,10 +53,10 @@ import { getWaitUntil } from "./execution-ctx";
 /** Owner-notice emails one wedding, or one acting owner, may cause per UTC
  *  day. A real ownership change mails a handful of people; this is room for
  *  several on one day. */
-export const OWNER_NOTICE_EMAILS_PER_DAY = 30;
+const OWNER_NOTICE_EMAILS_PER_DAY = 30;
 
 /** A seat the actor created this recently does not mail its holder. */
-export const FRESH_SEAT_MS = 24 * 60 * 60 * 1000;
+const FRESH_SEAT_MS = 24 * 60 * 60 * 1000;
 
 export interface OwnerNoticeDeps {
   /** osn-api's address lookup; keeps "osn-api did not answer" apart from "no address". */
@@ -86,7 +86,7 @@ export interface OwnerChangedInput {
   readonly now?: Date;
 }
 
-export interface DeleteStartedInput {
+interface DeleteStartedInput {
   readonly weddingId: string;
   readonly actorOsnProfileId: string;
   readonly restoreUntil: Date;

@@ -79,7 +79,7 @@ function isDressSwatch(value: unknown): value is DressSwatch {
 
 /** The result of {@link decodePalette}: the swatches, plus whether the stored
  * JSON was unusable (so the caller can log the offending event id). */
-export interface DecodedPalette {
+interface DecodedPalette {
   palette: readonly DressSwatch[] | null;
   malformed: boolean;
 }
@@ -198,7 +198,7 @@ const LINKING_OFF: AccountLinkState = { enabled: false };
  * it. Chosen, not measured: well above a healthy CDN fetch, well below what a
  * guest would notice as a stalled invite.
  */
-export const ACCOUNT_LINK_FLAG_WAIT = "250 millis";
+const ACCOUNT_LINK_FLAG_WAIT = "250 millis";
 
 /**
  * The household's account-link state. Always succeeds: the box it draws is
@@ -329,9 +329,7 @@ function buildClaimResponse(
  * The household members a session may say it is: everyone but the plus-ones,
  * whose rows another guest typed in.
  */
-export function choosableMembers<T extends { plusOneOf: string | null }>(
-  members: readonly T[],
-): T[] {
+function choosableMembers<T extends { plusOneOf: string | null }>(members: readonly T[]): T[] {
   return members.filter((m) => m.plusOneOf === null);
 }
 

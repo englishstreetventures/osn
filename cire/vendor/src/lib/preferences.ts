@@ -9,8 +9,7 @@ import { HAPTICS_STORAGE_KEY, THEME_STORAGE_KEY } from "./preference-keys";
  * thing `styles/global.css` reads), is in `@cire/ui/lib/theme`.
  */
 
-export type { Theme, ThemePreference } from "@cire/ui/lib/theme";
-export { applyTheme, systemTheme } from "@cire/ui/lib/theme";
+export type { ThemePreference } from "@cire/ui/lib/theme";
 
 const preferences = createPreferences({
   themeKey: THEME_STORAGE_KEY,
@@ -21,7 +20,6 @@ export const {
   readThemePreference,
   readHapticsPreference,
   themePreference,
-  theme,
   hapticsEnabled,
   setThemePreference,
   setHapticsEnabled,

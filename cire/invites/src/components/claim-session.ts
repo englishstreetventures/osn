@@ -168,7 +168,7 @@ function clearClaimedHint(): void {
   document.cookie = `${CLAIMED_HINT}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
 }
 
-export interface SessionRestoreOptions {
+interface SessionRestoreOptions {
   apiUrl: string;
   /**
    * The wedding this page is rendering. REQUIRED for a restore to happen: the

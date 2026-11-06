@@ -1,7 +1,7 @@
 import { apiUrl, weddingPath } from "./api";
 import type { EnquiryListItem, EnquiryMessage, EnquiryPage } from "./enquiries-store";
 
-export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
+type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 const base = (weddingId: string) => weddingPath(weddingId, "/enquiries");
 

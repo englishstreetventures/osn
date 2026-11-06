@@ -48,7 +48,7 @@ import { variantSrc } from "../invite-images";
  * in a toast, whose Refresh reads the list again.
  */
 
-export interface GiftMoneyPanelProps {
+interface GiftMoneyPanelProps {
   /** cire-api origin. */
   apiUrl: string;
   /** The wedding this page renders. */

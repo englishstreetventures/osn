@@ -101,7 +101,7 @@ export function runSheetScopeFor(role: WeddingRole, stored: RunSheetScope): RunS
 
 /** The least a run-sheet row must carry for {@link runSheetVisibleTo} to judge
  *  it: the seats holding it, empty for a row nobody holds. */
-export type RunSheetAssignable = { assigneeHostIds: readonly string[] };
+type RunSheetAssignable = { assigneeHostIds: readonly string[] };
 
 /**
  * Narrow a run sheet to what `scope` entitles this caller to see.
@@ -122,7 +122,7 @@ export function runSheetVisibleTo<T extends RunSheetAssignable>(
   return items.filter((item) => item.assigneeHostIds.includes(callerHostId));
 }
 
-export type CapabilityDecision =
+type CapabilityDecision =
   | { allowed: true }
   | { allowed: false; error: "forbidden" | "read_only_role" };
 

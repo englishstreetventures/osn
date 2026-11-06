@@ -6,7 +6,7 @@
 // here (`wiki/cire/cire-development.md` §Organiser API paths).
 import { apiUrl, redirectToLogin, weddingPath } from "./api";
 
-export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
+type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 export type RsvpStatus = "attending" | "declined" | "maybe";
 

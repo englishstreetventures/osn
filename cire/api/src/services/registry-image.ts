@@ -88,7 +88,7 @@ export interface SavedRegistryImage {
  * every key ⇒ a fresh version per save); it is a cache buster the server mints,
  * never one a client can choose.
  */
-export function registryImagePath(weddingId: string, imageKey: string, version: string): string {
+function registryImagePath(weddingId: string, imageKey: string, version: string): string {
   const name = imageKey.slice(imageKey.lastIndexOf("/") + 1);
   return `/api/organiser/weddings/${encodeURIComponent(weddingId)}/registry/image/${encodeURIComponent(name)}?v=${version}`;
 }

@@ -123,7 +123,7 @@ export function normaliseWeddingRole(role: string): WeddingRole {
 }
 
 /** The surfaces the portal offers a role — one field per API gate. */
-export interface RoleSurfaces {
+interface RoleSurfaces {
   /** The wedding's push socket, which tells the tab its rows may have
    *  changed — `GET /realtime/:topic`, which admits every seat that reads the
    *  run sheet (`weddingRunSheet()`). */
@@ -172,7 +172,7 @@ export function surfacesFor(role: WeddingRole): RoleSurfaces {
 }
 
 /** How the portal words a role. */
-export interface RoleCopy {
+interface RoleCopy {
   /** The label on a badge, a dropdown option or an explainer. */
   label: string;
   /** What the role carries, said ABOUT someone — the explainers beside the

@@ -13,19 +13,19 @@ export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
   reason: "missing" | "expired";
 }> {}
 
-export class SessionWriteError extends Data.TaggedError("SessionWriteError")<{
+class SessionWriteError extends Data.TaggedError("SessionWriteError")<{
   op: "insert" | "delete" | "deleteAllForFamily" | "sweep" | "setMember";
   reason: string;
 }> {}
 
 const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
 
-export interface CreatedSession {
+interface CreatedSession {
   token: string;
   expiresAt: Date;
 }
 
-export interface ValidatedSession {
+interface ValidatedSession {
   familyId: string;
   expiresAt: Date;
   /** The household member this session chose, or null. */

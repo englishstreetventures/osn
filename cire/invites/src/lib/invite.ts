@@ -47,7 +47,7 @@ export function resolveMarketingUrl(raw: string | undefined): string {
 export const MARKETING_URL = resolveMarketingUrl(import.meta.env.PUBLIC_MARKETING_URL);
 
 /** Discriminated result of a server-side invite fetch for a slug. */
-export type InviteFetch =
+type InviteFetch =
   | { kind: "ok"; invite: InviteCustomisation }
   | { kind: "not-found" }
   | { kind: "error" };

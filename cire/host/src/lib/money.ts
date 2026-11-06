@@ -12,13 +12,13 @@
 // construction it replaced. A currency that fails once is remembered as failed.
 
 /** Distinct formatter shapes the organiser asks for. */
-export interface MoneyFormatOptions {
+interface MoneyFormatOptions {
   /** Drop the cents (the thread's compact quote line). Default: keep them. */
   wholeUnits?: boolean;
 }
 
 /** The two lines a foreign-currency gift renders as. See {@link formatMinorPair}. */
-export interface MoneyPair {
+interface MoneyPair {
   /** The amount as it was actually given — always shown. */
   given: string;
   /** Its primary-currency equivalent, or `null` when the two already match. */

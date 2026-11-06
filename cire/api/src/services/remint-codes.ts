@@ -39,13 +39,13 @@ import { metricWeddingReminted } from "../metrics";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 
-export class WeddingNotFound extends Data.TaggedError("WeddingNotFound") {}
+class WeddingNotFound extends Data.TaggedError("WeddingNotFound") {}
 
-export class RemintWriteError extends Data.TaggedError("RemintWriteError")<{
+class RemintWriteError extends Data.TaggedError("RemintWriteError")<{
   reason: string;
 }> {}
 
-export interface RemintResult {
+interface RemintResult {
   /** The style every guest family now sits on. */
   codeStyle: CodeStyle;
   /** How many guest families had their code rotated. */

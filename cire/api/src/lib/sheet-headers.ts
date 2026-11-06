@@ -22,7 +22,7 @@ export const EVENT_SHEET_REQUIRED_HEADERS = ["Event Name", "Start", "Timezone"] 
  *  `HH:MM label` line per item; `Children` and `Plus-Ones` hold a preset's
  *  words. A sheet that leaves out `Location`, `Description` or any column from
  *  `Run of Show` on keeps what is stored for it. */
-export const EVENT_SHEET_OPTIONAL_HEADERS = [
+const EVENT_SHEET_OPTIONAL_HEADERS = [
   "End",
   "Location",
   "Address",

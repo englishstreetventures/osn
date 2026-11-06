@@ -33,7 +33,7 @@ export interface VendorDto {
   updatedAt: number;
 }
 
-export interface CreateVendorInput {
+interface CreateVendorInput {
   weddingId: string;
   name: string;
   category: string;
@@ -46,7 +46,7 @@ export interface CreateVendorInput {
   directoryVendorId?: string | null;
 }
 
-export interface UpdateVendorPatch {
+interface UpdateVendorPatch {
   name?: string;
   category?: string;
   status?: VendorStatus;

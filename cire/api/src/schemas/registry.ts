@@ -51,7 +51,7 @@ function parseHttpsUrl(value: string): URL | null {
  * column holds is what the parser saw — one normal form per link, and no gap
  * between the string that passed validation and the string that gets rendered.
  */
-export const HttpsUrl = Schema.String.check(
+const HttpsUrl = Schema.String.check(
   Schema.isMaxLength(MAX_URL_CHARS),
   Schema.makeFilter((value) =>
     parseHttpsUrl(value) !== null
@@ -289,7 +289,7 @@ export const GiftKindSchema = Schema.Literals(["claim", "contribution"]);
 const MIN_CONTRIBUTION_MINOR = 500;
 const MAX_CONTRIBUTION_MINOR = 1_000_000;
 
-export const ContributionAmount = Schema.Number.check(
+const ContributionAmount = Schema.Number.check(
   Schema.isInt(),
   Schema.isBetween({ minimum: MIN_CONTRIBUTION_MINOR, maximum: MAX_CONTRIBUTION_MINOR }),
 );

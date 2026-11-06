@@ -46,22 +46,22 @@ import type { PaidTier, Tier } from "./tiers";
 import { purchaseInFlight } from "./wedding-lifecycle";
 
 /** Unknown, expired, used up, or already redeemed by this wedding — one answer. */
-export class UnlockCodeRefused extends Data.TaggedError("UnlockCodeRefused") {}
+class UnlockCodeRefused extends Data.TaggedError("UnlockCodeRefused") {}
 
 /** A live code on a wedding already on its tier or above. Nothing was spent. */
-export class UnlockCodeTierHeld extends Data.TaggedError("UnlockCodeTierHeld")<{
+class UnlockCodeTierHeld extends Data.TaggedError("UnlockCodeTierHeld")<{
   /** The wedding's own tier, never the code's. */
   readonly tier: Tier;
 }> {}
 
 /** A live code refused because an upgrade checkout for the wedding can still be paid. */
-export class UnlockCodePurchaseInFlight extends Data.TaggedError("UnlockCodePurchaseInFlight") {}
+class UnlockCodePurchaseInFlight extends Data.TaggedError("UnlockCodePurchaseInFlight") {}
 
-export class UnlockCodeWriteError extends Data.TaggedError("UnlockCodeWriteError")<{
+class UnlockCodeWriteError extends Data.TaggedError("UnlockCodeWriteError")<{
   readonly reason: string;
 }> {}
 
-export interface RedeemUnlockCode {
+interface RedeemUnlockCode {
   readonly weddingId: string;
   /** The owner redeeming, already admitted by `weddingOwner()`. */
   readonly osnProfileId: string;

@@ -29,7 +29,7 @@ export const GIFT_CARD_IMAGE_ASPECT = 4 / 3;
  *  shapes reads as one list rather than a ragged collage. */
 export const GIFT_CARD_IMAGE_CLASS = "aspect-4/3 w-full object-cover";
 
-export interface GiftRegistryItemCardProps {
+interface GiftRegistryItemCardProps {
   item: GiftRegistryItem;
   /** The wedding's one primary currency, from the registry payload. */
   currency: string;

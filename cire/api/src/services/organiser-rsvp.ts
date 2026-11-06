@@ -53,27 +53,27 @@ import { PlusOneChanged, rsvpService } from "./rsvp";
 
 /** The guest isn't a `kind='guest'` family member under `weddingId` (missing,
  *  another wedding's guest, or a host-preview family). 404-class. */
-export class GuestNotInWedding extends Data.TaggedError("GuestNotInWedding") {}
+class GuestNotInWedding extends Data.TaggedError("GuestNotInWedding") {}
 
 /** The event doesn't belong to `weddingId` (missing or another wedding's).
  *  404-class. */
-export class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
+class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
 
 /** The guest exists under the wedding but isn't invited to this event (no
  *  `guest_events` row) — an organiser must not RSVP them to it. 409/4xx-class. */
-export class GuestNotInvitedToEvent extends Data.TaggedError("GuestNotInvitedToEvent") {}
+class GuestNotInvitedToEvent extends Data.TaggedError("GuestNotInvitedToEvent") {}
 
 /** Dietary data on a plus-one's reply without the organiser's plus-one
  *  attestation (`ORGANISER_PLUS_ONE_DIETARY_ATTESTATION`). The guest
  *  attestation speaks of "the guest", so a tick against it is no evidence the
  *  plus-one consented. 422-class. */
-export class PlusOneDietaryUnavailable extends Data.TaggedError("PlusOneDietaryUnavailable") {}
+class PlusOneDietaryUnavailable extends Data.TaggedError("PlusOneDietaryUnavailable") {}
 
 /** Dietary data on a guest's reply attested with the plus-one wording, which
  *  speaks of someone else. 422-class. */
-export class DietaryAttestationMismatch extends Data.TaggedError("DietaryAttestationMismatch") {}
+class DietaryAttestationMismatch extends Data.TaggedError("DietaryAttestationMismatch") {}
 
-export interface OrganiserRsvpInput {
+interface OrganiserRsvpInput {
   weddingId: string;
   /** The OSN profile id of the organiser making this write, from the route's
    *  auth context. Stored as the row's latest writer and, on a dietary answer,

@@ -12,7 +12,7 @@ export class OrganiserSessionInvalid extends Data.TaggedError("OrganiserSessionI
   reason: "missing" | "expired";
 }> {}
 
-export class OrganiserSessionWriteError extends Data.TaggedError("OrganiserSessionWriteError")<{
+class OrganiserSessionWriteError extends Data.TaggedError("OrganiserSessionWriteError")<{
   op: "insert" | "delete" | "deleteAllForProfile" | "sweep";
   reason: string;
 }> {}
@@ -34,7 +34,7 @@ const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
  */
 export type OrganiserIdentity = OsnIdentity;
 
-export interface CreatedOrganiserSession {
+interface CreatedOrganiserSession {
   token: string;
   expiresAt: Date;
 }

@@ -25,8 +25,6 @@ const GUEST_COOKIE_NAME = "cire_session";
 const ORGANISER_COOKIE_NAME = "cire_org_session";
 const OIDC_TX_COOKIE_NAME = "cire_oidc_tx";
 
-export type { SessionCookieOptions };
-
 export function buildSessionCookie(token: string, opts: SessionCookieOptions): string {
   return buildCookie(GUEST_COOKIE_NAME, token, opts);
 }

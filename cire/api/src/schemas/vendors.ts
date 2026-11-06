@@ -3,8 +3,6 @@ import { Schema } from "effect";
 
 import { SERVICE_CATEGORIES } from "../lib/service-categories";
 
-export { VENDOR_STATUSES };
-
 const CategoryKey = Schema.Literals(SERVICE_CATEGORIES.map((c) => c.key));
 const Status = Schema.Literals(VENDOR_STATUSES);
 const NonEmpty = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200));

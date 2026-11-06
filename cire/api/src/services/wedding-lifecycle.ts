@@ -35,7 +35,7 @@ import { STALE_PENDING_MS } from "./upgrades";
  * paid. The platform session is card-only and sets no `expires_at`, so Stripe
  * closes it this long after creation; nothing pays after that.
  */
-export const PURCHASE_SESSION_LIFETIME_S = 24 * 60 * 60;
+const PURCHASE_SESSION_LIFETIME_S = 24 * 60 * 60;
 
 /** A session-less pending purchase is another request's attempt for this long. */
 const STALE_PENDING_S = Math.ceil(STALE_PENDING_MS / 1000);
@@ -45,14 +45,14 @@ const STALE_PENDING_S = Math.ceil(STALE_PENDING_MS / 1000);
  * `expires_at`, so Stripe closes it this long after creation. Counted from the
  * pending row, which is written just before the session is created.
  */
-export const GIFT_SESSION_LIFETIME_S = 24 * 60 * 60;
+const GIFT_SESSION_LIFETIME_S = 24 * 60 * 60;
 
 /**
  * How long a gift whose checkout has completed but whose money has not moved —
  * a delayed bank debit — blocks a delete. The debit settles days after
  * checkout; a pending row older than this does not block.
  */
-export const GIFT_IN_FLIGHT_S = 7 * 24 * 60 * 60;
+const GIFT_IN_FLIGHT_S = 7 * 24 * 60 * 60;
 
 /** A wedding reference inside a fragment: a bound id, or the outer row's id. */
 type WeddingRef = SQL | string;
@@ -71,7 +71,7 @@ export const purchaseInFlight = (wedding: WeddingRef, nowS: number): SQL =>
  * write one, and it must not hold the owners' delete. The purge's own hold
  * still waits on every pending gift, so nothing that settles late is lost.
  */
-export const giftInFlight = (wedding: WeddingRef, nowS: number): SQL =>
+const giftInFlight = (wedding: WeddingRef, nowS: number): SQL =>
   sql`EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND ${registryContributions.status} = 'pending' AND ${registryContributions.stripeCheckoutSessionId} IS NOT NULL AND (${registryContributions.createdAt} > ${nowS - GIFT_SESSION_LIFETIME_S} OR (${registryContributions.stripePaymentIntentId} IS NOT NULL AND ${registryContributions.createdAt} > ${nowS - GIFT_IN_FLIGHT_S})))`;
 
 /**
@@ -97,16 +97,16 @@ export type LifecycleRefusal =
   | "not_deleted"
   | "restore_window_passed";
 
-export class WeddingLifecycleRefused extends Data.TaggedError("WeddingLifecycleRefused")<{
+class WeddingLifecycleRefused extends Data.TaggedError("WeddingLifecycleRefused")<{
   readonly reason: LifecycleRefusal;
 }> {}
 
-export class WeddingLifecycleWriteError extends Data.TaggedError("WeddingLifecycleWriteError")<{
+class WeddingLifecycleWriteError extends Data.TaggedError("WeddingLifecycleWriteError")<{
   readonly op: "delete" | "restore";
   readonly reason: string;
 }> {}
 
-export interface SoftDeleted {
+interface SoftDeleted {
   weddingId: string;
   deletedAt: Date;
   restoreUntil: Date;

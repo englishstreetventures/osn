@@ -50,7 +50,7 @@ export interface ReplySubmitter {
 }
 
 /** What a plus-one's marker says when the API names no inviter. */
-export const UNNAMED_INVITER = "another guest";
+const UNNAMED_INVITER = "another guest";
 
 /** Who brought a plus-one, in words: what a screen reader hears and the
  *  search reads. */
