@@ -27,6 +27,7 @@ import {
   PORTS,
   SCREENSHOT_DIR,
   STATE_DIR,
+  STRIPE_PLATFORM_WEBHOOK_SECRET,
   TRACE_DIR,
 } from "./config";
 import { startMailServer, type MailServer } from "./mail";
@@ -39,7 +40,7 @@ import {
   waitUntilReady,
   type Started,
 } from "./processes";
-import { seedOsn, seedPulse } from "./seed";
+import { generateCireArcKey, seedOsn, seedPulse } from "./seed";
 import { API_COMMAND, appDir, appSpecs, baseEnv } from "./stack";
 import { startStripeServer, type StripeServer } from "./stripe";
 
@@ -141,10 +142,11 @@ async function bootStack(realStart: number, procs: Started[]): Promise<void> {
   const clockFailures = clockReaches(env);
   if (clockFailures.length > 0) throw new Error(`clock preload: ${clockFailures.join("; ")}`);
 
-  seedOsn(DB_FILES.osn);
+  const cireArc = await generateCireArcKey();
+  seedOsn(DB_FILES.osn, cireArc);
   seedPulse(DB_FILES.pulse);
 
-  const specs = appSpecs();
+  const specs = appSpecs(cireArc);
   const start = (spec: (typeof specs)[number]): Started => {
     say(`starting ${spec.name}`);
     const proc = startProcess({
@@ -208,7 +210,11 @@ async function main(): Promise<number> {
 
   try {
     mail = startMailServer(PORTS.mail);
-    stripe = startStripeServer(PORTS.stripe);
+    stripe = startStripeServer(PORTS.stripe, {
+      platformWebhookSecret: STRIPE_PLATFORM_WEBHOOK_SECRET,
+      // The suite clock, which cire-api checks an event's signature against.
+      now: () => CLOCK_T0 + (Date.now() - realStart),
+    });
     await bootStack(realStart, procs);
     say("stack ready; running flows");
     // In `procs` like every server, so a signal or a failure stops it too.
