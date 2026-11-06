@@ -46,7 +46,7 @@ import { claimEntry, guessEntry } from "./attempts";
 import { EMAIL_LINK_MAX_SENDS, EMAIL_LINK_PAIRING_CANDIDATES, MAX_OTP_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import type { CoordinationError } from "./errors";
-import { frontendOrigin, genId } from "./helpers";
+import { frontendOrigin, genId, mailboxKey } from "./helpers";
 import { storeCall } from "./store-call";
 import type { EmailLinkChallenge, EmailLinkFlow } from "./stores";
 
@@ -169,12 +169,16 @@ export function createEmailLinkModule(ctx: AuthContext) {
 
   /**
    * Each flow's counter of wrong picks, and the key it counts under for a
-   * request's subject. Sign-up counts per address.
+   * request's subject. Sign-up counts per mailbox: the probe key of the
+   * address folded by `mailboxKey`, the key its send reads.
    */
   const strikesOf = (flow: EmailLinkFlow, subject: string): StrikeCounter => {
     switch (flow) {
       case "registration":
-        return { store: registrationLinkLockoutStore, key: serverMac.probeKey(subject) };
+        return {
+          store: registrationLinkLockoutStore,
+          key: serverMac.probeKey(mailboxKey(subject)),
+        };
     }
   };
 

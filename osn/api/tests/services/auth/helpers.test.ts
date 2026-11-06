@@ -1,6 +1,8 @@
 import { Effect, Logger, References } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { mailboxKey } from "../../../src/services/auth/helpers";
+
 /**
  * T-U3 / S-L4. `logDevOtp` is the one place an OTP code is deliberately written
  * to a log, and until this file it had no test at all — so the security fix
@@ -171,4 +173,39 @@ describe("logDevLink", () => {
       expect(lines).toEqual([]);
     },
   );
+});
+
+// The sign-up strike counter and the Resend cap key on this, so every address
+// that reaches one mailbox shares one count.
+describe("mailboxKey", () => {
+  it.each([
+    ["drops a +tag", "name+news@example.com", "name@example.com"],
+    ["drops a +tag that holds a dot", "name+a.b@example.com", "name@example.com"],
+    ["drops dots on gmail.com", "n.a.me@gmail.com", "name@gmail.com"],
+    ["drops dots and the +tag on gmail.com", "n.ame+x@gmail.com", "name@gmail.com"],
+    ["reads googlemail.com as gmail.com", "n.ame+x@googlemail.com", "name@gmail.com"],
+    [
+      "keeps the dots of a local part on any other domain",
+      "first.last@example.com",
+      "first.last@example.com",
+    ],
+    ["lowercases", "Name+Tag@Example.COM", "name@example.com"],
+    ["lowercases a Gmail address before folding it", "N.Ame@GMail.com", "name@gmail.com"],
+    ["leaves an address with no + alone", "plain@example.com", "plain@example.com"],
+  ])("%s", (_, address, folded) => {
+    expect(mailboxKey(address)).toBe(folded);
+  });
+
+  it("gives every address that reaches one Gmail mailbox one key", () => {
+    const keys = new Set(
+      ["x@gmail.com", "x+a@gmail.com", "x+b@gmail.com", "X@googlemail.com", "x+c@GMAIL.com"].map(
+        mailboxKey,
+      ),
+    );
+    expect([...keys]).toEqual(["x@gmail.com"]);
+  });
+
+  it("returns a value with no @, such as a probe key, as given", () => {
+    expect(mailboxKey("prb_0123456789ab")).toBe("prb_0123456789ab");
+  });
 });

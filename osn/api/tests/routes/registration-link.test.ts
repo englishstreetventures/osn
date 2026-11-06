@@ -393,6 +393,27 @@ describe("resend", () => {
     expect(linksTo(h.recorded(), email)).toHaveLength(10);
     expect(linksTo(h.recorded(), email).at(-1)!.requestId).toBe(current.body.requestId);
   });
+
+  it("counts Resends to every +tag variant of one mailbox against one cap", async () => {
+    const h = harness();
+    // Two Resends on each of three requests: the mailbox's six for the hour.
+    for (const tag of ["a", "b", "c"]) {
+      const email = `capfold+${tag}@example.com`;
+      const s = await begun(h, email, `capfold${tag}`);
+      const from = { "x-forwarded-for": `10.0.1.${tag.charCodeAt(0)}` };
+      await resendThroughRoutes(h.app, s.requestId, s.claimSecret, from);
+      await resendThroughRoutes(h.app, s.requestId, s.claimSecret, from);
+      expect(linksTo(h.recorded(), email)).toHaveLength(3);
+    }
+    // A fourth variant gets its begin's first link, and its Resend mails nothing.
+    const email = "capfold+d@example.com";
+    const last = await begun(h, email, "capfoldd");
+    const answer = await resendThroughRoutes(h.app, last.requestId, last.claimSecret, {
+      "x-forwarded-for": "10.0.1.200",
+    });
+    expect(await answer.json()).toEqual({ status: "sent" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(1);
+  });
 });
 
 describe("previous on begin", () => {
@@ -690,6 +711,20 @@ describe("the number on the waiting screen", () => {
     const after = await beginThroughRoutes(h.app, { email, handle: "strikes" });
     expect(after.res.status).toBe(200);
     expect(linksTo(h.recorded(), email)).toHaveLength(mailed);
+  });
+
+  it("counts wrong picks on every address that reaches one Gmail mailbox together", async () => {
+    const h = harness();
+    const variants = ["foldstrike+a@gmail.com", "foldstrike+b@gmail.com", "foldstrike@gmail.com"];
+    expect(variants).toHaveLength(REGISTRATION_LINK_LOCKOUT_THRESHOLD);
+    for (const email of variants) {
+      const s = await begun(h, email, "foldstrike");
+      await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, await wrongPickFor(h, s));
+    }
+    const email = "foldstrike+c@gmail.com";
+    const after = await beginThroughRoutes(h.app, { email, handle: "foldstrike" });
+    expect(after.res.status).toBe(200);
+    expect(linksTo(h.recorded(), email)).toHaveLength(0);
   });
 
   it("counts nothing against an address for declining requests it did not start", async () => {

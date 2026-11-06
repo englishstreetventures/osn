@@ -342,7 +342,7 @@ export const OSN_RATE_LIMITS = {
     maxRequests: RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
     windowMs: RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
   },
-  // Keyed on the probe key of the address a sign-up link goes to, and checked
+  // Keyed on the probe key of the mailbox a sign-up link goes to (`mailboxKey`), and checked
   // only where one goes out. See `REGISTRATION_SENDS_PER_ADDRESS_MAX`.
   registrationSendCap: {
     store: "auth.registration_send_cap",

@@ -57,12 +57,12 @@ export interface CoordinationStores {
   readonly recoveryLockoutStore: RecoveryLockoutStore;
   readonly recoveryOtpLockoutStore: RecoveryLockoutStore;
   readonly totpLockoutStore: RecoveryLockoutStore;
-  /** Per address: wrong picks on sign-up links. */
+  /** Per mailbox (`mailboxKey`): wrong picks on sign-up links. */
   readonly registrationLinkLockoutStore: RecoveryLockoutStore;
   readonly profileSwitchCap: AccountCapLimiter;
   readonly emailChangeBeginCap: AccountCapLimiter;
   readonly recoveryEmailBeginCap: AccountCapLimiter;
-  /** Per-address cap on sign-up links, keyed on the address's probe key. */
+  /** Per-mailbox cap on resent sign-up links, keyed on the probe key of `mailboxKey(address)`. */
   readonly registrationSendCap: AccountCapLimiter;
   /** `GET /health/coordination`'s write, read and remove on its own store. */
   readonly healthProbe: CoordinationProbe;

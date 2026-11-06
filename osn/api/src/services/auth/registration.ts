@@ -33,6 +33,7 @@ import {
   genId,
   HandleSchema,
   logDevLink,
+  mailboxKey,
   now,
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
@@ -179,11 +180,13 @@ export function createRegistrationModule(
    * Mails the sign-up link for `handle` to `address`, after the answer: the
    * caller forks it. The address's limits are read here, so they cost the
    * answer nothing and are reached only where a link goes out — never for a
-   * taken address:
+   * taken address. Both key on the address folded to its mailbox
+   * (`mailboxKey`), so every `+tag` variant, and every dotted form of a Gmail
+   * address, shares one count; the mail goes to `address` as typed:
    *
-   *  - no link goes to an address whose sign-up links drew three wrong picks
+   *  - no link goes to a mailbox whose sign-up links drew three wrong picks
    *    today;
-   *  - a Resend's link counts against the address's hourly cap, and goes no
+   *  - a Resend's link counts against the mailbox's hourly cap, and goes no
    *    further past it. A begin's first link does not count, so the newest
    *    sign-up always gets its first link whatever Resends came before it.
    *
@@ -200,7 +203,7 @@ export function createRegistrationModule(
     kind: "first" | "resend",
   ) =>
     Effect.gen(function* () {
-      const key = serverMac.probeKey(address);
+      const key = serverMac.probeKey(mailboxKey(address));
       const strikes = yield* Effect.promise(() => registrationLinkLockoutStore.status(key));
       const allowed =
         strikes.status === "open" &&

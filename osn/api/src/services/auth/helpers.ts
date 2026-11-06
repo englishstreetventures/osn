@@ -536,3 +536,30 @@ export function normaliseIdentifier(identifier: string): string {
 export function looksLikeEmail(identifier: string): boolean {
   return identifier.includes("@");
 }
+
+/** Gmail's two domains: one mailbox each, whatever dots its local part holds. */
+const GMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com"]);
+
+/**
+ * `address` folded to the mailbox it reaches, for a limiter's key only:
+ * lowercased, the local part cut at its first `+` (when one follows the first
+ * character), and on `gmail.com` and `googlemail.com` its dots dropped and the
+ * domain read as `gmail.com`. Every address one mailbox answers to then shares
+ * one count. Never stored, mailed or shown: the account, the pending sign-up
+ * and the mail keep the address as typed. A value with no `@`, such as a probe
+ * key, comes back lowercased and otherwise as given.
+ */
+export function mailboxKey(address: string): string {
+  const lower = address.toLowerCase();
+  const at = lower.lastIndexOf("@");
+  if (at < 0) return lower;
+  let local = lower.slice(0, at);
+  let domain = lower.slice(at + 1);
+  const plus = local.indexOf("+");
+  if (plus > 0) local = local.slice(0, plus);
+  if (GMAIL_DOMAINS.has(domain)) {
+    local = local.replaceAll(".", "");
+    domain = "gmail.com";
+  }
+  return `${local}@${domain}`;
+}
