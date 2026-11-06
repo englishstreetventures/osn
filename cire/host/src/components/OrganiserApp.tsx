@@ -948,29 +948,26 @@ function Dashboard() {
           // from the URL and nothing else in the portal says it again. A plain
           // identifier in the markup, so Solid builds the nodes once and no
           // effect outlives them.
+          // No await since the read, so the `cancelled` check above still holds.
           const contact = LEGAL_ENTITY.contactEmail;
-          if (!cancelled) {
-            toast.error(
-              <span>
-                Your payment could not upgrade this wedding, so we are refunding it in full.
-                Questions? Write to us at{" "}
-                <a href={`mailto:${contact}`} class="underline underline-offset-2">
-                  {contact}
-                </a>
-                .
-              </span>,
-              { duration: Number.POSITIVE_INFINITY, dismissible: true },
-            );
-          }
+          toast.error(
+            <span>
+              Your payment could not upgrade this wedding, so we are refunding it in full.
+              Questions? Write to us at{" "}
+              <a href={`mailto:${contact}`} class="underline underline-offset-2">
+                {contact}
+              </a>
+              .
+            </span>,
+            { duration: Number.POSITIVE_INFINITY, dismissible: true },
+          );
           return;
         }
         if (state?.status === "refunded") {
           // A person refunded it — an operator lowering the wedding with
           // `grant-tier.ts --lower` — so the poll meets it on a return URL
           // opened again.
-          if (!cancelled) {
-            toast.info("That purchase was refunded, so it no longer applies to this wedding.");
-          }
+          toast.info("That purchase was refunded, so it no longer applies to this wedding.");
           return;
         }
         // No sleep after the final attempt — there is nothing left to wait

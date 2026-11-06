@@ -609,7 +609,8 @@ describe("OrganiserApp Dashboard", () => {
 
   /**
    * Back from Stripe, the purchase answering each of `statuses` in turn (the
-   * last one repeats). `reads.list` counts reads of the wedding list alone.
+   * last one repeats); `"missing"` is a purchase the API does not find yet.
+   * `reads.list` counts reads of the wedding list alone.
    * Fake timers go in before `render`: the poll starts at mount and schedules
    * its first sleep straight after the first read. The caller restores real
    * timers in a `finally`, and uses no `waitFor` meanwhile: its deadline is a
@@ -622,6 +623,7 @@ describe("OrganiserApp Dashboard", () => {
       if (url.endsWith("/upgrade/purchases/upg_1")) {
         const status = statuses[Math.min(reads.purchase, statuses.length - 1)];
         reads.purchase += 1;
+        if (status === "missing") return new Response("{}", { status: 404 });
         return new Response(JSON.stringify({ purchase: { status, tier: "gold" } }), {
           status: 200,
         });
@@ -643,9 +645,9 @@ describe("OrganiserApp Dashboard", () => {
   it.each(["refunding", "auto_refunded", "refund_failed"])(
     "ends the poll on a payment refunded automatically (%s), and says so with a contact address",
     async (status) => {
-      // The organiser is back before the webhook lands; the payment then
-      // could not upgrade the wedding.
-      const reads = returnFromStripe(["pending", status]);
+      // The organiser is back before the purchase can be read; the payment
+      // then could not upgrade the wedding.
+      const reads = returnFromStripe(["missing", status]);
       try {
         await vi.advanceTimersByTimeAsync(0);
         expect(reads.purchase).toBe(1);
@@ -679,8 +681,8 @@ describe("OrganiserApp Dashboard", () => {
 
   it("ends the poll on a purchase a person refunded, and says it no longer applies", async () => {
     // A return URL opened again after an operator lowered the wedding with
-    // `grant-tier.ts --lower`.
-    const reads = returnFromStripe(["pending", "refunded"]);
+    // `grant-tier.ts --lower`, read once before the API answers it.
+    const reads = returnFromStripe(["missing", "refunded"]);
     try {
       await vi.advanceTimersByTimeAsync(0);
       expect(reads.purchase).toBe(1);
