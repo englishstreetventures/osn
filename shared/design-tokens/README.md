@@ -88,8 +88,10 @@ token or identifier takes.
 |           | `--ui-radius-control`                                        | a role, not a size — defaults to `md`           |
 | Type      | `--ui-font-body\|display\|mono`                              | —                                               |
 | Motion    | `--ui-dur-fast\|base\|slow\|exit`, `--ui-ease-out\|in-out`   | by job, never by the nearest number             |
-|           | `--ui-scale-enter\|exit`, `--ui-distance-enter\|exit`        | wiki/shared/design-tokens.md §Motion            |
+|           | `--ui-scale-enter\|exit`, `--ui-distance-enter\|exit`        | by job, never by the nearest number             |
 | Elevation | `--ui-elev-1\|2`                                             | —                                               |
+
+Each motion token's job is in [the wiki's §Motion](../../wiki/shared/design-tokens.md#motion).
 
 Three surfaces is the minimum, not a preference: `musubi/social` and `pulse/web`
 both collapse shadcn's `secondary`/`muted`/`accent` onto one value and

@@ -174,7 +174,7 @@ lists them.
 | `--ui-dur-base` | 200ms | A panel swap, a pill sliding |
 | `--ui-dur-slow` | 320ms | Something crossing the screen |
 | `--ui-dur-exit` | 80ms | A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on its own `--ui-modal-exit` ([[component-library]], §Overlays: `Modal`) |
-| `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving; an overlay leaving runs on it too |
+| `--ui-ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Something arriving; a Kobalte overlay leaving runs on it too. `Modal`'s exit runs `ease-in` |
 | `--ui-ease-in-out` | `cubic-bezier(0.65, 0, 0.35, 1)` | Something moving between two places |
 | `--ui-scale-enter` | 0.96 | How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog` |
 | `--ui-scale-exit` | 0.98 | How small an overlay ends as it leaves, `Modal` included |
@@ -187,6 +187,14 @@ ends at 0.98 where it started at 0.96. `Modal` keeps its entry's own 0.98, so
 its exit is softer by distance and time alone (8px in 150ms against 24px in
 350ms). No app sets any of these today, so every app runs the values above.
 
+`Dialog`'s `sheet` presentation scales like its centred card, from its
+centre. Below `md` the sheet is pinned to the bottom edge at full width, so
+its sides and its bottom edge sit in from the screen's by 2% of its size as
+it arrives and 1% as it leaves. `Modal`'s sheet rises from below the edge
+instead. Musubi's dialogs, most of the sheet's callers, move to a fade with
+no scale in englishstreetventures/osn#2040; pulse's share dialog keeps the
+scale.
+
 The overlays reach them through four utilities in `tokens.css`, not by
 reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` and
 `animate-out` runs `--ui-dur-exit`; `zoom-in` and `zoom-out` set the scale an
@@ -195,12 +203,15 @@ element enters from and leaves to from `--ui-scale-enter` and
 token an app sets, `--ui-enter-scale` is what `zoom-in` writes on one element
 for the keyframes to read.
 
-**Reduced motion has one home.** Under `prefers-reduced-motion: reduce`, a flat
-block in `tokens.css` sets `--ui-enter-animation` and `--ui-exit-animation` to
-`none` on the root, and `animate-in` and `animate-out` read their
-`animation-name` from them. Every overlay drawn with those utilities stops
-moving, and a new one needs nothing on its class string. The accent menu's
-pop is its own `animation` shorthand, so it keeps its `motion-safe:` prefix.
+**Reduced motion has one home for the Kobalte overlays.** Under
+`prefers-reduced-motion: reduce`, a flat block in `tokens.css` sets
+`--ui-enter-animation` and `--ui-exit-animation` to `none` on the root, and
+`animate-in` and `animate-out` read their `animation-name` from them. Every
+overlay drawn with those utilities stops moving, and a new one needs nothing
+on its class string. The accent menu's pop is its own `animation` shorthand,
+so it keeps its `motion-safe:` prefix. `Modal` is a transition, not these
+utilities: its own stylesheet drops every duration to 1ms
+([[component-library]] §Overlays: `Modal`).
 `overlay-motion.browser.test.tsx` holds each of these in Chromium
 ([[browser-tests]]).
 

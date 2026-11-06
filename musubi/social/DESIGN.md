@@ -143,8 +143,10 @@ Colour/opacity transitions only (`transition-colors`). No spatial motion added
 on this app's own surfaces. The shared overlays it draws (`Dialog`, `Popover`,
 the account menu) bring the shared motion: a fade with a small scale from 0.96
 in and to 0.98 out, the popover and menu growing from their trigger
-(`wiki/shared/design-tokens.md` §Motion). Whether musubi takes a fade-only
-variant instead is #2034.
+(`wiki/shared/design-tokens.md` §Motion). Musubi's overlays move to a fade
+with no scale (the owner's decision on englishstreetventures/osn#2034, built
+in englishstreetventures/osn#2040); until then they run the shared motion
+above.
 Focus rings appear instantly, never animated.
 In a contrast theme (Windows forced colours), which drops the ring, a
 `Button` focused from the keyboard draws a 2px system-colour outline 2px off
