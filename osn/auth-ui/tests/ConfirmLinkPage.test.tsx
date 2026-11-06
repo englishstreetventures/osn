@@ -10,30 +10,40 @@ import {
 } from "../src/ConfirmLinkPage";
 
 /**
- * The page an emailed link opens. The host reads the link and makes the
- * confirm call; what is covered here is what the page alone decides: that it
- * never confirms without a press, confirms once per press, what each answer
- * shows and says aloud, where focus goes, and that its one timer dies with it.
+ * The page an emailed link opens. The host reads the link and the numbers to
+ * pick from, and makes the confirm call; what is covered here is what the page
+ * alone decides: that it never confirms without a tap, sends the number tapped
+ * once, draws the numbers as given, refuses a set it cannot offer, what each
+ * answer shows and says aloud, where focus goes, and that its one timer dies
+ * with it.
  *
  * Fake timers throughout, so the slow-confirm line can be stepped.
  */
 
 const EMAIL = "ada@example.com";
 
+const CANDIDATES = ["4821", "0730", "1956"] as const;
+
+const PICK_LINE = "Pick the number shown on the screen where you started.";
 const ERROR_LINE = "We couldn't confirm this email just now.";
 const SLOW_LINE = "This is taking longer than usual. Keep this page open.";
+const EXPIRED_HEADING = "This link no longer works";
 const EXPIRED_BODY =
   "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link.";
 
-/** The one Confirm control, whatever it says this moment. */
-function confirmButton(): HTMLButtonElement {
-  return screen.getByRole("button", {
-    name: /^(Confirm|Confirming…|Try again)$/,
-  }) as HTMLButtonElement;
+type OnConfirm = (pick: string) => Promise<ConfirmOutcome>;
+
+function candidate(number: string): HTMLButtonElement {
+  return screen.getByRole("button", { name: number }) as HTMLButtonElement;
 }
 
-function queryConfirmButton(): HTMLElement | null {
-  return screen.queryByRole("button", { name: /^(Confirm|Confirming…|Try again)$/ });
+function candidates(): HTMLButtonElement[] {
+  const group = screen.queryByRole("group");
+  return group ? ([...group.querySelectorAll("button")] as HTMLButtonElement[]) : [];
+}
+
+function tryAgain(): HTMLButtonElement {
+  return screen.getByRole("button", { name: "Try again" }) as HTMLButtonElement;
 }
 
 function heading(): HTMLElement {
@@ -41,8 +51,9 @@ function heading(): HTMLElement {
 }
 
 /**
- * A paragraph on the page that reads `text` in full, an address inside it
- * included. The spoken `<output>` repeats some lines, and is not a paragraph.
+ * A paragraph on the page that reads `text` in full, a number or an address
+ * inside it included. The spoken `<output>` repeats some lines, and is not a
+ * paragraph.
  */
 function paragraph(text: string): HTMLElement | null {
   return (
@@ -76,6 +87,17 @@ async function settle() {
   await vi.advanceTimersByTimeAsync(0);
 }
 
+function page(onConfirm: OnConfirm, extra: { purpose?: ConfirmLinkPurpose } = {}) {
+  return render(() => (
+    <ConfirmLinkPage
+      purpose={extra.purpose ?? "sign-up"}
+      email={EMAIL}
+      candidates={[...CANDIDATES]}
+      onConfirm={onConfirm}
+    />
+  ));
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -86,18 +108,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("ConfirmLinkPage — only a press confirms", () => {
+describe("ConfirmLinkPage — only a tap confirms", () => {
   it("never calls onConfirm on mount, on a prop change, or as time passes", async () => {
-    const first = vi.fn<() => Promise<ConfirmOutcome>>();
-    const second = vi.fn<() => Promise<ConfirmOutcome>>();
+    const first = vi.fn<OnConfirm>();
+    const second = vi.fn<OnConfirm>();
     const [purpose, setPurpose] = createSignal<ConfirmLinkPurpose>("sign-up");
     const [email, setEmail] = createSignal<string | undefined>(EMAIL);
-    const [onConfirm, setOnConfirm] = createSignal<() => Promise<ConfirmOutcome>>(first);
+    const [set, setSet] = createSignal<string[]>([...CANDIDATES]);
+    const [onConfirm, setOnConfirm] = createSignal<OnConfirm>(first);
     const [onContinue, setOnContinue] = createSignal<(() => void) | undefined>(undefined);
     render(() => (
       <ConfirmLinkPage
         purpose={purpose()}
         email={email()}
+        candidates={set()}
         onConfirm={onConfirm()}
         onContinue={onContinue()}
       />
@@ -106,66 +130,155 @@ describe("ConfirmLinkPage — only a press confirms", () => {
     await settle();
     setPurpose("recovery");
     setEmail(undefined);
+    setSet(["12", "34", "56", "78"]);
     setOnConfirm(() => second);
     setOnContinue(() => () => {});
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
-    expect(confirmButton().textContent).toBe("Confirm");
+    expect(candidates().map((b) => b.textContent)).toEqual(["12", "34", "56", "78"]);
+    expect(candidates().every((b) => !b.disabled)).toBe(true);
   });
 
-  it("calls onConfirm once however often it is pressed, and disables itself while it runs", () => {
+  it("sends exactly the number tapped, once, and disables every number while it runs", () => {
     const pending = deferred<ConfirmOutcome>();
-    const onConfirm = vi.fn(() => pending.promise);
-    render(() => <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />);
+    const onConfirm = vi.fn<OnConfirm>(() => pending.promise);
+    page(onConfirm);
 
-    fireEvent.click(confirmButton());
-    fireEvent.click(confirmButton());
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("0730"));
+    fireEvent.click(candidate("0730"));
+    fireEvent.click(candidate("4821"));
+    fireEvent.click(candidate("1956"));
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
-    expect(confirmButton().disabled).toBe(true);
-    expect(confirmButton().textContent).toBe("Confirming…");
+    expect(onConfirm).toHaveBeenCalledWith("0730");
+    expect(candidates()).toHaveLength(3);
+    for (const button of candidates()) expect(button.disabled).toBe(true);
+    expect(paragraph("You picked 0730. Confirming…")).not.toBeNull();
+  });
+});
+
+describe("ConfirmLinkPage — the numbers", () => {
+  it("draws the numbers as given: in order, as written, under the instruction", () => {
+    const given = ["007", "0", "999999", "41", "5"];
+    render(() => (
+      <ConfirmLinkPage
+        purpose="sign-up"
+        email={EMAIL}
+        candidates={given}
+        onConfirm={() => new Promise(() => {})}
+      />
+    ));
+
+    expect(candidates().map((b) => b.textContent)).toEqual(given);
+    const group = screen.getByRole("group", { name: PICK_LINE });
+    expect(group.querySelectorAll("button")).toHaveLength(5);
+  });
+
+  it("keeps the numbers, and the number picked, out of the browser's page translation", () => {
+    page(() => new Promise(() => {}));
+
+    for (const number of CANDIDATES) {
+      expect(screen.getByText(number).getAttribute("translate")).toBe("no");
+    }
+    fireEvent.click(candidate("1956"));
+    const line = paragraph("You picked 1956. Confirming…");
+    expect(line?.querySelector("[translate='no']")?.textContent).toBe("1956");
+  });
+
+  it.each([
+    ["no numbers", []],
+    ["two numbers", ["12", "34"]],
+    ["six numbers", ["1", "2", "3", "4", "5", "6"]],
+    ["a number twice", ["12", "34", "12"]],
+    ["a letter", ["12", "34", "12a"]],
+    ["seven digits", ["12", "34", "1234567"]],
+    ["an empty string", ["12", "34", ""]],
+    ["a non-ASCII digit", ["12", "34", "١٢"]],
+  ])("shows the expired page, and asks for nothing, when given %s", async (_, given) => {
+    const onConfirm = vi.fn<OnConfirm>();
+    const { container } = render(() => (
+      <ConfirmLinkPage purpose="sign-up" email={EMAIL} candidates={given} onConfirm={onConfirm} />
+    ));
+    await settle();
+
+    expect(heading().textContent).toBe(EXPIRED_HEADING);
+    expect(paragraph(EXPIRED_BODY)).not.toBeNull();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(announcer(container).textContent).toBe("");
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });
 
 describe("ConfirmLinkPage — what each answer shows", () => {
-  it("shows the expired page with no button to try again", async () => {
-    const onConfirm = vi.fn(() => Promise.resolve<ConfirmOutcome>("expired"));
-    render(() => <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />);
-
-    fireEvent.click(confirmButton());
+  it("shows a refused pick exactly as it shows a set it cannot offer, with nothing to try again", async () => {
+    const onConfirm = vi.fn<OnConfirm>(() => Promise.resolve<ConfirmOutcome>("expired"));
+    const picked = page(onConfirm);
+    fireEvent.click(candidate("4821"));
     await settle();
 
-    expect(heading().textContent).toBe("This link no longer works");
+    expect(heading().textContent).toBe(EXPIRED_HEADING);
     expect(paragraph(EXPIRED_BODY)).not.toBeNull();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(onConfirm).toHaveBeenCalledTimes(1);
+    const afterPick = picked.container.querySelector("h1")?.parentElement?.textContent;
+    cleanup();
+
+    render(() => (
+      <ConfirmLinkPage
+        purpose="sign-up"
+        email={EMAIL}
+        candidates={[]}
+        onConfirm={() => new Promise(() => {})}
+      />
+    ));
+    expect(heading().parentElement?.textContent).toBe(afterPick);
   });
 
-  it("turns a thrown error into a fixed line and a Try again that calls again, never showing the error's own text", async () => {
+  it("never says a pick was wrong, in any state", async () => {
+    const WRONG = /wrong|incorrect|match|mistake|didn't pick|not the number/i;
+    const answers: (ConfirmOutcome | "throws")[] = ["throws", "expired", "confirmed"];
+    for (const answer of answers) {
+      const pending = deferred<ConfirmOutcome>();
+      const { container } = page(() => pending.promise);
+      expect(container.textContent).not.toMatch(WRONG);
+      fireEvent.click(candidate("0730"));
+      expect(container.textContent).not.toMatch(WRONG);
+      if (answer === "throws") pending.reject(new Error("wrong number"));
+      else pending.resolve(answer);
+      await settle();
+      expect(container.textContent).not.toMatch(WRONG);
+      cleanup();
+    }
+  });
+
+  it("turns a thrown error into a fixed line and a Try again that sends the same number, never showing the error's own text", async () => {
     const retry = deferred<ConfirmOutcome>();
     const onConfirm = vi
-      .fn<() => Promise<ConfirmOutcome>>()
+      .fn<OnConfirm>()
       .mockRejectedValueOnce(new Error("Failed to fetch"))
       .mockReturnValueOnce(retry.promise);
-    const { container } = render(() => (
-      <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />
-    ));
+    const { container } = page(onConfirm);
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("1956"));
     await settle();
 
     expect(heading().textContent).toBe("Confirm this email");
     expect(shown(ERROR_LINE)).toHaveLength(1);
     expect(announcer(container).textContent).toBe(ERROR_LINE);
     expect(container.textContent).not.toContain("Failed to fetch");
-    expect(confirmButton().textContent).toBe("Try again");
-    expect(confirmButton().disabled).toBe(false);
+    expect(paragraph("You picked 1956.")).not.toBeNull();
+    for (const button of candidates()) expect(button.disabled).toBe(true);
+    expect(tryAgain().disabled).toBe(false);
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("4821"));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(tryAgain());
     expect(onConfirm).toHaveBeenCalledTimes(2);
+    expect(onConfirm).toHaveBeenLastCalledWith("1956");
     expect(shown(ERROR_LINE)).toHaveLength(0);
 
     retry.resolve("confirmed");
@@ -174,17 +287,16 @@ describe("ConfirmLinkPage — what each answer shows", () => {
   });
 
   it("treats an onConfirm that throws before returning a promise as an error", async () => {
-    const onConfirm = vi.fn((): Promise<ConfirmOutcome> => {
+    const onConfirm = vi.fn<OnConfirm>(() => {
       throw new Error("no client");
     });
-    render(() => <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />);
+    page(onConfirm);
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("4821"));
     await settle();
 
     expect(shown(ERROR_LINE)).toHaveLength(1);
-    expect(confirmButton().textContent).toBe("Try again");
-    expect(confirmButton().disabled).toBe(false);
+    expect(tryAgain().disabled).toBe(false);
   });
 
   // A host's async function with a missing `return` resolves `undefined`; one
@@ -192,15 +304,13 @@ describe("ConfirmLinkPage — what each answer shows", () => {
   it.each([undefined, "ok", true])(
     "treats an answer that is neither outcome (%s) as an error",
     async (answer) => {
-      const onConfirm = vi.fn(() => Promise.resolve(answer as unknown as ConfirmOutcome));
-      render(() => <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />);
+      page(() => Promise.resolve(answer as unknown as ConfirmOutcome));
 
-      fireEvent.click(confirmButton());
+      fireEvent.click(candidate("4821"));
       await settle();
 
       expect(shown(ERROR_LINE)).toHaveLength(1);
-      expect(confirmButton().textContent).toBe("Try again");
-      expect(confirmButton().disabled).toBe(false);
+      expect(tryAgain().disabled).toBe(false);
     },
   );
 
@@ -212,6 +322,7 @@ describe("ConfirmLinkPage — what each answer shows", () => {
           <ConfirmLinkPage
             purpose="sign-up"
             email={EMAIL}
+            candidates={[...CANDIDATES]}
             onConfirm={() => Promise.resolve<ConfirmOutcome>("confirmed")}
           />
         </section>
@@ -219,6 +330,7 @@ describe("ConfirmLinkPage — what each answer shows", () => {
           <ConfirmLinkPage
             purpose="sign-up"
             email={EMAIL}
+            candidates={["11", "22", "33"]}
             onConfirm={() => Promise.resolve<ConfirmOutcome>("confirmed")}
             onContinue={onContinue}
           />
@@ -226,9 +338,8 @@ describe("ConfirmLinkPage — what each answer shows", () => {
       </>
     ));
 
-    for (const button of screen.getAllByRole("button", { name: "Confirm" })) {
-      fireEvent.click(button);
-    }
+    fireEvent.click(candidate("4821"));
+    fireEvent.click(candidate("22"));
     await settle();
 
     const [elsewhere, here] = screen.getAllByRole("region");
@@ -247,7 +358,7 @@ describe("ConfirmLinkPage — what each answer shows", () => {
 
     fireEvent.click(buttons[0] as HTMLElement);
     expect(onContinue).toHaveBeenCalledTimes(1);
-    expect(queryConfirmButton()).toBeNull();
+    expect(screen.queryByRole("group")).toBeNull();
   });
 });
 
@@ -282,13 +393,7 @@ describe("ConfirmLinkPage — the words for each flow", () => {
   it.each(FLOWS)(
     "%s says what confirming lets the asking device do, and what to do if you did not ask",
     async (purpose, ready, ifNot, finish) => {
-      render(() => (
-        <ConfirmLinkPage
-          purpose={purpose}
-          email={EMAIL}
-          onConfirm={() => Promise.resolve<ConfirmOutcome>("confirmed")}
-        />
-      ));
+      page(() => Promise.resolve<ConfirmOutcome>("confirmed"), { purpose });
 
       expect(heading().textContent).toBe("Confirm this email");
       expect(paragraph(ready)).not.toBeNull();
@@ -297,7 +402,7 @@ describe("ConfirmLinkPage — the words for each flow", () => {
       expect(others).toHaveLength(3);
       for (const line of others) expect(paragraph(line)).toBeNull();
 
-      fireEvent.click(confirmButton());
+      fireEvent.click(candidate("4821"));
       await settle();
 
       expect(
@@ -309,8 +414,16 @@ describe("ConfirmLinkPage — the words for each flow", () => {
   it("says 'this address' when it is given none", () => {
     render(() => (
       <>
-        <ConfirmLinkPage purpose="sign-up" onConfirm={() => new Promise(() => {})} />
-        <ConfirmLinkPage purpose="email-change" onConfirm={() => new Promise(() => {})} />
+        <ConfirmLinkPage
+          purpose="sign-up"
+          candidates={[...CANDIDATES]}
+          onConfirm={() => new Promise(() => {})}
+        />
+        <ConfirmLinkPage
+          purpose="email-change"
+          candidates={[...CANDIDATES]}
+          onConfirm={() => new Promise(() => {})}
+        />
       </>
     ));
 
@@ -325,9 +438,7 @@ describe("ConfirmLinkPage — the words for each flow", () => {
   it.each(["sign-up", "email-change"] as const)(
     "%s keeps the address out of the browser's page translation",
     (purpose) => {
-      render(() => (
-        <ConfirmLinkPage purpose={purpose} email={EMAIL} onConfirm={() => new Promise(() => {})} />
-      ));
+      page(() => new Promise(() => {}), { purpose });
 
       expect(screen.getByText(EMAIL).getAttribute("translate")).toBe("no");
     },
@@ -335,26 +446,24 @@ describe("ConfirmLinkPage — the words for each flow", () => {
 });
 
 describe("ConfirmLinkPage — focus and what is said aloud", () => {
-  it("puts focus on its heading on mount and when the press disables the focused button", () => {
-    render(() => (
-      <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={() => new Promise(() => {})} />
-    ));
+  it("puts focus on its heading on mount and when the tap disables the focused number", () => {
+    page(() => new Promise(() => {}));
 
     // A heading with no tabindex cannot take focus in a browser, though
     // happy-dom lets it: the attribute is half of the guarantee.
     expect(heading().getAttribute("tabindex")).toBe("-1");
     expect(document.activeElement).toBe(heading());
 
-    confirmButton().focus();
-    expect(document.activeElement).toBe(confirmButton());
-    fireEvent.click(confirmButton());
-    expect(confirmButton().disabled).toBe(true);
+    candidate("0730").focus();
+    expect(document.activeElement).toBe(candidate("0730"));
+    fireEvent.click(candidate("0730"));
+    expect(candidate("0730").disabled).toBe(true);
     expect(document.activeElement).toBe(heading());
   });
 
   it.each([
     ["confirmed", "Confirmed"],
-    ["expired", "This link no longer works"],
+    ["expired", EXPIRED_HEADING],
     ["error", "Confirm this email"],
   ] as const)(
     "brings focus back to the heading when the answer is %s, wherever it was moved meanwhile",
@@ -363,11 +472,16 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
       render(() => (
         <>
           <button type="button">elsewhere</button>
-          <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={() => pending.promise} />
+          <ConfirmLinkPage
+            purpose="sign-up"
+            email={EMAIL}
+            candidates={[...CANDIDATES]}
+            onConfirm={() => pending.promise}
+          />
         </>
       ));
 
-      fireEvent.click(confirmButton());
+      fireEvent.click(candidate("4821"));
       const elsewhere = screen.getByRole("button", { name: "elsewhere" });
       elsewhere.focus();
       expect(document.activeElement).toBe(elsewhere);
@@ -386,19 +500,17 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
     const second = deferred<ConfirmOutcome>();
     const third = deferred<ConfirmOutcome>();
     const onConfirm = vi
-      .fn<() => Promise<ConfirmOutcome>>()
+      .fn<OnConfirm>()
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
-    const { container } = render(() => (
-      <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />
-    ));
+    const { container } = page(onConfirm);
 
     const region = announcer(container);
     expect(region.getAttribute("aria-live")).toBe("polite");
     expect(region.getAttribute("aria-atomic")).toBe("true");
     expect(region.textContent).toBe("");
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("4821"));
     expect(announcer(container)).toBe(region);
     expect(region.textContent).toBe("Confirming…");
 
@@ -407,20 +519,24 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
     expect(announcer(container)).toBe(region);
     expect(region.textContent).toBe(ERROR_LINE);
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(tryAgain());
     expect(region.textContent).toBe("Confirming…");
     second.resolve("expired");
     await settle();
     expect(announcer(container)).toBe(region);
     expect(region.isConnected).toBe(true);
-    expect(region.textContent).toBe(`This link no longer works. ${EXPIRED_BODY}`);
+    expect(region.textContent).toBe(`${EXPIRED_HEADING}. ${EXPIRED_BODY}`);
 
     cleanup();
     const again = render(() => (
-      <ConfirmLinkPage purpose="recovery" onConfirm={() => third.promise} />
+      <ConfirmLinkPage
+        purpose="recovery"
+        candidates={[...CANDIDATES]}
+        onConfirm={() => third.promise}
+      />
     ));
     const regionAgain = announcer(again.container);
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("1956"));
     third.resolve("confirmed");
     await settle();
     expect(announcer(again.container)).toBe(regionAgain);
@@ -435,14 +551,12 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
     const slow = deferred<ConfirmOutcome>();
     const quick = deferred<ConfirmOutcome>();
     const onConfirm = vi
-      .fn<() => Promise<ConfirmOutcome>>()
+      .fn<OnConfirm>()
       .mockReturnValueOnce(slow.promise)
       .mockReturnValueOnce(quick.promise);
-    const { container } = render(() => (
-      <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />
-    ));
+    const { container } = page(onConfirm);
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("4821"));
     await vi.advanceTimersByTimeAsync(9_999);
     expect(paragraph(SLOW_LINE)).toBeNull();
     expect(announcer(container).textContent).toBe("Confirming…");
@@ -456,7 +570,7 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
     expect(paragraph(SLOW_LINE)).toBeNull();
 
     // An answer inside the 10 s: the line never comes, then or later.
-    fireEvent.click(confirmButton());
+    fireEvent.click(tryAgain());
     await vi.advanceTimersByTimeAsync(5_000);
     quick.reject(new Error("down"));
     await settle();
@@ -466,11 +580,9 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
   });
 
   it("stops its timer when it unmounts mid-confirm", () => {
-    const { unmount } = render(() => (
-      <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={() => new Promise(() => {})} />
-    ));
+    const { unmount } = page(() => new Promise(() => {}));
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("4821"));
     expect(vi.getTimerCount()).toBe(1);
     unmount();
     expect(vi.getTimerCount()).toBe(0);
@@ -480,18 +592,25 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
 describe("ConfirmLinkPage — around the page", () => {
   it("submits no form it sits inside", async () => {
     const onSubmit = vi.fn((e: SubmitEvent) => e.preventDefault());
+    const onConfirm = vi
+      .fn<OnConfirm>()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValueOnce("confirmed");
     render(() => (
       <form onSubmit={onSubmit}>
         <ConfirmLinkPage
           purpose="sign-up"
           email={EMAIL}
-          onConfirm={() => Promise.resolve<ConfirmOutcome>("confirmed")}
+          candidates={[...CANDIDATES]}
+          onConfirm={onConfirm}
           onContinue={() => {}}
         />
       </form>
     ));
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("4821"));
+    await settle();
+    fireEvent.click(tryAgain());
     await settle();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(onSubmit).not.toHaveBeenCalled();
@@ -503,21 +622,22 @@ describe("ConfirmLinkPage — around the page", () => {
     );
     const late = deferred<ConfirmOutcome>();
     const onConfirm = vi
-      .fn<() => Promise<ConfirmOutcome>>()
+      .fn<OnConfirm>()
       .mockRejectedValueOnce(new Error("down"))
       .mockReturnValueOnce(late.promise);
     const { unmount } = render(() => (
       <ConfirmLinkPage
         purpose="recovery"
         email={EMAIL}
+        candidates={[...CANDIDATES]}
         onConfirm={onConfirm}
         onContinue={() => {}}
       />
     ));
 
-    fireEvent.click(confirmButton());
+    fireEvent.click(candidate("4821"));
     await settle();
-    fireEvent.click(confirmButton());
+    fireEvent.click(tryAgain());
     await vi.advanceTimersByTimeAsync(12_000);
     unmount();
     late.resolve("confirmed");
