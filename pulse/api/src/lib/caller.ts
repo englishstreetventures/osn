@@ -30,7 +30,7 @@ export type CallerHeaders = Record<string, string | undefined>;
 
 export type ResolveCaller = (headers: CallerHeaders) => Promise<Claims | null>;
 
-export interface CallerResolverOptions {
+interface CallerResolverOptions {
   /** The route factory's own runtime — the cookie lookup needs `Db`. */
   runtime: ManagedRuntime.ManagedRuntime<Db, never>;
   /** JWKS endpoint of the OSN issuer that signs access tokens. */

@@ -24,10 +24,6 @@ vi.mock("../../src/services/graphBridge", () => ({
 }));
 
 vi.mock("../../src/lib/osn-bridge", () => ({
-  OsnBridgeError: class OsnBridgeError {
-    _tag = "OsnBridgeError";
-    constructor(public args: { cause: unknown }) {}
-  },
   notifyAppJoined: vi.fn(() => Effect.succeed({ enrolled: true } as const)),
 }));
 

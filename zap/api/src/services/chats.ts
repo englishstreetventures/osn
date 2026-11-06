@@ -20,30 +20,27 @@ import { storedNow } from "../lib/storedNow";
 import { metricChatCreated, metricMemberAdded, metricMemberRemoved } from "../metrics";
 import { checkConsent, ConsentDenied } from "./consent";
 
-// Re-export so routes catch the consent failure via the chats service barrel.
-export { ConsentDenied } from "./consent";
-
 // ---------------------------------------------------------------------------
 // Tagged errors
 // ---------------------------------------------------------------------------
 
-export class ChatNotFound extends Data.TaggedError("ChatNotFound")<{
+class ChatNotFound extends Data.TaggedError("ChatNotFound")<{
   readonly id: string;
 }> {}
 
-export class NotChatMember extends Data.TaggedError("NotChatMember")<{
+class NotChatMember extends Data.TaggedError("NotChatMember")<{
   readonly chatId: string;
 }> {}
 
-export class NotChatAdmin extends Data.TaggedError("NotChatAdmin")<{
+class NotChatAdmin extends Data.TaggedError("NotChatAdmin")<{
   readonly chatId: string;
 }> {}
 
-export class DatabaseError extends Data.TaggedError("DatabaseError")<{
+class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
 
-export class ValidationError extends Data.TaggedError("ValidationError")<{
+class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 
@@ -51,11 +48,11 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
  * Refused: a write that would leave a chat with more than `MAX_CHAT_MEMBERS`
  * members. `chatId` is null for a create, which has no chat yet.
  */
-export class MemberLimitReached extends Data.TaggedError("MemberLimitReached")<{
+class MemberLimitReached extends Data.TaggedError("MemberLimitReached")<{
   readonly chatId: string | null;
 }> {}
 
-export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
+class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
   readonly chatId: string;
   readonly profileId: string;
 }> {}
@@ -64,12 +61,12 @@ export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
  * Refused: a DM created with anyone but exactly one other member, or an add to
  * or a removal from a DM.
  */
-export class InvalidDmMembership extends Data.TaggedError("InvalidDmMembership")<{
+class InvalidDmMembership extends Data.TaggedError("InvalidDmMembership")<{
   readonly memberCount: number;
 }> {}
 
 /** Refused: removing the last admin of a chat, the admin leaving included. */
-export class LastAdmin extends Data.TaggedError("LastAdmin")<{
+class LastAdmin extends Data.TaggedError("LastAdmin")<{
   readonly chatId: string;
 }> {}
 

@@ -498,7 +498,7 @@ export const listTodayEvents = (
  * marked maybe / is hosting, plus the viewer's own RSVP status so the UI
  * can prompt "maybe" replies to confirm.
  */
-export interface CalendarEntry {
+interface CalendarEntry {
   event: Event;
   /** Viewer's own RSVP status, narrowed to the two attending states. */
   myStatus: "going" | "maybe" | null;

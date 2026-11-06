@@ -5,21 +5,21 @@
  * declarative route schema constraints, so both routes call this at
  * the handler level and 400 on failure.
  */
-export interface BboxCorners {
+interface BboxCorners {
   minLat?: number;
   maxLat?: number;
   minLng?: number;
   maxLng?: number;
 }
 
-export interface Bbox {
+interface Bbox {
   minLat: number;
   maxLat: number;
   minLng: number;
   maxLng: number;
 }
 
-export type BboxValidation = { ok: true; bbox: Bbox | null } | { ok: false; error: string };
+type BboxValidation = { ok: true; bbox: Bbox | null } | { ok: false; error: string };
 
 export const validateBbox = (corners: BboxCorners): BboxValidation => {
   const { minLat, maxLat, minLng, maxLng } = corners;

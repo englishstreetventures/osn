@@ -17,7 +17,7 @@ import {
 import type { Result } from "@shared/observability/metrics";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
-export const ZAP_METRICS = {
+const ZAP_METRICS = {
   chatsCreated: "zap.chats.created",
   chatsMembersAdded: "zap.chats.members.added",
   chatsMembersRemoved: "zap.chats.members.removed",

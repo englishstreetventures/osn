@@ -22,7 +22,7 @@ import "./onboarding.css";
 
 const TOTAL_STEPS = 6;
 
-export interface OnboardingStepperProps {
+interface OnboardingStepperProps {
   displayName: string | null;
   /** Called after a successful POST /me/onboarding/complete. Caller invalidates the resource and navigates home. */
   onCompleted: () => void;

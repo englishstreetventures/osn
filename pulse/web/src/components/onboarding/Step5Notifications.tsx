@@ -4,7 +4,7 @@ import notificationsEmber from "../../assets/onboarding/notifications-ember.svg?
 import type { PermOutcome } from "../../lib/onboarding";
 import { StepShell } from "./StepShell";
 
-export interface Step5NotificationsProps {
+interface Step5NotificationsProps {
   totalSteps: number;
   perm: PermOutcome;
   remindersOptIn: boolean;

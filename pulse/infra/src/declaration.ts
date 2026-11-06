@@ -7,7 +7,7 @@ import {
   type StageHosts,
 } from "@shared/infra";
 
-export interface PulseDeclaration {
+interface PulseDeclaration {
   readonly pulseLanding: SiteWorkerInput;
   /** The site directory the stack uploads as built, and the origin its build for `stage` holds. */
   readonly prebuilt: readonly PrebuiltSite[];

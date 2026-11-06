@@ -7,13 +7,13 @@ import { Data, Effect } from "effect";
 import { metricVenueDetail, metricVenueEventsListed, metricVenueLineupListed } from "../metrics";
 import { applyTransitions, DatabaseError } from "./events";
 
-export class VenueNotFound extends Data.TaggedError("VenueNotFound")<{
+class VenueNotFound extends Data.TaggedError("VenueNotFound")<{
   readonly orgHandle: string;
   readonly venueHandle: string;
 }> {}
 
 /** Thin pin projection for the map — no description/hours/image/website fields. */
-export interface VenuePin {
+interface VenuePin {
   id: string;
   orgHandle: string;
   handle: string;
@@ -24,7 +24,7 @@ export interface VenuePin {
   longitude: number | null;
 }
 
-export interface ListAllVenuesParams {
+interface ListAllVenuesParams {
   minLat?: number;
   maxLat?: number;
   minLng?: number;

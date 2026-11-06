@@ -20,11 +20,11 @@ import { getAccountIdForProfile, GraphBridgeError, ProfileNotFoundError } from "
 // Errors
 // ---------------------------------------------------------------------------
 
-export class DatabaseError extends Data.TaggedError("OnboardingDatabaseError")<{
+class DatabaseError extends Data.TaggedError("OnboardingDatabaseError")<{
   readonly cause: unknown;
 }> {}
 
-export class ValidationError extends Data.TaggedError("OnboardingValidationError")<{
+class ValidationError extends Data.TaggedError("OnboardingValidationError")<{
   readonly cause: unknown;
 }> {}
 
@@ -66,8 +66,6 @@ const CompleteOnboardingSchema = Schema.Struct({
   notificationsPerm: PermOutcomeSchema,
   locationPerm: PermOutcomeSchema,
 });
-
-export type CompleteOnboardingInput = Schema.Schema.Type<typeof CompleteOnboardingSchema>;
 
 // ---------------------------------------------------------------------------
 // Public types

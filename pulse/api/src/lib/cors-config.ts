@@ -21,7 +21,7 @@ export const LOCAL_DEV_CORS_ORIGINS = [
   "http://localhost:1420", // @pulse/web
 ] as const;
 
-export type CorsEnv = Readonly<Record<string, string | undefined>>;
+type CorsEnv = Readonly<Record<string, string | undefined>>;
 
 /**
  * Strip a trailing slash + lowercase so an operator typo (`HTTPS://Foo.com/`)

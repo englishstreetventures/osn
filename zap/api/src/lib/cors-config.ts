@@ -18,7 +18,7 @@ export const LOCAL_DEV_CORS_ORIGINS = [
   "http://localhost:1422", // @musubi/social
 ] as const;
 
-export type CorsEnv = Readonly<Record<string, string | undefined>>;
+type CorsEnv = Readonly<Record<string, string | undefined>>;
 
 /**
  * True when the process is NOT running in a local developer environment

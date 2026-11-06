@@ -1,6 +1,6 @@
 import { StepShell } from "./StepShell";
 
-export interface Step6FinishProps {
+interface Step6FinishProps {
   displayName: string | null;
   totalSteps: number;
   busy: boolean;

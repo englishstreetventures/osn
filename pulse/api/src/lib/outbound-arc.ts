@@ -90,7 +90,3 @@ export async function registerLeaveAppKeyWithOsnApi(): Promise<boolean> {
   }
   return true;
 }
-
-export function _resetLeaveAppKeyForTests(): void {
-  _keyInitPromise = null;
-}

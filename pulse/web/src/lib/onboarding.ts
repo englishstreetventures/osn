@@ -22,7 +22,7 @@ export type InterestCategory = (typeof INTEREST_CATEGORIES)[number];
 
 export type PermOutcome = "granted" | "denied" | "prompt" | "unsupported";
 
-export interface OnboardingStatus {
+interface OnboardingStatus {
   completedAt: string | null;
   interests: readonly string[];
   notificationsOptIn: boolean;

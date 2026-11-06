@@ -17,7 +17,7 @@ import { arcAuthHeader } from "./outbound-arc";
  *      `app_enrollments.left_at` for the (account, "pulse") row.
  */
 
-export class OsnBridgeError extends Data.TaggedError("OsnBridgeError")<{
+class OsnBridgeError extends Data.TaggedError("OsnBridgeError")<{
   readonly cause: unknown;
 }> {}
 

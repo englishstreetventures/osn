@@ -18,7 +18,7 @@ related:
   - "[[event-visibility-bug]]"
 packages:
   - "@pulse/api"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-11-05
 ---
 # Event Access Control
 
@@ -59,7 +59,7 @@ When adding a new event-scoped route, **always** load the event via `loadVisible
 
 ## Discovery vs Direct Fetch
 
-- **List / discovery** (`listEvents`, `discoverEvents`, `listTodayEvents`) consume the shared `buildVisibilityFilter(viewerId)` helper exported from `services/eventAccess.ts`. This is a SQL predicate mirror of `canViewEvent`, applied in the `WHERE` clause so post-LIMIT page sizes stay stable.
+- **List / discovery** (`listEvents`, `discoverEvents`, `listTodayEvents`) consume the shared `buildVisibilityFilter(viewerId)` helper exported from `services/eventVisibility.ts`. This is a SQL predicate mirror of `canViewEvent`, applied in the `WHERE` clause so post-LIMIT page sizes stay stable.
 - **Direct fetch** uses `loadVisibleEvent` which loads the event first, then checks visibility in JS.
 
 `buildVisibilityFilter` and `canViewEvent` must stay byte-for-byte equivalent. The predicate is:
@@ -139,7 +139,8 @@ Both endpoints are unauthenticated. Per-IP fail-closed limiters make the metric 
 
 ## Source Files
 
-- [pulse/api/src/services/eventAccess.ts](../../pulse/api/src/services/eventAccess.ts) -- `canViewEvent`, `loadVisibleEvent`, `checkEventVisibility`, `canViewAttendees`, `buildVisibilityFilter`
+- [pulse/api/src/services/eventAccess.ts](../../pulse/api/src/services/eventAccess.ts) -- `canViewEvent`, `loadVisibleEvent`, `checkEventVisibility`, `canViewAttendees`
+- [pulse/api/src/services/eventVisibility.ts](../../pulse/api/src/services/eventVisibility.ts) -- `buildVisibilityFilter`
 - [pulse/api/src/lib/shareSource.ts](../../pulse/api/src/lib/shareSource.ts) -- `SHARE_SOURCES`, `ShareSourceSchema`, `shareSourceTypeBox`
 - [pulse/api/src/services/rsvps.ts](../../pulse/api/src/services/rsvps.ts) -- `upsertRsvp` attribution writes + organiser self-RSVP exclusion
 - [pulse/api/src/services/events.ts](../../pulse/api/src/services/events.ts) -- `listEvents`, `listTodayEvents` (consume `buildVisibilityFilter`)

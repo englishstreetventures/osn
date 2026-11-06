@@ -6,7 +6,7 @@ import { fetchMyCalendar } from "../lib/calendar";
 
 import "../calendar/calendar.css";
 
-export function CalendarPage() {
+function CalendarPage() {
   const { session } = useAuth();
   const signedIn = () => session() != null;
 

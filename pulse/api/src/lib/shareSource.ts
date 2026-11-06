@@ -33,11 +33,6 @@ export const SHARE_SOURCES = [
 
 export type ShareSource = (typeof SHARE_SOURCES)[number];
 
-const SHARE_SOURCE_SET: ReadonlySet<string> = new Set(SHARE_SOURCES);
-
-export const isShareSource = (value: unknown): value is ShareSource =>
-  typeof value === "string" && SHARE_SOURCE_SET.has(value);
-
 /** Effect Schema literal — for service-layer decode. */
 export const ShareSourceSchema = Schema.Literals(SHARE_SOURCES);
 
