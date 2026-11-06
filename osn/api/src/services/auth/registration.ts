@@ -180,10 +180,9 @@ export function createRegistrationModule(
    * Mails the sign-up link for `handle` to `address`, after the answer: the
    * caller forks it. The address's limits are read here, so they cost the
    * answer nothing and are reached only where a link goes out — never for a
-   * taken address. Both key on `mailboxKey(address)`: at a provider that
-   * delivers every variant of an address to one mailbox, every variant shares
-   * one count; elsewhere each address keeps its own. The mail goes to
-   * `address` as typed:
+   * taken address. Both key on `mailboxKey(address)`, so every `+tag`
+   * variant of a local part shares one count. The mail goes to `address` as
+   * typed:
    *
    *  - no link goes to a key whose sign-up links drew three wrong picks
    *    today;

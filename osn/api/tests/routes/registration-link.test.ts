@@ -397,11 +397,11 @@ describe("resend", () => {
     expect(linksTo(h.recorded(), email).at(-1)!.requestId).toBe(current.body.requestId);
   });
 
-  it("counts Resends to every +tag variant of one Outlook mailbox against one cap", async () => {
+  it("counts Resends to every +tag variant of a local part against one cap, on any domain", async () => {
     const h = harness();
-    // Two Resends on each of three requests: the mailbox's six for the hour.
+    // Two Resends on each of three requests: the key's six for the hour.
     for (const tag of ["a", "b", "c"]) {
-      const email = `capfold+${tag}@outlook.com`;
+      const email = `capfold+${tag}@custom.example`;
       const s = await begun(h, email, `capfold${tag}`);
       const from = { "x-forwarded-for": `10.0.1.${tag.charCodeAt(0)}` };
       await resendThroughRoutes(h.app, s.requestId, s.claimSecret, from);
@@ -409,40 +409,34 @@ describe("resend", () => {
       expect(linksTo(h.recorded(), email)).toHaveLength(3);
     }
     // A fourth variant gets its begin's first link, and its Resend mails nothing.
-    const email = "capfold+d@outlook.com";
+    const email = "capfold+d@custom.example";
     const last = await begun(h, email, "capfoldd");
     const answer = await resendThroughRoutes(h.app, last.requestId, last.claimSecret, {
       "x-forwarded-for": "10.0.1.200",
     });
     expect(await answer.json()).toEqual({ status: "sent" });
     expect(linksTo(h.recorded(), email)).toHaveLength(1);
+    // A different local part on the same domain keeps its own cap.
+    const other = "capfold2@custom.example";
+    const fresh = await begun(h, other, "capfold2");
+    await resendThroughRoutes(h.app, fresh.requestId, fresh.claimSecret, {
+      "x-forwarded-for": "10.0.1.201",
+    });
+    expect(linksTo(h.recorded(), other)).toHaveLength(2);
   });
 
-  it("keeps each +tag address on any other domain to its own Resend cap", async () => {
+  it("mails a +tag sign-up to the address as typed, and makes the account under it", async () => {
     const h = harness();
-    const full = "capsplit+x@custom.example";
-    // Three requests to one address, two Resends each: its six for the hour.
-    let current = await beginThroughRoutes(h.app, { email: full, handle: "capsplitx" });
-    for (let round = 0; round < 3; round++) {
-      const from = { "x-forwarded-for": `10.0.2.${round + 1}` };
-      await resendThroughRoutes(h.app, current.body.requestId, current.body.claimSecret, from);
-      await resendThroughRoutes(h.app, current.body.requestId, current.body.claimSecret, from);
-      if (round < 2) {
-        current = await beginThroughRoutes(h.app, {
-          email: full,
-          handle: "capsplitx",
-          previous: { requestId: current.body.requestId, claimSecret: current.body.claimSecret },
-        });
-      }
-    }
-    expect(linksTo(h.recorded(), full)).toHaveLength(9);
-    // Another +tag address on the same domain still gets its Resend.
-    const email = "capsplit+y@custom.example";
-    const other = await begun(h, email, "capsplity");
-    await resendThroughRoutes(h.app, other.requestId, other.claimSecret, {
-      "x-forwarded-for": "10.0.2.100",
-    });
-    expect(linksTo(h.recorded(), email)).toHaveLength(2);
+    const typed = "Exact.Name+Tag@Gmail.com";
+    const exact = typed.toLowerCase();
+    const s = await beginThroughRoutes(h.app, { email: typed, handle: "exacttag" });
+    const link = latestLinkTo(h.recorded(), exact);
+    expect(link?.requestId).toBe(s.body.requestId);
+    expect(h.recorded().map((mail) => mail.to)).toEqual([exact]);
+    await confirmThroughRoutes(h.app, link!.requestId, link!.linkSecret, s.body.pairingCode);
+    const done = await statusThroughRoutes(h.app, s.body.requestId, s.body.claimSecret);
+    expect(done.status).toBe(201);
+    expect(((await done.json()) as { email: string }).email).toBe(exact);
   });
 });
 
@@ -798,20 +792,20 @@ describe("the number on the waiting screen", () => {
     expect(linksTo(h.recorded(), email)).toHaveLength(0);
   });
 
-  it("counts wrong picks on a +tag address on any other domain against that address alone", async () => {
+  it("counts wrong picks on every +tag variant of a local part together, on any domain", async () => {
     const h = harness();
     const struck = "splitstrike+x@custom.example";
     for (let n = 0; n < REGISTRATION_LINK_LOCKOUT_THRESHOLD; n++) {
       const s = await begun(h, struck, "splitstrike");
       await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, await wrongPickFor(h, s));
     }
-    // Another +tag address on the same domain still gets its link.
-    const other = await begun(h, "splitstrike+y@custom.example", "splitstrike");
+    // Another +tag variant of the same local part gets no link.
+    const variant = "splitstrike+y@custom.example";
+    await beginThroughRoutes(h.app, { email: variant, handle: "splitstrike" });
+    expect(linksTo(h.recorded(), variant)).toHaveLength(0);
+    // A different local part on the same domain still does.
+    const other = await begun(h, "splitstrike2@custom.example", "splitstrike");
     expect(other.link.requestId).toBe(other.requestId);
-    // The struck address does not.
-    const mailed = linksTo(h.recorded(), struck).length;
-    await beginThroughRoutes(h.app, { email: struck, handle: "splitstrike" });
-    expect(linksTo(h.recorded(), struck)).toHaveLength(mailed);
   });
 
   it("counts nothing against an address for declining requests it did not start", async () => {

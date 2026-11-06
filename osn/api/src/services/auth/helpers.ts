@@ -538,42 +538,39 @@ export function looksLikeEmail(identifier: string): boolean {
 }
 
 /**
- * The providers that deliver every variant of an address to one mailbox, and
- * the key each folds to: every one drops a `+tag`; Gmail's two domains also
- * drop the local part's dots and read as `gmail.com`. A closed list: an
- * address at any other domain keys as typed, lowercased.
+ * Providers whose mail ignores dots in the local part, and the domain each
+ * reads as: Gmail's two domains, one mailbox. The only extras the limiter key
+ * takes on top of the `+tag` cut every domain gets.
  */
 const ONE_MAILBOX_PROVIDERS = new Map([
-  ["gmail.com", { domain: "gmail.com", dropDots: true }],
-  ["googlemail.com", { domain: "gmail.com", dropDots: true }],
-  ["outlook.com", { domain: "outlook.com", dropDots: false }],
-  ["hotmail.com", { domain: "hotmail.com", dropDots: false }],
-  ["live.com", { domain: "live.com", dropDots: false }],
-  ["fastmail.com", { domain: "fastmail.com", dropDots: false }],
-  ["icloud.com", { domain: "icloud.com", dropDots: false }],
-  ["proton.me", { domain: "proton.me", dropDots: false }],
-  ["protonmail.com", { domain: "protonmail.com", dropDots: false }],
+  ["gmail.com", { domain: "gmail.com" }],
+  ["googlemail.com", { domain: "gmail.com" }],
 ]);
 
 /**
- * `address` as a limiter's key: lowercased, and at a provider in
- * {@link ONE_MAILBOX_PROVIDERS} folded to the mailbox it reaches — the local
- * part cut at its first `+` (when one follows the first character), and on
- * Gmail its dots dropped and the domain read as `gmail.com`. Every address
- * such a mailbox answers to then shares one count; an address at any other
- * domain keeps its own. Never stored, mailed or shown: the account, the
- * pending sign-up and the mail keep the address as typed. A value with no
- * `@`, such as a probe key, comes back lowercased and otherwise as given.
+ * `address` as a limiter's key, for the sign-up strike counter and the
+ * Resend cap only: lowercased, the local part cut at its first `+` (when one
+ * follows the first character) on every domain, and at a provider in
+ * {@link ONE_MAILBOX_PROVIDERS} its dots dropped and the domain read as that
+ * provider's. Every `+tag` variant of a local part then shares one count. On
+ * a domain where `+` starts a distinct mailbox, two such mailboxes share one
+ * count too, which only makes a limit stricter. Never stored, mailed or
+ * shown, and never the key an account is looked up by: the account, the
+ * pending sign-up and the mail keep the address as typed, lowercased. A value with no `@`, such as a probe
+ * key, comes back lowercased and otherwise as given.
  */
 export function mailboxKey(address: string): string {
   const lower = address.toLowerCase();
   const at = lower.lastIndexOf("@");
   if (at < 0) return lower;
-  const provider = ONE_MAILBOX_PROVIDERS.get(lower.slice(at + 1));
-  if (!provider) return lower;
   let local = lower.slice(0, at);
+  let domain = lower.slice(at + 1);
   const plus = local.indexOf("+");
   if (plus > 0) local = local.slice(0, plus);
-  if (provider.dropDots) local = local.replaceAll(".", "");
-  return `${local}@${provider.domain}`;
+  const provider = ONE_MAILBOX_PROVIDERS.get(domain);
+  if (provider) {
+    local = local.replaceAll(".", "");
+    domain = provider.domain;
+  }
+  return `${local}@${domain}`;
 }

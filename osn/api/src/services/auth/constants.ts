@@ -20,14 +20,13 @@ export const MAX_OTP_ATTEMPTS = 5;
 export const EMAIL_LINK_MAX_SENDS = 3;
 
 /**
- * Cap on Resend links per `mailboxKey` — one mailbox at a provider that
- * delivers every variant of an address to it, the address as typed elsewhere —
- * keyed on its probe key: the request-level cap bounds one request's Resends,
- * and this bounds them across the requests one key can be given in an hour. A
- * begin's first link does not count, so the newest sign-up always gets its first link. Checked inside
- * the send that runs after the answer, so it adds nothing to the time to
- * answer, and only where a link would go out, so a taken address never
- * reaches it.
+ * Cap on Resend links per `mailboxKey` (every `+tag` variant of a local part
+ * shares one), keyed on its probe key: the request-level cap bounds one
+ * request's Resends, and this bounds them across the requests one key can be
+ * given in an hour. A begin's first link does not count, so the newest
+ * sign-up always gets its first link. Checked inside the send that runs after
+ * the answer, so it adds nothing to the time to answer, and only where a link
+ * would go out, so a taken address never reaches it.
  */
 export const REGISTRATION_SENDS_PER_ADDRESS_MAX = 6;
 export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;

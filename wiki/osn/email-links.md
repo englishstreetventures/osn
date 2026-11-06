@@ -87,14 +87,16 @@ There is no `GET` on any of them: mail scanners open links before people do.
   [`helpers.ts`](../../osn/api/src/services/auth/helpers.ts)): three in 24
   hours and no more sign-up links go to any address with that key until the
   window passes, while begin answers as ever.
-- **The mailbox key** is the address lowercased, folded only at providers that
-  deliver every variant to one mailbox, a closed list: `gmail.com` and
-  `googlemail.com` cut a `+tag`, drop the local part's dots and read as
-  `gmail.com`; `outlook.com`, `hotmail.com`, `live.com`, `fastmail.com`,
-  `icloud.com`, `proton.me` and `protonmail.com` cut a `+tag` only. An address
-  at any other domain is its own key. The key feeds the strike counter and the
-  Resend cap and nothing else: the account, the pending sign-up and the mail
-  keep the address as typed.
+- **The mailbox key** is the address lowercased with the local part's `+tag`
+  cut, on every domain; at `gmail.com` and `googlemail.com` the local part's
+  dots are dropped too and the domain reads as `gmail.com`. A different local
+  part is a different key. On a domain that treats `+` as part of a distinct
+  mailbox, two such mailboxes share one Resend cap and one strike count. That
+  is accepted: grouping too widely only makes a limit stricter, at the cost of
+  one more wait, while keying each variant apart would let one mailbox take
+  more links than its cap. The key feeds the strike counter and the Resend cap
+  and nothing else: the account, the pending sign-up and the mail keep the
+  address as typed, lowercased.
 - **"I didn't ask for this"** (`pairingPick: "none"`) ends the request too,
   confirmed or not, counts nothing against the reader, and answers
   `declined`. The entry stays, marked `declined`, until it expires, so the same
