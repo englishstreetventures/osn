@@ -33,6 +33,9 @@
 @source not "../../../../shared/ui/src/ui/dropdown-menu.tsx";
 @source not "../../../../shared/ui/src/ui/menu-classes.ts";
 @source not "../../../../shared/ui/src/ui/menu-touch-classes.ts";
+/* Nor the shared `Button`. A page that draws it, or `buttonVariants`, needs
+   this line gone. */
+@source not "../../../../shared/ui/src/ui/button.tsx";
 
 /* Brand tokens — kept byte-identical to cire/invites's theme block so the marketing
    site, the invites it advertises, and the organiser portal all read as one
