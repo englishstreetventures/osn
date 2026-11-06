@@ -701,6 +701,28 @@ describe("OrganiserApp Dashboard", () => {
       dialog.removeAttribute("open");
       dialog.dispatchEvent(new Event("close"));
       expect(toastError).toHaveBeenCalledTimes(1);
+      // A dialog closed again later raises nothing more.
+      dialog.dispatchEvent(new Event("close"));
+      expect(toastError).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      dialog.remove();
+    }
+  });
+
+  it("raises no refund notice for a portal that went away while a dialog was open", async () => {
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("open", "");
+    document.body.append(dialog);
+    const reads = returnFromStripe(["missing", "auto_refunded"]);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(pollDelayMs(0));
+      expect(reads.purchase).toBe(2);
+      cleanup();
+      dialog.removeAttribute("open");
+      dialog.dispatchEvent(new Event("close"));
+      expect(toastError).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
       dialog.remove();
