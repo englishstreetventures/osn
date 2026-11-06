@@ -398,6 +398,35 @@ describe("Modal — the exit", () => {
     await waitForClosed(dialog());
   });
 
+  it("moves by the distance and scale tokens, not numbers of its own", async () => {
+    // Values no stylesheet would choose, so a literal written back into
+    // `MODAL_STYLE` in place of a token cannot match them. The defaults alone
+    // cannot tell the two apart, since a literal of the same value passes.
+    const root = document.documentElement.style;
+    root.setProperty("--ui-distance-enter", "40px");
+    root.setProperty("--ui-distance-exit", "3px");
+    root.setProperty("--ui-scale-exit", "0.7");
+    try {
+      const { setOpen, dialog } = mount();
+      const rise = transitions(dialog()).find((t) => ofPanel(t, "transform"));
+      expect(rise).toBeDefined();
+      expect(matrix(String(keyframes(rise!)[0]!.transform)).f).toBeCloseTo(40, 5);
+      await Promise.all(transitions(dialog()).map((t) => t.finished));
+      setOpen(false);
+      const sink = transitions(dialog()).find((t) => ofPanel(t, "transform"));
+      expect(sink).toBeDefined();
+      const to = matrix(String(keyframes(sink!).at(-1)!.transform));
+      expect(to.f).toBeCloseTo(3, 5);
+      expect(to.a).toBeCloseTo(0.7, 5);
+      expect(to.d).toBeCloseTo(0.7, 5);
+      await waitForClosed(dialog());
+    } finally {
+      root.removeProperty("--ui-distance-enter");
+      root.removeProperty("--ui-distance-exit");
+      root.removeProperty("--ui-scale-exit");
+    }
+  });
+
   it("fades its backdrop out with the panel", async () => {
     const { setOpen, dialog } = mount();
     await Promise.all(transitions(dialog()).map((t) => t.finished));
