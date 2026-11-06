@@ -32,6 +32,7 @@ import {
   deploysTier,
   devGateWanted,
   findDeployed,
+  flipSiblings,
   lastDeployed,
   outputLines,
   parseRequest,
@@ -46,6 +47,7 @@ import {
   type StackChange,
   stackPlans,
   stackRecordKey,
+  weighedRequest,
 } from "../release-plan";
 import {
   API,
@@ -1656,6 +1658,161 @@ describe("a production stack ships on its own record", () => {
         cwd: repo,
       });
       expect(parseOutputs(flip.outputs)).toMatchObject({ stacks: "musubi", stack_cire: "false" });
+    });
+  });
+
+  describe("RP16: a flip weighs every site its stack deploys, and runs no other site's own job", () => {
+    const flipEnv = (sha: string) =>
+      env(sha, { SURFACES: "musubi_landing", FLIP: "musubi_landing" });
+    const files = (n: string) => ({ "musubi/landing/x.astro": n, "musubi/social/y.tsx": n });
+
+    test("a sibling dev ran at this content deploys with the stack, its own job off, named in the summary", async () => {
+      await withRepo(async (repo) => {
+        const a = await commit(repo, files("1"));
+        const b = await commit(repo, files("2"));
+        const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]);
+        const plan = await runReleasePlan({ env: flipEnv(b), fetch: github.fetch, cwd: repo });
+        expect(parseOutputs(plan.outputs)).toMatchObject({
+          stacks: "musubi",
+          stack_musubi: "true",
+          musubi_landing: "true",
+          osn_social: "false",
+          any_site: "true",
+          flip: "musubi_landing",
+        });
+        expect(plan.decisions.find((d) => d.key === "osn_social")).toMatchObject({
+          ship: false,
+          status: "ships with its stack",
+        });
+        expect(plan.decisions.find((d) => d.key === "osn_social")?.reason).toContain(
+          "the musubi stack deploys its Worker with the flip, on its spare host only; its Pages site waits for a release that runs its own job",
+        );
+        expect(plan.summary).toContain(
+          "The musubi stack also deploys the Workers of `osn_social` (ships with its stack) at this commit, as every deploy of it does. No site's own job runs, so a staged site's Pages host keeps its current build until a later release.",
+        );
+        expect(plan.summary).toContain("Four approvals, one per job");
+      });
+    });
+
+    test("a sibling that would ship while the flip site is held runs no Pages job: nothing ships", async () => {
+      await withRepo(async (repo) => {
+        const a = await commit(repo, files("1"));
+        const b = await commit(repo, files("2"));
+        const github = fakeGitHub([
+          ...fullRun("production", a, 1),
+          ...fullRun("dev", a, 2),
+          { environment: "dev", sha: b, job: dev("osn_social"), states: ["success"], run: 3 },
+          {
+            environment: "dev",
+            sha: b,
+            job: stackJob("musubi", "dev"),
+            states: ["success"],
+            run: 3,
+          },
+        ]);
+        const plan = await runReleasePlan({ env: flipEnv(b), fetch: github.fetch, cwd: repo });
+        expect(parseOutputs(plan.outputs)).toMatchObject({
+          stack_musubi: "false",
+          musubi_landing: "false",
+          osn_social: "false",
+          any: "false",
+          any_site: "false",
+        });
+        expect(plan.decisions.find((d) => d.key === "osn_social")).toMatchObject({
+          ship: false,
+          status: "held back",
+        });
+        expect(plan.decisions.find((d) => d.key === "osn_social")?.reason).toContain(
+          "; a flip release runs no job of its own for it, and its stack waits",
+        );
+      });
+    });
+
+    test("the conversion: a sibling whose Worker serves its host deploys there with the stack; one asked for, or not shipping, is left alone", () => {
+      const decisions: PlanDecision[] = [
+        { key: "osn_social", ship: true, status: "ships", reason: "changed" },
+        { key: "musubi_landing", ship: true, status: "ships", reason: "changed" },
+        { key: "osn_api", ship: false, status: "not requested", reason: "left out" },
+      ];
+      const stacks = [{ key: "musubi" as const, ship: true, reason: "osn_social ships" }];
+      const request = {
+        surfaces: ["osn_social" as SurfaceKey],
+        force: false,
+        flip: "osn_social" as const,
+      };
+      const converted = flipSiblings({ decisions, stacks }, request);
+      expect(converted.map((d) => [d.key, d.ship, d.status])).toEqual([
+        ["osn_social", true, "ships"],
+        ["musubi_landing", false, "ships with its stack"],
+        ["osn_api", false, "not requested"],
+      ]);
+      expect(converted[1]?.reason).toBe(
+        "changed; the musubi stack deploys its Worker with the flip, on its production host",
+      );
+      // No flip: nothing changes.
+      expect(flipSiblings({ decisions, stacks }, { surfaces: [], force: false })).toBe(decisions);
+      expect(weighedRequest(request).surfaces).toEqual(["osn_social", "musubi_landing"]);
+      expect(weighedRequest({ surfaces: ["osn_api"], force: false }).surfaces).toEqual(["osn_api"]);
+    });
+
+    test("a sibling dev has not run at this content holds the stack, so nothing moves", async () => {
+      await withRepo(async (repo) => {
+        const a = await commit(repo, files("1"));
+        const b = await commit(repo, files("2"));
+        const github = fakeGitHub([
+          ...fullRun("production", a, 1),
+          ...fullRun("dev", a, 2),
+          { environment: "dev", sha: b, job: dev("musubi_landing"), states: ["success"], run: 3 },
+          {
+            environment: "dev",
+            sha: b,
+            job: stackJob("musubi", "dev"),
+            states: ["success"],
+            run: 3,
+          },
+        ]);
+        const plan = await runReleasePlan({ env: flipEnv(b), fetch: github.fetch, cwd: repo });
+        expect(parseOutputs(plan.outputs)).toMatchObject({
+          stacks: "",
+          stack_musubi: "false",
+          osn_social: "false",
+          any_stack: "false",
+        });
+        expect(plan.decisions.find((d) => d.key === "osn_social")).toMatchObject({
+          ship: false,
+          status: "held back",
+        });
+        expect(plan.summary).toContain(
+          "Flip release: `musubi_landing`'s stack waits (see its row), so no domain moves.",
+        );
+        expect(plan.summary).not.toContain("Four approvals, one per job");
+      });
+    });
+
+    test("a sibling production already runs newer holds the stack", async () => {
+      await withRepo(async (repo) => {
+        const a = await commit(repo, files("1"));
+        const b = await commit(repo, files("2"));
+        const c = await commit(repo, files("3"));
+        // Records newest first: production ran osn_social at c, after a.
+        const github = fakeGitHub([
+          {
+            environment: "production",
+            sha: c,
+            job: prod("osn_social"),
+            states: ["success"],
+            run: 4,
+          },
+          ...fullRun("production", a, 1),
+          ...fullRun("dev", b, 2),
+        ]);
+        const plan = await runReleasePlan({ env: flipEnv(b), fetch: github.fetch, cwd: repo });
+        expect(parseOutputs(plan.outputs)).toMatchObject({ stacks: "", stack_musubi: "false" });
+        expect(plan.decisions.find((d) => d.key === "osn_social")).toMatchObject({
+          ship: false,
+          status: "production is newer",
+        });
+      });
     });
   });
 

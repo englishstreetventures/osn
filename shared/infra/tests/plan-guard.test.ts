@@ -8,6 +8,9 @@ import type { Plan } from "alchemy/Plan";
 import { describe, expect, test } from "vitest";
 
 import {
+  domainChanges,
+  type DomainChange,
+  type DomainReading,
   domainRefusals,
   guardPlan,
   messageOf,
@@ -380,16 +383,18 @@ describe("guardPlan refuses", () => {
     ]);
   });
 
-  test("G11: in a flip release, anything but the flip's own update with every other line a noop", () => {
+  test("G11: in a flip release told nothing of the stack's sites, anything but the flip's own update, and the update itself, since nothing shows it attaches a host", () => {
     const flip = "CireVendor";
+    const unproven =
+      "a flip release must attach CireVendor's production host, and no site names it";
     const one = pretty("Plan: 1 to update", "[CireHost] noop", "[CireVendor] update");
-    expect(refusals(one, { flip })).toEqual([]);
+    expect(refusals(one, { flip })).toEqual([unproven]);
     expect(
       refusals(pretty("Plan: no changes", "[CireHost] noop", "[CireVendor] noop"), { flip }),
-    ).toEqual(["a flip release must update CireVendor"]);
+    ).toEqual(["a flip release must update CireVendor", unproven]);
     expect(
       refusals(pretty("Plan: 2 to update", "[CireHost] update", "[CireVendor] update"), { flip }),
-    ).toEqual(["a flip release changes only CireVendor, and CireHost would update"]);
+    ).toEqual([unproven, "a flip release changes only CireVendor, and CireHost would update"]);
     expect(
       refusals(
         pretty(
@@ -399,7 +404,192 @@ describe("guardPlan refuses", () => {
         ),
         { flip },
       ),
+    ).toEqual([unproven, "a flip release changes no binding"]);
+  });
+});
+
+describe("FG: a flip release beside its stack's other site Workers", () => {
+  const SITES = {
+    cire_host: "CireHost",
+    cire_vendor: "CireVendor",
+    cire_landing: "CireLanding",
+  } as const;
+  const SITE_KINDS: Readonly<Record<string, ResourceKind>> = {
+    CireHost: "custom-domain",
+    CireVendor: "custom-domain",
+    CireLanding: "custom-domain",
+    CireApi: "worker",
+  };
+  /**
+   * Release 42140585413's cire plan, its `alchemy-plan` artifact `cire.json`:
+   * each site's build bakes the release commit, so every site Worker updates.
+   */
+  const RELEASE = [
+    "Plan: 3 to update",
+    "[CireHost] update",
+    "[CireLanding] update",
+    "[CireVendor] update",
+  ];
+  /** What a flip of cire_vendor changes: its Worker leaves its spare host for its production host. */
+  const VENDOR_MOVES: DomainChange = {
+    site: "cire_vendor",
+    added: ["vendor.cireweddings.com"],
+    removed: ["next.vendor.cireweddings.com"],
+  };
+  const ALL_READ: readonly SiteSurface[] = ["cire_host", "cire_landing", "cire_vendor"];
+  const reading = (
+    changes: readonly DomainChange[] = [VENDOR_MOVES],
+    read: readonly SiteSurface[] = ALL_READ,
+  ): DomainReading => ({ changes, problems: [], read });
+  const flipped = (
+    lines: readonly string[],
+    domains: DomainReading | null = reading(),
+    extra: { adoptions?: string[] } = {},
+  ) =>
+    guardPlan({
+      plan: parsePlan(pretty(...lines)),
+      kinds: SITE_KINDS,
+      flip: "CireVendor",
+      sites: SITES,
+      ...(domains === null ? {} : { domains }),
+      ...extra,
+    });
+
+  test("FG1: allows release 42140585413's shape: the flip site and the stack's other site Workers update, only the flip site's domains change", () => {
+    expect(flipped(RELEASE)).toEqual([]);
+    expect(
+      flipped([
+        "Plan: 1 to update",
+        "[CireHost] noop",
+        "[CireLanding] noop",
+        "[CireVendor] update",
+      ]),
+    ).toEqual([]);
+  });
+
+  test("FG2: refuses another site Worker whose custom domains change, an update or a noop, gaining or giving up a host", () => {
+    const gains: DomainChange = {
+      site: "cire_host",
+      added: ["next.host.cireweddings.com"],
+      removed: [],
+    };
+    const leaves: DomainChange = {
+      site: "cire_landing",
+      added: [],
+      removed: ["old.cireweddings.com"],
+    };
+    expect(flipped(RELEASE, reading([VENDOR_MOVES, gains]))).toEqual([
+      "a flip release moves only CireVendor's domain, and cire_host's Worker would gain next.host.cireweddings.com and give up nothing",
+    ]);
+    expect(flipped(RELEASE, reading([VENDOR_MOVES, leaves]))).toEqual([
+      "a flip release moves only CireVendor's domain, and cire_landing's Worker would gain nothing and give up old.cireweddings.com",
+    ]);
+    // A noop Worker whose live hosts differ from the declared one, as a domain
+    // changed in the dashboard leaves it.
+    expect(
+      flipped(
+        ["Plan: 1 to update", "[CireHost] noop", "[CireLanding] noop", "[CireVendor] update"],
+        reading([VENDOR_MOVES, gains]),
+      ),
+    ).toEqual([
+      "a flip release moves only CireVendor's domain, and cire_host's Worker would gain next.host.cireweddings.com and give up nothing",
+    ]);
+  });
+
+  test("FG3: refuses another site Worker's update when its custom domains were not read, or when no reading was passed", () => {
+    expect(flipped(RELEASE, reading([VENDOR_MOVES], ["cire_landing", "cire_vendor"]))).toEqual([
+      "a flip release updates CireHost beside CireVendor only when cire_host's custom domains were read",
+    ]);
+    // The same Worker unread but unchanged in the plan: nothing to allow.
+    expect(
+      flipped(
+        ["Plan: 2 to update", "[CireHost] noop", "[CireLanding] update", "[CireVendor] update"],
+        reading([VENDOR_MOVES], ["cire_landing", "cire_vendor"]),
+      ),
+    ).toEqual([]);
+    expect(flipped(RELEASE, null)).toEqual([
+      "a flip release must attach vendor.cireweddings.com to CireVendor",
+      "a flip release updates CireHost beside CireVendor only when cire_host's custom domains were read",
+      "a flip release updates CireLanding beside CireVendor only when cire_landing's custom domains were read",
+    ]);
+  });
+
+  test("FG4: refuses another site Worker created, deleted, replaced, adopted or orphaned", () => {
+    const own = ["[CireLanding] noop", "[CireVendor] update"];
+    expect(flipped(["Plan: 1 to update, 1 to create", "[CireHost] create", ...own])).toEqual([
+      "a flip release changes only CireVendor, and CireHost would create",
+    ]);
+    expect(
+      flipped(["Plan: 1 to update, 1 to adopted", "[CireHost] adopted", ...own], reading(), {
+        adoptions: ["cire-host"],
+      }),
+    ).toEqual(["a flip release changes only CireVendor, and CireHost would be adopted"]);
+    for (const action of ["replace", "delete", "orphaned"]) {
+      expect(
+        flipped([`Plan: 1 to update, 1 to ${action}`, `[CireHost] ${action}`, ...own]),
+      ).toEqual([
+        `CireHost (custom-domain) would be ${action === "orphaned" ? "orphaned" : `${action}d`}`,
+        `a flip release changes only CireVendor, and CireHost would ${action}`,
+      ]);
+    }
+  });
+
+  test("FG5: refuses an update of a resource that is not one of the stack's site Workers", () => {
+    expect(
+      flipped([
+        "Plan: 2 to update",
+        "[CireApi] update",
+        "[CireHost] noop",
+        "[CireLanding] noop",
+        "[CireVendor] update",
+      ]),
+    ).toEqual(["a flip release changes only CireVendor, and CireApi would update"]);
+  });
+
+  test("FG6: refuses a binding change on another site Worker, as on the flip site", () => {
+    expect(
+      flipped([
+        "Plan: 3 to update, 1 binding changes",
+        "[CireHost] update",
+        "[CireHost/X] create",
+        "[CireLanding] update",
+        "[CireVendor] update",
+      ]),
     ).toEqual(["a flip release changes no binding"]);
+  });
+
+  test("FG7: refuses a flip that does not update its site, or whose site would not gain its production host", () => {
+    expect(
+      flipped([
+        "Plan: 2 to update",
+        "[CireHost] update",
+        "[CireLanding] update",
+        "[CireVendor] noop",
+      ]),
+    ).toEqual(["a flip release must update CireVendor"]);
+    // Its Worker holds the production host already: nothing to move.
+    expect(flipped(RELEASE, reading([]))).toEqual([
+      "a flip release must attach vendor.cireweddings.com to CireVendor",
+    ]);
+    expect(
+      flipped(
+        RELEASE,
+        reading([{ site: "cire_vendor", added: ["next.vendor.cireweddings.com"], removed: [] }]),
+      ),
+    ).toEqual(["a flip release must attach vendor.cireweddings.com to CireVendor"]);
+  });
+
+  test("FG8: domainChanges names each site it read, and only those", () => {
+    const read = domainChanges({
+      sites: ["cire_vendor", "cire_host"],
+      modes: { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" },
+      live: { cire_host: ["next.host.cireweddings.com"], cire_landing: ["next.cireweddings.com"] },
+    });
+    expect(read).toEqual({
+      changes: [],
+      problems: ["the hosts cire_vendor's Worker holds now were not read"],
+      read: ["cire_host"],
+    });
   });
 });
 
@@ -513,12 +703,36 @@ describe("runPlanGuardCli", () => {
     });
   });
 
-  test("G14: --flip naming a surface outside the stack, or missing arguments, exit 2", () => {
+  test("G14: --flip naming a surface outside the stack, --flip with --unflip, or missing arguments, exit 2", () => {
     expect(run([...logArgs, "--flip", "osn_social"], pretty("Plan: no changes")).code).toBe(2);
     expect(run(["--log", join(dir, "plan.log")]).code).toBe(2);
+    const both = run(
+      [...logArgs, "--flip", "cire_vendor", "--unflip", "cire_vendor"],
+      pretty("Plan: 1 to update", "[CireVendor] update"),
+      STAGED_LIVE,
+      vendorWorker,
+    );
+    expect(both.code).toBe(2);
+    expect(both.out).toBe(
+      "::error::plan-guard: a release moves a domain one way: pass --flip or --unflip, never both\n",
+    );
+    // Two different sites too: an unflip of cire_host beside a flip would let
+    // its Worker give up its production host.
+    const two = run(
+      [...logArgs, "--flip", "cire_vendor", "--unflip", "cire_host"],
+      pretty("Plan: 1 to update", "[CireVendor] update"),
+      STAGED_LIVE,
+      vendorWorker,
+    );
+    expect(two.code).toBe(2);
+    expect(two.out).toBe(
+      "::error::plan-guard: a release moves a domain one way: pass --flip or --unflip, never both\n",
+    );
     const flipped = run(
       [...logArgs, "--flip", "cire_vendor"],
       pretty("Plan: 1 to update", "[CireVendor] update"),
+      STAGED_LIVE,
+      vendorWorker,
     );
     expect(flipped.code).toBe(0);
     expect(JSON.parse(readFileSync(join(dir, "record.json"), "utf8")).flip).toBe("CireVendor");
@@ -674,6 +888,78 @@ describe("runPlanGuardCli", () => {
     expect(crossed.out).toContain(
       "cire_host's Worker would give up next-vendor.cireweddings.com; only a release dispatched with unflip: cire_host",
     );
+  });
+
+  describe("FG9: a flip of cire_vendor as the release workflow runs the guard, the three cire sites declared", () => {
+    const THREE = { cire_host: "CireHost", cire_vendor: "CireVendor", cire_landing: "CireLanding" };
+    const THREE_KINDS: Readonly<Record<string, ResourceKind>> = {
+      CireHost: "custom-domain",
+      CireVendor: "custom-domain",
+      CireLanding: "custom-domain",
+    };
+    /** Every Worker on its spare host, as release 42140585413's record found them (`"domains": []`). */
+    const SPARE = {
+      cire_host: ["next.host.cireweddings.com"],
+      cire_vendor: ["next.vendor.cireweddings.com"],
+      cire_landing: ["next.cireweddings.com"],
+    };
+    /** Release 42140585413's cire plan: every site Worker updates. */
+    const RELEASE_LOG = pretty(
+      "Plan: 3 to update",
+      "[CireHost] update",
+      "[CireLanding] update",
+      "[CireVendor] update",
+    );
+    const flip = (live: unknown) => {
+      writeFileSync(join(dir, "plan.log"), RELEASE_LOG);
+      writeFileSync(domainsFile, JSON.stringify(live));
+      const out: string[] = [];
+      const code = runPlanGuardCli({
+        stack: "cire",
+        kinds: THREE_KINDS,
+        sites: THREE,
+        argv: [...logArgs, "--flip", "cire_vendor"],
+        env: {},
+        out: (text) => out.push(text),
+        modes: vendorWorker,
+      });
+      return { code, out: out.join("") };
+    };
+
+    test("allows the flip with the other two Workers updating on their spare hosts, recording vendor's move alone", () => {
+      const result = flip(SPARE);
+      expect(result.out).not.toContain("::error::");
+      expect(result.code).toBe(0);
+      expect(record()).toEqual({
+        stack: "cire",
+        plan: "changes",
+        counts: { update: 3 },
+        resources: [
+          { fqn: "CireHost", kind: "custom-domain", action: "update" },
+          { fqn: "CireLanding", kind: "custom-domain", action: "update" },
+          { fqn: "CireVendor", kind: "custom-domain", action: "update" },
+        ],
+        bindings: [],
+        flip: "CireVendor",
+        domains: [
+          {
+            site: "cire_vendor",
+            added: ["vendor.cireweddings.com"],
+            removed: ["next.vendor.cireweddings.com"],
+          },
+        ],
+        unflip: null,
+      });
+    });
+
+    test("refuses it while another Worker's hosts would change, naming that change alone", () => {
+      const result = flip({ ...SPARE, cire_host: [] });
+      expect(result.code).toBe(1);
+      expect(result.out.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
+        "::error::cire production plan refused: a flip release moves only CireVendor's domain, and cire_host's Worker would gain next.host.cireweddings.com and give up nothing",
+      ]);
+      expect(result.out).not.toContain("a flip release changes only");
+    });
   });
 });
 

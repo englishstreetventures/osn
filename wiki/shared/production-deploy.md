@@ -873,6 +873,9 @@ what holds it.
    release commit: an older release was re-run in full. A release never ships an older
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke
    check (item 7).
+   **`ships with its stack`** appears only in a flip release: the site would ship, and
+   its stack deploys its Worker with the flip, but its own job does not run. A staged
+   site's Pages host keeps its build until a later release ships it (§5.7).
 5. **A production job stuck on `Waiting` is the approval gate**, not a hang. See §5.5.
    When a stack ships there are two: `alchemy-plan` first, then every other job. A
    flip release has four, one per job (§5.7).
@@ -1330,7 +1333,7 @@ same surfaces again with whatever merged since.
 | Input | Effect |
 |---|---|
 | `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. The rest stay where they are until a later release. |
-| `flip` | A site whose domain this release moves from its Pages project to its Worker, with `surfaces` naming that site alone (§5.7). |
+| `flip` | A site whose domain this release moves from its Pages project to its Worker, with `surfaces` naming that site alone (§5.7). Its stack's other sites deploy their Workers with it; no other job runs. |
 | `unflip` | A site set back to `staged` whose Worker this release lets give up its production host, with `surfaces` naming that site alone; the attach job then puts the host back on its Pages project (§5.7). |
 | `attach` | A site whose domain goes back on its Pages project, with every other input empty: the release runs that one job (§5.7). |
 | `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
@@ -1544,6 +1547,10 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
   site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run
   never moves a domain; dispatch releases whose `surfaces` leave that stack's sites out
   meanwhile.
+- The stack's other site Workers hold exactly the hosts their modes declare: the latest
+  release's `alchemy-plan` artifact for the stack lists no `domains` change. The flip
+  guard refuses a flip release in which another site's custom domains change, so a
+  release without a flip settles such a change first.
 
 No copy of `CLOUDFLARE_PAGES_DNS_TOKEN` is kept outside GitHub: the rollback below runs
 in the release workflow's own attach job.
@@ -1552,10 +1559,19 @@ in the release workflow's own attach job.
 `flip: <site>` and `surfaces: <site>`. It runs only the site's stack, and asks four
 approvals, one per job, in this order:
 
-1. `alchemy-plan` — the precheck confirms the host is still on the site's Pages project;
-   the plan must show the site's Worker as its only `update`, every other line a noop.
+1. `alchemy-plan` — the precheck confirms the host is still on the site's Pages project.
+   The plan must show the site's Worker as an `update` that gains its production host.
+   The stack's other site Workers may show `update` too, since every site build bakes the
+   release commit, but only with their custom domains read and unchanged; nothing is
+   created, deleted, replaced, adopted or orphaned, no binding changes, and every other
+   resource is a noop. So a flip release also ships the other sites' Workers at the flip
+   commit, which this plan shows (decided by the owner, englishstreetventures/osn#1787):
+   a staged site's spare host takes the new build, while its Pages host keeps its build
+   until a later release runs the site's own job. The planner weighs those sites as if
+   asked for, so one that dev has not run at this content, or that production runs
+   newer, holds the stack and the flip; the release summary names each with its status.
 2. `stack-<stack>-verify` — plans the stack again with the same force, and refuses unless
-   the plan is still that one update and equals the plan approved in step 1. It deploys
+   the guard still allows the plan and it equals the plan approved in step 1. It deploys
    nothing and holds no Pages token. A refusal here ends the release with nothing moved.
 3. `flip-detach-<stack>` — on a fresh runner with nothing installed, one of the two jobs
    holding `CLOUDFLARE_PAGES_DNS_TOKEN` with the attach job (`alchemy-plan`'s precheck
@@ -1568,8 +1584,12 @@ approvals, one per job, in this order:
    plan from step 1 is kept 7 days; step 4 refuses without it.
 4. `stack-<stack>-production` — installs, checks the state store, plans the stack once
    more and runs the guard as in step 2, then deploys (which attaches the domain to the
-   Worker), and smoke-checks the site on its production host, rolling back on failure.
-   The record job then records the site in `production-records`. A guard refusal here
+   Worker, and updates the stack's other site Workers), and smoke-checks every site of
+   the stack, the flip site on its production host, rolling each back on failure. The
+   other sites' uploads may lengthen the outage; that is not measured. The site's
+   record job, which the pull request turning it to `worker` adds
+   (`record-<site>`, [[infrastructure-as-code#Production sites]]), then records it in
+   `production-records`. A guard refusal here
    stops before the deploy and leaves the host on neither Pages nor the Worker: roll
    back with an attach release (step 2 below; there is no Worker domain to remove).
 
@@ -1579,9 +1599,12 @@ is missing, so it puts the host back on Pages from either half. Then dispatch th
 again.
 
 **Never re-run a failed step 4.** Once its deploy has run, the Worker may hold the domain
-already, so a re-plan shows the site's Worker as a noop, and the flip guard refuses any
-flip plan without that update. Fix forward with a release dispatched without `flip`, or
-roll back.
+already, so the flip guard refuses the re-plan: a Worker that holds its production host
+does not gain it. Fix forward with a release dispatched without `flip`, or roll back.
+
+**If only another site's smoke check failed in step 4**, the flip stands: that check
+rolled its own Worker back and failed the job, and the flip site's record job still runs
+when its own check passed. Fix that site forward; do not undo the flip for it.
 
 **If step 4 fails or the site misbehaves**, roll back in this order:
 
