@@ -1585,11 +1585,15 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 
     it("refuses a guests save carrying an event with no name", async () => {
       const { app } = buildApp();
-      const res = await editorPreview(app, {
-        desiredState: { events: [{ ...event, name: "  " }], families: [] },
-        scope: "guests",
+      const logs = await captureLogs(async () => {
+        const res = await editorPreview(app, {
+          desiredState: { events: [{ ...event, name: "  " }], families: [] },
+          scope: "guests",
+        });
+        expect(res.status).toBe(400);
       });
-      expect(res.status).toBe(400);
+      expect(logs).toContain("change refused: an event field fails its rule");
+      expect(logs).toContain('"fields":"name"');
     });
 
     // A guests save holds these to the cell cap alone, so the cap is the
@@ -1821,6 +1825,7 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 
       const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
       expect(res.status).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
       expect(storedRow(db, legacyId)).toMatchObject({ ...LEGACY, dressCodeDescription: "Bright" });
     });
 
@@ -1888,7 +1893,33 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
 
       const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
       expect(res.status).toBe(409);
-      expect(((await res.json()) as { reason: string }).reason).toBe("head_moved");
+      const body = (await res.json()) as {
+        reason: string;
+        baseRevision: string;
+        currentRevision: string;
+      };
+      expect(body.reason).toBe("head_moved");
+      expect(Number(body.currentRevision)).toBe(Number(body.baseRevision) + 1);
+    });
+
+    it("tells the editor to reload when another change holds the wedding as the rows are read", async () => {
+      // A change mid-write holds the claim and has not moved the head yet.
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      beforeStatement(db, / from "events" /, () => {
+        db.update(events)
+          .set({ startAt: "2026-09-18T16:00:00+10:00" })
+          .where(eq(events.id, legacyId))
+          .run();
+        db.update(weddings)
+          .set({ changeClaim: "another-change", changeClaimedAt: Date.now() })
+          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+          .run();
+      });
+
+      const res = await scheduleSave(app, draft.events);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
     });
 
     it("answers head_moved before it holds a field, when another save fixed the row first", async () => {

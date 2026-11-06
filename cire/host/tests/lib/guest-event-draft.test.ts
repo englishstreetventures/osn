@@ -1025,8 +1025,10 @@ describe("validateDraft — event field rules (E6)", () => {
         store.updateEvent(key, { startAt, endAt: "2026-11-14T17:00:00+11:00" });
         expect(messages()).toEqual([]);
       }
-      store.updateEvent(key, { startAt: "2026-11-14T15:00:00+11:00 " });
-      expect(messages()).toEqual(["Re-enter the start time."]);
+      for (const startAt of [" 2026-11-14T15:00:00+11:00", "2026-11-14T15:00:00+11:00 "]) {
+        store.updateEvent(key, { startAt });
+        expect(messages()).toEqual(["Re-enter the start time."]);
+      }
       dispose();
     });
   });
@@ -1127,6 +1129,34 @@ describe("validateDraft — a value stored before the checks", () => {
       expect(messagesOf(spaced.storedErrors(), spacedKey)).toEqual([
         "End must be a valid date and time.",
       ]);
+      dispose();
+    });
+  });
+
+  it.each([
+    ["a Start cleared", { startAt: "" }, "Start date & time is required."],
+    ["a Start with a date and no time", { startAt: "2026-11-14" }, "Start time is required."],
+    ["a Start of free text", { startAt: "soon" }, "Start must be a valid date and time."],
+    ["a Start with no offset", { startAt: "2026-11-14T16:00" }, "Re-enter the start time."],
+    ["an End with no offset", { endAt: "2026-11-14T18:00" }, "Re-enter the end time."],
+    ["a zone cleared", { timezone: "" }, "Timezone is required."],
+  ] as const)("blocks %s on a loaded event", (_case, patch, message) => {
+    // A loaded event with clean values: each field the save sets is held.
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, patch);
+      expect(messagesOf(store.errors(), key)).toContain(message);
+      expect(messagesOf(store.storedErrors(), key)).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("holds the zone when the save sets only an End", () => {
+    createRoot((dispose) => {
+      const { store, key } = legacyStore();
+      store.updateEvent(key, { endAt: "2026-11-14T18:00:00+00:00" });
+      expect(messagesOf(store.errors(), key)).toEqual(["Choose a timezone from the list."]);
       dispose();
     });
   });
