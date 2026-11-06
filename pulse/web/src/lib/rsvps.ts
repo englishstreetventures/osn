@@ -9,7 +9,8 @@
  *
  * None of these take a credential. The browser holds exactly one — the
  * HttpOnly Pulse session cookie — and it rides along on every call here
- * because both `authFetch` and `publicFetch` set `credentials: "include"`.
+ * because both `authFetch` and `publicFetch` go through `transportFetch`,
+ * which sends it from the browser and forwards it from the rendering server.
  */
 
 import { authFetch, expiredMessage, publicFetch } from "./auth";
