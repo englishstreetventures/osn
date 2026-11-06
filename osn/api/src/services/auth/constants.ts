@@ -20,11 +20,11 @@ export const MAX_OTP_ATTEMPTS = 5;
 export const EMAIL_LINK_MAX_SENDS = 3;
 
 /**
- * Per-mailbox cap on Resend links, keyed on the probe key of the address
- * folded to its mailbox (`mailboxKey`): the request-level cap bounds one
- * request's Resends, and this bounds them across the requests a mailbox can be
- * given in an hour, whichever of its addresses each went to. A begin's first link does
- * not count, so the newest sign-up always gets its first link. Checked inside
+ * Cap on Resend links per `mailboxKey` — one mailbox at a provider that
+ * delivers every variant of an address to it, the address as typed elsewhere —
+ * keyed on its probe key: the request-level cap bounds one request's Resends,
+ * and this bounds them across the requests one key can be given in an hour. A
+ * begin's first link does not count, so the newest sign-up always gets its first link. Checked inside
  * the send that runs after the answer, so it adds nothing to the time to
  * answer, and only where a link would go out, so a taken address never
  * reaches it.
@@ -40,10 +40,10 @@ export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
 export const EMAIL_LINK_PAIRING_CANDIDATES = 5;
 
 /**
- * Wrong picks on sign-up links to one mailbox, per window, before no more
- * sign-up links go to it until the window passes. A decline counts nothing.
- * Keyed on the probe key of the address folded to its mailbox (`mailboxKey`);
- * begin answers the same either way.
+ * Wrong picks on sign-up links per `mailboxKey`, per window, before no more
+ * sign-up links go to any address with that key until the window passes. A
+ * decline counts nothing. Keyed on the key's probe key; begin answers the same
+ * either way.
  */
 export const REGISTRATION_LINK_LOCKOUT_THRESHOLD = 3;
 export const REGISTRATION_LINK_LOCKOUT_MS = 24 * 60 * 60 * 1000;

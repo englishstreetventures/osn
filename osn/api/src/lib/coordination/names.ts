@@ -41,7 +41,7 @@ export type LockoutStoreName =
   | "recovery_lockout"
   | "recovery_otp_lockout"
   | "totp_lockout"
-  // Per mailbox: wrong picks on sign-up links. Its own counter,
+  // Wrong picks on sign-up links, per `mailboxKey`. Its own counter,
   // so it never locks anyone out of a recovery factor.
   | "registration_link_lockout";
 

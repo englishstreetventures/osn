@@ -537,29 +537,43 @@ export function looksLikeEmail(identifier: string): boolean {
   return identifier.includes("@");
 }
 
-/** Gmail's two domains: one mailbox each, whatever dots its local part holds. */
-const GMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com"]);
+/**
+ * The providers that deliver every variant of an address to one mailbox, and
+ * the key each folds to: every one drops a `+tag`; Gmail's two domains also
+ * drop the local part's dots and read as `gmail.com`. A closed list: an
+ * address at any other domain keys as typed, lowercased.
+ */
+const ONE_MAILBOX_PROVIDERS = new Map([
+  ["gmail.com", { domain: "gmail.com", dropDots: true }],
+  ["googlemail.com", { domain: "gmail.com", dropDots: true }],
+  ["outlook.com", { domain: "outlook.com", dropDots: false }],
+  ["hotmail.com", { domain: "hotmail.com", dropDots: false }],
+  ["live.com", { domain: "live.com", dropDots: false }],
+  ["fastmail.com", { domain: "fastmail.com", dropDots: false }],
+  ["icloud.com", { domain: "icloud.com", dropDots: false }],
+  ["proton.me", { domain: "proton.me", dropDots: false }],
+  ["protonmail.com", { domain: "protonmail.com", dropDots: false }],
+]);
 
 /**
- * `address` folded to the mailbox it reaches, for a limiter's key only:
- * lowercased, the local part cut at its first `+` (when one follows the first
- * character), and on `gmail.com` and `googlemail.com` its dots dropped and the
- * domain read as `gmail.com`. Every address one mailbox answers to then shares
- * one count. Never stored, mailed or shown: the account, the pending sign-up
- * and the mail keep the address as typed. A value with no `@`, such as a probe
- * key, comes back lowercased and otherwise as given.
+ * `address` as a limiter's key: lowercased, and at a provider in
+ * {@link ONE_MAILBOX_PROVIDERS} folded to the mailbox it reaches — the local
+ * part cut at its first `+` (when one follows the first character), and on
+ * Gmail its dots dropped and the domain read as `gmail.com`. Every address
+ * such a mailbox answers to then shares one count; an address at any other
+ * domain keeps its own. Never stored, mailed or shown: the account, the
+ * pending sign-up and the mail keep the address as typed. A value with no
+ * `@`, such as a probe key, comes back lowercased and otherwise as given.
  */
 export function mailboxKey(address: string): string {
   const lower = address.toLowerCase();
   const at = lower.lastIndexOf("@");
   if (at < 0) return lower;
+  const provider = ONE_MAILBOX_PROVIDERS.get(lower.slice(at + 1));
+  if (!provider) return lower;
   let local = lower.slice(0, at);
-  let domain = lower.slice(at + 1);
   const plus = local.indexOf("+");
   if (plus > 0) local = local.slice(0, plus);
-  if (GMAIL_DOMAINS.has(domain)) {
-    local = local.replaceAll(".", "");
-    domain = "gmail.com";
-  }
-  return `${local}@${domain}`;
+  if (provider.dropDots) local = local.replaceAll(".", "");
+  return `${local}@${provider.domain}`;
 }

@@ -166,7 +166,7 @@ export interface AuthConfig {
    */
   recoveryOtpLockoutStore?: RecoveryLockoutStore;
   /**
-   * Per mailbox (`mailboxKey`): wrong picks on sign-up links
+   * Per `mailboxKey`: wrong picks on sign-up links
    * ({@link REGISTRATION_LINK_LOCKOUT_THRESHOLD} in
    * {@link REGISTRATION_LINK_LOCKOUT_MS}). Read before every sign-up link is
    * mailed; past the threshold, none is.
@@ -214,8 +214,8 @@ export interface AuthConfig {
    */
   recoveryEmailBeginCap?: AccountCapLimiter;
   /**
-   * Per-mailbox cap on resent sign-up links (6 an hour), keyed on the probe
-   * key of the address folded to its mailbox (`mailboxKey`) and checked only
+   * Cap on resent sign-up links (6 an hour), keyed on the probe key of
+   * `mailboxKey(address)` and checked only
    * where a link goes out. See
    * {@link REGISTRATION_SENDS_PER_ADDRESS_MAX}.
    */

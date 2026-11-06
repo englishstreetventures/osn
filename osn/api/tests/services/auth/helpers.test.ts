@@ -176,33 +176,55 @@ describe("logDevLink", () => {
 });
 
 // The sign-up strike counter and the Resend cap key on this, so every address
-// that reaches one mailbox shares one count.
+// that reaches one mailbox at a provider that delivers every variant to it
+// shares one count, and every other address keeps its own.
 describe("mailboxKey", () => {
   it.each([
-    ["drops a +tag", "name+news@example.com", "name@example.com"],
-    ["drops a +tag that holds a dot", "name+a.b@example.com", "name@example.com"],
     ["drops dots on gmail.com", "n.a.me@gmail.com", "name@gmail.com"],
     ["drops dots and the +tag on gmail.com", "n.ame+x@gmail.com", "name@gmail.com"],
+    ["drops a +tag that holds a dot on gmail.com", "name+a.b@gmail.com", "name@gmail.com"],
     ["reads googlemail.com as gmail.com", "n.ame+x@googlemail.com", "name@gmail.com"],
-    [
-      "keeps the dots of a local part on any other domain",
-      "first.last@example.com",
-      "first.last@example.com",
-    ],
-    ["lowercases", "Name+Tag@Example.COM", "name@example.com"],
-    ["lowercases a Gmail address before folding it", "N.Ame@GMail.com", "name@gmail.com"],
-    ["leaves an address with no + alone", "plain@example.com", "plain@example.com"],
+    ["lowercases a Gmail address before folding it", "N.Ame+Tag@GMail.com", "name@gmail.com"],
+    ["keeps the dots of an Outlook address", "first.last@outlook.com", "first.last@outlook.com"],
+    ["keeps the address as typed on any other domain", "a+x@custom.example", "a+x@custom.example"],
+    ["keeps the dots on any other domain", "first.last@example.com", "first.last@example.com"],
+    ["lowercases any other address", "Name+Tag@Example.COM", "name+tag@example.com"],
+    ["leaves an address with no + alone", "plain@outlook.com", "plain@outlook.com"],
+    ["keeps a local part that starts with +", "+x@outlook.com", "+x@outlook.com"],
   ])("%s", (_, address, folded) => {
     expect(mailboxKey(address)).toBe(folded);
   });
 
+  it.each([
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "fastmail.com",
+    "icloud.com",
+    "proton.me",
+    "protonmail.com",
+  ])("drops a +tag on %s and keeps the dots", (domain) => {
+    expect(mailboxKey(`a.b+x@${domain}`)).toBe(`a.b@${domain}`);
+    expect(mailboxKey(`a.b+x@${domain}`)).not.toBe(mailboxKey(`ab@${domain}`));
+  });
+
   it("gives every address that reaches one Gmail mailbox one key", () => {
     const keys = new Set(
-      ["x@gmail.com", "x+a@gmail.com", "x+b@gmail.com", "X@googlemail.com", "x+c@GMAIL.com"].map(
+      ["x@gmail.com", "x+a@gmail.com", "x+b@gmail.com", "X@googlemail.com", "x.+c@GMAIL.com"].map(
         mailboxKey,
       ),
     );
     expect([...keys]).toEqual(["x@gmail.com"]);
+  });
+
+  it("gives a +tag address and its base one key at a listed provider", () => {
+    expect(mailboxKey("a+x@gmail.com")).toBe(mailboxKey("a@gmail.com"));
+    expect(mailboxKey("a+x@outlook.com")).toBe(mailboxKey("a@outlook.com"));
+  });
+
+  it("gives two +tag addresses on any other domain two keys", () => {
+    expect(mailboxKey("a+x@custom.example")).not.toBe(mailboxKey("a+y@custom.example"));
+    expect(mailboxKey("a+x@custom.example")).not.toBe(mailboxKey("a@custom.example"));
   });
 
   it("returns a value with no @, such as a probe key, as given", () => {

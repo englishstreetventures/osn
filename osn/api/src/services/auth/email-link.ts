@@ -169,8 +169,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
 
   /**
    * Each flow's counter of wrong picks, and the key it counts under for a
-   * request's subject. Sign-up counts per mailbox: the probe key of the
-   * address folded by `mailboxKey`, the key its send reads.
+   * request's subject. Sign-up counts per `mailboxKey`, under the probe key
+   * its send reads.
    */
   const strikesOf = (flow: EmailLinkFlow, subject: string): StrikeCounter => {
     switch (flow) {
