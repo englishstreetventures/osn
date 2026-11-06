@@ -31,8 +31,16 @@ async function openingMs() {
   return ms;
 }
 
-/** The longest transition running on a dialog as it closes, its backdrop included, in ms. */
-async function closingMs() {
+/**
+ * A dialog opened and settled with the pointer the page has now. `close()`
+ * starts its exit and returns the longest transition then running, its
+ * backdrop included, in ms; `settle()` waits for the exit and unmounts it.
+ *
+ * Only the close needs the input under test: a running transition keeps the
+ * duration it started with, so touch emulation is on for the close alone, the
+ * shortest window that tests it.
+ */
+async function settledDialog() {
   const [open, setOpen] = createSignal(true);
   render(() => (
     <Modal open={open()} onClose={() => setOpen(false)} label="Closing">
@@ -40,16 +48,18 @@ async function closingMs() {
     </Modal>
   ));
   const dialog = await screen.findByRole("dialog", { name: "Closing" });
-  await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
-  setOpen(false);
-  const ms = Math.max(
-    ...dialog
-      .getAnimations({ subtree: true })
-      .map((a) => Number(a.effect!.getComputedTiming().duration)),
-  );
-  await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
-  cleanup();
-  return ms;
+  const running = () => dialog.getAnimations({ subtree: true });
+  await Promise.all(running().map((a) => a.finished));
+  return {
+    close: () => {
+      setOpen(false);
+      return Math.max(...running().map((a) => Number(a.effect!.getComputedTiming().duration)));
+    },
+    settle: async () => {
+      await Promise.all(running().map((a) => a.finished));
+      cleanup();
+    },
+  };
 }
 
 afterEach(() => cleanup());
@@ -71,16 +81,22 @@ describe("a dialog's pace follows the input", () => {
 
   it("closes in the same time with a mouse and on touch", async () => {
     expect(matchMedia("(pointer: fine)").matches).toBe(true);
-    const desk = await closingMs();
+    const atDesk = await settledDialog();
+    const desk = atDesk.close();
     expect(desk).toBe(150);
+    await atDesk.settle();
 
+    const inHand = await settledDialog();
+    let touch = Number.NaN;
     await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
     try {
       expect(matchMedia("(pointer: coarse)").matches).toBe(true);
       // `Modal`'s own exit, which no host rule overrides on touch.
-      expect(await closingMs()).toBe(desk);
+      touch = inHand.close();
     } finally {
       await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: false });
     }
+    expect(touch).toBe(desk);
+    await inHand.settle();
   });
 });
