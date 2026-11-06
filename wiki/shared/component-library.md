@@ -615,6 +615,81 @@ Keyboard focus draws a 2px `--ui-focus` ring, which is a box shadow, and hides t
 
 *Measured 2026-11-06 — a probe in `shared/ui`'s browser tier on macOS: under `emulateMedia({ forcedColors: "active" })`, Tab to a drawn `Checkbox` and to a `Button` and read `getComputedStyle(el).outlineColor` on the box and on the button*
 
+### `Field` — a label, a hint and errors, wired to the control
+
+`Field` draws the label, the hint and the errors around a control it does not
+draw. It mints the control's id and hands the caller a function argument
+holding `id`, `aria-describedby` and `aria-invalid`, to spread onto whatever
+control the field holds — an `Input`, a `Select`, a `UsernameInput`:
+
+```tsx
+<Field labelTreatment="plain" label="Date of birth" hint={dobHint()} errors={dobErrors()}>
+  {(field) => <Input {...field} type="date" value={dob()} onInput={…} />}
+</Field>
+```
+
+- **Order.** Label, control, hint, errors: siblings in one column, 6px apart
+  (`gap-1.5`). The hint is a description, never part of the label, so it never
+  joins the control's accessible name. With a hint and an error both showing,
+  the error sits under the hint.
+- **Wiring.** `aria-describedby` names the errors first, then the hint, so a
+  screen reader hears what is wrong before the format note it broke.
+  `aria-invalid` is `"true"` while there is an error, and `Input`, `Select` and
+  `Textarea` turn their edge to `--ui-danger` on it. The function runs once, so
+  an error arriving does not rebuild the control and the caret stays put.
+- **Hint.** The secondary ink at `text-ui-xs`, snug. Read once and held, so a
+  hint written as JSX is built once.
+- **Errors.** Each a line at `text-ui-sm` in `--ui-danger`, 2px apart, inside one
+  `role="alert"` group: a screen reader announces a message the moment it
+  appears.
+
+Because errors are announced at once, `errors` is for a message after a submit
+or when focus leaves the box — a save the server refused, a date that turns out
+to be under age. A check that runs as the person types (an email address that
+is not yet whole) would interrupt every keystroke and mark a half-typed value
+invalid: hold its message until blur or submit before passing it.
+
+#### `labelTreatment`
+
+| Value | Looks like | For |
+|---|---|---|
+| `caps` (default) | `font-ui-body`, the secondary ink, `text-ui-xs`, `tracking-ui-wider`, upper case | cire's portals and `@cire/ui`, every `Field` cire draws (`cire/host/DESIGN.md`) |
+| `plain` | `Label`'s default: weight 500, the full ink, `text-ui-base`, line height 1; family and tracking inherited; the words as written | an app whose forms put a `Label` over each control — Musubi and `@osn/auth-ui` |
+
+Only the label changes; the hint, the errors, the gaps and the wiring are the
+same code in both. `labelHidden` wins over either: the label becomes `sr-only`,
+a 1px clipped box a screen reader still reads. `field.tsx` writes `Label`'s
+classes out rather than importing `label.tsx`, so cire's bundles carry no
+variant helper for a look they never draw; a browser test holds that the two
+paint alike. A plain label that wraps sets its lines 1em apart, as `Label` does
+everywhere.
+
+Under Musubi's stylesheet a plain label computes to 14px, weight 500,
+`--foreground`, no transform, -0.15px tracking and Musubi's system font stack;
+its box sits 6px above the control, and an error 6px under it at 13px in
+`--destructive`.
+
+*Measured 2026-11-07 — Playwright over `vite build` + `vite preview` of `tools/lab`, story `shared/ui/forms` → `PlainLabels`, 390 and 1440px, light and dark; `getComputedStyle` on the Email label and its first error, `getBoundingClientRect` for the gaps*
+
+The label holds only its words. A `<button>` inside a `<label>` is invalid
+HTML and its name would join the control's, so `Field` has no place beside the
+label: a form that puts an `InfoPopover` there wires that field by hand with
+`Label`, as `@osn/auth-ui`'s `Register` does for Email.
+
+`Fieldset` groups controls that answer one question; its legend is the `caps`
+label with 6px under it, and it takes no `labelTreatment`.
+
+A call site sets the field's `class` (its width and place in a row), the label's
+words (JSX, for a lower-case qualifier inside a `caps` label), and nothing about
+how the label, hint or errors look. `shared/ui/tests/field-default.browser.test.tsx`
+holds the default exactly — class strings, order and painted values — and runs on
+the code before `labelTreatment` existed; `field-plain.browser.test.tsx` holds the
+plain label against `Label` and the rest against the default;
+`form.browser.test.tsx` holds the wiring, the caret on a rejected save and the
+hidden label under both treatments; `tests/ui/field.test.tsx` holds the hint built
+once. The lab stories are `shared/ui/forms` → `Fields`, `PlainLabels` and
+`FieldPlayground` ([[component-lab]]).
+
 ### `DropdownMenu` — two looks, and rows that are checked, chosen or followed
 
 `DropdownMenuContent` takes `variant`, set once on the panel and read by every
@@ -1095,14 +1170,20 @@ Thin wrappers that apply consistent base styling and accept a `class` prop for o
 
 A file picker in cire is `@cire/ui`'s `FileInput`, whose button is cire's `quiet` pill; `Input type="file"` keeps `@shared/ui`'s plain `file:` base for the other apps.
 
+A labelled form control goes in a `Field` (§`Field`, above), which names it,
+describes it and marks it wrong. A bare `Label` is for the label
+half of a label/value pair (`tone="muted"`), or for a field `Field` cannot hold,
+such as one with an `InfoPopover` beside its label.
+
 ```tsx
-import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
 import { Card } from "@shared/ui/ui/card";
+import { Field } from "@shared/ui/ui/field";
+import { Input } from "@shared/ui/ui/input";
 
 <Card class="p-4">
-  <Label for="email">Email</Label>
-  <Input id="email" type="email" class="mt-1" />
+  <Field labelTreatment="plain" label="Email" errors={emailErrors()}>
+    {(field) => <Input {...field} type="email" />}
+  </Field>
 </Card>;
 ```
 
