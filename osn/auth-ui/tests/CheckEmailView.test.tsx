@@ -492,6 +492,31 @@ describe("CheckEmailView — the number", () => {
     expect(screen.queryByText(CAPTION)).toBeNull();
   });
 
+  const TYPE_CAPTION = "Type this number on the page the link opens.";
+
+  it.each([
+    ["sign-up", CAPTION, TYPE_CAPTION],
+    ["recovery", TYPE_CAPTION, CAPTION],
+    ["step-up", CAPTION, TYPE_CAPTION],
+    ["email-change", CAPTION, TYPE_CAPTION],
+  ] as const)(
+    "%s's caption says what the page the link opens asks for",
+    (purpose, caption, other) => {
+      render(() => (
+        <CheckEmailView
+          email={EMAIL}
+          purpose={purpose}
+          status="waiting"
+          pairingCode="47"
+          onResend={() => {}}
+        />
+      ));
+
+      screen.getByText(caption);
+      expect(screen.queryByText(other)).toBeNull();
+    },
+  );
+
   it("keeps the number and its caption out of the live region", () => {
     render(() => (
       <CheckEmailView
