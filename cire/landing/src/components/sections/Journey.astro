@@ -436,11 +436,12 @@ const STEPS: readonly Step[] = [
     opacity: 0;
     visibility: hidden;
     transform: translateY(0.5rem);
-    /* motion-literal: the panels' cross-fade, choreography longer than --dur-slow; visibility flips once the fade ends */
+    /* The cross-fade is choreography slower than --dur-slow, scaled like every
+       duration; visibility flips once the fade ends. */
     transition:
-      opacity 0.45s var(--ease-out),
-      transform 0.45s var(--ease-out),
-      visibility 0s linear 0.45s;
+      opacity calc(0.45s * var(--motion-scale)) var(--ease-out),
+      transform calc(0.45s * var(--motion-scale)) var(--ease-out),
+      visibility 0s calc(0.45s * var(--motion-scale));
   }
 
   #js-invite:checked ~ .panels [data-step='invite'],

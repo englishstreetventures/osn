@@ -18,8 +18,10 @@
  *    one haptic, the split break; a second tap speeds it up and it lands
  *    within 1000 ms of page time, on a last frame that matches the hero
  *    underneath, with focus moved to the hero;
- * 5. reloads to no envelope, and replays from the footer button with the peel
- *    (a tap) and the crumble (Enter, its focus ring showing);
+ * 5. reloads to no envelope, the hero's crop layer for a phone showing and
+ *    the one for a desk at a desk's width, each fading on 0.7s; and replays
+ *    from the footer button with the peel (a tap) and the crumble (Enter, its
+ *    focus ring showing);
  * 6. opens an envelope over a hero with no image, in the gala pack;
  * 7. checks reduced motion and a browser without the API get the page as it
  *    is, with no attribute and no overlay;
@@ -102,6 +104,24 @@ async function envelopeState(page: Page) {
 /** Whether keyboard focus is on the hero, the top of the page. */
 async function focusOnHero(page: Page): Promise<boolean> {
   return page.evaluate(() => document.activeElement?.matches("[data-edge-hero]") ?? false);
+}
+
+/**
+ * The hero's crop layers the viewport lays out, each as its breakpoint
+ * (`narrow` below `md:`, `wide` from it) and the fade it runs. On an envelope
+ * page each layer is an anonymous-CORS `<img>`, hidden from assistive tech;
+ * the backdrop `<img>` beside them is not.
+ */
+async function shownCropLayers(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll<HTMLImageElement>('img[aria-hidden="true"].object-cover')]
+      .filter((img) => getComputedStyle(img).display !== "none")
+      .map((img) => {
+        const style = getComputedStyle(img);
+        const breakpoint = img.classList.contains("md:hidden") ? "narrow" : "wide";
+        return `${breakpoint} ${style.transitionProperty} ${style.transitionDuration}`;
+      }),
+  );
 }
 
 /**
@@ -519,6 +539,19 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
     flow.check("seen: no envelope on reload", "none", state.state ?? "none");
     flow.check("seen: no overlay on reload", false, state.overlay);
     flow.check("seen: the flag says it played", "1", state.seen ?? "none");
+    // One crop layer per breakpoint, and only one laid out at a width.
+    flow.check(
+      "a phone shows the narrow crop layer, fading on 0.7s",
+      "narrow opacity 0.7s",
+      (await shownCropLayers(page)).join(" | ") || "none",
+    );
+    await page.setViewportSize({ width: 1280, height: 800 });
+    flow.check(
+      "a desk shows the wide crop layer, fading on 0.7s",
+      "wide opacity 0.7s",
+      (await shownCropLayers(page)).join(" | ") || "none",
+    );
+    await page.setViewportSize(PHONE.viewport);
     const replay = page.getByRole("button", { name: "Open the envelope again" });
     await replay.click();
     await waitForState(page, "ready");
