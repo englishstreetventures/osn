@@ -69,7 +69,10 @@ with no action pins itself the same way when its message is the user's next
 step and nothing else on the page says it: the cire portal's return from Stripe
 does this for a payment it is refunding automatically, and its message, a
 `JSX.Element` like any toast's, carries the address to write to as a `mailto:`
-link ([[cire-upgrades]]).
+link drawn with `@cire/ui`'s `proseLinkClass()`, the portal's one look for a
+link inside a sentence ([[cire-upgrades]]). Because it is the only notice of
+that refund, it waits until no modal dialog is open before it is raised (the
+warning below).
 
 Three behaviours worth knowing, all of them bugs first:
 

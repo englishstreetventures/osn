@@ -466,7 +466,7 @@ each status the purchase reaches ends the poll its own way:
 | --- | --- |
 | `succeeded` | Drops the cached catalogue, refetches the wedding list — which is what the nav locks by, so that is what unlocks the modules — and names the tier bought in a success toast |
 | `failed`, `expired` | Error toast: "That payment did not go through. Nothing was charged." |
-| `refunding`, `auto_refunded`, `refund_failed` | Error toast, pinned until closed: "Your payment could not upgrade this wedding, so we are refunding it in full. Questions? Write to us at <address>.", the address being `LEGAL_ENTITY.contactEmail` from `@shared/legal`, as a `mailto:` link. Pinned because the receipt is gone from the URL and nothing else in the portal says it again |
+| `refunding`, `auto_refunded`, `refund_failed` | Error toast, pinned until closed: "Your payment could not upgrade this wedding, so we are refunding it in full. Questions? Write to us at <address>.", the address being `LEGAL_ENTITY.contactEmail` from `@shared/legal`, as a `mailto:` link (`proseLinkClass()`). Pinned because the receipt is gone from the URL and nothing else in the portal says it again, and held until no modal dialog is open, since a toast over one is never announced |
 | `refunded` | Info toast: "That purchase was refunded, so it no longer applies to this wedding." A person refunded it, so the poll meets it on a return URL opened again |
 | Still `pending` (or a legacy `mismatch`), not found, or unreadable at the last attempt | Info toast: "Your payment is still being confirmed. This page will show it once it is." |
 

@@ -1,3 +1,4 @@
+import { proseLinkClass } from "@cire/ui/button";
 import Loading from "@cire/ui/loading";
 import { LEGAL_ENTITY } from "@shared/legal";
 import type { SignalKind } from "@shared/realtime";
@@ -302,6 +303,20 @@ function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLef
 function initialRoute(): DashboardRoute {
   if (typeof window === "undefined") return LIST_ROUTE;
   return parseRoute(window.location.hash);
+}
+
+/**
+ * Run `show` once no modal dialog is open, waiting for each to close in turn.
+ * Every portal dialog is `@shared/ui`'s `Modal`, opened with `showModal()`, so
+ * an open `<dialog>` is a modal one.
+ */
+function whenNoModalOpen(show: () => void): void {
+  const open = document.querySelector("dialog[open]");
+  if (!open) {
+    show();
+    return;
+  }
+  open.addEventListener("close", () => whenNoModalOpen(show), { once: true });
 }
 
 function Dashboard() {
@@ -948,19 +963,24 @@ function Dashboard() {
           // from the URL and nothing else in the portal says it again. A plain
           // identifier in the markup, so Solid builds the nodes once and no
           // effect outlives them.
-          // No await since the read, so the `cancelled` check above still holds.
+          // Held while a modal dialog is open: a toast raised over one is
+          // inert, painted and never announced (`wiki/shared/toast.md`
+          // §topLayer), and this is the only notice of the refund.
           const contact = LEGAL_ENTITY.contactEmail;
-          toast.error(
-            <span>
-              Your payment could not upgrade this wedding, so we are refunding it in full.
-              Questions? Write to us at{" "}
-              <a href={`mailto:${contact}`} class="underline underline-offset-2">
-                {contact}
-              </a>
-              .
-            </span>,
-            { duration: Number.POSITIVE_INFINITY, dismissible: true },
-          );
+          whenNoModalOpen(() => {
+            if (cancelled) return;
+            toast.error(
+              <span>
+                Your payment could not upgrade this wedding, so we are refunding it in full.
+                Questions? Write to us at{" "}
+                <a href={`mailto:${contact}`} class={proseLinkClass()}>
+                  {contact}
+                </a>
+                .
+              </span>,
+              { duration: Number.POSITIVE_INFINITY, dismissible: true },
+            );
+          });
           return;
         }
         if (state?.status === "refunded") {

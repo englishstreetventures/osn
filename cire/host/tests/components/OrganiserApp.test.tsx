@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { proseLinkClass } from "@cire/ui/button";
 import { LEGAL_ENTITY } from "@shared/legal";
 import type { SignalKind } from "@shared/realtime";
 import type { SignalEvent, SubscriptionOptions } from "@shared/realtime/client";
@@ -664,6 +665,8 @@ describe("OrganiserApp Dashboard", () => {
         const link = shown.querySelector("a");
         expect(link?.getAttribute("href")).toBe(`mailto:${LEGAL_ENTITY.contactEmail}`);
         expect(link?.textContent).toBe(LEGAL_ENTITY.contactEmail);
+        // The portal's one look for a link inside a sentence.
+        expect(link?.getAttribute("class")).toBe(proseLinkClass());
         expect(options).toEqual({ duration: Number.POSITIVE_INFINITY, dismissible: true });
 
         // The poll is over: no third read, never "still being confirmed", and
@@ -678,6 +681,31 @@ describe("OrganiserApp Dashboard", () => {
       }
     },
   );
+
+  /**
+   * A toast raised while a modal dialog is open is inert: painted, never
+   * announced. The refund notice is the only place the portal says the money
+   * is going back, so it waits for the dialog to close.
+   */
+  it("holds the refund notice until an open modal dialog closes", async () => {
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("open", "");
+    document.body.append(dialog);
+    const reads = returnFromStripe(["missing", "auto_refunded"]);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(pollDelayMs(0));
+      expect(reads.purchase).toBe(2);
+      expect(toastError).not.toHaveBeenCalled();
+
+      dialog.removeAttribute("open");
+      dialog.dispatchEvent(new Event("close"));
+      expect(toastError).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      dialog.remove();
+    }
+  });
 
   it("ends the poll on a purchase a person refunded, and says it no longer applies", async () => {
     // A return URL opened again after an operator lowered the wedding with
