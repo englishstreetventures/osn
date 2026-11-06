@@ -323,6 +323,38 @@ export const CIRE_ORGANISER = {
 } as const;
 
 /**
+ * The wedding whose event was saved before the editor checked an event's name,
+ * times and zone (`seedE2eLegacyEvent` in cire/api/src/db/setup.ts), and the
+ * edits `cire-event-details.flow.ts` makes to it.
+ */
+export const CIRE_LEGACY_EVENT = {
+  weddingId: "wed_e2e_legacy_event",
+  legacyId: "evt_e2e_legacy",
+  /** The values the seed stores on the legacy event. */
+  stored: {
+    name: "",
+    start_at: "2026-11-14T15:00",
+    end_at: "2026-11-14T17:00",
+    timezone: "AEST",
+  },
+  otherId: "evt_e2e_legacy_reception",
+  otherName: "Reception",
+  /** The edit to the other event that saves around the legacy one. */
+  address: "1 Garden Lane, Exampleville NSW 2001",
+  /** The fix: a name, a zone that resolves, and the Start re-entered. */
+  fixedName: "Welcome drinks",
+  fixedZone: "Australia/Sydney",
+  fixedStartTime: "16:00",
+  /** The legacy event as the fix stores it: both times stamped from the zone. */
+  fixed: {
+    name: "Welcome drinks",
+    start_at: "2026-11-14T16:00:00+11:00",
+    end_at: "2026-11-14T17:00:00+11:00",
+    timezone: "Australia/Sydney",
+  },
+} as const;
+
+/**
  * The organiser's edit in `cire-event-details`: the sample wedding's Kitchen
  * Tea (`cire/db/seed/data/events.ts`) gains a venue name and a description.
  * No other flow reads Kitchen Tea, so the edit reaches none of them.
