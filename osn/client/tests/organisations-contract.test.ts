@@ -134,11 +134,13 @@ describe("organisations client against shared/openapi/osn.json", () => {
     const request = await sent(run);
     const operation = operationFor(request.method, request.url);
     expect(operation, `${request.method} ${new URL(request.url).pathname}`).toBeDefined();
-    const accepted = (operation?.parameters ?? [])
-      .filter((parameter) => parameter.in === "query")
-      .map((parameter) => parameter.name);
+    const accepted = new Set(
+      (operation?.parameters ?? [])
+        .filter((parameter) => parameter.in === "query")
+        .map((parameter) => parameter.name),
+    );
     expect(
-      [...new URL(request.url).searchParams.keys()].filter((key) => !accepted.includes(key)),
+      [...new URL(request.url).searchParams.keys()].filter((key) => !accepted.has(key)),
       "query keys the route does not accept",
     ).toEqual([]);
   });
