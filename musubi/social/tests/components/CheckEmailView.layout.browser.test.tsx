@@ -63,7 +63,7 @@ function nextFrame() {
  * sheet's entry has finished and the faces have loaded: a box read mid-zoom or
  * against fallback metrics is a different number.
  */
-async function mountInSheet(email: string) {
+async function mountInSheet(email: string, pairingCode?: string) {
   render(() => (
     <Dialog open onOpenChange={() => {}}>
       <ResponsiveDialogContent class="max-w-sm">
@@ -72,6 +72,7 @@ async function mountInSheet(email: string) {
             email={email}
             purpose="sign-up"
             status="waiting"
+            pairingCode={pairingCode}
             onResend={() => {}}
             onChangeEmail={() => {}}
           />
@@ -140,6 +141,44 @@ describe("CheckEmailView in musubi's auth sheet", () => {
     }
 
     await page.screenshot({ path: `${SHOTS}/countdown-320.png` });
+  });
+
+  it("draws the widest number inside a 320px phone's column, at 24px in tabular figures, its label hidden", async () => {
+    await atViewport(PHONE);
+    const { sheet, view } = await mountInSheet(LONG_EMAIL, "123456");
+
+    expect(view.scrollWidth).toBeLessThanOrEqual(view.clientWidth);
+    expect(sheet.scrollWidth).toBeLessThanOrEqual(sheet.clientWidth);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(PHONE.width);
+
+    const digits = view.querySelector('span[translate="no"]') as HTMLElement;
+    expect(digits.textContent).toBe("123456");
+    const number = digits.parentElement as HTMLElement;
+
+    // The digits' own box, not the paragraph's, which spans the column whatever
+    // the digits do.
+    const range = document.createRange();
+    range.selectNodeContents(digits);
+    expect(range.getBoundingClientRect().right).toBeLessThanOrEqual(
+      view.getBoundingClientRect().right,
+    );
+
+    const style = getComputedStyle(number);
+    expect(style.fontVariantNumeric).toContain("tabular-nums");
+    expect(style.fontSize).toBe("24px");
+    expect(style.lineHeight).toBe("30px");
+    expect(style.fontWeight).toBe("500");
+
+    // "Your number:" is drawn nowhere on screen, but is read before the digits.
+    const label = number.firstElementChild as HTMLElement;
+    expect(label.textContent).toBe("Your number:");
+    const box = label.getBoundingClientRect();
+    expect([box.width, box.height]).toEqual([1, 1]);
+    await expect
+      .element(page.elementLocator(number))
+      .toMatchAriaInlineSnapshot(`- paragraph: "Your number: 123456"`);
+
+    await page.screenshot({ path: `${SHOTS}/pairing-code-320.png` });
   });
 
   it("draws both buttons 40px tall below md", async () => {
