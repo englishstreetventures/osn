@@ -220,7 +220,7 @@ The `/import/{preview,apply,revert,list}` one-release alias (the repo's decided 
 
 ## 9. Testing
 
-- **Unit**: every validation rule + a parser-parity test (sheet path and editor path reject/accept identically for every value a save sets; the editor door takes a value left as stored, §6); serialiser round-trip (state → CSV → parse → identical DesiredState); ID-aware diff (rename-by-id ⇒ update; no-id path byte-identical to today's plans); checkpoint prune.
+- **Unit**: every validation rule + a parser-parity test (sheet path and editor path reject/accept identically for every value a save sets; the editor door takes a value left as stored, §6); serialiser round-trip (state, written as CSV and parsed again, gives an identical DesiredState); ID-aware diff (a rename by id is an update; the no-id path is byte-identical to today's plans); checkpoint prune.
 - **Service**: interleaved import/editor/revert sequences restore exact before-state; publicId preserved through revert via `Family Code`; provenance filtering incl. the toggle; multi-tenant isolation mirrored from `import.test.ts`.
 - **Route**: authz (guest session rejected, member accepted), 409 on stale `baseRevision`, alias routes serve both prefixes.
 - **Component**: draft editing, inline validation, attendance matrix, preview modal, history revert (happy-dom harness as today).
