@@ -25,6 +25,7 @@ import { Label } from "@shared/ui/ui/label";
 import { Meter } from "@shared/ui/ui/meter";
 import { Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
+import { Orb } from "@shared/ui/ui/orb";
 import { OtpInput } from "@shared/ui/ui/otp-input";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
@@ -36,7 +37,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@shared/ui/ui/tabs";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { Tooltip } from "@shared/ui/ui/tooltip";
 import { UsernameInput } from "@shared/ui/ui/username-input";
-import { createSignal, type JSX } from "solid-js";
+import { createMemo, createSignal, type JSX } from "solid-js";
+
+import { themeVersion } from "../design-system/measure.ts";
 
 export const meta = { title: "shared/ui", layout: "padded" as const };
 
@@ -68,6 +71,10 @@ export const Everything = () => {
   const [handle, setHandle] = createSignal("ada");
   const [code, setCode] = createSignal("1234");
   const [modalOpen, setModalOpen] = createSignal(false);
+  const pageDark = createMemo(() => {
+    themeVersion();
+    return typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  });
 
   return (
     <div class="mx-auto max-w-3xl pb-16">
@@ -208,6 +215,11 @@ export const Everything = () => {
         <div class="w-64">
           <Meter value={68} max={100} label="Budget spent" />
         </div>
+      </Entry>
+
+      <Entry name="Orb" from="@shared/ui/ui/orb">
+        <Orb size={64} dark={pageDark()} />
+        <Orb size={20} dark={pageDark()} />
       </Entry>
 
       <Entry name="EmptyState" from="@shared/ui/ui/empty-state">
