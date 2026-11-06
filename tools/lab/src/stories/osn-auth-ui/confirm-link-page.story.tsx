@@ -12,19 +12,25 @@ export const meta = { title: "osn/auth-ui/ConfirmLinkPage", layout: "padded" as 
 
 /**
  * The page an emailed link opens, for sign-up, recovery, step-up and email
- * change. One story per state, in the column the host route draws around it,
- * as `AuthorizePage`'s `<main>` does (`max-w-md px-6`: a 400px card).
+ * change. The person picks the number the waiting screen shows from the
+ * host's list. One story per state, in the column the host route draws around
+ * it, as `AuthorizePage`'s `<main>` does (`max-w-md px-6`: a 400px card).
  * The colours are musubi's, which is the lab's own mapping, so the
  * **light · dark** toggle (or `?theme=dark`) is the theme check.
  *
- * The page keeps its own state and moves only when Confirm is pressed, so each
- * story past Ready presses it once after mount (`Pressed`, below). The confirm
- * calls are stubs that send nothing.
+ * The page keeps its own state and moves only when a number is tapped, so each
+ * story past Ready taps the first one after mount (`Pressed`, below). The
+ * confirm calls are stubs that send nothing. The numbers are fixed examples;
+ * a host reads its own with the link's secret.
  */
 
 const EMAIL = "ada@example.com";
 
 const LONG_EMAIL = "alexandria.whitfield-oduya.newsletters@mail.subdomain.example.com";
+
+const THREE = ["4821", "0730", "1956"];
+
+const FIVE_WIDEST = ["804117", "390265", "117943", "652080", "029318"];
 
 const PURPOSES = [
   "sign-up",
@@ -56,7 +62,7 @@ function failOnceThenConfirm(): () => Promise<ConfirmOutcome> {
   };
 }
 
-/** Presses the page's one button after mount, to show a state past Ready. */
+/** Taps the page's first button, its first number, after mount, to show a state past Ready. */
 function Pressed(props: { children: JSX.Element }) {
   let box: HTMLDivElement | undefined;
   onMount(() => box?.querySelector("button")?.click());
@@ -82,23 +88,44 @@ function state(title: string, intro: JSX.Element, page: () => JSX.Element): Stor
 export const Ready = state(
   "ready",
   <>
-    What the link opens. Nothing is confirmed until Confirm is pressed. Press it: "Confirming…" for
-    600 ms, then "Confirmed". Focus is on the heading.
+    What the link opens: three numbers, one of them the number on the waiting screen. Nothing is
+    confirmed until one is tapped. Tap one: "You picked … Confirming…" for 600 ms, then "Confirmed".
+    Focus is on the heading.
   </>,
   () => (
-    <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={() => answerAfter("confirmed")} />
+    <ConfirmLinkPage
+      purpose="sign-up"
+      email={EMAIL}
+      candidates={THREE}
+      onConfirm={() => answerAfter("confirmed")}
+    />
+  ),
+);
+
+export const ReadyFiveNumbers = state(
+  "ready, five six-digit numbers",
+  <>
+    The most the page offers, at the longest a number can be: five of six digits, one column, in
+    tabular figures.
+  </>,
+  () => (
+    <ConfirmLinkPage
+      purpose="recovery"
+      candidates={FIVE_WIDEST}
+      onConfirm={() => answerAfter("confirmed")}
+    />
   ),
 );
 
 export const Confirming = state(
   "confirming",
   <>
-    A confirm that has not answered. The button is disabled and says so; after 10 seconds a line
-    says the page is still working. Nothing cuts the call short.
+    A confirm that has not answered. Every number is disabled and the page says which was picked;
+    after 10 seconds a line says it is still working. Nothing cuts the call short.
   </>,
   () => (
     <Pressed>
-      <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={never} />
+      <ConfirmLinkPage purpose="sign-up" email={EMAIL} candidates={THREE} onConfirm={never} />
     </Pressed>
   ),
 );
@@ -114,6 +141,7 @@ export const Confirmed = state(
       <ConfirmLinkPage
         purpose="sign-up"
         email={EMAIL}
+        candidates={THREE}
         onConfirm={() => Promise.resolve<ConfirmOutcome>("confirmed")}
       />
     </Pressed>
@@ -131,6 +159,7 @@ export const ConfirmedWithContinue = state(
       <ConfirmLinkPage
         purpose="sign-up"
         email={EMAIL}
+        candidates={THREE}
         onConfirm={() => Promise.resolve<ConfirmOutcome>("confirmed")}
         onContinue={() => {}}
       />
@@ -141,14 +170,15 @@ export const ConfirmedWithContinue = state(
 export const Expired = state(
   "expired",
   <>
-    The link was unknown, used or out of date; the answer does not say which. No button: the way on
-    is where the person started.
+    Every refusal reads the same: a link unknown, used or out of date, a number that was not the one
+    shown, or a list the page cannot offer. No button: the way on is where the person started.
   </>,
   () => (
     <Pressed>
       <ConfirmLinkPage
         purpose="sign-up"
         email={EMAIL}
+        candidates={THREE}
         onConfirm={() => Promise.resolve<ConfirmOutcome>("expired")}
       />
     </Pressed>
@@ -158,14 +188,15 @@ export const Expired = state(
 export const ErrorRetry = state(
   "error, try again",
   <>
-    The confirm call threw. A fixed line in a danger <Mono>Notice</Mono>, never the error's own
-    text, and Try again. Press it: this time it confirms after 600 ms.
+    The confirm call threw. The numbers stay, disabled, with the one picked; a fixed line in a
+    danger <Mono>Notice</Mono>, never the error's own text; and Try again, which sends the same
+    number. Press it: this time it confirms after 600 ms.
   </>,
   () => {
     const onConfirm = failOnceThenConfirm();
     return (
       <Pressed>
-        <ConfirmLinkPage purpose="sign-up" email={EMAIL} onConfirm={onConfirm} />
+        <ConfirmLinkPage purpose="sign-up" email={EMAIL} candidates={THREE} onConfirm={onConfirm} />
       </Pressed>
     );
   },
@@ -182,7 +213,7 @@ export const EveryPurpose: Story = {
   render: () => (
     <Gallery
       title="osn/auth-ui ConfirmLinkPage — every flow"
-      intro={<>Each flow before the press, and after it confirms on another device.</>}
+      intro={<>Each flow before the tap, and after it confirms on another device.</>}
     >
       <div class="flex flex-col gap-8">
         <For each={FLOWS}>
@@ -191,13 +222,19 @@ export const EveryPurpose: Story = {
               <Eyebrow>{flow.note}</Eyebrow>
               <div class="flex flex-wrap items-start gap-6">
                 <Column>
-                  <ConfirmLinkPage purpose={flow.purpose} email={flow.email} onConfirm={never} />
+                  <ConfirmLinkPage
+                    purpose={flow.purpose}
+                    email={flow.email}
+                    candidates={THREE}
+                    onConfirm={never}
+                  />
                 </Column>
                 <Column>
                   <Pressed>
                     <ConfirmLinkPage
                       purpose={flow.purpose}
                       email={flow.email}
+                      candidates={THREE}
                       onConfirm={() => Promise.resolve<ConfirmOutcome>("confirmed")}
                     />
                   </Pressed>
@@ -219,12 +256,18 @@ export const Phone: Story = {
   layout: "fullscreen",
   render: () => (
     <div class="flex w-80 flex-col gap-6 px-6 py-10">
-      <ConfirmLinkPage purpose="sign-up" email={LONG_EMAIL} onConfirm={never} />
-      <ConfirmLinkPage purpose="step-up" onConfirm={never} />
+      <ConfirmLinkPage
+        purpose="sign-up"
+        email={LONG_EMAIL}
+        candidates={FIVE_WIDEST}
+        onConfirm={never}
+      />
+      <ConfirmLinkPage purpose="step-up" candidates={THREE} onConfirm={never} />
       <Pressed>
         <ConfirmLinkPage
           purpose="email-change"
           email={LONG_EMAIL}
+          candidates={FIVE_WIDEST}
           onConfirm={() => Promise.reject(new Error("story stub"))}
         />
       </Pressed>
@@ -234,31 +277,53 @@ export const Phone: Story = {
 
 const ANSWERS = ["confirmed", "expired", "throws", "never"] as const;
 
+const LISTS = {
+  "three of four digits": THREE,
+  "four of two digits": ["47", "08", "93", "61"],
+  "five of six digits": FIVE_WIDEST,
+  "two numbers (cannot offer)": ["47", "08"],
+  "a number twice (cannot offer)": ["47", "08", "47"],
+} as const satisfies Record<string, readonly string[]>;
+
+const LIST_NAMES = Object.keys(LISTS) as (keyof typeof LISTS)[];
+
 interface PlaygroundArgs extends StoryArgs {
   purpose: ConfirmLinkPurpose;
   email: string;
+  numbers: keyof typeof LISTS;
   answer: (typeof ANSWERS)[number];
   continueHere: boolean;
 }
 
 /**
- * A change to the answer or to "continue here" starts a fresh page, ready to
- * press; a change to the flow or the address does not, so typing an address
- * keeps its focus. Clear the address to see the wording with none.
+ * A change to the numbers, the answer or "continue here" starts a fresh page,
+ * ready to tap; a change to the flow or the address does not, so typing an
+ * address keeps its focus. Clear the address to see the wording with none.
  */
 export const Playground: Story<PlaygroundArgs> = {
-  args: { purpose: "sign-up", email: EMAIL, answer: "confirmed", continueHere: false },
+  args: {
+    purpose: "sign-up",
+    email: EMAIL,
+    numbers: "three of four digits",
+    answer: "confirmed",
+    continueHere: false,
+  },
   controls: {
     purpose: { kind: "select", options: PURPOSES },
+    numbers: { kind: "select", options: LIST_NAMES },
     answer: { kind: "select", options: ANSWERS },
   },
   render: (args) => (
     <Column>
-      <Show when={{ answer: args.answer, continueHere: args.continueHere }} keyed>
+      <Show
+        when={{ numbers: args.numbers, answer: args.answer, continueHere: args.continueHere }}
+        keyed
+      >
         {(key) => (
           <ConfirmLinkPage
             purpose={args.purpose}
             email={args.email || undefined}
+            candidates={LISTS[key.numbers]}
             onConfirm={() => {
               if (key.answer === "throws") return failAfter();
               if (key.answer === "never") return never();
