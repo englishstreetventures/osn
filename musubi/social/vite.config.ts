@@ -151,7 +151,7 @@ export default defineConfig(async () => ({
         // pulling in `startRegistration`, which only `SecuritySection` (opened
         // rarely) needs. Splitting on the underlying method files forces
         // Rollup to place each method's compiled body in its own chunk.
-        manualChunks(id) {
+        manualChunks(id: string) {
           if (id.includes("@simplewebauthn/browser/esm/methods/startAuthentication")) {
             return "webauthn-authentication";
           }
