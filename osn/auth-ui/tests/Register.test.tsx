@@ -510,6 +510,62 @@ describe("Register component", () => {
       expect(stub.registrationStatus.mock.calls.length).toBeGreaterThan(calls);
     });
 
+    it("says no new link went when the Resend call fails, and keeps polling", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink.mockRejectedValueOnce(new Error("Failed to fetch"));
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() =>
+        expect(screen.getByText(/We couldn't send a new link just now/)).toBeTruthy(),
+      );
+      expect(screen.queryByText(/We sent a new link/)).toBeNull();
+      expect(screen.queryByText(/Your link has expired/)).toBeNull();
+      const calls = stub.registrationStatus.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(stub.registrationStatus.mock.calls.length).toBeGreaterThan(calls);
+    });
+
+    it("shows the expired view, stops polling and clears the stored wait when Resend answers expired", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "pending" });
+      stub.resendRegistrationLink.mockResolvedValueOnce({ status: "expired" });
+      renderRegister();
+      await submitDetailsAs();
+      expect(sessionStorage.getItem("osn.signup.pending")).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(30_000);
+      fireEvent.click(await screen.findByRole("button", { name: /^Resend link$/ }));
+      await waitFor(() => expect(screen.getByText(/Your link has expired/)).toBeTruthy());
+      expect(sessionStorage.getItem("osn.signup.pending")).toBeNull();
+      const calls = stub.registrationStatus.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(stub.registrationStatus.mock.calls.length).toBe(calls);
+    });
+
+    it("keeps the wait in memory when session storage refuses to write", async () => {
+      const setItem = vi.spyOn(sessionStorage, "setItem").mockImplementation(() => {
+        throw new DOMException("quota", "QuotaExceededError");
+      });
+      try {
+        stub.beginRegistration.mockResolvedValue(begun());
+        stub.registrationStatus.mockResolvedValue({ status: "pending" });
+        renderRegister();
+        await submitDetailsAs();
+        expect(setItem).toHaveBeenCalled();
+        expect(screen.getByText(/Check your email/)).toBeTruthy();
+        expect(screen.queryByText(/could(n't| not)/i)).toBeNull();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(stub.registrationStatus).toHaveBeenCalledWith({
+          requestId: begun().requestId,
+          claimSecret: begun().claimSecret,
+        });
+      } finally {
+        setItem.mockRestore();
+      }
+    });
+
     it("stops waiting on 'Use a different email' and retires that request on the next begin", async () => {
       stub.beginRegistration.mockResolvedValueOnce(begun(1)).mockResolvedValueOnce(begun(2));
       stub.registrationStatus.mockResolvedValue({ status: "pending" });
