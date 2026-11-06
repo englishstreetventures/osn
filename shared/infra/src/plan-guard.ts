@@ -6,6 +6,7 @@ import {
   PRODUCTION_HOSTS,
   PRODUCTION_SITE_MODES,
   PRODUCTION_STAGING_HOSTS,
+  productionHost,
   RETIRED_STAGING_HOSTS,
   SITE_SURFACES,
   siteDomain,
@@ -190,8 +191,12 @@ export interface GuardInput {
   /** Every logical id the stack may declare on production, with its kind. */
   readonly kinds: Readonly<Record<string, ResourceKind>>;
   readonly adoptions?: readonly string[];
-  /** In a flip release, the one resource whose update moves a domain. */
+  /** In a flip release, the logical id of the site Worker whose update moves its domain. */
   readonly flip?: string;
+  /** The stack's sites, each by its logical id: the Workers a flip release may update beside the flip. */
+  readonly sites?: Readonly<Partial<Record<SiteSurface, string>>>;
+  /** Each site's custom-domain change, as `domainChanges` read them. */
+  readonly domains?: DomainReading;
 }
 
 /**
@@ -224,7 +229,7 @@ export function planTextFaults(plan: ParsedPlan): string[] {
  * plan text the guard cannot read or whose lines disagree with its counts,
  * a resource the stack does not declare on production, an adoption while
  * PRODUCTION_ADOPTIONS is empty, a protected kind replaced, deleted or
- * orphaned, and in a flip release anything but the flip's own update.
+ * orphaned, and in a flip release whatever `flipRefusals` refuses.
  */
 export function guardPlan(input: GuardInput): string[] {
   const { plan, kinds } = input;
@@ -248,21 +253,57 @@ export function guardPlan(input: GuardInput): string[] {
       );
     }
   }
-  if (input.flip !== undefined) refusals.push(...flipRefusals(plan, input.flip));
+  if (input.flip !== undefined) refusals.push(...flipRefusals(input, input.flip));
   return refusals;
 }
 
-/** A flip release changes one thing: the flip's own update. */
-function flipRefusals(plan: ParsedPlan, flip: string): string[] {
+const hostList = (hosts: readonly string[]) => (hosts.length === 0 ? "nothing" : hosts.join(", "));
+
+/**
+ * A flip release moves one site's domain. The flip site's Worker updates and
+ * gains its production host. The stack's other site Workers deploy with it,
+ * and since each build bakes the release commit they may update too, but
+ * only with their custom domains read and unchanged. Nothing else changes:
+ * no other resource, no create, delete, replace, adoption or orphaning, and
+ * no binding. Told nothing of the stack's sites or their domains, the guard
+ * allows none of that.
+ */
+function flipRefusals(input: GuardInput, flip: string): string[] {
+  const { plan, domains } = input;
+  const sites = input.sites ?? {};
   const refusals: string[] = [];
+  const siteOf = (fqn: string): SiteSurface | undefined =>
+    SITE_SURFACES.find((site) => sites[site] === fqn);
+  const flipSite = siteOf(flip);
   const own = plan.resources.find((resource) => resource.fqn === flip);
   if (own?.action !== "update") refusals.push(`a flip release must update ${flip}`);
+  if (flipSite === undefined) {
+    refusals.push(`a flip release must attach ${flip}'s production host, and no site names it`);
+  } else {
+    const host = productionHost(flipSite);
+    const moves = domains?.changes.find((change) => change.site === flipSite);
+    if (moves?.added.includes(host) !== true) {
+      refusals.push(`a flip release must attach ${host} to ${flip}`);
+    }
+  }
   for (const resource of plan.resources) {
-    if (resource.fqn !== flip && resource.action !== "noop") {
+    if (resource.fqn === flip || resource.action === "noop") continue;
+    const site = siteOf(resource.fqn);
+    if (resource.action !== "update" || site === undefined) {
       refusals.push(
         `a flip release changes only ${flip}, and ${resource.fqn} would ${resource.action === "adopted" ? "be adopted" : resource.action}`,
       );
+    } else if (domains?.read.includes(site) !== true) {
+      refusals.push(
+        `a flip release updates ${resource.fqn} beside ${flip} only when ${site}'s custom domains were read`,
+      );
     }
+  }
+  for (const change of domains?.changes ?? []) {
+    if (flipSite !== undefined && change.site === flipSite) continue;
+    refusals.push(
+      `a flip release moves only ${flip}'s domain, and ${change.site}'s Worker would gain ${hostList(change.added)} and give up ${hostList(change.removed)}`,
+    );
   }
   if (plan.bindings.some((binding) => binding.action !== "noop")) {
     refusals.push("a flip release changes no binding");
@@ -282,10 +323,12 @@ export interface DomainChange {
   readonly removed: readonly string[];
 }
 
-/** What `domainChanges` found: each site's change, and each site it could not read. */
+/** What `domainChanges` found: each site's change, each site it could not read, and each it read. */
 export interface DomainReading {
   readonly changes: readonly DomainChange[];
   readonly problems: readonly string[];
+  /** The sites whose live hosts were read, by site. */
+  readonly read: readonly SiteSurface[];
 }
 
 /** The hosts `live` lists for `site`, or undefined unless it lists them as strings. */
@@ -301,7 +344,7 @@ function heldBy(live: unknown, site: SiteSurface): readonly string[] | undefined
  * Each site's change, from the hosts its Worker holds now (`live`, as
  * `worker-deployments.ts domains` read them) and the one its mode declares;
  * only sites with a change, by site. `problems` names a site whose live
- * hosts were not read.
+ * hosts were not read, and `read` each site whose hosts were.
  */
 export function domainChanges(input: {
   readonly sites: readonly SiteSurface[];
@@ -310,19 +353,21 @@ export function domainChanges(input: {
 }): DomainReading {
   const changes: DomainChange[] = [];
   const problems: string[] = [];
+  const read: SiteSurface[] = [];
   for (const site of [...input.sites].toSorted()) {
     const held = heldBy(input.live, site);
     if (held === undefined) {
       problems.push(`the hosts ${site}'s Worker holds now were not read`);
       continue;
     }
+    read.push(site);
     const declared = siteDomain(site, input.modes[site]);
     const wanted = declared === null ? [] : [declared];
     const added = wanted.filter((host) => !held.includes(host));
     const removed = [...new Set(held)].filter((host) => !wanted.includes(host)).toSorted();
     if (added.length > 0 || removed.length > 0) changes.push({ site, added, removed });
   }
-  return { changes, problems };
+  return { changes, problems, read };
 }
 
 /**
@@ -516,6 +561,9 @@ export function runPlanGuardCli(input: PlanGuardCliInput): number {
     );
   }
   const unflip = unflipSurface === "" ? undefined : (unflipSurface as SiteSurface);
+  if (flip !== undefined && unflip !== undefined) {
+    return usage("a release moves a domain one way: pass --flip or --unflip, never both");
+  }
   let text = "";
   try {
     text = readFileSync(log, "utf8");
@@ -533,7 +581,14 @@ export function runPlanGuardCli(input: PlanGuardCliInput): number {
   const domains = domainChanges({ sites, modes, live });
   const plan = parsePlan(text);
   const refusals = [
-    ...guardPlan({ plan, kinds: input.kinds, adoptions: input.adoptions, flip }),
+    ...guardPlan({
+      plan,
+      kinds: input.kinds,
+      adoptions: input.adoptions,
+      flip,
+      sites: input.sites,
+      domains,
+    }),
     ...domains.problems,
     ...domainRefusals(domains.changes, unflip),
   ];
