@@ -9,9 +9,11 @@
  */
 
 import { makeLogEmailLive } from "@shared/email";
+import type { TurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
 import {
   EMAIL_LINK_PAIRING_CANDIDATES,
@@ -19,6 +21,7 @@ import {
   REGISTRATION_LINK_LOCKOUT_THRESHOLD,
 } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 import {
   beginThroughRoutes,
@@ -503,6 +506,47 @@ describe("input the routes refuse", () => {
     );
     expect(await confirmed.json()).toEqual({ status: "confirmed" });
   });
+
+  it.each([
+    ["a request id of the wrong shape", { requestId: "signup_zz", claimSecret: "a".repeat(64) }],
+    ["another flow's prefix", { requestId: "recover_0123456789ab", claimSecret: "a".repeat(64) }],
+    [
+      "a 63-character claim secret",
+      { requestId: "signup_0123456789ab", claimSecret: SHORT_SECRET },
+    ],
+  ])(
+    "refuses begin's `previous` with %s before Turnstile and before any store call",
+    async (_, previous) => {
+      const fake = createFakeNamespace();
+      const stores = createDurableCoordination(fake.ns, () => {});
+      const turnstileCalls: unknown[] = [];
+      const verifier: TurnstileVerifier = {
+        async verify(token) {
+          turnstileCalls.push(token);
+          return { ok: true, errorCodes: [] };
+        },
+      };
+      const app = createAuthRoutes(
+        { ...config, ceremonyStores: stores.ceremonyStores },
+        Layer.merge(createTestLayer(), makeLogEmailLive().layer),
+        Layer.empty,
+        undefined,
+        { secure: false },
+        undefined,
+        undefined,
+        verifier,
+      );
+      const { res } = await beginThroughRoutes(app, {
+        email: "bad-previous@example.com",
+        handle: "badprevious",
+        previous,
+        turnstileToken: "good",
+      });
+      expectRefused(res);
+      expect(turnstileCalls).toEqual([]);
+      expect(fake.calls).toEqual([]);
+    },
+  );
 
   it("refuses a pick that is not two digits or `none`, with no strike, and the right pick still confirms", async () => {
     const h = harness();

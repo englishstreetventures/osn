@@ -113,11 +113,13 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
             turnstileToken: t.Optional(t.String()),
             // A sign-up this tab began before and is replacing (the person
             // went back to change a field). Retired only for the holder of its
-            // claim secret.
+            // claim secret. Held to the same patterns as the status and resend
+            // routes, so a malformed pair is refused before Turnstile and
+            // before any store call.
             previous: t.Optional(
               t.Object({
-                requestId: t.String({ maxLength: 64 }),
-                claimSecret: t.String({ maxLength: 64 }),
+                requestId: t.String({ pattern: emailLinkIdPattern("registration") }),
+                claimSecret: t.String({ pattern: EMAIL_LINK_SECRET_PATTERN }),
               }),
             ),
           }),

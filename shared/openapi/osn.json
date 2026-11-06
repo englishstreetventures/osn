@@ -11271,11 +11271,11 @@
                   "previous": {
                     "properties": {
                       "claimSecret": {
-                        "maxLength": 64,
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "requestId": {
-                        "maxLength": 64,
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
                         "type": "string"
                       }
                     },
@@ -11315,11 +11315,11 @@
                   "previous": {
                     "properties": {
                       "claimSecret": {
-                        "maxLength": 64,
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "requestId": {
-                        "maxLength": 64,
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
                         "type": "string"
                       }
                     },
@@ -11359,11 +11359,11 @@
                   "previous": {
                     "properties": {
                       "claimSecret": {
-                        "maxLength": 64,
+                        "pattern": "^[a-f0-9]{64}$",
                         "type": "string"
                       },
                       "requestId": {
-                        "maxLength": 64,
+                        "pattern": "^(?:signup)_[a-f0-9]{12}$",
                         "type": "string"
                       }
                     },

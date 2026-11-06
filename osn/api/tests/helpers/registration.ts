@@ -74,6 +74,7 @@ export async function beginThroughRoutes(
     birthdate?: string;
     displayName?: string;
     previous?: { requestId: string; claimSecret: string };
+    turnstileToken?: string;
   },
   headers: Record<string, string> = {},
 ): Promise<{ res: Response; body: BegunSignUp }> {
