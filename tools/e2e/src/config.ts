@@ -8,6 +8,8 @@
 
 import { resolve } from "node:path";
 
+import type { ApiMount } from "./record";
+
 /** Repository root, from `tools/e2e/src/`. */
 export const REPO_ROOT = resolve(import.meta.dirname, "../../..");
 
@@ -116,6 +118,14 @@ export const API_LABELS = {
 } satisfies Record<string, string>;
 
 /**
+ * Pulse web mounts pulse-api under `/api` (`pulse/web/src/lib/api-proxy.ts`):
+ * `/api/auth/*` unchanged, `/api/<rest>` as `/<rest>`.
+ */
+export const API_MOUNTS = {
+  [ORIGINS.pulseWeb]: { label: "pulse-api", prefix: "/api", keep: ["/api/auth/"] },
+} satisfies Record<string, ApiMount>;
+
+/**
  * The keepalive a realtime socket sends and the hub answers, and how often the
  * socket sends it (`PING`, `PONG` and `PING_INTERVAL_MS` in `@shared/realtime`),
  * which the `flow` fixture's hub stand-in speaks. Written out for Node, as
@@ -141,12 +151,15 @@ export const INTERNAL_SERVICE_SECRET = "e2e-internal-service-secret-not-a-real-s
  */
 export const CIRE_INTERNAL_REVOKE_SECRET = "e2e-cire-internal-revoke-secret-not-a-real-secret";
 
-/** The Pulse relying party the seed registers with osn-api. */
+/**
+ * The Pulse relying party the seed registers with osn-api. Its callback is on
+ * the web origin, which mounts pulse-api under `/api`.
+ */
 export const PULSE_OIDC = {
   rowId: "oc_pulse_e2e",
   clientId: "cid_pulse_e2e",
   secret: "e2e-pulse-client-secret-not-a-real-secret",
-  redirectUri: `${ORIGINS.pulseApi}/api/auth/oidc/callback`,
+  redirectUri: `${ORIGINS.pulseWeb}/api/auth/oidc/callback`,
 } as const;
 
 /**

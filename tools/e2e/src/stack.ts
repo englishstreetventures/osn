@@ -155,7 +155,9 @@ export function appSpecs(): AppSpec[] {
         OSN_API_URL: ORIGINS.osnApi,
         OSN_ISSUER_URL: ORIGINS.osnApi,
         OSN_JWKS_URL: `${ORIGINS.osnApi}/.well-known/jwks.json`,
-        PULSE_API_ORIGIN: ORIGINS.pulseApi,
+        // The web origin: browsers reach pulse-api through its `/api` mount,
+        // so the OIDC callback, and the session cookie it sets, are its.
+        PULSE_API_ORIGIN: ORIGINS.pulseWeb,
         PULSE_CORS_ORIGIN: ORIGINS.pulseWeb,
         PULSE_LOGIN_URL: ORIGINS.pulseWeb,
         OSN_OIDC_CLIENT_ID: PULSE_OIDC.clientId,
@@ -227,7 +229,8 @@ export function appSpecs(): AppSpec[] {
       readyUrl: `${ORIGINS.pulseWeb}/`,
       env: {
         PORT: String(PORTS.pulseWeb),
-        VITE_API_URL: ORIGINS.pulseApi,
+        // Where the rendering server and the `/api` mount reach pulse-api.
+        PULSE_API_INTERNAL_URL: ORIGINS.pulseApi,
         VITE_OSN_ISSUER_URL: ORIGINS.osnApi,
       },
     },

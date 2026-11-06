@@ -44,9 +44,17 @@ describe("appSpecs", () => {
   test("every frontend is told its API origin, so no .env file can redirect it", () => {
     const byName = Object.fromEntries(appSpecs().map((s) => [s.name, s.env]));
     expect(byName["musubi"]?.["VITE_OSN_ISSUER_URL"]).toBe("http://localhost:4000");
-    expect(byName["pulseWeb"]?.["VITE_API_URL"]).toBe("http://localhost:3001");
+    // Pulse web's server reaches pulse-api directly; its browser pages go
+    // through the web origin's own `/api` mount.
+    expect(byName["pulseWeb"]?.["PULSE_API_INTERNAL_URL"]).toBe("http://localhost:3001");
+    expect(byName["pulseWeb"]).not.toHaveProperty("VITE_API_URL");
     expect(byName["cireInvites"]?.["PUBLIC_API_URL"]).toBe("http://localhost:8787");
     expect(byName["cireHost"]?.["PUBLIC_CIRE_API_URL"]).toBe("http://localhost:8787");
+  });
+
+  test("pulse-api builds its redirect URI on the web origin that mounts it", () => {
+    const pulseApi = appSpecs().find((s) => s.name === "pulseApi");
+    expect(pulseApi?.env["PULSE_API_ORIGIN"]).toBe("http://localhost:1420");
   });
 
   test("osn-api comes up before pulse-api, which registers its key with it at boot", () => {

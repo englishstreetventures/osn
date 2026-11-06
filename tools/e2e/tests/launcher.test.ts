@@ -33,6 +33,14 @@ describe("clockReaches", () => {
     expect(nodeFailures.some((f) => f.startsWith("node: Date() is"))).toBe(true);
     expect(nodeFailures.some((f) => f.startsWith("node: Date.now() is"))).toBe(false);
   });
+
+  test("sees a clock whose dates do not name the global Date as their constructor", () => {
+    const env = baseEnv(process.env, Date.now());
+    env["NODE_OPTIONS"] =
+      `--import ${resolve(import.meta.dirname, "support/foreign-constructor-clock.mjs")}`;
+    const nodeFailures = clockReaches(env).filter((f) => f.startsWith("node:"));
+    expect(nodeFailures).toEqual(["node: new Date().constructor is not the global Date"]);
+  });
 });
 
 describe("prepareRun", () => {

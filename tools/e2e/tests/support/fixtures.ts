@@ -6,9 +6,10 @@
  * and attaches the record the results reporter writes into `results.json`.
  * In each context it records, it stands in for cire's realtime hub, which the
  * stack does not run (`standInForCireHub`). Flows touch the stack only through
- * the browser, the API request context and the read-only helpers here. The one
- * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
- * not part of the stack.
+ * the browser, the API request context and the read-only helpers here. Two
+ * helpers write: `refuseNextMailTo`, to the mail stand-in, which is not part of
+ * the stack, and `setPulseSessionExpiry`, which moves a Pulse session's expiry,
+ * the one state the suite clock cannot reach.
  */
 
 import { mkdirSync, readFileSync } from "node:fs";
@@ -27,6 +28,7 @@ import {
 
 import {
   API_LABELS,
+  API_MOUNTS,
   BIRTHDATE,
   CIRE_GIFT_LIST,
   CIRE_ORGANISER,
@@ -137,7 +139,13 @@ export const test = base.extend<{ flow: Flow; envelope: boolean }>({
       if (!envelope) await ctx.addInitScript(NO_HTML_IN_CANVAS);
       ctx.on("response", (response) => {
         const request = response.request();
-        const line = requestLine(request.method(), request.url(), response.status(), API_LABELS);
+        const line = requestLine(
+          request.method(),
+          request.url(),
+          response.status(),
+          API_LABELS,
+          API_MOUNTS,
+        );
         if (line) lines.push(line);
       });
       await standInForCireHub(ctx, hub);
@@ -167,7 +175,7 @@ export const test = base.extend<{ flow: Flow; envelope: boolean }>({
         return lines.filter((recorded) => recorded.startsWith(prefix)).length;
       },
       recordRequest(method, url, status) {
-        const line = requestLine(method, url, status, API_LABELS);
+        const line = requestLine(method, url, status, API_LABELS, API_MOUNTS);
         if (line) lines.push(line);
       },
       realtimeTopics() {
@@ -350,6 +358,24 @@ export async function addVirtualAuthenticator(page: Page): Promise<{
       return credentials;
     },
   };
+}
+
+/**
+ * Sets the expiry (unix seconds) of every Pulse web session held by `handle`,
+ * and returns how many rows it changed. Ages a session for the expired-cookie
+ * refusal: the stack runs on the suite clock, which only moves forward in
+ * real time, so no flow can outlive a session's week.
+ */
+export function setPulseSessionExpiry(handle: string, expiresAt: number): number {
+  const db = new DatabaseSync(DB_FILES.pulse, { timeout: 5_000 });
+  try {
+    const result = db
+      .prepare("UPDATE pulse_web_sessions SET expires_at = ? WHERE handle = ?")
+      .run(expiresAt, handle);
+    return Number(result.changes);
+  } finally {
+    db.close();
+  }
 }
 
 /** One row from a stack database, opened read-only for this query alone. */
@@ -574,7 +600,21 @@ function organiserSessions(): number {
   return row?.n ?? 0;
 }
 
-/** Signs in to Pulse through OSN and finishes Pulse's first-run onboarding. */
+/**
+ * Waits until a page Pulse web rendered on the server has hydrated (its
+ * layout marks `<html data-hydrated>`). Before that its controls are markup
+ * without handlers, and a press on one is lost.
+ */
+export async function untilPulseHydrated(page: Page): Promise<void> {
+  await expect(page.locator("html[data-hydrated]")).toHaveCount(1);
+}
+
+/**
+ * Signs in to Pulse through OSN and finishes Pulse's first-run onboarding.
+ *
+ * Pulse web mounts pulse-api under `/api`, so the OIDC legs run on the web
+ * origin and the callback sets `pulse_web_session` there, host-only.
+ */
 export async function signInToPulse(flow: Flow, page: Page, who: string): Promise<void> {
   const authorizePages: string[] = [];
   page.on("framenavigated", (frame) => {
@@ -583,9 +623,17 @@ export async function signInToPulse(flow: Flow, page: Page, who: string): Promis
     }
   });
 
-  await flow.step(`${who}: sign in to Pulse with Musubi`, async () => {
+  const setCookies = await flow.step(`${who}: sign in to Pulse with Musubi`, async () => {
     await page.goto(ORIGINS.pulseWeb);
+    await untilPulseHydrated(page);
+    const callback = page.waitForResponse((response) =>
+      response.url().startsWith(`${ORIGINS.pulseWeb}/api/auth/oidc/callback`),
+    );
     await page.getByRole("button", { name: "Continue with musubi" }).click();
+    const headers = await (await callback).headersArray();
+    return headers
+      .filter((header) => header.name.toLowerCase() === "set-cookie")
+      .map((header) => header.value);
   });
 
   await flow.step(`${who}: finish onboarding`, async () => {
@@ -598,7 +646,17 @@ export async function signInToPulse(flow: Flow, page: Page, who: string): Promis
   // The consent screen is the only thing that reads the context, so a
   // first-party sign-in that never shows it makes no such read.
   flow.check(`${who}: /authorize/context reads`, 0, flow.count("GET osn-api /authorize/context "));
-  const cookie = await cookieNamed(page.context(), ORIGINS.pulseApi, "pulse_web_session");
+  flow.check(
+    `${who}: the web origin's callback sets pulse_web_session`,
+    true,
+    setCookies.some((line) => line.startsWith("pulse_web_session=")),
+  );
+  flow.check(
+    `${who}: callback cookies that carry Domain=`,
+    0,
+    setCookies.filter((line) => /;\s*domain=/i.test(line)).length,
+  );
+  const cookie = await cookieNamed(page.context(), ORIGINS.pulseWeb, "pulse_web_session");
   flow.check(`${who}: pulse_web_session set by pulse-api`, true, cookie !== undefined);
   flow.check(`${who}: pulse_web_session is HttpOnly`, true, cookie?.httpOnly ?? false);
 }

@@ -9,7 +9,11 @@
  * same way whenever the suite runs.
  *
  * A `Proxy` over the native constructor, not a subclass: dates created anywhere
- * keep the native prototype, so `instanceof Date` holds for all of them.
+ * keep the native prototype, so `instanceof Date` holds for all of them. That
+ * prototype's `constructor` is pointed at the proxy, so `date.constructor ===
+ * Date` holds too, as it does with no clock: a serialiser that matches a value
+ * by its constructor (seroval, which writes Pulse web's server-rendered data
+ * into the page) otherwise refuses every date.
  * Plain JavaScript because it loads into both runtimes: `BUN_OPTIONS="--preload …"`
  * for the APIs, and `NODE_OPTIONS="--import …"` for Vite and Astro, whose SSR
  * renders the cire invite's open-or-closed state from this clock. A process
@@ -24,7 +28,7 @@ if (Number.isFinite(t0) && Number.isFinite(r0)) {
   const nativeNow = NativeDate.now.bind(NativeDate);
   const now = () => t0 + (nativeNow() - r0);
 
-  globalThis.Date = new Proxy(NativeDate, {
+  const SuiteDate = new Proxy(NativeDate, {
     construct(target, args, newTarget) {
       const resolved = args.length === 0 ? [now()] : args;
       return Reflect.construct(target, resolved, newTarget);
@@ -36,4 +40,10 @@ if (Number.isFinite(t0) && Number.isFinite(r0)) {
       return prop === "now" ? now : target[prop];
     },
   });
+  Object.defineProperty(NativeDate.prototype, "constructor", {
+    value: SuiteDate,
+    writable: true,
+    configurable: true,
+  });
+  globalThis.Date = SuiteDate;
 }

@@ -30,7 +30,8 @@ describe("seedOsn", () => {
       redirect_uris: JSON.stringify([PULSE_OIDC.redirectUri]),
       client_secret_hash: createHash("sha256").update(PULSE_OIDC.secret).digest("hex"),
       is_first_party: 1,
-      sector_identifier: "localhost:3001",
+      // The callback's host: the web origin, where pulse-api is mounted.
+      sector_identifier: "localhost:1420",
     });
   });
 

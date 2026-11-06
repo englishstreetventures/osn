@@ -52,14 +52,16 @@ const say = (line: string): void => {
 
 /**
  * What a child reports about its clock: `Date.now()`, `new Date()`, `Date()`,
- * whether `new Date()` is still a `Date`, and whether an explicit date is left
- * alone. One line per trap in `clock.mjs`.
+ * whether `new Date()` is still a `Date` and names the global `Date` as its
+ * constructor, and whether an explicit date is left alone. One line per trap
+ * in `clock.mjs`.
  */
 const CLOCK_PROBE = [
   "const d = new Date();",
   "process.stdout.write(JSON.stringify({",
   "now: Date.now(), constructed: d.getTime(), called: Date.parse(Date()),",
-  "isDate: d instanceof Date, explicit: new Date(0).getTime() }));",
+  "isDate: d instanceof Date, ownConstructor: d.constructor === Date,",
+  "explicit: new Date(0).getTime() }));",
 ].join(" ");
 
 interface ClockReport {
@@ -67,6 +69,7 @@ interface ClockReport {
   readonly constructed: number;
   readonly called: number;
   readonly isDate: boolean;
+  readonly ownConstructor: boolean;
   readonly explicit: number;
 }
 
@@ -100,6 +103,11 @@ export function clockReaches(env: Record<string, string>): string[] {
     // `Date()` has whole-second resolution.
     if (!onSuiteClock(report.called)) failures.push(`${runtime}: Date() is ${report.called}`);
     if (!report.isDate) failures.push(`${runtime}: new Date() is not instanceof Date`);
+    // A serialiser that matches by `value.constructor` refuses any date
+    // otherwise: seroval, which writes Pulse web's server data into its pages.
+    if (!report.ownConstructor) {
+      failures.push(`${runtime}: new Date().constructor is not the global Date`);
+    }
     if (report.explicit !== 0) failures.push(`${runtime}: new Date(0) is ${report.explicit}`);
   }
   return failures;

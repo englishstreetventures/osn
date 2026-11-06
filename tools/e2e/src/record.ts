@@ -33,6 +33,19 @@ export type FlowRecord = {
   readonly assertions: readonly Assertion[];
 };
 
+/**
+ * An API reached under a path prefix on a web origin, recorded as if it were
+ * called directly: under its own label, at the path the API serves. Paths
+ * that start with an entry of `keep` reach the API as they are; every other
+ * path under the prefix loses the prefix. Nothing else on the web origin is
+ * recorded.
+ */
+export type ApiMount = {
+  readonly label: string;
+  readonly prefix: string;
+  readonly keep: readonly string[];
+};
+
 export type Results = {
   readonly suite: "e2e";
   readonly clock: string;
@@ -59,21 +72,37 @@ export function normalisePath(pathname: string): string {
     .join("/");
 }
 
+/** The API's own path for a path on the web origin, or null when it is not under the mount. */
+function mountedPath(mount: ApiMount, pathname: string): string | null {
+  if (!pathname.startsWith(`${mount.prefix}/`)) return null;
+  if (mount.keep.some((kept) => pathname.startsWith(kept))) return pathname;
+  const path = pathname.slice(mount.prefix.length);
+  return path === "/" ? null : path;
+}
+
 /**
  * One request as the record keeps it, or null when it is not an API call the
- * suite watches (a page, a Vite module, a font).
+ * suite watches (a page, a Vite module, a font). A call through an API
+ * mounted on a web origin (`apiMounts`) records the same line as a direct
+ * call to that API.
  */
 export function requestLine(
   method: string,
   url: string,
   status: number,
   apiLabels: Readonly<Record<string, string>>,
+  apiMounts: Readonly<Record<string, ApiMount>> = {},
 ): string | null {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     return null;
+  }
+  const mount = Object.hasOwn(apiMounts, parsed.origin) ? apiMounts[parsed.origin] : undefined;
+  if (mount) {
+    const path = mountedPath(mount, parsed.pathname);
+    return path === null ? null : `${method} ${mount.label} ${normalisePath(path)} ${status}`;
   }
   const label = apiLabels[parsed.origin];
   if (!label) return null;

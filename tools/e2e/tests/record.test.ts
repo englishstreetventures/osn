@@ -38,6 +38,49 @@ describe("requestLine", () => {
   });
 });
 
+describe("requestLine through an API mounted on a web origin", () => {
+  const mounts = {
+    "http://localhost:1420": { label: "pulse-api", prefix: "/api", keep: ["/api/auth/"] },
+  };
+
+  test("records a call under the prefix as the API's own path, under the API's label", () => {
+    expect(
+      requestLine(
+        "GET",
+        "http://localhost:1420/api/events/evt_1a2b3c4d5e6f?x=1",
+        200,
+        labels,
+        mounts,
+      ),
+    ).toBe("GET pulse-api /events/:id 200");
+    // The same line a direct call to the API records.
+    expect(requestLine("GET", "http://localhost:3001/events/evt_1a2b3c4d5e6f", 200, labels)).toBe(
+      "GET pulse-api /events/:id 200",
+    );
+  });
+
+  test("keeps the paths the API serves under the prefix itself", () => {
+    expect(
+      requestLine(
+        "GET",
+        "http://localhost:1420/api/auth/oidc/callback?code=c",
+        302,
+        labels,
+        mounts,
+      ),
+    ).toBe("GET pulse-api /api/auth/oidc/callback 302");
+  });
+
+  test("records nothing the web origin serves outside the prefix", () => {
+    for (const path of ["/", "/calendar", "/src/app.tsx", "/api", "/apiary", "/@vite/client"]) {
+      expect(
+        requestLine("GET", `http://localhost:1420${path}`, 200, labels, mounts),
+        path,
+      ).toBeNull();
+    }
+  });
+});
+
 describe("requestSet", () => {
   test("is the same for the same calls in any order or number", () => {
     expect(requestSet(["b", "a", "b"])).toEqual(requestSet(["a", "b"]));

@@ -6,33 +6,54 @@
  * Both people hold an OSN account (registered through osn-api, the subject of
  * the Musubi flow) and sign in to Pulse through OSN's OIDC provider. Pulse is a
  * first-party client, so with a live OSN session the authorization endpoint
- * issues a code straight back to pulse-api: Musubi's `/authorize` page never
- * loads. Pulse's own session cookie comes from pulse-api (`localhost:3001`) and
- * rides on the web app's (`localhost:1420`) credentialed fetches.
+ * issues a code straight back to Pulse: Musubi's `/authorize` page never loads.
  *
- * No Pulse screen writes a status, so the cancel steps go through the API the
- * web app's session cookie authorises, with the web app's Origin, which
- * pulse-api's origin guard requires on a cookie-carrying write.
+ * Pulse web mounts pulse-api under `/api` on its own origin (`localhost:1420`),
+ * so the browser never calls pulse-api's origin (`localhost:3001`), the session
+ * cookie is the web origin's, and the server that renders a page receives it.
+ * The flow reads `/calendar` with JavaScript off, so only what the server
+ * rendered can show: the signed-in user's events with their cookie, and the
+ * signed-out page with no cookie, an unknown one, an expired one, and one whose
+ * session ended by "Log out" or by signing out everywhere.
+ *
+ * No Pulse screen writes a status or signs out everywhere, so those steps go
+ * through the web origin's `/api` with the session cookie, and with the web
+ * app's Origin, which pulse-api's origin guard requires on a cookie-carrying
+ * write. The same write from another site's Origin is refused.
  */
 
-import type { APIRequestContext, APIResponse, BrowserContext } from "@playwright/test";
+import type {
+  APIRequestContext,
+  APIResponse,
+  Browser,
+  BrowserContext,
+  Page,
+} from "@playwright/test";
 
-import { DB_FILES, ORIGINS, PEOPLE } from "../../src/config";
+import { CLOCK_T0, DB_FILES, ORIGINS, PEOPLE } from "../../src/config";
 import {
   expect,
   onSuiteClock,
   queryOne,
   registerThroughApi,
+  setPulseSessionExpiry,
   signInToPulse,
   test,
+  untilPulseHydrated,
   type Flow,
 } from "../support/fixtures";
 
 const EVENT_TITLE = "E2E Launch Party";
 
+/** What `/calendar` says to a visitor the server did not recognise. */
+const SIGNED_OUT_CALENDAR = "Sign in to see the events you're going to.";
+
+type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
+
 /**
- * A write to pulse-api through `request`'s cookie jar, sent with the web app's
- * Origin and recorded like a browser request.
+ * A write to pulse-api through the web origin's `/api` mount, with
+ * `request`'s cookie jar and the web app's Origin unless `origin` says
+ * otherwise, recorded like a browser request.
  */
 async function pulseWrite(
   flow: Flow,
@@ -40,18 +61,62 @@ async function pulseWrite(
   method: "POST" | "PATCH" | "DELETE",
   path: string,
   data?: Record<string, unknown>,
+  origin: string = ORIGINS.pulseWeb,
 ): Promise<APIResponse> {
-  const url = `${ORIGINS.pulseApi}${path}`;
+  const url = `${ORIGINS.pulseWeb}/api${path}`;
   const response = await request.fetch(url, {
     method,
-    headers: { Origin: ORIGINS.pulseWeb },
+    headers: { Origin: origin },
     ...(data === undefined ? {} : { data }),
   });
   flow.recordRequest(method, url, response.status());
   return response;
 }
 
+/** Every request a browser context sends to pulse-api's own origin, which should be none. */
+function watchPulseApiOrigin(context: BrowserContext, sent: string[]): void {
+  context.on("request", (request) => {
+    if (new URL(request.url()).origin === ORIGINS.pulseApi) sent.push(request.url());
+  });
+}
+
+/**
+ * `/calendar` opened with JavaScript off, carrying `storageState`'s cookies
+ * (or `cookie` alone, or none), so the page is only what the server rendered.
+ * Resolves once the page is loaded; the caller checks it, then closes it.
+ */
+async function calendarWithoutJs(
+  flow: Flow,
+  browser: Browser,
+  sentToPulseApi: string[],
+  cookies: { storageState?: StorageState; session?: string } = {},
+): Promise<{ page: Page; headers: Record<string, string>; close: () => Promise<void> }> {
+  const context = await browser.newContext({
+    javaScriptEnabled: false,
+    ...(cookies.storageState ? { storageState: cookies.storageState } : {}),
+  });
+  if (cookies.session !== undefined) {
+    await context.addCookies([
+      { name: "pulse_web_session", value: cookies.session, url: ORIGINS.pulseWeb },
+    ]);
+  }
+  watchPulseApiOrigin(context, sentToPulseApi);
+  const page = await flow.newPage(context);
+  const response = await page.goto(`${ORIGINS.pulseWeb}/calendar`);
+  expect(response?.status(), "/calendar answered").toBe(200);
+  return { page, headers: response?.headers() ?? {}, close: () => context.close() };
+}
+
+/** Checks that a no-JavaScript `/calendar` is the signed-out page and shows no event. */
+async function expectSignedOut(flow: Flow, page: Page, who: string): Promise<void> {
+  await expect(page.getByText(SIGNED_OUT_CALENDAR)).toBeVisible();
+  flow.check(`${who}: event titles on the page`, 0, await page.getByText(EVENT_TITLE).count());
+}
+
 test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
+  const sentToPulseApi: string[] = [];
+  watchPulseApiOrigin(context, sentToPulseApi);
+
   await flow.step("host: create an OSN account", () =>
     registerThroughApi(flow, context.request, PEOPLE.pulseHost),
   );
@@ -65,8 +130,8 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     const created = page.waitForResponse(
       (r) =>
         r.request().method() === "POST" &&
-        r.url().startsWith(ORIGINS.pulseApi) &&
-        /^\/events\/?$/.test(new URL(r.url()).pathname),
+        r.url().startsWith(`${ORIGINS.pulseWeb}/api/`) &&
+        /^\/api\/events\/?$/.test(new URL(r.url()).pathname),
     );
     await page.getByRole("button", { name: "Create", exact: true }).click();
     const response = await created;
@@ -95,6 +160,7 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   // Closed by Playwright at the end of the test, after the fixture has taken
   // the final screenshot of the guest's page and saved this context's trace.
   const guestContext: BrowserContext = await browser.newContext();
+  watchPulseApiOrigin(guestContext, sentToPulseApi);
   const guestPage = await flow.newPage(guestContext);
   flow.finalPage = guestPage;
 
@@ -106,6 +172,7 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   await flow.step("guest: RSVP going", async () => {
     await guestPage.goto(`${ORIGINS.pulseWeb}/events/${eventId}`);
     await expect(guestPage.getByRole("heading", { name: EVENT_TITLE })).toBeVisible();
+    await untilPulseHydrated(guestPage);
     const saved = guestPage.waitForResponse(
       (r) => r.request().method() === "POST" && r.url().endsWith(`/events/${eventId}/rsvps`),
     );
@@ -116,6 +183,92 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   const rsvp = guestRsvp();
   flow.check("event_rsvps row for the guest", "going", rsvp?.status ?? "missing");
   flow.check("event_rsvps row written on the suite clock", true, onSuiteClock(rsvp?.created_at));
+
+  // Each person's cookies as they stand signed in, for the refusals below.
+  const hostState = await context.storageState();
+  const guestState = await guestContext.storageState();
+
+  await flow.step("host: /calendar arrives filled in, without JavaScript", async () => {
+    const visit = await calendarWithoutJs(flow, browser, sentToPulseApi, {
+      storageState: hostState,
+    });
+    await expect(visit.page.getByText(EVENT_TITLE)).toBeVisible();
+    await expect(visit.page.getByText(SIGNED_OUT_CALENDAR)).toHaveCount(0);
+    flow.check(
+      "signed-in page Cache-Control",
+      "private, no-store",
+      visit.headers["cache-control"] ?? "missing",
+    );
+    flow.check(
+      "signed-in page varies on Cookie",
+      true,
+      (visit.headers["vary"] ?? "").toLowerCase().includes("cookie"),
+    );
+    await visit.close();
+  });
+
+  await flow.step("guest: /calendar arrives filled in, without JavaScript", async () => {
+    const visit = await calendarWithoutJs(flow, browser, sentToPulseApi, {
+      storageState: guestState,
+    });
+    await expect(visit.page.getByText(EVENT_TITLE)).toBeVisible();
+    await visit.close();
+  });
+
+  await flow.step("guest: an expired session renders /calendar signed out", async () => {
+    const live = queryOne<{ expires_at: number }>(
+      DB_FILES.pulse,
+      "SELECT expires_at FROM pulse_web_sessions WHERE handle = ?",
+      PEOPLE.pulseGuest.handle,
+    );
+    // A minute before the suite's clock started: past on every run.
+    const aged = setPulseSessionExpiry(PEOPLE.pulseGuest.handle, Math.floor(CLOCK_T0 / 1000) - 60);
+    flow.check("guest: sessions aged past their expiry", 1, aged);
+    try {
+      const visit = await calendarWithoutJs(flow, browser, sentToPulseApi, {
+        storageState: guestState,
+      });
+      await expectSignedOut(flow, visit.page, "guest, expired");
+      await visit.close();
+    } finally {
+      if (live) setPulseSessionExpiry(PEOPLE.pulseGuest.handle, live.expires_at);
+    }
+  });
+
+  await flow.step("visitor: /calendar with no cookie is signed out", async () => {
+    const visit = await calendarWithoutJs(flow, browser, sentToPulseApi);
+    await expectSignedOut(flow, visit.page, "visitor, no cookie");
+    await visit.close();
+  });
+
+  await flow.step("visitor: an unknown session cookie renders /calendar signed out", async () => {
+    const visit = await calendarWithoutJs(flow, browser, sentToPulseApi, {
+      session: "not-a-session",
+    });
+    await expectSignedOut(flow, visit.page, "visitor, unknown cookie");
+    await visit.close();
+  });
+
+  await flow.step("host: a write from another site's Origin is refused", async () => {
+    const response = await pulseWrite(
+      flow,
+      page.request,
+      "POST",
+      "/events",
+      { title: "E2E Cross-site", startTime: "2026-11-21T18:00:00.000Z" },
+      "https://evil.example",
+    );
+    expect(response.status(), "cross-site write refused").toBe(403);
+  });
+  flow.check(
+    "events rows from the cross-site write",
+    0,
+    queryOne<{ n: number }>(
+      DB_FILES.pulse,
+      "SELECT count(*) AS n FROM events WHERE title = ?",
+      "E2E Cross-site",
+    )?.n ?? -1,
+  );
 
   await flow.step("host: cancel the event", async () => {
     const response = await pulseWrite(flow, page.request, "PATCH", `/events/${eventId}`, {
@@ -222,4 +375,59 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     onSuiteClock(instances?.first_cancel ?? undefined) &&
       onSuiteClock(instances?.last_cancel ?? undefined),
   );
+
+  /** How many Pulse web sessions `handle` holds. */
+  const sessionsOf = (handle: string): number =>
+    queryOne<{ n: number }>(
+      DB_FILES.pulse,
+      "SELECT count(*) AS n FROM pulse_web_sessions WHERE handle = ?",
+      handle,
+    )?.n ?? -1;
+
+  await flow.step("host: sign out everywhere", async () => {
+    const response = await pulseWrite(flow, page.request, "POST", "/auth/signout?all=1");
+    expect(response.status(), "signed out everywhere").toBe(200);
+  });
+  flow.check(
+    "host: sessions left after signing out everywhere",
+    0,
+    sessionsOf(PEOPLE.pulseHost.handle),
+  );
+
+  await flow.step(
+    "host: a cookie from before signing out everywhere renders /calendar signed out",
+    async () => {
+      const visit = await calendarWithoutJs(flow, browser, sentToPulseApi, {
+        storageState: hostState,
+      });
+      await expectSignedOut(flow, visit.page, "host, signed out everywhere");
+      await visit.close();
+    },
+  );
+
+  await flow.step("guest: log out from the menu", async () => {
+    const signedOut = guestPage.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url() === `${ORIGINS.pulseWeb}/api/auth/signout`,
+    );
+    await untilPulseHydrated(guestPage);
+    // The avatar menu, named by the initial it shows.
+    await guestPage.getByRole("button", { name: "G", exact: true }).click();
+    await guestPage.getByRole("menuitem", { name: "Log out" }).click();
+    expect((await signedOut).status(), "log out answered").toBe(200);
+    await expect(guestPage.getByRole("button", { name: "Continue with musubi" })).toBeVisible();
+  });
+  flow.check("guest: sessions left after logging out", 0, sessionsOf(PEOPLE.pulseGuest.handle));
+
+  await flow.step(
+    "guest: a cookie from before logging out renders /calendar signed out",
+    async () => {
+      const visit = await calendarWithoutJs(flow, browser, sentToPulseApi, {
+        storageState: guestState,
+      });
+      await expectSignedOut(flow, visit.page, "guest, logged out");
+      await visit.close();
+    },
+  );
+
+  flow.check("browser requests sent to pulse-api's own origin", 0, sentToPulseApi.length);
 });
