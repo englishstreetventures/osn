@@ -117,11 +117,11 @@ await client.claim(jti, ttlMs); // calls the object named "step_up_jti:<jti>"
 
 osn-api's namespaces form a closed union, `CoordinationStoreName`, in
 [`osn/api/src/lib/coordination/names.ts`](../../osn/api/src/lib/coordination/names.ts):
-eleven ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
+twelve ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
 `step_up_challenge`, `step_up_otp`, `pending_email_change`, `cross_device`,
 `pending_totp_enroll`, `pending_recovery_otp`, `recovery_disown`,
-`oidc_authorize_request`); the three lockouts (`recovery_lockout`,
-`recovery_otp_lockout`, `totp_lockout`); `step_up_jti`;
+`oidc_authorize_request`, `email_link`); the four lockouts (`recovery_lockout`,
+`recovery_otp_lockout`, `totp_lockout`, `registration_link_lockout`); `step_up_jti`;
 `passkey_challenge_claim`; `health_probe`; and one per limiter, named in the budget table
 in `osn/api/src/routes/auth/limiters.ts` (`auth.<endpoint>` for the auth
 limiters, `account.export`, `auth.profile_switch_cap` and the like for the rest).
@@ -175,20 +175,18 @@ mints is a wrong token, answered with that route's uniform 202.
 ## Refusals cost the same, and single use is atomic
 
 - **Guesses are counted atomically.** Every code-checking ceremony — step-up
-  OTP, the emailed recovery code, TOTP enrolment, email change, registration —
-  reads its entry and counts the guess on it in one `guess` before it compares
-  the code, so guesses sent at once each take their own number and no guess can
-  read the entry and count from a number it no longer has. `begin`'s `write`
-  (registration's `swap`) starts the count at 0. A right code claims its entry
-  with `remove({ value })`, so of two right codes exactly one wins; email
-  change claims beside its D1 preflight, before it commits, so one code commits
-  one change. The guess that reaches the cap, when wrong, deletes the entry the
-  same way. Both name the entry the guess read, so a `begin` that lands between
-  the guess and the call keeps its new entry, and the old code wins nothing. A
-  registration whose code could not be sent settles the entry its `begin` wrote
-  in one call naming it: a `remove({ value })` when nothing was sent, a `swap`
-  to itself with at most a minute to live when the code may still arrive. The
-  life of a count is set out in `osn/api/src/services/auth/attempts.ts`.
+  OTP, the emailed recovery code, TOTP enrolment, email change — and an emailed
+  link's confirm ([[email-links]]) reads its entry and counts the guess on it in
+  one `guess` before it compares the code or the link's secret, so guesses sent
+  at once each take their own number and no guess can read the entry and count
+  from a number it no longer has. `begin`'s `write` starts the count at 0. A
+  right code claims its entry with `remove({ value })`, so of two right codes
+  exactly one wins; email change claims beside its D1 preflight, before it
+  commits, so one code commits one change. The guess that reaches the cap, when
+  wrong, deletes the entry the same way. Both name the entry the guess read, so
+  a `begin` that lands between the guess and the call keeps its new entry, and
+  the old code wins nothing. The life of a count is set out in
+  `osn/api/src/services/auth/attempts.ts`.
 - **A WebAuthn challenge is used once.** Passkey sign-in with an identifier,
   passkey registration and step-up by passkey `take` their challenge, so of two
   presentations of one assertion sent at once only one reaches verification.
@@ -208,8 +206,9 @@ mints is a wrong token, answered with that route's uniform 202.
   key: recovery by code, by emailed code and by TOTP
   ([[account-recovery-factors]], "The oracle moves to `complete`";
   [[recovery-codes]]), passkey sign-in `begin` (one `write`) and registration
-  `begin` (one `swap` from nothing, which also keeps a pending code from being
-  replaced by a second `begin`, however the two overlap). So the branches cost
+  `begin` (a `write` of the link request under a fresh request id, then one
+  `swap` from nothing, which also keeps a pending sign-up from being replaced
+  by a second `begin`, however the two overlap). So the branches cost
   the same and, while the store fails, fail together. The probe key is `prb_` and 12 hex digits of
   an HMAC-SHA256, under `OSN_SESSION_IP_PEPPER`, of the normalised
   identifier — the length of an account id, and not something a list of
@@ -368,7 +367,7 @@ steps are in [[production-deploy#The coordination store's first release]].
 | `shared/coordination/tests/client.test.ts` | Naming, the location hint on every stub, the key-length refusal, the namespace rule, the retry rule, the failure kind, the limiter's fail-closed answer |
 | `osn/api/tests/services/attempt-counting.test.ts` | Each code ceremony under a burst of guesses, and two right codes at once, on both bundles |
 | `osn/api/tests/services/single-use-challenges.test.ts` | Two presentations of one WebAuthn challenge at once: one succeeds, at all four sites; every refusal of a discoverable challenge |
-| `osn/api/tests/services/recovery-op-sequence.test.ts`, `begin-op-sequence.test.ts` | Each padded route's branches make the same store calls (and, for recovery codes, D1 statements), and fail together while the store is down; two registration `begin`s at once for one address send one code |
+| `osn/api/tests/services/recovery-op-sequence.test.ts`, `begin-op-sequence.test.ts` | Each padded route's branches make the same store calls (and, for recovery codes, D1 statements), and fail together while the store is down; two registration `begin`s at once for one address send one link |
 | `osn/api/tests/lib/coordination/durable.test.ts` | Each consumer's mapping and failure posture, and that no metric or log carries a key or value |
 | `osn/api/tests/lib/coordination/budgets.test.ts` | Both bundles let each limiter's budget through and refuse the next hit, each limiter on its own store |
 | `osn/api/tests/lib/native-rate-limiters.test.ts` | Every native limit in `wrangler.toml` equals its budget, and the `v1` migration creates the class the served module exports |
