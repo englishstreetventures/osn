@@ -5,14 +5,17 @@
  * caller threads it through from the step-up ceremony.
  */
 
+import { OsnApiError } from "./api-error";
+import { reach, readJson, responseError } from "./auth-fetch";
+
 export interface PasskeysClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
 }
 
-export class PasskeysError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PasskeysError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "PasskeysError";
   }
 }
@@ -83,18 +86,16 @@ export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClie
 
   return {
     list: async (input) => {
-      const res = await fetch(`${base}/passkeys`, {
+      const res = await reach(PasskeysError, `${base}/passkeys`, {
         credentials: "include",
         headers: authHeaders(input.accessToken),
       });
-      const json = (await res.json()) as { passkeys?: PasskeySummary[]; error?: string };
-      if (!res.ok || !Array.isArray(json.passkeys)) {
-        throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ passkeys?: PasskeySummary[] }>(PasskeysError, res);
+      if (!Array.isArray(json.passkeys)) throw responseError(PasskeysError, res, json);
       return { passkeys: json.passkeys };
     },
     rename: async (input) => {
-      const res = await fetch(`${base}/passkeys/${encodeURIComponent(input.id)}`, {
+      const res = await reach(PasskeysError, `${base}/passkeys/${encodeURIComponent(input.id)}`, {
         method: "PATCH",
         credentials: "include",
         headers: {
@@ -103,14 +104,12 @@ export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClie
         },
         body: JSON.stringify({ label: input.label }),
       });
-      const json = (await res.json()) as { success?: boolean; error?: string };
-      if (!res.ok || json.success !== true) {
-        throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ success?: boolean }>(PasskeysError, res);
+      if (json.success !== true) throw responseError(PasskeysError, res, json);
       return { success: true };
     },
     delete: async (input) => {
-      const res = await fetch(`${base}/passkeys/${encodeURIComponent(input.id)}`, {
+      const res = await reach(PasskeysError, `${base}/passkeys/${encodeURIComponent(input.id)}`, {
         method: "DELETE",
         credentials: "include",
         headers: {
@@ -119,18 +118,12 @@ export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClie
         },
         body: JSON.stringify({}),
       });
-      const json = (await res.json()) as {
-        success?: boolean;
-        remaining?: number;
-        error?: string;
-      };
-      if (!res.ok || json.success !== true) {
-        throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ success?: boolean; remaining?: number }>(PasskeysError, res);
+      if (json.success !== true) throw responseError(PasskeysError, res, json);
       return { success: true, remaining: typeof json.remaining === "number" ? json.remaining : 0 };
     },
     registerBegin: async (input) => {
-      const res = await fetch(`${base}/passkey/register/begin`, {
+      const res = await reach(PasskeysError, `${base}/passkey/register/begin`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -145,16 +138,10 @@ export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClie
       // T-U1: no shape check on the 2xx body — the options are forwarded
       // exactly as the server sent them, and the browser is the thing that
       // rejects malformed ones.
-      const json = (await res.json()) as PublicKeyCredentialCreationOptionsJSON & {
-        error?: string;
-      };
-      if (!res.ok) {
-        throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
-      }
-      return json;
+      return readJson<PublicKeyCredentialCreationOptionsJSON>(PasskeysError, res);
     },
     registerComplete: async (input) => {
-      const res = await fetch(`${base}/passkey/register/complete`, {
+      const res = await reach(PasskeysError, `${base}/passkey/register/complete`, {
         method: "POST",
         credentials: "include",
         headers: authHeaders(input.accessToken),
@@ -163,10 +150,8 @@ export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClie
           attestation: input.attestation,
         }),
       });
-      const json = (await res.json()) as { passkeyId?: string; error?: string };
-      if (!res.ok || typeof json.passkeyId !== "string") {
-        throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ passkeyId?: string }>(PasskeysError, res);
+      if (typeof json.passkeyId !== "string") throw responseError(PasskeysError, res, json);
       return { passkeyId: json.passkeyId };
     },
   };

@@ -4,6 +4,7 @@
  * Bearer token auth.
  */
 
+import { OsnApiError } from "./api-error";
 import { createAuthFetchers, qs } from "./auth-fetch";
 
 export interface GraphClientConfig {
@@ -42,9 +43,9 @@ export interface ConnectionStatus {
   status: "none" | "pending_outgoing" | "pending_incoming" | "connected";
 }
 
-export class GraphClientError extends Error {
-  constructor(message: string) {
-    super(message);
+export class GraphClientError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "GraphClientError";
   }
 }

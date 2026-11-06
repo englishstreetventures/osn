@@ -8,14 +8,17 @@
  * if the confirmation email was suppressed by an attacker holding the inbox.
  */
 
+import { OsnApiError } from "./api-error";
+import { reach, readJson, responseError } from "./auth-fetch";
+
 export interface SecurityEventsClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
 }
 
-export class SecurityEventsError extends Error {
-  constructor(message: string) {
-    super(message);
+export class SecurityEventsError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "SecurityEventsError";
   }
 }
@@ -72,17 +75,16 @@ export function createSecurityEventsClient(
 
   return {
     list: async (input) => {
-      const res = await fetch(`${base}/account/security-events`, {
+      const res = await reach(SecurityEventsError, `${base}/account/security-events`, {
         ...withAuth(input.accessToken),
       });
-      const json = (await res.json()) as { events?: SecurityEventSummary[]; error?: string };
-      if (!res.ok || !Array.isArray(json.events)) {
-        throw new SecurityEventsError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ events?: SecurityEventSummary[] }>(SecurityEventsError, res);
+      if (!Array.isArray(json.events)) throw responseError(SecurityEventsError, res, json);
       return { events: json.events };
     },
     acknowledge: async (input) => {
-      const res = await fetch(
+      const res = await reach(
+        SecurityEventsError,
         `${base}/account/security-events/${encodeURIComponent(input.id)}/ack`,
         {
           ...withAuth(input.accessToken),
@@ -90,21 +92,18 @@ export function createSecurityEventsClient(
           body: JSON.stringify({ step_up_token: input.stepUpToken }),
         },
       );
-      const json = (await res.json()) as { acknowledged?: boolean; error?: string };
-      if (!res.ok) {
-        throw new SecurityEventsError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ acknowledged?: boolean }>(SecurityEventsError, res);
       return { acknowledged: json.acknowledged === true };
     },
     acknowledgeAll: async (input) => {
-      const res = await fetch(`${base}/account/security-events/ack-all`, {
+      const res = await reach(SecurityEventsError, `${base}/account/security-events/ack-all`, {
         ...withAuth(input.accessToken),
         method: "POST",
         body: JSON.stringify({ step_up_token: input.stepUpToken }),
       });
-      const json = (await res.json()) as { acknowledged?: number; error?: string };
-      if (!res.ok || typeof json.acknowledged !== "number") {
-        throw new SecurityEventsError(json.error ?? `Request failed: ${res.status}`);
+      const json = await readJson<{ acknowledged?: number }>(SecurityEventsError, res);
+      if (typeof json.acknowledged !== "number") {
+        throw responseError(SecurityEventsError, res, json);
       }
       return { acknowledged: json.acknowledged };
     },

@@ -1,3 +1,6 @@
+import { OsnApiError } from "./api-error";
+import { reach, readJson, responseError } from "./auth-fetch";
+import { safeJson } from "./response-body";
 import { sessionFetch } from "./session-fetch";
 import { parseTokenResponse, type Session } from "./tokens";
 
@@ -29,9 +32,9 @@ export interface RecoveryClientConfig {
   issuerUrl: string;
 }
 
-export class RecoveryError extends Error {
-  constructor(message: string) {
-    super(message);
+export class RecoveryError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "RecoveryError";
   }
 }
@@ -129,7 +132,7 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
   const base = config.issuerUrl.replace(/\/$/, "");
 
   const generateRecoveryCodes = async (input: { accessToken: string; stepUpToken?: string }) => {
-    const res = await fetch(`${base}/recovery/generate`, {
+    const res = await reach(RecoveryError, `${base}/recovery/generate`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${input.accessToken}`,
@@ -138,21 +141,19 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
       credentials: "include",
       body: JSON.stringify(input.stepUpToken ? { step_up_token: input.stepUpToken } : {}),
     });
-    const json = (await res.json()) as { recoveryCodes?: string[]; error?: string };
-    if (!res.ok || !Array.isArray(json.recoveryCodes)) {
-      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
-    }
+    const json = await readJson<{ recoveryCodes?: string[] }>(RecoveryError, res);
+    if (!Array.isArray(json.recoveryCodes)) throw responseError(RecoveryError, res, json);
     return { codes: json.recoveryCodes };
   };
 
   const getRecoveryCodesStatus = async (input: { accessToken: string }) => {
-    const res = await fetch(`${base}/recovery/status`, {
+    const res = await reach(RecoveryError, `${base}/recovery/status`, {
       headers: { Authorization: `Bearer ${input.accessToken}` },
       credentials: "include",
     });
-    const json = (await res.json()) as Partial<RecoveryCodesStatus> & { error?: string };
-    if (!res.ok || typeof json.active !== "number" || typeof json.total !== "number") {
-      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
+    const json = await readJson<Partial<RecoveryCodesStatus>>(RecoveryError, res);
+    if (typeof json.active !== "number" || typeof json.total !== "number") {
+      throw responseError(RecoveryError, res, json);
     }
     return {
       active: json.active,
@@ -164,20 +165,22 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
   const loginWithRecoveryCode = async (input: { identifier: string; code: string }) => {
     // `sessionFetch`: this route sets the refresh cookie. See
     // `./session-fetch.ts`.
-    const res = await sessionFetch(`${base}/login/recovery/complete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(input),
-    });
-    const json = (await res.json()) as {
-      session?: unknown;
-      profile?: RecoveryProfile;
-      error?: string;
-    };
-    if (!res.ok || !json.session || !json.profile) {
-      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
-    }
+    const res = await reach(
+      RecoveryError,
+      `${base}/login/recovery/complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(input),
+      },
+      sessionFetch,
+    );
+    const json = await readJson<{ session?: unknown; profile?: RecoveryProfile }>(
+      RecoveryError,
+      res,
+    );
+    if (!json.session || !json.profile) throw responseError(RecoveryError, res, json);
     return {
       session: parseTokenResponse(json.session),
       profile: json.profile,
@@ -185,7 +188,7 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
   };
 
   const emailRecoveryBegin = async (input: { identifier: string; turnstileToken?: string }) => {
-    const res = await fetch(`${base}/login/recovery/email/begin`, {
+    const res = await reach(RecoveryError, `${base}/login/recovery/email/begin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -194,30 +197,29 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
     // 202 on every outcome the server is willing to describe. Anything else is
     // a refusal it owes the caller a reason for — a malformed identifier, a
     // rate limit, a failed bot check.
-    if (!res.ok) {
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
-    }
+    if (!res.ok) throw responseError(RecoveryError, res, await safeJson(res));
   };
 
   /** Shared by the two factor completers — both return the same envelope. */
   const completeFactorLogin = async (path: string, input: { identifier: string; code: string }) => {
     // `sessionFetch`: these routes set the refresh cookie. See
     // `./session-fetch.ts`.
-    const res = await sessionFetch(`${base}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(input),
-    });
-    const json = (await res.json()) as {
-      session?: unknown;
-      profile?: RecoveryProfile;
-      error?: string;
-    };
-    if (!res.ok || !json.session || !json.profile) {
-      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
-    }
+    const res = await reach(
+      RecoveryError,
+      `${base}${path}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(input),
+      },
+      sessionFetch,
+    );
+    const json = await readJson<{ session?: unknown; profile?: RecoveryProfile }>(
+      RecoveryError,
+      res,
+    );
+    if (!json.session || !json.profile) throw responseError(RecoveryError, res, json);
     return { session: parseTokenResponse(json.session), profile: json.profile };
   };
 
@@ -230,15 +232,12 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
   const disown = async (input: { token: string }) => {
     // No `credentials: "include"`: this route sets no cookie and reads none.
     // Every session on the account is about to be revoked anyway.
-    const res = await fetch(`${base}/recovery/disown`, {
+    const res = await reach(RecoveryError, `${base}/recovery/disown`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
-    if (!res.ok) {
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
-    }
+    if (!res.ok) throw responseError(RecoveryError, res, await safeJson(res));
   };
 
   return {

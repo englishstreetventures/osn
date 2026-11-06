@@ -346,3 +346,73 @@ it.effect("logout clears both account session and legacy keys", () =>
     expect(yield* auth.getActiveProfile()).toBeNull();
   }).pipe(Effect.provide(createTestLayer())),
 );
+
+// ---------------------------------------------------------------------------
+// The public error on a failed profile call
+// ---------------------------------------------------------------------------
+
+it.effect("P4: a refused createProfile carries the response's status and the server's code", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "rate_limited" }), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    const error = yield* Effect.flip(auth.createProfile("charlie"));
+    expect(error._tag).toBe("ProfileManagementError");
+    expect(error).toMatchObject({ status: 429, code: "rate_limited" });
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("P4: a profile call that reaches no server carries status 0", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    for (const run of [
+      auth.listProfiles(),
+      auth.switchProfile("usr_bbbbbbbbbbbb"),
+      auth.createProfile("charlie"),
+      auth.deleteProfile("usr_bbbbbbbbbbbb"),
+    ]) {
+      const error = yield* Effect.flip(run);
+      expect(error._tag).toBe("ProfileManagementError");
+      expect(error).toMatchObject({ status: 0 });
+      expect((error as { code?: string }).code).toBeUndefined();
+    }
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("P4: a non-JSON error page on a profile call keeps its status", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 502 })),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    for (const run of [
+      auth.listProfiles(),
+      auth.switchProfile("usr_bbbbbbbbbbbb"),
+      auth.createProfile("charlie"),
+      auth.deleteProfile("usr_bbbbbbbbbbbb"),
+    ]) {
+      const error = yield* Effect.flip(run);
+      expect(error).toMatchObject({ _tag: "ProfileManagementError", status: 502 });
+      expect((error as { code?: string }).code).toBeUndefined();
+    }
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);

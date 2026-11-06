@@ -8,8 +8,17 @@ export class StorageError extends Data.TaggedError("StorageError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * A failed profile call. When the server answered, `status` is the response's
+ * status and `code` its `error` code (in the form `errorCode` in
+ * `./response-body.ts` accepts); when no response arrived, `status` is `0`. A
+ * call that failed before any request (no session, no token) or on a
+ * malformed success body carries neither.
+ */
 export class ProfileManagementError extends Data.TaggedError("ProfileManagementError")<{
   readonly cause: unknown;
+  readonly status?: number;
+  readonly code?: string;
 }> {}
 
 /**

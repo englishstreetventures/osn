@@ -3,6 +3,7 @@
  * `./graph.ts` and `./organisations.ts`.
  */
 
+import { OsnApiError } from "./api-error";
 import { createAuthFetchers } from "./auth-fetch";
 
 export interface RecommendationClientConfig {
@@ -47,9 +48,9 @@ export interface SearchResults {
   organisations: OrganisationSearchResult[];
 }
 
-export class RecommendationClientError extends Error {
-  constructor(message: string) {
-    super(message);
+export class RecommendationClientError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "RecommendationClientError";
   }
 }

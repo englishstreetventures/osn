@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createAuthFetchers, safeErrorMessage, safeJson } from "../src/auth-fetch";
+import { createAuthFetchers, safeErrorMessage } from "../src/auth-fetch";
+import { safeJson } from "../src/response-body";
 
 class FakeError extends Error {
   readonly status: number;
