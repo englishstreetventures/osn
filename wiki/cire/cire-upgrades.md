@@ -365,8 +365,8 @@ rows, least recently moved first (index `(status, updated_at)`):
 
 - a **`refunding`** row: the refund is tried again. One still refused 13 days
   after the purchase (`REFUND_GIVE_UP_MS`) moves to `refund_failed`, logged
-  `upgrade refund given up; a person must return the money` — a day before the
-  purge's 14-day hold on it ends;
+  `upgrade refund given up; a person must return the money`, and the daily
+  asking stops;
 - a **`pending`** row whose session is older than a day: its session is read
   from Stripe, with the charge. Paid → settled exactly as the webhook would
   (grant, or refund). Paid and already refunded in the dashboard → `refunded`,
@@ -380,8 +380,8 @@ outlasts Stripe's retries end in a grant rather than a payment for nothing.
 
 A `refund_failed` purchase is money cire owes. Return it from the Stripe
 dashboard (the refund or the PaymentIntent names the purchase in its metadata),
-then mark the row so nothing asks again: an operator-authorised production D1
-write, `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at =
+then mark the row so nothing asks again and the purge may take a deleted
+wedding: an operator-authorised production D1 write, `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at =
 unixepoch() WHERE id = '<purchase id>' AND status IN ('refunding',
 'refund_failed');`.
 
@@ -474,7 +474,7 @@ It is written at **settle**, not at deletion: a sale must exist whether or not t
 > [!caution]
 > The row is **pseudonymous, not anonymous**. `settled_at` is the same moment the purchase row settles and the tier is raised, and the amount and product repeat the purchase row, so while that row exists the join is exact — and afterwards it stays linkable through Stripe's own retained session. See `wiki/compliance/data-map.md` and `wiki/compliance/retention.md`.
 
-A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending` or `refunding`, up to 14 days from its creation (`PURGE_PENDING_HOLD_S`); the reconciliation settles a stale paid one, or hands a refund to a person, before that. An upgrade paid for a soft-deleted wedding is refunded, never granted.
+A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending`, up to 14 days from its creation (`PURGE_PENDING_HOLD_S`), and while one is `refunding` or `refund_failed`, however old: the purchase row is the only record cire keeps of money it owes back, and the cascade would delete it. That hold ends when the refund lands or a person marks the purchase `refunded`. An upgrade paid for a soft-deleted wedding is refunded, never granted.
 
 Refunds do not lower a tier on their own; an operator lowers it with
 `grant-tier.ts --lower` ([[cire-entitlements]]), whose printed SQL first marks

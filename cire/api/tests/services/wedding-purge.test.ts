@@ -17,7 +17,9 @@ import {
 } from "../../src/services/maintenance-sweeps";
 import type { PurgeStripe } from "../../src/services/maintenance-sweeps";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
-import { StripeError } from "../../src/services/stripe";
+import { StripeError, type StripeClient } from "../../src/services/stripe";
+import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
+import { createUpgradeService } from "../../src/services/upgrades";
 import { captureLogs } from "../test-helpers/capture-logs";
 import {
   fullWeddingKeys,
@@ -178,33 +180,64 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
       expect(exists(db, "wed_disputed")).toBe(true);
     });
 
-    // A refund cire owes needs its row to finish: the purge would cascade it
-    // away, and the payment would then read as nobody's. It holds like a
-    // pending purchase, and the reconciliation hands it to a person first.
-    it("an upgrade payment cire is still refunding, under the hold and not once it has aged out", async () => {
-      const db = makeDb();
-      seedWedding(db, "wed_refunding", daysAgo(8));
-      const recent = new Date(NOW.getTime() - (PURGE_PENDING_HOLD_S - 3600) * 1000);
-      db.update(weddingUpgradePurchases)
-        .set({ status: "refunding", createdAt: recent })
-        .where(eq(weddingUpgradePurchases.weddingId, "wed_refunding"))
-        .run();
-      expect((await purge(db)).held).toBe(1);
-      expect(exists(db, "wed_refunding")).toBe(true);
-
-      // Two hours later the row is past the hold.
-      const later = new Date(NOW.getTime() + 2 * 3600 * 1000);
-      expect((await purge(db, {}, later)).purged).toBe(1);
+    // The purchase row is the only record cire keeps of money it owes back,
+    // and the cascade would delete it. So a refund still owed holds the
+    // wedding however old, until it completes or a person resolves it.
+    it("an upgrade payment cire still owes back, however old", async () => {
+      for (const status of ["refunding", "refund_failed"] as const) {
+        const db = makeDb();
+        seedWedding(db, "wed_owed", daysAgo(60));
+        db.update(weddingUpgradePurchases)
+          .set({ status, createdAt: daysAgo(90) })
+          .where(eq(weddingUpgradePurchases.weddingId, "wed_owed"))
+          .run();
+        expect((await purge(db)).held, status).toBe(1);
+        expect(exists(db, "wed_owed"), status).toBe(true);
+      }
     });
 
-    it("no upgrade payment cire has finished refunding", async () => {
+    it("lets the purge go ahead once the refund completes, or a person resolves it", async () => {
+      // The refund lands through the daily reconciliation, as it would.
       const db = makeDb();
-      seedWedding(db, "wed_refunded", daysAgo(8));
+      seedWedding(db, "wed_owed", daysAgo(60));
       db.update(weddingUpgradePurchases)
-        .set({ status: "auto_refunded", createdAt: daysAgo(1) })
-        .where(eq(weddingUpgradePurchases.weddingId, "wed_refunded"))
+        .set({ status: "refunding", createdAt: daysAgo(90), paymentIntentId: "pi_owed" })
+        .where(eq(weddingUpgradePurchases.weddingId, "wed_owed"))
         .run();
+      const stripe = {
+        createPlatformRefund: () => Effect.succeed({ id: "re_owed" }),
+      } as unknown as StripeClient;
+      const upgrades = createUpgradeService({
+        stripe,
+        catalogue: createUpgradeCatalogue({ stripe, prices: {} }),
+        now: () => NOW.getTime(),
+      });
+      expect((await purge(db)).held).toBe(1);
+      await Effect.runPromise(upgrades.reconcile().pipe(Effect.provideService(DbService, db)));
+      expect(
+        db
+          .select({ status: weddingUpgradePurchases.status })
+          .from(weddingUpgradePurchases)
+          .where(eq(weddingUpgradePurchases.weddingId, "wed_owed"))
+          .all(),
+      ).toEqual([{ status: "auto_refunded" }]);
       expect((await purge(db)).purged).toBe(1);
+
+      // A refund handed to a person holds until they mark it refunded.
+      const handed = makeDb();
+      seedWedding(handed, "wed_handed", daysAgo(60));
+      handed
+        .update(weddingUpgradePurchases)
+        .set({ status: "refund_failed", createdAt: daysAgo(90) })
+        .where(eq(weddingUpgradePurchases.weddingId, "wed_handed"))
+        .run();
+      expect((await purge(handed)).held).toBe(1);
+      handed
+        .update(weddingUpgradePurchases)
+        .set({ status: "refunded" })
+        .where(eq(weddingUpgradePurchases.weddingId, "wed_handed"))
+        .run();
+      expect((await purge(handed)).purged).toBe(1);
     });
 
     it("a change still writing", async () => {

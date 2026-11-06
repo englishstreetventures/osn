@@ -148,10 +148,10 @@ export const RECONCILE_PER_RUN = 2;
 
 /**
  * How long, from the purchase's creation, the daily reconciliation keeps
- * asking Stripe for a refund it refuses before it hands the refund to a person
- * (`refund_failed`). A day short of the purge's hold on a `refunding` purchase
- * (`PURGE_PENDING_HOLD_S`, 14 days, in `maintenance-sweeps.ts`), so the row is
- * handed over while the purge still keeps its deleted wedding.
+ * asking Stripe for a refund it refuses before it stops and hands the refund
+ * to a person (`refund_failed`). The purge holds the wedding either way until
+ * a person marks the purchase `refunded` (`purgeHeld` in
+ * `maintenance-sweeps.ts`).
  */
 export const REFUND_GIVE_UP_MS = 13 * 24 * 60 * 60 * 1000;
 

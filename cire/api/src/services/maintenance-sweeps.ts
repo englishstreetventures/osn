@@ -83,14 +83,13 @@ export const PURGE_PENDING_HOLD_S = 14 * 24 * 60 * 60;
  * read `weddings` as its own table, for the change-claim half.
  *
  * A `disputed` gift holds however old it is: a dispute reaches the platform's
- * balance, and its close must find the row. An upgrade payment cire is still
- * `refunding` holds like a pending one, for {@link PURGE_PENDING_HOLD_S} from
- * the purchase's creation: the refund's next attempt must find its row, and
- * the daily reconciliation hands a refund it cannot make to a person a day
- * before the hold ends (`REFUND_GIVE_UP_MS` in `./upgrades`).
+ * balance, and its close must find the row. So does an upgrade payment cire
+ * still owes back — `refunding`, or `refund_failed` until a person resolves it
+ * and marks it `refunded` — however old: the purchase row is the only record
+ * cire keeps of that money, and the cascade would delete it.
  */
 const purgeHeld = (wedding: SQL | string, nowS: number, nowMs: number): SQL =>
-  sql`(EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.weddingId} = ${wedding} AND ${weddingUpgradePurchases.status} IN ('pending', 'refunding') AND ${weddingUpgradePurchases.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}) OR EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND (${registryContributions.status} = 'disputed' OR (${registryContributions.status} = 'pending' AND ${registryContributions.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR ${changeClaimLive(nowMs)})`;
+  sql`(EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.weddingId} = ${wedding} AND (${weddingUpgradePurchases.status} IN ('refunding', 'refund_failed') OR (${weddingUpgradePurchases.status} = 'pending' AND ${weddingUpgradePurchases.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND (${registryContributions.status} = 'disputed' OR (${registryContributions.status} = 'pending' AND ${registryContributions.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR ${changeClaimLive(nowMs)})`;
 
 interface PurgeRunResult {
   purged: number;
