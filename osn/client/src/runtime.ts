@@ -13,12 +13,16 @@ import { StorageLive, type Storage } from "./storage";
  * - `AuthExpiredError` — the session has ended; `onSessionChange` listeners
  *   were told.
  * - whatever `fetch` rejected with (`TypeError`, `AbortError`) — the request
- *   itself failed or was aborted; the session is kept.
- * - `TokenRefreshError` — the token needed renewing and the issuer could not
- *   be reached or could not say; the session is kept and the next call tries
- *   again.
- * - `ActiveProfileResetError` — the active profile could not be renewed and
- *   the default profile is active now; the request was not sent.
+ *   itself failed or was aborted; the session is kept. A URL that is not on
+ *   the issuer's origin is refused the same way, with a `TypeError`, before
+ *   anything is sent: the token goes nowhere else.
+ * - `TokenRefreshError` — the token had expired and the issuer could not
+ *   renew it or could not say why; the session is kept. A token not yet
+ *   expired is sent instead. After such a failure renewal pauses, 2 s
+ *   doubling to 30 s or the issuer's `Retry-After`, and the calls in the
+ *   pause send no grant.
+ * - `ActiveProfileResetError` — the account no longer owns the active profile
+ *   and the default profile is active now; the request was not sent.
  * - `StorageError`.
  *
  * Every authenticated client in this package is built with one. A client

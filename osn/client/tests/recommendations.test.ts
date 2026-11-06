@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRecommendationClient, RecommendationClientError } from "../src/recommendations";
-import type { AuthFetch } from "../src/runtime";
+import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
-/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
-const authFetch: AuthFetch = (input, init) => fetch(input, init);
+const authFetch = authFetchSpy();
 
 const client = createRecommendationClient({ issuerUrl: "https://osn.example.com", authFetch });
 const base = "https://osn.example.com/recommendations";
@@ -14,6 +13,7 @@ function mockFetch(response: { ok: boolean; status?: number; json: () => Promise
 }
 
 afterEach(() => {
+  expectAllThroughAuthFetch(authFetch, "same-origin");
   vi.unstubAllGlobals();
 });
 

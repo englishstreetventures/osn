@@ -13,6 +13,16 @@ function createTestLayer() {
 }
 
 /**
+ * The access token the fake issuer mints at its `n`th grant: unsigned, but a
+ * JWT whose `sub` names the profile, as osn-api's does — renewal stores a
+ * token under the profile its `sub` names and refuses one that names none.
+ */
+const accessToken = (n: number) => {
+  const enc = (o: object) => btoa(JSON.stringify(o)).replace(/=+$/, "");
+  return `${enc({ alg: "none" })}.${enc({ sub: "usr_native000001", n })}.sig`;
+};
+
+/**
  * A stand-in for the iOS transport: a cookie jar outside the document, plus a
  * server that rotates on every grant and revokes the family on reuse — the
  * Copenhagen Book C2 behaviour osn-api implements.
@@ -39,7 +49,7 @@ function createFakeNativeTransport() {
 
   const grantBody = () =>
     JSON.stringify({
-      access_token: `acc_${issued}`,
+      access_token: accessToken(issued),
       token_type: "Bearer",
       expires_in: 900,
       scope: "openid profile",
@@ -96,7 +106,7 @@ function createFakeNativeTransport() {
 }
 
 const cachedSession = () => ({
-  accessToken: "acc_1",
+  accessToken: accessToken(1),
   idToken: null,
   expiresAt: Date.now() + 60_000,
   scopes: ["openid", "profile"],
@@ -119,11 +129,11 @@ describe("native session transport", () => {
       yield* auth.setSession(cachedSession());
 
       const first = yield* auth.refreshSession();
-      expect(first.accessToken).toBe("acc_2");
+      expect(first.accessToken).toBe(accessToken(2));
       expect(server.jar).toBe("session_2");
 
       const second = yield* auth.refreshSession();
-      expect(second.accessToken).toBe("acc_3");
+      expect(second.accessToken).toBe(accessToken(3));
       expect(server.jar).toBe("session_3");
 
       // Each grant carried the cookie the previous one set — no reuse, so the
@@ -132,7 +142,7 @@ describe("native session transport", () => {
       expect(server.grantCookies).toEqual(["session_1", "session_2"]);
 
       const stored = yield* auth.getSession();
-      expect(stored?.accessToken).toBe("acc_3");
+      expect(stored?.accessToken).toBe(accessToken(3));
     }).pipe(Effect.provide(createTestLayer())),
   );
 

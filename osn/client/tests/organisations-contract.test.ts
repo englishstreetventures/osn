@@ -22,10 +22,9 @@ import {
   type OrgMember,
   type OrgSummary,
 } from "../src/organisations";
-import type { AuthFetch } from "../src/runtime";
+import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
-/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
-const authFetch: AuthFetch = (input, init) => fetch(input, init);
+const authFetch = authFetchSpy();
 
 interface Schema {
   properties?: Record<string, Schema>;
@@ -44,6 +43,7 @@ const spec = openapi as unknown as { paths: Record<string, Record<string, Operat
 const client = createOrgClient({ issuerUrl: "https://osn.example.com", authFetch });
 
 afterEach(() => {
+  expectAllThroughAuthFetch(authFetch, "same-origin");
   vi.unstubAllGlobals();
 });
 

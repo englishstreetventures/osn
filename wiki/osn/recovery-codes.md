@@ -249,9 +249,9 @@ Migration: `osn/db/drizzle/0006_security_events.sql`.
 `createRecoveryClient({ issuerUrl, authFetch })` in `@osn/client`. The two authenticated calls send through `authFetch`, the page runtime's, which supplies and renews the access token ([[sessions#Renewal in the browser]]):
 
 ```ts
-await client.generateRecoveryCodes({ stepUpToken });  // → { codes }
-await client.getRecoveryCodesStatus();  // → { active, total, generatedAt }
-await client.loginWithRecoveryCode({ identifier, code });  // → { session, profile }
+await client.generateRecoveryCodes({ stepUpToken });  // resolves to { codes }
+await client.getRecoveryCodesStatus();  // resolves to { active, total, generatedAt }
+await client.loginWithRecoveryCode({ identifier, code });  // resolves to { session, profile }
 ```
 
 `stepUpToken` is optional in the type only so the call compiles in hosts that thread it separately; omit it and the server answers 403.

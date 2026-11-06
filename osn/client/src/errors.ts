@@ -8,11 +8,15 @@ import { Data } from "effect";
  * is false or absent the issuer could not be reached or could not say (a 5xx,
  * a 429, a network failure, a refusal that left the session's status unknown).
  * The session may still be alive, and a later attempt can succeed.
+ *
+ * `retryAfterMs` is the pause a 429's `Retry-After` asked for, when it gave
+ * one in whole seconds.
  */
 export class TokenRefreshError extends Data.TaggedError("TokenRefreshError")<{
   readonly cause: unknown;
   readonly refused?: boolean;
   readonly message?: string;
+  readonly retryAfterMs?: number | undefined;
 }> {}
 
 export class StorageError extends Data.TaggedError("StorageError")<{
@@ -44,9 +48,10 @@ export class AuthExpiredError extends Data.TaggedError("AuthExpiredError")<{
 
 /**
  * Renewing the active profile's access token made the account's default
- * profile active instead: the issuer would not switch the renewed token back
- * to the profile the page was using. The request that needed the token was
- * not sent, so nothing ran as the wrong profile; the session itself is alive.
+ * profile active instead: the issuer would not mint for the profile the page
+ * was using, because the account no longer owns it. The request that needed
+ * the token was not sent, so nothing ran as the wrong profile; the session
+ * itself is alive.
  */
 export class ActiveProfileResetError extends Data.TaggedError("ActiveProfileResetError")<{
   /** The profile that is active now. */

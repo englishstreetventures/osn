@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createOrgClient, OrgClientError } from "../src/organisations";
-import type { AuthFetch } from "../src/runtime";
+import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
-/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
-const authFetch: AuthFetch = (input, init) => fetch(input, init);
+const authFetch = authFetchSpy();
 
 const client = createOrgClient({ issuerUrl: "https://osn.example.com", authFetch });
 const base = "https://osn.example.com/organisations";
@@ -24,6 +23,7 @@ function mockFetch(response: { ok: boolean; status?: number; json: () => Promise
 }
 
 afterEach(() => {
+  expectAllThroughAuthFetch(authFetch, "same-origin");
   vi.unstubAllGlobals();
 });
 
@@ -145,7 +145,6 @@ describe("createOrgClient — error surface", () => {
   it("throws OrgClientError on non-2xx DELETE (reads error body)", async () => {
     mockFetch({ ok: false, json: () => Promise.resolve({ error: "Forbidden" }) });
     await expect(client.deleteOrg("acme")).rejects.toBeInstanceOf(OrgClientError);
-    mockFetch({ ok: false, json: () => Promise.resolve({ error: "Forbidden" }) });
     await expect(client.deleteOrg("acme")).rejects.toThrow("Forbidden");
   });
 

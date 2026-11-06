@@ -237,21 +237,24 @@ Every authenticated request a Musubi page makes goes through one `authFetch`, th
 
 What `authFetch` does with each request (`osn/client/src/service.ts`):
 
-1. **Reads what other tabs stored.** If another tab stored a later-expiring token for this tab's active profile, it is used and no grant is made. If the stored account is gone (another tab signed out, or saw the session end), the session ends here too, with no request. The active profile is never taken from storage: each tab acts as the profile its own screen shows.
-2. **Renews before sending.** A token within `min(30 s, half its lifetime)` of expiry (lifetime from its own `iat`/`exp`) is renewed first, so an expired token never leaves the page. The grant mints for the account's default profile; when another profile is active, the new token is switched back to it with `POST /profiles/switch` (cookie sent, so the new token is bound to the session) before the request goes out.
-3. **Sets `Authorization` itself**, whatever the caller passed, and sends.
-4. **On a 401, renews once and retries.** A second 401 ends the session.
+1. **Checks the URL.** The token goes only to the issuer's origin. Any other URL, a relative one included, is refused with a `TypeError` before anything is read or sent.
+2. **Reads what other tabs stored.** If another tab stored a later-expiring token for this tab's active profile, it is adopted, and no grant is made unless that token is itself inside the renew lead (step 3). If the stored account is gone (another tab signed out, or saw the session end), the session ends here too, with no request. The active profile is never taken from storage: each tab acts as the profile its own screen shows.
+3. **Renews before sending.** A token within `min(30 s, half its lifetime)` of expiry (lifetime from its own `iat`/`exp`; 30 s when it has neither) is renewed first, so an expired token never leaves the page. The grant names the active profile (`profile_id` on `POST /token`), and the issuer mints for it while the cookie session's account owns it, bound to the rotated session — one request, no `/profiles/switch`. A renewal joins a grant already in flight and keeps its token when that grant minted for the same profile; otherwise it sends its own once that one settles, so two grants of one cookie never overlap.
+4. **Sets `Authorization` itself**, whatever the caller passed, and sends.
+5. **On a 401, renews once and retries.** A second 401 ends the session.
 
 How a failed renewal ends:
 
 | What happened | Result |
 |---|---|
 | `/token` refused the grant (any 4xx but 429, except the case below) | session ended: cache and stored account cleared, `AuthProvider` set to signed out, the call rejects with `AuthExpiredError` |
-| `/token` answered `400 invalid_grant` but left the session's status unknown — the body names the rotation race or a `DatabaseError`, or the `osn_has_session` marker survived the response (`lib/grant-failure.ts` keeps it only then) | one retry after 250 ms; a second unknown answer counts as transient |
-| `/token` 429 or 5xx after the backoff ladder, or unreachable | session kept; the call rejects with `TokenRefreshError`; the next call tries again |
-| `/profiles/switch` answered 401 | session ended |
-| `/profiles/switch` answered 400 or 429 (the account's switch cap, a profile that is gone or not the account's, the address limiter) | the default profile becomes active, `AuthProvider` refetches the session from cache, the call rejects with `ActiveProfileResetError`; nothing is sent as the wrong profile |
-| `/profiles/switch` 5xx or unreachable | session and active profile kept; the call rejects with `TokenRefreshError` |
+| `/token` answered `400 invalid_grant` and the body's `message` names the rotation race or a `DatabaseError` (the two failures `osn/api/src/lib/grant-failure.ts` reads as "status unknown") | one retry after 250 ms; a second such answer counts as transient. The `osn_has_session` marker plays no part: other origins can write it |
+| `/token` answered 429 | no retry; transient, as below, with the pause set from `Retry-After` when it gives whole seconds (at most 60 s) |
+| `/token` 5xx after the backoff ladder (3 attempts), or unreachable (2 attempts) | session kept; transient, as below |
+| `/token` minted for the default profile although another was named | the account does not own the named profile: the default profile becomes active, `AuthProvider` refetches the session from cache, the call rejects with `ActiveProfileResetError`; nothing is sent as the wrong profile |
+| `/token` answered a token that names no profile (`sub`) | transient; the token is not stored |
+
+A transient failure keeps the session and the active profile. If the token in hand has not expired yet, the request goes out with it; otherwise the call rejects with `TokenRefreshError`. Renewal then pauses: until the pause ends, a call that needs a renewal sends no grant. The pause is the 429's `Retry-After`, or else 2 s doubling to 30 s across failures in a row, and a renewal that gets a token ends it.
 
 `authFetch` rejects with what `fetch` rejected with when the request itself fails or is aborted, so a client sees the same `TypeError` or `AbortError` a bare `fetch` gives it. Ending a session never calls `/logout`: a refusal means the issuer has let the session go already, and the marker is the issuer's to retract.
 

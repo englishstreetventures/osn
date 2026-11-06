@@ -1,10 +1,9 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
-import type { AuthFetch } from "../src/runtime";
 import { createSessionsClient, SessionsError } from "../src/sessions";
+import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
-/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
-const authFetch: AuthFetch = (input, init) => fetch(input, init);
+const authFetch = authFetchSpy();
 
 const okResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -22,6 +21,7 @@ describe("createSessionsClient", () => {
   });
 
   afterEach(() => {
+    expectAllThroughAuthFetch(authFetch, "include");
     vi.unstubAllGlobals();
   });
 

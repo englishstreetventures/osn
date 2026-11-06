@@ -15,7 +15,8 @@ Each factory returns a client whose methods throw its own error class, a
 subclass of `OsnApiError`. `createRegistrationClient`, `createLoginClient`
 and `createAuthorizeClient` take `{ issuerUrl }`. Every other factory takes
 `{ issuerUrl, authFetch }`, the page runtime's `authFetch`, and no method
-takes a token.
+takes an access token (the step-up gated ones take a `stepUpToken`).
+`authFetch` sends only to the issuer's origin.
 
 | Factory | Source | Error class | Calls |
 |---|---|---|---|
@@ -43,8 +44,9 @@ A client that sends through `authFetch` lets a rejection about the session
 - `createOsnAuthRuntime({ issuerUrl }, { storage? })` — the page's one
   auth runtime: a `ManagedRuntime` over a single `OsnAuthService`. Its
   `authFetch` sends the active profile's access token and renews it before
-  it expires and on a 401; `onSessionChange` tells listeners when it ended
-  the session or reset the active profile. Build it once per page.
+  it expires and on a 401, naming the active profile in the grant;
+  `onSessionChange` tells listeners when it ended the session or reset the
+  active profile. Build it once per page.
 - `OsnAuthService` (via `createOsnAuthLive`) — the Effect-based service
   behind the runtime: the persisted account, the single-flight `/token`
   grant, `authFetch`, and profile management

@@ -61,7 +61,7 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 | `POST /passkey/register/{begin,complete}` | Bind a passkey (mandatory at signup; step-up gated thereafter) |
 | `POST /login/passkey/{begin,complete}` | Identifier-bound or discoverable WebAuthn login |
 | `POST /login/recovery/complete` | Recovery-code login |
-| `POST /token` | Refresh-grant rotation (refresh token read **only** from HttpOnly cookie) |
+| `POST /token` | Refresh-grant rotation (refresh token read **only** from HttpOnly cookie); an optional `profile_id` names the profile to mint for ([[identity-model#Session load on mount — durable refresh across reloads]]) |
 | `POST /logout` | Server-side session destruction |
 | `POST /step-up/{passkey,otp}/{begin,complete}` | Mint a single-use sudo token |
 | `GET/DELETE /sessions[/:id]`, `POST /sessions/revoke-all-other` | Per-device session management |
