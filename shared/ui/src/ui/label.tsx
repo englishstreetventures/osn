@@ -2,6 +2,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { clsx } from "clsx";
 import { splitProps, type Component, type ComponentProps } from "solid-js";
 
+import { LABEL_BASE, LABEL_SIZE_MD, LABEL_TONE_DEFAULT } from "./label-classes";
+
 /**
  * The name of a form control.
  *
@@ -12,16 +14,16 @@ import { splitProps, type Component, type ComponentProps } from "solid-js";
  * treatments in this repository, and they are variants rather than call-site
  * classes so the pair can never drift into three.
  */
-const labelVariants = cva("base:font-medium base:leading-none", {
+const labelVariants = cva(LABEL_BASE, {
   variants: {
     tone: {
-      default: "base:text-ui-ink",
+      default: LABEL_TONE_DEFAULT,
       /** The label half of a label/value pair — recessive, so the value leads. */
       muted: "base:text-ui-ink-secondary",
     },
     size: {
       sm: "base:text-ui-sm",
-      md: "base:text-ui-base",
+      md: LABEL_SIZE_MD,
       /** A section heading that also labels a control — a settings row's title. */
       lg: "base:text-ui-lg base:font-semibold",
     },
