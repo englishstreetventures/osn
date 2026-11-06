@@ -55,8 +55,12 @@
  * one of a stack's sites asks for all of them.
  *
  * A flip release (FLIP names a site PRODUCTION_SITE_MODES serves from its
- * Worker) moves that site's domain and nothing else: SURFACES must name only
- * `stack` sites of the flip's stack, so no other job runs. An unflip release
+ * Worker) moves that site's domain: SURFACES must name only `stack` sites of
+ * the flip's stack, so no other job runs. Its stack deploys every site it
+ * declares, so the release weighs each of them as if asked for, and one that
+ * dev has not run at this content, or that production runs newer, holds the
+ * stack and the flip; one that would ship deploys with the stack, its own job
+ * off. An unflip release
  * (UNFLIP names a site staged again) lets its Worker give up its production
  * host, ships that site's stack alone, and once the stack ships hands the
  * site to the attach job. An attach release (ATTACH) ships nothing: its one
@@ -682,8 +686,9 @@ function parseFlip(flip: string, names: readonly string[]): SiteSurface {
  * The dispatch inputs, as the workflow passes them. Throws on a bad value.
  * Naming a site a production stack deploys asks for every site that stack
  * deploys, since the stack deploys them together; a flip release asks for
- * its own sites alone, an unflip release for its own stack's sites, and an
- * attach release for nothing.
+ * its own sites alone, so no other site's own job runs (`weighedRequest`
+ * still weighs the rest of its stack), an unflip release for its own stack's
+ * sites, and an attach release for nothing.
  */
 export function parseRequest(
   surfaces: string | undefined,
@@ -738,6 +743,7 @@ export function parseRequest(
 
 export type PlanStatus =
   | "ships"
+  | "ships with its stack"
   | "unchanged"
   | "production is newer"
   | "held back"
@@ -1069,6 +1075,56 @@ export function stackPlans(
 }
 
 /**
+ * The request a release's surfaces are weighed by. A flip release deploys
+ * its whole stack, so it weighs every site that stack deploys as if asked for
+ * it: one that dev has not run at this content, or that production runs
+ * newer, holds the stack, and with it the flip.
+ */
+export function weighedRequest(request: ReleaseRequest): ReleaseRequest {
+  if (request.flip === undefined) return request;
+  return { ...request, surfaces: stackSites(surface(request.flip).stack) };
+}
+
+/**
+ * A flip release runs its stack's jobs and no site's own: a site it weighed
+ * but was not asked for keeps its output false. One that would ship deploys
+ * with the stack when the stack ships; otherwise it waits for a release of
+ * its own.
+ */
+export function flipSiblings(
+  release: ReleaseDecisions,
+  request: ReleaseRequest,
+): readonly PlanDecision[] {
+  const { flip } = request;
+  if (flip === undefined) return release.decisions;
+  const own = surface(flip).stack;
+  const stackShips = release.stacks.some((s) => s.key === own && s.ship);
+  return release.decisions.map((d): PlanDecision => {
+    if (!d.ship || request.surfaces.includes(d.key)) return d;
+    if (!stackShips) {
+      return {
+        ...d,
+        ship: false,
+        status: "held back",
+        reason: `${d.reason}; a flip release runs no job of its own for it, and its stack waits`,
+      };
+    }
+    // A staged site's Worker serves its spare host; its production host stays
+    // on Pages, which only its own job deploys.
+    const where =
+      surface(d.key).production?.kind === "stack"
+        ? "on its production host"
+        : "on its spare host only; its Pages site waits for a release that runs its own job";
+    return {
+      ...d,
+      ship: false,
+      status: "ships with its stack",
+      reason: `${d.reason}; the ${own} stack deploys its Worker with the flip, ${where}`,
+    };
+  });
+}
+
+/**
  * The site whose domain the attach job puts back on Pages: an attach
  * release's own, or an unflip release's once its stack ships, so the host is
  * back on Pages as soon as its Worker gives it up.
@@ -1119,6 +1175,38 @@ export function apiAheadOfHost(decisions: readonly PlanDecision[]): boolean {
   return api?.ship === true && (host?.status === "ships" || host?.status === "held back");
 }
 
+/**
+ * What the approver of a flip is told: when the stack ships, that the domain
+ * moves, which other sites the stack deploys with it, and the four approvals;
+ * when it waits, that nothing moves.
+ */
+function flipBanner(release: ReleaseDecisions, flip: SiteSurface): string[] {
+  const own = surface(flip).stack;
+  if (!release.stacks.some((s) => s.key === own && s.ship)) {
+    return [
+      `> [!IMPORTANT]`,
+      `> Flip release: \`${flip}\`'s stack waits (see its row), so no domain moves.`,
+      "",
+    ];
+  }
+  // The stack deploys every site it declares, a site whose content is
+  // unchanged too: a build that bakes the release commit differs anyway.
+  const siblings = release.decisions
+    .filter((d) => d.key !== flip && stackSites(own).includes(d.key))
+    .map((d) => `\`${d.key}\` (${d.status})`);
+  return [
+    `> [!IMPORTANT]`,
+    `> Flip release: \`${flip}\`'s domain moves from its Pages project to its Worker, at low traffic.`,
+    ...(siblings.length === 0
+      ? []
+      : [
+          `> The ${own} stack also deploys the Workers of ${siblings.join(", ")} at this commit, as every deploy of it does. No site's own job runs, so a staged site's Pages host keeps its current build until a later release.`,
+        ]),
+    "> Four approvals, one per job: the Alchemy plan, the verify job, the detach, then the deploy. The site is down from the detach until the deploy attaches its domain, so approve the deploy at once.",
+    "",
+  ];
+}
+
 /** The table the approver reads on the run page before approving. */
 export function renderSummary(
   release: ReleaseDecisions,
@@ -1142,15 +1230,7 @@ export function renderSummary(
         : `[\`${short(s.production)}\`](${repo}/commit/${s.production}) ([diff](${repo}/compare/${s.production}...${context.head}))`;
     return `| ${s.key} stack | ${production} | ${s.ship ? "ships" : "waits"} | ${s.reason} |`;
   });
-  const flip =
-    release.flip === undefined
-      ? []
-      : [
-          `> [!IMPORTANT]`,
-          `> Flip release: \`${release.flip}\`'s domain moves from its Pages project to its Worker, at low traffic.`,
-          "> Four approvals, one per job: the Alchemy plan, the verify job, the detach, then the deploy. The site is down from the detach until the deploy attaches its domain, so approve the deploy at once.",
-          "",
-        ];
+  const flip = release.flip === undefined ? [] : flipBanner(release, release.flip);
   const attach = attachOf(release);
   const moves = [
     ...(release.attach === undefined
@@ -1262,12 +1342,25 @@ export async function runReleasePlan(options: {
     return newer.get(commit) === true;
   };
 
+  const weighed = weighedRequest(request);
   const production = await lastDeployed(reader, "production", [
-    ...request.surfaces,
-    ...requestedStacks(request.surfaces).map(stackRecordKey),
+    ...weighed.surfaces,
+    ...requestedStacks(weighed.surfaces).map(stackRecordKey),
   ]);
-  const changed = changedSurfaces({ head, request, production, diff, productionIsNewer });
-  const stackChanges = changedStacks({ head, request, production, diff, productionIsNewer });
+  const changed = changedSurfaces({
+    head,
+    request: weighed,
+    production,
+    diff,
+    productionIsNewer,
+  });
+  const stackChanges = changedStacks({
+    head,
+    request: weighed,
+    production,
+    diff,
+    productionIsNewer,
+  });
   // Dev deploys only from main, so a dev record whose commit main never held
   // proves nothing, whatever branch its run reports: GitHub reports a run
   // from a tag as on a branch of the tag's name.
@@ -1291,10 +1384,10 @@ export async function runReleasePlan(options: {
   );
   const gated = applyDevGate({ decisions: changed, dev, diff, force: request.force });
   const gatedStacks = applyStackDevGate({ changes: stackChanges, dev, force: request.force });
-  const { decisions, stacks } = stackPlans(gated, request.force, gatedStacks);
+  const planned = stackPlans(gated, request.force, gatedStacks);
   const release: ReleaseDecisions = {
-    decisions,
-    stacks,
+    decisions: flipSiblings(planned, request),
+    stacks: planned.stacks,
     flip: request.flip,
     unflip: request.unflip,
     attach: request.attach,
