@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 
 # Component Library (Zaidan)
@@ -126,6 +126,7 @@ osn/auth-ui/src/
 ├── SignIn.tsx              ← Button, Input, Label
 ├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
 ├── CheckEmailView.tsx      ← Button, Notice — the wait after a flow emails a link
+├── pairing-code.ts         ← isPairingCode: the number's format, for every view that draws one (not exported)
 ├── CreateProfileForm.tsx   ← UsernameInput
 ├── PasskeysView.tsx  StepUpDialog.tsx  TotpView.tsx  SessionsView.tsx
 ├── RecoveryCodesView.tsx   RecoveryLoginForm.tsx     ChangeEmailForm.tsx
@@ -1458,26 +1459,41 @@ hears while they wait, and when Resend may be pressed. `@osn/auth-ui` has no
 
 | Prop | What it does |
 | --- | --- |
-| `email` | The address the link went to, in the body ink. Absent, the view says "your email address": step-up mails the account's own address, which its tab does not hold |
+| `email` | The address the link went to, in the body ink, with `translate="no"` so a browser's page translation cannot rewrite it. Absent, the view says "your email address": step-up mails the account's own address, which its tab does not hold |
 | `purpose` | `sign-up`, `recovery`, `step-up` or `email-change`. Picks the line saying what opening the link does, and recovery's wording below |
 | `status` | `waiting`; `expired`, which unlocks a new link at once; `error`, beside `errorMessage` (a generic line when it is empty) |
 | `onResend` | Called once per accepted press. A rejection is the parent's to report, through `status` |
 | `onChangeEmail` | "Use a different email". Absent, no button |
 | `resendWaitSeconds` | Seconds before Resend unlocks, after the view appears and after each press. 30 by default; anything not a positive number means no wait |
+| `pairingCode` | The number the page the link opens asks the person to pick, from the host; the view never makes one. Drawn only when it is one to six digits, 0-9 (`isPairingCode` in `osn/auth-ui/src/pairing-code.ts`); anything else draws nothing. Absent, the view is as it was without one |
 
 What it draws, in musubi's sizes through the contract: an `h3` at
 `text-ui-base` medium ("Check your email", or "Your link has expired"); one
 sentence at `text-ui-sm` in the secondary ink; the line saying what opening the
-link does, which an expired link drops; then Resend and "Use a different email"
+link does, which an expired link drops; the number, when there is one, at
+`text-ui-xl` (musubi's `text-display`, 24px on a 30px line through
+`leading-ui-tight`), medium, in the body ink and tabular figures, with "Pick
+this number on the page the link opens." under it in the secondary ink, which an
+expired link also drops; then Resend and "Use a different email"
 as small ghost buttons, 40px tall below `md` (musubi's phone touch height,
 through `max-md:h-10` at the call site) and `Button`'s own 32px from `md` up. An
 expired link's Resend becomes the filled pill, "Send a new link". No code box
-and no other factor: the dialog around the view draws any way back. The
+and no other factor: the dialog around the view draws any way back. The number
+is not boxed either, because nothing is typed here; its size alone sets it
+apart, and it is the largest text in the view on purpose, larger than the
+heading, as the one thing the person carries to another screen
+(`musubi/social/DESIGN.md` §Typography gives `text-display` that role). The
 countdown is the disabled Resend button's own label, at `Button`'s disabled
 opacity like every other disabled `Button`: 3.03:1 on musubi's light surface and
 4.56:1 on its dark one, which WCAG 1.4.3 exempts for a disabled control.
 
 *Measured 2026-11-06 — the lab's `osn/auth-ui/CheckEmailView/WaitingBeforeResend` story at 360 and 1280px in Playwright's Chromium, the label's ink composited at its opacity over the painted card on a canvas*
+
+The number measures 14.55:1 on the light surface and 13.87:1 on the dark one,
+and its caption 6.58:1 and 6.15:1. Six digits, the most the format allows, are
+89px wide.
+
+*Measured 2026-11-06 — the lab's `WithPairingCode` and `PhoneWithPairingCode` stories at 320 and 1280px, light and dark, in Playwright's Chromium, each ink composited over the painted card on a canvas*
 
 A long address breaks where it must (`wrap-anywhere`), so a 320px
 column never scrolls sideways.
@@ -1490,6 +1506,16 @@ column never scrolls sideways.
   sit in one `role="status"` region, so a press ("Sending a new link…", then "We
   sent a new link"), an expiry and an error are announced. The countdown sits in
   the disabled Resend button, outside the region, so it is never read out.
+- **The number.** It sits outside the region, so it is read once in the page's
+  order and not again each time the region changes. A visually hidden "Your
+  number:" comes before the digits in the same paragraph, so the line reads
+  "Your number: 47"; Chromium exposes the two as text runs of one paragraph, in
+  that order. The digits alone carry `translate="no"`. The number is in no
+  attribute and no `title`. After a resend with a number shown, the announced
+  sentence ends "Check the number again.", because a number that changes outside
+  the region is not read out; it never says the number is new, since two
+  requests can draw the same one. It stays in `error` and while a resend is
+  sending: the link already sent still stands.
 - **Focus.** The heading (`tabindex="-1"`) takes focus when the view appears,
   because the form that sent the link has just gone, and again when a press
   disables the focused Resend button. Focus never falls to `<body>`, which in a
@@ -1518,17 +1544,37 @@ For a host:
   (`osn/api/src/services/auth/config.ts`), so its host should pass a longer
   `resendWaitSeconds` than the default: at 30 seconds, a person spends the day's
   sends in under two minutes.
+- Pass `pairingCode`: the number the request was given, for the page the link
+  opens to ask for. For sign-up and recovery, every request gets one, whether
+  or not the address has an account, so a number on screen says nothing about
+  the account.
+- A new link is a new request: pass its number before `onResend` resolves, and
+  before or with `status` going back to `waiting`, so the new number is on
+  screen when "Check the number again." is read out.
+- Show the number only on this tab. Never log it, and never put it in a URL,
+  the email, storage or an attribute.
+- A value that is not one to six digits draws nothing, so a host that passes the
+  wrong thing shows no number. The host's E2E reads the number off this screen
+  and picks it on the page the link opens, which catches that.
 
 `osn/auth-ui/tests/CheckEmailView.test.tsx` holds the wait, the one call per
-press, the region's words, the focus moves and the timer's end. `@osn/auth-ui`
-has no browser tier, so
+press, the region's words, the focus moves and the timer's end, the address's
+`translate="no"`, and the number: drawn or not, outside the region, its hidden
+label first, kept from translation, refused unless it is one to six digits
+(and then written nowhere, text or attribute), hidden while expired, kept in
+`error` and while sending, replaced when the host passes a new one, in no
+attribute, and "Check the number again." after a resend. `@osn/auth-ui` has no
+browser tier, so
 [`CheckEmailView.layout.browser.test.tsx`](../../musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx)
 in `@musubi/social` holds the layout in musubi's auth sheet under musubi's
 stylesheet: the long address that leaves a 320px phone's 288px column with
-nothing to scroll sideways, "Resend in 30s" as one run of text on one line, and
-both buttons at 40px below `md` and 32px from it ([[browser-tests]]). The lab's
-`osn/auth-ui/CheckEmailView` stories show each state, every flow and a 320px
-phone ([[component-lab]]).
+nothing to scroll sideways, "Resend in 30s" as one run of text on one line,
+both buttons at 40px below `md` and 32px from it, and the six-digit number
+inside that column at 24px on a 30px line in tabular figures, its label a 1px
+box and the paragraph's accessible text "Your number: 123456"
+([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each
+state, every flow, a 320px phone, and the number at rest, across a resend and
+on a phone ([[component-lab]]).
 
 ## Adding a new component
 
