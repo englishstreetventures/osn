@@ -203,6 +203,10 @@ fields add a 2px offset. Draw a hand-made control's focus in the app's own
 name for that colour, `focus-visible:ring-2 focus-visible:ring-ring`. Focus
 rings appear instantly, never animated.
 
+In a contrast theme (Windows forced colours), which drops the ring, a
+`Button` focused from the keyboard draws a 2px system-colour outline 2px off
+instead.
+
 Where the app does not follow this yet — known breaks include:
 
 - The account-menu triggers, in the rail (`Sidebar.tsx`) and the phone top bar
@@ -220,10 +224,6 @@ Where the app does not follow this yet — known breaks include:
 - Tailwind's `transition-colors` includes `outline-color`, so on a control
   that carries it the browser's outline fades in rather than appearing at
   once (#2037).
-
-In a contrast theme (Windows forced colours), which drops the ring, a
-`Button` focused from the keyboard draws a 2px system-colour outline 2px off
-instead.
 
 ## Motion
 
