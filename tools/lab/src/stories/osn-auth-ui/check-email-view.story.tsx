@@ -170,12 +170,30 @@ export const WithPairingCode = state(
   <>
     The host passed <Mono>pairingCode="47"</Mono>. The number sits under the line about the link, at
     musubi's display size in tabular figures, outside the live region, with a hidden "Your number:"
-    before it. The page the link opens asks the person to pick it.
+    before it. The page the link opens asks the person to pick it from a few.
   </>,
   () => (
     <CheckEmailView
       email={EMAIL}
       purpose="sign-up"
+      status="waiting"
+      pairingCode="47"
+      onResend={stubResend}
+      onChangeEmail={() => {}}
+    />
+  ),
+);
+
+export const RecoveryWithPairingCode = state(
+  "recovery, with a number",
+  <>
+    Recovery's page asks the person to type the number rather than pick it, so the caption says
+    "Type". The sentence still promises nothing, since recovery answers every address alike.
+  </>,
+  () => (
+    <CheckEmailView
+      email={EMAIL}
+      purpose="recovery"
       status="waiting"
       pairingCode="47"
       onResend={stubResend}
@@ -223,7 +241,8 @@ export const PhoneWithPairingCode: Story = {
       intro={
         <>
           The widest number allowed, six digits, beside a long address; and recovery in its error
-          state, which keeps the number, since the link already sent still stands.
+          state, which keeps the number, since the link already sent still stands, and whose caption
+          says "Type".
         </>
       }
     >
