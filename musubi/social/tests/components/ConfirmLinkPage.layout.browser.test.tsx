@@ -6,10 +6,13 @@
  * `@osn/auth-ui` has no browser tier, and musubi is the one app that renders
  * the page, so the layout claims its wiki section makes are held here:
  *
- * - a long address breaks inside a 320px phone's column, so neither the card
- *   nor the page scrolls sideways (`wrap-anywhere` on the address);
- * - the one button is 44px tall below `md` (`max-md:h-11`) and `Button`'s own
- *   `lg` 40px from `md` up, in every state that draws one;
+ * - five six-digit numbers, the most and the longest the page offers, and a
+ *   long address fit a 320px phone's column, so neither the card nor the page
+ *   scrolls sideways (`wrap-anywhere` on the address, one column of numbers);
+ * - each number is a target at least 44px tall, its digits 24px in tabular
+ *   figures, as the waiting screen draws the number;
+ * - Try again and Continue are 44px tall below `md` (`max-md:h-11`) and
+ *   `Button`'s own `lg` 40px from `md` up;
  * - the error notice sits directly above Try again.
  *
  * The page sits where the host route will put it: `AuthorizePage`'s `<main>`
@@ -28,6 +31,8 @@ import { page } from "vitest/browser";
 import "../../src/App.css";
 
 const LONG_EMAIL = "alexandria.whitfield-oduya.newsletters@mail.subdomain.example.com";
+
+const FIVE_WIDEST = ["804117", "390265", "117943", "652080", "029318"];
 
 const PHONE = { width: 320, height: 640 };
 const DESKTOP = { width: 1280, height: 800 };
@@ -63,7 +68,7 @@ async function painted() {
 
 /**
  * The page on its bare route, as the host draws it. `answer` is what the
- * confirm call does when the test presses the button.
+ * confirm call does when the test taps a number.
  */
 async function mountOnRoute(answer: "confirmed" | "throws", onContinue?: () => void) {
   render(() => (
@@ -71,6 +76,7 @@ async function mountOnRoute(answer: "confirmed" | "throws", onContinue?: () => v
       <ConfirmLinkPage
         purpose="sign-up"
         email={LONG_EMAIL}
+        candidates={FIVE_WIDEST}
         onConfirm={() =>
           answer === "throws"
             ? Promise.reject(new Error("no connection"))
@@ -87,7 +93,7 @@ async function mountOnRoute(answer: "confirmed" | "throws", onContinue?: () => v
   return { card };
 }
 
-/** Presses the page's one button and waits for the answer to be drawn. */
+/** Taps a button and waits for the answer to be drawn. */
 async function press(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -98,8 +104,12 @@ function buttonHeight(name: string) {
   return screen.getByRole("button", { name }).getBoundingClientRect().height;
 }
 
+function numbers() {
+  return [...screen.getByRole("group").querySelectorAll("button")];
+}
+
 describe("ConfirmLinkPage on a bare musubi route", () => {
-  it("breaks a long address inside a 320px phone's column, so nothing scrolls sideways", async () => {
+  it("fits five six-digit numbers and a long address in a 320px phone's column, so nothing scrolls sideways", async () => {
     await atViewport(PHONE);
     const { card } = await mountOnRoute("confirmed");
 
@@ -115,32 +125,64 @@ describe("ConfirmLinkPage on a bare musubi route", () => {
       sentence.getBoundingClientRect().right,
     );
 
-    await page.screenshot({ path: `${SHOTS}/ready-320.png` });
+    const cardBox = card.getBoundingClientRect();
+    const buttons = numbers();
+    expect(buttons.map((b) => b.textContent)).toEqual(FIVE_WIDEST);
+    for (const button of buttons) {
+      const box = button.getBoundingClientRect();
+      expect(box.left).toBeGreaterThanOrEqual(cardBox.left);
+      expect(box.right).toBeLessThanOrEqual(cardBox.right);
+      // One column: each number is as wide as the one above it, and below it.
+      expect(box.width).toBe(buttons[0]?.getBoundingClientRect().width);
+    }
+    for (let i = 1; i < buttons.length; i++) {
+      const above = buttons[i - 1]?.getBoundingClientRect();
+      expect(buttons[i]?.getBoundingClientRect().top).toBeGreaterThan(above?.bottom ?? 0);
+    }
+
+    await page.screenshot({ path: `${SHOTS}/five-numbers-320.png` });
   });
 
-  it("draws the button 44px tall below md, ready, after an error and once confirmed", async () => {
+  it("makes each number a target at least 44px tall, with its digits 24px in tabular figures", async () => {
+    for (const viewport of [PHONE, DESKTOP]) {
+      await atViewport(viewport);
+      await mountOnRoute("confirmed");
+      for (const button of numbers()) {
+        expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+        const digits = button.querySelector("[translate='no']") as HTMLElement;
+        const style = getComputedStyle(digits);
+        expect(style.fontSize).toBe("24px");
+        expect(style.fontVariantNumeric).toBe("tabular-nums");
+        expect(digits.getBoundingClientRect().right).toBeLessThanOrEqual(
+          button.getBoundingClientRect().right,
+        );
+      }
+      cleanup();
+    }
+  });
+
+  it("draws Try again and Continue 44px tall below md", async () => {
     await atViewport(PHONE);
     await mountOnRoute("throws");
-    expect(buttonHeight("Confirm")).toBe(44);
-
-    await press("Confirm");
+    await press(FIVE_WIDEST[2] as string);
     expect(buttonHeight("Try again")).toBe(44);
+    expect(document.documentElement.scrollWidth).toBe(PHONE.width);
     await page.screenshot({ path: `${SHOTS}/error-320.png` });
 
     cleanup();
     await mountOnRoute("confirmed", () => {});
-    await press("Confirm");
+    await press(FIVE_WIDEST[0] as string);
     expect(buttonHeight("Continue")).toBe(44);
     expect(document.documentElement.scrollWidth).toBe(PHONE.width);
     await page.screenshot({ path: `${SHOTS}/confirmed-continue-320.png` });
   });
 
-  it("draws the button at Button's own 40px from md up", async () => {
+  it("draws Try again at Button's own 40px from md up", async () => {
     await atViewport(DESKTOP);
     await mountOnRoute("throws");
-    expect(buttonHeight("Confirm")).toBe(40);
+    await page.screenshot({ path: `${SHOTS}/ready-1280.png` });
 
-    await press("Confirm");
+    await press(FIVE_WIDEST[2] as string);
     expect(buttonHeight("Try again")).toBe(40);
 
     await page.screenshot({ path: `${SHOTS}/error-1280.png` });
@@ -149,23 +191,26 @@ describe("ConfirmLinkPage on a bare musubi route", () => {
   it("puts the error notice directly above Try again", async () => {
     await atViewport(PHONE);
     await mountOnRoute("throws");
-    await press("Confirm");
+    await press(FIVE_WIDEST[2] as string);
 
-    // The heading's block holds the heading, the sentences and the notice,
-    // which is the one `<div>` among them.
-    const block = screen.getByRole("heading", { level: 1 }).parentElement as HTMLElement;
-    const notice = [...block.children].find((el) => el.tagName === "DIV") as HTMLElement;
-    expect(notice.textContent).toContain("We couldn't confirm this email just now.");
+    // The line sits in the notice's own text box; the notice is its parent,
+    // mark and all. The spoken `<output>` repeats the line and is skipped.
+    const notice = screen.getByText("We couldn't confirm this email just now.", {
+      ignore: "output",
+    }).parentElement as HTMLElement;
     const button = screen.getByRole("button", { name: "Try again" });
-    const lines = [...block.querySelectorAll(":scope > p")];
-    expect(lines).toHaveLength(2);
+    const group = screen.getByRole("group");
+    const picked = screen.getByText(
+      (_, el) => el?.tagName === "P" && el.textContent === `You picked ${FIVE_WIDEST[2]}.`,
+    );
 
-    // Every sentence ends above the notice, and the button starts below it.
-    for (const line of lines) {
-      expect(line.getBoundingClientRect().bottom).toBeLessThanOrEqual(
-        notice.getBoundingClientRect().top,
-      );
-    }
+    // The numbers, then the number picked, then the notice, then the button.
+    expect(group.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      picked.getBoundingClientRect().top,
+    );
+    expect(picked.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      notice.getBoundingClientRect().top,
+    );
     expect(notice.getBoundingClientRect().bottom).toBeLessThanOrEqual(
       button.getBoundingClientRect().top,
     );
