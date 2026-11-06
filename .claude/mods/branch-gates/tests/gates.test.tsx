@@ -20,7 +20,7 @@ const SHORT = HEAD.slice(0, 7);
 // Which of the three checks a spawn is, by the script it runs.
 const checkOf = (spawn: Spawn) => {
   const line = spawn.argv.join(" ");
-  if (line.endsWith("verify-vendored-anti-slop.sh && bun run lint")) return "lint";
+  if (line.endsWith("verify-vendored.sh tools/oxlint/anti-slop && bun run lint")) return "lint";
   if (line === "bun run fmt:check") return "fmt";
   if (line.startsWith("bash scripts/guard-lint-warnings.sh")) return "ceiling";
   return null;

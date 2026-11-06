@@ -8,24 +8,35 @@ pre-commit:
       # vendored anti-slop plugin (oxlintrc.json's jsPlugins) could execute
       # unverified anyway. `&&` is the only way this hook enforces order.
       #
-      # `.agents/**` is third-party skill text, already in oxlintrc.json's
+      # `.agents/**` (third-party skill text) and `shared/ui/vendor/**`
+      # (vendored upstream source) are already in oxlintrc.json's
       # `ignorePatterns`. That alone is not enough here: oxlint does apply
       # `ignorePatterns` to paths named on the command line, but when every
       # named path is ignored it answers "No files found to lint" and exits 1,
       # which blocks the commit. Excluded here so lefthook never names them.
+      #
+      # Only the anti-slop tree is verified here, because oxlint executes it.
+      # Nothing on this machine runs the orb engine before CI verifies it.
       exclude:
         - ".agents/**"
-      run: bash scripts/verify-vendored-anti-slop.sh && bunx --bun oxlint -c oxlintrc.json {staged_files}
+        - "shared/ui/vendor/**"
+      run: bash scripts/verify-vendored.sh tools/oxlint/anti-slop && bunx --bun oxlint -c oxlintrc.json {staged_files}
     format:
       glob: "*.{js,jsx,ts,tsx}"
-      # Vendored upstream source is left byte-identical so re-vendoring a newer
-      # anti-slop is a plain copy, not a copy plus a reformat diff. Third-party
+      # Vendored upstream source (anti-slop, the orb engine) is left
+      # byte-identical so a re-vendor is a plain copy, not a copy plus a
+      # reformat diff. Third-party
       # skills under `.agents/**` are stricter still: `skills-lock.json` pins a
       # hash of each folder, which `scripts/check-skills-lock.ts` recomputes, so
       # a reformat here fails that check, and the next install from upstream
       # throws it away.
+      #
+      # `.oxfmtrc.json` ignores `shared/ui/vendor/**` too, but `bun fmt` named
+      # only ignored files exits 2 ("Expected at least one target file"), which
+      # would block the commit; so lefthook never names them.
       exclude:
         - "tools/oxlint/anti-slop/**"
+        - "shared/ui/vendor/**"
         - ".agents/**"
       run: bun fmt --no-script {staged_files}
       stage_fixed: true

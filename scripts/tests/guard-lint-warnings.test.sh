@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for guard-lint-warnings.sh. Plain-bash assertions (no bats
 # dependency), matching the sibling shell tests under scripts/ (see
-# verify-vendored-anti-slop.test.sh).
+# verify-vendored.test.sh).
 #
 # Runs the REAL oxlint binary from this checkout's own node_modules
 # (LINT_WARNING_OXLINT_BIN), against small throwaway fixture projects
