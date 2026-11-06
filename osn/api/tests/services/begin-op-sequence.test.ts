@@ -289,6 +289,38 @@ describe("POST /register/begin", () => {
   });
 });
 
+describe("a send-limit store that cannot answer", () => {
+  it.live("mails nothing for a begin when the lockout store fails", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      h.fake.failWhen((call) => call.store === "registration_link_lockout");
+      yield* h.auth.beginRegistration("seq-lockdown@example.com", "seqlockdown", "1990-01-01");
+
+      expect(yield* h.sendLimitCalls(1)).toBe(1);
+      expect(linksTo(h.recorded(), "seq-lockdown@example.com")).toHaveLength(0);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("mails nothing for a Resend when the send cap fails, though the first link went", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      const begun = yield* h.auth.beginRegistration(
+        "seq-capdown@example.com",
+        "seqcapdown",
+        "1990-01-01",
+      );
+      yield* h.sendLimitCalls(1);
+      expect(linksTo(h.recorded(), "seq-capdown@example.com")).toHaveLength(1);
+
+      h.fake.failWhen((call) => call.store === "auth.registration_send_cap");
+      yield* h.auth.resendRegistration(begun.requestId, begun.claimSecret);
+      // The Resend reads the lockout, then the cap, which fails.
+      expect(yield* h.sendLimitCalls(3)).toBe(3);
+      expect(linksTo(h.recorded(), "seq-capdown@example.com")).toHaveLength(1);
+    }).pipe(Effect.provide(h.layer));
+  });
+});
+
 describe("POST /register/:requestId/resend", () => {
   it.live("makes the same calls for a taken address's request as for a free one's", () => {
     const h = harness();

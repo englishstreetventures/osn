@@ -63,6 +63,8 @@ const ORIGIN = wrangler.vars["OSN_CORS_ORIGIN"]!.split(",")[0]!;
 const API = wrangler.vars["OSN_ISSUER_URL"]!;
 /** A loopback Resend stand-in; the Worker's outbound fetches land in `capture`. */
 const RESEND_ORIGIN = "http://127.0.0.1:9";
+/** The deployed sign-in page URL, with a path: a mailed link uses its origin alone. */
+const AUTHORIZE_UI_URL = "https://musubi.example/authorize";
 const DEV_LOGIN_SECRET = "workerd-e2e-dev-login-secret";
 // The bearer `/health/coordination` answers, as the smoke check sends it.
 const INTERNAL_SERVICE_SECRET = "workerd-e2e-internal-service-secret";
@@ -124,6 +126,7 @@ async function boot(): Promise<Miniflare> {
       INTERNAL_SERVICE_SECRET,
       RESEND_API_KEY: "re_workerd_e2e",
       RESEND_API_URL: RESEND_ORIGIN,
+      OSN_AUTHORIZE_UI_URL: AUTHORIZE_UI_URL,
     },
     d1Databases: { DB: "osn-workerd-e2e" },
     d1Persist: join(state, "d1"),
@@ -236,8 +239,13 @@ async function linkMailedTo(
 ): Promise<{ requestId: string; linkSecret: string }> {
   for (let i = 0; i < 200; i++) {
     const sent = mail.slice(after).filter((m) => m.to.includes(to));
-    const match = sent.at(-1)?.text.match(/\/verify\/(signup_[a-f0-9]{12})#([a-f0-9]{64})/);
-    if (match) return { requestId: match[1]!, linkSecret: match[2]! };
+    const text = sent.at(-1)?.text ?? "";
+    const match = text.match(/\/verify\/(signup_[a-f0-9]{12})#([a-f0-9]{64})/);
+    if (match) {
+      // The origin of the configured sign-in page, and none of its path.
+      expect(text).toContain(`https://musubi.example/verify/${match[1]}#`);
+      return { requestId: match[1]!, linkSecret: match[2]! };
+    }
     // eslint-disable-next-line no-await-in-loop -- polling for a send that runs after the answer
     await new Promise((resolve) => setTimeout(resolve, 10));
   }

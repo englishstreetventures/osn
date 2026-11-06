@@ -82,6 +82,26 @@ describe("an input too long to be a store key", () => {
     expect(h.fake.calls).toEqual([]);
   });
 
+  it("POST /email-link/:requestId/candidates answers 4xx to an over-long request id and touches no store", async () => {
+    const h = harness();
+    const res = await h.post(`/email-link/signup_${"a".repeat(300)}/candidates`, {
+      linkSecret: "a".repeat(64),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(h.fake.calls).toEqual([]);
+  });
+
+  it("POST /register/:requestId/resend answers 4xx to an over-long request id and touches no store", async () => {
+    const h = harness();
+    const res = await h.post(`/register/signup_${"a".repeat(300)}/resend`, {
+      claimSecret: "a".repeat(64),
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(h.fake.calls).toEqual([]);
+  });
+
   it("POST /recovery/disown answers its uniform 202 and counts a wrong token, not an outage", async () => {
     const h = harness();
     const counted = vi.spyOn(metrics, "metricRecoveryDisown");

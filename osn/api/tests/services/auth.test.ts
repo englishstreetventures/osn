@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { it, expect, describe } from "@effect/vitest";
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
@@ -6,6 +8,7 @@ import { Deferred, Effect, Layer, Logger, References } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
+import { createServerMac } from "../../src/services/auth/server-mac";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
@@ -400,8 +403,15 @@ describe("sign-up through the emailed link", () => {
         ].toSorted(),
       );
       const stored = JSON.stringify(entry);
+      const serverMac = createServerMac(config.sessionIpPepper);
+      for (const candidate of serverMac.pairingCandidates(begun.requestId, 5)) {
+        expect(stored).not.toContain(`"${candidate}"`);
+      }
       expect(stored).not.toContain(`"${begun.pairingCode}"`);
-      expect(entry!.pairingHash).not.toContain(begun.pairingCode);
+      expect(entry!.pairingHash).toMatch(/^[a-f0-9]{64}$/);
+      const unkeyed = (value: string) => createHash("sha256").update(value).digest("hex");
+      expect(entry!.pairingHash).not.toBe(unkeyed(`${begun.requestId}\0${begun.pairingCode}`));
+      expect(entry!.pairingHash).not.toBe(unkeyed(begun.pairingCode));
       expect(stored).not.toContain(begun.claimSecret);
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
   });

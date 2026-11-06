@@ -128,3 +128,47 @@ describe("logDevOtp", () => {
     expect(lines).toHaveLength(1);
   });
 });
+
+describe("logDevLink", () => {
+  const originalEnv = process.env.OSN_ENV;
+  const URL_WITH_SECRET = "https://musubi.example/verify/signup_abc#secret-value";
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.OSN_ENV;
+    else process.env.OSN_ENV = originalEnv;
+    vi.resetModules();
+  });
+
+  async function freshLogDevLink(osnEnv: string) {
+    vi.resetModules();
+    process.env.OSN_ENV = osnEnv;
+    const mod = await import("../../../src/services/auth/helpers");
+    return mod.logDevLink;
+  }
+
+  it("logs the purpose and the whole link locally", async () => {
+    const logDevLink = await freshLogDevLink("local");
+    const lines = await capture(logDevLink("registration", URL_WITH_SECRET));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("registration");
+    expect(lines[0]).toContain(URL_WITH_SECRET);
+  });
+
+  it.each(["dev", "staging", "production"])("emits nothing when OSN_ENV is %s", async (env) => {
+    const logDevLink = await freshLogDevLink(env);
+    const lines = await capture(logDevLink("registration", URL_WITH_SECRET));
+    expect(lines).toEqual([]);
+  });
+
+  it.each(["dev", "staging", "production"])(
+    "emits nothing when the stamped tier is %s, whatever process.env says",
+    async (tier) => {
+      vi.resetModules();
+      process.env.OSN_ENV = "local";
+      const mod = await import("../../../src/services/auth/helpers");
+      mod.setRuntimeTier(tier);
+      const lines = await capture(mod.logDevLink("registration", URL_WITH_SECRET));
+      expect(lines).toEqual([]);
+    },
+  );
+});

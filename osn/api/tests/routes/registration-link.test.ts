@@ -9,9 +9,10 @@
  */
 
 import { makeLogEmailLive } from "@shared/email";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { createAuthService } from "../../src/services/auth";
 import {
   EMAIL_LINK_PAIRING_CANDIDATES,
   MAX_OTP_ATTEMPTS,
@@ -43,8 +44,9 @@ afterEach(() => {
 
 function harness() {
   const mail = makeLogEmailLive();
-  const app = createAuthRoutes(config, Layer.merge(createTestLayer(), mail.layer));
-  return { app, recorded: () => mail.recorded() };
+  const db = createTestLayer();
+  const app = createAuthRoutes(config, Layer.merge(db, mail.layer));
+  return { app, db, recorded: () => mail.recorded() };
 }
 
 /** A begun sign-up for a free address, and the link mailed for it. */
@@ -299,6 +301,16 @@ describe("rate limits", () => {
     ).toBe(429);
   });
 
+  it("refuses the 21st candidates read in a minute from one address", async () => {
+    const h = harness();
+    const s = await begun(h, "candidates-limit@example.com", "candidateslimit");
+    for (let n = 0; n < 20; n++) {
+      const res = await candidatesThroughRoutes(h.app, s.requestId, s.link.linkSecret);
+      expect(res.status).toBe(200);
+    }
+    expect((await candidatesThroughRoutes(h.app, s.requestId, s.link.linkSecret)).status).toBe(429);
+  });
+
   it("refuses the 6th resend in a minute from one address", async () => {
     const h = harness();
     const s = await begun(h, "resend-limit@example.com", "resendlimit");
@@ -428,6 +440,88 @@ async function wrongPickFor(
   const { pairingCandidates } = (await read.json()) as { pairingCandidates: string[] };
   return pairingCandidates.find((c) => c !== s.pairingCode)!;
 }
+
+describe("input the routes refuse", () => {
+  const SHORT_SECRET = "a".repeat(63);
+
+  async function stillPending(
+    h: ReturnType<typeof harness>,
+    s: { requestId: string; claimSecret: string; pairingCode: string },
+  ) {
+    expect(await (await statusThroughRoutes(h.app, s.requestId, s.claimSecret)).json()).toEqual({
+      status: "pending",
+      pairingCode: s.pairingCode,
+    });
+  }
+
+  function expectRefused(res: Response) {
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+  }
+
+  it("refuses a 63-character secret on every route, counting no guess, and the request stays pending", async () => {
+    const h = harness();
+    const s = await begun(h, "short-secret@example.com", "shortsecret");
+
+    expectRefused(await candidatesThroughRoutes(h.app, s.requestId, SHORT_SECRET));
+    expectRefused(await confirmThroughRoutes(h.app, s.requestId, SHORT_SECRET, s.pairingCode));
+    expectRefused(await statusThroughRoutes(h.app, s.requestId, SHORT_SECRET));
+    expectRefused(await resendThroughRoutes(h.app, s.requestId, SHORT_SECRET));
+    expect(linksTo(h.recorded(), "short-secret@example.com")).toHaveLength(1);
+
+    // Five more refused reads would have wiped the request had each counted.
+    for (let n = 0; n < MAX_OTP_ATTEMPTS; n++) {
+      expectRefused(await candidatesThroughRoutes(h.app, s.requestId, SHORT_SECRET));
+    }
+    await stillPending(h, s);
+    const confirmed = await confirmThroughRoutes(
+      h.app,
+      s.requestId,
+      s.link.linkSecret,
+      s.pairingCode,
+    );
+    expect(await confirmed.json()).toEqual({ status: "confirmed" });
+  });
+
+  it("refuses a pick that is not two digits or `none`, with no strike, and the right pick still confirms", async () => {
+    const h = harness();
+    const s = await begun(h, "bad-pick@example.com", "badpick");
+
+    for (const pick of ["100", "7", "abc", "1.5", "NONE"]) {
+      // eslint-disable-next-line no-await-in-loop -- each refusal is checked before the next
+      expectRefused(await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, pick));
+    }
+    await stillPending(h, s);
+    const confirmed = await confirmThroughRoutes(
+      h.app,
+      s.requestId,
+      s.link.linkSecret,
+      s.pairingCode,
+    );
+    expect(await confirmed.json()).toEqual({ status: "confirmed" });
+  });
+
+  it("answers a poll 200 conflict when the handle was taken while the person waited", async () => {
+    const h = harness();
+    const s = await begun(h, "route-conflict@example.com", "routeconflict");
+    const confirmed = await confirmThroughRoutes(
+      h.app,
+      s.requestId,
+      s.link.linkSecret,
+      s.pairingCode,
+    );
+    expect(await confirmed.json()).toEqual({ status: "confirmed" });
+    await Effect.runPromise(
+      createAuthService(config)
+        .registerProfile("someone-else@example.com", "routeconflict")
+        .pipe(Effect.provide(h.db)),
+    );
+
+    const poll = await statusThroughRoutes(h.app, s.requestId, s.claimSecret);
+    expect(poll.status).toBe(200);
+    expect(await poll.json()).toEqual({ status: "conflict" });
+  });
+});
 
 describe("the number on the waiting screen", () => {
   it("is among the candidates, which are distinct, sorted and the same on every read and after a Resend", async () => {
