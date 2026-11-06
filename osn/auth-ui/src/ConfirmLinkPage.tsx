@@ -14,15 +14,26 @@ export type ConfirmOutcome = "confirmed" | "expired";
 export interface ConfirmLinkPageProps {
   /** Which flow sent the link; picks what confirming is said to do. */
   purpose: ConfirmLinkPurpose;
-  /** The address the link went to. Absent, the page says "this address". */
+  /**
+   * The address the link went to. Absent, the page says "this address". Pass
+   * one only from the answer to a call that presented the link's secret: never
+   * from the link's URL, which scanners, history and request logs keep, and
+   * never from a read keyed by the request id alone, which is in the path and
+   * is not secret.
+   */
   email?: string;
   /**
    * Makes the confirm call. Called once per press, never otherwise. Resolve
    * `"expired"` for every answer that refuses the link — unknown, wrong
-   * secret, used or expired. Throw only when no answer about the link came
-   * back (a network failure, a rate limit, a server error): a throw offers Try
-   * again, and a refused secret pressed again would spend the attempts the
-   * server allows before it wipes the request.
+   * secret, used or expired; over HTTP, every 4xx but 429. Throw only when no
+   * answer about the link came back (a network failure, a rate limit, a
+   * server error): a throw offers Try again, and a refused secret pressed
+   * again would spend the attempts the server allows before it wipes the
+   * request.
+   *
+   * The secret goes in the request body, never in a path or query. The host
+   * holds it in memory only — never in `sessionStorage`, `localStorage` or a
+   * cookie — and keeps it out of anything it throws or logs.
    */
   onConfirm: () => Promise<ConfirmOutcome>;
   /**
@@ -66,8 +77,9 @@ const FINISH = {
  *
  * One page serves sign-up, recovery, step-up and email change. It is
  * presentational: the host route reads the link, clears its secret from the
- * address bar, and passes `onConfirm`, which makes the confirm `POST`. The page
- * decides when that call may run and what the person sees and hears around it.
+ * address bar before anything else on the route can read the URL, and passes
+ * `onConfirm`, which makes the confirm `POST`. The page decides when that call
+ * may run and what the person sees and hears around it.
  *
  * - **Only a press confirms.** Mail scanners open links before people do, so
  *   nothing on mount, on a prop change or on a timer calls `onConfirm`. The

@@ -1585,15 +1585,15 @@ on a phone ([[component-lab]]).
 [ConfirmLinkPage.tsx](../../osn/auth-ui/src/ConfirmLinkPage.tsx) is what a
 sign-up, recovery, step-up or email-change link opens: "Confirm this email" and
 one button. It is presentational. The host route reads the link, clears its
-secret from the address bar, and passes `onConfirm`, which makes the confirm
-`POST`; the page decides when that call may run and what the person sees and
+secret from the address bar before anything else on the route can read the URL,
+and passes `onConfirm`, which makes the confirm `POST`; the page decides when that call may run and what the person sees and
 hears around it. Its look follows `musubi/social/DESIGN.md`, as
 `CheckEmailView`'s does.
 
 | Prop | What it does |
 | --- | --- |
 | `purpose` | `sign-up`, `recovery`, `step-up` or `email-change` — the type is `CheckEmailView`'s, so a new flow is a type error in both copy tables. Picks what confirming is said to do |
-| `email` | The address the link went to, in the body ink. Absent, the page says "this address", which is the usual case: the link carries no address |
+| `email` | The address the link went to, in the body ink. Absent, the page says "this address", which is the usual case: the link carries no address. Where a host may get one is below |
 | `onConfirm` | The confirm call. Called once per press and never otherwise. Resolves `"confirmed"` or `"expired"`; a throw, or any other value, is an error the person can try again |
 | `onContinue` | Continue, after a confirm, where the host knows the person can carry on in this tab. Absent, the page sends them back to where they started |
 
@@ -1653,11 +1653,22 @@ full-width filled pill, `size="lg"` with `max-md:h-11`, so 40px on a desktop and
 For a host:
 
 - Resolve `"expired"` for every answer that refuses the link — unknown, wrong
-  secret, used or expired. Throw only when no answer about the link came back:
-  a network failure, a rate limit, a server error. Try again has no cap, and
-  needs none on those terms; a refused secret thrown instead would let each
-  press spend one of the wrong-secret attempts the server allows before it wipes
-  the request.
+  secret, used or expired; over HTTP, every 4xx but 429. Throw only when no
+  answer about the link came back: a network failure, a rate limit, a server
+  error. Try again has no cap, and needs none on those terms; a refused secret
+  thrown instead would let each press spend one of the wrong-secret attempts
+  the server allows before it wipes the request.
+- The link's secret is a one-use credential. Read it from the fragment and
+  clear it with `history.replaceState` before the page renders, so nothing else
+  on the route reads it from the URL. Hold it in memory only, never in
+  `sessionStorage`, `localStorage` or a cookie. Send it in the JSON body of the
+  confirm `POST`, never in its path or query, as the cross-device routes do
+  ([cross-device.ts](../../osn/api/src/routes/auth/cross-device.ts)). Keep it
+  out of anything the host throws or logs.
+- Pass `email` only from the answer to a call that presented the secret, or
+  pass none. Never take it from the link's URL, which mail scanners, history
+  and request logs keep, nor from a read keyed by the request id alone: the id
+  sits in the path and is not secret.
 - The page is the card alone. Draw the page around it — `<main>`, the column,
   centring, the safe areas — as `AuthorizePage` draws its own, with no app
   shell around it.
