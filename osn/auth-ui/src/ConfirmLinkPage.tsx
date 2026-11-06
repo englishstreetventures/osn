@@ -454,6 +454,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
                   id={fieldId}
                   size="touch"
                   face="code"
+                  fill="ink"
                   inputmode="numeric"
                   autocomplete="off"
                   spellcheck={false}
