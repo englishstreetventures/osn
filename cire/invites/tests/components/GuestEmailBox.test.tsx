@@ -99,6 +99,7 @@ describe("GuestEmailBox", () => {
       expect(screen.queryByLabelText("Your email, Ada")).toBeNull();
       expect(screen.getByRole("status").textContent).toMatch(/RSVPs have closed/);
       expect(document.body.textContent).not.toMatch(/Change it if/);
+      expect(document.body.textContent).toMatch(/Remove it to stop wedding emails to it/);
 
       fetchMock.mockResolvedValueOnce(Response.json({ email: null }));
       fireEvent.click(screen.getByRole("button", { name: "Remove email" }));
@@ -132,6 +133,66 @@ describe("GuestEmailBox", () => {
       await waitFor(() => expect(screen.queryByLabelText("Your email, Ada")).toBeNull());
       expect(screen.getByRole("status").textContent).toMatch(/RSVPs have closed/);
       expect(document.activeElement).toBe(screen.getByRole("heading"));
+    });
+
+    // A page that loads closed has nothing to rescue focus from, and a guest
+    // who is somewhere else on the page when the deadline passes keeps their place.
+    it("moves focus to the heading only from the box or from nowhere", async () => {
+      const loadedClosed = render(() => (
+        <GuestEmailBox
+          apiUrl="https://api.test"
+          member={ada}
+          email={null}
+          closed
+          onChange={() => {}}
+          onMemberRequired={() => {}}
+        />
+      ));
+      expect(document.activeElement).not.toBe(screen.getByRole("heading"));
+      loadedClosed.unmount();
+
+      const [closed, setClosed] = createSignal(false);
+      const elsewhere = document.createElement("button");
+      document.body.append(elsewhere);
+      render(() => (
+        <GuestEmailBox
+          apiUrl="https://api.test"
+          member={ada}
+          email={null}
+          closed={closed()}
+          onChange={() => {}}
+          onMemberRequired={() => {}}
+        />
+      ));
+      elsewhere.focus();
+      setClosed(true);
+      await waitFor(() => expect(screen.queryByLabelText("Your email, Ada")).toBeNull());
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.remove();
+    });
+
+    // Only the server's own closed answer closes the box: any other 403 is an
+    // ordinary failure, and the form stays for another try.
+    it("keeps the form after a 403 that is not the deadline's", async () => {
+      render(() => (
+        <GuestEmailBox
+          apiUrl="https://api.test"
+          member={ada}
+          email={null}
+          onChange={() => {}}
+          onMemberRequired={() => {}}
+        />
+      ));
+      fireEvent.input(screen.getByLabelText("Your email, Ada"), {
+        target: { value: "ada@example.test" },
+      });
+      fireEvent.click(screen.getByRole("checkbox", { name: /emails about this wedding/ }));
+      fetchMock.mockResolvedValueOnce(Response.json({ error: "not_a_guest" }, { status: 403 }));
+      fireEvent.click(screen.getByRole("button", { name: "Add email" }));
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toMatch(/Couldn’t save your email/),
+      );
+      expect(screen.getByLabelText("Your email, Ada")).toBeTruthy();
     });
 
     // The page's clock can run behind the server's: the server's refusal is the

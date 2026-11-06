@@ -86,7 +86,7 @@ async function refusalOf(
 ): Promise<"member" | "closed" | "invalid" | "outdated" | "other"> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   if (res.status === 409) return "member";
-  if (res.status === 403 && body?.error === "rsvp_closed") return "closed";
+  if (body?.error === "rsvp_closed") return "closed";
   if (body?.error === "invalid_email") return "invalid";
   if (body?.error === "email_consent_outdated") return "outdated";
   return "other";
