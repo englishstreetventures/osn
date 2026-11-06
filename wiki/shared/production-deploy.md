@@ -1604,15 +1604,16 @@ soaked, so the Pages copy a rollback returns to is current.
 
 #### Rehearse the move on dev first
 
-What a flip depends on, only Cloudflare can answer: what `CLOUDFLARE_PAGES_DNS_TOKEN`'s
+What a flip depends on, only Cloudflare can answer: what `scripts/pages-domain.ts`'s
 reach check reads, what Cloudflare does when a Worker custom domain is attached right
 after the host's Pages domain and CNAME go, how long the host is unreachable, and
 whether `attach` brings the Pages site back and how long that takes. **Domain move
 rehearsal** answers them on the dev account, with the same code and job shape a flip
 release uses ([[infrastructure-as-code#The domain move rehearsal]]):
 
-1. Make sure the `dev` Environment holds `CLOUDFLARE_DEV_PAGES_DNS_TOKEN` and
-   `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN` ([[dev-environment#Two accounts, two Environments]]).
+1. Make sure the dev deploy token, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, holds
+   `Cloudflare Pages: Edit` on the dev account; the rehearsal makes every Cloudflare call
+   with it ([[dev-environment#Two accounts, two Environments]]).
 2. From the Actions tab, dispatch **Domain move rehearsal** on `main`. It asks no approval: the
    `dev` Environment has no reviewer. Each wait for Cloudflare gives up after 15 minutes
    (a Worker) or 20 (a Pages domain), and the watch job after two hours.
@@ -1623,7 +1624,7 @@ release uses ([[infrastructure-as-code#The domain move rehearsal]]):
 
 | Question | Where the artifact answers it |
 |---|---|
-| What the reach check reads | `fragments.preflight.calls`: `GET /accounts` and `GET /zones` |
+| What the reach check reads | `fragments.preflight.calls`: `GET /accounts` and `GET /zones`, for the dev deploy token. That token holds more grants than `CLOUDFLARE_PAGES_DNS_TOKEN`, so this shows how an account API token scoped to one zone answers both listings, not the production token's own answer |
 | What Cloudflare does when the Worker takes the host | `fragments.flip`: the Worker's custom domains and both hosts' records, read every 6 s while Alchemy deploys; `workerDomainListedMs`. Alchemy retries a `HostnameAlreadyInUse` conflict for 16 s without logging it, so a conflict it got past shows only as that time |
 | How the precheck reads a flipped host | `fragments.check.state`, which must be `free`, and the records it read |
 | How long the host is unreachable | `edgeGapMs` (at Cloudflare's edge) and `clientDnsGapMs` (as the runner's resolver sees it: a visitor who looks the host up during the gap can keep the negative answer longer) |

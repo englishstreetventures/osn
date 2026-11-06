@@ -270,7 +270,7 @@ done
 
 | Environment | Cloudflare account | Credential secrets | Reviewers |
 |---|---|---|---|
-| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY`, `CLOUDFLARE_DEV_PAGES_DNS_TOKEN`, `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN` | none; branch policy `main` |
+| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` | none; branch policy `main` |
 | `production` | the production account | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | required; branch policy `main` |
 
 The separate account is the hard boundary: `Workers Scripts: Edit` and
@@ -280,7 +280,8 @@ differ from production's so a job in the wrong Environment fails on an empty
 secret instead of reaching the other account. [[access-control]] lists who holds
 each credential.
 
-Permissions the dev deploy token holds, one line per thing the stack jobs call:
+Permissions the dev deploy token holds, one line per thing the stack jobs and
+the domain move rehearsal call:
 
 | Scope | Permission | What needs it |
 |---|---|---|
@@ -289,7 +290,17 @@ Permissions the dev deploy token holds, one line per thing the stack jobs call:
 | Account | `Workers R2 Storage: Edit` | creating the dev buckets |
 | Account | `Secrets Store: Edit` | the Alchemy state store ([[infrastructure-as-code#State store]]) |
 | Account | `Account Settings: Read` | the account lookup on every call |
-| Zone (the dev zone) | `Zone: Read`, `DNS: Edit`, `Workers Routes: Edit` | each Worker's custom domain |
+| Account | `Cloudflare Pages: Edit` | the domain move rehearsal alone ([[infrastructure-as-code#The domain move rehearsal]]): its Pages project, Wrangler's upload of its marker page, and moving its host on and off the project |
+| Zone (the dev zone) | `Zone: Read`, `DNS: Edit`, `Workers Routes: Edit` | each Worker's custom domain; the rehearsal's CNAME and DNS reads |
+
+The domain move rehearsal uses this token for every Cloudflare call it makes,
+so its zone grant stays on the dev zone alone: the rehearsal's Pages and DNS
+steps run `scripts/pages-domain.ts`'s reach check, which refuses the token
+unless `GET /accounts` lists exactly the dev account and `GET /zones` exactly
+the `DEV_DOMAIN` zone. Production keeps a separate Pages and DNS token
+(`CLOUDFLARE_PAGES_DNS_TOKEN`) that never reaches installed code; on dev the
+deploy token already holds `DNS: Edit` beside the whole installed tree in every
+stack job, so a second token there would add no protection.
 
 Every production CI token — `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_PAGES_DNS_TOKEN`
 and `CLOUDFLARE_API_TOKEN_READONLY` — is an account API token, made under
@@ -305,17 +316,6 @@ The read-only token, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY`, holds
 `Account Settings: Read`, `D1: Read` and `Account Analytics: Read` on the dev
 account, for the free-tier alert's dev job ([[free-tier-limits]]).
 
-The domain move rehearsal ([[infrastructure-as-code#The domain move rehearsal]])
-reads two more, each an account API token on the dev account, made under
-**Manage Account**, then **Account API Tokens**:
-
-| Secret | Permissions, and nothing else | Read by |
-|---|---|---|
-| `CLOUDFLARE_DEV_PAGES_DNS_TOKEN` | Account · `Cloudflare Pages: Edit`; Zone · `DNS: Edit`, Zone Resources: Include · Specific zone · the `DEV_DOMAIN` zone. The same list as production's `CLOUDFLARE_PAGES_DNS_TOKEN`, one for one, so the rehearsal's reach check reads what production's would; if the production token holds anything more, this one holds it too | `scripts/domain-move-rehearsal.ts` alone, on runners that install nothing or before the job's install; it refuses the token unless `GET /accounts` lists exactly the dev account and `GET /zones` exactly the `DEV_DOMAIN` zone |
-| `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN` | Account · `Cloudflare Pages: Edit` | Wrangler's upload of the rehearsal's marker page, after the script checks the token reaches the dev account and no zone |
-
-Set each with `gh secret set <name> --env dev --repo englishstreetventures/osn`.
-The dev deploy token keeps the grants above: it gains no Pages permission.
 
 Repository scope holds no credential that can write to Cloudflare. It keeps
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_READONLY`, the production
@@ -461,11 +461,9 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    scheme. `PUBLIC_TURNSTILE_SITEKEY` and `PUBLIC_GOOGLE_MAPS_EMBED_KEY` stay as
    they are. Leave `CIRE_DEV_OWNER_PROFILE_ID` unset until step 8.
 3. **Credentials.** `CLOUDFLARE_DEV_ACCOUNT_ID`;
-   `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` (the permissions in §2);
+   `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN` (the permissions in §2); and
    `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` (`Account Settings: Read`,
-   `D1: Read`, `Account Analytics: Read`); and the domain move rehearsal's
-   `CLOUDFLARE_DEV_PAGES_DNS_TOKEN` and `CLOUDFLARE_DEV_PAGES_UPLOAD_TOKEN`
-   (their grants are in §2).
+   `D1: Read`, `Account Analytics: Read`).
 4. **Worker secrets**, new values made for the dev account, never production's:
    - osn-api: `DEV_LOGIN_SECRET` (at least 32 characters), `INTERNAL_SERVICE_SECRET`
      (zap-api reads the same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`,
