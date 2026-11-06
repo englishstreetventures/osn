@@ -413,7 +413,9 @@
       // ladder shortens at a desk, and a written 200ms does not. The rule
       // reports a literal in a transition or animation (class strings, style
       // objects, injected stylesheets), Tailwind's duration-*, delay-* and
-      // ease-linear and their arbitrary forms, and transition-all. A var()
+      // ease-linear and their arbitrary forms, a named ease-* that reads
+      // Tailwind's own curve (outside cire, which sets --ease-out and
+      // --ease-in-out in its theme), and transition-all. A var()
       // fallback, cire's calc(… * var(--motion-scale)) and anything under
       // prefers-reduced-motion: reduce pass. oxlint never parses .css and
       // skips .astro (ignorePatterns below), so

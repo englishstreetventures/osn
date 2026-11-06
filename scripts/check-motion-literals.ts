@@ -11,7 +11,8 @@
  * attributes, frontmatter and `<script>` classes, under `<product>/*\/src/`
  * for each product directory below. What counts as a literal, and the
  * `motion-literal:` marker that keeps one with its reason, live in
- * `scripts/lib/motion-literals.ts`, which the lint rule imports too.
+ * `scripts/lib/motion-literals.ts`, which the lint rule imports too. A file's
+ * path decides whether Tailwind's `ease-out` reads its app's own token.
  *
  * Wired into the `script-tests` job in ci.yml: a directory walk, with no build
  * and no install. Its tests, scripts/tests/check-motion-literals.test.ts, run
@@ -20,7 +21,13 @@
 
 import { join, relative } from "node:path";
 
-import { checkAstro, checkCss, formatLiterals, MOTION_ADVICE } from "./lib/motion-literals";
+import {
+  checkAstro,
+  checkCss,
+  formatLiterals,
+  MOTION_ADVICE,
+  themeEasingsFor,
+} from "./lib/motion-literals";
 
 /** The product trees; `tools/` and `scripts/` are not shipped. */
 const PRODUCTS = ["osn", "musubi", "pulse", "cire", "shared", "zap"] as const;
@@ -51,7 +58,8 @@ if (import.meta.main) {
   let failed = false;
   for (const [i, path] of files.entries()) {
     const text = texts[i] ?? "";
-    const findings = path.endsWith(".astro") ? checkAstro(text) : checkCss(text);
+    const easings = themeEasingsFor(path);
+    const findings = path.endsWith(".astro") ? checkAstro(text, easings) : checkCss(text, easings);
     for (const finding of findings) {
       failed = true;
       const rel = relative(root, join(root, path));
