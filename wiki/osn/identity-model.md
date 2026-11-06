@@ -252,7 +252,7 @@ sequenceDiagram
   API-)M: email: /verify/<requestId>#<link secret>
   loop until confirmed
     U->>API: POST /register/:requestId/status { claimSecret }
-    API-->>U: 200 { status: pending }
+    API-->>U: 200 { status: pending, pairingCode }
   end
   M->>API: POST /email-link/:requestId/candidates { linkSecret }
   API-->>M: 200 { pairingCandidates }

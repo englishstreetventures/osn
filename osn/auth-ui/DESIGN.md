@@ -93,9 +93,8 @@ paints `ui-danger` through the contract (§7).
 
 **Status roles in use.**
 
-- `ui-success` — ink for a confirmed good state: the "Accepted" line after an
-  email code in `Register`, and the shared parts' own success states
-  (`UsernameInput`, `OtpInput`).
+- `ui-success` — ink for a confirmed good state: the shared parts' own success
+  states (`UsernameInput`, `OtpInput`).
 - `ui-warn` — a border and a wash: the `SecurityEventsBanner` box.
 - `ui-danger` — ink for a failure: every view's error line, drawn by
   `Notice` (`tone="danger"`). `RecoveryCodesView`'s warning when an account

@@ -36,7 +36,7 @@ a flow keeps its own pending state beside it (sign-up's is
 The store entry (`email_link` ceremony store, keyed by request id) holds only
 SHA-256 hashes of the secrets, a keyed digest of the pairing number
 (`serverMac.pairingDigest`), the flow, the key of the flow's pending entry,
-`pending` or `confirmed`, and the expiry. The candidates the page offers are
+`pending`, `confirmed` or `declined`, and the expiry. The candidates the page offers are
 derived from the request id under the server key (`serverMac.pairingCandidates`),
 never stored. The entry carries `v: 1`; any other shape is refused.
 
@@ -50,8 +50,12 @@ link uses the same helper. Deployed, that is Musubi (`OSN_AUTHORIZE_UI_URL`).
 Musubi's `/verify/:requestId` is a bare route. `index.tsx` takes the secret off
 the address bar with `history.replaceState` before anything renders, and keeps
 it in memory only, so a reload loses it (the email's link still works). The
-page reads the candidates with it, then shows `ConfirmLinkPage` with them. It
-offers no Continue: the tab that began finishes, on this device or another.
+page reads the candidates with it, then shows `ConfirmLinkPage` with them; a
+read that answers `confirmed` or `expired` opens the page on that answer
+(`initialOutcome`) with nothing to pick. The page sends the number tapped, or
+`null` for "I didn't ask for this", which the client posts as
+`pairingPick: "none"`. It offers no Continue: the tab that began finishes, on
+this device or another.
 
 ## Routes
 
@@ -59,8 +63,8 @@ offers no Continue: the tab that began finishes, on this device or another.
 |---|---|---|
 | `POST /register/begin` | details, Turnstile token, optional `previous` | `{ requestId, claimSecret, pairingCode, expiresAt }` |
 | `POST /email-link/:requestId/candidates` | `{ linkSecret }` | `ready` with `pairingCandidates`, `confirmed`, or `expired` |
-| `POST /email-link/:requestId/confirm` | `{ linkSecret, pairingPick }` | `confirmed` or `expired` — never a cookie or token |
-| `POST /register/:requestId/status` | `{ claimSecret }` | `pending`, `expired`, `conflict`, or 201 with the session (cookie + access token) |
+| `POST /email-link/:requestId/confirm` | `{ linkSecret, pairingPick }` | `confirmed`, `declined` or `expired` — never a cookie or token |
+| `POST /register/:requestId/status` | `{ claimSecret }` | `pending` with the `pairingCode`, `expired`, `conflict`, or 201 with the session (cookie + access token) |
 | `POST /register/:requestId/resend` | `{ claimSecret }` | `sent`, `limit` or `expired` |
 
 There is no `GET` on any of them: mail scanners open links before people do.
@@ -76,13 +80,17 @@ There is no `GET` on any of them: mail scanners open links before people do.
   read counts nothing, so a reload, or a scanner that runs the page's script,
   spends nothing. Confirm and Resend rewrite the entry, which restarts the
   count: the cap is per link sent.
-- **A wrong pick ends the request at once**, confirmed or not, and so does
-  "none of these" (`pairingPick: "none"`). Five candidates, so a pick made
-  without the waiting screen is right one time in five. A decline counts
-  nothing against the reader. Sign-up counts a wrong pick as a strike per
-  address (`registration_link_lockout`): three in 24 hours and no more sign-up
-  links go to that address until the window passes, while begin answers as
-  ever.
+- **A wrong pick ends the request at once**, confirmed or not. Five
+  candidates, so a pick made without the waiting screen is right one time in
+  five. Sign-up counts a wrong pick as a strike per address
+  (`registration_link_lockout`): three in 24 hours and no more sign-up links go
+  to that address until the window passes, while begin answers as ever.
+- **"I didn't ask for this"** (`pairingPick: "none"`) ends the request too,
+  confirmed or not, counts nothing against the reader, and answers
+  `declined`. The entry stays, marked `declined`, until it expires, so the same
+  decline sent again answers `declined` again; nothing else gets anything from
+  it — a number, a poll, a Resend and a read all answer `expired` — and the
+  flow's pending entry is freed at once.
 - **A right secret and pick on a confirmed request answers `confirmed` again**,
   so a confirm whose answer was lost does not read as a failure.
 - **Single delivery.** The poll that finds the request confirmed claims it
@@ -110,10 +118,12 @@ There is no `GET` on any of them: mail scanners open links before people do.
   newest sign-up always gets its first link. The key is the address as typed,
   lowercased: `+tag` variants are separate addresses.
 - **The wait survives a reload.** `Register` keeps the request, claim secret,
-  pairing number, address and handle (no birthdate) in this tab's
-  `sessionStorage`, and the auth dialogs and `/authorize` reopen it. It polls
-  one call at a time, from two seconds growing to ten, and at once when the tab
-  comes back into view.
+  address and handle (no birthdate) in this tab's `sessionStorage`, and the
+  auth dialogs and `/authorize` reopen it. The pairing number is never stored:
+  `Register` holds it in memory, and a reloaded tab polls at once and shows the
+  number the `pending` answer carries, which the server recovers from the
+  stored digest. It polls one call at a time, from two seconds growing to ten,
+  and at once when the tab comes back into view.
 
 ## Adding a flow
 
@@ -130,8 +140,9 @@ There is no `GET` on any of them: mail scanners open links before people do.
 - Spans: `auth.email_link.confirm`, `auth.email_link.candidates`,
   `auth.register.{begin,resend,complete}`, `auth.register.status` (no counter:
   polls would bury the funnel).
-- `osn.auth.email_link.confirmations{outcome}` — `confirmed`, `repeat`,
-  `refused`, `wiped`, `wrong_pick`, `declined`.
+- `osn.auth.email_link.confirmations{outcome}` — `confirmed`, `repeat` (an
+  accepted confirm or decline sent again), `refused`, `wiped`, `wrong_pick`,
+  `declined`.
 - `osn.auth.email_link.sends{flow, result}` — `sent`, `capped`, `failed`.
 - `linkSecret`, `claimSecret`, `pairingCode`, `pairingCandidates` and
   `pairingPick` are on the log redaction list. The local-only debug line

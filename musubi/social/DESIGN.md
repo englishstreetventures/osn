@@ -88,9 +88,8 @@ Three hues, each held to its uses:
 - **Success** — `text-success` in app code, `text-ui-success` in shared parts
   (`--toast-accent-success`: `oklch(48% 0.13 150)` light, `oklch(78% 0.13 150)`
   dark). Ink for a confirmed good state. Uses today: "Verified by Musubi" on
-  `/authorize` (`AuthorizePage.tsx`), the "Accepted" line after an email code
-  in `Register`, "@handle is available" in `@shared/ui`'s `UsernameInput`, and
-  the accepted border of `OtpInput`.
+  `/authorize` (`AuthorizePage.tsx`), "@handle is available" in `@shared/ui`'s
+  `UsernameInput`, and the accepted border of `OtpInput`.
 - **Warn** — `--toast-accent-warn` (`oklch(52% 0.12 75)` light,
   `oklch(80% 0.12 75)` dark). Ink inside `@shared/ui`'s `Notice`
   (`tone="warn"`) and only there: its words and its circled "!" mark, on the
@@ -742,6 +741,8 @@ control the views draw by hand shows the base focus outline (§Borders,
 | --- | --- | --- |
 | `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
 | `SignIn`, `Register` | `/authorize`, in a bordered `rounded-card` frame under the client card; "No account yet? Create one" swaps to `Register` | `components/AuthorizeSignIn.tsx` |
+| `CheckEmailView` | Inside `Register`, once its link is sent | — |
+| `ConfirmLinkPage` | `/verify/:requestId`, a bare route with no app shell: the wordmark above the card, in `AuthorizePage`'s `<main>` column | `pages/VerifyEmailLinkPage.tsx` |
 | `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |
 | `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-code step, when a site key is set | — |
 | `PasskeysView`, `TotpView`, `RecoveryCodesView` | Settings → Security, in that order, the last under the app's own "Recovery codes" heading | `components/SecuritySection.tsx` (lazy) |
