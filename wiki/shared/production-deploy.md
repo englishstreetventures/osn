@@ -1624,7 +1624,7 @@ release uses ([[infrastructure-as-code#The domain move rehearsal]]):
 | Question | Where the artifact answers it |
 |---|---|
 | What the reach check reads | `fragments.preflight.calls`: `GET /accounts` and `GET /zones` |
-| What Cloudflare does when the Worker takes the host | `fragments.flip`: the Worker's custom domains and the host's records, read every 4 s while Alchemy deploys; `workerDomainListedMs`. Alchemy retries a `HostnameAlreadyInUse` conflict for 16 s without logging it, so a conflict it got past shows only as that time |
+| What Cloudflare does when the Worker takes the host | `fragments.flip`: the Worker's custom domains and both hosts' records, read every 6 s while Alchemy deploys; `workerDomainListedMs`. Alchemy retries a `HostnameAlreadyInUse` conflict for 16 s without logging it, so a conflict it got past shows only as that time |
 | How the precheck reads a flipped host | `fragments.check.state`, which must be `free`, and the records it read |
 | How long the host is unreachable | `edgeGapMs` (at Cloudflare's edge) and `clientDnsGapMs` (as the runner's resolver sees it: a visitor who looks the host up during the gap can keep the negative answer longer) |
 | Whether `attach` restores Pages, and how long it takes | `rollbackMs`, `pagesServingMs` and `pagesDomainActiveMs` |

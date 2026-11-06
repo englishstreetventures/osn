@@ -101,6 +101,8 @@ interface World {
   flaky: Record<string, (Response | Error)[]>;
   /** Extra fields every answer of that list carries, to test what the artifact keeps. */
   extra: Record<string, unknown>;
+  /** Told of every request, by method and path with no query. */
+  onRequest?: (method: string, path: string) => void;
 }
 
 const world = (patch: Partial<World> = {}): World => ({
@@ -133,6 +135,7 @@ function fakeFetch(w: World, calls: Call[]) {
     const path = url.startsWith(API) ? url.slice(API.length) : url.slice(GITHUB.length);
     const bare = path.split("?")[0] ?? "";
     const query = new URLSearchParams(path.split("?")[1] ?? "");
+    w.onRequest?.(method, bare);
     const queued = w.flaky[`${method} ${bare}`]?.shift();
     if (queued instanceof Error) throw queued;
     if (queued !== undefined) return queued;
@@ -238,7 +241,14 @@ function fakeFetch(w: World, calls: Call[]) {
     }
     if (method === "GET" && bare === `${accountPath}/workers/domains`) {
       const hostname = query.get("hostname");
-      return ok(w.workerDomains.filter((held) => hostname === null || held.hostname === hostname));
+      const service = query.get("service");
+      return ok(
+        w.workerDomains.filter(
+          (held) =>
+            (hostname === null || held.hostname === hostname) &&
+            (service === null || held.service === service),
+        ),
+      );
     }
     const workerDomain = new RegExp(`^${accountPath}/workers/domains/([^/]+)$`).exec(bare);
     if (method === "DELETE" && workerDomain !== null) {
@@ -1434,5 +1444,57 @@ describe("domain-move-rehearsal.ts", () => {
     expect(order.indexOf(`DELETE /zones/${ZONE_ID}/dns_records/c1`)).toBeLessThan(
       order.indexOf(`DELETE /accounts/${ACCOUNT}/pages/projects/${PROJECT}`),
     );
+  });
+
+  test("R13b: a deploy that fails before Cloudflare lists the domain where it was going ends the step at once", async () => {
+    let probes = 0;
+    const counting = (w: World) => async (address: string, host: string) => {
+      probes += 1;
+      return edgeFromWorld(w)(address, host);
+    };
+    const w = detached();
+    const flipFailed = await run(["flip", ...OUT], w, DEPLOY_ENV, {
+      runAlchemy: async () => ({ exitCode: 1, log: "Error: refused" }),
+      probe: counting(w),
+    });
+    expect(flipFailed.code).toBe(1);
+    // The one probe before the deploy, and none after it.
+    expect(probes).toBe(1);
+    probes = 0;
+    const w2 = detached();
+    await alchemyMoving(w2, [])("rehearsal:deploy", { REHEARSAL_MODE: "worker" });
+    const unflipFailed = await run(["unflip", ...OUT], w2, DEPLOY_ENV, {
+      runAlchemy: async () => ({ exitCode: 1, log: "Error: refused" }),
+      probe: counting(w2),
+    });
+    expect(unflipFailed.code).toBe(1);
+    expect(probes).toBe(0);
+  });
+
+  test("R19e: the poll reads each path once a round, never retried, and a repeated answer counts on its own entry", async () => {
+    const w = detached();
+    const result = await run(["flip", ...OUT], w, DEPLOY_ENV, {
+      // Alchemy finishes once the poll has read the Worker's domains six times.
+      runAlchemy: async (script, env) => {
+        await alchemyMoving(w, [])(script, env);
+        await new Promise<void>((resolve) => {
+          let reads = 0;
+          w.onRequest = (method, path) => {
+            if (method === "GET" && path.endsWith("/workers/domains") && ++reads >= 6) resolve();
+          };
+        });
+        return { exitCode: 0, log: "" };
+      },
+    });
+    expect(result.code).toBe(0);
+    const polled = result.calls.filter((call) =>
+      call.url.includes(`/workers/domains?service=${REHEARSAL_WORKER}`),
+    );
+    expect(polled.length).toBeGreaterThan(3);
+    const entries = (result.fragment.calls as { path: string; repeats: number }[]).filter((call) =>
+      call.path.includes("/workers/domains?service="),
+    );
+    expect(entries.length).toBeLessThanOrEqual(2);
+    expect(entries.reduce((sum, entry) => sum + entry.repeats + 1, 0)).toBe(polled.length);
   });
 });

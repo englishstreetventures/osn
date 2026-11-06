@@ -745,6 +745,29 @@ describe("pagesDnsApi", () => {
       codes: [10000],
     });
   });
+
+  test("PD16: a read asked with retry: false is sent once, even on a 429", async () => {
+    const domains = `GET /accounts/${ACCOUNT}/pages/projects/cire-host/domains`;
+    const seen: ObservedAttempt[] = [];
+    const sleeps: number[] = [];
+    const client = pagesDnsApi({
+      account: ACCOUNT,
+      token: TOKEN,
+      fetch: fakeCloudflare({ ...TODAY, flaky: { [domains]: [failed(429, 10000)] } }).fetch,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      observe: (attempt) => seen.push(attempt),
+    });
+    const error = await client
+      .call("GET", `/accounts/${ACCOUNT}/pages/projects/cire-host/domains`, "polling", undefined, {
+        retry: false,
+      })
+      .catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(seen.map((attempt) => attempt.status)).toEqual([429]);
+    expect(sleeps).toEqual([]);
+  });
 });
 
 describe("records that route nothing", () => {

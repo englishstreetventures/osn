@@ -102,7 +102,8 @@ export const PROBE_INTERVAL_MS = 2_000;
 export const PIN_TIMEOUT_MS = 120_000;
 export const WORKER_WAIT_MS = 15 * 60_000;
 export const PAGES_WAIT_MS = 20 * 60_000;
-export const ALCHEMY_POLL_MS = 4_000;
+/** Three reads every 6 s: 150 every 5 minutes, an eighth of the API's 1,200 a token. */
+export const ALCHEMY_POLL_MS = 6_000;
 export const WATCH_CAP_MS = 120 * 60_000;
 export const WATCH_JOBS_EVERY_MS = 20_000;
 export const WAIT_WATCH_MARGIN_MS = 45_000;
@@ -555,25 +556,15 @@ class Recorder {
       result: this.#scrub(projectResult(attempt.path, fieldOf(body, "result"), this.#account)),
     };
     const at = this.iso();
-    const last = this.fragment.calls.at(-1);
+    // A poll reads several paths in turn, so a repeat is matched against the
+    // last answer to the same request, not the last answer recorded.
+    const last = this.fragment.calls.findLast(
+      (held) => held.method === entry.method && held.path === entry.path,
+    );
     if (
       last !== undefined &&
-      JSON.stringify([
-        last.method,
-        last.path,
-        last.status,
-        last.success,
-        last.errors,
-        last.result,
-      ]) ===
-        JSON.stringify([
-          entry.method,
-          entry.path,
-          entry.status,
-          entry.success,
-          entry.errors,
-          entry.result,
-        ])
+      JSON.stringify([last.status, last.success, last.errors, last.result]) ===
+        JSON.stringify([entry.status, entry.success, entry.errors, entry.result])
     ) {
       last.repeats += 1;
       last.last = at;
@@ -831,18 +822,40 @@ async function workerDomainsAt(ctx: Context, host: string): Promise<readonly Jso
 /** Reads the Worker custom domains and DNS records at both hosts; a failure is recorded and passed over. */
 async function pollWorker(ctx: Context, zone: string | null, mode: RehearsalMode): Promise<void> {
   const target = mode === "worker" ? ctx.hosts.host : ctx.hosts.spare;
-  await Promise.all(
-    bothHosts(ctx).map(async (host) => {
-      const held = await workerDomainsAt(ctx, host);
-      if (
-        host === target &&
-        (held ?? []).some((item) => fieldOf(item, "service") === REHEARSAL_WORKER)
-      ) {
-        ctx.record.once("workerDomainListedAt");
-      }
-      if (zone !== null) await readOrNull(() => ctx.api.records(zone, host));
-    }),
-  );
+  // Three reads a round, each sent once: a poll that meets a 429 waits for
+  // its next round rather than adding retries to a limit already met.
+  const once = { retry: false } as const;
+  const [listed] = await Promise.all([
+    readOrNull(() =>
+      ctx.api.call(
+        "GET",
+        `${accountPath(ctx)}/workers/domains?service=${REHEARSAL_WORKER}`,
+        `listing ${REHEARSAL_WORKER}'s custom domains`,
+        undefined,
+        once,
+      ),
+    ),
+    ...(zone === null
+      ? []
+      : bothHosts(ctx).map((host) =>
+          readOrNull(() =>
+            ctx.api.call(
+              "GET",
+              `/zones/${encodeURIComponent(zone)}/dns_records?name=${encodeURIComponent(host)}`,
+              `listing ${host}'s DNS records`,
+              undefined,
+              once,
+            ),
+          ),
+        )),
+  ]);
+  const held = asJson(listed?.result ?? null);
+  if (
+    Array.isArray(held) &&
+    (held as readonly Json[]).some((item) => fieldOf(item, "hostname") === target)
+  ) {
+    ctx.record.once("workerDomainListedAt");
+  }
 }
 
 /** Runs one Alchemy script, polling what Cloudflare shows while a deploy runs. */
@@ -1019,10 +1032,22 @@ async function detachStep(ctx: Context, project: string): Promise<StepResult> {
   return moved;
 }
 
+const DEPLOY_FAILED =
+  "Alchemy's deploy failed before Cloudflare listed the Worker's custom domain where it was going; nothing moved, so nothing was waited for.";
+
+/**
+ * Whether a deploy failed and Cloudflare never listed the Worker's domain
+ * where the mode puts it: then the domain did not move, and a wait would
+ * only hold the host dark and the runners busy for the full wait.
+ */
+const deployMovedNothing = (ctx: Context, exit: number): boolean =>
+  exit !== 0 && ctx.record.fragment.events.workerDomainListedAt === undefined;
+
 async function flip(ctx: Context): Promise<StepResult> {
   const address = await pin(ctx, [ctx.hosts.spare, ctx.hosts.host]);
   await probeAt(ctx, address, ctx.hosts.host);
   const exit = await alchemy(ctx, "rehearsal:deploy", "worker");
+  if (deployMovedNothing(ctx, exit)) return { ok: false, message: DEPLOY_FAILED };
   const served = await waitForWorker(ctx, address, (host) => host.outcome === "worker");
   if (exit !== 0) return { ok: false, message: "Alchemy's deploy failed." };
   return served
@@ -1052,6 +1077,7 @@ async function check(ctx: Context): Promise<StepResult> {
 async function unflip(ctx: Context): Promise<StepResult> {
   const address = await pin(ctx, [ctx.hosts.host, ctx.hosts.spare]);
   const exit = await alchemy(ctx, "rehearsal:deploy", "staged");
+  if (deployMovedNothing(ctx, exit)) return { ok: false, message: DEPLOY_FAILED };
   const left = await waitForWorker(
     ctx,
     address,

@@ -268,8 +268,16 @@ export function pagesDnsApi(input: PagesDnsApiInput) {
   // A read changes nothing, so it is tried again after an answer a later
   // attempt could get past; a write is sent once, since sent twice it could
   // act twice.
-  const call = async (method: string, path: string, what: string, body?: unknown) => {
-    const delays = method === "GET" ? READ_RETRY_DELAYS_MS : [];
+  // `retry: false` sends a read once too, for a caller that polls and would
+  // only add load to a limit it has already met.
+  const call = async (
+    method: string,
+    path: string,
+    what: string,
+    body?: unknown,
+    options: { readonly retry?: boolean } = {},
+  ) => {
+    const delays = method === "GET" && options.retry !== false ? READ_RETRY_DELAYS_MS : [];
     const attemptFrom = async (index: number): Promise<Answer> => {
       const attempt = await once(method, path, what, body);
       if (attempt.ok) return attempt.answer;
