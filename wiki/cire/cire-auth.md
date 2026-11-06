@@ -14,7 +14,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
   - "[[social-graph]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Cire auth model
@@ -264,7 +264,7 @@ The emails are budgeted per UTC day — 30 per wedding and 30 per acting owner, 
 | Vendor enquiry list, thread, reply, quote; the daily hand-off of buffered enquiries once an operator confirms a claim | the enquiry reads, `claimReviewService.sweep` | left out / **404**; a buffered enquiry stays buffered and is not sent to Zap until a restore |
 | RSVP digest, gift-summary mail, change claims | their own reads | skipped |
 
-Guests are never told a wedding was deleted. The wedding list returns a deleted wedding only to its **owners**, in a separate `deleted` array with its `restoreUntil`, and never among the weddings that can be opened; every other seat loses it at once. Stripe's deliveries still settle into a deleted wedding by design, so a gift or an upgrade paid during the window is there after a restore. Which routes reach a wedding is enforced by `cire/api/tests/routes/soft-deleted-wedding.test.ts`; the rule for new code is in [[cire-development]].
+Guests are never told a wedding was deleted. The wedding list returns a deleted wedding only to its **owners**, in a separate `deleted` array with its `restoreUntil`, and never among the weddings that can be opened; every other seat loses it at once. Stripe's deliveries still settle a gift into a deleted wedding by design, so a gift paid during the window is there after a restore; an upgrade paid for a deleted wedding is refunded automatically instead ([[cire-upgrades#Taking money and granting nothing]]). Which routes reach a wedding is enforced by `cire/api/tests/routes/soft-deleted-wedding.test.ts`; the rule for new code is in [[cire-development]].
 
 **The purge.** The daily cron hard-deletes a wedding once `deleted_at` is past the 7 days — so 7 to 8 days after the delete, later if the per-run cap of 3 or a money hold defers it — with every child row by FK cascade and the sheet and image objects those rows name. It holds a wedding back while a purchase or gift is `pending` and under 14 days old, while any gift is `disputed`, and while a change is mid-apply. `platform_sales` has no foreign key and survives. See [[retention]].
 

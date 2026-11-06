@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-development]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-06
 ---
 
 # Self-serve upgrades — buying a plan tier
@@ -27,17 +27,19 @@ entitlement is comp-only.
 A wedding can also reach a paid tier without paying: an operator's comp, or an
 unlock code an owner redeems ([[cire-entitlements#Unlock codes]]). A code is
 refused (409 `purchase_in_flight`) while a checkout for the wedding can still be
-paid. Settle's grant only ever raises, but it records the sale either way, so a
-checkout paid after a code had raised the wedding would take money for a tier
-it already held.
+paid. A checkout paid after a code had raised the wedding anyway — once the
+checkout's 24 hours had passed with its webhook still failing — is refunded
+automatically (`already_held`, below), never kept for a tier the wedding
+already held.
 
 ---
 
 ## The one rule everything else follows
 
-**Only a signature-verified webhook raises a wedding's tier for a purchase.**
-The browser's return from Stripe polls; it never asserts. A hand-typed
-`?upgrade=…` therefore buys nobody anything.
+**Only Stripe's own word raises a wedding's tier for a purchase**: a
+signature-verified webhook, or the daily reconciliation's read of the session
+with the platform's secret key. The browser's return from Stripe polls; it
+never asserts. A hand-typed `?upgrade=…` therefore buys nobody anything.
 
 ---
 
@@ -89,10 +91,11 @@ sequenceDiagram
     H->>S: pay
     S-->>H: return to /?w=&m=&upgrade=
     S->>A: checkout.session.completed (platform webhook)
-    A->>A: refunded? amount ≠ Price? wedding below from_tier? → grant nothing
-    A->>A: one batch: raise tier → platform_sales → flip status
+    A->>A: not the session the row holds? → nothing (not ours)
+    A->>A: can grant? one batch: flip status → raise tier → platform_sales
+    A->>S: cannot grant? mark refunding → POST /v1/refunds
     H->>A: GET /upgrade/purchases/:id (poll)
-    A-->>H: {status: succeeded, tier} → refetch weddings → modules unlock
+    A-->>H: {status, tier} → granted: refetch weddings → modules unlock; refunded: say so
 ```
 
 ---
@@ -247,62 +250,140 @@ violation naming `wedding_upgrade_purchases.wedding_id` into the 409
 
 ### Taking money and granting nothing
 
-Settle reads the purchase row, then commits everything else in **one D1
-batch**, atomic and in statement order:
+**A paid checkout of ours upgrades the wedding, or is refunded.** When it
+cannot grant, cire gives the money back through Stripe on its own. Nobody is
+charged for nothing.
 
-**verify → session → refunded? → paid? → product → amount → from-tier → [raise tier → `platform_sales` → flip status]**
+#### Which payments are ours
+
+The purchase id comes from `client_reference_id`, which any payment on this
+Stripe account can carry: a Payment Link lets the payer set it. So the id proves
+nothing. **The session the purchase row holds** does. Only `startPurchase`
+writes `checkout_session_id`, from Stripe's answer to cire's own create call,
+and it hands the payment page out only after that write lands. That session
+sold exactly the Price the row recorded (`price_id`, `quantity: 1`, no
+promotion codes), for the row's tier. So settle needs no amount check and no
+Stripe read to know the payment bought this tier.
+
+A payment for any other session, a purchase id cire never wrote, or a row that
+holds no session yet grants nothing and is not refunded: it is not cire's to
+keep or to give back. Each is `unknown`, and the wrong-session case is logged at
+error (`upgrade settle for a session the purchase does not hold`).
+
+#### What a paid session of ours settles to
+
+Settle grants whatever amount Checkout charged (tax, a discount or a converted
+currency included), and a Price changed in Stripe while the page was open still
+grants. What arrived is recorded on the row and in `platform_sales`.
+
+It refunds instead, in this order of reasons, logged at error as
+`upgrade settle refunding a payment it cannot grant`:
+
+| `reason` | When |
+| --- | --- |
+| `no_tier` | The product maps to no tier (a legacy row) |
+| `wedding_not_live` | The wedding is soft-deleted, or gone |
+| `not_from_tier` | The purchase was priced as an upgrade from a tier (the from-Gold Crimson Price, the difference between the tiers) and an operator has since lowered the wedding below it. Granting would sell the whole tier at the difference's price. The owner's call |
+| `already_held` | The wedding already holds the tier or above, raised by something other than this purchase (an operator's comp, or an unlock code once the checkout's 24 hours had passed). A wedding this purchase raised itself (`tier_granted_by = 'stripe:<id>'`) is a grant whose status flip never landed, and settles as a grant |
+
+Statuses a payment for the row's own session settles from: `pending`, and
+`expired`, `failed` and `mismatch`, since a session can be paid in the moment
+before its row is closed. `mismatch` is a row an earlier release refused for a
+payment of another amount; nothing writes it now, and a resend of its own
+session's `checkout.session.completed` from the dashboard settles it.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> succeeded: paid, can grant
+    pending --> refunding: paid, cannot grant
+    refunding --> auto_refunded: Stripe accepts the refund
+    refunding --> refunded: already refunded by hand
+    refunding --> refund_failed: disputed, no payment, or given up
+    auto_refunded --> refund_failed: refund.failed from the bank
+    succeeded --> refunded: grant-tier.ts --lower
+    pending --> expired: session expired
+```
+
+#### One payment, one outcome
+
+The grant and the refund claim are each a write guarded on the row still being
+open and the session being its own, and each reads the row back in the same D1
+batch. Whichever lands first decides; the other follows what it reads.
+
+- **The grant** is one batch: flip the row to `succeeded`, raise the tier, write
+  the sales row, read the status back. The raise and the sale run only while
+  the row reads `succeeded` (`tierGrantStatement`'s `onlyIf`, and an
+  `INSERT … SELECT` from the row), and the flip itself carries the read's
+  decision — the wedding live, below the tier and still on the tier the
+  purchase was priced from, or raised by this purchase. So a delete, a comp, a
+  lowering or a refund claim landing between the read and the batch grants
+  nothing; a fresh read then refunds it. The raise carries the from-tier
+  condition on a replay too.
+- **A row already `succeeded`** is a replay. The grant and the sale run again,
+  both idempotent, and it never refunds, whatever has happened to the wedding
+  since: the money bought the tier when it arrived.
 
 > [!important]
-> The invariant matters more than the order: **nothing may short-circuit on "this row already reads succeeded"**. Every delivery for a paid session re-runs the grant and the sales insert, both idempotent — the grant only ever raises the tier, and the sales row is keyed on the purchase. A test pins this, and it fails the moment an early return on a replayed delivery is added.
+> **Nothing may short-circuit on "this row already reads succeeded".** Every delivery for a granted purchase re-runs the grant and the sales insert. A test pins this, and it fails the moment an early return on a replayed delivery is added.
 
-**The product maps to a tier** (`tierForProduct` in
-`cire/api/src/services/upgrades.ts`), and rows written before tiers settle into
-what their money now buys:
+#### The refund
 
-| Stored product | Tier granted |
-| --- | --- |
-| `gold`, `registry`, `capacity_500` | Gold |
-| `crimson`, `vendors`, `capacity_1000` | Crimson |
-| anything else | none — a **defect** |
+The row moves to `refunding` **before** Stripe is asked, recording the payment
+intent and what arrived, so no later delivery can grant it. Then
+`POST /v1/refunds` with the payment intent and `metadata[purchaseId]`, a full
+refund, under one idempotency key per purchase, `cire-upgrade-refund-<id>`:
 
-A paid purchase whose product names no tier is answered 500, so Stripe keeps
-retrying while someone looks, with an error log (`upgrade settle unmappable
-product`) and the `defect` outcome on the settle counter. A 2xx would end the
-only record that money arrived for nothing.
-
-The status flip accepts `pending` **or `expired`** → `succeeded`: a session can
-be paid in the moment before it is expired — by the different-product rule
-above, or by the tier migration, which expired every pending per-module
-purchase — and the money is as real as any other.
-
-A **NULL session id is adoption, not a mismatch**: the row is session-less
-between minting a session and storing its id, and the session is payable
-throughout. Rejecting it would lock out a customer who paid. That window exists
-only while the row is `pending`, so a session is adopted only onto a `pending`
-row that recorded its Price; a `failed` or `expired` row, or one written before
-purchases recorded a Price, settles only by the session it already holds
-(`upgrade settle refused adoption`, outcome `unknown`).
-
-**A grant is bound to the payment the purchase sold.** The purchase id comes
-from `client_reference_id`, which any payment on this Stripe account can carry
-— a Payment Link lets the payer set it. So settle grants only when
-`amount_total` and `currency` equal the Price the row recorded, and stops a
-grant in three cases. Each answers 200, because a retry cannot change what was
-paid, and each is logged at error or warning and counted:
-
-| Case | Outcome | Row |
+| Stripe answers | Row | Outcome |
 | --- | --- | --- |
-| Paid amount or currency is not the recorded Price | `mismatch` (`upgrade settle amount mismatch`) | Moves to `mismatch` with what arrived, when the row's own session paid. A payment naming a session-less row is not that row's session, so the row is left for its own attempt to finish |
-| Priced from a tier the wedding no longer holds — a from-Gold Crimson paid after the wedding was lowered below Gold | `mismatch` (`upgrade settle from a tier the wedding no longer holds`) | Moves to `mismatch`, as above. The grant statement carries the same condition (`tierGrantStatement`'s `heldAtLeast`), so a lowering between the read and the batch cannot slip past |
-| The purchase is `refunded` | `refunded` (`upgrade settle for a refunded purchase`) | Untouched |
+| A refund (`succeeded`, `pending`, `requires_action`) | `auto_refunded`, `refund_id` = `re_…` | `auto_refunded` |
+| `charge_already_refunded`, and a refund of the PaymentIntent names this purchase | `auto_refunded` with that refund's id (cire's own refund, whose answer was lost) | `auto_refunded` |
+| `charge_already_refunded`, no refund names it | `refunded` (a person did it) | `refunded` |
+| `charge_disputed`, or no payment intent to refund | `refund_failed`: the dispute decides the money, or there is none to find | `refund_failed` |
+| An in-progress idempotency `409` | stays `refunding`, warning (`upgrade refund in progress elsewhere`) | `refunding` |
+| Any other refusal, or Stripe unreachable | stays `refunding`, `upgrade refund failed` at error with Stripe's code | `refund_failed` |
 
-A `mismatch` row is money that arrived and bought nothing: someone refunds it,
-or applies it by hand with `grant-tier.ts`. A row with no recorded Price — one
-written before 0073 — has no amount to be held to and settles by its own
-session as before. None of this touches a paying customer's replay: after a
-grant the wedding ranks at or above `from_tier`, the crash-repair path still
-raises a row that already reads `succeeded`, and only an operator writes
-`refunded`.
+The webhook answers **200** to a refused refund. Stripe keeps a refusal under
+its idempotency key for at least a day and replays it, so a redelivery would
+only repeat it and count against the endpoint until Stripe disabled it. The
+next fresh attempt comes from the daily reconciliation, a day or two later.
+
+A refund Stripe accepted can still fail at the bank — a closed card. Stripe
+sends `refund.failed`; when its refund id is the one the row recorded, the row
+moves `auto_refunded` → `refund_failed`. Either way, and also when no row holds
+it any more (the purge took a deleted wedding), it is logged at error as
+`upgrade refund failed at the bank` and counted. The money is back in cire's
+balance, and a person has to return it.
+
+#### The daily reconciliation
+
+Cron job 13 (`reconcile` in `cire/api/src/services/upgrades.ts`) finishes what
+a webhook could not. It runs wherever there is a `STRIPE_SECRET_KEY`, without
+the platform webhook's secret: a refund cire owes is asked for even where
+upgrades are no longer sold. Each run reads at most `RECONCILE_PER_RUN` (2)
+rows, least recently moved first (index `(status, updated_at)`):
+
+- a **`refunding`** row: the refund is tried again. One still refused 13 days
+  after the purchase (`REFUND_GIVE_UP_MS`) moves to `refund_failed`, logged
+  `upgrade refund given up; a person must return the money` — a day before the
+  purge's 14-day hold on it ends;
+- a **`pending`** row whose session is older than a day: its session is read
+  from Stripe, with the charge. Paid → settled exactly as the webhook would
+  (grant, or refund). Paid and already refunded in the dashboard → `refunded`,
+  never a grant. Stripe's own `expired` → closed `expired`. Anything else stays.
+
+Every row read is moved to the back (`updated_at`), so one that keeps failing
+cannot hold every run's places. This is what makes a storage error that
+outlasts Stripe's retries end in a grant rather than a payment for nothing.
+
+#### For a person
+
+A `refund_failed` purchase is money cire owes. Return it from the Stripe
+dashboard (the refund or the PaymentIntent names the purchase in its metadata),
+then mark the row so nothing asks again: an operator-authorised production D1
+write, `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at =
+unixepoch() WHERE id = '<purchase id>' AND status IN ('refunding',
+'refund_failed');`.
 
 Card-only sessions (`payment_method_types=[card]`) mean none can complete
 unpaid, so `async_payment_succeeded` is deliberately not handled. The unpaid
@@ -360,10 +441,21 @@ https://host.cireweddings.com/?w=<weddingId>&m=<module>&upgrade=<purchaseId>
 `OrganiserApp` strips those params the moment it reads them: `setRoute`
 rebuilds the URL as `pathname + search + hash` on every hash write and the
 login bounce carries `search` through, so anything left behind would re-run
-the poll on every later navigation. It then polls with a bounded backoff,
-drops the cached catalogue, refetches the wedding list — which is what the nav
-locks by, so that is what unlocks the modules — and names the tier bought in
-its toast.
+the poll on every later navigation. It then polls with a bounded backoff, and
+each status the purchase reaches ends the poll its own way:
+
+| Status | What the portal does |
+| --- | --- |
+| `succeeded` | Drops the cached catalogue, refetches the wedding list — which is what the nav locks by, so that is what unlocks the modules — and names the tier bought in a success toast |
+| `failed`, `expired` | Error toast: "That payment did not go through. Nothing was charged." |
+| `refunding`, `auto_refunded`, `refund_failed` | Error toast, pinned until closed: "Your payment could not upgrade this wedding, so we are refunding it in full. Questions? Write to us at <address>.", the address being `LEGAL_ENTITY.contactEmail` from `@shared/legal`, as a `mailto:` link. Pinned because the receipt is gone from the URL and nothing else in the portal says it again |
+| `refunded` | Info toast: "That purchase was refunded, so it no longer applies to this wedding." A person refunded it, so the poll meets it on a return URL opened again |
+| Still `pending` (or a legacy `mismatch`), not found, or unreadable at the last attempt | Info toast: "Your payment is still being confirmed. This page will show it once it is." |
+
+After any refund status the portal reads nothing again: nothing was granted.
+A soft-deleted wedding's poll is refused like every organiser read of it, so
+its owners are not told in the portal; Stripe's own refund receipt reaches the
+payer when the dashboard's customer email for refunds is on.
 
 ---
 
@@ -382,7 +474,7 @@ It is written at **settle**, not at deletion: a sale must exist whether or not t
 > [!caution]
 > The row is **pseudonymous, not anonymous**. `settled_at` is the same moment the purchase row settles and the tier is raised, and the amount and product repeat the purchase row, so while that row exists the join is exact — and afterwards it stays linkable through Stripe's own retained session. See `wiki/compliance/data-map.md` and `wiki/compliance/retention.md`.
 
-A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending`, and an upgrade that settles while the wedding is soft-deleted is granted and its sale recorded as usual, so a restore finds it.
+A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending` or `refunding`, up to 14 days from its creation (`PURGE_PENDING_HOLD_S`); the reconciliation settles a stale paid one, or hands a refund to a person, before that. An upgrade paid for a soft-deleted wedding is refunded, never granted.
 
 Refunds do not lower a tier on their own; an operator lowers it with
 `grant-tier.ts --lower` ([[cire-entitlements]]), whose printed SQL first marks
@@ -393,7 +485,13 @@ and an operator can resend one from the dashboard; settle grants nothing for a
 englishstreetventures/osn#1317.
 
 The purchase row's statuses: `pending`, `succeeded`, `failed`, `expired`,
-`refunded` (an operator took it back) and `mismatch` (paid, nothing granted).
+`refunded` (a person refunded it), `refunding` (cire is refunding a payment it
+could not grant), `auto_refunded` (Stripe accepted that refund; `refund_id`
+holds it), `refund_failed` (a person has to return the money) and `mismatch`
+(left by an earlier release; nothing writes it now).
+
+> [!warning]
+> Rolling the cire-api Worker back past the release that refunds automatically lets a redelivered payment for a `refunding`, `auto_refunded` or `refund_failed` purchase grant the tier: the older settle refuses only `refunded`. Before such a rollback, mark those rows `refunded`, or do not roll back.
 
 ---
 
@@ -426,20 +524,22 @@ verifying a deployed tier end to end, is [[stripe-webhooks]].
 | Instrument                      | Attributes |
 | ------------------------------- | ---------- |
 | `cire.upgrade.checkout.started` | `tier` (`gold`/`crimson`), `from_tier` (`ivory`/`gold`/`crimson`), `result` (`ok`/`reused`/`processing`/`already_held`/`unconfigured`/`error` — Stripe refused to read the Price or open the session) |
-| `cire.upgrade.purchase.settled` | `tier` (`gold`/`crimson`/`unmapped`), `outcome` (`granted`/`replayed`/`unpaid`/`failed`/`expired`/`unknown`/`defect`/`mismatch`/`refunded`) |
+| `cire.upgrade.purchase.settled` | `tier` (`gold`/`crimson`/`unmapped`), `outcome` (`granted`/`replayed`/`unpaid`/`failed`/`expired`/`unknown`/`refunded`/`auto_refunded`/`refund_failed`) |
 
 Spans: `cire.upgrade.catalogue`, `cire.upgrade.startPurchase`,
-`cire.upgrade.settlePurchase`, `cire.upgrade.failPurchase`,
-`cire.upgrade.purchaseStatus`.
+`cire.upgrade.settlePurchase`, `cire.upgrade.refund`,
+`cire.upgrade.refundFailed`, `cire.upgrade.failPurchase`,
+`cire.upgrade.reconcile`, `cire.upgrade.purchaseStatus`.
 
 Closed unions only; no wedding, purchase or profile id ever becomes an
 attribute. The gap between the two counters is the health signal: money taken
 with no tier raised shows as `started` without a matching `settled`. A
 sustained rise in `processing` means deliveries are lagging. `unpaid` should
-stay at zero while sessions are card-only, and any `defect` or `mismatch` is a
-customer who paid and holds nothing until someone looks. A `mismatch` on every
-settle means Stripe is charging something other than the Price — tax or
-discounts switched on for Checkout.
+stay at zero while sessions are card-only. Every `auto_refunded` is a payment
+cire gave back; a run of them with reason `already_held` means comps or codes
+are landing on weddings with an open checkout. Every `refund_failed` is a
+customer owed money until a retry or a person returns it: the
+`upgrade refund failed` and `upgrade refund given up` logs name the purchase.
 
 ---
 

@@ -187,13 +187,14 @@ secret set but the endpoint missing at Stripe, a paid purchase stays `pending`.
    - dev — `https://api.cire.<DEV_DOMAIN>/api/stripe/platform-webhook` (`stripe_platform_webhook_url` in the run summary)
    - production — `https://api.cireweddings.com/api/stripe/platform-webhook`
 3. Events from: **Your account**. Not connected accounts.
-4. Subscribe to exactly three:
+4. Subscribe to exactly four:
 
    | Event | What it does |
    |---|---|
-   | `checkout.session.completed` | **raises the wedding's tier** and writes the `platform_sales` row |
+   | `checkout.session.completed` | **raises the wedding's tier** and writes the `platform_sales` row, or refunds a payment that cannot upgrade the wedding |
    | `checkout.session.expired` | closes the pending purchase so the tier can be bought again |
    | `checkout.session.async_payment_failed` | the same, for a debit that bounced |
+   | `refund.failed` | marks an automatic refund the bank returned `refund_failed`, and logs it for a person |
 
 5. Copy **that** endpoint's secret — not the Connect one — and set it the same
    way. On dev:
@@ -225,6 +226,14 @@ STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD = "price_..."
 Leave `CRIMSON_FROM_GOLD` unset and a Gold wedding is simply not offered
 Crimson — never charged its full price a second time. Which Price sells which
 move is in [[cire-upgrades]] §Pricing.
+
+cire-api refunds an upgrade payment it cannot grant (`POST /v1/refunds`, as the
+platform), with the same `STRIPE_SECRET_KEY`. A standard secret key may do so
+already. A restricted key needs **Refunds: write** on the platform account, or
+every such refund is refused and the purchase waits for a person
+([[cire-upgrades#The refund]]). Turn on Settings → Customer emails →
+**Refunds** too: Stripe's receipt is the only notice a couple who deleted their
+wedding gets.
 
 ## After either secret changes
 
@@ -327,12 +336,11 @@ bunx wrangler d1 execute cire-db-dev --remote --command \
 
 A purchase stuck at `pending` with a real `checkout_session_id` is the
 signature that the endpoint is wrong, mis-keyed or unmounted — the money was
-taken and nothing granted. That is the state worth alerting on, and it is also
-what the observability gap measures: `cire.upgrade.checkout.started` without a
-matching `cire.upgrade.purchase.settled`. A purchase at `mismatch` is the
-other: Stripe charged something other than the Price the purchase recorded
-(`amount_minor` against `price_amount_minor`), and nothing was granted
-([[cire-upgrades]]).
+taken and nothing granted yet. The daily reconciliation settles it once its
+session is a day old, but the endpoint still needs fixing; it is also what the
+observability gap measures: `cire.upgrade.checkout.started` without a matching
+`cire.upgrade.purchase.settled`. A purchase at `refunding` or `refund_failed` is
+the other state worth alerting on: money cire owes back ([[cire-upgrades]]).
 
 **5. Read the delivery log.** Workbench → Webhooks → the endpoint → recent
 deliveries. A 400 there names the secret; a 404 names the mounting; a timeout
@@ -358,8 +366,8 @@ bunx wrangler d1 execute cire-db-dev --remote --command \
 | Every delivery 400s in the dashboard | wrong secret — most often the other endpoint's |
 | Gifts settle, upgrades never do | the platform endpoint is missing at Stripe or scoped to connected accounts, or `STRIPE_PLATFORM_WEBHOOK_SECRET` holds a wrong value other than the Connect one, which nothing can tell from a right one when the app is built (with the secret unset or equal to the Connect one, no tier is sold at all) |
 | Upgrades settle, gifts never do | the Connect endpoint is missing at Stripe or scoped to the platform, while its secret is set (with the secret unset, guests are offered no money gift at all) |
-| Upgrade endpoint 200s but grants nothing | the delivery carried `event.account` — a Connect event reached the platform route, which refuses it by design. Or the body's `outcome` says why: `mismatch` (the amount paid is not the Price, or the wedding was lowered below the tier the Price assumed), `refunded` (an operator took the purchase back), `unknown` (no such purchase, another session, or a session-less row it may not adopt) |
-| Every upgrade settles as `mismatch` | Stripe charges more or less than the Price — tax or discounts switched on for Checkout. Settle compares `amount_total` with the Price's own amount |
+| Upgrade endpoint 200s but grants nothing | the delivery carried `event.account` — a Connect event reached the platform route, which refuses it by design. Or the body's `outcome` says why: `auto_refunded` (the payment could not upgrade the wedding and was refunded: the `upgrade settle refunding a payment it cannot grant` log names the reason), `refund_failed` (that refund was refused; the daily reconciliation asks again), `refunded` (a person refunded the purchase), `unknown` (no such purchase, or a session the purchase does not hold — not cire's checkout) |
+| Every automatic refund comes back `refund_failed` | the key cannot refund: a restricted key without Refunds: write. The `upgrade refund failed` log carries Stripe's code |
 | Dialog says upgrades are not available | `STRIPE_PLATFORM_WEBHOOK_SECRET` is unset or blank, or on a deployed tier the same value as `STRIPE_WEBHOOK_SECRET`, so no upgrade route is mounted; the Worker logs `upgrades disabled: …` when it builds the app (for an unset one, if a Price is set). Set the platform endpoint's own secret, then deploy. Or no `STRIPE_UPGRADE_PRICE_*` for that move in this tier — for a Gold wedding buying Crimson, `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD`. Absent configuration never means free |
 | Checkout 404s | the same, from the session route: `{ "error": "Not found" }` when the route is not mounted, `not_purchasable` when the move has no Price |
 | Secret changed and nothing changed | warm isolates. Redeploy |

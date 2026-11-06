@@ -10,7 +10,8 @@ related:
   - "[[browser-tests]]"
   - "[[component-lab]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-21
+  - "[[cire-upgrades]]"
+last-reviewed: 2026-11-06
 ---
 # Toasts — `@shared/toast` and the `--toast-*` contract
 
@@ -63,7 +64,12 @@ believes it succeeded.
 A toast whose action is the user's way forward pins itself
 (`duration: Infinity`) and sets `dismissible: true`: one that leaves on its own
 takes the action with it. Cire's gift page does this for a cash fund that closed
-under the guest, whose **Refresh** re-reads the list ([[cire-registry]]).
+under the guest, whose **Refresh** re-reads the list ([[cire-registry]]). A toast
+with no action pins itself the same way when its message is the user's next
+step and nothing else on the page says it: the cire portal's return from Stripe
+does this for a payment it is refunding automatically, and its message, a
+`JSX.Element` like any toast's, carries the address to write to as a `mailto:`
+link ([[cire-upgrades]]).
 
 Three behaviours worth knowing, all of them bugs first:
 
