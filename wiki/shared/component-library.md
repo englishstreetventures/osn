@@ -1469,8 +1469,9 @@ What it draws, in musubi's sizes through the contract: an `h3` at
 `text-ui-base` medium ("Check your email", or "Your link has expired"); one
 sentence at `text-ui-sm` in the secondary ink; the line saying what opening the
 link does, which an expired link drops; then Resend and "Use a different email"
-as small ghost buttons. An expired link's Resend becomes the filled pill, "Send a
-new link". No code box and no other factor: the dialog around the view draws any
+as small ghost buttons, 40px tall below `md` (musubi's phone touch height,
+through `max-md:h-10` at the call site) and `Button`'s own 32px from `md` up. An
+expired link's Resend becomes the filled pill, "Send a new link". No code box and no other factor: the dialog around the view draws any
 way back. A long address breaks where it must (`wrap-anywhere`), so a 320px
 column never scrolls sideways.
 
@@ -1499,13 +1500,26 @@ For a host:
   A Kobalte dialog that opens straight onto the view runs its own autofocus
   after the view's, and takes the heading's focus away.
 - Both buttons are `type="button"`, so the view may sit inside a `<form>`.
+- For sign-up and recovery, pass the same `status` and `errorMessage` whether
+  or not the address has an account. A request for an address with no account
+  stays `waiting` and expires on the same timer as any other. An error that
+  depends on the caller, such as a rate limit or a failed Turnstile check, may
+  set `error`.
+- Set `status` back to `waiting` once a new link has been sent. While it stays
+  `expired`, Resend ignores the wait.
 - Recovery allows three sends a day per account
   (`osn/api/src/services/auth/config.ts`), so its host should pass a longer
   `resendWaitSeconds` than the default: at 30 seconds, a person spends the day's
   sends in under two minutes.
 
 `osn/auth-ui/tests/CheckEmailView.test.tsx` holds the wait, the one call per
-press, the region's words, the focus moves and the timer's end. The lab's
+press, the region's words, the focus moves and the timer's end. `@osn/auth-ui`
+has no browser tier, so
+[`CheckEmailView.layout.browser.test.tsx`](../../musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx)
+in `@musubi/social` holds the layout in musubi's auth sheet under musubi's
+stylesheet: the long address that leaves a 320px phone's 288px column with
+nothing to scroll sideways, "Resend in 30s" as one run of text on one line, and
+both buttons at 40px below `md` and 32px from it ([[browser-tests]]). The lab's
 `osn/auth-ui/CheckEmailView` stories show each state, every flow and a 320px
 phone ([[component-lab]]).
 
@@ -1548,7 +1562,9 @@ file lands in exactly one. `bun run --cwd shared/ui test:run` runs the first,
 project loads `cire/ui/tests/test-support/tailwind.css`, which maps cire's own
 two ramps (the literals the lab's `cire-mapping.ts` resolves) rather than a
 synthetic palette, so a contrast assertion there is a claim about cire's
-colours. `@osn/auth-ui` has a unit tier only.
+colours. `@osn/auth-ui` has a unit tier only; `@musubi/social`'s browser tier,
+where the views render, holds `CheckEmailView`'s layout (its section above
+names the file).
 
 The split exists because the unit project parses no stylesheet and computes no
 layout: it can assert a class list and a DOM shape, but not that a class emitted
