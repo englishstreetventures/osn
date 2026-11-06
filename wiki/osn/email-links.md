@@ -83,20 +83,10 @@ There is no `GET` on any of them: mail scanners open links before people do.
 - **A wrong pick ends the request at once**, confirmed or not. Five
   candidates, so a pick made without the waiting screen is right one time in
   five. Sign-up counts a wrong pick as a strike (`registration_link_lockout`)
-  under the probe key of the address's mailbox key (`mailboxKey` in
-  [`helpers.ts`](../../osn/api/src/services/auth/helpers.ts)): three in 24
-  hours and no more sign-up links go to any address with that key until the
-  window passes, while begin answers as ever.
-- **The mailbox key** is the address lowercased with the local part's `+tag`
-  cut, on every domain; at `gmail.com` and `googlemail.com` the local part's
-  dots are dropped too and the domain reads as `gmail.com`. A different local
-  part is a different key. On a domain that treats `+` as part of a distinct
-  mailbox, two such mailboxes share one Resend cap and one strike count. That
-  is accepted: grouping too widely only makes a limit stricter, at the cost of
-  one more wait, while keying each variant apart would let one mailbox take
-  more links than its cap. The key feeds the strike counter and the Resend cap
-  and nothing else: the account, the pending sign-up and the mail keep the
-  address as typed, lowercased.
+  under the probe key of the address exactly as typed, lowercased: three in 24
+  hours and no more sign-up links go to that address until the window passes,
+  while begin answers as ever. Another `+tag` variant, or another of Gmail's
+  forms, keeps its own count.
 - **"I didn't ask for this"** (`pairingPick: "none"`) ends the request too,
   confirmed or not, counts nothing against the reader, and answers
   `declined`. The entry stays, marked `declined`, until it expires, so the same
@@ -126,15 +116,22 @@ There is no `GET` on any of them: mail scanners open links before people do.
 - **Resend** sends another link for the same request; every link sent stays
   usable, three in all. A refused or failed send leaves the request live, and
   Resend is the retry.
-- **Resent mail** is capped per mailbox key ([[#Rules every flow keeps]]):
-  `registrationSendCap`, six Resend links an hour, keyed on the probe key of
-  the address's mailbox key, checked inside the send that runs after the
-  answer.
+- **Resent mail** is capped per mailbox: `registrationSendCap`, six Resend
+  links an hour, keyed on the probe key of the address's mailbox key
+  (`mailboxKey` in [`helpers.ts`](../../osn/api/src/services/auth/helpers.ts)),
+  checked inside the send that runs after the answer. The mailbox key is the
+  address lowercased with the local part's `+tag` cut, on every domain; at
+  `gmail.com` and `googlemail.com` the local part's dots are dropped too and
+  the domain reads as `gmail.com`. A different local part is a different key.
+  On a domain where `+` names a different mailbox, one cap covers both, which
+  can hold back a Resend for the second; that is accepted. The key feeds this
+  cap and nothing else: the strike counter, the account, the pending sign-up
+  and the mail keep the address as typed, lowercased.
 - **A begin's first link** does not count against that cap, so the newest
   sign-up always gets its first link. It is bounded by begin's own limits —
   Turnstile, and five begins a minute per IP — and by one live sign-up per
   address, which the tab that began can end at once with `previous`. No
-  per-address count applies to it; the strike lockout stops it as it stops a
+  per-mailbox count applies to it; the strike lockout stops it as it stops a
   Resend.
 - **The wait survives a reload.** `Register` keeps the request, claim secret,
   address and handle (no birthdate) in this tab's `sessionStorage`, and the

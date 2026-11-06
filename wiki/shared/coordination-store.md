@@ -32,7 +32,7 @@ osn-api keeps its short-lived shared state in one Durable Object class,
 - the ceremony entries: identified passkey challenges, pending registrations and their emailed-link requests ([[email-links]]), emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens. A tab waiting on a sign-up link polls its request at 2, 5, 9.5, 16.25 and 26.25 seconds, then every 10: about 62 polls over the link's ten minutes. Each poll is one Worker request and one store read, and the browser adds at most one CORS preflight per ten minutes (`maxAge: 600` in `osn/api/src/app.ts`). Each time the person comes back to the tab adds about four store calls;
 - each code ceremony's guess count, kept on its entry;
 - the step-up token ids already used, and the discoverable passkey challenges already used, by nonce;
-- the three per-account lockout counters (recovery code, emailed recovery code, TOTP), and the count of wrong picks on sign-up links per mailbox key ([[email-links]]);
+- the three per-account lockout counters (recovery code, emailed recovery code, TOTP), and the count of wrong picks on sign-up links per address ([[email-links]]);
 - the health probe's round trip.
 
 Three things are not in it. Sessions and the record of rotated-out session
