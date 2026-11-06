@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # DSAR Runbook
@@ -231,7 +231,7 @@ owners, each with an `owner` seat. Two consequences:
   and day, with no name ([[data-map]], [[retention]]). cire cannot tell who
   gave a line (Art. 11(1)), so a guest's access, objection or erasure request
   is answered under Art. 11(2): ask for the wedding, the amount and the day
-  they gave, and find the line.
+  they gave, and find the line. The owner runs this query; an agent never does ([[agent-tooling#The guard hook]]).
 
   ```bash
   cd cire/api

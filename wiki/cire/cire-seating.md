@@ -9,7 +9,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[cire-guest-event-editor]]"
   - "[[production-deploy]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-11-06
 ---
 # Seating chart
 
@@ -170,7 +170,7 @@ writes by event alone: its chart and its venue file list every plan's tables, a
 guest seated in two plans is listed twice, an unseat clears the guest's seat in
 every plan, and a move of a guest seated in more than one plan fails on the
 composite key. So before rolling the Worker back past the migration, check
-that no event holds a second plan, and roll forward instead if one does:
+that no event holds a second plan, and roll forward instead if one does. The owner runs the check; an agent never does ([[agent-tooling#The guard hook]]):
 
 ```bash
 cd cire/api

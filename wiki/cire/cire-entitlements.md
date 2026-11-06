@@ -18,7 +18,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-06
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -428,8 +428,8 @@ statements already finds the purchase refunded. Setting Crimson, or raising
 without `--lower`, prints one statement and refunds nothing.
 
 > [!warning]
-> A production D1 write needs explicit human authorisation naming `cire-db`.
-> Get it before applying the printed SQL with
+> A production D1 write is an owner step: an agent never runs it, and it needs explicit authorisation naming `cire-db`.
+> The owner gets that before applying the printed SQL with
 > `wrangler d1 execute cire-db --env production --remote --command "<printed SQL>"`
 > from `cire/api`, naming the env as every production D1 command in
 > [[production-deploy]] does.
@@ -473,8 +473,8 @@ searched offline (above). The code is shown once and stored nowhere: keep it
 until it has been handed over.
 
 > [!warning]
-> A production D1 write needs explicit human authorisation naming `cire-db`.
-> Get it before applying the printed SQL with
+> A production D1 write is an owner step: an agent never runs it, and it needs explicit authorisation naming `cire-db`.
+> The owner gets that before applying the printed SQL with
 > `wrangler d1 execute cire-db --env production --remote --command "<printed SQL>"`
 > from `cire/api`.
 

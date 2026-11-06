@@ -307,6 +307,7 @@ describe("18. production database reads", () => {
     "wrangler d1 execute cire-db --remote --command 'SELECT 1'",
     "wrangler d1 execute cire-db --remote=true --command 'SELECT 1'",
     "wrangler d1 execute cire-db --command 'SELECT 1'",
+    "wrangler d1 execute osn-db --remote",
     "wrangler d1 execute osn-db-prod --remote --command 'SELECT 1'",
     "wrangler d1 export zap-db-prod --remote --output x.sql",
     "wrangler d1 execute pulse-db-prod --remote --command 'SELECT 1'",
@@ -315,6 +316,15 @@ describe("18. production database reads", () => {
     "./node_modules/.bin/wrangler d1 execute cire-db --remote",
     "bunx wrangler --config wrangler.toml d1 execute cire-db --remote",
     "wrangler --env production d1 execute osn-db --command 'SELECT 1'",
+    "wrangler d1 execute DB --remote --command 'SELECT 1'",
+    "wrangler d1 execute DB --env production",
+    "CLOUDFLARE_ENV=production wrangler d1 execute cire-db-dev --remote",
+    "WRANGLER_ENV=production bunx wrangler d1 execute cire-db-dev --remote",
+    "env CLOUDFLARE_ENV=production wrangler d1 execute cire-db-dev --remote",
+    "wrangler d1 execute cire-db --env dev --remote --command 'SELECT 1'",
+    "wrangler d1 execute osn-db-prod --env=dev --remote",
+    "wrangler d1 execute cire-db-dev --env production --remote",
+    "wrangler d1 execute $DB --remote",
   ];
   test.each(refusals)("refuses %s", (command) => {
     expect(refused(bash(command))).toBe(true);
@@ -323,10 +333,10 @@ describe("18. production database reads", () => {
   const allowed = [
     "bunx wrangler d1 execute cire-db-dev --remote --command 'SELECT 1'",
     "bunx wrangler d1 execute osn-db-dev --remote --command 'SELECT 1'",
+    "bunx wrangler d1 execute zap-db-dev --env dev --remote",
     "bunx wrangler d1 execute cire-db --local --command 'SELECT 1'",
     "bunx wrangler d1 execute osn-db-prod --local --command 'SELECT 1'",
-    "bunx wrangler d1 execute cire-db --env dev --remote --command 'SELECT 1'",
-    "bunx wrangler d1 execute osn-db-dev --env=dev --remote",
+    "bunx wrangler d1 execute DB --local --command 'SELECT 1'",
     "bunx wrangler d1 list",
     "bunx wrangler secret put X --env production",
     "echo 'wrangler d1 execute cire-db --env production'",

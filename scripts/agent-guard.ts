@@ -523,23 +523,24 @@ function ghRule(words: string[], command: Command, state: State, ctx: Context): 
 }
 
 const PRODUCTION_READ =
-  "an agent never reads a production database, not even a read-only `SELECT`. Make the change safe in code instead: tolerate the old shape, let the migration guard itself, or add a release-time check that prints counts only. Dev databases may be read (AGENTS.md §Standing rules, Production data).";
-
-/**
- * Production D1 database names: `physicalName` in `cire/infra`, `musubi/infra`
- * and `zap/infra`, and the `[env.production]` blocks of the `wrangler.toml`
- * files (`pulse/api` declares `pulse-db-prod`).
- */
-const PRODUCTION_DATABASES: ReadonlySet<string> = new Set([
-  "cire-db",
-  "osn-db-prod",
-  "zap-db-prod",
-  "pulse-db-prod",
-]);
+  "an agent never reads a production database, not even a read-only `SELECT`, and `wrangler d1 execute|export` is refused unless it is clearly local or dev. Run it with `--local`, or against the dev database by its dev name (`cire-db-dev`, `osn-db-dev`, `zap-db-dev`) with no production `--env`. Otherwise make the change safe in code: tolerate the old shape, let the migration guard itself, or add a release-time check that prints counts only (AGENTS.md §Standing rules, Production data).";
 
 const isWrangler = (word: string): boolean => basename(word).replace(/@[^/]*$/, "") === "wrangler";
 
-const isProductionEnv = (rest: string[]): boolean =>
+/** Flags of `wrangler d1 execute|export` that take a value as the next word. */
+const VALUE_FLAGS: ReadonlySet<string> = new Set([
+  "--env",
+  "-e",
+  "--config",
+  "-c",
+  "--command",
+  "--file",
+  "--output",
+  "--persist-to",
+]);
+
+const namesProduction = (words: string[], rest: string[]): boolean =>
+  words.some((word) => /^(?:CLOUDFLARE_ENV|WRANGLER_ENV)=production$/.test(word)) ||
   rest.some(
     (word, k) =>
       word === "--env=production" ||
@@ -549,25 +550,27 @@ const isProductionEnv = (rest: string[]): boolean =>
   );
 
 /**
- * `wrangler d1 execute|export` aimed at production: `--env production` in any
- * spelling, or a production database name without `--local`. It looks for `d1`
- * and the verb among the non-flag words, wherever they sit.
+ * `wrangler d1 execute|export` is refused by default. It passes when `--local`
+ * is present, or when the database is named with a `-dev` suffix and nothing
+ * (`--env`, `CLOUDFLARE_ENV`, `WRANGLER_ENV`) names production. `words` holds
+ * the whole command, leading assignments and an `env` prefix included.
  */
 function productionDbRule(words: string[]): string | null {
   const at = words.findIndex(isWrangler);
   if (at < 0) return null;
   const rest = words.slice(at + 1);
-  const positional = rest.filter((word) => !word.startsWith("-"));
-  if (!positional.includes("d1") || !positional.some((w) => w === "execute" || w === "export"))
-    return null;
-  if (isProductionEnv(rest)) return PRODUCTION_READ;
-  const local = rest.includes("--local");
-  const named = positional.some((word) => PRODUCTION_DATABASES.has(word));
-  const devEnv = rest.some((word) => word === "--env=dev" || word === "-e=dev" || word === "-edev");
-  const devEnvSpaced = rest.some(
-    (word, k) => (word === "--env" || word === "-e") && rest[k + 1] === "dev",
-  );
-  return named && !local && !devEnv && !devEnvSpaced ? PRODUCTION_READ : null;
+  const positional: string[] = [];
+  for (let k = 0; k < rest.length; k += 1) {
+    const word = rest[k] ?? "";
+    if (VALUE_FLAGS.has(word)) k += 1;
+    else if (!word.startsWith("-")) positional.push(word);
+  }
+  const verb = positional.findIndex((word) => word === "execute" || word === "export");
+  if (verb < 0 || !positional.includes("d1")) return null;
+  if (rest.includes("--local")) return null;
+  const database = positional[verb + 1] ?? "";
+  if (database.endsWith("-dev") && !namesProduction(words, rest)) return null;
+  return PRODUCTION_READ;
 }
 
 function installRule(words: string[], state: State, ctx: Context): string | null {
@@ -614,7 +617,7 @@ function evaluate(group: Group, state: State, ctx: Context): string | null {
     const { words, unresolved } = argv(item);
     const reason =
       installRule(words, state, ctx) ??
-      productionDbRule(words) ??
+      productionDbRule(item.words) ??
       (words[0] === "git" ? gitRule(words, item, state, ctx) : null) ??
       (words[0] === "gh" ? ghRule(words, item, state, ctx) : null);
     if (reason !== null) return reason;
