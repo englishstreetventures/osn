@@ -12,13 +12,16 @@
  * payment then cannot upgrade the wedding, so cire-api refunds it at the
  * stand-in, keeps the refund's record, and mails the wedding's owner.
  *
- * Both run in a signed-in owner's context, so neither spends a sign-in.
+ * Both run on a signed-in owner's page, so neither spends a sign-in, and on
+ * that one page, so no other tab of the context sits hidden long enough to
+ * close its push socket. `refundGold` runs first: `buyGold` ends on the
+ * portal's grant, the flow's final screenshot.
  */
 
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { BrowserContext, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
@@ -59,6 +62,28 @@ const tierOf = (weddingId: string): string =>
   queryOne<{ tier: string }>(DB_FILES.cire, "SELECT tier FROM weddings WHERE id = ?", weddingId)
     ?.tier ?? "none";
 
+/** Each page's waiter for the next Checkout session its browser is sent to. */
+const checkoutWaiters = new WeakMap<Page, (sessionId: string) => void>();
+
+/**
+ * Stripe's Checkout host is not this stack's: the page answers it with a
+ * blank one that says where the buyer is, and hands the session id to the
+ * step waiting for it. Installed once per page and never removed, since
+ * removing a route mid-load strands the request it paused.
+ */
+async function nextCheckout(page: Page): Promise<Promise<string>> {
+  if (!checkoutWaiters.has(page)) {
+    await page.route(`${STRIPE_CHECKOUT_HOST}/**`, async (route) => {
+      checkoutWaiters.get(page)?.(new URL(route.request().url()).pathname.split("/").pop() ?? "");
+      await route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><title>Stripe Checkout stand-in</title><h1>Checkout</h1>",
+      });
+    });
+  }
+  return new Promise<string>((resolveSession) => checkoutWaiters.set(page, resolveSession));
+}
+
 /**
  * Opens the wedding's Upgrade dialog for Gold from a locked module on the
  * rail, and presses "Continue to payment". Resolves with the Checkout session
@@ -70,17 +95,7 @@ async function openCheckout(
   weddingId: string,
 ): Promise<{ sessionId: string; price: string; catalogue: number }> {
   return flow.step(`open a Gold checkout for ${weddingId}`, async () => {
-    // Stripe's Checkout host is not this stack's; the stand-in's page is a
-    // blank one that says where the buyer is.
-    const reached = new Promise<string>((resolveSession) => {
-      void page.route(`${STRIPE_CHECKOUT_HOST}/**`, async (route) => {
-        resolveSession(new URL(route.request().url()).pathname.split("/").pop() ?? "");
-        await route.fulfill({
-          contentType: "text/html",
-          body: "<!doctype html><title>Stripe Checkout stand-in</title><h1>Checkout</h1>",
-        });
-      });
-    });
+    const reached = await nextCheckout(page);
     const catalogue = page.waitForResponse(
       (res) =>
         res.url() === `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/upgrade/catalogue`,
@@ -144,9 +159,8 @@ const screenshot = async (page: Page, name: string): Promise<void> => {
  * before the webhook has landed, the return poll waits, and ends on the grant
  * once the signed event arrives.
  */
-export async function buyGold(flow: Flow, context: BrowserContext): Promise<void> {
+export async function buyGold(flow: Flow, page: Page): Promise<void> {
   const { weddingId } = CIRE_ORGANISER.upgrade.bought;
-  const page = await flow.newPage(context);
   const opened = await openCheckout(flow, page, weddingId);
   flow.check("upgrade: cire-api prices Gold for an Ivory wedding", 200, opened.catalogue);
   flow.check("upgrade: the dialog shows the Gold Price, one-off", true, isGoldPrice(opened.price));
@@ -203,7 +217,6 @@ export async function buyGold(flow: Flow, context: BrowserContext): Promise<void
     STRIPE_STANDIN_GOLD_PRICE.amountMinor,
     sale?.amount ?? 0,
   );
-  await page.close();
 }
 
 /**
@@ -211,9 +224,8 @@ export async function buyGold(flow: Flow, context: BrowserContext): Promise<void
  * wedding is deleted while the page is open, and the buyer pays: cire-api
  * refunds the payment in full and mails the owner, once.
  */
-export async function refundGold(flow: Flow, context: BrowserContext): Promise<void> {
+export async function refundGold(flow: Flow, page: Page): Promise<void> {
   const { weddingId, name } = CIRE_ORGANISER.upgrade.refunded;
-  const page = await flow.newPage(context);
   const opened = await openCheckout(flow, page, weddingId);
   flow.check("refund: the dialog shows the Gold Price, one-off", true, isGoldPrice(opened.price));
 
@@ -316,5 +328,4 @@ export async function refundGold(flow: Flow, context: BrowserContext): Promise<v
     1,
     mailAfter.filter((m) => m.subject === REFUND_SUBJECT).length,
   );
-  await page.close();
 }

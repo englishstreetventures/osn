@@ -34,10 +34,11 @@
  * is held by the three lists' browser tests: on this local stack a request
  * already sent as the page goes lands with or without it.
  *
- * Last of all, in the same signed-in context, the owner buys Gold for an Ivory
- * wedding through the Stripe stand-in and is granted it, and opens a second
- * Gold checkout on a wedding then deleted while it is open, whose payment is
- * refunded and its owner mailed (`tests/support/cire-upgrade.ts`).
+ * Last of all, on the same signed-in page, the owner opens a Gold checkout for an
+ * Ivory wedding that is then deleted while the checkout is open, so its
+ * payment is refunded and its owner mailed, and buys Gold for another Ivory
+ * wedding through the Stripe stand-in and is granted it
+ * (`tests/support/cire-upgrade.ts`).
  */
 
 import { mkdirSync, readFileSync } from "node:fs";
@@ -561,7 +562,7 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     await expect.poll(railWidth).toBe(RAIL_EXPANDED);
     await expect(nav.getByText("Run sheet", { exact: true })).toBeVisible();
     const labels = await labelsOnFocus("Overview");
-    // Off the rail, so the final screenshot shows the rail with no label and
+    // Off the rail, so the rail screenshot shows the rail with no label and
     // no focus ring.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await panelHeading.hover();
@@ -683,6 +684,13 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     deletesSent.filter((url) => url === taskUrl(takenBack.id)).length,
   );
   flow.check("undo: the task's row never left cire-api", 1, taskRows(takenBack.id));
-  await buyGold(flow, page.context());
-  await refundGold(flow, page.context());
+
+  // The rail as the steps above leave it, before the upgrade steps take the
+  // page elsewhere and end on the grant, the flow's final screenshot.
+  await page.screenshot({
+    path: resolve(SCREENSHOT_DIR, "cire-checklist-starter", "rail-expanded.png"),
+    animations: "disabled",
+  });
+  await refundGold(flow, page);
+  await buyGold(flow, page);
 });

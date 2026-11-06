@@ -561,6 +561,11 @@ and it is what the wrong-secret test pins.
 Creating either endpoint and the three Prices in the Stripe dashboard, and
 verifying a deployed tier end to end, is [[stripe-webhooks]].
 
+The E2E suite sells Gold through a Stripe stand-in, with no Stripe account:
+`cire-checklist-starter` buys it and is granted it, and pays for a second
+checkout whose wedding was deleted while it was open, which is refunded and
+its owner mailed ([[testing-patterns]] §An upgrade bought and refunded).
+
 ---
 
 ## Observability
