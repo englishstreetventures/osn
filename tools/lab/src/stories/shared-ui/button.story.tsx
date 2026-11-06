@@ -26,7 +26,9 @@ export const Variants = () => (
  * standing alone. The inline one is underlined at rest and takes the
  * sentence's size, line height and weight; the standalone one underlines on
  * hover. The narrow paragraph wraps an `<a>` wearing the inline classes across
- * lines: Tab onto it to see its focus ring close round each line.
+ * lines: Tab onto it to see its focus ring close round each line. The
+ * `<Button>` in the first sentence does not wrap, as no `<button>` does, so its
+ * label stays a word or two.
  */
 export const Inline: Story = {
   layout: "padded",
@@ -68,7 +70,9 @@ export const Inline: Story = {
  * `busy` on every variant that carries a label, and at each size that does:
  * the 20px orb before the label, dimmed as a disabled button is, keyboard
  * focus kept. The orb moves for five seconds, then holds still. The last
- * button starts a two-second wait when pressed.
+ * button starts a two-second wait when pressed: Tab onto it and press Enter,
+ * and it stays at full strength while it waits, so its focus ring keeps its
+ * contrast.
  */
 export const Busy: Story = {
   layout: "padded",

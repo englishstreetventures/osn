@@ -16,12 +16,14 @@ import {
 
 /**
  * The box every size but `inline` draws: one centred row, glyph and label, at
- * the control type step and weight. `inline` draws none, so it takes the
- * sentence's type and wraps with it; that is why these live in each size rather
- * than in the base, where an `inline` override would tie with them.
+ * the control weight. `inline` draws none, so it takes the sentence's type and
+ * wraps with it; that is why these live in each size rather than in the base,
+ * where an `inline` override would tie with them. The type step is not here
+ * either: each size names its own, so no two `base:` utilities set one property
+ * on one button and none depends on the order Tailwind emits them in.
  */
 const BOX =
-  "base:inline-flex base:items-center base:justify-center base:gap-2 base:whitespace-nowrap base:text-ui-base base:font-medium";
+  "base:inline-flex base:items-center base:justify-center base:gap-2 base:whitespace-nowrap base:font-medium";
 
 /**
  * `ghostDanger` destroys something, and says so only when you reach for it —
@@ -69,10 +71,10 @@ const buttonVariants = cva(
         link: "base:text-ui-accent-ink base:hover:underline",
       },
       size: {
-        default: `${BOX} base:h-9 base:px-4 base:py-2`,
-        sm: `${BOX} base:h-8 base:rounded-ui-control base:px-3 base:text-ui-sm`,
-        lg: `${BOX} base:h-10 base:rounded-ui-control base:px-8`,
-        icon: `${BOX} base:h-9 base:w-9`,
+        default: `${BOX} base:h-9 base:px-4 base:py-2 base:text-ui-base`,
+        sm: `${BOX} base:h-8 base:px-3 base:text-ui-sm`,
+        lg: `${BOX} base:h-10 base:px-8 base:text-ui-base`,
+        icon: `${BOX} base:h-9 base:w-9 base:text-ui-base`,
         inline: "base:inline base:text-start base:box-decoration-clone",
       },
     },
@@ -112,9 +114,10 @@ type ButtonProps = ComponentProps<"button"> &
          * Something the button started is under way. The button keeps keyboard
          * focus, is announced as busy and unavailable (`aria-busy`,
          * `aria-disabled`), refuses activation — a click, Enter, Space, or the
-         * form submission they would make — dims as a disabled button does, and
-         * draws the 20px orb before its label. Pass the label the wait wants
-         * ("Creating…"); the button does not change it.
+         * form submission they would make — dims as a disabled button does
+         * except while focused from the keyboard, and draws the 20px orb before
+         * its label. Pass the label the wait wants ("Creating…"); the button
+         * does not change it.
          *
          * Use it in place of `disabled={pending()}`, which drops focus to the
          * page; keep `disabled` for the other reasons a button cannot act, which
@@ -133,8 +136,13 @@ type Flat = ComponentProps<"button"> & {
   busy?: boolean;
 };
 
-/** Dimmed as a disabled button is, and passed through by the pointer. */
-const BUSY = "base:pointer-events-none base:opacity-50";
+/**
+ * Dimmed as a disabled button is, and passed through by the pointer. A busy
+ * button keeps keyboard focus, and its focus ring is a box shadow that the
+ * button's own opacity would fade below 3:1, so while focused from the keyboard
+ * it stays at full strength; the orb and its label still say it is busy.
+ */
+const BUSY = "base:pointer-events-none base:opacity-50 base:focus-visible:opacity-100";
 
 /** The room the 20px orb takes, held while its module loads. */
 const ROOM = "base:inline-block base:size-5 base:shrink-0";
@@ -145,10 +153,14 @@ const ROOM = "base:inline-block base:size-5 base:shrink-0";
 // check stops at the types above.
 const [loadedOrb, setLoadedOrb] = createSignal<Component<OrbProps>>();
 let loading: Promise<unknown> | undefined;
+// Set by the first button that queues the idle-time fetch, so a page of such
+// buttons queues one.
+let prefetchQueued = false;
 
 /**
  * Fetch the orb's module once. A failed fetch leaves the room the orb would
- * take, and is forgotten, so a later call asks again.
+ * take, and is forgotten, so the next button to turn busy asks again; Chromium
+ * then fetches the module anew (`button-busy-failed.browser.test.tsx`).
  */
 function loadOrb() {
   loading ??= import("@shared/ui/ui/orb").then(
@@ -188,9 +200,13 @@ const Button: Component<ButtonProps> = (props) => {
   ]);
 
   // A button that takes `busy` will likely wait on something, so fetch the
-  // orb once the page is idle, and its first wait draws it at once.
+  // orb once the page is idle, and its first wait draws it at once. One idle
+  // fetch per page: after a failed one, the orb is asked for again only when a
+  // button turns busy.
   onMount(() => {
-    if (local.busy !== undefined) whenIdle(loadOrb);
+    if (local.busy === undefined || prefetchQueued || loadedOrb()) return;
+    prefetchQueued = true;
+    whenIdle(loadOrb);
   });
 
   // Attached whether or not the caller passed `onClick`: a submit button

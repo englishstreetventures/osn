@@ -2,7 +2,8 @@
  * A busy `Button` whose orb never arrives — the module's fetch failed, as when
  * a deploy has replaced the chunk under a page that is still open. The button
  * still says it is busy, keeps its label and its width, and leaves no
- * unhandled rejection (Vitest fails the run on one).
+ * unhandled rejection (Vitest fails the run on one). Once the network is back,
+ * the next button to turn busy fetches the module again and draws the orb.
  *
  * The fetch is failed in the browser, for this file's frame only, so the
  * module cache this reads is cold and the failure is a real one.
@@ -54,4 +55,14 @@ it("keeps its label, its busy state and the orb's room when the orb fails to loa
   expect(button.getAttribute("aria-busy")).toBe("true");
   expect(button.getAttribute("aria-disabled")).toBe("true");
   expect(button.textContent).toBe("Creating…");
+});
+
+it("asks for the orb again when a later button is busy", async () => {
+  const failed = orbFetches().length;
+  expect(failed).toBeGreaterThan(0);
+  await requests.allowRequests(ORB);
+  render(() => <Button busy>Saving…</Button>);
+  const button = screen.getByRole("button", { name: "Saving…" });
+  await expect.poll(() => orbFetches().length, { timeout: 5000 }).toBeGreaterThan(failed);
+  await expect.poll(() => button.querySelector("canvas"), { timeout: 5000 }).not.toBeNull();
 });
