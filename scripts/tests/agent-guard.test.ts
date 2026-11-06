@@ -297,6 +297,77 @@ describe("10. quotes", () => {
   });
 });
 
+describe("18. production database reads", () => {
+  const refusals = [
+    "bunx wrangler d1 execute cire-db --env production --remote --command 'SELECT 1'",
+    "cd cire/api && bunx --bun wrangler d1 execute osn-db --env=production",
+    "wrangler d1 export cire-db -e production --remote --output x.sql",
+    "wrangler d1 execute osn-db -e=production",
+    "wrangler d1 execute osn-db -eproduction",
+    "wrangler d1 execute cire-db --remote --command 'SELECT 1'",
+    "wrangler d1 execute cire-db --remote=true --command 'SELECT 1'",
+    "wrangler d1 execute cire-db --command 'SELECT 1'",
+    "wrangler d1 execute osn-db --remote",
+    "wrangler d1 execute osn-db-prod --remote --command 'SELECT 1'",
+    "wrangler d1 export zap-db-prod --remote --output x.sql",
+    "wrangler d1 execute pulse-db-prod --remote --command 'SELECT 1'",
+    "bunx wrangler@4.x d1 execute osn-db-prod --remote",
+    "npx wrangler d1 execute zap-db-prod",
+    "./node_modules/.bin/wrangler d1 execute cire-db --remote",
+    "bunx wrangler --config wrangler.toml d1 execute cire-db --remote",
+    "wrangler --env production d1 execute osn-db --command 'SELECT 1'",
+    "wrangler d1 execute DB --remote --command 'SELECT 1'",
+    "wrangler d1 execute DB --env production",
+    "CLOUDFLARE_ENV=production wrangler d1 execute cire-db-dev --remote",
+    "WRANGLER_ENV=production bunx wrangler d1 execute cire-db-dev --remote",
+    "env CLOUDFLARE_ENV=production wrangler d1 execute cire-db-dev --remote",
+    "wrangler d1 execute cire-db --env dev --remote --command 'SELECT 1'",
+    "wrangler d1 execute osn-db-prod --env=dev --remote",
+    "wrangler d1 execute cire-db-dev --env production --remote",
+    "wrangler d1 execute $DB --remote",
+    "wrangler d1 execute cire-db-dev --remote --config other.toml",
+    "wrangler d1 execute cire-db-dev --remote --config=other.toml",
+    "wrangler d1 execute cire-db-dev --remote -c other.toml",
+    "wrangler d1 execute cire-db-dev --remote -cother.toml",
+    "wrangler --cwd cire/api d1 execute cire-db-dev --remote",
+    "wrangler d1 execute cire-db-dev --remote --cwd=osn/api",
+    "wrangler d1 execute cire-db-dev --remote --env-file .env.production",
+    "wrangler d1 execute --database cire-db cire-db-dev --remote",
+    "wrangler d1 execute --unknown cire-db-dev --remote",
+    "wrangler d1 execute -v cire-db-dev --remote",
+    "wrangler d1 execute cire-db-dev cire-db --remote",
+    "wrangler d1 execute cire-db-dev osn-db-dev --remote",
+    "wrangler d1 execute cire-db-dev --remote --command 'SELECT 1' cire-db",
+    "wrangler d1 execute cire-db-dev --remote --file osn-db-prod",
+    "wrangler d1 execute cire-db-dev --remote --file zap-db-prod",
+    "wrangler d1 execute cire-db-dev --remote --envFile .env.production",
+    "wrangler d1 execute cire-db-dev --remote --unknown value",
+    "wrangler d1 execute cire-db-dev --remote -yc other.toml",
+    "wrangler d1 execute cire-db-dev --remote --persistTo /tmp/x",
+  ];
+  test.each(refusals)("refuses %s", (command) => {
+    expect(refused(bash(command))).toBe(true);
+  });
+
+  const allowed = [
+    "bunx wrangler d1 execute cire-db-dev --remote --command 'SELECT 1'",
+    "bunx wrangler d1 execute osn-db-dev --remote --command 'SELECT 1'",
+    "bunx wrangler d1 execute zap-db-dev --env dev --remote",
+    "bunx wrangler d1 execute zap-db-dev --remote --json --yes",
+    "bunx wrangler d1 execute zap-db-dev --persist-to /tmp/x --remote",
+    "bunx wrangler d1 export cire-db-dev --remote --output /tmp/x.sql",
+    "bunx wrangler d1 execute cire-db --local --command 'SELECT 1'",
+    "bunx wrangler d1 execute osn-db-prod --local --command 'SELECT 1'",
+    "bunx wrangler d1 execute DB --local --command 'SELECT 1'",
+    "bunx wrangler d1 list",
+    "bunx wrangler secret put X --env production",
+    "echo 'wrangler d1 execute cire-db --env production'",
+  ];
+  test.each(allowed)("lets through %s", (command) => {
+    expect(refused(bash(command))).toBe(false);
+  });
+});
+
 describe("17. fail open", () => {
   test("a missing message file and an unknown repo pass", () => {
     expect(refused(bash("git commit -F missing.txt"))).toBe(false);

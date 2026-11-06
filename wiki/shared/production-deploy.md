@@ -463,7 +463,7 @@ quietly accepting tokens from anywhere.
 | `CIRE_OIDC_CLIENT_ID` | `wrangler.toml` `[env.production.vars]` | **Yes** | **`cid_cire`** — the registered client. Not a secret. |
 | `CIRE_OIDC_CLIENT_SECRET` | `wrangler secret put CIRE_OIDC_CLIENT_SECRET --env production` | **Yes** | The client secret, presented as `client_secret_post` at the token endpoint. Must be the pre-image of `oauth_clients.client_secret_hash` in osn's D1 — **rotate both together or organiser sign-in dies at the exchange** (§3.5). Any of the five OIDC values (these three, `OSN_ISSUER_URL` and `OSN_JWKS_URL`) absent ⇒ `/api/auth/oidc/*` sends the browser to the organiser `/login` with `?auth_error=sign_in_unavailable`, logs `OIDC client config incomplete`, and nothing else changes (`oidcConfigFromEnv` in `src/lib/oidc.ts`). |
 | `CIRE_OPS_EMAIL` | In the order the inventory note at the top of §3 sets: first a row in cire-api's production inventory in `shared/infra/src/secrets/inventory.ts`, which englishstreetventures/osn#1572 adds and which the inventory does not hold yet; then `printf '%s' "$VALUE" \| gh secret set CIRE_OPS_EMAIL --env production`; then `wrangler secret put CIRE_OPS_EMAIL --env production` and a redeploy | **Optional** | The operator address for the daily "vendor claims are waiting for review" email and the R2 orphan reconcilers' alerts ([[backup-dr]]). A secret because the repo is public. Needs `RESEND_API_KEY` on this Worker too; with either unset no email is sent and the cron's log line is the only signal (`src/index.ts` `scheduled`). [[cire-vendors]] |
-| `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` | `wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production` | **Optional** | Comma-separated wedding ids whose households get the household member step ("Who are you?", reply attribution, `member_required`, "Answered by") only while `cire.account-linking` is on for them (and the ARC bridge is configured); every other guest household always gets it. A secret because the repo is public and a wedding id is the couple's; never a `[vars]` entry, since a declared var's name cannot also be a secret. Unset or empty ⇒ no wedding excluded. Find an id by hand, never in a pull request, issue or changeset: `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT id FROM weddings WHERE slug = '<slug>'"`. Set it **before** approving the release that first deploys the code reading it, or that wedding's households are asked "Who are you?" and their replies stamped until it lands; rows stamped by then keep their stamp. An isolate reads it once when it builds the app and logs `member step exclusion loaded` with the count (a warning when an entry is not a `wed_…` id), never the ids; a later change needs a forced `production-release.yml` run (`force`, surface `cire_api`). [[cire-auth]] |
+| `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` | `wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production` | **Optional** | Comma-separated wedding ids whose households get the household member step ("Who are you?", reply attribution, `member_required`, "Answered by") only while `cire.account-linking` is on for them (and the ARC bridge is configured); every other guest household always gets it. A secret because the repo is public and a wedding id is the couple's; never a `[vars]` entry, since a declared var's name cannot also be a secret. Unset or empty ⇒ no wedding excluded. The owner finds an id by hand, never an agent and never in a pull request, issue or changeset: `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT id FROM weddings WHERE slug = '<slug>'"`. Set it **before** approving the release that first deploys the code reading it, or that wedding's households are asked "Who are you?" and their replies stamped until it lands; rows stamped by then keep their stamp. An isolate reads it once when it builds the app and logs `member step exclusion loaded` with the count (a warning when an entry is not a `wed_…` id), never the ids; a later change needs a forced `production-release.yml` run (`force`, surface `cire_api`). [[cire-auth]] |
 | `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` | **Optional** | What osn-api presents to `POST /internal/revoke-organiser-sessions`. Unset or shorter than 32 characters ⇒ the route answers 503, and osn-api's sign out everywhere else and cire connection revoke leave organiser sessions alone. The same value osn-api holds; how to set it is in the pre-deploy table at the top of this page. [[cire-auth]] |
 | `CIRE_R2_RECONCILE_DISABLED` | `wrangler.toml` `[env.production.vars]` (and every other tier's vars block) | **Yes — `"false"` or `"true"`** | Tier-wide switch for the cron's two R2 orphan reconcilers. `"true"` (any value but `"false"`) leaves both out of `scheduled`, logs `r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED` and emails `CIRE_OPS_EMAIL` each run; every other cron job still runs. It changes only with a deploy; to stop the reconcilers at once, around a `cire-db` restore, put `reconcile/stop` in each bucket instead ([[backup-dr]]). A dashboard edit is written back by the next deploy. Never a secret: it is a declared var. `tests/services/r2-reconcile.test.ts` fails unless every tier holds `"false"` or `"true"`. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). In a deployed tier cire-api refuses it: no mail is sent, and `email disabled: Resend misconfigured` is logged. The production deploy job refuses to run while it exists as a secret. |
@@ -607,7 +607,7 @@ Generate the secret, hash it, seed the row, then set the secret on cire-api:
 SECRET=$(openssl rand -base64 32)
 HASH=$(printf '%s' "$SECRET" | openssl dgst -sha256 -binary | xxd -p -c 64)
 
-# 2. Seed the client row in osn's PRODUCTION D1 (write the SQL to a file outside
+# 2. OWNER STEP (an agent never runs it): seed the client row in osn's PRODUCTION D1 (write the SQL to a file outside
 #    the repo; never inline the hash into a shared transcript).
 cd osn/api && bunx wrangler d1 execute osn-db-prod --remote --env production \
   --file=/path/outside/repo/register-cire-client.sql
@@ -1099,8 +1099,8 @@ top-level D1/R2 bindings (§3.2 nuance).
 > but ignores it, so every soft-deleted wedding becomes visible again to its
 > guests, co-hosts and vendors, and nothing purges it. Before rolling back past
 > that release, restore or purge every row with `deleted_at IS NOT NULL`
-> (`bunx wrangler d1 execute cire-db --env production --remote --command
-> "SELECT id, deleted_at FROM weddings WHERE deleted_at IS NOT NULL"` lists
+> (the owner runs `bunx wrangler d1 execute cire-db --env production --remote --command
+> "SELECT id, deleted_at FROM weddings WHERE deleted_at IS NOT NULL"`, which lists
 > them), or do not roll back. See [[cire-auth#Soft-deleted weddings]].
 
 ### 5.3 cire/invites (guest SSR Worker) + cire/host, cire/vendor, cire/landing (Pages)
@@ -1391,8 +1391,8 @@ API does not: it has no lock on Checklist or Budget, so an Ivory wedding's
 Overview requests `/tasks`, gets the new 402, and blanks the whole snapshot.
 Host first means that pairing never serves.
 
-**Pre-flight for the tier release (migration 0073).** Read-only; a human runs
-them against `cire-db`:
+**Pre-flight for the tier release (migration 0073).** Read-only; the owner runs
+them against `cire-db`, never an agent:
 
 ```bash
 cd cire/api
@@ -1414,7 +1414,7 @@ and a payment there settles into the tier that replaced its product. The new
 Worker closes such a page at Stripe before it opens a tier checkout for that
 wedding ([[cire-upgrades]]), so the organiser cannot pay both; closing it here
 as well means no old per-module page is payable once the tiers are live. List
-the sessions:
+the sessions (owner step):
 
 ```bash
 bunx wrangler d1 execute cire-db --env production --remote --command \
@@ -1435,7 +1435,7 @@ has completed: its webhook settles it, and nothing more is needed. A pending
 row with no `checkout_session_id` never handed out a payment page and needs
 nothing.
 
-After `deploy-cire-api`, confirm the lift:
+After `deploy-cire-api`, the owner confirms the lift:
 
 ```bash
 bunx wrangler d1 execute cire-db --env production --remote --command \
@@ -1861,11 +1861,11 @@ How it decides:
    404/503), and can **create their first wedding** via the portal's create form
    (`POST /api/organiser/weddings` → `201`). No bootstrap-owner config is involved.
    Confirm a created wedding then appears in the list and is owner-scoped (another
-   account's list stays empty). Verify with:
+   account's list stays empty). The owner verifies with:
    `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM weddings;"`.
 8. **RSVP write succeeds.** A guest claims their family code on the guest site and submits
    an RSVP (`POST /api/rsvp`). A 2xx + a persisted row confirms cire-api ↔ D1 writes and
-   the guest-session cookie path. Verify with:
+   the guest-session cookie path. The owner verifies with:
    `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM rsvps;"`.
 9. **(If enabled) account-linking returns non-503.** `POST /api/account/link` should not
    answer 503 once §6 is wired; a 503 means the ARC bridge config is missing.
@@ -2087,7 +2087,7 @@ The CI deploy job (`deploy-zap-api`) runs migrations automatically on each deplo
 After the first `deploy-zap-api` run completes:
 
 1. **Health check — automatic.** The `deploy-zap-api` job's smoke check asks `https://zap.cireweddings.com/health` for a 200 after every deploy and rolls the Worker back when it answers wrongly (§7). It confirms the Worker booted, the D1 binding is present and the JWKS URL is set.
-2. **D1 row count.** `bunx wrangler d1 execute zap-db-prod --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
+2. **D1 row count (owner step).** `bunx wrangler d1 execute zap-db-prod --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
 3. **ARC registration (smoke).** After §9.3, a test `POST /internal/chats` from cire-api should return 201 (not 401/403/503). Confirm the `class` column on the returned row is `'c2b'`.
 
 
@@ -2193,6 +2193,7 @@ sets it:
 ```bash
 # Rows that have NOT been used since the rotation began, and so may still be
 # under the outgoing key. Zero means the drain is complete.
+# Owner step: an agent never runs this.
 # <started> is the unix time you completed §10.2.
 cd osn/api && bunx wrangler d1 execute osn-db-prod --remote --env production --command \
   "SELECT count(*) FROM totp_credentials WHERE confirmed_at IS NOT NULL AND (last_used_at IS NULL OR last_used_at < <started>);"

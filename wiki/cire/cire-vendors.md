@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-11-04
+last-reviewed: 2026-11-06
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -164,6 +164,8 @@ The dev Worker holds no `CIRE_OPS_EMAIL`: the cire stack uploads only the secret
 Unset, no reminder is sent and the log line is the only signal.
 
 **Confirm or reject** with `scripts/cire-vendor-claim-review.ts`. It runs SQL on the cire D1 through `wrangler d1 execute`, under the operator's own Cloudflare login, using the wrangler installed in `cire/api`. `--env` (`local`, `dev` or `production`) has no default, and confirm and reject are dry runs until `--apply`. `dev` reaches the dev account's databases by name through the API, so run it with that account's `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` exported, and only after `bun run --cwd shared/infra token:check -- --tier dev` (with `DEV_DOMAIN` set) exits 0 ([[infrastructure-as-code#Accounts]]):
+
+The `--env production` runs are owner steps: an agent runs the script only with `--env local` or `--env dev` ([[agent-tooling#The guard hook]]).
 
 ```bash
 bun scripts/cire-vendor-claim-review.ts list    --env production

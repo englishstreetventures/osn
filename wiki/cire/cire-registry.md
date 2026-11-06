@@ -75,7 +75,7 @@ Two CHECK constraints: `quantity_wanted >= 1` and `kind in ('product','cash_fund
 
 **A host preview household holds no live claim.** The claim and release statements act only for a `kind = 'guest'` household (see [Guest routes](#guest-routes)), and migration 0085 sets every live claim a host household holds to `released`. Released rows stay, so the gift log and `gifts.csv` show them as they show a guest's release.
 
-A Worker without that check can still write one: the one serving between a release's migrations and its deploy, or one a smoke check rolls back to. Running 0085's statement again releases it and touches nothing else:
+A Worker without that check can still write one: the one serving between a release's migrations and its deploy, or one a smoke check rolls back to. Running 0085's statement again releases it and touches nothing else. The owner runs it; an agent never does ([[agent-tooling#The guard hook]]):
 
 ```bash
 bunx wrangler d1 execute cire-db --env production --remote --command "UPDATE registry_claims SET status = 'released', updated_at = unixepoch() WHERE status <> 'released' AND family_id IN (SELECT id FROM families WHERE kind = 'host')"
