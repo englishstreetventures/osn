@@ -13,7 +13,7 @@ related:
 last-reviewed: 2026-11-06
 ---
 
-# SOC 2
+# SOC 2 (Trust Services Criteria)
 
 We pursue **SOC 2 Type II** because Zap M3 (verified-organisation chats +
 embeddable customer-support widget) is a B2B surface — businesses will not
@@ -177,15 +177,18 @@ Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:complia
      licensed (`LICENSE` beside the code), pinned to upstream commit
      `5e7afad5fc8f3661e0bf0b4cd3f87de482ffcf16` (2026-09-22, release 0.3.2).
      Upstream does publish it on npm as `thinking-orbs`, so vendoring takes a
-     registry package out of the scanner's reach. The owner who reviews a
-     re-vendor (`.github/CODEOWNERS`) checks the upstream repository's issues
-     and the npm package's advisories at that time. The engine imports nothing
+     registry package out of the scanner's reach. Whoever re-vendors checks the
+     upstream repository's issues and the npm package's advisories first, and
+     the code owner of `shared/ui/vendor/` (`.github/CODEOWNERS`) confirms it in
+     review. The engine imports nothing
      and reaches no browser global but the 2D canvas context it is handed.
 
    Integrity is asserted in-repo instead, by three checks that each cover a
    different failure: each tree's `SHA256SUMS` plus `scripts/verify-vendored.sh`
    catch a change to the tree's contents, its file set, or the mode of any file
-   in it; the same script, given a base ref, also catches a change to a tree
+   in it, and CI runs it on every tree `scripts/vendored-trees.txt` names, so a
+   branch that deletes a tree's manifest fails the check rather than leaving
+   the tree out of it; the same script, given a base ref, also catches a change to a tree
    with no matching change to its pinned commit, which is what a
    self-certifying manifest cannot see; and `.github/CODEOWNERS` puts both
    trees behind a named owner. None of them compares a tree against upstream in
@@ -208,7 +211,8 @@ Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:complia
    branch protection is ruleset `13921406` (active), and `.github/CODEOWNERS`
    names an owner for the CI wiring, the guard scripts, the files that decide a
    guard runs (`package.json`, `bunfig.toml`, `oxlintrc.json`, `lefthook.yml`),
-   the dependency pins (`bun.lock`, `.bun-version`), the vendored plugin tree and
+   the dependency pins (`bun.lock`, `.bun-version`), both vendored trees
+   (`tools/oxlint/anti-slop`, `shared/ui/vendor/`) and
    the five `wrangler.toml`/`wrangler.jsonc` files. **Not yet a gate:** the
    ruleset requires zero approving reviews and no code-owner review, since there
    is one maintainer; required MFA and required signed commits are org settings

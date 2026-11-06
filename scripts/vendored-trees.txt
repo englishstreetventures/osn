@@ -1,0 +1,9 @@
+# Every vendored tree: upstream source copied in byte for byte, with a
+# SHA256SUMS and a README.md naming the upstream commit. CI's script-tests job
+# runs scripts/verify-vendored.sh on each line, and the guard refuses a listed
+# tree that has no SHA256SUMS. The list lives here, not in a search for
+# SHA256SUMS files, so deleting a tree's manifest cannot take the tree out of
+# the check. scripts/tests/vendored-trees.test.ts fails when a tree with a
+# manifest is missing from this list.
+tools/oxlint/anti-slop
+shared/ui/vendor/thinking-orbs

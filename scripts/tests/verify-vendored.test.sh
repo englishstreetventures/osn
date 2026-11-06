@@ -336,6 +336,15 @@ regen_sha "$s2"
 commit_all "$s2"
 run_case_pin "a trailing slash: a source edit with an unchanged pin fails" "$s2" 1 clean tools/oxlint/anti-slop/
 
+# B7: a branch that deletes a tree's manifest. CI names the tree from
+# scripts/vendored-trees.txt, so the guard still runs on it, and refuses it.
+m7="$tmp/manifest-deleted"
+make_fixture_pin "$m7"
+git -C "$m7" rm -q tools/oxlint/anti-slop/SHA256SUMS
+printf 'export const plugin = { tampered: true };\n' > "$m7/tools/oxlint/anti-slop/index.ts"
+commit_all "$m7"
+run_case_pin "a tree whose manifest the branch deleted exits 2" "$m7" 2
+
 echo
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

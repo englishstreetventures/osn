@@ -16,7 +16,9 @@ pre-commit:
       # which blocks the commit. Excluded here so lefthook never names them.
       #
       # Only the anti-slop tree is verified here, because oxlint executes it.
-      # Nothing on this machine runs the orb engine before CI verifies it.
+      # No commit step runs the orb engine: the lab's dev server, the
+      # @shared/ui browser tests and the lab's story smoke test do, and CI's
+      # build-test and browser jobs run those beside the job that verifies it.
       exclude:
         - ".agents/**"
         - "shared/ui/vendor/**"
