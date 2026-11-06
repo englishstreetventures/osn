@@ -17,6 +17,7 @@
 import { Button } from "@shared/ui/ui/button";
 import { render } from "@solidjs/testing-library";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { commands, userEvent } from "vitest/browser";
 
 import "../../src/app.css";
 
@@ -149,5 +150,33 @@ describe("the contract reaches the pixel", () => {
     const dark = getComputedStyle(probe).color;
 
     expect(dark).not.toBe(light);
+  });
+});
+
+describe("focus in a contrast theme", () => {
+  afterEach(async () => {
+    await commands.emulateMedia({ forcedColors: "none" });
+  });
+
+  it("outlines a button reached from the keyboard, where the theme drops its ring", async () => {
+    // `Button` hides its outline only while focused, at zero specificity, so
+    // that a contrast theme paints it. A rule in this stylesheet that sets
+    // `outline` on `:focus-visible` or on buttons would beat it, and take away
+    // the one focus mark the theme leaves.
+    await commands.emulateMedia({ forcedColors: "active" });
+    const { getByRole } = render(() => (
+      <div>
+        <button type="button">Before</button>
+        <Button>Save</Button>
+      </div>
+    ));
+    getByRole("button", { name: "Before" }).focus();
+    await userEvent.keyboard("{Tab}");
+    const button = getByRole("button", { name: "Save" });
+    expect(document.activeElement).toBe(button);
+    expect(button.matches(":focus-visible")).toBe(true);
+    const style = getComputedStyle(button);
+    expect([style.outlineStyle, style.outlineWidth]).toEqual(["solid", "2px"]);
+    expect(style.outlineColor).not.toBe("rgba(0, 0, 0, 0)");
   });
 });
