@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { proxyToPulseApi } from "../../src/lib/api-proxy";
+import { proxyToPulseApi, upstreamPath } from "../../src/lib/api-proxy";
 
 const WEB = "http://pulse.test";
 const API = "http://pulse-api.internal:3001";
@@ -226,5 +226,21 @@ describe("proxyToPulseApi: what comes back", () => {
     const body = await res.text();
     expect(JSON.parse(body)).toEqual({ error: "upstream_unavailable" });
     expect(body).not.toContain("ECONNREFUSED");
+  });
+});
+
+// Pathnames no `Request` can carry: the URL parser folds dot-segments first, so
+// these reach `upstreamPath` only from a runtime that hands it a pathname the
+// parser has not normalised. Called directly so the dot-segment guards run.
+describe("upstreamPath, on raw pathnames", () => {
+  it.each(["/api/events/../internal", "/api/./events", "/api/events/%2e%2e/internal"])(
+    "refuses the dot-segment in %s",
+    (pathname) => {
+      expect(upstreamPath(pathname)).toBeNull();
+    },
+  );
+
+  it("maps a plain data path onto pulse-api's own", () => {
+    expect(upstreamPath("/api/events/evt_1")).toBe("/events/evt_1");
   });
 });

@@ -22,6 +22,9 @@
  * write. The same write from another site's Origin is refused.
  */
 
+import { mkdirSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+
 import type {
   APIRequestContext,
   APIResponse,
@@ -30,7 +33,7 @@ import type {
   Page,
 } from "@playwright/test";
 
-import { CLOCK_T0, DB_FILES, ORIGINS, PEOPLE } from "../../src/config";
+import { ARTIFACT_DIR, CLOCK_T0, DB_FILES, ORIGINS, PEOPLE } from "../../src/config";
 import {
   expect,
   onSuiteClock,
@@ -69,6 +72,52 @@ const serverWritten = (iso: string, locale: string, timeZone: string): string =>
 /** The day of the month `iso` falls on in `timeZone`. */
 const dayIn = (iso: string, timeZone: string): string =>
   new Intl.DateTimeFormat("en", { timeZone, day: "numeric" }).format(new Date(iso));
+
+/** "Fri, Nov 20": the date an Explore card and a calendar day heading write, in `timeZone`. */
+const usDate = (iso: string, timeZone: string): string =>
+  new Date(iso).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone,
+  });
+
+/** "6:00 PM": an Explore card's clock in `timeZone`, built from the hour and minute. */
+function cardClock(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "numeric",
+    hourCycle: "h23",
+  }).formatToParts(new Date(iso));
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const hour = part("hour");
+  const minute = String(part("minute")).padStart(2, "0");
+  return `${hour % 12 || 12}:${minute} ${hour >= 12 ? "PM" : "AM"}`;
+}
+
+/** The ICS file a guest's "Add to calendar" downloads, kept with the run's artifacts. */
+const ICS_ARTIFACT = resolve(ARTIFACT_DIR, "downloads", "pulse-event-rsvp.ics");
+
+/** What a page logs about hydration from now on: a mismatch, a missing node. */
+function watchHydration(page: Page): { readonly messages: string[]; stop: () => void } {
+  const messages: string[] = [];
+  const onConsole = (message: { text(): string }) => {
+    if (/hydrat/i.test(message.text())) messages.push(message.text());
+  };
+  const onError = (error: Error) => {
+    if (/hydrat/i.test(error.message)) messages.push(error.message);
+  };
+  page.on("console", onConsole);
+  page.on("pageerror", onError);
+  return {
+    messages,
+    stop: () => {
+      page.off("console", onConsole);
+      page.off("pageerror", onError);
+    },
+  };
+}
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
@@ -129,10 +178,14 @@ async function calendarWithoutJs(
   return { page, headers: response?.headers() ?? {}, close: () => context.close() };
 }
 
-/** Checks that a no-JavaScript `/calendar` is the signed-out page and shows no event. */
+/**
+ * Checks that a no-JavaScript `/calendar` is the signed-out page and shows no
+ * event, and that its header, the session's other reader, offers sign-in.
+ */
 async function expectSignedOut(flow: Flow, page: Page, who: string): Promise<void> {
   await expect(page.getByText(SIGNED_OUT_CALENDAR)).toBeVisible();
   flow.check(`${who}: event titles on the page`, 0, await page.getByText(EVENT_TITLE).count());
+  await expect(page.getByRole("button", { name: "Continue with musubi" })).toBeVisible();
 }
 
 test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
@@ -170,6 +223,15 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   flow.check("events row title", EVENT_TITLE, event?.title ?? "missing");
   flow.check("events row written on the suite clock", true, onSuiteClock(event?.created_at));
 
+  /** The event's start as stored, which every `<time datetime>` for it carries. */
+  const startIso = new Date(
+    (queryOne<{ start_time: number }>(
+      DB_FILES.pulse,
+      "SELECT start_time FROM events WHERE id = ?",
+      eventId,
+    )?.start_time ?? 0) * 1000,
+  ).toISOString();
+
   /** The guest's reply: every RSVP row on the event but the host's own. */
   const guestRsvp = () =>
     queryOne<{ status: string; created_at: number }>(
@@ -206,9 +268,62 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
   flow.check("event_rsvps row for the guest", "going", rsvp?.status ?? "missing");
   flow.check("event_rsvps row written on the suite clock", true, onSuiteClock(rsvp?.created_at));
 
+  await flow.step("guest: add the event to their calendar", async () => {
+    const downloaded = guestPage.waitForEvent("download");
+    await guestPage.getByRole("button", { name: "Add to calendar" }).click();
+    const download = await downloaded;
+    // The id written as `:id`, so the record reads the same on every run.
+    flow.check(
+      "Add to calendar downloads through the /api mount",
+      `${ORIGINS.pulseWeb}/api/events/:id/ics`,
+      download.url().replace(eventId, ":id"),
+    );
+    mkdirSync(dirname(ICS_ARTIFACT), { recursive: true });
+    await download.saveAs(ICS_ARTIFACT);
+    const ics = readFileSync(ICS_ARTIFACT, "utf8");
+    flow.check("downloaded file is a calendar", true, ics.includes("BEGIN:VCALENDAR"));
+    flow.check("downloaded calendar names the event", true, ics.includes(EVENT_TITLE));
+  });
+
+  await flow.step("guest: Share opens the desktop popover", async () => {
+    await guestPage.getByRole("button", { name: "Share event" }).click();
+    const panel = guestPage.getByRole("dialog");
+    await expect(panel.getByRole("button", { name: "WhatsApp" })).toBeVisible();
+    // The phone layout's sheet carries the title; the popover does not.
+    flow.check(
+      "desktop Share is the popover, not the sheet",
+      0,
+      await guestPage.getByRole("dialog", { name: "Share event" }).count(),
+    );
+    await guestPage.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+  });
+
   // Each person's cookies as they stand signed in, for the refusals below.
   const hostState = await context.storageState();
   const guestState = await guestContext.storageState();
+
+  await flow.step("host: /calendar draws the day timeline once hydrated", async () => {
+    const hydration = watchHydration(page);
+    await page.goto(`${ORIGINS.pulseWeb}/calendar`);
+    await untilPulseHydrated(page);
+    const day = page.locator(".cal-timeline .cal-day").filter({ hasText: EVENT_TITLE });
+    await expect(day).toBeVisible();
+    // The browser's own day heading (its zone is UTC, playwright.config.ts).
+    flow.check(
+      "the event's day heading on the timeline",
+      usDate(startIso, "UTC"),
+      (await day.locator(".cal-day__label").textContent()) ?? "missing",
+    );
+    // Only the timeline's card links the event: the server's list is gone.
+    flow.check(
+      "links to the event on the hydrated /calendar",
+      "1 in the timeline, 1 in all",
+      `${await page.locator(`.cal-timeline a[href="/events/${eventId}"]`).count()} in the timeline, ${await page.locator(`a[href="/events/${eventId}"]`).count()} in all`,
+    );
+    hydration.stop();
+    flow.check("hydration messages on /calendar", 0, hydration.messages.length);
+  });
 
   await flow.step("host: /calendar arrives filled in, without JavaScript", async () => {
     const visit = await calendarWithoutJs(flow, browser, sentToPulseApi, {
@@ -216,6 +331,10 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     });
     await expect(visit.page.getByText(EVENT_TITLE)).toBeVisible();
     await expect(visit.page.getByText(SIGNED_OUT_CALENDAR)).toHaveCount(0);
+    // The header read the same session on the server: the host's avatar
+    // initial, and no sign-in button.
+    await expect(visit.page.getByRole("button", { name: "H", exact: true })).toBeVisible();
+    await expect(visit.page.getByRole("button", { name: "Continue with musubi" })).toHaveCount(0);
     flow.check(
       "signed-in page Cache-Control",
       "private, no-store",
@@ -292,14 +411,6 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     )?.n ?? -1,
   );
 
-  const startIso = new Date(
-    (queryOne<{ start_time: number }>(
-      DB_FILES.pulse,
-      "SELECT start_time FROM events WHERE id = ?",
-      eventId,
-    )?.start_time ?? 0) * 1000,
-  ).toISOString();
-
   await flow.step(
     "visitor: the event's start is written by the server, in UTC, named",
     async () => {
@@ -329,13 +440,7 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
     const visitor = await browser.newContext({ timezoneId: "Pacific/Auckland", locale: "de-DE" });
     watchPulseApiOrigin(visitor, sentToPulseApi);
     const visitorPage = await flow.newPage(visitor);
-    const hydrationMessages: string[] = [];
-    visitorPage.on("console", (message) => {
-      if (/hydrat/i.test(message.text())) hydrationMessages.push(message.text());
-    });
-    visitorPage.on("pageerror", (error) => {
-      if (/hydrat/i.test(error.message)) hydrationMessages.push(error.message);
-    });
+    const hydration = watchHydration(visitorPage);
     await visitorPage.goto(`${ORIGINS.pulseWeb}/events/${eventId}`);
     await untilPulseHydrated(visitorPage);
     const start = visitorPage.locator(`time[datetime="${startIso}"]`).first();
@@ -351,22 +456,107 @@ test("pulse-event-rsvp", async ({ page, context, browser, flow }) => {
       true,
       dayIn(startIso, "Pacific/Auckland") !== dayIn(startIso, "UTC"),
     );
-    // The browser's first render writes the server's text in the browser's
-    // own ICU; hydration keeps the server's text only if the two agree.
+    // Where the browser's first render takes the server's locale from, so it
+    // repeats the server's text while hydrating.
     flow.check(
-      "the browser writes the server's text byte for byte",
-      serverWritten(startIso, "de-DE", "UTC"),
-      await visitorPage.evaluate(
-        ([iso, options]) =>
-          new Date(iso).toLocaleString("de-DE", {
-            ...options,
-            timeZone: "UTC",
-            timeZoneName: "short",
-          }),
-        [startIso, EVENT_TIME] as const,
-      ),
+      "the browser reads the server's date locale from the page",
+      "de-DE",
+      await visitorPage.evaluate(() => document.documentElement.dataset.dateLocale ?? "missing"),
     );
-    flow.check("hydration messages on the event page", 0, hydrationMessages.length);
+    hydration.stop();
+    flow.check("hydration messages on the event page", 0, hydration.messages.length);
+    await visitor.close();
+  });
+
+  await flow.step("visitor on a phone: the event page corrects to the phone layout", async () => {
+    // The server has no viewport and writes the desktop layout; the browser
+    // starts there while hydrating and switches once mounted.
+    const visitor = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    watchPulseApiOrigin(visitor, sentToPulseApi);
+    const visitorPage = await flow.newPage(visitor);
+    const hydration = watchHydration(visitorPage);
+    await visitorPage.goto(`${ORIGINS.pulseWeb}/events/${eventId}`);
+    await untilPulseHydrated(visitorPage);
+    await visitorPage.getByRole("button", { name: "Share event" }).click();
+    const sheet = visitorPage.getByRole("dialog", { name: "Share event" });
+    await expect(sheet.getByRole("button", { name: "WhatsApp" })).toBeVisible();
+    hydration.stop();
+    flow.check("hydration messages on the event page, mobile", 0, hydration.messages.length);
+    await visitor.close();
+  });
+
+  await flow.step(
+    "visitor: Explore's dates and greeting are the server's, without JavaScript",
+    async () => {
+      const visitor = await browser.newContext({ javaScriptEnabled: false });
+      watchPulseApiOrigin(visitor, sentToPulseApi);
+      const visitorPage = await flow.newPage(visitor);
+      await visitorPage.goto(ORIGINS.pulseWeb);
+      await expect(visitorPage.getByText("Hello", { exact: true })).toBeVisible();
+      const hero = (await visitorPage.getByRole("heading", { level: 1 }).textContent()) ?? "";
+      flow.check(
+        "Explore hero line, server",
+        "Here's what's pulsing nearby.",
+        hero.replace(/\s+/g, " ").trim(),
+      );
+      flow.check(
+        "Explore heat-map hour, server, names UTC",
+        1,
+        await visitorPage
+          .locator("span")
+          .filter({ hasText: /^\d{1,2}:00 (am|pm) UTC · / })
+          .count(),
+      );
+      // The card's own line: an absolute date and the clock in UTC, named.
+      const expected = `${usDate(startIso, "UTC")} · ${cardClock(startIso, "UTC")} UTC`;
+      const written = await visitorPage.locator(`time[datetime="${startIso}"]`).allTextContents();
+      flow.check(
+        "Explore card time, server",
+        expected,
+        written.find((text) => text === expected) ?? written.join(" | "),
+      );
+      await visitor.close();
+    },
+  );
+
+  await flow.step("visitor in Auckland: Explore turns local once hydrated", async () => {
+    const visitor = await browser.newContext({ timezoneId: "Pacific/Auckland" });
+    watchPulseApiOrigin(visitor, sentToPulseApi);
+    const visitorPage = await flow.newPage(visitor);
+    const hydration = watchHydration(visitorPage);
+    await visitorPage.goto(ORIGINS.pulseWeb);
+    await untilPulseHydrated(visitorPage);
+    await expect(
+      visitorPage.getByText(/^Good (morning|afternoon|evening)$/),
+      "greeting from the reader's clock",
+    ).toBeVisible();
+    await expect(visitorPage.getByRole("heading", { level: 1 })).toHaveText(
+      /nearby this (late|morning|afternoon|evening|tonight)\.$/,
+    );
+    flow.check(
+      "Explore heat-map hour, reader, names no zone",
+      "1 without a zone, 0 with UTC",
+      `${await visitorPage
+        .locator("span")
+        .filter({ hasText: /^\d{1,2}:00 (am|pm) · / })
+        .count()} without a zone, ${await visitorPage
+        .locator("span")
+        .filter({ hasText: /^\d{1,2}:00 (am|pm) UTC · / })
+        .count()} with UTC`,
+    );
+    // The browser's clock is the suite's, weeks before the event, so the
+    // card writes the date, in Auckland, with no zone.
+    const expected = `${usDate(startIso, "Pacific/Auckland")} · ${cardClock(startIso, "Pacific/Auckland")}`;
+    const times = visitorPage.locator(`time[datetime="${startIso}"]`);
+    await expect(times.filter({ hasText: expected })).toHaveCount(1);
+    const written = await times.allTextContents();
+    flow.check(
+      "Explore card time, reader in Auckland",
+      expected,
+      written.find((text) => text === expected) ?? written.join(" | "),
+    );
+    hydration.stop();
+    flow.check("hydration messages on /", 0, hydration.messages.length);
     await visitor.close();
   });
 

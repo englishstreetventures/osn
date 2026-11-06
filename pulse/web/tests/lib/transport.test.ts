@@ -45,6 +45,26 @@ describe("serverFetch", () => {
     expect(cookieSent(calls[1]!.init)).toBeNull();
   });
 
+  it.each([
+    ['pulse_web_session="tok,abc"', "quotes and a comma"],
+    ["pulse_web_session=tok abc", "a space"],
+    ["pulse_web_session=tok%0D%0AX-Injected:1", "a %-sequence"],
+  ])("refuses a session value with non-token characters (%s, %s)", async (cookieHeader) => {
+    const { fetch, calls } = recorder();
+    await serverFetch(`${API}/events`, undefined, { cookieHeader, apiOrigin: API, fetch });
+    expect(cookieSent(calls[0]!.init)).toBeNull();
+  });
+
+  it("forwards the first of two cookies named pulse_web_session", async () => {
+    const { fetch, calls } = recorder();
+    await serverFetch(`${API}/events`, undefined, {
+      cookieHeader: "pulse_web_session=first; pulse_web_session=second",
+      apiOrigin: API,
+      fetch,
+    });
+    expect(cookieSent(calls[0]!.init)).toBe("pulse_web_session=first");
+  });
+
   it("never sends the session cookie to any origin but pulse-api's", async () => {
     const { fetch, calls } = recorder();
     const context = { cookieHeader: "pulse_web_session=tok_abc", apiOrigin: API, fetch };
