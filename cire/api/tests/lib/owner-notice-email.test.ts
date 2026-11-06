@@ -7,7 +7,6 @@ import { Effect, Layer } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
-import { formatMinor } from "../../src/lib/money";
 import { createOwnerNotices, formatRestoreUntil } from "../../src/lib/owner-notice-email";
 import type { OwnerNoticeDeps } from "../../src/lib/owner-notice-email";
 import { CIRE_METRICS } from "../../src/metrics";
@@ -65,7 +64,7 @@ function setup(
   });
   const run = (eff: Effect.Effect<void, never, DbService>) =>
     Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
-  return { notices, run, transport };
+  return { notices, run, transport, db };
 }
 
 describe("createOwnerNotices", () => {
@@ -187,13 +186,64 @@ describe("createOwnerNotices — an upgrade refund", () => {
       expect(mail.data).toEqual({
         weddingName: "Wedding wed_one",
         tierName: "Gold",
-        amount: formatMinor(7900, "AUD"),
+        amount: "A$79.00",
         contactEmail: LEGAL_ENTITY.contactEmail,
         portalUrl: "https://host.example.test",
       });
     }
     expect(
       await counterValue(CIRE_METRICS.ownerNotice, { kind: "upgrade_refund", result: "sent" }),
+    ).toBe(before + 1);
+  });
+
+  it("still tells the owners of a wedding they deleted, which is the usual case", async () => {
+    const { notices, run, transport, db } = setup({}, ["usr_a", "usr_b"]);
+    db.$client.exec("UPDATE weddings SET deleted_at = unixepoch() WHERE id = 'wed_one'");
+    await run(
+      notices.refundIssued({
+        weddingId: "wed_one",
+        tier: "gold",
+        amountMinor: 7900,
+        currency: "AUD",
+      }),
+    );
+    expect(transport.batches.map((b) => b.map((m) => m.to))).toEqual([
+      ["a@example.test", "b@example.test"],
+    ]);
+  });
+
+  it("names no tier and no amount it does not have", async () => {
+    const { notices, run, transport } = setup({}, ["usr_a"]);
+    await run(
+      notices.refundIssued({ weddingId: "wed_one", tier: null, amountMinor: null, currency: null }),
+    );
+    const [mail] = transport.batches[0] ?? [];
+    expect(mail?.template === "upgrade-refund" && mail.data).toMatchObject({
+      tierName: null,
+      amount: null,
+    });
+  });
+
+  /**
+   * A refund notice spends the wedding's budget and nothing else: it has no
+   * acting owner, so it must not share one platform-wide key.
+   */
+  it("spends only the wedding's own budget", async () => {
+    const { notices, run, transport } = setup({ emailsPerDay: 2 }, ["usr_a"]);
+    const refund = (weddingId: string) =>
+      notices.refundIssued({ weddingId, tier: "gold", amountMinor: 7900, currency: "AUD" });
+    await run(refund("wed_one"));
+    await run(refund("wed_two"));
+    await run(refund("wed_one"));
+    expect(transport.batches).toHaveLength(3);
+    const before = await counterValue(CIRE_METRICS.ownerNotice, {
+      kind: "upgrade_refund",
+      result: "throttled",
+    });
+    await run(refund("wed_one"));
+    expect(transport.batches).toHaveLength(3);
+    expect(
+      await counterValue(CIRE_METRICS.ownerNotice, { kind: "upgrade_refund", result: "throttled" }),
     ).toBe(before + 1);
   });
 

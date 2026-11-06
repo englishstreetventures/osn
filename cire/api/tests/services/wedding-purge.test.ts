@@ -214,14 +214,38 @@ describe("maintenanceSweeps.purgeDeletedWeddings", () => {
           return Effect.succeed({ id: "re_owed" });
         },
       } as unknown as StripeClient;
+      const told: unknown[] = [];
       const upgrades = createUpgradeService({
         stripe,
         catalogue: createUpgradeCatalogue({ stripe, prices: {} }),
         now: () => NOW.getTime(),
+        notifyRefund: (notice) =>
+          Effect.sync(() => {
+            told.push(notice);
+            return true;
+          }),
       });
-      await Effect.runPromise(upgrades.reconcile().pipe(Effect.provideService(DbService, db)));
+      const result = await Effect.runPromise(
+        upgrades.reconcile().pipe(Effect.provideService(DbService, db)),
+      );
+      expect(result).toEqual({ read: 1, failed: 0 });
       expect(refunds).toEqual(["pi_owed"]);
       expect(records()).toEqual([{ status: "auto_refunded", refund_id: "re_owed" }]);
+      // The wedding is gone, so there is nobody to tell.
+      expect(told).toEqual([]);
+
+      // The bank then returns it: the record alone answers.
+      const failed = await Effect.runPromise(
+        upgrades
+          .refundFailed({ purchaseId: purchase!.id, refundId: "re_owed" })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(failed).toBe("recorded");
+      expect(records()).toEqual([{ status: "refund_failed", refund_id: "re_owed" }]);
+      const logs = await captureLogs(() =>
+        Effect.runPromise(upgrades.reconcile().pipe(Effect.provideService(DbService, db))),
+      );
+      expect(logs).toContain("upgrade refunds waiting for a person");
     });
 
     it("a change still writing", async () => {

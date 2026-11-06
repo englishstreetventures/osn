@@ -2142,7 +2142,8 @@ export const platformSales = sqliteTable("platform_sales", {
 
 // The record of an upgrade payment cire is giving back, kept OUTSIDE the
 // wedding's cascade like `platform_sales`: no foreign key, no wedding id, no
-// profile id, no personal data. A refund cire owes must outlive the wedding
+// profile id. Pseudonymous, not anonymous: the PaymentIntent and refund ids
+// open the buyer's charge in Stripe. A refund cire owes must outlive the wedding
 // row, so the daily reconciliation retries it from here and the purge never
 // has to wait for it. Written in the same D1 batch as the purchase row's
 // `refunding` claim, and moved with it to `auto_refunded`, `refunded` or
@@ -2172,8 +2173,9 @@ export const platformRefunds = sqliteTable(
     }).notNull(),
     // The Stripe refund (`re_…`), once Stripe accepts it.
     refundId: text("refund_id"),
-    // When the wedding's owners were emailed about the refund. Set once, in
-    // the write that records Stripe's acceptance, so a replay mails nobody.
+    // When the wedding's owners were emailed about the refund: written once
+    // the notice has gone out, so NULL means nobody was mailed. Whether to
+    // mail is decided by the status move to `auto_refunded`, once.
     ownersNotifiedAt: integer("owners_notified_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

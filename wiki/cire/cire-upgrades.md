@@ -334,7 +334,8 @@ The row moves to `refunding` **before** Stripe is asked, recording the payment
 intent and what arrived, so no later delivery can grant it. The same batch
 writes the refund's record, `platform_refunds`: the purchase id, product,
 payment intent, amount, reason and status, with no foreign key, no wedding id
-and no personal data, so it outlives the purge. Every later move of the refund
+so it outlives the purge; it is pseudonymous, not anonymous, since its
+PaymentIntent and refund ids open the charge in Stripe. Every later move of the refund
 (`auto_refunded`, `refunded`, `refund_failed`) changes the record and, while it
 exists, the purchase row, in one batch; the record decides. Then
 `POST /v1/refunds` with the payment intent and `metadata[purchaseId]`, a full
@@ -359,9 +360,10 @@ Once Stripe accepts a refund cire made, every owner of the wedding gets an
 email (`upgrade-refund`, through the owner-notice sender in
 `cire/api/src/lib/owner-notice-email.ts`): the wedding, the tier, the amount
 refunded and cire's contact address, and no reason, since a reason can be
-another owner's act. It is sent once per refund: the write that records
-Stripe's acceptance also stamps `owners_notified_at` on the record, and only
-the call whose write moved the record sends. A replay, the reconciliation's
+another owner's act. It is sent once per refund: only the call whose write
+moved the record to `auto_refunded` sends, and `owners_notified_at` is written
+once the notice has gone out, so an empty one means the owners were not
+mailed. A replay, the reconciliation's
 retry, a refund a person made and a payment that is not cire's mail nobody,
 and nobody is mailed when the purge has taken the wedding.
 
@@ -379,12 +381,15 @@ balance, and a person has to return it.
 Cron job 13 (`reconcile` in `cire/api/src/services/upgrades.ts`) finishes what
 a webhook could not. It runs wherever there is a `STRIPE_SECRET_KEY`, without
 the platform webhook's secret: a refund cire owes is asked for even where
-upgrades are not sold any more. Each run reads at most `RECONCILE_PER_RUN` (2)
-rows, least recently moved first (index `(status, updated_at)`):
+upgrades are not sold any more. Each run works at most `RECONCILE_PER_RUN` (2)
+rows from one queue across both kinds below, least recently moved first
+(indexes on `(status, updated_at)` of each table), so refunds Stripe keeps
+refusing cannot keep a paid checkout waiting:
 
 - a **`refunding`** refund, read from its record, so it completes after the
   purge has taken the purchase row: the refund is tried again. One Stripe still refuses
-  13 days after the purchase (`REFUND_GIVE_UP_MS`) moves to `refund_failed`,
+  13 days after cire decided to refund (`REFUND_GIVE_UP_MS`, from the record's
+  creation) moves to `refund_failed`,
   logged `upgrade refund given up; a person must return the money`, and the
   daily asking stops. One whose call went unanswered, or that another
   delivery is still making, is never given up on. A refund Stripe accepted
@@ -414,10 +419,13 @@ nothing for a `refunded` purchase.
 A `refund_failed` refund is money cire owes. Return it from the Stripe
 dashboard (the refund or the PaymentIntent names the purchase in its metadata),
 then mark its record, and the purchase row while it exists, so nothing asks
-again: an operator-authorised production D1 write, `UPDATE platform_refunds SET
+again: an operator-authorised production D1 write, both statements in one
+`--command`, the record's first: `UPDATE platform_refunds SET
 status = 'refunded', updated_at = unixepoch() WHERE purchase_id = '<purchase id>'
 AND status = 'refund_failed';` and `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at =
-unixepoch() WHERE id = '<purchase id>' AND status = 'refund_failed';`. Never
+unixepoch() WHERE id = '<purchase id>' AND status = 'refund_failed' AND EXISTS
+(SELECT 1 FROM platform_refunds WHERE purchase_id = '<purchase id>' AND status =
+'refunded');`. Never
 on a `refunding` row: cire is still asking Stripe for that refund, and one
 that lands after a refund by hand pays the buyer twice.
 
