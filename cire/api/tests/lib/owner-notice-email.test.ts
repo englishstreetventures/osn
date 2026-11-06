@@ -2,10 +2,12 @@ import { describe, it, expect } from "bun:test";
 
 import { EmailError, EmailService } from "@shared/email";
 import type { SendEmailInput } from "@shared/email";
+import { LEGAL_ENTITY } from "@shared/legal";
 import { Effect, Layer } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
+import { formatMinor } from "../../src/lib/money";
 import { createOwnerNotices, formatRestoreUntil } from "../../src/lib/owner-notice-email";
 import type { OwnerNoticeDeps } from "../../src/lib/owner-notice-email";
 import { CIRE_METRICS } from "../../src/metrics";
@@ -153,6 +155,59 @@ describe("createOwnerNotices", () => {
     expect(transport.batches.map((b) => b.map((m) => m.to))).toEqual([["a@example.test"]]);
     const [mail] = transport.batches[0] ?? [];
     expect(mail?.template === "wedding-delete-started" && mail.data.audience).toBe("actor");
+  });
+});
+
+describe("createOwnerNotices — an upgrade refund", () => {
+  /**
+   * Every owner hears that a payment for the wedding was refunded, with the
+   * amount and where to write; it names no reason, since the reason can be
+   * another owner's act.
+   */
+  it("tells every owner, once each, with the tier, the amount and cire's address", async () => {
+    const { notices, run, transport } = setup({}, ["usr_a", "usr_b"]);
+    const before = await counterValue(CIRE_METRICS.ownerNotice, {
+      kind: "upgrade_refund",
+      result: "sent",
+    });
+    await run(
+      notices.refundIssued({
+        weddingId: "wed_one",
+        tier: "gold",
+        amountMinor: 7900,
+        currency: "AUD",
+      }),
+    );
+    expect(transport.batches.map((b) => b.map((m) => m.to))).toEqual([
+      ["a@example.test", "b@example.test"],
+    ]);
+    const [mail] = transport.batches[0] ?? [];
+    expect(mail?.template).toBe("upgrade-refund");
+    if (mail?.template === "upgrade-refund") {
+      expect(mail.data).toEqual({
+        weddingName: "Wedding wed_one",
+        tierName: "Gold",
+        amount: formatMinor(7900, "AUD"),
+        contactEmail: LEGAL_ENTITY.contactEmail,
+        portalUrl: "https://host.example.test",
+      });
+    }
+    expect(
+      await counterValue(CIRE_METRICS.ownerNotice, { kind: "upgrade_refund", result: "sent" }),
+    ).toBe(before + 1);
+  });
+
+  it("sends nothing for a wedding that is gone", async () => {
+    const { notices, run, transport } = setup();
+    await run(
+      notices.refundIssued({
+        weddingId: "wed_gone",
+        tier: "gold",
+        amountMinor: 7900,
+        currency: "AUD",
+      }),
+    );
+    expect(transport.batches).toEqual([]);
   });
 });
 

@@ -50,6 +50,7 @@ import {
   renderTotpDisabled,
   renderTotpEnrolled,
 } from "./security";
+import { renderUpgradeRefund, type UpgradeRefundData } from "./upgrade-refund";
 import { renderVendorClaimInvite, type VendorClaimInviteData } from "./vendor-claim";
 import {
   renderVendorClaimReviewPending,
@@ -84,6 +85,7 @@ export type EmailTemplate =
   | "r2-reconcile-alert"
   | "registry-gift-summary"
   | "rsvp-change-digest"
+  | "upgrade-refund"
   | "vendor-claim-invite"
   | "vendor-claim-review-pending"
   | "wedding-delete-started"
@@ -127,6 +129,7 @@ export interface EmailTemplateDataMap {
   "r2-reconcile-alert": R2ReconcileAlertData;
   "registry-gift-summary": RegistryGiftSummaryData;
   "rsvp-change-digest": RsvpChangeDigestData;
+  "upgrade-refund": UpgradeRefundData;
   "vendor-claim-invite": { claimUrl: string; vendorName: string };
   "vendor-claim-review-pending": VendorClaimReviewPendingData;
   "wedding-delete-started": WeddingDeleteStartedData;
@@ -194,6 +197,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderRegistryGiftSummary(data as EmailTemplateData<"registry-gift-summary">);
     case "rsvp-change-digest":
       return renderRsvpChangeDigest(data as EmailTemplateData<"rsvp-change-digest">);
+    case "upgrade-refund":
+      return renderUpgradeRefund(data as EmailTemplateData<"upgrade-refund">);
     case "vendor-claim-invite":
       return renderVendorClaimInvite(data as EmailTemplateData<"vendor-claim-invite">);
     case "vendor-claim-review-pending":
@@ -232,6 +237,7 @@ export {
   renderVendorClaimInvite,
   renderVendorClaimReviewPending,
   renderWeddingDeleteStarted,
+  renderUpgradeRefund,
   renderWeddingOwnerChange,
 };
 
@@ -248,6 +254,7 @@ export type {
   RegistryGiftSummaryTotal,
   RsvpChangeDigestData,
   RsvpDigestChangeKind,
+  UpgradeRefundData,
   VendorClaimInviteData,
   VendorClaimReviewPendingData,
   WeddingDeleteStartedData,

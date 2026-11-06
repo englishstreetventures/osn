@@ -664,6 +664,22 @@ CREATE TABLE IF NOT EXISTS platform_sales (
   currency TEXT NOT NULL,
   settled_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS platform_refunds (
+  id TEXT PRIMARY KEY,
+  purchase_id TEXT NOT NULL UNIQUE,
+  entitlement TEXT NOT NULL,
+  payment_intent_id TEXT,
+  amount_minor INTEGER,
+  currency TEXT,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,
+  refund_id TEXT,
+  owners_notified_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CONSTRAINT platform_refunds_status_ck CHECK (status in ('refunding','auto_refunded','refunded','refund_failed'))
+);
+CREATE INDEX IF NOT EXISTS platform_refunds_status_updated_idx ON platform_refunds(status, updated_at);
 CREATE TABLE IF NOT EXISTS link_thumb_transforms (
   period TEXT PRIMARY KEY NOT NULL,
   used INTEGER DEFAULT 0 NOT NULL

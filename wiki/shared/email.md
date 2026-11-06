@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Email Transport
@@ -112,6 +112,7 @@ cire-api sends from the same catalogue:
 | `rsvp-change-digest` | `{ weddingName, households, counts, rsvpUrl }` — counts per kind of change, no guest name | the daily RSVP digest cron — see [[cire-rsvp-changes]] |
 | `wedding-owner-change` | `WeddingOwnerChangeData` — wedding name, who acted, whose seat changed, the change (`added`, `promoted`, `removed`, `demoted`), the new role, which copy this is (`subject`, `actor`, `owner`) | a change of owner, to the actor and every other owner, and for a removal or demotion to the person affected — see [[cire-auth]] |
 | `wedding-delete-started` | `WeddingDeleteStartedData` — wedding name, who deleted it, the restore deadline, which copy this is (`actor`, `owner`) | an owner deleting a wedding, to every owner — see [[cire-auth]] |
+| `upgrade-refund` | `UpgradeRefundData` — wedding name, the tier, the amount refunded (formatted by cire), cire's contact address, the portal link; no reason and no name | an upgrade payment cire could not grant, refunded, to every owner once after Stripe accepts the refund — see [[cire-upgrades]] |
 | `vendor-claim-review-pending` | `{ pending, oldestWaitingDays, env }` — counts only, no listing or claimant | the daily cron, to the operator address in `CIRE_OPS_EMAIL` — see [[cire-vendors]] |
 | `r2-reconcile-alert` | `R2ReconcileAlertData` — one of `held` (bucket name, both row counts, runs held and left), `released`, `stopped` (bucket name, days stopped) or `disabled`, plus the tier; counts and commands only, no object key or guest data | the daily cron's R2 orphan reconcilers, to the operator address in `CIRE_OPS_EMAIL` — see [[backup-dr]] |
 
