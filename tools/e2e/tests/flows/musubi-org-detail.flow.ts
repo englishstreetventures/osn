@@ -1,8 +1,8 @@
 /**
  * Musubi: create an organisation, have a member added, open the organisation's
  * page, rename it, remove the member, open an organisation the owner does not
- * belong to from the search box, delete the first organisation and follow the
- * stale link back to it.
+ * belong to from the search box, delete the first organisation, follow the
+ * stale link back to it, and follow a link whose handle the API refuses.
  *
  * The organisation routes address both the organisation and the member by
  * handle and answer flat member rows with no profile id, so this is the flow
@@ -18,6 +18,9 @@ import { DB_FILES, MUSUBI_ORG, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, signInToMusubiAsDev, test } from "../support/fixtures";
 
 const { org, member, otherOrg } = MUSUBI_ORG;
+
+/** Fails the routes' handle pattern, `^[a-z0-9_]+$`. */
+const BAD_HANDLE = "Not_A_Handle";
 
 /** Members `org` has, read from osn-api's database. */
 function memberRows(): number {
@@ -158,6 +161,30 @@ test("musubi-org-detail", async ({ page, flow }) => {
     "deleted organisation answers 404",
     true,
     flow.saw(`GET osn-api /organisations/${org.handle} 404`),
+  );
+
+  // A failure other than 404 gets the general notice. osn-api refuses a handle
+  // with capitals before it looks anything up. The link is added to the page
+  // and clicked, so the router opens it in the app, with no second page load.
+  await flow.step("follow a link to a handle the API refuses", async () => {
+    await page.evaluate((href) => {
+      const link = document.createElement("a");
+      link.href = href;
+      link.id = "e2e-bad-handle-link";
+      link.textContent = "Malformed organisation link";
+      // Fixed and on top: the app's layout may not scroll the body.
+      link.style.cssText = "position:fixed;top:0;left:0;z-index:2147483647;background:white";
+      document.body.append(link);
+    }, `/organisations/${BAD_HANDLE}`);
+    await page.getByRole("link", { name: "Malformed organisation link" }).click();
+    await expect(page).toHaveURL(`${ORIGINS.musubi}/organisations/${BAD_HANDLE}`);
+    await expect(page.getByText("This organisation could not be loaded.")).toBeVisible();
+    await page.evaluate(() => document.getElementById("e2e-bad-handle-link")?.remove());
+  });
+  flow.check(
+    "malformed handle refused",
+    true,
+    flow.saw(`GET osn-api /organisations/${BAD_HANDLE} 422`),
   );
 
   // One page load: Musubi read its profiles and traded the cookie for a token once.

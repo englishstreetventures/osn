@@ -2,7 +2,7 @@
  * The organisations client against the API's own description of itself,
  * `shared/openapi/osn.json`, which CI regenerates from the routes and fails on
  * any difference. Every call the client makes must reach a route the spec has,
- * with a body the route accepts, and the types the client declares must name
+ * with query keys and a body the route accepts, and the types the client declares must name
  * the fields the routes answer with.
  *
  * Field names are kept in `Record<keyof T, true>` literals: the type checker
@@ -30,6 +30,7 @@ interface Schema {
 }
 
 interface Operation {
+  parameters?: { in: string; name: string }[];
   requestBody?: { content: Record<string, { schema: Schema }> };
   responses: Record<string, { content?: Record<string, { schema: Schema }> }>;
 }
@@ -85,7 +86,7 @@ const CALLS: Record<keyof OrgClient, () => Promise<unknown>> = {
   createOrg: () => client.createOrg(TOKEN, { handle: "acme", name: "Acme", description: "d" }),
   updateOrg: () => client.updateOrg(TOKEN, "acme", { name: "Acme", description: "d" }),
   deleteOrg: () => client.deleteOrg(TOKEN, "acme"),
-  listMembers: () => client.listMembers(TOKEN, "acme", { limit: 5 }),
+  listMembers: () => client.listMembers(TOKEN, "acme", { limit: 5, offset: 10 }),
   addMember: () => client.addMember(TOKEN, "acme", "alice", "member"),
   removeMember: () => client.removeMember(TOKEN, "acme", "alice"),
   updateMemberRole: () => client.updateMemberRole(TOKEN, "acme", "alice", "admin"),
@@ -131,10 +132,15 @@ const LIST_MEMBERS: Record<keyof Body<"listMembers">, true> = { members: true };
 describe("organisations client against shared/openapi/osn.json", () => {
   it.each(Object.entries(CALLS))("%s calls a route the spec has", async (_name, run) => {
     const request = await sent(run);
+    const operation = operationFor(request.method, request.url);
+    expect(operation, `${request.method} ${new URL(request.url).pathname}`).toBeDefined();
+    const accepted = (operation?.parameters ?? [])
+      .filter((parameter) => parameter.in === "query")
+      .map((parameter) => parameter.name);
     expect(
-      operationFor(request.method, request.url),
-      `${request.method} ${new URL(request.url).pathname}`,
-    ).toBeDefined();
+      [...new URL(request.url).searchParams.keys()].filter((key) => !accepted.includes(key)),
+      "query keys the route does not accept",
+    ).toEqual([]);
   });
 
   it.each(
