@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-06
 ---
 
 # Social
@@ -42,7 +42,7 @@ The app ships as a web build only.
 | `/search` | `SearchPage` | People + organisations search (`GET /recommendations/search`), grouped under section headings, with real action buttons. The mobile shell's Search tab; reachable at any width |
 | `/discover` | `DiscoverPage` | Contact suggestions (`GET /recommendations/connections`) — mutual connections and shared organisations, each card saying which. See [[social-graph]] |
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
-| `/organisations/:id` | `OrgDetailPage` | Org detail + member management |
+| `/organisations/:handle` | `OrgDetailPage` | Org detail + member management, addressed by handle like every organisation route. Any signed-in profile sees the organisation; only members see its roster (the API answers anyone else `403`, and the page says so). A handle with no organisation shows "Organisation not found." |
 | `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). `@simplewebauthn/browser` is split across two wrappers: `src/lib/webauthn-ceremony.ts` (assertion) ships with the security-events banner, and `src/lib/webauthn-registration.ts` (enrolment) only when the Security tab opens — see below. |
 | `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their Musubi account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
 
@@ -119,10 +119,10 @@ The rail (`GlobalSearch`) and the page (`SearchPage`) render the same results un
 Pages talk to `@osn/api` via three plain-fetch clients factored out of `@osn/client`:
 
 - `createGraphClient` — connections, pending requests, close friends, blocks (`osn/client/src/graph.ts`)
-- `createOrgClient` — org CRUD and membership (`osn/client/src/organisations.ts`)
+- `createOrgClient` — org CRUD and membership (`osn/client/src/organisations.ts`). Every method returns its route's success body as sent, and addresses an organisation and a member by handle. `osn/client/tests/organisations-contract.test.ts` holds the client to `shared/openapi/osn.json`: each call reaches a route the spec has, with a body it accepts, and `OrgSummary` and `OrgMember` name the fields the routes answer with. It runs as the package's `test:repo` project, which turbo reruns when the spec changes
 - `createRecommendationClient` — contact suggestions + search (`osn/client/src/recommendations.ts`). `search` returns people and organisations together and takes an `AbortSignal` because it backs typeahead: the caller aborts the in-flight request when the query changes, so a slow early keystroke can't land after a fast later one.
 
-All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. The helpers now live once in `osn/client/src/auth-fetch.ts`; each module calls `createAuthFetchers(ErrorCtor)` and gets back the set bound to its own error class. The module is internal — `index.ts` does not export it, so the package's public surface is unchanged. It uses plain `fetch`, not `sessionFetch`: these clients send a bearer token in the `Authorization` header, so there is no session cookie for the native transport seam to supply.
+All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. The helpers now live once in `osn/client/src/auth-fetch.ts`; each module calls `createAuthFetchers(ErrorCtor)` and gets back the set bound to its own error class, which is built with the message and the response's HTTP status. `OrgClientError` keeps the status as `status`, so `OrgDetailPage` can tell a missing organisation (`404`) and a roster refused to a non-member (`403`) from any other failure. The module is internal — `index.ts` does not export it, so the package's public surface is unchanged. It uses plain `fetch`, not `sessionFetch`: these clients send a bearer token in the `Authorization` header, so there is no session cookie for the native transport seam to supply.
 
 Each client calls `createAuthFetchers` **inside** its `create*Client` factory, not at module scope. This is load-bearing for bundle size, not style. A top-level call is a statement a bundler cannot drop, so it pinned all three modules into the entry chunk of every app importing the barrel — `musubi/social` paid about 0.9 KB gzipped on first paint. A `/* @__PURE__ */` annotation does **not** rescue it: neither esbuild nor rolldown will remove a declarator whose binding is a destructuring pattern. Keep the call inside the factory.
 

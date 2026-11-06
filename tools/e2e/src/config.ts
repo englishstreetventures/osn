@@ -423,3 +423,30 @@ export const PEOPLE = {
 } as const;
 
 export const BIRTHDATE = "1990-01-01";
+
+/**
+ * Musubi's organisation pages (`musubi-org-detail`). The owner is osn-api's dev
+ * principal (`DEV_PRINCIPAL` in osn/api/src/routes/auth/dev-login.ts), signed in
+ * through `/dev/login/form`; `org` is the organisation the flow creates as them.
+ * `member` and `otherOrg` are rows `seedOsn` writes: a profile with no passkey,
+ * which the flow adds to `org` and removes again, and an organisation that
+ * profile owns and the dev principal does not belong to.
+ */
+export const MUSUBI_ORG = {
+  owner: { handle: "dev_bootstrap" },
+  org: { handle: "e2e_org", name: "E2E Org", renamed: "E2E Org Renamed" },
+  member: {
+    accountId: "acc_e2e_member",
+    profileId: "usr_e2e_member",
+    email: "member@e2e.test",
+    passkeyUserId: "pku_e2e_member",
+    handle: "e2e_member",
+    name: "Member E2E",
+  },
+  otherOrg: {
+    id: "org_e2e_other",
+    membershipId: "orgm_e2e_other",
+    handle: "e2e_other_org",
+    name: "Other Org E2E",
+  },
+} as const;

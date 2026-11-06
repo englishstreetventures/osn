@@ -11,32 +11,38 @@ export interface OrgClientConfig {
   issuerUrl: string;
 }
 
+/**
+ * An organisation as every organisation route answers with it. No id: the
+ * routes address an organisation by its handle.
+ */
 export interface OrgSummary {
-  id: string;
   handle: string;
   name: string;
   description: string | null;
   avatarUrl: string | null;
-  ownerId: string;
   createdAt: string;
   updatedAt: string;
 }
 
+/**
+ * One row of an organisation's roster. No profile id and no avatar: the routes
+ * address a member by handle, and the roster carries nothing more.
+ */
 export interface OrgMember {
-  profile: {
-    id: string;
-    handle: string;
-    displayName: string | null;
-    avatarUrl: string | null;
-  };
+  handle: string;
+  displayName: string | null;
   role: "admin" | "member";
   joinedAt: string;
 }
 
 export class OrgClientError extends Error {
-  constructor(message: string) {
+  /** The HTTP status of the response that failed. */
+  readonly status: number | undefined;
+
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "OrgClientError";
+    this.status = status;
   }
 }
 
@@ -44,38 +50,42 @@ export class OrgClientError extends Error {
 // Client interface & factory
 // ---------------------------------------------------------------------------
 
+/**
+ * Each method returns its route's success body as sent. An organisation is
+ * addressed by its `handle`, a member by their profile's `profileHandle`.
+ */
 export interface OrgClient {
   listMyOrgs(
     token: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ organisations: OrgSummary[] }>;
-  getOrg(token: string, orgId: string): Promise<OrgSummary>;
+  getOrg(token: string, handle: string): Promise<{ organisation: OrgSummary }>;
   createOrg(
     token: string,
     data: { handle: string; name: string; description?: string },
-  ): Promise<OrgSummary>;
+  ): Promise<{ ok: boolean; organisation: OrgSummary }>;
   updateOrg(
     token: string,
-    orgId: string,
+    handle: string,
     data: { name?: string; description?: string },
-  ): Promise<OrgSummary>;
-  deleteOrg(token: string, orgId: string): Promise<void>;
+  ): Promise<{ ok: boolean; organisation: OrgSummary }>;
+  deleteOrg(token: string, handle: string): Promise<void>;
   listMembers(
     token: string,
-    orgId: string,
+    handle: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ members: OrgMember[] }>;
   addMember(
     token: string,
-    orgId: string,
-    profileId: string,
+    handle: string,
+    profileHandle: string,
     role: "admin" | "member",
   ): Promise<void>;
-  removeMember(token: string, orgId: string, profileId: string): Promise<void>;
+  removeMember(token: string, handle: string, profileHandle: string): Promise<void>;
   updateMemberRole(
     token: string,
-    orgId: string,
-    profileId: string,
+    handle: string,
+    profileHandle: string,
     role: "admin" | "member",
   ): Promise<void>;
 }
@@ -94,41 +104,34 @@ export function createOrgClient(config: OrgClientConfig): OrgClient {
   // that does not parse cannot throw.
   const authDelete = authDeleteVoid;
 
+  const org = (handle: string) => `${base}/${encodeURIComponent(handle)}`;
+  const member = (handle: string, profileHandle: string) =>
+    `${org(handle)}/members/${encodeURIComponent(profileHandle)}`;
+
   return {
     listMyOrgs: (token, options) =>
       authGet<{ organisations: OrgSummary[] }>(`${base}${qs(options)}`, token),
 
-    getOrg: (token, orgId) => authGet<OrgSummary>(`${base}/${encodeURIComponent(orgId)}`, token),
+    getOrg: (token, handle) => authGet<{ organisation: OrgSummary }>(org(handle), token),
 
-    createOrg: (token, data) => authPost<OrgSummary>(base, token, data),
+    createOrg: (token, data) =>
+      authPost<{ ok: boolean; organisation: OrgSummary }>(base, token, data),
 
-    updateOrg: (token, orgId, data) =>
-      authPatch<OrgSummary>(`${base}/${encodeURIComponent(orgId)}`, token, data),
+    updateOrg: (token, handle, data) =>
+      authPatch<{ ok: boolean; organisation: OrgSummary }>(org(handle), token, data),
 
-    deleteOrg: (token, orgId) => authDelete(`${base}/${encodeURIComponent(orgId)}`, token),
+    deleteOrg: (token, handle) => authDelete(org(handle), token),
 
-    listMembers: (token, orgId, options) =>
-      authGet<{ members: OrgMember[] }>(
-        `${base}/${encodeURIComponent(orgId)}/members${qs(options)}`,
-        token,
-      ),
+    listMembers: (token, handle, options) =>
+      authGet<{ members: OrgMember[] }>(`${org(handle)}/members${qs(options)}`, token),
 
-    addMember: (token, orgId, profileId, role) =>
-      authPost(`${base}/${encodeURIComponent(orgId)}/members`, token, { profileId, role }).then(
-        () => undefined,
-      ),
+    addMember: (token, handle, profileHandle, role) =>
+      authPost(member(handle, profileHandle), token, { role }).then(() => undefined),
 
-    removeMember: (token, orgId, profileId) =>
-      authDelete(
-        `${base}/${encodeURIComponent(orgId)}/members/${encodeURIComponent(profileId)}`,
-        token,
-      ),
+    removeMember: (token, handle, profileHandle) =>
+      authDelete(member(handle, profileHandle), token),
 
-    updateMemberRole: (token, orgId, profileId, role) =>
-      authPatch(
-        `${base}/${encodeURIComponent(orgId)}/members/${encodeURIComponent(profileId)}`,
-        token,
-        { role },
-      ).then(() => undefined),
+    updateMemberRole: (token, handle, profileHandle, role) =>
+      authPatch(member(handle, profileHandle), token, { role }).then(() => undefined),
   };
 }
