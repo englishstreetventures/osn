@@ -2561,7 +2561,9 @@ describe("every other workflow", () => {
   };
 
   // A Worker deployed from anywhere else skips the smoke check, and the planner
-  // never sees it.
+  // never sees it. The one other Worker any workflow deploys is the domain
+  // move rehearsal's throwaway marker Worker, which no surface serves and
+  // whose own job destroys it (domain-move-rehearsal-workflow.test.ts).
   test("deploys no Worker", () => {
     for (const path of otherWorkflows()) {
       const text = readFileSync(join(root, path), "utf8");
