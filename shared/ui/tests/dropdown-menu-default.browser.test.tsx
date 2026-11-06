@@ -7,10 +7,12 @@
  * variant and the checkbox, radio and link items, so it runs on the code
  * before that change as well as after it. That is the point of keeping it
  * apart: a literal copied wrong would otherwise never be seen passing against
- * the code it claims to describe. One thing differs from that code, and only
- * in a contrast theme: a focused row and a focused pill trigger draw an
- * outline there, because the theme drops the fill and the ring that mark
- * focus everywhere else.
+ * the code it claims to describe. Two things differ from that code. In a
+ * contrast theme a focused row and a focused pill trigger draw an outline,
+ * because the theme drops the fill and the ring that mark focus everywhere
+ * else. And the panel's motion moved to the shared tokens, growing from its
+ * trigger, so its class string names `zoom-in`, `zoom-out` and Kobalte's
+ * origin; `overlay-motion.browser.test.tsx` holds what those do.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -71,9 +73,12 @@ describe("the default menu", () => {
   it("renders exactly the classes it rendered before the accent variant", async () => {
     render(() => <AccountMenu />);
     await openByKeyboard();
+    // The panel's motion is the one deliberate change since: it grows from its
+    // trigger, and its zoom reads the shared scale tokens (`zoom-in`,
+    // `zoom-out`) rather than a 0.95 of its own.
     expect(screen.getByRole("menu").getAttribute("class")).toBe(
       "base:bg-ui-surface-raised base:text-ui-ink base:border-ui-hairline base:z-50 base:min-w-32 base:rounded-ui-md base:border base:p-1 base:shadow-md base:outline-none " +
-        "base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out-95 base:data-[expanded]:zoom-in-95 w-52",
+        "base:origin-(--kb-popper-content-transform-origin) base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out base:data-[expanded]:zoom-in w-52",
     );
     expect(screen.getByRole("menuitem", { name: "Switch profile" }).getAttribute("class")).toBe(
       "base:relative base:flex base:cursor-pointer base:select-none base:items-center base:rounded-ui-sm base:px-2 base:py-1.5 base:text-ui-base base:outline-none " +

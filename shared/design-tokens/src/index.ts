@@ -73,7 +73,18 @@ export const CONTRACT_SCALAR_TOKENS = {
   ],
   fontFamily: ["--ui-font-body", "--ui-font-display", "--ui-font-mono"],
   focus: ["--ui-focus-width", "--ui-focus-offset"],
-  motion: ["--ui-dur-fast", "--ui-dur-base", "--ui-dur-slow", "--ui-ease-out", "--ui-ease-in-out"],
+  motion: [
+    "--ui-dur-fast",
+    "--ui-dur-base",
+    "--ui-dur-slow",
+    "--ui-dur-exit",
+    "--ui-ease-out",
+    "--ui-ease-in-out",
+    "--ui-scale-enter",
+    "--ui-scale-exit",
+    "--ui-distance-enter",
+    "--ui-distance-exit",
+  ],
   elevation: ["--ui-elev-1", "--ui-elev-2"],
 } as const satisfies Readonly<Record<string, readonly string[]>>;
 

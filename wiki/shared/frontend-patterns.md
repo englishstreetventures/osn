@@ -555,6 +555,13 @@ portals, the guest site and the marketing site — carry the same ladder and the
 same `pointer: fine` block, and `cire/vendor/tests/styles/tokens.test.ts` fails
 if any copy differs.
 
+`Modal`'s exit is the one motion that runs the same on both. Cire sets
+`--ui-modal-exit` to its desk `--dur-base` (150ms) under the query, and on
+touch `Modal` falls back to its own 150ms, so a dialog closes alike at a desk
+and in the hand ([[component-library]] §Overlays: `Modal`). The shared overlays
+built on Kobalte read `--ui-dur-*` ([[design-tokens]] §Motion), not cire's
+ladder, so they keep one pace on every input.
+
 ### A gesture follows the finger, and the finger's speed outlives it
 
 What iOS does, measured from UIKit (`blog.justinbuilds.mov/ios`) and what a
