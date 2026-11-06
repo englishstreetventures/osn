@@ -39,11 +39,27 @@
  * `stripe_account_not_found`, to give Party Wedding Money Wedding's account,
  * which Kit connected, and writes nothing. On Party Wedding's settings,
  * pressing "Connect an account" asks which account should take its gifts —
- * the one used for Ceremony Wedding or a new one, nothing chosen, Money
- * Wedding's not offered — and that question is the flow's screenshot. On a
- * second page the owner chooses Ceremony Wedding's account and uses it: the
- * panel says gifts go to their account, without a trip to Stripe, and Party
- * Wedding's row names that account with the dev profile as its connector.
+ * the one used for Ceremony Wedding, a new one, or a Stripe account they
+ * already have, nothing chosen, Money Wedding's not offered. On a second page
+ * the owner chooses Ceremony Wedding's account and uses it: the panel says
+ * gifts go to their account, without a trip to Stripe, and Party Wedding's row
+ * names that account with the dev profile as its connector.
+ *
+ * Then Garden Wedding (`CIRE_ORGANISER.oauth`), which the dev profile owns
+ * alone, takes a Stripe account the owner already has, through Stripe Connect
+ * OAuth and the suite's Stripe stand-in (`src/stripe.ts`). Choosing it sends
+ * the browser to Stripe's authorize page — answered by the flow, since the
+ * stack cannot reach Stripe — with the platform's client id, `read_write`,
+ * cire-api's callback as the redirect and a state naming the wedding. A
+ * forged state comes back as "run out or already used", sends no code to
+ * Stripe and leaves the real sign-in in place. The real return connects the
+ * account: the portal lands on the wedding's settings, says the account is
+ * connected, the fees and disputes are the couple's, and links their own
+ * Stripe Dashboard instead of "Continue on Stripe"; the row names the Standard
+ * account with the dev profile as connector, and the stand-in saw one code.
+ * The same return again, on a second page, is refused and sends Stripe no
+ * second code, which would revoke the connection. The onboarding route
+ * answers 409 `stripe_standard_account`. That panel is the flow's screenshot.
  *
  * Then the owner signs out everywhere else on OSN, and their cire sessions end
  * too. The flow asks osn-api the way `@osn/auth-ui`'s sessions view does: an
@@ -422,7 +438,6 @@ test("cire-registry-money", async ({ page, flow }) => {
   );
   flow.check("Party Wedding still has no account", "absent", partyAccount()?.account ?? "absent");
 
-  // Last on `page`, so the flow's screenshot is this question.
   const question = await flow.step(
     "open Party Wedding's settings and press Connect: the portal asks which account",
     async () => {
@@ -436,7 +451,7 @@ test("cire-registry-money", async ({ page, flow }) => {
       const choice = page.getByTestId("stripe-account-choice");
       await expect(choice).toBeVisible();
       const radios = choice.getByRole("radio");
-      await expect(radios).toHaveCount(2);
+      await expect(radios).toHaveCount(3);
       const labels = await choice.locator("label").allTextContents();
       const checked = await radios.evaluateAll(
         (inputs) => inputs.filter((input) => (input as HTMLInputElement).checked).length,
@@ -468,6 +483,11 @@ test("cire-registry-money", async ({ page, flow }) => {
     "the second answer is a new account",
     true,
     (question.labels[1] ?? "").startsWith("A new account for this wedding"),
+  );
+  flow.check(
+    "the third answer is a Stripe account the owner already has",
+    true,
+    (question.labels[2] ?? "").startsWith("Connect a Stripe account you already have"),
   );
   flow.check("nothing is chosen for the owner", 0, question.checked);
 
@@ -511,6 +531,187 @@ test("cire-registry-money", async ({ page, flow }) => {
     shared.from.weddingId,
   );
   flow.check("Ceremony Wedding keeps its account", shared.accountId, ceremony?.account ?? "absent");
+
+  // ── Connecting a Stripe account the owner already has (Stripe Connect
+  // OAuth), on Garden Wedding, through the Stripe stand-in. Last on `page`, so
+  // the flow's screenshot is the connected panel.
+  const garden = CIRE_ORGANISER.oauth;
+  const gardenStripe = `${ORIGINS.cireApi}/api/organiser/weddings/${garden.weddingId}/registry/stripe`;
+  const gardenSettings = `${ORIGINS.cireHost}/#/w/${garden.weddingId}/registry/settings`;
+  const CALLBACK = `${ORIGINS.cireApi}/api/organiser/stripe/oauth/callback`;
+  /** Stripe's redirect back, built with `searchParams` like the browser's. */
+  const callbackUrl = (params: Record<string, string>): string => {
+    const url = new URL(CALLBACK);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    return url.toString();
+  };
+  /** How many calls the Stripe stand-in has answered, by kind. */
+  const standIn = async () =>
+    (await (await fetch(`${ORIGINS.stripe}/__e2e/stripe/calls`)).json()) as {
+      token: number;
+      deauthorize: number;
+      account: number;
+    };
+  const gardenStates = () =>
+    queryOne<{ n: number }>(
+      DB_FILES.cire,
+      "SELECT count(*) AS n FROM registry_stripe_oauth_states WHERE wedding_id = ?",
+      garden.weddingId,
+    )?.n ?? -1;
+  const gardenAccount = () =>
+    queryOne<{ account: string | null; type: string | null; connector: string | null }>(
+      DB_FILES.cire,
+      `SELECT stripe_account_id AS account, stripe_account_type AS type,
+              stripe_connected_by_osn_profile_id AS connector
+         FROM registry_settings WHERE wedding_id = ?`,
+      garden.weddingId,
+    );
+  const tokenCallsBefore = (await standIn()).token;
+
+  const authorize = await flow.step(
+    "Garden Wedding: choose a Stripe account the owner already has, and go to Stripe",
+    async () => {
+      let sentTo = "";
+      // Stripe's own page, which the stack cannot reach: answered here.
+      await page.route("https://connect.stripe.com/**", async (route) => {
+        sentTo = route.request().url();
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><title>Stripe</title><p>Stripe's sign-in page</p>",
+        });
+      });
+      await page.goto(gardenSettings);
+      await page.getByRole("button", { name: "Connect an account" }).click();
+      await expect(page.getByTestId("stripe-account-choice")).toBeVisible();
+      await page.getByRole("radio", { name: /^Connect a Stripe account you already have/ }).check();
+      const started = page.waitForResponse(
+        (r) => r.url() === `${gardenStripe}/oauth` && r.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Continue to Stripe" }).click();
+      const response = await started;
+      await page.waitForURL(/^https:\/\/connect\.stripe\.com\//);
+      await page.unroute("https://connect.stripe.com/**");
+      const url = new URL(sentTo);
+      return {
+        status: response.status(),
+        page: `${url.origin}${url.pathname}`,
+        responseType: url.searchParams.get("response_type") ?? "absent",
+        clientId: url.searchParams.get("client_id") ?? "absent",
+        scope: url.searchParams.get("scope") ?? "absent",
+        redirectUri: url.searchParams.get("redirect_uri") ?? "absent",
+        state: url.searchParams.get("state") ?? "",
+      };
+    },
+  );
+  flow.check("cire-api starts the connect", 200, authorize.status);
+  flow.check(
+    "the browser goes to Stripe's authorize page",
+    "https://connect.stripe.com/oauth/authorize",
+    authorize.page,
+  );
+  flow.check("it asks for a code", "code", authorize.responseType);
+  flow.check("it names the platform", "ca_e2eStandIn", authorize.clientId);
+  flow.check("it asks for read_write", "read_write", authorize.scope);
+  flow.check("Stripe sends the browser back to cire-api", CALLBACK, authorize.redirectUri);
+  flow.check(
+    "the state names the wedding and 32 random bytes",
+    true,
+    new RegExp(`^${garden.weddingId}\\.[A-Za-z0-9_-]{43}$`).test(authorize.state),
+  );
+  flow.check("cire-api holds one sign-in for it", 1, gardenStates());
+
+  const forged = await flow.step("cire-api: a forged state connects nothing", async () => {
+    await page.goto(
+      callbackUrl({
+        scope: "read_write",
+        code: "ac_e2e_forged",
+        state: `${garden.weddingId}.${"A".repeat(43)}`,
+      }),
+    );
+    await expect(
+      page.getByText(/That Stripe sign-in had run out or was already used/),
+    ).toBeVisible();
+    return new URL(page.url()).search;
+  });
+  flow.check("the portal is told the sign-in is not good", "", forged);
+  flow.check("the forged state used up no sign-in", 1, gardenStates());
+  flow.check("no code went to Stripe", tokenCallsBefore, (await standIn()).token);
+  flow.check("Garden Wedding still has no account", "absent", gardenAccount()?.account ?? "absent");
+
+  const good = callbackUrl({ scope: "read_write", code: "ac_e2e_good", state: authorize.state });
+  const connected = await flow.step(
+    "Stripe sends the owner back: cire-api connects the account",
+    async () => {
+      await page.goto(good);
+      await expect(page).toHaveURL(new RegExp(`#/w/${garden.weddingId}/registry/settings$`));
+      await expect(page.getByText(/Your Stripe account is connected/).first()).toBeVisible();
+      const status = page.getByTestId("stripe-status");
+      await expect(status).toContainText("Your own Stripe account is connected");
+      const link = page.getByTestId("stripe-dashboard-link");
+      await expect(link).toBeVisible();
+      await expect(page.getByRole("button", { name: "Continue on Stripe" })).toHaveCount(0);
+      await status.scrollIntoViewIfNeeded();
+      return {
+        words: (await status.textContent()) ?? "",
+        dashboard: (await link.getAttribute("href")) ?? "",
+        search: new URL(page.url()).search,
+      };
+    },
+  );
+  flow.check("the portal strips the word it was told", "", connected.search);
+  flow.check(
+    "the panel says the fees and disputes are the couple's",
+    true,
+    /Stripe’s fees come out of each gift at your account’s rates, and you handle refunds and disputes/.test(
+      connected.words,
+    ),
+  );
+  flow.check(
+    "the panel links their own Dashboard",
+    "https://dashboard.stripe.com/",
+    connected.dashboard,
+  );
+  const row = gardenAccount();
+  flow.check(
+    "Garden Wedding names the Standard account",
+    "acct_e2eStandard",
+    row?.account ?? "absent",
+  );
+  flow.check("as a Standard account", "standard", row?.type ?? "absent");
+  flow.check(
+    "the dev profile is its connector",
+    CIRE_ORGANISER.profileId,
+    row?.connector ?? "absent",
+  );
+  flow.check("the sign-in is used up", 0, gardenStates());
+  flow.check("one code went to Stripe", tokenCallsBefore + 1, (await standIn()).token);
+
+  const replayed = await flow.step("cire-api: the same return again connects nothing", async () => {
+    const second = await flow.newPage(page.context());
+    await second.goto(good);
+    await expect(
+      second.getByText(/That Stripe sign-in had run out or was already used/),
+    ).toBeVisible();
+    return true;
+  });
+  flow.check("a replay is told the sign-in is not good", true, replayed);
+  flow.check("the code never went to Stripe twice", tokenCallsBefore + 1, (await standIn()).token);
+
+  const standardLink = await flow.step(
+    "cire-api: no onboarding link for the couple's own Stripe account",
+    async () => {
+      const url = `${gardenStripe}/session`;
+      const response = await request.post(url, { headers: { origin: ORIGINS.cireHost } });
+      flow.recordRequest("POST", url, response.status());
+      return {
+        status: response.status(),
+        error: ((await response.json()) as { error?: string }).error ?? "absent",
+      };
+    },
+  );
+  flow.check("cire-api onboarding on a Standard account", 409, standardLink.status);
+  flow.check("cire-api says why", "stripe_standard_account", standardLink.error);
 
   const accessToken = await flow.step(
     "organiser: an access token from the OSN session",

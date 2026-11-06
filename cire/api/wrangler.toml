@@ -162,6 +162,20 @@ ZAP_API_URL = "http://localhost:3002"
 # value in both mounts no upgrade route and logs "upgrades disabled:
 # STRIPE_PLATFORM_WEBHOOK_SECRET is the same value as STRIPE_WEBHOOK_SECRET".
 #
+# STRIPE_CONNECT_CLIENT_ID — the platform's Stripe Connect OAuth client id
+# (`ca_…`), from Settings → Connect → Onboarding options → OAuth. With it, the
+# key and CIRE_API_ORIGIN, an owner may connect a Stripe account they already
+# have; Stripe sends the browser back to
+# `${CIRE_API_ORIGIN}/api/organiser/stripe/oauth/callback`, which must be
+# registered there. Not secret (it is in every authorize URL) but set as one,
+# with the other Stripe values. Unset ⇒ no such choice; malformed ⇒ the same,
+# and the Worker logs "stripe connect oauth disabled: …".
+#   bunx wrangler secret put STRIPE_CONNECT_CLIENT_ID --env production
+#
+# STRIPE_API_URL and STRIPE_CONNECT_URL point Stripe calls at a local stand-in
+# and are read only by src/local.ts. Never set either on a tier: every call
+# carries the platform key. The secret inventory forbids both.
+#
 # STRIPE_ACCOUNT_COUNTRY is an ordinary var (default "AU" in code). Stripe fixes
 # an account's country at creation, so it is a per-deployment default rather
 # than something a couple can change later.

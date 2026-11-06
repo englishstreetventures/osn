@@ -104,8 +104,17 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
         // CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: weddings kept off the household
         // member step; unset, every household gets the step (cire/api/wrangler.toml,
         // top-level vars note).
-        optional: ["CIRE_INTERNAL_REVOKE_SECRET", "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
-        forbidden: ["RESEND_API_URL"],
+        // STRIPE_CONNECT_CLIENT_ID: the platform's Stripe Connect OAuth client id
+        // (`ca_…`); unset, no owner may connect a Stripe account they already
+        // have. Not secret, but set with the other Stripe values.
+        optional: [
+          "CIRE_INTERNAL_REVOKE_SECRET",
+          "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS",
+          "STRIPE_CONNECT_CLIENT_ID",
+        ],
+        // RESEND_API_URL, STRIPE_API_URL, STRIPE_CONNECT_URL: local stand-ins
+        // only; the last two would send the platform's Stripe key elsewhere.
+        forbidden: ["RESEND_API_URL", "STRIPE_API_URL", "STRIPE_CONNECT_URL"],
         // osn-api's dev origin, derived from the dev domain; a secret on production.
         plainVars: ["OSN_API_URL"],
       },
@@ -119,7 +128,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "OSN_API_URL",
         ],
         optional: ["CIRE_INTERNAL_REVOKE_SECRET", "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
-        forbidden: ["RESEND_API_URL"],
+        forbidden: ["RESEND_API_URL", "STRIPE_API_URL", "STRIPE_CONNECT_URL"],
       },
     },
   },

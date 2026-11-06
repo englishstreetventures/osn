@@ -79,6 +79,12 @@ export interface StripeAccount {
    * wedding's own currency before it lets cash gifts be turned on.
    */
   defaultCurrency: string | null;
+  /**
+   * Stripe's account `type` (`express`, `standard`, `custom`, `none`), where the
+   * payload carried one. Only the OAuth connect reads it: an account connected
+   * that way must be `standard`.
+   */
+  type?: string;
 }
 
 /** A one-time hosted onboarding URL. Short-lived by design — minutes, not days. */
@@ -296,9 +302,10 @@ function toAccount(raw: unknown): StripeAccount | null {
     payouts_enabled?: unknown;
     details_submitted?: unknown;
     default_currency?: unknown;
+    type?: unknown;
   };
   if (typeof account?.id !== "string") return null;
-  return {
+  const read: StripeAccount = {
     id: account.id,
     chargesEnabled: account.charges_enabled === true,
     payoutsEnabled: account.payouts_enabled === true,
@@ -310,18 +317,41 @@ function toAccount(raw: unknown): StripeAccount | null {
         ? account.default_currency.toUpperCase()
         : null,
   };
+  if (typeof account.type === "string") read.type = account.type;
+  return read;
 }
 
+/** One Stripe request: what {@link createStripeTransport} returns. */
+export type StripeRequest = (
+  method: "GET" | "POST",
+  path: string,
+  params?: StripeFormParams,
+  idempotencyKey?: string,
+  stripeAccount?: string,
+) => Effect.Effect<unknown, StripeError>;
+
 /**
- * The live client. One `fetch` per call, no retries: every call here happens
- * inside a request a person is waiting on, and Stripe's own idempotency (below)
- * makes a retry the CALLER's decision rather than a hidden one.
+ * Form-encoded requests to one Stripe host with the platform's secret key: the
+ * API (`api.stripe.com`) for the client below, Connect (`connect.stripe.com`)
+ * for the OAuth token and deauthorize calls. One `fetch` per call, no retries:
+ * every call here happens inside a request a person is waiting on, and
+ * Stripe's own idempotency makes a retry the CALLER's decision rather than a
+ * hidden one.
+ *
+ * A refusal keeps Stripe's machine code and never its words. The API's error
+ * is an object (`error.code`, else `error.type`); the OAuth endpoints' is a
+ * bare string (`error: "invalid_grant"`), beside an `error_description` that
+ * quotes the authorization code back. Neither description is read.
  */
-export function createStripeClient(config: StripeConfig): StripeClient {
-  const base = config.apiBase ?? STRIPE_API_BASE;
+export function createStripeTransport(config: {
+  secretKey: string;
+  base: string;
+  fetchImpl?: typeof fetch;
+}): StripeRequest {
+  const base = config.base;
   const doFetch = config.fetchImpl ?? fetch;
 
-  function request(
+  return function request(
     method: "GET" | "POST",
     path: string,
     params: StripeFormParams = {},
@@ -380,25 +410,41 @@ export function createStripeClient(config: StripeConfig): StripeClient {
       );
 
       if (!res.ok) {
-        const error = (payload as { error?: { code?: unknown; type?: unknown } })?.error;
+        const error = (payload as { error?: unknown })?.error;
+        const object = typeof error === "object" && error !== null ? error : null;
+        const fields = (object ?? {}) as { code?: unknown; type?: unknown };
         return yield* Effect.fail(
           new StripeError({
             reason: "rejected",
             status: res.status,
-            // The CODE only. Stripe's `message` is written for a developer's
-            // console and can quote back the parameters of the request.
+            // The CODE only. Stripe's `message` (and the OAuth endpoints'
+            // `error_description`) is written for a developer's console and
+            // can quote back the parameters of the request.
             code:
-              typeof error?.code === "string"
-                ? error.code
-                : typeof error?.type === "string"
-                  ? error.type
-                  : undefined,
+              typeof error === "string"
+                ? error
+                : typeof fields.code === "string"
+                  ? fields.code
+                  : typeof fields.type === "string"
+                    ? fields.type
+                    : undefined,
           }),
         );
       }
       return payload;
     });
-  }
+  };
+}
+
+/**
+ * The live client, over {@link createStripeTransport} on the API host.
+ */
+export function createStripeClient(config: StripeConfig): StripeClient {
+  const request = createStripeTransport({
+    secretKey: config.secretKey,
+    base: config.apiBase ?? STRIPE_API_BASE,
+    fetchImpl: config.fetchImpl,
+  });
 
   return {
     createAccount(input) {
@@ -625,12 +671,14 @@ export function createStripeClient(config: StripeConfig): StripeClient {
  * deployment without a Stripe account is, including local development, and the
  * routes read it as "this surface does not exist here".
  */
-export function createStripeClientFromEnv(env: {
-  STRIPE_SECRET_KEY?: string;
-}): StripeClient | null {
+export function createStripeClientFromEnv(
+  env: { STRIPE_SECRET_KEY?: string },
+  /** The local stand-in's API origin; only `local.ts` passes one. */
+  local: { apiBase?: string } = {},
+): StripeClient | null {
   const key = env.STRIPE_SECRET_KEY?.trim();
   if (!key) return null;
-  return createStripeClient({ secretKey: key });
+  return createStripeClient({ secretKey: key, apiBase: local.apiBase });
 }
 
 /** Parsed `Stripe-Signature`: the timestamp it was signed at, and the v1 digests. */

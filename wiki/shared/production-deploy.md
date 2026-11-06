@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -665,6 +665,8 @@ bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production  # THIS endpoint
 ```
 
 `STRIPE_ACCOUNT_COUNTRY` is an ordinary var (default `AU` in code), in `wrangler.toml` under each tier's own `[env.<env>.vars]`. Stripe fixes an account's country at creation, so it is a per-deployment default rather than something a couple can change later.
+
+**Optional — a Stripe account the couple already have (Connect OAuth).** In the dashboard, Settings › Connect › Onboarding options › OAuth: turn it on, copy the live `ca_…` client id, and register the redirect URI `https://api.cireweddings.com/api/organiser/stripe/oauth/callback` (built on `CIRE_API_ORIGIN`). Then add `STRIPE_CONNECT_CLIENT_ID` to cire-api's production row in `shared/infra/src/secrets/inventory.ts`, set it in the `production` Environment and `bunx wrangler secret put STRIPE_CONNECT_CLIENT_ID --env production`. Unset ⇒ the portal offers no such choice; set but not a `ca_` id ⇒ the same, and the Worker logs `stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id`. See [[stripe-webhooks#Turn on Connect OAuth]].
 
 **Fail-closed.** `STRIPE_SECRET_KEY` unset ⇒ neither the Connect routes nor the upgrade routes are mounted, so a deployment with no Stripe account has no payment surface rather than one that 500s. `STRIPE_WEBHOOK_SECRET` unset ⇒ `/api/stripe/webhook` does not exist and guests are offered no money gift at all, because nothing would record one; the Worker logs `money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET` when it builds the app. Set both, then deploy. Upgrades need a third value, `STRIPE_PLATFORM_WEBHOOK_SECRET`, with its own warning (§3.9).
 

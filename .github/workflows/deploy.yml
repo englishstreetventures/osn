@@ -803,13 +803,15 @@ jobs:
           # The profile given the seeded weddings' owner seat; empty seeds none.
           CIRE_DEV_OWNER_PROFILE_ID: ${{ vars.CIRE_DEV_OWNER_PROFILE_ID }}
           # cire-api's dev Worker secrets; CIRE_INTERNAL_REVOKE_SECRET (shared
-          # with osn-api) and CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS are declared
-          # only while they hold a value. The guest site holds none.
+          # with osn-api), CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS and
+          # STRIPE_CONNECT_CLIENT_ID are declared only while they hold a value.
+          # The guest site holds none.
           CIRE_API_ARC_KEY_ID: ${{ secrets.CIRE_API_ARC_KEY_ID }}
           CIRE_API_ARC_PRIVATE_KEY: ${{ secrets.CIRE_API_ARC_PRIVATE_KEY }}
           CIRE_INTERNAL_REVOKE_SECRET: ${{ secrets.CIRE_INTERNAL_REVOKE_SECRET }}
           CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: ${{ secrets.CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS }}
           CIRE_OIDC_CLIENT_SECRET: ${{ secrets.CIRE_OIDC_CLIENT_SECRET }}
+          STRIPE_CONNECT_CLIENT_ID: ${{ secrets.STRIPE_CONNECT_CLIENT_ID }}
           STRIPE_PLATFORM_WEBHOOK_SECRET: ${{ secrets.STRIPE_PLATFORM_WEBHOOK_SECRET }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}

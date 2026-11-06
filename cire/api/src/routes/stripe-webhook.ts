@@ -36,7 +36,10 @@
  *    was created, but this endpoint also hears about sessions the connected
  *    account created for itself, where the metadata is whatever its owner
  *    typed. So the wedding must actually own the account the event came from
- *    (`event.account`), and the household must belong to that wedding.
+ *    (`event.account`), and the household must belong to that wedding. A
+ *    Standard account's holder has their own API keys and can write
+ *    `client_reference_id` as well, so on one a session settles only the gift
+ *    that stored its id (`settleContribution`).
  *
  * **What it does with the four endings a payment can have.** A checkout session
  * is not over when it completes. A delayed bank debit — BECS here, SEPA in
@@ -61,9 +64,10 @@
  * **What it does with the two dispute events.** A gift whose money the guest's
  * bank has pulled back is held at `disputed` rather than left reading as
  * received, and the close puts it where the verdict says: back to `succeeded`
- * if the couple won, `refunded` if they lost. Disputes are the one gift event
- * that reaches the PLATFORM's balance — Express leaves cire liable for a
- * connected account that goes negative — so a silent one is the expensive kind.
+ * if the couple won, `refunded` if they lost. On an Express account disputes
+ * are the one gift event that reaches the PLATFORM's balance — Express leaves
+ * cire liable for a connected account that goes negative — so a silent one is
+ * the expensive kind. A Standard account carries its own disputes.
  */
 
 import { Effect } from "effect";
@@ -81,18 +85,35 @@ import { verifyStripeWebhook } from "../services/stripe";
 /**
  * A refund or dispute on a connected account whose gift has no row here: the
  * gift was never recorded, or its wedding has been purged. Still acknowledged
- * (a retry would find nothing either), but never silently — a dispute reaches
- * the platform's balance. No ids are logged; the event type is the whole
- * attribute.
+ * (a retry would find nothing either), but never silently on an Express
+ * account — a dispute there reaches the platform's balance.
+ *
+ * A Standard account is the couple's own, and its own shop's refunds and
+ * disputes arrive here too; those are its business and its liability, so they
+ * are counted and logged at info, not raised. One indexed read, on this path
+ * alone, tells the two apart. No ids are logged; the event and the account's
+ * type are the whole attribute.
  */
-const reportUnmatched = (event: StripeUnmatchedEvent) =>
-  Effect.sync(() => metricRegistryStripeUnmatched(event)).pipe(
-    Effect.andThen(
-      Effect.logWarning("stripe webhook: money event for a gift cire has no row for").pipe(
-        Effect.annotateLogs({ event }),
-      ),
+const reportUnmatched = (event: StripeUnmatchedEvent, stripeAccountId: string) =>
+  registryService.stripeAccountTypeNamed(stripeAccountId).pipe(
+    Effect.tap((account) => Effect.sync(() => metricRegistryStripeUnmatched(event, account))),
+    Effect.flatMap((account) =>
+      account === "standard"
+        ? Effect.logInfo("stripe webhook: money event on a Standard account's own charge").pipe(
+            Effect.annotateLogs({ event }),
+          )
+        : Effect.logWarning("stripe webhook: money event for a gift cire has no row for").pipe(
+            Effect.annotateLogs({ event, account }),
+          ),
     ),
   );
+
+/**
+ * Every gift id cire mints (`registry-guest.ts`). A completed session naming
+ * anything else is one a connected account made for itself — a Standard
+ * account's own shop — and is acknowledged before any read.
+ */
+const GIFT_ID_PREFIX = "rct_";
 
 /** Events this product acts on. Everything else is acknowledged and dropped. */
 const ACCOUNT_UPDATED = "account.updated";
@@ -158,9 +179,11 @@ interface CheckoutSessionObject {
   currency?: unknown;
   /**
    * Our own gift id, set when the session was created. Stripe echoes it back
-   * untouched and the connected account has no way to write it, unlike
+   * untouched, and an Express account has no way to write it, unlike
    * `metadata` — so it is read first and `metadata` is only the fallback for
-   * sessions created before the field was sent.
+   * sessions created before the field was sent. A Standard account's holder
+   * can write it on their own sessions, which is why settling one needs the
+   * stored session id to match.
    */
   client_reference_id?: unknown;
   metadata?: { contributionId?: unknown };
@@ -214,10 +237,10 @@ function metaString(value: unknown): string | null {
 }
 
 /**
- * The gift a session names. `client_reference_id` is the trustworthy field —
- * the platform sets it at creation and nothing on the connected account's side
- * can rewrite it — so it wins; `metadata.contributionId` still answers for
- * sessions created before the field was sent.
+ * The gift a session names. `client_reference_id` is the field the platform
+ * sets at creation, and nothing on an Express account's side can rewrite it,
+ * so it wins; `metadata.contributionId` still answers for sessions created
+ * before the field was sent.
  */
 function contributionIdOf(session: CheckoutSessionObject | undefined): string | null {
   return metaString(session?.client_reference_id) ?? metaString(session?.metadata?.contributionId);
@@ -301,7 +324,12 @@ export const createStripeWebhookRoutes = (db: Db, deps: StripeWebhookDeps) =>
             const stripeAccountId = metaString(envelope.account);
             const sessionId = metaString(session?.id);
             const contributionId = contributionIdOf(session);
-            if (!stripeAccountId || !sessionId || !contributionId) {
+            if (
+              !stripeAccountId ||
+              !sessionId ||
+              !contributionId ||
+              !contributionId.startsWith(GIFT_ID_PREFIX)
+            ) {
               // A completed session that is not one of ours — no connected
               // account, or none of the id we write. Acknowledged: a retry
               // cannot add fields Stripe never sent.
@@ -331,7 +359,12 @@ export const createStripeWebhookRoutes = (db: Db, deps: StripeWebhookDeps) =>
             const stripeAccountId = metaString(envelope.account);
             const sessionId = metaString(session?.id);
             const contributionId = contributionIdOf(session);
-            if (!stripeAccountId || !sessionId || !contributionId) {
+            if (
+              !stripeAccountId ||
+              !sessionId ||
+              !contributionId ||
+              !contributionId.startsWith(GIFT_ID_PREFIX)
+            ) {
               return { received: true, outcome: "unknown" };
             }
 
@@ -364,7 +397,7 @@ export const createStripeWebhookRoutes = (db: Db, deps: StripeWebhookDeps) =>
                 typeof charge?.amount_refunded === "number" ? charge.amount_refunded : null,
               fullyRefunded: charge?.refunded === true,
             });
-            if (outcome === "unknown") yield* reportUnmatched("refund");
+            if (outcome === "unknown") yield* reportUnmatched("refund", stripeAccountId);
             return { received: true, outcome };
           }
 
@@ -402,7 +435,7 @@ export const createStripeWebhookRoutes = (db: Db, deps: StripeWebhookDeps) =>
               stripeAccountId,
               resolution,
             });
-            if (outcome === "unknown") yield* reportUnmatched("dispute");
+            if (outcome === "unknown") yield* reportUnmatched("dispute", stripeAccountId);
             return { received: true, outcome };
           }
 

@@ -15,6 +15,7 @@ import {
   seedDb,
 } from "./db/setup";
 import { localClientAddress } from "./lib/local-client-address";
+import { localStripeOrigins } from "./lib/local-stripe";
 import { oidcConfigFromEnv } from "./lib/oidc";
 import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
@@ -22,6 +23,7 @@ import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
 import { createStripeClientFromEnv } from "./services/stripe";
+import { stripeConnectOAuthFromEnv } from "./services/stripe-connect-oauth";
 
 // In memory unless CIRE_LOCAL_DB_PATH names a file, which lets another process
 // (the E2E suite) read the rows this server writes. The seed runs on every
@@ -97,7 +99,33 @@ await applyE2eOrganiserAssets(assets, process.env);
 // what the wrong-secret test pins, and it is a deployed property, not a local
 // one. The Worker on a deployed tier sells no tier on one value in both; this
 // server does not check.
-const stripe = createStripeClientFromEnv({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY });
+//
+// A stand-in can answer for Stripe: `STRIPE_API_URL` and `STRIPE_CONNECT_URL`,
+// loopback origins only (lib/local-stripe.ts), which the E2E suite sets to its
+// own. Every call carries the key, so anything else stops this server.
+const stripeStandIn = localStripeOrigins({
+  STRIPE_API_URL: process.env.STRIPE_API_URL,
+  STRIPE_CONNECT_URL: process.env.STRIPE_CONNECT_URL,
+});
+const stripe = createStripeClientFromEnv(
+  { STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY },
+  { apiBase: stripeStandIn.apiBase },
+);
+// Connecting an account the couple already have: the key, the OAuth client id
+// and this server's own origin, as the Worker reads them (index.ts).
+const stripeOAuth = stripeConnectOAuthFromEnv(
+  {
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+    STRIPE_CONNECT_CLIENT_ID: process.env.STRIPE_CONNECT_CLIENT_ID,
+    CIRE_API_ORIGIN: process.env.CIRE_API_ORIGIN,
+  },
+  { connectBase: stripeStandIn.connectBase },
+);
+if (stripeOAuth.gap === "malformed_client_id") {
+  runCireSync(
+    Effect.logWarning("stripe connect oauth disabled: STRIPE_CONNECT_CLIENT_ID is not a ca_ id"),
+  );
+}
 
 // Organiser sign-in's JWKS URL. The Worker's boot requires `OSN_JWKS_URL`;
 // here an unset one is the issuer's own JWKS path, so the four values that
@@ -138,6 +166,7 @@ const appOptions: Parameters<typeof createApp>[1] = {
   // answers 503. The E2E stack sets it, to the value it gives its osn-api.
   internalRevokeSecret: process.env.CIRE_INTERNAL_REVOKE_SECRET ?? null,
   stripe,
+  stripeConnectOAuth: stripeOAuth.oauth,
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
   stripePlatformWebhookSecret: process.env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,
   upgradePrices: {

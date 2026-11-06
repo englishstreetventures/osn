@@ -8,7 +8,7 @@ related:
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Stripe webhooks (cire-api)
@@ -86,7 +86,7 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    | Event | What it does |
    |---|---|
    | `account.updated` | caches `charges_enabled` / `payouts_enabled` on every wedding naming the account |
-   | `account.application.deauthorized` | the couple revoked cire; clears the account id from every wedding naming it |
+   | `account.application.deauthorized` | the couple revoked cire, or cire handed an account back; clears the account id from every wedding connected to it at or before the event (`stripe_connected_at`; a row connected later is a newer connection and stays) |
    | `checkout.session.completed` | **writes the gift** — the only place a contribution settles |
    | `checkout.session.async_payment_succeeded` | a delayed debit (BECS, SEPA) that landed |
    | `checkout.session.async_payment_failed` | a delayed debit that bounced |
@@ -100,6 +100,17 @@ the endpoint missing at Stripe, gifts are offered and each stays `pending`.
    ([[cire-registry#One account, several weddings]]), so the first two write
    every `registry_settings` row naming it. A gift event acts on its own gift,
    whose wedding must name the account the event arrived on.
+
+   A **Standard** account — the couple's own, connected through OAuth — is a
+   working Stripe account, and this endpoint hears its own shop's events as
+   well as gifts. A completed session whose id is not one of cire's (`rct_…`)
+   is acknowledged before any read. A refund or dispute that matches no gift
+   is counted (`cire.registry.stripe.unmatched`, `account: standard`) and
+   logged at info, since it is that account's own business and liability. A
+   session there settles or closes only the gift that stored its id: the
+   holder has API keys and can write `client_reference_id`. Each event is
+   still one Worker request, and its payload can carry that shop's customers'
+   names and emails, which cire drops unread ([[data-map]]).
 
 5. Copy that endpoint's signing secret, then, on dev, put it in the `dev`
    Environment and dispatch **Deploy**; the cire stack uploads it:
@@ -123,6 +134,44 @@ creates them with `card_payments` + `transfers`, in the country
 `STRIPE_ACCOUNT_COUNTRY` names (an ordinary var, default `AU` in code). Stripe
 fixes an account's country at creation, so that is a per-deployment decision,
 not one a couple can change later.
+
+## Turn on Connect OAuth
+
+Needed only for "Connect a Stripe account you already have" in the registry
+settings ([[cire-registry#An account the couple already have]]). Stripe offers
+OAuth to platforms and does not recommend it for new ones; it is still the only
+way to connect an account made outside cire.
+
+1. Settings › Connect › **Onboarding options** › **OAuth**, in the mode the
+   tier uses (test for dev). Turn on onboarding with OAuth.
+2. Copy that mode's **client id** (`ca_…`).
+3. Add the redirect URI — cire-api's own callback, built on `CIRE_API_ORIGIN`:
+   - dev — `https://api.cire.<DEV_DOMAIN>/api/organiser/stripe/oauth/callback`
+   - production — `https://api.cireweddings.com/api/organiser/stripe/oauth/callback`
+4. On dev, put the id in the `dev` Environment and dispatch **Deploy**:
+
+   ```bash
+   printf '%s' "$CLIENT_ID" | gh secret set STRIPE_CONNECT_CLIENT_ID --env dev --repo englishstreetventures/osn
+   ```
+
+   On production, in the same order as the webhook secrets: the inventory row,
+   the `production` Environment, `bunx wrangler secret put STRIPE_CONNECT_CLIENT_ID --env production`, a redeploy.
+
+The client id is not secret — it is in every authorize URL — but it sits with
+the other Stripe values. The tier's `STRIPE_SECRET_KEY` makes the token call,
+so it must be allowed to: a `sk_test_` key, or an `rk_test_` key with Connect
+permissions. Unset, the portal offers no such choice; set but not a `ca_` id,
+the same, and the Worker logs `stripe connect oauth disabled:
+STRIPE_CONNECT_CLIENT_ID is not a ca_ id` when it builds the app.
+
+**Check it on a tier**: as an owner of a Gold wedding with no account, press
+**Connect an account**, then **Connect a Stripe account you already have**,
+then **Continue to Stripe**, sign in with a test Standard account, approve. You
+should land back on the wedding's registry settings with "Your Stripe account
+is connected" and a link to your Stripe Dashboard, through Cloudflare Access on
+dev. Then `SELECT stripe_account_id, stripe_account_type FROM registry_settings WHERE wedding_id = '<id>'`
+names the account as `standard`. Connecting the same account on a second
+wedding with the same owners should not deliver `account.application.deauthorized`.
 
 ## Recreate — the platform endpoint (upgrades)
 

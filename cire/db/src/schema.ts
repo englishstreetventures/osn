@@ -1019,6 +1019,25 @@ export const registrySettings = sqliteTable(
     // and then no owner may open links. No cross-DB FK, like
     // `wedding_hosts.osn_profile_id`.
     stripeConnectedByOsnProfileId: text("stripe_connected_by_osn_profile_id"),
+    // How the account came to cire, which decides what cire may do with it:
+    // `express` is one cire created and runs onboarding for; `standard` is the
+    // couple's own Stripe account, connected through Stripe Connect OAuth and
+    // managed in their own Dashboard, so cire mints no onboarding link for it.
+    // Written in the statement that fills `stripe_account_id`, copied with it by
+    // a reuse, cleared with it (a trigger clears it whenever the id is cleared,
+    // whoever clears it). NULL beside an account reads as `express`: every
+    // account a Worker without this column attached was one cire created. An
+    // older Worker serving after this one (a rollback) can give another wedding
+    // a Standard account with no type, which then reads as Express until it is
+    // corrected by hand. Two triggers refuse any other value (an added CHECK
+    // would rebuild the table).
+    stripeAccountType: text("stripe_account_type", { enum: ["express", "standard"] }),
+    // When the account the row names was connected to it, cire's clock: written
+    // by the statement that fills `stripe_account_id` and copied by a reuse from
+    // the source, never by `account.updated` or a refresh. A deauthorization
+    // clears only rows connected at or before Stripe's event, so a reconnect
+    // made after it stays. NULL (every row from before this column) is cleared.
+    stripeConnectedAt: integer("stripe_connected_at", { mode: "timestamp" }),
     // Cached from the `account.updated` webhook so the portal can show onboarding
     // state without a live Stripe call on every page load.
     stripeChargesEnabled: integer("stripe_charges_enabled", { mode: "boolean" })
@@ -1072,6 +1091,28 @@ export const registrySettings = sqliteTable(
     index("registry_settings_stripe_account_idx")
       .on(t.stripeAccountId)
       .where(sql`stripe_account_id IS NOT NULL`),
+  ],
+);
+
+// One pending Stripe Connect OAuth sign-in per owner per wedding. The `state`
+// cire sends Stripe is `<weddingId>.<random>`; only its SHA-256 is kept, bound
+// to the owner who started it. The callback deletes the row it matches, which is
+// what makes a state single-use; a restart replaces it; every start deletes the
+// rows past `expires_at`; the wedding's purge cascades it.
+export const registryStripeOAuthStates = sqliteTable(
+  "registry_stripe_oauth_states",
+  {
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    osnProfileId: text("osn_profile_id").notNull(),
+    stateHash: text("state_hash").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.weddingId, t.osnProfileId] }),
+    index("registry_stripe_oauth_states_expires_idx").on(t.expiresAt),
   ],
 );
 

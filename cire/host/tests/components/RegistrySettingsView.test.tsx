@@ -1955,3 +1955,196 @@ describe("asking which Stripe account takes the gifts", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Connecting a Stripe account the couple already have (Stripe Connect OAuth).
+ * The choice is offered only where the API says it connects one; it sends the
+ * owner to Stripe's own page and nowhere else; and an account connected that
+ * way is run in its holder's own Stripe Dashboard, not through cire's
+ * onboarding.
+ */
+describe("a Stripe account the couple already have", () => {
+  const withOAuth = (over: Parameters<typeof snapshot>[0] = {}, on = true): RegistrySnapshot => ({
+    ...snapshot({ items: [item()], ...over }),
+    connectsExistingStripe: on,
+  });
+  function api(answers: { accounts?: Response; oauth?: Response; session?: Response }): void {
+    authFetch.mockImplementation(async (url: string) => {
+      const at = String(url);
+      if (at.includes("/registry/stripe/accounts"))
+        return answers.accounts ?? json({ accounts: [] });
+      if (at.includes("/registry/stripe/oauth")) return answers.oauth ?? json({}, 500);
+      if (at.includes("/registry/stripe/session")) return answers.session ?? json({}, 500);
+      return json({}, 500);
+    });
+  }
+  const navigation = () => {
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    return assign;
+  };
+  const urls = () => authFetch.mock.calls.map((c) => String(c[0]));
+  const pressConnect = async () =>
+    fireEvent.click(await screen.findByRole("button", { name: /Connect an account/i }));
+  const EXISTING = /^Connect a Stripe account you already have/;
+
+  it("asks which account even with none on other weddings, and sends the owner to Stripe", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    api({
+      oauth: json({ url: "https://connect.stripe.com/oauth/authorize?state=wed_1.x" }),
+    });
+    const assign = navigation();
+    renderPanel({ canManage: true });
+    await pressConnect();
+    const existing = await screen.findByRole("radio", { name: EXISTING });
+    expect(screen.getByRole("radio", { name: /A new account for this wedding/ })).toBeTruthy();
+    // The terms are on the choice itself: the fees and the disputes are theirs.
+    expect(existing.closest("label")?.textContent).toMatch(/refunds and disputes are yours/);
+    fireEvent.click(existing);
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith(
+        "https://connect.stripe.com/oauth/authorize?state=wed_1.x",
+      ),
+    );
+    expect(urls().some((u) => u.includes("/registry/stripe/session"))).toBe(false);
+  });
+
+  it("is not offered where the site connects no existing account", async () => {
+    setCachedRegistry("wed_1", withOAuth({}, false));
+    api({
+      accounts: json({
+        accounts: [
+          {
+            fromWeddingId: "wed_ceremony",
+            weddingNames: ["Ceremony"],
+            chargesEnabled: true,
+            currencyKnown: true,
+            blockedBy: null,
+          },
+        ],
+      }),
+    });
+    renderPanel({ canManage: true });
+    await pressConnect();
+    await screen.findByRole("radio", { name: /A new account for this wedding/ });
+    expect(screen.queryByRole("radio", { name: EXISTING })).toBeNull();
+  });
+
+  it("goes nowhere but Stripe's own page", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    api({ oauth: json({ url: "https://connect.stripe.com.evil.example/oauth/authorize" }) });
+    const assign = navigation();
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: EXISTING }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("shows an account someone connected meanwhile, from the refusal", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    const current = {
+      ...snapshot({ items: [item()] }).settings,
+      stripeConnected: true,
+      stripeChargesEnabled: true,
+      stripeConnectedByOsnProfileId: "usr_other",
+    };
+    api({ oauth: json({ error: "stripe_already_connected", settings: current }, 409) });
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: EXISTING }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() => expect(peekCachedRegistry("wed_1")?.settings.stripeConnected).toBe(true));
+    expect(toastError.mock.calls.at(-1)?.[0]).toMatch(/already has a Stripe account/);
+  });
+
+  it("sends an owner whose session lapsed to sign in, not to Stripe", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    api({ oauth: json({ error: "unauthorised" }, 401) });
+    const assign = navigation();
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: EXISTING }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("says the site cannot connect an existing account when the route is not there", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    api({ oauth: json({ error: "Not found" }, 404) });
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: EXISTING }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() =>
+      expect(toastError.mock.calls.at(-1)?.[0]).toMatch(/isn’t available on this site yet/),
+    );
+  });
+
+  it("keeps focus on the panel when the account connected meanwhile draws no button", async () => {
+    setCachedRegistry("wed_1", withOAuth());
+    const current = {
+      ...snapshot({ items: [item()] }).settings,
+      stripeConnected: true,
+      stripeChargesEnabled: true,
+      stripeConnectedByOsnProfileId: "usr_other",
+      stripeAccountType: "standard",
+    };
+    api({ oauth: json({ error: "stripe_already_connected", settings: current }, 409) });
+    renderPanel({ canManage: true });
+    await pressConnect();
+    fireEvent.click(await screen.findByRole("radio", { name: EXISTING }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Stripe" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("stripe-status")));
+  });
+
+  const theirOwn = (connector: string | null, ready = true) =>
+    withOAuth({
+      settings: {
+        stripeConnected: true,
+        stripeChargesEnabled: ready,
+        stripeConnectedByOsnProfileId: connector,
+        stripeAccountType: "standard",
+        moneyGiftsBlockedBy: ready ? "cash_gifts_off" : "stripe_not_ready",
+      } as never,
+    });
+
+  it("links its connector to their own Stripe Dashboard, not to cire's onboarding", async () => {
+    setCachedRegistry("wed_1", theirOwn(ME));
+    api({});
+    renderPanel({ canManage: true });
+    const link = await screen.findByTestId("stripe-dashboard-link");
+    expect(link.getAttribute("href")).toBe("https://dashboard.stripe.com/");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(screen.queryByRole("button", { name: "Continue on Stripe" })).toBeNull();
+    expect(screen.getByTestId("stripe-status").textContent).toMatch(
+      /Stripe’s fees come out of each gift at your account’s rates/,
+    );
+  });
+
+  it("tells another owner whose account it is, with no link into it", async () => {
+    setCachedRegistry("wed_1", theirOwn("usr_other"));
+    api({});
+    renderPanel({ canManage: true });
+    expect((await screen.findByTestId("stripe-status")).textContent).toMatch(
+      /Only they can manage it, in their own Stripe Dashboard/,
+    );
+    // The status line says it; no second note describes a control that is not there.
+    expect(screen.queryByTestId("stripe-connector-only")).toBeNull();
+    expect(screen.queryByTestId("stripe-dashboard-link")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue on Stripe" })).toBeNull();
+  });
+
+  it("sends its connector to their Dashboard to finish what Stripe asks", async () => {
+    setCachedRegistry("wed_1", theirOwn(ME, false));
+    api({});
+    renderPanel({ canManage: true });
+    expect((await screen.findByTestId("stripe-status")).textContent).toMatch(
+      /Finish what Stripe asks for in your Stripe Dashboard/,
+    );
+  });
+});

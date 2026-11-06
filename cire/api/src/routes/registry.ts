@@ -189,8 +189,10 @@ function parseOffset(raw: unknown): number {
  *
  * `/registry` is the whole snapshot with page one of the gift log, plus
  * `takesPayments`: whether this deployment can take a money gift at all (a
- * Stripe key AND the Connect webhook secret). It sits beside the settings, not
- * in them, because it is the deployment's and the same for every wedding. The
+ * Stripe key AND the Connect webhook secret), and `connectsExistingStripe`:
+ * whether an owner may connect a Stripe account they already have (Stripe
+ * Connect OAuth configured). Both sit beside the settings, not in them,
+ * because they are the deployment's and the same for every wedding. The
  * settings carry `moneyGiftsBlockedBy`, which the service decides with it by
  * the guest list's own rule, so the portal never tells a couple their guests
  * can give money, or see a cash fund, where the guest list offers neither. A
@@ -215,7 +217,11 @@ function parseOffset(raw: unknown): number {
 export const createRegistryReadRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
-  deps: { readonly takesPayments: boolean },
+  deps: {
+    readonly takesPayments: boolean;
+    /** Whether an owner may connect a Stripe account they already have (OAuth). */
+    readonly connectsExistingStripe?: boolean;
+  },
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -236,6 +242,7 @@ export const createRegistryReadRoutes = (
                 ...snapshot,
                 settings: settingsForReader(snapshot.settings, reader),
                 takesPayments: deps.takesPayments,
+                connectsExistingStripe: deps.connectsExistingStripe === true,
               })),
               Effect.provideService(DbService, db),
               Effect.tapDefect(logDefect(weddingId)),

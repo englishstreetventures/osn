@@ -84,6 +84,10 @@ import {
   createRegistryGuestMineRoutes,
 } from "./routes/registry-guest";
 import { createRegistryStripeRoutes } from "./routes/registry-stripe";
+import {
+  createRegistryStripeOAuthRoutes,
+  createStripeOAuthCallbackRoutes,
+} from "./routes/registry-stripe-oauth";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createRsvpDigestStopRoutes } from "./routes/rsvp-digest-stop";
 import { createRunSheetRoutes } from "./routes/run-sheet";
@@ -120,6 +124,7 @@ import { cacheAccountResolver, cacheProfileDisplayResolver } from "./services/os
 import type { R2Bucket } from "./services/r2-imports";
 import { createWeddingSignals } from "./services/realtime";
 import type { StripeClient } from "./services/stripe";
+import type { StripeConnectOAuth } from "./services/stripe-connect-oauth";
 import { createUpgradeCatalogue, type UpgradePriceConfig } from "./services/upgrade-catalogue";
 import { createUpgradeService } from "./services/upgrades";
 import type { ZapChatClient } from "./services/zap-bridge";
@@ -366,6 +371,9 @@ const defaultPlusOneLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_
 // Per-organiser, and sized like the image limiter beside it: an authenticated
 // couple at hand-speed, whose every press costs an outbound Stripe call.
 const defaultRegistryStripeLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+// The Stripe Connect OAuth callback, per IP: a page load from Stripe that only
+// a valid state lets spend a Stripe call, and each needs a limited start.
+const defaultStripeOAuthCallbackLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 // Per-organiser, same shape and budget as the Connect limiter above and for the
 // same reason: starting a purchase spends an outbound Stripe call — two when it
 // probes an existing session — against the PLATFORM's quota, so one tenant's
@@ -761,6 +769,15 @@ export interface AppOptions {
   /** Override the Stripe onboarding limiter (useful for testing). */
   registryStripeLimiter?: RateLimiterBackend;
   /**
+   * Stripe Connect OAuth, for an owner connecting a Stripe account they
+   * already have. Absent ⇒ the start route and its callback are not mounted,
+   * and the registry read says so (`connectsExistingStripe: false`). It needs
+   * `stripe` as well: the callback reads the account it connected.
+   */
+  stripeConnectOAuth?: StripeConnectOAuth | null;
+  /** Override the OAuth callback's per-IP limiter (useful for testing). */
+  stripeOAuthCallbackLimiter?: RateLimiterBackend;
+  /**
    * Test seam: injectable `fetch` + DNS resolver for the registry link-preview
    * service, so its route tests reach no network. Production passes nothing and
    * the service uses global `fetch` + Cloudflare DoH.
@@ -882,6 +899,8 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     requireDistinctStripeSecrets = false,
     stripeAccountCountry,
     registryStripeLimiter = defaultRegistryStripeLimiter,
+    stripeConnectOAuth = null,
+    stripeOAuthCallbackLimiter = defaultStripeOAuthCallbackLimiter,
     upgradeLimiter = defaultUpgradeLimiter,
     unlockCodeLimiter = defaultUnlockCodeLimiter,
     upgradePrices = {},
@@ -909,6 +928,19 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
   // a fund's picture and the organiser's registry read all take it, so the
   // guest surface and the portal agree with the contribute route's mount.
   const takesPayments = giftStripe !== null;
+  // Connecting an account the couple already have needs the OAuth client and
+  // the API client both: the callback reads the account it connected.
+  const oauthDeps =
+    stripe && stripeConnectOAuth
+      ? {
+          stripe,
+          oauth: stripeConnectOAuth,
+          limiter: registryStripeLimiter,
+          callbackLimiter: stripeOAuthCallbackLimiter,
+          organiserOrigin,
+          takesPayments,
+        }
+      : null;
   if (stripe && !connectWebhookSecret) {
     // Once per app build: per isolate on the Worker, once at boot locally.
     // Names the variables, never their values.
@@ -1300,7 +1332,12 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
       // reason they give for guests not giving money (`moneyGiftsBlockedBy`)
       // is the guest list's own, and the portal never says guests can give
       // money where the guest list offers none.
-      .use(createRegistryReadRoutes(db, osnAuthOptions, { takesPayments }))
+      .use(
+        createRegistryReadRoutes(db, osnAuthOptions, {
+          takesPayments,
+          connectsExistingStripe: oauthDeps !== null,
+        }),
+      )
       // `assets` goes to the write factory for ONE reason: deleting an item has to
       // reap the R2 object its `image_key` pointed at, and D1's cascade stops at
       // the row.
@@ -1318,6 +1355,15 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
               takesPayments,
             })
           : new Elysia(),
+      )
+      // Stripe Connect OAuth: the start, behind the same owner, tier and
+      // per-organiser gates as onboarding, and the callback Stripe redirects
+      // the browser to. Mounted only when OAuth is configured.
+      .use(
+        oauthDeps ? createRegistryStripeOAuthRoutes(db, osnAuthOptions, oauthDeps) : new Elysia(),
+      )
+      .use(
+        oauthDeps ? createStripeOAuthCallbackRoutes(db, osnAuthOptions, oauthDeps) : new Elysia(),
       )
       // Link preview is another sibling instance, not part of the write group:
       // it carries its own per-organiser limiter (it makes an outbound fetch,
