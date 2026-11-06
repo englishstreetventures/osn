@@ -24,7 +24,9 @@ migrations_dir = "../db/drizzle"
 # Set it to "dev" in the same commit that gives this env real https origins.
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
 OSN_ISSUER_URL = "http://localhost:4000"
-PULSE_API_ORIGIN = "http://localhost:3001"
+# The Pulse web origin, which mounts this API under `/api`: the OIDC redirect
+# URI, and the host the session cookie is set on.
+PULSE_API_ORIGIN = "http://localhost:1420"
 PULSE_LOGIN_URL = "http://localhost:1420/"
 
 [env.dev.observability]
@@ -51,10 +53,10 @@ OSN_ENV = "staging"
 # to equal what osn-api mints or every authenticated request 401s.
 OSN_JWKS_URL = "https://api.staging.osn.example/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://api.staging.osn.example"
-# TODO: set once the Pulse domain is chosen. Must be same-site with the Pulse
-# web origin (`api.<pulse-domain>`) — the session cookie is host-scoped and
-# `SameSite=Lax`, so a cross-site API host is never sent one.
-PULSE_API_ORIGIN = "https://api.pulse.example.com"
+# TODO: set once the Pulse domain is chosen. The Pulse web origin, which mounts
+# this API under `/api`: the OIDC redirect URI is built on it, and the session
+# cookie is host-only there, so the server rendering Pulse's pages receives it.
+PULSE_API_ORIGIN = "https://pulse.example.com"
 PULSE_LOGIN_URL = "https://pulse.example.com/"
 
 [env.staging.observability]
@@ -80,10 +82,10 @@ OSN_ENV = "production"
 # every authenticated request — so the two flip in the same deploy.
 OSN_JWKS_URL = "https://id.musubi.social/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://id.musubi.social"
-# TODO: set once the Pulse domain is chosen. Must be same-site with the Pulse
-# web origin (`api.<pulse-domain>`) — the session cookie is host-scoped and
-# `SameSite=Lax`, so a cross-site API host is never sent one.
-PULSE_API_ORIGIN = "https://api.pulse.example.com"
+# TODO: set once the Pulse domain is chosen. The Pulse web origin, which mounts
+# this API under `/api`: the OIDC redirect URI is built on it, and the session
+# cookie is host-only there, so the server rendering Pulse's pages receives it.
+PULSE_API_ORIGIN = "https://pulse.example.com"
 PULSE_LOGIN_URL = "https://pulse.example.com/"
 
 [env.production.observability]

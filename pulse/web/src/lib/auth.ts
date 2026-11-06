@@ -1,22 +1,25 @@
 import { createAuthFetch, isAuthExpired, type RpAuthConfig } from "@shared/rp-auth";
 
-/**
- * Where Pulse's own API lives. Every credentialed call goes here, never to
- * the issuer — the browser holds a Pulse session cookie and nothing else.
- */
-export const PULSE_API_URL: string = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+import { authBase, transportFetch } from "./transport";
 
 /**
  * Pulse is an OIDC **relying party**, not an identity provider. A WebAuthn
  * ceremony only runs on an origin same-site with the RP ID, which lives on
  * `musubi.social`, so no Pulse origin can mint or use an OSN credential.
- * `/api/auth/oidc/start` on Pulse's own API sends the browser to the issuer
- * and takes the code back in exchange for a Pulse session cookie.
+ * `/api/auth/oidc/start` sends the browser to the issuer and takes the code
+ * back in exchange for a Pulse session cookie.
  *
- * That cookie is `HttpOnly` and host-scoped, so the API has to be same-site
- * with this origin (`api.<pulse-domain>`) or the browser will not send it.
+ * Those routes are on this web origin (pulse-api mounted under `/api`), so the
+ * cookie is host-only here and every page request carries it to the server
+ * that renders the page. `apiBase` is read per call: the browser's is this
+ * origin, the rendering server's is pulse-api's own (`lib/transport.ts`).
  */
-export const authConfig: RpAuthConfig = { apiBase: PULSE_API_URL };
+export const authConfig: RpAuthConfig = {
+  get apiBase() {
+    return authBase();
+  },
+  fetch: transportFetch,
+};
 
 /**
  * `fetch` for calls that need a signed-in caller: sends the session cookie
@@ -31,10 +34,8 @@ export const authFetch = createAuthFetch(authConfig);
  * 401 stays a 401, because these callers already treat "no data" as an
  * ordinary answer and must not be thrown out of the page for it.
  */
-export const publicFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = (
-  input,
-  init,
-) => fetch(input, { ...init, credentials: "include" });
+export const publicFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> =
+  transportFetch;
 
 /** True when `authFetch` rejected because the session cookie no longer names anyone. */
 export const isExpired: (err: unknown) => boolean = isAuthExpired;

@@ -37,10 +37,11 @@ export interface Env {
   /** OSN issuer origin — the OIDC provider this app is a relying party of. */
   OSN_ISSUER_URL?: string;
   /**
-   * Public origin of this Worker. The registered redirect URI is
-   * `${PULSE_API_ORIGIN}/api/auth/oidc/callback`, and the session cookie is
-   * host-scoped to it — so it must be same-site with the Pulse web origin
-   * (`api.<pulse-domain>`) or a `SameSite=Lax` cookie is never sent.
+   * The origin browsers reach this API's auth routes on: the Pulse web
+   * origin, which mounts this API under `/api`. The registered redirect URI is
+   * `${PULSE_API_ORIGIN}/api/auth/oidc/callback`, and the session cookie the
+   * callback sets is host-only on it, so the server that renders Pulse's
+   * pages receives it with every page request.
    */
   PULSE_API_ORIGIN?: string;
   /** OIDC client id registered with osn-api (var). */

@@ -6,7 +6,7 @@
  * shape stabilises.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+import { dataBase } from "./transport";
 
 export interface VenueSummary {
   id: string;
@@ -107,7 +107,7 @@ export async function fetchVenuePins(bounds: MapBounds): Promise<VenuePin[]> {
     minLng: String(bounds.minLng),
     maxLng: String(bounds.maxLng),
   });
-  const res = await fetch(`${BASE_URL}/venues?${query.toString()}`);
+  const res = await fetch(`${dataBase()}/venues?${query.toString()}`);
   if (!res.ok) return [];
   const body = (await res.json()) as { venues?: VenuePin[] };
   return body.venues ?? [];
@@ -118,7 +118,7 @@ export async function fetchVenue(
   venueHandle: string,
 ): Promise<VenueSummary | null> {
   const res = await fetch(
-    `${BASE_URL}/venues/${encodeURIComponent(orgHandle)}/${encodeURIComponent(venueHandle)}`,
+    `${dataBase()}/venues/${encodeURIComponent(orgHandle)}/${encodeURIComponent(venueHandle)}`,
   );
   if (!res.ok) return null;
   const body = (await res.json()) as { venue?: VenueSummary };
@@ -133,7 +133,7 @@ export async function fetchVenueEvents(
 ): Promise<VenueEvent[]> {
   const query = `scope=${scope}${limit === undefined ? "" : `&limit=${limit}`}`;
   const res = await fetch(
-    `${BASE_URL}/venues/${encodeURIComponent(orgHandle)}/${encodeURIComponent(venueHandle)}/events?${query}`,
+    `${dataBase()}/venues/${encodeURIComponent(orgHandle)}/${encodeURIComponent(venueHandle)}/events?${query}`,
   );
   if (!res.ok) return [];
   const body = (await res.json()) as { events?: VenueEvent[] };
@@ -274,7 +274,7 @@ export async function fetchEventLineup(
   eventId: string,
 ): Promise<LineupSlot[]> {
   const res = await fetch(
-    `${BASE_URL}/venues/${encodeURIComponent(orgHandle)}/${encodeURIComponent(venueHandle)}/events/${encodeURIComponent(eventId)}/lineup`,
+    `${dataBase()}/venues/${encodeURIComponent(orgHandle)}/${encodeURIComponent(venueHandle)}/events/${encodeURIComponent(eventId)}/lineup`,
   );
   if (!res.ok) return [];
   const body = (await res.json()) as { slots?: LineupSlot[] };

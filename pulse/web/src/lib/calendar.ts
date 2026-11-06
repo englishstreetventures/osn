@@ -1,15 +1,14 @@
 /**
  * Personal calendar (agenda) data access + pure date helpers.
  *
- * Like `lib/rsvps.ts`, this uses raw `fetch` against `VITE_API_URL` rather
+ * Like `lib/rsvps.ts`, this uses raw `fetch` against pulse-api rather
  * than the Eden treaty client — the calendar route was added after the
  * client chain was frozen, and a small typed wrapper keeps the surface
  * stable.
  */
 
-import { authFetch, PULSE_API_URL } from "./auth";
-
-const BASE_URL = PULSE_API_URL;
+import { authFetch } from "./auth";
+import { dataBase } from "./transport";
 
 type EventStatus = "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
 
@@ -37,7 +36,7 @@ export interface CalendarEntry {
 }
 
 export async function fetchMyCalendar(limit = 50): Promise<CalendarEntry[]> {
-  const res = await authFetch(`${BASE_URL}/events/calendar?limit=${limit}`).catch(() => null);
+  const res = await authFetch(`${dataBase()}/events/calendar?limit=${limit}`).catch(() => null);
   if (!res?.ok) return [];
   const body = (await res.json()) as { entries?: CalendarEntry[] };
   return body.entries ?? [];

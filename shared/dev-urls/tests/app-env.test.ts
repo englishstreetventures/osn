@@ -49,7 +49,9 @@ describe("buildDevEnv", () => {
       OSN_ISSUER_URL: "https://id.musubi.localhost",
       OSN_JWKS_URL: "https://id.musubi.localhost/.well-known/jwks.json",
       OSN_API_URL: "https://id.musubi.localhost",
-      PULSE_API_ORIGIN: "https://api.pulse.localhost",
+      // The web origin: browsers reach pulse-api's auth routes through its
+      // `/api` mount, so the redirect URI is the web host's.
+      PULSE_API_ORIGIN: "https://pulse.localhost",
       PULSE_CORS_ORIGIN: "https://pulse.localhost",
       PULSE_LOGIN_URL: "https://pulse.localhost/",
     });
@@ -76,7 +78,9 @@ describe("buildDevEnv", () => {
       PUBLIC_OSN_ACCOUNT_URL: "https://musubi.localhost",
     });
     expect(buildDevEnv("@pulse/web", urlFor("@pulse/web"))).toEqual({
-      VITE_API_URL: "https://api.pulse.localhost",
+      // Server-only: the rendering server's way to pulse-api. The browser
+      // reaches pulse-api through the web origin's own `/api` mount.
+      PULSE_API_INTERNAL_URL: "https://api.pulse.localhost",
       VITE_OSN_ISSUER_URL: "https://id.musubi.localhost",
     });
   });

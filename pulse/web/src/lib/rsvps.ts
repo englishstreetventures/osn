@@ -5,17 +5,16 @@
  * don't stay stable when routes are added to the chain in the order we
  * happen to have them (Elysia's type inference chains left-to-right, so
  * extending the chain in a separate PR keeps breaking). Raw `fetch` against
- * `VITE_API_URL` keeps the surface area small.
+ * pulse-api keeps the surface area small.
  *
  * None of these take a credential. The browser holds exactly one — the
  * HttpOnly Pulse session cookie — and it rides along on every call here
  * because both `authFetch` and `publicFetch` set `credentials: "include"`.
  */
 
-import { authFetch, expiredMessage, PULSE_API_URL, publicFetch } from "./auth";
+import { authFetch, expiredMessage, publicFetch } from "./auth";
 import type { ShareSource } from "./shareSource";
-
-const BASE_URL = PULSE_API_URL;
+import { dataBase } from "./transport";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -51,21 +50,21 @@ export interface RsvpCounts {
 }
 
 export async function fetchLatestRsvps(eventId: string, limit = 5): Promise<Rsvp[]> {
-  const res = await publicFetch(`${BASE_URL}/events/${eventId}/rsvps/latest?limit=${limit}`);
+  const res = await publicFetch(`${dataBase()}/events/${eventId}/rsvps/latest?limit=${limit}`);
   if (!res.ok) return [];
   const body = (await res.json()) as { rsvps?: Rsvp[] };
   return body.rsvps ?? [];
 }
 
 export async function fetchRsvpsByStatus(eventId: string, status: RsvpStatus): Promise<Rsvp[]> {
-  const res = await publicFetch(`${BASE_URL}/events/${eventId}/rsvps?status=${status}&limit=200`);
+  const res = await publicFetch(`${dataBase()}/events/${eventId}/rsvps?status=${status}&limit=200`);
   if (!res.ok) return [];
   const body = (await res.json()) as { rsvps?: Rsvp[] };
   return body.rsvps ?? [];
 }
 
 export async function fetchRsvpCounts(eventId: string): Promise<RsvpCounts> {
-  const res = await publicFetch(`${BASE_URL}/events/${eventId}/rsvps/counts`);
+  const res = await publicFetch(`${dataBase()}/events/${eventId}/rsvps/counts`);
   if (!res.ok) return { going: 0, maybe: 0, not_going: 0, invited: 0 };
   const body = (await res.json()) as { counts?: RsvpCounts };
   return body.counts ?? { going: 0, maybe: 0, not_going: 0, invited: 0 };
@@ -85,7 +84,7 @@ export async function upsertMyRsvp(
   const body: RsvpUpsertBody = { status };
   if (shareSource) body.shareSource = shareSource;
   try {
-    const res = await authFetch(`${BASE_URL}/events/${eventId}/rsvps`, {
+    const res = await authFetch(`${dataBase()}/events/${eventId}/rsvps`, {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify(body),
@@ -118,7 +117,7 @@ export async function upsertMyRsvp(
  */
 export async function recordShareInvoked(eventId: string, source: ShareSource): Promise<void> {
   try {
-    await publicFetch(`${BASE_URL}/events/${eventId}/share`, {
+    await publicFetch(`${dataBase()}/events/${eventId}/share`, {
       method: "POST",
       keepalive: true,
       headers: JSON_HEADERS,
@@ -131,7 +130,7 @@ export async function recordShareInvoked(eventId: string, source: ShareSource): 
 
 export async function recordShareExposure(eventId: string, source: ShareSource): Promise<void> {
   try {
-    await publicFetch(`${BASE_URL}/events/${eventId}/exposure`, {
+    await publicFetch(`${dataBase()}/events/${eventId}/exposure`, {
       method: "POST",
       keepalive: true,
       headers: JSON_HEADERS,
@@ -146,7 +145,7 @@ export async function updateMySettings(data: {
   attendanceVisibility: "connections" | "no_one";
 }): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await authFetch(`${BASE_URL}/me/settings`, {
+    const res = await authFetch(`${dataBase()}/me/settings`, {
       method: "PATCH",
       headers: JSON_HEADERS,
       body: JSON.stringify(data),
@@ -174,9 +173,7 @@ interface CommsSummary {
 }
 
 export async function fetchCommsSummary(eventId: string): Promise<CommsSummary | null> {
-  const res = await publicFetch(`${BASE_URL}/events/${eventId}/comms`);
+  const res = await publicFetch(`${dataBase()}/events/${eventId}/comms`);
   if (!res.ok) return null;
   return (await res.json()) as CommsSummary;
 }
-
-export const apiBaseUrl = BASE_URL;

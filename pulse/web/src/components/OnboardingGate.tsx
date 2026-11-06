@@ -1,6 +1,7 @@
 import { useAuth } from "@shared/rp-auth/solid";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createResource } from "solid-js";
+import { isServer } from "solid-js/web";
 
 import { fetchOnboardingStatus, isOnboardingResolvedThisSession } from "../lib/onboarding";
 
@@ -29,7 +30,12 @@ export function OnboardingGate() {
   // guarantee in the docstring. The pathname check stays, but it's
   // moved into the redirect effect where it belongs — deciding whether to
   // navigate, not whether to fetch.
+  //
+  // Never on the server: the skip hint lives in this tab's sessionStorage,
+  // which the server cannot see, and the redirect is an effect, which only
+  // runs in the browser.
   const fetchKey = () => {
+    if (isServer) return null;
     const profileId = session()?.osnProfileId ?? null;
     if (!profileId) return null;
     if (isOnboardingResolvedThisSession()) return null;

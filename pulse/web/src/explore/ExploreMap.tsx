@@ -55,19 +55,25 @@ function fmtTime(d: Date) {
 }
 
 /**
- * Reactive dark-mode signal. Reads the root/body classList once and
+ * Reactive dark-mode signal. Reads the root/body classList once mounted and
  * keeps a signal in sync via `MutationObserver`, so theme-derived styles are
  * O(1) signal reads that re-run reactively on theme flips instead of
- * re-touching the DOM on every access.
+ * re-touching the DOM on every access. Light until mounted: the server has
+ * no document to read, and the fills it draws are attributes, which the
+ * browser corrects as it hydrates.
  */
 function useIsDark() {
-  const read = () =>
-    document.documentElement.classList.contains("dark") || document.body.classList.contains("dark");
-  const [dark, setDark] = createSignal(read());
-  const observer = new MutationObserver(() => setDark(read()));
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-  observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
-  onCleanup(() => observer.disconnect());
+  const [dark, setDark] = createSignal(false);
+  onMount(() => {
+    const read = () =>
+      document.documentElement.classList.contains("dark") ||
+      document.body.classList.contains("dark");
+    setDark(read());
+    const observer = new MutationObserver(() => setDark(read()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    onCleanup(() => observer.disconnect());
+  });
   return dark;
 }
 

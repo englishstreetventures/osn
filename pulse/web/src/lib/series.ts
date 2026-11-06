@@ -4,9 +4,8 @@
  * are added in separate PRs.
  */
 
-import { PULSE_API_URL, publicFetch } from "./auth";
-
-const BASE_URL = PULSE_API_URL;
+import { publicFetch } from "./auth";
+import { dataBase } from "./transport";
 
 export interface SeriesSummary {
   id: string;
@@ -44,7 +43,7 @@ export interface SeriesInstance {
 }
 
 export async function fetchSeries(id: string): Promise<SeriesSummary | null> {
-  const res = await publicFetch(`${BASE_URL}/series/${id}`);
+  const res = await publicFetch(`${dataBase()}/series/${id}`);
   if (!res.ok) return null;
   const body = (await res.json()) as { series?: SeriesSummary };
   return body.series ?? null;
@@ -54,7 +53,7 @@ export async function fetchSeriesInstances(
   id: string,
   scope: "past" | "upcoming" | "all",
 ): Promise<SeriesInstance[]> {
-  const res = await publicFetch(`${BASE_URL}/series/${id}/instances?scope=${scope}`);
+  const res = await publicFetch(`${dataBase()}/series/${id}/instances?scope=${scope}`);
   if (!res.ok) return [];
   const body = (await res.json()) as { instances?: SeriesInstance[] };
   return body.instances ?? [];

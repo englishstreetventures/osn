@@ -1,15 +1,14 @@
 /**
  * Lightweight REST wrappers for the Pulse close-friends surface.
  *
- * Mirrors the pattern in `./rsvps.ts` — raw fetch against `VITE_API_URL`,
+ * Mirrors the pattern in `./rsvps.ts` — raw fetch against pulse-api,
  * no Eden treaty client (the type chain breaks across PRs). Every route
  * here needs a signed-in caller, so all of them go through `authFetch`
  * and the session cookie it carries.
  */
 
-import { authFetch, isExpired, PULSE_API_URL } from "./auth";
-
-const BASE_URL = PULSE_API_URL;
+import { authFetch, isExpired } from "./auth";
+import { dataBase } from "./transport";
 
 export interface CloseFriendEntry {
   profileId: string;
@@ -19,7 +18,7 @@ export interface CloseFriendEntry {
 }
 
 export async function listCloseFriends(): Promise<CloseFriendEntry[]> {
-  const res = await authFetch(`${BASE_URL}/close-friends`).catch(() => null);
+  const res = await authFetch(`${dataBase()}/close-friends`).catch(() => null);
   if (!res?.ok) return [];
   const body = (await res.json()) as { closeFriends?: CloseFriendEntry[] };
   return body.closeFriends ?? [];
@@ -41,7 +40,7 @@ export interface CandidateEntry {
  * list and must not be shown as "you have no connections".
  */
 export async function listCloseFriendCandidates(): Promise<CandidateEntry[] | null> {
-  const res = await authFetch(`${BASE_URL}/close-friends/candidates`).catch(() => null);
+  const res = await authFetch(`${dataBase()}/close-friends/candidates`).catch(() => null);
   if (!res?.ok) return null;
   const body = (await res.json()) as { connections?: CandidateEntry[] };
   return body.connections ?? [];
@@ -54,7 +53,7 @@ export async function addCloseFriend(
 ): Promise<{ ok: true } | { ok: false; error: AddCloseFriendError }> {
   let res: Response;
   try {
-    res = await authFetch(`${BASE_URL}/close-friends/${encodeURIComponent(friendId)}`, {
+    res = await authFetch(`${dataBase()}/close-friends/${encodeURIComponent(friendId)}`, {
       method: "POST",
     });
   } catch (err) {
@@ -68,7 +67,7 @@ export async function addCloseFriend(
 }
 
 export async function removeCloseFriend(friendId: string): Promise<{ ok: boolean }> {
-  const res = await authFetch(`${BASE_URL}/close-friends/${encodeURIComponent(friendId)}`, {
+  const res = await authFetch(`${dataBase()}/close-friends/${encodeURIComponent(friendId)}`, {
     method: "DELETE",
   }).catch(() => null);
   return { ok: res?.ok === true };

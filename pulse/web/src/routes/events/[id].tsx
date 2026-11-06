@@ -12,7 +12,7 @@ import { RsvpSection } from "../../components/RsvpSection";
 import { ShareEventButton } from "../../components/ShareEventButton";
 import { api } from "../../lib/api";
 import { formatPrice } from "../../lib/formatPrice";
-import { apiBaseUrl, recordShareExposure } from "../../lib/rsvps";
+import { recordShareExposure } from "../../lib/rsvps";
 import { coerceShareSource, type ShareSource } from "../../lib/shareSource";
 import { formatTime } from "../../lib/utils";
 
@@ -177,7 +177,7 @@ export function EventDetailPage() {
                   <p class="text-foreground text-sm whitespace-pre-wrap">{e().description}</p>
                 </Show>
                 <div class="mt-4 flex flex-wrap gap-2">
-                  <AddToCalendarButton eventId={e().id} apiBaseUrl={apiBaseUrl} />
+                  <AddToCalendarButton eventId={e().id} />
                   <ShareEventButton eventId={e().id} eventTitle={e().title} />
                 </div>
               </div>

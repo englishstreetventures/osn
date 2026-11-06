@@ -17,11 +17,11 @@ import type { SessionCookieOptions } from "@shared/osn-auth-client/cookie";
  * bearer access JWT. These two exist only because a browser cannot run a
  * passkey ceremony against `musubi.social` from a Pulse origin.
  *
- * Both are host-scoped — set by pulse-api and sent back only there. That makes
- * the Pulse API host and the Pulse web origin same-site by requirement, not by
- * preference: `api.<pulse-domain>` and `<pulse-domain>` share a registrable
- * domain, so `Lax` lets the cookie ride along. A Pulse web origin on an
- * unrelated domain would never receive it. Do NOT add `Domain=`.
+ * Both are host-only, set on the host the browser reached the auth routes on
+ * and sent back only there. Pulse web mounts pulse-api under `/api` on its own
+ * origin, so that host is the web origin: the server that renders a Pulse page
+ * receives the session with the page request and passes it on. Do NOT add
+ * `Domain=`: it would hand the session to every subdomain of the site.
  */
 
 const SESSION_COOKIE_NAME = "pulse_web_session";

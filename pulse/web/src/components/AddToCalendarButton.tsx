@@ -1,11 +1,14 @@
 import { Button } from "@shared/ui/ui/button";
 
+import { API_MOUNT } from "../lib/transport";
+
 /**
  * Downloads the event's ICS file via a hidden anchor with `download` so
- * the browser saves the file.
+ * the browser saves the file. The link is relative to this origin's pulse-api
+ * mount, which is where the browser reaches pulse-api.
  */
-export function AddToCalendarButton(props: { eventId: string; apiBaseUrl: string }) {
-  const icsUrl = () => `${props.apiBaseUrl}/events/${props.eventId}/ics`;
+export function AddToCalendarButton(props: { eventId: string }) {
+  const icsUrl = () => `${API_MOUNT}/events/${encodeURIComponent(props.eventId)}/ics`;
 
   function addToCalendar() {
     const url = icsUrl();

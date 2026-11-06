@@ -66,7 +66,9 @@ export const DEV_ENV = {
     // `lib/outbound-arc.ts` call osn-api server-to-server through `OSN_API_URL`
     // (step-up verify, app-enrollment join/leave, ARC key registration).
     OSN_API_URL: urls["@osn/api"],
-    PULSE_API_ORIGIN: urls["@pulse/api"],
+    // The origin browsers reach pulse-api's auth routes on, which builds the
+    // OIDC redirect URI: the web app's, since it mounts pulse-api under `/api`.
+    PULSE_API_ORIGIN: urls["@pulse/web"],
     PULSE_CORS_ORIGIN: urls["@pulse/web"],
     // Where an unauthenticated request is sent back to sign in.
     PULSE_LOGIN_URL: `${urls["@pulse/web"]}/`,
@@ -92,7 +94,9 @@ export const DEV_ENV = {
     PUBLIC_APP_URL: urls["@musubi/social"],
   }),
   "@pulse/web": (urls: Urls, _self: DevAppId, _env: DevEnv) => ({
-    VITE_API_URL: urls["@pulse/api"],
+    // Server-only: where the rendering server and the `/api` mount reach
+    // pulse-api. The browser never sees it.
+    PULSE_API_INTERNAL_URL: urls["@pulse/api"],
     VITE_OSN_ISSUER_URL: urls["@osn/api"],
   }),
   "@pulse/landing": (urls: Urls, _self: DevAppId, _env: DevEnv) => ({

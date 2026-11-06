@@ -20,7 +20,11 @@ interface PulseOidcEnv {
   OSN_ISSUER_URL?: string | undefined;
   /** JWKS endpoint of that issuer. */
   OSN_JWKS_URL?: string | undefined;
-  /** Public origin of pulse-api itself — the registered redirect URI's host. */
+  /**
+   * The origin browsers reach pulse-api's auth routes on — the Pulse web
+   * origin, which mounts pulse-api under `/api` — and so the registered
+   * redirect URI's host.
+   */
   PULSE_API_ORIGIN?: string | undefined;
   OSN_OIDC_CLIENT_ID?: string | undefined;
   OSN_OIDC_CLIENT_SECRET?: string | undefined;

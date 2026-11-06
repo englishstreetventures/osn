@@ -160,7 +160,11 @@ export function ShareEventButton(props: ShareEventButtonProps) {
     setOpen(false);
   }
 
-  const grid = (
+  // A function, so the grid is built only where it is shown. Built eagerly,
+  // the browser would look for its markup while hydrating, and the server
+  // never writes that markup: both places the grid goes stay closed until
+  // pressed.
+  const grid = () => (
     <div class="grid grid-cols-2 gap-2 p-2">
       <For each={DESTINATIONS}>
         {(dest) => (
@@ -188,7 +192,7 @@ export function ShareEventButton(props: ShareEventButtonProps) {
               Share
             </PopoverTrigger>
             <PopoverContent padding="none" class="w-72">
-              {grid}
+              {grid()}
             </PopoverContent>
           </Popover>
         }
@@ -214,7 +218,7 @@ export function ShareEventButton(props: ShareEventButtonProps) {
                 ×
               </DialogClose>
             </DialogHeader>
-            {grid}
+            {grid()}
           </DialogContent>
         </Dialog>
       </Show>

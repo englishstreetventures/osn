@@ -149,7 +149,8 @@ describe("fetchVenuePins", () => {
     mock().mockResolvedValue({ ok: true, json: async () => ({ venues: [] }) });
     await fetchVenuePins(bounds);
     const url = new URL(mock().mock.calls[0][0] as string);
-    expect(url.pathname).toBe("/venues");
+    // The browser reaches pulse-api's `/venues` through this origin's `/api` mount.
+    expect(url.pathname).toBe("/api/venues");
     expect(url.searchParams.get("minLat")).toBe("40.63");
     expect(url.searchParams.get("maxLat")).toBe("40.76");
     expect(url.searchParams.get("minLng")).toBe("-74.03");
