@@ -271,6 +271,17 @@ export default function EventsEditor(props: { weddingId: string }) {
 
   const hasErrors = () => store.errors().length > 0;
 
+  /** The messages for values each event would save as stored, by draft key. */
+  const storedByKey = createMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const e of store.storedErrors()) {
+      const list = map.get(e.key) ?? [];
+      list.push(e.message);
+      map.set(e.key, list);
+    }
+    return map;
+  });
+
   const editingEvent = (): DraftEvent | null =>
     store.draft.events.find((e) => e.key === editingKey()) ?? null;
 
@@ -484,6 +495,7 @@ export default function EventsEditor(props: { weddingId: string }) {
                         index={index()}
                         count={store.draft.events.length}
                         hasError={(errorsByKey().get(event.key)?.length ?? 0) > 0}
+                        hasStored={storedByKey().has(event.key)}
                         onEdit={() => setEditingKey(event.key)}
                         onDelete={() => handleDelete(event)}
                         sortableItem={reorder.item(
@@ -518,6 +530,7 @@ export default function EventsEditor(props: { weddingId: string }) {
               .filter((e) => e.item === undefined)
               .map((e) => e.message)}
             itemErrors={(errorsByKey().get(evt().key) ?? []).filter((e) => e.item !== undefined)}
+            storedErrors={storedByKey().get(evt().key) ?? []}
             eventDetails={store.eventDetails()}
             onPatch={(patch) => store.updateEvent(evt().key, patch)}
             onClose={() => {
@@ -646,6 +659,8 @@ function EventRowCard(props: {
   index: number;
   count: number;
   hasError: boolean;
+  /** It holds a value saved before the checks that it would save as is. */
+  hasStored: boolean;
   onEdit: () => void;
   onDelete: () => void;
   /** The row's slice of `createSortableList` — grip, move controls, labels. */
@@ -683,6 +698,7 @@ function EventRowCard(props: {
       class={EVENT_ROW_CLASS}
       classList={{
         "border-error/50": props.hasError,
+        "border-warn/50": props.hasStored && !props.hasError,
         // Lift the row being dragged clear of its neighbours.
         "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)": sortable.isActiveDraggable(),
         // Animate the OTHER rows shifting aside, but never the dragged one —
@@ -746,6 +762,12 @@ function EventRowCard(props: {
         <Show when={props.hasError}>
           <p class="text-error text-ui-sm">This event has errors — open it to fix them.</p>
         </Show>
+        {/* Below an error, which says to open the event already. */}
+        <Show when={props.hasStored && !props.hasError}>
+          <Notice size="inline" tone="warn">
+            Saved details need fixing — open it to see them.
+          </Notice>
+        </Show>
         <Show when={props.event.id === null}>
           <Chip variant="outline" tone="accent" class="mt-1">
             New — saved on apply
@@ -779,6 +801,9 @@ function EventDrawer(props: {
   errors: string[];
   /** Its run-of-show items' errors, shown under each item. */
   itemErrors: FieldError[];
+  /** Values saved before the checks that this save sends as they are, which
+   *  the API takes so: said above the form, never blocking. */
+  storedErrors: string[];
   /** Whether the API reads the run of show, notes and guest policy; when it
    *  does not, the drawer leaves them out rather than take what it would drop. */
   eventDetails: boolean;
@@ -794,9 +819,10 @@ function EventDrawer(props: {
   /** Stamp the offset the event's ZONE is on for this wall-clock date + time.
    *  The organiser never types an offset any more — it is a fact about the zone
    *  on that day, so it's derived (DST and all). Falls back to whatever offset
-   *  the stored value already carried when the zone can't be resolved (an
-   *  imported free-text zone this browser's tz database doesn't know), so an
-   *  edit elsewhere in the drawer can't silently rewrite an imported time. */
+   *  the stored value already carried when the zone can't be resolved (a
+   *  stored zone this browser's tz database doesn't know), so an edit elsewhere
+   *  in the drawer can't silently move the stored time. A time set on such a
+   *  zone keeps Save shut until a zone is picked (`validateDraft`). */
   const stamped = (parts: DateTimeParts, zone: string): DateTimeParts => ({
     ...parts,
     offset: zoneOffset(zone, parts.date, parts.time) ?? parts.offset,
@@ -814,12 +840,16 @@ function EventDrawer(props: {
   };
 
   /** Changing the zone re-stamps BOTH timestamps in ONE patch — one undo step,
-   *  and no window in which Start is in the new zone and End still in the old. */
+   *  and no window in which Start is in the new zone and End still in the old.
+   *  A value with no date to re-stamp (blank, or free text saved before the
+   *  checks) is left as it is: rebuilt from empty parts it would be cleared. */
+  const restamp = (value: string, parts: DateTimeParts, zone: string) =>
+    parts.date === "" ? value : joinIso(stamped(parts, zone));
   const setTimezone = (zone: string) => {
     props.onPatch({
       timezone: zone,
-      startAt: joinIso(stamped(start(), zone)),
-      endAt: joinIso(stamped(end(), zone)),
+      startAt: restamp(props.event.startAt, start(), zone),
+      endAt: restamp(props.event.endAt, end(), zone),
     });
   };
 
@@ -895,6 +925,13 @@ function EventDrawer(props: {
       <Show when={props.errors.length > 0}>
         <Notice tone="danger" alert class="mb-5">
           <For each={props.errors}>{(msg) => <p>{msg}</p>}</For>
+        </Notice>
+      </Show>
+      {/* Not an alert: it was there when the drawer opened. */}
+      <Show when={props.storedErrors.length > 0}>
+        <Notice tone="warn" class="mb-5">
+          <p>These saved details need fixing. Your other changes still save.</p>
+          <For each={props.storedErrors}>{(msg) => <p>{msg}</p>}</For>
         </Notice>
       </Show>
 

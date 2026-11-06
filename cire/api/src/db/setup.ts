@@ -1732,6 +1732,55 @@ function seedE2eOrganiser(db: TestDb): void {
 
   seedE2eSeating(db, now);
   seedE2eEnvelope(db, now);
+  seedE2eLegacyEvent(db, now);
+}
+
+/**
+ * A wedding whose first event was saved before the editor door checked an
+ * event's name, times and zone, for `cire-event-details.flow.ts`: no name,
+ * a Start and End with no UTC offset, and a zone no runtime resolves. The
+ * editor saves around such a row, says what to fix, and takes the fix. Its
+ * own wedding, seated to the dev owner, so no guest-facing flow reads it.
+ * Every value the flow checks is written out again as `CIRE_LEGACY_EVENT` in
+ * `tools/e2e/src/config.ts`; a change here goes there too.
+ */
+function seedE2eLegacyEvent(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_legacy_event";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "legacy-event-wedding",
+      displayName: "Legacy Event Wedding",
+      tier: "gold",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_legacy_event_owner", now);
+  db.insert(schema.events)
+    .values([
+      {
+        id: "evt_e2e_legacy",
+        weddingId,
+        slug: "untitled",
+        name: "",
+        startAt: "2026-11-14T15:00",
+        endAt: "2026-11-14T17:00",
+        timezone: "AEST",
+        sortOrder: 0,
+      },
+      {
+        id: "evt_e2e_legacy_reception",
+        weddingId,
+        slug: "reception",
+        name: "Reception",
+        startAt: "2026-11-14T18:00:00+11:00",
+        endAt: "",
+        timezone: "Australia/Sydney",
+        sortOrder: 1,
+      },
+    ])
+    .run();
 }
 
 /**

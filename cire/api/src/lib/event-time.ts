@@ -73,6 +73,29 @@ export function parseWallTime(value: string): WallTime | null {
   return { date: date!, time: time!, seconds };
 }
 
+/** A UTC offset a stored instant can end in: `Z`, or `±HH:MM` (colon optional)
+ *  with hours 00–23 and minutes 00–59 — the spellings `Date` reads. */
+const INSTANT_OFFSET_RE = /(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)$/;
+
+/**
+ * Whether a Start/End can be stored as it was sent, by a door that does not
+ * stamp the offset itself (the editor's): a wall clock {@link parseWallTime}
+ * reads, ending in a UTC offset, with nothing around it.
+ *
+ * Each clause serves a reader. The guest site and `lib/event-order.ts` read
+ * the value as an instant, which needs the offset. The guest-data retention
+ * sweep compares it as text against a `YYYY-MM-DD` cutoff, which needs the date
+ * first: `parseWallTime` trims, so the no-surrounding-space clause is this
+ * function's own.
+ *
+ * It does not check that the offset is the one the event's zone is on at that
+ * wall clock. The sheet door derives it ({@link stampEventOffset}); the
+ * organiser portal's drawer stamps the same one before it sends.
+ */
+export function isEventInstant(value: string): boolean {
+  return value === value.trim() && parseWallTime(value) !== null && INSTANT_OFFSET_RE.test(value);
+}
+
 /**
  * `longOffset` formatters, cached by CANONICAL zone. Construction is the
  * expensive half of ICU date handling (~75µs) and an events import stamps two
@@ -126,8 +149,9 @@ function formatOffsetMinutes(minutes: number): string {
 }
 
 /**
- * `canonicalTimeZone`, memoized per raw input string — the events-import loop
- * (`services/spreadsheet.ts`) resolves the SAME zone up to three times per row
+ * `canonicalTimeZone`, memoized per input string, ASCII letters lower-cased —
+ * the events-import loop (`services/spreadsheet.ts`) resolves the SAME zone up
+ * to three times per row
  * (once to validate the `Timezone` cell, twice more inside the Start/End
  * `stampEventOffset` calls), and `canonicalTimeZone` itself is deliberately
  * uncached: its other call site is the RSVP-deadline settings write, a rare
@@ -139,17 +163,28 @@ function formatOffsetMinutes(minutes: number): string {
  *
  * ONLY SUCCESSFUL resolutions are cached, matching `offsetFormatters` below: a
  * miss costs one throwaway construction and stores nothing, so a hostile sheet
- * of near-misses can't grow the map, and the keys that do land are bounded by
- * the real IANA spellings (+ casing variants) a spreadsheet app might actually
- * produce.
+ * or editor save of near-misses can't grow the map. `Intl` matches zone names
+ * ASCII-case-insensitively, so keying on the ASCII-lower-cased input gives every
+ * casing of a zone one entry, and the keys that land are bounded by the real
+ * IANA names. ASCII only, never `toLowerCase()`: that maps the Kelvin sign
+ * (U+212A) to `k`, so a spelling `Intl` refuses would read a real zone's entry.
+ *
+ * A name longer than {@link MAX_ZONE_NAME_LENGTH} is refused before the fold:
+ * a stored `events.timezone` reaches here uncapped, and a miss is never cached,
+ * so it would pay the fold on every call.
  */
 const canonicalZoneCache = new Map<string, string>();
 
+/** No IANA zone name or link comes near this many characters. */
+const MAX_ZONE_NAME_LENGTH = 64;
+
 function resolveTimeZone(zone: string): string | null {
-  const cached = canonicalZoneCache.get(zone);
+  if (zone.length > MAX_ZONE_NAME_LENGTH) return null;
+  const key = zone.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  const cached = canonicalZoneCache.get(key);
   if (cached) return cached;
   const canonical = canonicalTimeZone(zone);
-  if (canonical !== null) canonicalZoneCache.set(zone, canonical);
+  if (canonical !== null) canonicalZoneCache.set(key, canonical);
   return canonical;
 }
 

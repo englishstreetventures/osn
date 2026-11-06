@@ -112,6 +112,10 @@ export const ParsedEvent = Schema.Struct({
    * update rather than remove+create.
    */
   id: Schema.optional(Schema.String),
+  // Name, Start, End and timezone are held to the cell cap here and no more.
+  // An editor save is held to their rules only where it changes one or adds an
+  // event (`refusedEventFields`, applied by `diffAgainstDb`): only the diff
+  // sees the stored row a field may equal. The sheet door's parser checks them.
   name: BoundedText("name"),
   startAt: BoundedText("startAt"),
   /** Optional in the sheet; "" ⇒ no stated end (matches the DB's "" sentinel). */

@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
+import { guests } from "@cire/db";
+import { events as seedEvents } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
+import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -130,14 +133,28 @@ describe("Turnstile is NOT enforced on /api/rsvp — claimed guests are already 
     const verifier = stubVerifier(true);
     const sessionCookie = await claimSession(verifier);
     const callsAfterClaim = verifier.calls.length;
+    // Ada is the household's only member and is invited to the Hindu ceremony.
+    const [ada] = db
+      .select({ id: guests.id })
+      .from(guests)
+      .where(eq(guests.firstName, "Ada"))
+      .all();
     const app = appWith(verifier);
     const res = await app.fetch(
       new Request("http://localhost/api/rsvp", {
         method: "POST",
         headers: headers({ Cookie: sessionCookie }),
-        // No turnstileToken. An empty batch is a valid no-op RSVP and must reach
-        // the handler (200) — proving RSVP is not behind the Turnstile gate.
-        body: JSON.stringify({ rsvps: [] }),
+        // No turnstileToken. A real one-reply batch must reach the handler and
+        // save (200) — proving RSVP is not behind the Turnstile gate.
+        body: JSON.stringify({
+          rsvps: [
+            {
+              guestId: ada!.id,
+              eventId: seedEvents.hindu.id,
+              status: "attending",
+            },
+          ],
+        }),
       }),
     );
     expect(res.status).toBe(200);

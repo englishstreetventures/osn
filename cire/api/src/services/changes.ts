@@ -376,6 +376,50 @@ export function headRevision(weddingId: string): Effect.Effect<string, never, Db
 }
 
 /**
+ * The wedding changed, or is changing, after a request read its head at
+ * `baseRevision`: its head is now `currentRevision`, or a change holds its
+ * claim. See {@link refuseUnlessMoved}.
+ */
+export class MovedSinceRead extends Data.TaggedError("MovedSinceRead")<{
+  readonly baseRevision: string;
+  readonly currentRevision: string;
+}> {}
+
+/**
+ * Fail with `refusal`, unless the wedding has moved since `baseRevision` —
+ * then with {@link MovedSinceRead}. For a refusal decided from rows read after
+ * the head was: the diff refuses an event field a save "changes" from the
+ * stored row, and a change that commits between the head read and the rows
+ * read makes a draft's value as loaded look like such a change. Then the draft
+ * is stale and its editor must reload, not fix a field nobody touched. Every
+ * writer of an event moves the head when it commits, and holds the claim while
+ * it writes, so a head still at `baseRevision` with no claim held means the
+ * rows read were the ones the draft was loaded from. Read only on the refusal
+ * path, so an accepted change pays nothing.
+ */
+export function refuseUnlessMoved<E>(
+  weddingId: string,
+  baseRevision: string,
+  refusal: E,
+): Effect.Effect<never, E | MovedSinceRead, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const [row] = yield* dbQuery(() =>
+      db
+        .select({ rev: weddings.changeRev, claim: weddings.changeClaim })
+        .from(weddings)
+        .where(eq(weddings.id, weddingId))
+        .all(),
+    );
+    const currentRevision = String(row?.rev ?? 0);
+    if (currentRevision !== baseRevision || (row?.claim ?? null) !== null) {
+      return yield* Effect.fail(new MovedSinceRead({ baseRevision, currentRevision }));
+    }
+    return yield* Effect.fail(refusal);
+  }).pipe(Effect.withSpan("cire.changes.refuseUnlessMoved"));
+}
+
+/**
  * The counter value a revision names, or `null` for a string no head ever
  * was. Strict, so `"01"` or `" 1"` can never alias a real head.
  */

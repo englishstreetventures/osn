@@ -37,6 +37,7 @@ import {
   recordStatements,
   setTier,
 } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -855,6 +856,22 @@ describe("an editor draft is bounded in events and households", () => {
     expect(atCap.status).toBe(200);
   });
 
+  it(`400s a guests save carrying more than ${MAX_EVENTS} events`, async () => {
+    const { app } = buildApp();
+    const schedule = Array.from({ length: MAX_EVENTS + 1 }, (_, i) => event(i));
+    const res = await editorPreview(app, {
+      desiredState: { events: schedule, families: [] },
+      scope: "guests",
+    });
+    expect(res.status).toBe(400);
+
+    const atCap = await editorPreview(app, {
+      desiredState: { events: schedule.slice(0, MAX_EVENTS), families: [] },
+      scope: "guests",
+    });
+    expect(atCap.status).toBe(200);
+  });
+
   it(`400s more than ${MAX_ROWS} households`, async () => {
     const { app } = buildApp();
     const households = Array.from({ length: MAX_ROWS + 1 }, (_, i) => ({
@@ -1460,6 +1477,474 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       const res = await editorPreview(app, { desiredState: body });
       expect(res.status).toBe(400);
       expect(db.select().from(imports).all()).toHaveLength(0);
+    });
+  });
+
+  // A schedule save stores its Start, End and timezone as sent, so a new event
+  // is held to what the sheet stores after its own checks: an instant whose
+  // text begins with its date, on a zone that resolves. A guests save writes no
+  // event, so an event it adds is held only to the name its attendance is
+  // linked by.
+  describe("an event's name, times and timezone", () => {
+    const event = desiredState.events[0]!;
+    const family = desiredState.families[0]!;
+    const withEvent = (patch: object) => ({ events: [{ ...event, ...patch }], families: [] });
+    const instant = "2026-11-14T15:00:00+11:00";
+
+    it.each([
+      ["a free-text start", { startAt: "1st Nov 2026" }],
+      ["a start of TBD", { startAt: "TBD" }],
+      ["a start with a date and no time", { startAt: "2026-11-01" }],
+      ["a start with a space before it", { startAt: ` ${instant}` }],
+      ["a start with a space after it", { startAt: `${instant} ` }],
+      ["a start with no offset", { startAt: "2026-11-14T15:00" }],
+      ["a start with seconds and no offset", { startAt: "2026-11-14T15:00:00" }],
+      [
+        "a start longer than a cell",
+        { startAt: `2026-11-14T15:00:00.${"1".repeat(10_000)}+11:00` },
+      ],
+      ["a start the clock does not have", { startAt: "2026-13-40T99:99+11:00" }],
+      ["a start with an offset of 24 hours", { startAt: "2026-11-14T15:00:00+24:00" }],
+      ["a start with an offset of 60 minutes", { startAt: "2026-11-14T15:00:00+10:60" }],
+      ["an end of TBD", { endAt: "TBD" }],
+      ["an end with a date and no time", { endAt: "2026-11-01" }],
+      ["an end of one space", { endAt: " " }],
+      ["an end with a space before it", { endAt: " 2026-11-14T17:00:00+11:00" }],
+      ["an end with no offset", { endAt: "2026-11-14T17:00" }],
+      ["a blank timezone", { timezone: "" }],
+      ["a timezone of spaces", { timezone: "  " }],
+      ["an abbreviation for a timezone", { timezone: "AEST" }],
+      ["a city for a timezone", { timezone: "Sydney" }],
+      ["a fixed offset for a timezone", { timezone: "+10:00" }],
+      ["a UTC offset for a timezone", { timezone: "UTC+10" }],
+      ["a blank name", { name: "" }],
+      ["a name of spaces", { name: "   " }],
+    ])("refuses %s, and stores nothing", async (_case, patch) => {
+      const { app, db } = buildApp();
+      const res = await editorPreview(app, { desiredState: withEvent(patch) });
+      expect(res.status).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+      expect(db.select().from(imports).all()).toHaveLength(0);
+    });
+
+    it.each([
+      ["a start with no seconds", { startAt: "2026-11-14T15:00+11:00" }],
+      ["an offset written without its colon", { startAt: "2026-11-14T15:00:00+1100" }],
+      ["a start in UTC", { startAt: "2026-11-14T04:00:00Z" }],
+      [
+        "a start west of UTC",
+        { startAt: "2026-11-14T15:00:00-05:00", timezone: "America/New_York" },
+      ],
+      ["an end", { endAt: "2026-11-14T17:00:00+11:00" }],
+      ["a timezone in other letter case", { timezone: "australia/sydney" }],
+      // An upload stores these too: it takes the download's `'` guard back off.
+      ["a name starting with a plus sign", { name: "+1 Drinks" }],
+      ["a name starting with an equals sign", { name: "=Emptyhouse" }],
+      ["a name of 10,000 characters", { name: "x".repeat(10_000) }],
+    ])("takes %s", async (_case, patch) => {
+      const { app } = buildApp();
+      const res = await editorPreview(app, { desiredState: withEvent(patch) });
+      expect(res.status).toBe(200);
+    });
+
+    it("refuses at apply a stored schedule change that no longer passes", async () => {
+      const { app, db, r2 } = buildApp();
+      const preview = await editorPreview(app, { desiredState: withEvent({}), scope: "events" });
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
+      const stored = JSON.parse(r2._store.get(row!.eventsR2Key)!) as {
+        events: Array<Record<string, unknown>>;
+      };
+      stored.events[0]!.startAt = "TBD";
+      await r2.put(row!.eventsR2Key, JSON.stringify(stored));
+
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(res.status).toBe(400);
+      expect(db.select().from(events).all()).toHaveLength(0);
+    });
+
+    it("takes a guests save whose event holds times and a zone it does not write", async () => {
+      const { app, db } = buildApp();
+      const draft = {
+        events: [{ ...event, startAt: "TBD", endAt: "soon", timezone: "AEST" }],
+        families: [{ ...family, guests: [{ ...family.guests[0]!, eventNames: [] }] }],
+      };
+      const preview = await editorPreview(app, { desiredState: draft, scope: "guests" });
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      const applied = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(applied.status).toBe(200);
+      expect(db.select().from(families).all()).toHaveLength(1);
+      expect(db.select().from(events).all()).toHaveLength(0);
+
+      // The same draft saved as a schedule change is refused.
+      const asSchedule = await editorPreview(app, { desiredState: draft, scope: "events" });
+      expect(asSchedule.status).toBe(400);
+    });
+
+    it("refuses a guests save carrying an event with no name", async () => {
+      const { app } = buildApp();
+      const logs = await captureLogs(async () => {
+        const res = await editorPreview(app, {
+          desiredState: { events: [{ ...event, name: "  " }], families: [] },
+          scope: "guests",
+        });
+        expect(res.status).toBe(400);
+      });
+      expect(logs).toContain("change refused: an event field fails its rule");
+      expect(logs).toContain('"fields":"name"');
+    });
+
+    // A guests save holds these to the cell cap alone, so the cap is the
+    // whole check: at it the save is taken, one character over it refused.
+    it.each([["startAt"], ["endAt"], ["timezone"]])(
+      "holds a guests save's event %s to the cell cap",
+      async (field) => {
+        const { app, db } = buildApp();
+        const guestsSave = async (value: string) =>
+          editorPreview(app, {
+            desiredState: { events: [{ ...event, [field]: value }], families: [] },
+            scope: "guests",
+          });
+        expect((await guestsSave("x".repeat(10_001))).status).toBe(400);
+        expect(db.select().from(imports).all()).toHaveLength(0);
+        expect((await guestsSave("x".repeat(10_000))).status).toBe(200);
+      },
+    );
+  });
+
+  // A row stored before these checks can hold values they refuse. A save holds
+  // only the fields it changes, and the events it adds, to them: a field equal
+  // to the one stored on the same event is taken as stored. So such a row never
+  // keeps its wedding's editors from saving, and is fixed when someone edits it.
+  describe("an event stored before these checks", () => {
+    const LEGACY = {
+      name: "",
+      startAt: "2026-09-18T16:00",
+      endAt: "2026-09-18T22:00",
+      timezone: "AEST",
+    };
+
+    /** The two-event wedding, its Mehndi row rewritten to `LEGACY` behind the
+     *  pipeline's back, as a row saved before the checks would be. */
+    async function legacyWedding() {
+      const built = buildApp();
+      await seedSheets(built.app);
+      const [mehndi] = built.db.select().from(events).where(eq(events.name, "Mehndi")).all();
+      built.db.update(events).set(LEGACY).where(eq(events.id, mehndi!.id)).run();
+      return { ...built, legacyId: mehndi!.id };
+    }
+
+    /** An events-editor save: the schedule only, no households. */
+    function scheduleSave(app: ReturnType<typeof buildApp>["app"], draftEvents: object[]) {
+      return editorPreview(app, {
+        desiredState: { events: draftEvents, families: [] },
+        scope: "events",
+      });
+    }
+
+    function storedRow(db: ReturnType<typeof buildApp>["db"], id: string) {
+      const [row] = db
+        .select({
+          name: events.name,
+          startAt: events.startAt,
+          endAt: events.endAt,
+          timezone: events.timezone,
+          dressCodeDescription: events.dressCodeDescription,
+          address: events.address,
+        })
+        .from(events)
+        .where(eq(events.id, id))
+        .all();
+      return row!;
+    }
+
+    it("saves an edit to another of its fields, and keeps the values it had", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      const legacy = draft.events.find((e) => e.id === legacyId)!;
+      legacy.dressCodeDescription = "Bright colours";
+
+      await applyChange(app, await scheduleSave(app, draft.events));
+      expect(storedRow(db, legacyId)).toMatchObject({
+        ...LEGACY,
+        dressCodeDescription: "Bright colours",
+      });
+    });
+
+    it("saves an edit to another event", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      const other = draft.events.find((e) => e.id !== legacyId)!;
+      other.address = "1 Garden Lane";
+
+      await applyChange(app, await scheduleSave(app, draft.events));
+      expect(storedRow(db, other.id).address).toBe("1 Garden Lane");
+      expect(storedRow(db, legacyId)).toMatchObject(LEGACY);
+    });
+
+    it("saves the guest list", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      draft.families[0]!.guests[0]!.lastName = "Renamed";
+
+      await applyChange(app, await editorPreview(app, { desiredState: draft, scope: "guests" }));
+      expect(db.select().from(guests).where(eq(guests.lastName, "Renamed")).all()).toHaveLength(1);
+      expect(storedRow(db, legacyId)).toMatchObject(LEGACY);
+    });
+
+    it.each([
+      ["its Start, to another time with no offset", { startAt: "2026-09-18T17:00" }],
+      ["its End, to free text", { endAt: "late" }],
+      ["its blank name, to spaces", { name: "   " }],
+      ["its zone, to another zone that does not resolve", { timezone: "Sydney" }],
+    ])("refuses a change to %s, and stores nothing", async (_case, patch) => {
+      const { app, db, r2, legacyId } = await legacyWedding();
+      const changesBefore = db.select().from(imports).all().length;
+      const objectsBefore = r2._store.size;
+      const draft = draftFromDb(db);
+      Object.assign(
+        draft.events.find((e) => e.id === legacyId)!,
+        patch,
+      );
+
+      const res = await scheduleSave(app, draft.events);
+      expect(res.status).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+      expect(db.select().from(imports).all()).toHaveLength(changesBefore);
+      expect(r2._store.size).toBe(objectsBefore);
+      expect(storedRow(db, legacyId)).toMatchObject(LEGACY);
+    });
+
+    it.each([
+      [
+        "its Start, with a zone that resolves",
+        { startAt: "2026-09-18T16:00:00+10:00", timezone: "Australia/Brisbane" },
+      ],
+      [
+        "its End, with a zone that resolves",
+        { endAt: "2026-09-18T22:00:00+10:00", timezone: "Australia/Brisbane" },
+      ],
+      ["its End, by clearing it", { endAt: "" }],
+      ["its name", { name: "Mehndi" }],
+      ["its zone", { timezone: "Australia/Sydney" }],
+    ])("saves a fix to %s, and keeps the rest as stored", async (_case, patch) => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      Object.assign(
+        draft.events.find((e) => e.id === legacyId)!,
+        patch,
+      );
+
+      await applyChange(app, await scheduleSave(app, draft.events));
+      expect(storedRow(db, legacyId)).toMatchObject({ ...LEGACY, ...patch });
+    });
+
+    // A time's offset comes from its zone. On a zone that does not resolve the
+    // portal can only keep the stored offset or guess one, so a time the save
+    // sets holds the zone, though the zone itself is left as stored.
+    it.each([
+      ["its Start", { startAt: "2026-09-18T16:00:00+10:00" }],
+      ["its End", { endAt: "2026-09-18T22:00:00+00:00" }],
+    ])("refuses a fix to %s while its zone does not resolve", async (_case, patch) => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      Object.assign(
+        draft.events.find((e) => e.id === legacyId)!,
+        patch,
+      );
+
+      const res = await scheduleSave(app, draft.events);
+      expect(res.status).toBe(400);
+      expect(storedRow(db, legacyId)).toMatchObject(LEGACY);
+    });
+
+    it("tells a stale draft to reload before it refuses a field the draft changed", async () => {
+      // The other event is deleted behind the pipeline, so the draft's id for
+      // it resolves to nothing: the draft is stale, and that is what it hears.
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      Object.assign(
+        draft.events.find((e) => e.id === legacyId)!,
+        { name: "   " },
+      );
+      db.delete(events).where(eq(events.name, "Reception")).run();
+
+      const res = await scheduleSave(app, draft.events);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
+    });
+
+    // The stored values count only for the row they are stored on.
+    it.each([
+      ["no name", { name: "" }],
+      ["a Start with no offset", { startAt: LEGACY.startAt }],
+      ["an End with no offset", { endAt: LEGACY.endAt }],
+      ["a zone that does not resolve", { timezone: LEGACY.timezone }],
+    ])("refuses a new event with %s, though a stored one holds it", async (_case, patch) => {
+      const { app, db } = await legacyWedding();
+      const draft = draftFromDb(db);
+      const added = {
+        ...draft.events.find((e) => e.name === "Reception")!,
+        id: undefined,
+        name: "Sangeet",
+        sortOrder: draft.events.length,
+        ...patch,
+      };
+
+      const res = await scheduleSave(app, [...draft.events, added]);
+      expect(res.status).toBe(400);
+    });
+
+    it("refuses a second event claiming its id with the values it holds", async () => {
+      // The diff matches a stored row once; the second claim on it is a new
+      // event, held to every check.
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      const legacy = draft.events.find((e) => e.id === legacyId)!;
+      const copy = { ...legacy, name: "Mehndi again", sortOrder: draft.events.length };
+
+      const res = await scheduleSave(app, [...draft.events, copy]);
+      expect(res.status).toBe(400);
+    });
+
+    it("refuses at apply a stored draft changed to a value the checks refuse", async () => {
+      const { app, db, r2, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      draft.events.find((e) => e.id === legacyId)!.dressCodeDescription = "Bright colours";
+      const preview = await scheduleSave(app, draft.events);
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
+      const stored = JSON.parse(r2._store.get(row!.eventsR2Key)!) as {
+        events: Array<Record<string, unknown>>;
+      };
+      stored.events.find((e) => e.id === legacyId)!.startAt = "2026-09-18T17:00";
+      await r2.put(row!.eventsR2Key, JSON.stringify(stored));
+
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(res.status).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+      expect(storedRow(db, legacyId)).toMatchObject({ ...LEGACY, dressCodeDescription: "Bright" });
+    });
+
+    it("saves a new event beside it, and logs a refusal by field name only", async () => {
+      const { app, db } = await legacyWedding();
+      const draft = draftFromDb(db);
+      const reception = draft.events.find((e) => e.name === "Reception")!;
+      const added = {
+        ...reception,
+        id: undefined,
+        name: "Sangeet",
+        sortOrder: draft.events.length,
+      };
+      await applyChange(app, await scheduleSave(app, [...draft.events, added]));
+      expect(db.select().from(events).where(eq(events.name, "Sangeet")).all()).toHaveLength(1);
+
+      const logs = await captureLogs(async () => {
+        const bad = { ...added, name: "Haldi", startAt: "Saturday at four", timezone: "AEST" };
+        const res = await scheduleSave(app, [...draftFromDb(db).events, bad]);
+        expect(res.status).toBe(400);
+      });
+      expect(logs).toContain("change refused: an event field fails its rule");
+      expect(logs).toContain("startAt,timezone");
+      expect(logs).not.toContain("Saturday at four");
+      expect(logs).not.toContain("AEST");
+    });
+
+    /** Fix the legacy row and move the head, as another change committing would. */
+    function commitFixBehind(db: ReturnType<typeof buildApp>["db"], legacyId: string) {
+      db.update(events)
+        .set({ startAt: "2026-09-18T16:00:00+10:00" })
+        .where(eq(events.id, legacyId))
+        .run();
+      const [wedding] = db
+        .select({ rev: weddings.changeRev })
+        .from(weddings)
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .all();
+      db.update(weddings)
+        .set({ changeRev: wedding!.rev + 1 })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+    }
+
+    // A change that commits after the request read the head, and before the
+    // diff read the rows, makes the draft's value as loaded read as a change.
+    it("tells the editor to reload when another change lands between the head read and the rows read", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      beforeStatement(db, / from "events" /, () => commitFixBehind(db, legacyId));
+
+      const res = await scheduleSave(app, draft.events);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
+    });
+
+    it("answers head_moved at apply when another change lands before its rows read", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      draft.events.find((e) => e.id === legacyId)!.dressCodeDescription = "Bright colours";
+      const preview = await scheduleSave(app, draft.events);
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      beforeStatement(db, / from "events" /, () => commitFixBehind(db, legacyId));
+
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as {
+        reason: string;
+        baseRevision: string;
+        currentRevision: string;
+      };
+      expect(body.reason).toBe("head_moved");
+      expect(Number(body.currentRevision)).toBe(Number(body.baseRevision) + 1);
+    });
+
+    it("tells the editor to reload when another change holds the wedding as the rows are read", async () => {
+      // A change mid-write holds the claim and has not moved the head yet.
+      const { app, db, legacyId } = await legacyWedding();
+      const draft = draftFromDb(db);
+      beforeStatement(db, / from "events" /, () => {
+        db.update(events)
+          .set({ startAt: "2026-09-18T16:00:00+10:00" })
+          .where(eq(events.id, legacyId))
+          .run();
+        db.update(weddings)
+          .set({ changeClaim: "another-change", changeClaimedAt: Date.now() })
+          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+          .run();
+      });
+
+      const res = await scheduleSave(app, draft.events);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe("stale_draft");
+    });
+
+    it("answers head_moved before it holds a field, when another save fixed the row first", async () => {
+      const { app, db, legacyId } = await legacyWedding();
+      const first = draftFromDb(db);
+      first.events.find((e) => e.id === legacyId)!.dressCodeDescription = "Bright colours";
+      const pending = await scheduleSave(app, first.events);
+      expect(pending.status).toBe(200);
+      const { changeId } = (await pending.json()) as { changeId: string };
+
+      const second = draftFromDb(db);
+      Object.assign(
+        second.events.find((e) => e.id === legacyId)!,
+        {
+          startAt: "2026-09-18T16:00:00+10:00",
+          timezone: "Australia/Brisbane",
+        },
+      );
+      await applyChange(app, await scheduleSave(app, second.events));
+
+      // The first draft's Start and zone now differ from the row, and are ones
+      // the checks refuse; the head check answers first.
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { reason: string }).reason).toBe("head_moved");
     });
   });
 

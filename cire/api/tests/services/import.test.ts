@@ -23,6 +23,7 @@ import { hostCodeService } from "../../src/services/host-code";
 import {
   applyImport,
   diffAgainstDb,
+  InvalidEventFields,
   mintEventSlug,
   mintUniqueEventSlug,
   StaleDesiredState,
@@ -1037,7 +1038,7 @@ function planCreatingNGuests(
   db: ReturnType<typeof createDb>,
   n: number,
   weddingId = BOOTSTRAP_WEDDING_ID,
-): Effect.Effect<ImportPlan, StaleDesiredState, never> {
+): Effect.Effect<ImportPlan, StaleDesiredState | InvalidEventFields, never> {
   return Effect.gen(function* () {
     // One family, N guests, no events.
     const parsedFamily: ParsedFamily = {

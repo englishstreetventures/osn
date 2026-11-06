@@ -41,12 +41,13 @@ import {
   isHttpUrl,
   isIsoTimestamp,
   isPaletteColorSafe,
+  isStoredTimestamp,
   MAX_CELL_LENGTH,
   normaliseName,
 } from "./guest-validation";
 import type { OrganiserGuestRow } from "./guests-store";
 import type { OrganiserHouseholdRow } from "./households-store";
-import { browserTimeZone } from "./timezones";
+import { browserTimeZone, isKnownTimeZone } from "./timezones";
 
 // ── Draft row shapes ─────────────────────────────────────────────────────────
 //
@@ -373,6 +374,8 @@ export function toDesiredState(
   const events: WireEvent[] = draft.events.map((e) => {
     const wire: WireEvent = {
       name: e.name,
+      // As held, never tidied: the API takes a value equal to the stored one
+      // as stored, so an unchanged Start or End must reach it byte for byte.
       startAt: e.startAt,
       endAt: e.endAt,
       timezone: e.timezone,
@@ -734,14 +737,26 @@ export interface FieldError {
    *  it is about: the drawer shows it under that field, not above the form. */
   item?: string;
   field?: "time" | "label";
+  /** An error on a name, Start, End or timezone the save would send as it is
+   *  stored. The API takes such a value as stored, so it is shown and never
+   *  keeps Save shut ({@link validateDraft}). */
+  stored?: true;
 }
 
 /**
  * Field-level validation mirroring the server's rules (§6 "Client mirror") for
- * inline feedback — the server stays authoritative. Blocks Save when non-empty:
+ * inline feedback — the server stays authoritative. Every error not marked
+ * `stored` blocks Save:
  *  Events —
  *   - a non-blank Event Name / Start / Timezone (the hard requirements);
- *   - Start (and End, when present) an ISO-8601-with-offset timestamp;
+ *   - Start (and End, when present) a date and time with a UTC offset
+ *     (`isStoredTimestamp`, the API's `isEventInstant`);
+ *   - a timezone the API resolves (checked here with this browser's `Intl`);
+ *   The four rules above hold a value the save sets. One left as it was loaded
+ *   for the same event (`baseline`, matched by id) is reported `stored`, as the
+ *   API takes it, except the zone of an event whose Start or End the save
+ *   sets: the drawer stamps that time's offset from the zone. With no
+ *   baseline, every event is new.
  *   - http(s)-only Pinterest / Maps URLs;
  *   - each palette swatch a non-blank name + a colour on the theme allow-list;
  *   - name/field length bounds;
@@ -758,15 +773,31 @@ export interface FieldError {
  * Empty-household is a WARNING server-side (not blocking), so it's not returned
  * here as a hard error.
  */
-export function validateDraft(draft: DraftState): FieldError[] {
+export function validateDraft(draft: DraftState, baseline?: DraftState): FieldError[] {
   const errors: FieldError[] = [];
   const tooLong = (s: string) => s.length > MAX_CELL_LENGTH;
+  const loadedById = new Map(
+    (baseline?.events ?? []).filter((e) => e.id !== null).map((e) => [e.id!, e]),
+  );
 
   // ── Events ──
   const seenEventName = new Map<string, string>();
   for (const evt of draft.events) {
+    const loaded = evt.id === null ? undefined : loadedById.get(evt.id);
+    const kept = (field: "name" | "startAt" | "endAt" | "timezone") =>
+      loaded !== undefined && evt[field] === loaded[field];
+    const setsTime = !kept("startAt") || (!kept("endAt") && evt.endAt !== "");
+    /** An error on one of the four held fields: `stored` while the save
+     *  leaves the field as loaded (and, for the zone, sets no time). */
+    const held = (field: "name" | "startAt" | "endAt" | "timezone", message: string) =>
+      errors.push({
+        key: evt.key,
+        message,
+        ...(kept(field) && !(field === "timezone" && setsTime) && { stored: true as const }),
+      });
+
     if (isBlankName(evt.name)) {
-      errors.push({ key: evt.key, message: "Event name is required." });
+      held("name", "Event name is required.");
     } else {
       if (tooLong(evt.name)) {
         errors.push({ key: evt.key, message: "Event name is too long." });
@@ -783,24 +814,34 @@ export function validateDraft(draft: DraftState): FieldError[] {
     // time yet — see `event-datetime.ts`). Still an error, so Save stays shut
     // and nothing invents a midnight, but named precisely: the organiser is one
     // field away, and "not a valid date and time" doesn't say which one.
+    //
+    // A value with a readable wall clock but no usable offset can only be a
+    // stored one: the drawer always writes an offset. Entering the time again
+    // stamps the zone's.
     if (isBlankName(evt.startAt)) {
-      errors.push({ key: evt.key, message: "Start date & time is required." });
+      held("startAt", "Start date & time is required.");
     } else if (isDateOnly(evt.startAt)) {
-      errors.push({ key: evt.key, message: "Start time is required." });
+      held("startAt", "Start time is required.");
     } else if (!isIsoTimestamp(evt.startAt)) {
-      errors.push({ key: evt.key, message: "Start must be a valid date and time." });
+      held("startAt", "Start must be a valid date and time.");
+    } else if (!isStoredTimestamp(evt.startAt)) {
+      held("startAt", "Re-enter the start time.");
     }
     // End is optional ("" ⇒ open-ended); only shape-check a present value.
     if (isDateOnly(evt.endAt)) {
-      errors.push({ key: evt.key, message: "End time is required." });
-    } else if (evt.endAt.trim().length > 0 && !isIsoTimestamp(evt.endAt)) {
-      errors.push({ key: evt.key, message: "End must be a valid date and time." });
+      held("endAt", "End time is required.");
+    } else if (evt.endAt.length > 0 && !isIsoTimestamp(evt.endAt)) {
+      held("endAt", "End must be a valid date and time.");
+    } else if (evt.endAt.length > 0 && !isStoredTimestamp(evt.endAt)) {
+      held("endAt", "Re-enter the end time.");
     }
 
     if (isBlankName(evt.timezone)) {
-      errors.push({ key: evt.key, message: "Timezone is required." });
+      held("timezone", "Timezone is required.");
     } else if (tooLong(evt.timezone)) {
       errors.push({ key: evt.key, message: "Timezone is too long." });
+    } else if (!isKnownTimeZone(evt.timezone)) {
+      held("timezone", "Choose a timezone from the list.");
     }
 
     if (evt.venueName && tooLong(evt.venueName)) {
@@ -929,6 +970,9 @@ interface GuestEventDraft {
   readonly dirty: () => boolean;
   /** Field-level validation errors (empty ⇒ Save allowed). */
   readonly errors: () => FieldError[];
+  /** Errors on values the save sends as stored, which the API takes as stored:
+   *  shown so they can be fixed, never a reason to keep Save shut. */
+  readonly storedErrors: () => FieldError[];
   /** Non-blocking warnings (empty ⇒ nothing to nudge). */
   readonly warnings: () => string[];
   /** True when at least one undo step is available. */
@@ -1028,7 +1072,9 @@ export function createGuestEventDraft(): GuestEventDraft {
   const fingerprint = (d: DraftState) => JSON.stringify(toDesiredState(d));
 
   const dirty = createMemo(() => loaded() && fingerprint(draft) !== baseline());
-  const errors = createMemo(() => (loaded() ? validateDraft(draft) : []));
+  const fieldErrors = createMemo(() => (loaded() ? validateDraft(draft, baselineDraft()) : []));
+  const errors = createMemo(() => fieldErrors().filter((e) => e.stored !== true));
+  const storedErrors = createMemo(() => fieldErrors().filter((e) => e.stored === true));
   const warnings = createMemo(() => (loaded() ? draftWarnings(draft) : []));
   const canUndo = () => undoStack().length > 0;
 
@@ -1315,6 +1361,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     loaded,
     dirty,
     errors,
+    storedErrors,
     warnings,
     canUndo,
     load,
