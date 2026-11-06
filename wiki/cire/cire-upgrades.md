@@ -283,6 +283,7 @@ It refunds instead, in this order of reasons, logged at error as
 | --- | --- |
 | `no_tier` | The product maps to no tier (a legacy row) |
 | `wedding_not_live` | The wedding is soft-deleted, or gone |
+| `unknown_tier` | The wedding's tier is a value no build knows (only hand-written SQL makes one), which the grant cannot raise from |
 | `not_from_tier` | The purchase was priced as an upgrade from a tier (the from-Gold Crimson Price, the difference between the tiers) and an operator has since lowered the wedding below it. Granting would sell the whole tier at the difference's price. The owner's call |
 | `already_held` | The wedding already holds the tier or above, raised by something other than this purchase (an operator's comp, or an unlock code once the checkout's 24 hours had passed). A wedding this purchase raised itself (`tier_granted_by = 'stripe:<id>'`) is a grant whose status flip never landed, and settles as a grant |
 
@@ -341,7 +342,8 @@ refund, under one idempotency key per purchase, `cire-upgrade-refund-<id>`:
 | `charge_already_refunded`, no refund names it | `refunded` (a person did it) | `refunded` |
 | `charge_disputed`, or no payment intent to refund | `refund_failed`: the dispute decides the money, or there is none to find | `refund_failed` |
 | An in-progress idempotency `409` | stays `refunding`, warning (`upgrade refund in progress elsewhere`) | `refunding` |
-| Any other refusal, or Stripe unreachable | stays `refunding`, `upgrade refund failed` at error with Stripe's code | `refund_failed` |
+| No answer: Stripe unreachable, a timeout, a body nobody could read | stays `refunding`, `upgrade refund failed` at error; a refund may exist at Stripe, so this never counts towards the give-up | `refunding` |
+| Any other refusal Stripe answered | stays `refunding`, `upgrade refund failed` at error with Stripe's code | `refund_failed` |
 
 The webhook answers **200** to a refused refund. Stripe keeps a refusal under
 its idempotency key for at least a day and replays it, so a redelivery would
@@ -349,8 +351,10 @@ only repeat it and count against the endpoint until Stripe disabled it. The
 next fresh attempt comes from the daily reconciliation, a day or two later.
 
 A refund Stripe accepted can still fail at the bank — a closed card. Stripe
-sends `refund.failed`; when its refund id is the one the row recorded, the row
-moves `auto_refunded` → `refund_failed`. Either way, and also when no row holds
+sends `refund.failed`; when its refund id is the one the row recorded, or the
+row is still `refunding` with none recorded (cire's call timed out after Stripe
+took it), the row moves to `refund_failed` with that id, and the refund's own
+late success never overwrites it. Either way, and also when no row holds
 it any more (the purge took a deleted wedding), it is logged at error as
 `upgrade refund failed at the bank` and counted. The money is back in cire's
 balance, and a person has to return it.
@@ -363,17 +367,22 @@ the platform webhook's secret: a refund cire owes is asked for even where
 upgrades are no longer sold. Each run reads at most `RECONCILE_PER_RUN` (2)
 rows, least recently moved first (index `(status, updated_at)`):
 
-- a **`refunding`** row: the refund is tried again. One still refused 13 days
-  after the purchase (`REFUND_GIVE_UP_MS`) moves to `refund_failed`, logged
-  `upgrade refund given up; a person must return the money`, and the daily
-  asking stops;
+- a **`refunding`** row: the refund is tried again. One Stripe still refuses
+  13 days after the purchase (`REFUND_GIVE_UP_MS`) moves to `refund_failed`,
+  logged `upgrade refund given up; a person must return the money`, and the
+  daily asking stops. One whose call went unanswered, or that another
+  delivery is still making, is never given up on. A refund Stripe accepted
+  after a give-up still lands as `auto_refunded`;
 - a **`pending`** row whose session is older than a day: its session is read
   from Stripe, with the charge. Paid → settled exactly as the webhook would
-  (grant, or refund). Paid and already refunded in the dashboard → `refunded`,
-  never a grant. Stripe's own `expired` → closed `expired`. Anything else stays.
+  (grant, or refund). Paid and already refunded in full in the dashboard →
+  `refunded`, never a grant; a part refund still grants. Stripe's own
+  `expired` → closed `expired`. Anything else stays.
 
 Every row read is moved to the back (`updated_at`), so one that keeps failing
-cannot hold every run's places. This is what makes a storage error that
+cannot hold every run's places. Each run also counts the `refund_failed`
+purchases and, while there are any, logs `upgrade refunds waiting for a person`
+at error with the count. This is what makes a storage error that
 outlasts Stripe's retries end in a grant rather than a payment for nothing.
 
 #### For a person
@@ -382,8 +391,9 @@ A `refund_failed` purchase is money cire owes. Return it from the Stripe
 dashboard (the refund or the PaymentIntent names the purchase in its metadata),
 then mark the row so nothing asks again and the purge may take a deleted
 wedding: an operator-authorised production D1 write, `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at =
-unixepoch() WHERE id = '<purchase id>' AND status IN ('refunding',
-'refund_failed');`.
+unixepoch() WHERE id = '<purchase id>' AND status = 'refund_failed';`. Never
+on a `refunding` row: cire is still asking Stripe for that refund, and one
+that lands after a refund by hand pays the buyer twice.
 
 Card-only sessions (`payment_method_types=[card]`) mean none can complete
 unpaid, so `async_payment_succeeded` is deliberately not handled. The unpaid
@@ -474,7 +484,7 @@ It is written at **settle**, not at deletion: a sale must exist whether or not t
 > [!caution]
 > The row is **pseudonymous, not anonymous**. `settled_at` is the same moment the purchase row settles and the tier is raised, and the amount and product repeat the purchase row, so while that row exists the join is exact — and afterwards it stays linkable through Stripe's own retained session. See `wiki/compliance/data-map.md` and `wiki/compliance/retention.md`.
 
-A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending`, up to 14 days from its creation (`PURGE_PENDING_HOLD_S`), and while one is `refunding` or `refund_failed`, however old: the purchase row is the only record cire keeps of money it owes back, and the cascade would delete it. That hold ends when the refund lands or a person marks the purchase `refunded`. An upgrade paid for a soft-deleted wedding is refunded, never granted.
+A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending`, up to 14 days from its creation (`PURGE_PENDING_HOLD_S`), and while one is `refunding` or `refund_failed`, however old: the purchase row is the only record cire keeps of money it owes back, and the cascade would delete it. That hold ends when the refund lands or a person marks the purchase `refunded`. An `auto_refunded` purchase holds for 30 days after its refund was recorded (`AUTO_REFUND_HOLD_S`), while the bank can still return it. Two triggers (`wedding_upgrade_purchases_status_known`) refuse any `status` outside the set, so a hand-written typo cannot slip past the purge or the reconciliation. An upgrade paid for a soft-deleted wedding is refunded, never granted.
 
 Refunds do not lower a tier on their own; an operator lowers it with
 `grant-tier.ts --lower` ([[cire-entitlements]]), whose printed SQL first marks

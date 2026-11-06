@@ -225,7 +225,7 @@ export interface PlatformSessionPayment {
   /** As Stripe sends it, lower-case. */
   currency: string | null;
   paymentIntentId: string | null;
-  /** Some of the charge has been refunded already — by a person, or by cire. */
+  /** The charge has been refunded in full already — by a person, or by cire. */
   refunded: boolean;
 }
 
@@ -687,7 +687,7 @@ export function createStripeClient(config: StripeConfig): StripeClient {
               : null;
           const charge =
             typeof intent?.latest_charge === "object" && intent.latest_charge !== null
-              ? (intent.latest_charge as { amount_refunded?: unknown; refunded?: unknown })
+              ? (intent.latest_charge as { refunded?: unknown })
               : null;
           return {
             status: "complete",
@@ -696,9 +696,8 @@ export function createStripeClient(config: StripeConfig): StripeClient {
               amountMinor: typeof paid.amount_total === "number" ? paid.amount_total : null,
               currency: text(paid.currency),
               paymentIntentId: intent ? text(intent.id) : text(paid.payment_intent),
-              refunded:
-                charge?.refunded === true ||
-                (typeof charge?.amount_refunded === "number" && charge.amount_refunded > 0),
+              // In full only: a part refund (goodwill, say) still bought the tier.
+              refunded: charge?.refunded === true,
             },
           };
         }),

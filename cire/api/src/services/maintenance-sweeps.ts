@@ -77,6 +77,15 @@ export const MAX_PURGES_PER_RUN = 3;
 export const PURGE_PENDING_HOLD_S = 14 * 24 * 60 * 60;
 
 /**
+ * How long an upgrade payment cire refunded automatically holds a past-window
+ * wedding back from the purge, from when the refund was recorded (SECONDS).
+ * A bank can return a card refund after Stripe accepted it, and the
+ * `refund.failed` that says so moves the purchase row, which the purge would
+ * otherwise have taken.
+ */
+export const AUTO_REFUND_HOLD_S = 30 * 24 * 60 * 60;
+
+/**
  * Why a past-window wedding is not purged yet: money that can still move, or a
  * change still writing. `wedding` is a bound id or the outer row's id
  * (`outerColumn`); `nowS` is SECONDS, `nowMs` MILLISECONDS. The statement must
@@ -86,10 +95,12 @@ export const PURGE_PENDING_HOLD_S = 14 * 24 * 60 * 60;
  * balance, and its close must find the row. So does an upgrade payment cire
  * still owes back — `refunding`, or `refund_failed` until a person resolves it
  * and marks it `refunded` — however old: the purchase row is the only record
- * cire keeps of that money, and the cascade would delete it.
+ * cire keeps of that money, and the cascade would delete it. An automatic
+ * refund Stripe accepted holds for {@link AUTO_REFUND_HOLD_S} after it was
+ * recorded, while the bank can still return it (`refund.failed`).
  */
 const purgeHeld = (wedding: SQL | string, nowS: number, nowMs: number): SQL =>
-  sql`(EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.weddingId} = ${wedding} AND (${weddingUpgradePurchases.status} IN ('refunding', 'refund_failed') OR (${weddingUpgradePurchases.status} = 'pending' AND ${weddingUpgradePurchases.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND (${registryContributions.status} = 'disputed' OR (${registryContributions.status} = 'pending' AND ${registryContributions.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR ${changeClaimLive(nowMs)})`;
+  sql`(EXISTS (SELECT 1 FROM ${weddingUpgradePurchases} WHERE ${weddingUpgradePurchases.weddingId} = ${wedding} AND (${weddingUpgradePurchases.status} IN ('refunding', 'refund_failed') OR (${weddingUpgradePurchases.status} = 'pending' AND ${weddingUpgradePurchases.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}) OR (${weddingUpgradePurchases.status} = 'auto_refunded' AND ${weddingUpgradePurchases.updatedAt} > ${nowS - AUTO_REFUND_HOLD_S}))) OR EXISTS (SELECT 1 FROM ${registryContributions} WHERE ${registryContributions.weddingId} = ${wedding} AND (${registryContributions.status} = 'disputed' OR (${registryContributions.status} = 'pending' AND ${registryContributions.createdAt} > ${nowS - PURGE_PENDING_HOLD_S}))) OR ${changeClaimLive(nowMs)})`;
 
 interface PurgeRunResult {
   purged: number;

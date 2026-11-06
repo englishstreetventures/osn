@@ -21,12 +21,14 @@ import { weddingUpgradePurchases, weddings, platformSales } from "@cire/db";
 import {
   and,
   asc,
+  count,
   eq,
   gt,
   inArray,
   isNotNull,
   isNull,
   lte,
+  not,
   notInArray,
   or,
   type SQL,
@@ -38,6 +40,7 @@ import { bound, commitBatchResults, type Db, DbService, dbQuery, driverErrorText
 import { metricUpgradeCheckoutStarted, metricUpgradePurchaseSettled } from "../metrics";
 import type { StripeClient } from "./stripe";
 import {
+  isTier,
   normaliseTier,
   PAID_TIERS,
   type PaidTier,
@@ -85,7 +88,12 @@ const OPEN_STATUSES = ["pending", "expired", "failed", "mismatch"] as const;
 const isOpen = (status: string): boolean => (OPEN_STATUSES as readonly string[]).includes(status);
 
 /** Why a paid checkout of ours cannot upgrade the wedding. */
-type RefundReason = "no_tier" | "wedding_not_live" | "not_from_tier" | "already_held";
+type RefundReason =
+  | "no_tier"
+  | "wedding_not_live"
+  | "unknown_tier"
+  | "not_from_tier"
+  | "already_held";
 
 /**
  * Whether a paid session of the row's own must be refunded rather than
@@ -115,6 +123,9 @@ function refundReason(
 ): RefundReason | null {
   if (tier === null) return "no_tier";
   if (!row.weddingLive) return "wedding_not_live";
+  // A tier no build knows — only hand-written SQL makes one — is one the grant
+  // statement cannot raise from, so the payment is given back.
+  if (!isTier(row.weddingTier)) return "unknown_tier";
   if (row.weddingGrantedBy === `stripe:${row.id}`) return null;
   const held = normaliseTier(row.weddingTier);
   if (row.fromTier !== null && !tierAtLeast(held, row.fromTier)) return "not_from_tier";
@@ -496,7 +507,13 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
       .from(weddingUpgradePurchases)
       .where(eq(weddingUpgradePurchases.id, purchaseId));
 
-  /** Move a `refunding` row on, and say whether this call moved it. */
+  /**
+   * Move a `refunding` row on, and say whether this call moved it. A refund
+   * Stripe accepted (`auto_refunded` with its id) also moves a row handed to a
+   * person that holds no refund id: the give-up can land while a refund that
+   * ran at Stripe is still on its way back, and that refund outranks it. A
+   * bank's failure keeps its refund id, so it is never overwritten here.
+   */
   const leaveRefunding = (
     db: Db,
     purchaseId: string,
@@ -509,7 +526,15 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         .where(
           and(
             eq(weddingUpgradePurchases.id, purchaseId),
-            eq(weddingUpgradePurchases.status, "refunding"),
+            set.status === "auto_refunded"
+              ? or(
+                  eq(weddingUpgradePurchases.status, "refunding"),
+                  and(
+                    eq(weddingUpgradePurchases.status, "refund_failed"),
+                    isNull(weddingUpgradePurchases.refundId),
+                  ),
+                )
+              : eq(weddingUpgradePurchases.status, "refunding"),
           ),
         )
         .returning({ id: weddingUpgradePurchases.id })
@@ -530,7 +555,11 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
    *
    * Two refusals no retry can change go to a person at once
    * (`refund_failed`): no payment to refund, and a disputed charge, whose money
-   * the dispute decides.
+   * the dispute decides. A call whose answer never arrived — Stripe
+   * unreachable, a timeout, a body nobody could read — and one another
+   * delivery is still making stay `refunding` (`"refunding"`), since a refund
+   * may exist at Stripe; only a refusal Stripe answered counts towards the
+   * reconciliation's give-up (`"refund_failed"`).
    */
   const refundPurchase = (
     db: Db,
@@ -544,15 +573,29 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
       ) =>
         Effect.gen(function* () {
           metricUpgradePurchaseSettled(purchase.label, "refund_failed");
+          const handed = final
+            ? yield* leaveRefunding(db, purchase.id, { status: "refund_failed" })
+            : false;
           // The code and status only: a Stripe message can quote the request.
           yield* Effect.logError("upgrade refund failed", {
             purchaseId: purchase.id,
             reason,
             ...fields,
-            handedToAPerson: final,
+            handedToAPerson: handed,
           });
-          if (final) yield* leaveRefunding(db, purchase.id, { status: "refund_failed" });
           return "refund_failed" as const;
+        });
+
+      /** No answer arrived, so a refund may exist at Stripe: ask again later. */
+      const unanswered = (reason: string) =>
+        Effect.gen(function* () {
+          metricUpgradePurchaseSettled(purchase.label, "refund_failed");
+          yield* Effect.logError("upgrade refund failed", {
+            purchaseId: purchase.id,
+            reason,
+            handedToAPerson: false,
+          });
+          return "refunding" as const;
         });
 
       if (purchase.paymentIntentId === null) return yield* refused("no payment intent", {}, true);
@@ -585,20 +628,18 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         const own = yield* Effect.result(
           deps.stripe.findPlatformRefund(paymentIntentId, purchase.id),
         );
-        if (own._tag === "Failure") {
-          return yield* refused(own.failure.reason, { code: own.failure.code }, false);
-        }
-        if (own.success !== null) {
-          yield* leaveRefunding(db, purchase.id, {
-            status: "auto_refunded",
-            refundId: own.success.id,
-          });
-          metricUpgradePurchaseSettled(purchase.label, "auto_refunded");
-          return "auto_refunded" as const;
-        }
-        yield* leaveRefunding(db, purchase.id, { status: "refunded" });
-        metricUpgradePurchaseSettled(purchase.label, "refunded");
-        return "refunded" as const;
+        if (own._tag === "Failure") return yield* unanswered(own.failure.reason);
+        const moved =
+          own.success !== null
+            ? yield* leaveRefunding(db, purchase.id, {
+                status: "auto_refunded",
+                refundId: own.success.id,
+              })
+            : yield* leaveRefunding(db, purchase.id, { status: "refunded" });
+        // Not moved: another delivery recorded it first.
+        const outcome = !moved ? "replayed" : own.success !== null ? "auto_refunded" : "refunded";
+        metricUpgradePurchaseSettled(purchase.label, outcome);
+        return outcome;
       }
       if (error.status === 409 && error.code?.startsWith("idempotency") === true) {
         // Another delivery's request under the same key is still running at
@@ -607,6 +648,9 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           purchaseId: purchase.id,
         });
         return "refunding" as const;
+      }
+      if (error.reason !== "rejected" && error.reason !== "unexpected refund payload") {
+        return yield* unanswered(error.reason);
       }
       return yield* refused(error.reason, fields, error.code === "charge_disputed");
     }).pipe(Effect.withSpan("cire.upgrade.refund"));
@@ -704,6 +748,10 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
                 // oxlint-disable-next-line house/no-unbounded-in-array -- OPEN_STATUSES is a four-member constant
                 inArray(weddingUpgradePurchases.status, [...OPEN_STATUSES]),
                 eq(weddingUpgradePurchases.checkoutSessionId, input.checkoutSessionId),
+                // The read's decision, held again here, as the grant's flip
+                // holds its own: a restore or a raise landing in between leaves
+                // the row open, and a fresh read grants it.
+                tier === null ? undefined : not(grantable(purchase, tier)),
               ),
             ),
           statusReadBack(db, row.id),
@@ -822,7 +870,14 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     Effect.gen(function* () {
       // Still open after a guarded write: the wedding moved between the read
       // and the batch. One fresh read decides again; there is no third.
-      if (status !== undefined && isOpen(status) && depth === 0) return yield* settle(input, 1);
+      if (status !== undefined && isOpen(status)) {
+        if (depth === 0) return yield* settle(input, 1);
+        yield* Effect.logError("upgrade settle could not decide", {
+          purchaseId: purchase.id,
+          status,
+        });
+        return "unknown" as const;
+      }
       switch (status) {
         case "succeeded":
           // A replay of a granted purchase stays a grant, whatever has
@@ -910,7 +965,10 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
           label: tierForProduct(row.product) ?? "unmapped",
           paymentIntentId: row.paymentIntentId,
         });
-        if (outcome !== "refund_failed" && outcome !== "refunding") return true;
+        // In progress elsewhere, or unanswered: a refund may exist at Stripe,
+        // and no timer outranks it.
+        if (outcome === "refunding") return false;
+        if (outcome !== "refund_failed") return true;
         if (now() - row.createdAt.getTime() < REFUND_GIVE_UP_MS) return false;
         // Asked long enough. A person returns the money before the purge may
         // take the deleted wedding this row belongs to.
@@ -1217,12 +1275,24 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         const changed = yield* dbQuery(() =>
           db
             .update(weddingUpgradePurchases)
-            .set({ status: "refund_failed", updatedAt: new Date(now()) })
+            .set({ status: "refund_failed", refundId: input.refundId, updatedAt: new Date(now()) })
             .where(
               and(
                 eq(weddingUpgradePurchases.id, input.purchaseId),
-                eq(weddingUpgradePurchases.status, "auto_refunded"),
-                eq(weddingUpgradePurchases.refundId, input.refundId),
+                or(
+                  and(
+                    eq(weddingUpgradePurchases.status, "auto_refunded"),
+                    eq(weddingUpgradePurchases.refundId, input.refundId),
+                  ),
+                  // A refund Stripe accepted while cire's call timed out, so
+                  // its id was never recorded. Only cire's own create call
+                  // names a purchase in a refund's metadata, and the row's
+                  // `refunding` guard then keeps the late success off it.
+                  and(
+                    eq(weddingUpgradePurchases.status, "refunding"),
+                    isNull(weddingUpgradePurchases.refundId),
+                  ),
+                ),
               ),
             )
             .returning({ product: weddingUpgradePurchases.entitlement })
@@ -1333,6 +1403,19 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               )
               .run(),
           );
+        }
+        // Every day a refund waits for a person, say so: the hand-over's own
+        // log line is one line, and the purge keeps the wedding until then.
+        const waiting = yield* dbQuery(() =>
+          db
+            .select({ n: count() })
+            .from(weddingUpgradePurchases)
+            .where(eq(weddingUpgradePurchases.status, "refund_failed"))
+            .all(),
+        );
+        const owed = waiting[0]?.n ?? 0;
+        if (owed > 0) {
+          yield* Effect.logError("upgrade refunds waiting for a person", { count: owed });
         }
         return { read: rows.length, failed };
       }).pipe(Effect.withSpan("cire.upgrade.reconcile"));

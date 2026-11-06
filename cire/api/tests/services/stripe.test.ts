@@ -510,13 +510,13 @@ describe("retrievePlatformCheckoutSession", () => {
    * still failing. The reconciliation must see that and record a refund, not
    * grant a tier for money already given back.
    */
-  it("says when some of a complete session's charge has been refunded, and asks for the charge", async () => {
+  it("says when a complete session's charge has been refunded in full, and asks for the charge", async () => {
     const { impl, calls } = stubFetch(() =>
       json({
         id: "cs_u1",
         status: "complete",
         payment_status: "paid",
-        payment_intent: { id: "pi_u1", latest_charge: { amount_refunded: 4900 } },
+        payment_intent: { id: "pi_u1", latest_charge: { amount_refunded: 4900, refunded: true } },
       }),
     );
     const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
@@ -558,6 +558,15 @@ describe("retrievePlatformCheckoutSession", () => {
       }),
     ).toMatchObject({ payment: { paymentIntentId: null, currency: null, refunded: false } });
     expect(await read({ id: "cs_u1" })).toEqual({ status: "expired", stripeStatus: null });
+    // Only a refund in full counts: a part refund still bought the tier.
+    expect(
+      await read({
+        id: "cs_u1",
+        status: "complete",
+        payment_status: "paid",
+        payment_intent: { id: "pi_u1", latest_charge: { amount_refunded: 500, refunded: false } },
+      }),
+    ).toMatchObject({ payment: { refunded: false } });
     // A charge Stripe marks refunded in full says so without an amount.
     expect(
       await read({

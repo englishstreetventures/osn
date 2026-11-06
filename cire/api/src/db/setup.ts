@@ -773,6 +773,16 @@ WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS (
 BEGIN
   SELECT RAISE(ABORT, 'seating table plan is not a plan of its event');
 END;
+CREATE TRIGGER IF NOT EXISTS wedding_upgrade_purchases_status_known BEFORE INSERT ON wedding_upgrade_purchases
+WHEN NEW.status NOT IN ('pending', 'succeeded', 'failed', 'expired', 'refunded', 'mismatch', 'refunding', 'auto_refunded', 'refund_failed')
+BEGIN
+  SELECT RAISE(ABORT, 'upgrade purchase status is not one cire writes');
+END;
+CREATE TRIGGER IF NOT EXISTS wedding_upgrade_purchases_status_known_update BEFORE UPDATE OF status ON wedding_upgrade_purchases
+WHEN NEW.status NOT IN ('pending', 'succeeded', 'failed', 'expired', 'refunded', 'mismatch', 'refunding', 'auto_refunded', 'refund_failed')
+BEGIN
+  SELECT RAISE(ABORT, 'upgrade purchase status is not one cire writes');
+END;
 CREATE TRIGGER IF NOT EXISTS vendors_status_stage BEFORE INSERT ON vendors
 WHEN NEW.status NOT IN ('researching', 'contacted', 'quoted', 'booked', 'declined')
 BEGIN
