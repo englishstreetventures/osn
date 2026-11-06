@@ -1,9 +1,12 @@
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
+import { Input } from "@shared/ui/ui/input";
+import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import {
   createMemo,
   createSignal,
+  createUniqueId,
   For,
   type JSX,
   Match,
@@ -75,7 +78,7 @@ type Candidates = readonly string[];
 
 export type ConfirmLinkPageProps = ConfirmLinkPageCommonProps &
   (
-    | { candidates: Candidates; initialOutcome?: undefined }
+    | { candidates: Candidates; initialOutcome?: undefined; typeNumber?: false }
     | {
         /**
          * Opens the page on an answer the host already has — a link opened
@@ -85,6 +88,17 @@ export type ConfirmLinkPageProps = ConfirmLinkPageCommonProps &
          */
         initialOutcome: ConfirmLinkOpening;
         candidates?: Candidates;
+        typeNumber?: false;
+      }
+    | {
+        /**
+         * Asks the person to type the number the waiting screen shows, in one
+         * field, instead of picking it: one to six digits, sent exactly as
+         * typed. The page draws no numbers in this mode.
+         */
+        typeNumber: true;
+        candidates?: never;
+        initialOutcome?: ConfirmLinkOpening;
       }
   );
 
@@ -97,6 +111,11 @@ const FEWEST_CANDIDATES = 3;
 const MOST_CANDIDATES = 5;
 
 const PICK_LINE = "Pick the number shown on the screen where you started.";
+
+const TYPE_LINE = "Type the number shown on the screen where you started.";
+
+/** What the field may hold while it is typed into: nothing, or up to six digits. */
+const DIGITS_SO_FAR = /^\d{0,6}$/;
 
 const ERROR_LINE = "We couldn't confirm this email just now.";
 
@@ -198,7 +217,12 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
   // Boxed, because `null` (the decline) is an attempt and `undefined` is none.
   const [attempt, setAttempt] = createSignal<{ pick: string | null }>();
 
+  const [entry, setEntry] = createSignal("");
+  const fieldId = createUniqueId();
+
   const usable = createMemo(() => offerable(props.candidates));
+
+  const typing = () => props.typeNumber === true;
 
   const opening = (): ConfirmLinkOpening | undefined =>
     props.initialOutcome === "confirmed" || props.initialOutcome === "expired"
@@ -211,7 +235,10 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
    */
   const view = (): Status => {
     if (status() !== "ready") return status();
-    return opening() ?? (usable() ? "ready" : "expired");
+    const open = opening();
+    if (open !== undefined) return open;
+    if (typing()) return "ready";
+    return usable() ? "ready" : "expired";
   };
 
   const declining = () => attempt()?.pick === null;
@@ -248,6 +275,32 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
     stopSlowTimer();
     setSlow(false);
     show(next);
+  }
+
+  function confirmTyped() {
+    if (isPairingCode(entry())) void send(entry());
+  }
+
+  /**
+   * Refuses an insertion that would leave anything but up to six digits in the
+   * field, so a stray keystroke or paste does nothing. What is already there is
+   * never changed, so the page sends exactly what was typed.
+   */
+  function refuseNonDigits(event: InputEvent & { currentTarget: HTMLInputElement }) {
+    if (!event.inputType.startsWith("insert")) return;
+    const input = event.currentTarget;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const inserted = event.data ?? event.dataTransfer?.getData("text/plain") ?? "";
+    const next = input.value.slice(0, start) + inserted + input.value.slice(end);
+    if (!DIGITS_SO_FAR.test(next)) event.preventDefault();
+  }
+
+  /** Enter confirms a valid entry, and never submits a form around the page. */
+  function enterConfirms(event: KeyboardEvent) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    confirmTyped();
   }
 
   function retry() {
@@ -313,6 +366,19 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
 
   const asking = () => view() === "ready" || view() === "confirming" || view() === "error";
 
+  const declineButton = () => (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      class="w-full max-md:h-11"
+      disabled={view() !== "ready"}
+      onClick={() => void send(null)}
+    >
+      {DECLINE_LABEL}
+    </Button>
+  );
+
   return (
     <Card padding="lg">
       <div class="font-ui-body flex flex-col gap-6">
@@ -346,43 +412,76 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
         </div>
 
         <Show when={asking()}>
-          <div class="flex flex-col gap-2">
-            {/* One column at every width: a number runs to six digits, and five
-                of them do not fit a row of the card. */}
-            <fieldset class="flex min-w-0 flex-col gap-2">
-              <legend class="text-ui-sm text-ui-ink-secondary leading-ui-snug mb-2">
-                {PICK_LINE}
-              </legend>
-              <For each={props.candidates}>
-                {(candidate) => (
+          <Show
+            when={typing()}
+            fallback={
+              <div class="flex flex-col gap-2">
+                {/* One column at every width: a number runs to six digits, and
+                    five of them do not fit a row of the card. */}
+                <fieldset class="flex min-w-0 flex-col gap-2">
+                  <legend class="text-ui-sm text-ui-ink-secondary leading-ui-snug mb-2">
+                    {PICK_LINE}
+                  </legend>
+                  <For each={props.candidates}>
+                    {(candidate) => (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        class="h-12 w-full"
+                        disabled={view() !== "ready"}
+                        onClick={() => void send(candidate)}
+                      >
+                        <span
+                          class="text-ui-xl text-ui-ink leading-ui-tight font-medium tabular-nums"
+                          translate="no"
+                        >
+                          {candidate}
+                        </span>
+                      </Button>
+                    )}
+                  </For>
+                </fieldset>
+                {declineButton()}
+              </div>
+            }
+          >
+            <div class="flex flex-col gap-4">
+              <div class="flex flex-col gap-2">
+                <Label for={fieldId} size="sm" tone="muted">
+                  <span class="leading-ui-snug block">{TYPE_LINE}</span>
+                </Label>
+                <Input
+                  id={fieldId}
+                  size="touch"
+                  face="code"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  spellcheck={false}
+                  maxlength="6"
+                  translate="no"
+                  value={entry()}
+                  disabled={view() !== "ready"}
+                  onBeforeInput={refuseNonDigits}
+                  onInput={(event) => setEntry(event.currentTarget.value)}
+                  onKeyDown={enterConfirms}
+                />
+              </div>
+              <div class="flex flex-col gap-2">
+                <Show when={view() !== "error"}>
                   <Button
                     type="button"
-                    variant="outline"
-                    class="h-12 w-full"
-                    disabled={view() !== "ready"}
-                    onClick={() => void send(candidate)}
+                    size="lg"
+                    class="w-full max-md:h-11"
+                    disabled={view() !== "ready" || !isPairingCode(entry())}
+                    onClick={confirmTyped}
                   >
-                    <span
-                      class="text-ui-xl text-ui-ink leading-ui-tight font-medium tabular-nums"
-                      translate="no"
-                    >
-                      {candidate}
-                    </span>
+                    Confirm
                   </Button>
-                )}
-              </For>
-            </fieldset>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              class="w-full max-md:h-11"
-              disabled={view() !== "ready"}
-              onClick={() => void send(null)}
-            >
-              {DECLINE_LABEL}
-            </Button>
-          </div>
+                </Show>
+                {declineButton()}
+              </div>
+            </div>
+          </Show>
         </Show>
 
         <Show when={view() === "confirming" || view() === "error" ? attempt() : undefined}>
@@ -398,7 +497,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
               >
                 {(pick) => (
                   <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
-                    You picked{" "}
+                    {typing() ? "You typed" : "You picked"}{" "}
                     <span class="text-ui-ink font-medium tabular-nums" translate="no">
                       {pick()}
                     </span>
