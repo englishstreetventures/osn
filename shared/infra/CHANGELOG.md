@@ -1,5 +1,17 @@
 # @shared/infra
 
+## 0.7.0
+
+### Minor Changes
+
+- aeab4d4: The production plan guard lets a flip release update the stack's other site Workers, as long as their custom domains are read and do not change. Every cire site build bakes the release commit, so those Workers update in nearly every release, and the old rule (the flip site's own update, every other line a noop) refused every cire flip.
+
+  In a flip release the guard now refuses: a flip site that does not update or whose Worker does not gain its production host; another site Worker updating while its custom domains were not read; any other site's custom-domain change, whatever its action; any other resource that is not a noop or a site Worker's update; and any binding change. `--flip` with `--unflip` is a usage error (exit 2). `DomainReading` gains `read`, the sites whose live hosts were read, and `GuardInput` gains `sites` and `domains`.
+
+### Patch Changes
+
+- d3b719a: Cire vendor serves from its Worker: `PRODUCTION_SITE_MODES.cire_vendor` is `worker`, so the cire production stack declares `vendor.cireweddings.com` on the `cire-vendor` Worker and the release workflow records the site with `record-cire-vendor` in place of its Pages job. The domain moves in a release dispatched with `flip: cire_vendor`. Until then every release whose surfaces name a cire site or are empty, the daily run included, ships the cire stack and fails its precheck, which stops every job of that release.
+
 ## 0.6.9
 
 ### Patch Changes
