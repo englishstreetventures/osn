@@ -37,9 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@shared/ui/ui/tabs";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { Tooltip } from "@shared/ui/ui/tooltip";
 import { UsernameInput } from "@shared/ui/ui/username-input";
-import { createMemo, createSignal, type JSX } from "solid-js";
-
-import { themeVersion } from "../design-system/measure.ts";
+import { createSignal, type JSX } from "solid-js";
 
 export const meta = { title: "shared/ui", layout: "padded" as const };
 
@@ -71,10 +69,6 @@ export const Everything = () => {
   const [handle, setHandle] = createSignal("ada");
   const [code, setCode] = createSignal("1234");
   const [modalOpen, setModalOpen] = createSignal(false);
-  const pageDark = createMemo(() => {
-    themeVersion();
-    return typeof document !== "undefined" && document.documentElement.classList.contains("dark");
-  });
 
   return (
     <div class="mx-auto max-w-3xl pb-16">
@@ -218,8 +212,8 @@ export const Everything = () => {
       </Entry>
 
       <Entry name="Orb" from="@shared/ui/ui/orb">
-        <Orb size={64} dark={pageDark()} />
-        <Orb size={20} dark={pageDark()} />
+        <Orb size={64} />
+        <Orb size={20} />
       </Entry>
 
       <Entry name="EmptyState" from="@shared/ui/ui/empty-state">

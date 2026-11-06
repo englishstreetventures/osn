@@ -49,12 +49,6 @@ export interface OrbProps {
    * each with its own dot count, dot size and speed, not one design scaled.
    */
   size: 20 | 64;
-  /**
-   * Light ink, for a dark ground. Defaults to `false`: dark ink, for a light
-   * ground. Set it from the ground the orb sits on, which is not always the
-   * page's theme (a filled ink button in a light theme is a dark ground).
-   */
-  dark?: boolean;
   class?: string;
 }
 
@@ -62,8 +56,12 @@ export interface OrbProps {
  * A dotted sphere that moves while something is in progress.
  *
  * Decoration only: the canvas is `aria-hidden` and has no name, so put it
- * inside a control whose own label says what is happening. It holds still
- * under `prefers-reduced-motion: reduce`, and stops drawing while it is off
- * screen or the tab is hidden.
+ * inside a control whose own label says what is happening. Its ink is the
+ * text colour it inherits, so it reads on whatever ground that text is set
+ * for: the near dots take the colour, and the far ones fade toward white, or
+ * toward black when the colour is a light one. It moves for at most five
+ * seconds, then holds a still frame; it holds that frame from the start under
+ * `prefers-reduced-motion: reduce`, and stops drawing while it is off screen
+ * or the tab is hidden.
  */
 export declare const Orb: Component<OrbProps>;

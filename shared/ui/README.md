@@ -59,9 +59,9 @@ checks the manifest in CI. Nothing in the tree is edited.
 
 The engine declares a parameter it never reads, so the `./ui/orb` export points
 TypeScript at `src/ui/orb-api.ts`, a types-only module, and only the bundler
-follows `src/ui/orb.tsx` into the engine. Nothing in this package imports
-`orb.tsx` by a relative path: a consumer that sets `noUnusedParameters` would
-follow it and fail its type check.
+follows `src/ui/orb.tsx` into the engine. Nothing under `src/` imports
+`orb.tsx` by a relative path (the package's own tests may): a consumer that
+sets `noUnusedParameters` would follow it and fail its type check.
 
 ## Tests
 
