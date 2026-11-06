@@ -515,6 +515,9 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   search is `md`, 36px. One exception: `/search`'s field keeps `h-11`, 44px
   at every width. `Input`'s `touch` size, the only one that tall, steps from
   46px to 44px at 640px, a width this file's one breakpoint does not use.
+  Where the emailed-link confirm page asks for the number to be typed, its
+  field is `Input` at `size="touch"`: 46px with 16px type below 640px, 44px
+  above.
 - **Code boxes** = `OtpInput`'s six boxes share their column and are 40px wide
   at a 260px column, so a screen that hosts one gives the row at least 260px
   on a phone (drop an inner card's padding below `md` rather than squeeze the
