@@ -39,7 +39,7 @@ carry the variants and states, and all eight story files live together in
 | Sidebar title | File | Covers |
 | --- | --- | --- |
 | `shared/ui` | `overview.story.tsx` | Everything, one state each |
-| `shared/ui/Button` | `button.story.tsx` | `Variants`; `Inline` (a link inside a sentence at two type sizes, beside a standalone link, and a narrow paragraph whose `<a>` wraps, to Tab onto); `Busy` (every labelled variant and size busy, and a button that starts a two-second wait when pressed); `Playground` (label, variant, size, disabled, busy — busy only at a size that takes it) |
+| `shared/ui/Button` | `button.story.tsx` | `Variants`; `Inline` (a link inside a sentence at two type sizes, beside a standalone link, and a narrow paragraph whose `<a>` wraps, to Tab onto); `Busy` (every labelled variant and size busy, and a button that starts a two-second wait when pressed: from the keyboard it stays at full strength, ring and all, while it waits); `Playground` (label, variant, size, disabled, busy — busy only at a size that takes it) |
 | `shared/ui/display` | `display.story.tsx` | Badge, Avatar, Card |
 | `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field, Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |

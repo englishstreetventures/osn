@@ -70,7 +70,7 @@ its own, fetched only by a page holding a `Button` that carries a `busy` prop.
 Two projects out of one `vitest.config.ts`, split by filename:
 
 ```bash
-bun run --cwd shared/ui test:run      # unit — tests/**/*.test.tsx, happy-dom
+bun run --cwd shared/ui test:run      # unit — tests/**/*.test.{ts,tsx}, node (happy-dom per file)
 bun run --cwd shared/ui test:browser  # browser — tests/**/*.browser.test.tsx, Chromium
 bun run --cwd shared/ui test          # unit, watch mode
 ```
