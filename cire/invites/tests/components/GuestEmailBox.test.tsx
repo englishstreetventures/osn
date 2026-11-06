@@ -108,6 +108,8 @@ describe("GuestEmailBox", () => {
       // and the heading holds focus.
       expect(screen.getByRole("status").textContent).toMatch(/won’t email that address/);
       expect(screen.getByRole("status").textContent).not.toMatch(/add it again/);
+      // With the form gone, the note keeps the reason beside it.
+      expect(screen.getByRole("status").textContent).toMatch(/RSVPs have closed/);
       expect(screen.queryByLabelText("Your email, Ada")).toBeNull();
       await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading")));
     });

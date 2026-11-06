@@ -5,6 +5,7 @@ import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createSignal, createUniqueId, on, Show } from "solid-js";
 
+import { moveFocus, pressedByPointer } from "./quiet-focus";
 import type { FamilyMember, MemberEmail } from "./types";
 import { readEmail } from "./utils";
 
@@ -111,7 +112,16 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   const [serverClosed, setServerClosed] = createSignal(false);
   const isClosed = () => props.closed === true || serverClosed();
   // What the status region says: the removal's note, else why there is no form.
-  const status = () => (note() !== "" ? note() : isClosed() ? CLOSED_NOTE : "");
+  // After a removal while closed, the note keeps the reason beside it, since
+  // the removal also takes away the form.
+  const status = () =>
+    note() !== ""
+      ? isClosed()
+        ? `${note()} ${CLOSED_NOTE}`
+        : note()
+      : isClosed()
+        ? CLOSED_NOTE
+        : "";
 
   // Set when the guest leaves the field or presses the blocked save button;
   // cleared once the address is valid or empty. The field's own error waits
@@ -135,8 +145,9 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   // Each view replaces the button that was pressed, so focus moves on with
   // the view rather than falling to the page: to the field when editing
   // starts, to the heading once a save or a removal lands.
-  const focusAfterRender = (target: () => HTMLElement | undefined) =>
-    queueMicrotask(() => target()?.focus());
+  // `quiet` is a pointer's move, drawn without the keyboard's ring.
+  const focusAfterRender = (target: () => HTMLElement | undefined, quiet = false) =>
+    queueMicrotask(() => moveFocus(target(), quiet));
 
   // The deadline passing takes the form from under a guest who may be typing:
   // focus would fall to the page, so it moves to the heading, which sits above
@@ -146,7 +157,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       if (!closed || was !== false) return;
       const active = document.activeElement;
       if (active === null || active === document.body || section?.contains(active)) {
-        heading?.focus();
+        moveFocus(heading, false);
       }
     }),
   );
@@ -210,7 +221,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
     }
   }
 
-  async function remove() {
+  async function remove(quiet = false) {
     if (busy()) return;
     const hostsAdded = props.email?.source === "organiser_attested";
     setBusy(true);
@@ -242,7 +253,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       setConsent(false);
       setTouched(false);
       setEditing(true);
-      focusAfterRender(() => heading);
+      focusAfterRender(() => heading, quiet);
     } catch {
       setError("Couldn’t remove your email. Please try again.");
     } finally {
@@ -260,7 +271,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         id={headingId}
         ref={heading}
         tabIndex={-1}
-        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic focus:outline-none"
+        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic"
       >
         Wedding emails
       </h3>
@@ -268,7 +279,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
           region inserted already holding its text is not reliably announced. */}
       <output
         class="text-text-muted text-ui-sm leading-ui-normal block font-light"
-        classList={{ "mb-3": status() !== "" }}
+        classList={{ "mb-3": status() !== "" && (!isClosed() || props.email !== null) }}
       >
         {status()}
       </output>
@@ -361,12 +372,11 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 </Button>
                 <Show when={props.email}>
                   <Button
-                    variant="subtle"
-                    size="sm"
+                    variant="touchLink"
                     type="button"
-                    onClick={() => {
+                    onClick={(e) => {
                       setEditing(false);
-                      focusAfterRender(() => heading);
+                      focusAfterRender(() => heading, pressedByPointer(e));
                     }}
                     disabled={busy()}
                   >
@@ -395,23 +405,16 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                   ? "Your hosts added this. Remove it to stop wedding emails to it."
                   : "Your hosts added this. Change it if it’s wrong, or remove it to stop wedding emails to it."}
             </p>
-            <span class="flex flex-wrap items-center gap-2">
+            <span class="flex flex-wrap items-center gap-x-4 gap-y-1">
               <Show when={!isClosed()}>
-                <Button
-                  variant="subtle"
-                  size="sm"
-                  type="button"
-                  onClick={startEditing}
-                  disabled={busy()}
-                >
+                <Button variant="touchLink" type="button" onClick={startEditing} disabled={busy()}>
                   Change email
                 </Button>
               </Show>
               <Button
-                variant="subtle"
-                size="sm"
+                variant="touchLink"
                 type="button"
-                onClick={() => void remove()}
+                onClick={(e) => void remove(pressedByPointer(e))}
                 disabled={busy()}
               >
                 {busy() ? "Removing…" : "Remove email"}

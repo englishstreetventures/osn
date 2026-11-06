@@ -632,7 +632,7 @@ test("cire-member-step", async ({ page, context, flow }) => {
     await closedBox.getByRole("button", { name: "Remove email" }).click();
     const status = (await response).status();
     await expect(closedBox.getByRole("status")).toHaveText(
-      "Removed. We’ve deleted that address from your invitation.",
+      "Removed. We’ve deleted that address from your invitation. RSVPs have closed, so we can’t take a new email address.",
     );
     await expect(closedBox.getByRole("heading", { name: "Wedding emails" })).toBeFocused();
     await expect(closedBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`)).toHaveCount(0);
