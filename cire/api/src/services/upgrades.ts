@@ -38,7 +38,7 @@ import { Data, Effect } from "effect";
 
 import { bound, commitBatchResults, type Db, DbService, dbQuery, driverErrorText } from "../db";
 import { metricUpgradeCheckoutStarted, metricUpgradePurchaseSettled } from "../metrics";
-import type { StripeClient } from "./stripe";
+import type { StripeClient, StripeError } from "./stripe";
 import {
   isTier,
   normaliseTier,
@@ -150,10 +150,10 @@ function readBack(result: unknown): string | undefined {
 }
 
 /**
- * How many purchases one daily reconciliation reads. Each costs at most two
- * Stripe calls and three D1 statements inside the cron's shared invocation
- * (`wiki/shared/free-tier-limits.md`), and the set is empty on any day every
- * webhook landed.
+ * How many purchases one daily reconciliation reads. Each costs at most
+ * three Stripe calls and four D1 calls (six when a delete or a comp races its
+ * grant) inside the cron's shared invocation (`wiki/shared/free-tier-limits.md`),
+ * and the set is empty on any day every webhook landed.
  */
 export const RECONCILE_PER_RUN = 2;
 
@@ -411,12 +411,18 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
    * evidence the session is dead, so it reads `unknown` — which every caller
    * answers by waiting, never by minting a second payment page.
    */
-  const probeSession = (purchaseId: string, sessionId: string) =>
-    deps.stripe.retrievePlatformCheckoutSession(sessionId).pipe(
-      Effect.catch((e: unknown) =>
+  const probeSession = (
+    purchaseId: string,
+    sessionId: string,
+    options: { withPayment?: boolean } = {},
+  ) =>
+    deps.stripe.retrievePlatformCheckoutSession(sessionId, options).pipe(
+      Effect.catch((e: StripeError) =>
         Effect.logError("upgrade session probe failed", {
           purchaseId,
-          reason: String(e),
+          reason: e.reason,
+          status: e.status,
+          code: e.code,
         }).pipe(Effect.as({ status: "unknown" as const })),
       ),
     );
@@ -428,10 +434,12 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
   const expireAtStripe = (purchaseId: string, sessionId: string) =>
     deps.stripe.expirePlatformCheckoutSession(sessionId).pipe(
       Effect.as(true),
-      Effect.catch((e: unknown) =>
+      Effect.catch((e: StripeError) =>
         Effect.logError("upgrade session expire failed", {
           purchaseId,
-          reason: String(e),
+          reason: e.reason,
+          status: e.status,
+          code: e.code,
         }).pipe(Effect.as(false)),
       ),
     );
@@ -982,7 +990,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
       }
       if (row.sessionId === null) return false;
       const sessionId = row.sessionId;
-      const probe = yield* probeSession(row.id, sessionId);
+      const probe = yield* probeSession(row.id, sessionId, { withPayment: true });
       if (probe.status === "expired") {
         // Only Stripe's own `expired` closes the row: the probe answers
         // `expired` for a session it cannot read plainly, too.
@@ -1269,6 +1277,8 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
     refundFailed(input: {
       purchaseId: string;
       refundId: string;
+      /** For the log, so a person can find the charge before returning money. */
+      paymentIntentId?: string | null;
     }): Effect.Effect<"recorded" | "ignored", never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
@@ -1321,6 +1331,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
             yield* Effect.logError("upgrade refund failed at the bank", {
               purchaseId: input.purchaseId,
               refundId: input.refundId,
+              paymentIntentId: input.paymentIntentId ?? null,
               purchaseFound: false,
             });
           }
@@ -1330,6 +1341,7 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
         yield* Effect.logError("upgrade refund failed at the bank", {
           purchaseId: input.purchaseId,
           refundId: input.refundId,
+          paymentIntentId: input.paymentIntentId ?? null,
         });
         return "recorded" as const;
       }).pipe(Effect.withSpan("cire.upgrade.refundFailed"));
@@ -1387,10 +1399,12 @@ export function createUpgradeService(deps: UpgradeServiceDeps) {
               }).pipe(Effect.as(false)),
             ),
           );
-          if (!done) failed += 1;
-          // To the back of the queue, whatever happened: a row that is still
-          // where it was must not hold the run's few places for good. Guarded
-          // on the status it was read in, so a row that moved on is untouched.
+          if (done) continue;
+          failed += 1;
+          // To the back of the queue: a row still where it was must not hold
+          // the run's few places for good. A row that is done has always left
+          // the status it was read in. Guarded on that status, so a row that
+          // moved on meanwhile is untouched.
           yield* dbQuery(() =>
             db
               .update(weddingUpgradePurchases)

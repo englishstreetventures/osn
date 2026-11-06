@@ -272,6 +272,12 @@ export interface StripeClient {
    */
   retrievePlatformCheckoutSession(
     sessionId: string,
+    /**
+     * `withPayment` asks for the PaymentIntent and its charge too, so a
+     * complete session says whether it has been refunded since. Only the
+     * reconciliation needs it; a press of Upgrade reads the state alone.
+     */
+    options?: { withPayment?: boolean },
   ): Effect.Effect<PlatformSessionState, StripeError>;
   /**
    * Close an open platform session so it can no longer be paid. Succeeds only
@@ -645,12 +651,11 @@ export function createStripeClient(config: StripeConfig): StripeClient {
       );
     },
 
-    retrievePlatformCheckoutSession(sessionId) {
+    retrievePlatformCheckoutSession(sessionId, options = {}) {
+      const path = `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`;
       return request(
         "GET",
-        // The charge rides along, so a complete session says whether any of it
-        // has been refunded since.
-        `/v1/checkout/sessions/${encodeURIComponent(sessionId)}?expand%5B%5D=payment_intent.latest_charge`,
+        options.withPayment === true ? `${path}?expand%5B%5D=payment_intent.latest_charge` : path,
       ).pipe(
         Effect.map((payload): PlatformSessionState => {
           const session = payload as { id?: unknown; url?: unknown; status?: unknown };

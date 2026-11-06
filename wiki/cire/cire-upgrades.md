@@ -387,6 +387,14 @@ outlasts Stripe's retries end in a grant rather than a payment for nothing.
 
 #### For a person
 
+**Before refunding an upgrade by hand that has not settled** (`pending`,
+`expired`, `failed` or `mismatch` — its webhook kept failing, say), mark the row
+first, so no later delivery or resend grants a tier for money already given
+back: `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at =
+unixepoch() WHERE id = '<purchase id>' AND status IN ('pending', 'expired',
+'failed', 'mismatch');`, then refund it in the dashboard. Settle grants
+nothing for a `refunded` purchase.
+
 A `refund_failed` purchase is money cire owes. Return it from the Stripe
 dashboard (the refund or the PaymentIntent names the purchase in its metadata),
 then mark the row so nothing asks again and the purge may take a deleted

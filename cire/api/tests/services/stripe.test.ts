@@ -438,7 +438,9 @@ describe("retrievePlatformCheckoutSession", () => {
   const read = (payload: Record<string, unknown>) => {
     const { impl } = stubFetch(() => json(payload));
     const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
-    return Effect.runPromise(client.retrievePlatformCheckoutSession("cs_u1"));
+    return Effect.runPromise(
+      client.retrievePlatformCheckoutSession("cs_u1", { withPayment: true }),
+    );
   };
 
   it("returns an open session with somewhere to pay", async () => {
@@ -520,7 +522,12 @@ describe("retrievePlatformCheckoutSession", () => {
       }),
     );
     const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
-    const state = await Effect.runPromise(client.retrievePlatformCheckoutSession("cs_u1"));
+    const state = await Effect.runPromise(
+      client.retrievePlatformCheckoutSession("cs_u1", { withPayment: true }),
+    );
+    // A press of Upgrade asks for the state alone.
+    await Effect.runPromise(client.retrievePlatformCheckoutSession("cs_u1"));
+    expect(calls[1]?.url).not.toContain("expand");
     expect(state).toMatchObject({
       status: "complete",
       payment: { paymentIntentId: "pi_u1", refunded: true },

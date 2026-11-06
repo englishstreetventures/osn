@@ -43,13 +43,14 @@
  * and refusing everything unfamiliar would turn that into a retry storm.
  */
 
-import { Effect } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { MAX_EVENT_BYTES, readBoundedText } from "../lib/webhook-body";
 import { runCire } from "../observability";
+import { RefundFailedObject } from "../schemas/upgrade";
 import { verifyStripeWebhook } from "../services/stripe";
 import type { UpgradeService } from "../services/upgrades";
 
@@ -94,12 +95,6 @@ interface SessionObject {
    * opaque, so it is read before any metadata.
    */
   client_reference_id?: unknown;
-  metadata?: { purchaseId?: unknown };
-}
-
-interface RefundObject {
-  id?: unknown;
-  /** Set by cire on every refund it makes for an upgrade. */
   metadata?: { purchaseId?: unknown };
 }
 
@@ -185,11 +180,15 @@ export const createStripePlatformWebhookRoutes = (db: Db, deps: StripePlatformWe
           }
 
           if (type === REFUND_FAILED) {
-            const refund = envelope.data?.object as RefundObject;
-            const refundId = str(refund?.id);
-            const purchaseId = str(refund?.metadata?.purchaseId);
-            if (!refundId || !purchaseId) return { received: true, outcome: "unknown" };
-            const outcome = yield* deps.upgrades.refundFailed({ purchaseId, refundId });
+            // Decoded, not cast: only a refund cire made names a purchase id
+            // of cire's shape, and anything else is acknowledged unread.
+            const refund = Schema.decodeUnknownOption(RefundFailedObject)(envelope.data?.object);
+            if (Option.isNone(refund)) return { received: true, outcome: "unknown" };
+            const outcome = yield* deps.upgrades.refundFailed({
+              purchaseId: refund.value.metadata.purchaseId,
+              refundId: refund.value.id,
+              paymentIntentId: refund.value.payment_intent ?? null,
+            });
             return { received: true, outcome };
           }
 

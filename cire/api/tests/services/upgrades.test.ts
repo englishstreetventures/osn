@@ -158,6 +158,8 @@ interface StripeStub {
   expired: string[];
   /** Session ids this code asked Stripe about. */
   probed: string[];
+  /** Whether each of those asked for the payment and its charge too. */
+  probedWithPayment: boolean[];
   /** What the next probe answers. */
   probe: PlatformSessionState | "error";
   failCreate: boolean;
@@ -188,6 +190,7 @@ function stubStripe(): StripeStub {
     successUrls: [],
     expired: [],
     probed: [],
+    probedWithPayment: [],
     probe: { status: "expired" },
     failCreate: false,
     failExpire: false,
@@ -218,8 +221,9 @@ function stubStripe(): StripeStub {
       const id = `cs_${minted}`;
       return Effect.succeed({ id, url: `https://pay.test/${id}` });
     },
-    retrievePlatformCheckoutSession(sessionId: string) {
+    retrievePlatformCheckoutSession(sessionId: string, options?: { withPayment?: boolean }) {
       stub.probed.push(sessionId);
+      stub.probedWithPayment.push(options?.withPayment === true);
       return stub.probe === "error"
         ? Effect.fail(new StripeError({ reason: "unreachable" }))
         : Effect.succeed(stub.probe);
@@ -2123,6 +2127,8 @@ describe("reconcile", () => {
 
     expect(await run(db, svc.reconcile())).toEqual({ read: 1, failed: 0 });
     expect(stripe.probed).toEqual(["cs_1"]);
+    // The charge comes with it, for the refunded-by-a-person check.
+    expect(stripe.probedWithPayment).toEqual([true]);
     expect(tierRow(db)).toMatchObject({ tier: "gold", tier_granted_by: "stripe:upg_s" });
     expect(purchases(db)[0]?.status).toBe("succeeded");
     expect(sales(db)).toHaveLength(1);

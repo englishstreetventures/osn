@@ -229,9 +229,13 @@ move is in [[cire-upgrades]] §Pricing.
 
 cire-api refunds an upgrade payment it cannot grant (`POST /v1/refunds`, as the
 platform), with the same `STRIPE_SECRET_KEY`. A standard secret key may do so
-already. A restricted key needs **Refunds: write** on the platform account, or
-every such refund is refused and the purchase waits for a person
-([[cire-upgrades#The refund]]). Turn on Settings → Customer emails →
+already. A restricted key needs, on the platform account, **Checkout Sessions:
+write** (create, read and expire a session), **PaymentIntents: read** and
+**Charges: read** (the reconciliation reads a session with its payment and
+charge expanded), and **Refunds: write** (refund, and list a payment's refunds).
+Without them each call is refused, the session probe answers 409 `processing`
+to a press of Upgrade, and a refund waits for a person; the logs carry Stripe's
+status and code ([[cire-upgrades#The refund]]). Turn on Settings → Customer emails →
 **Refunds** too: Stripe's receipt is the only notice a couple who deleted their
 wedding gets.
 
@@ -368,6 +372,7 @@ bunx wrangler d1 execute cire-db-dev --remote --command \
 | Upgrades settle, gifts never do | the Connect endpoint is missing at Stripe or scoped to the platform, while its secret is set (with the secret unset, guests are offered no money gift at all) |
 | Upgrade endpoint 200s but grants nothing | the delivery carried `event.account` — a Connect event reached the platform route, which refuses it by design. Or the body's `outcome` says why: `auto_refunded` (the payment could not upgrade the wedding and was refunded: the `upgrade settle refunding a payment it cannot grant` log names the reason), `refund_failed` (that refund was refused; the daily reconciliation asks again), `refunded` (a person refunded the purchase), `unknown` (no such purchase, or a session the purchase does not hold — not cire's checkout) |
 | Every automatic refund comes back `refund_failed` | the key cannot refund: a restricted key without Refunds: write. The `upgrade refund failed` log carries Stripe's code |
+| Every press of Upgrade answers 409 `processing` after a first checkout, or the reconciliation never settles a lost webhook | the key cannot read a session: a restricted key without Checkout Sessions, PaymentIntents or Charges read. `upgrade session probe failed` carries Stripe's status and code |
 | Dialog says upgrades are not available | `STRIPE_PLATFORM_WEBHOOK_SECRET` is unset or blank, or on a deployed tier the same value as `STRIPE_WEBHOOK_SECRET`, so no upgrade route is mounted; the Worker logs `upgrades disabled: …` when it builds the app (for an unset one, if a Price is set). Set the platform endpoint's own secret, then deploy. Or no `STRIPE_UPGRADE_PRICE_*` for that move in this tier — for a Gold wedding buying Crimson, `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD`. Absent configuration never means free |
 | Checkout 404s | the same, from the session route: `{ "error": "Not found" }` when the route is not mounted, `not_purchasable` when the move has no Price |
 | Secret changed and nothing changed | warm isolates. Redeploy |

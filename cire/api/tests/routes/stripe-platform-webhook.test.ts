@@ -8,6 +8,7 @@ import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
 import { StripeError, type StripeClient } from "../../src/services/stripe";
 import { jsonBody } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 
 /**
  * The endpoint that actually grants.
@@ -454,7 +455,9 @@ describe("a payment for a wedding deleted while its checkout was open", () => {
 });
 
 describe("a refund the bank returned", () => {
-  const refundFailed = (refundId: string, purchaseId = "upg_1") => ({
+  /** A purchase id of the shape cire mints, `upg_<uuid>`. */
+  const OURS = "upg_0f8fad5b-d9cb-469f-a165-70867728950e";
+  const refundFailed = (refundId: string, purchaseId = OURS) => ({
     id: "evt_rf",
     type: "refund.failed",
     created: nowSeconds(),
@@ -471,11 +474,13 @@ describe("a refund the bank returned", () => {
 
   it("marks our refund failed, and leaves a refund that is not ours alone", async () => {
     const { app, db } = buildApp();
-    seedPurchase(db);
+    seedPurchase(db, "crimson", OURS);
     db.$client
       .query("UPDATE weddings SET deleted_at = unixepoch() WHERE id = ?")
       .run(BOOTSTRAP_WEDDING_ID);
-    await deliver(app, completed());
+    const paid = completed();
+    (paid.data.object as Record<string, unknown>).client_reference_id = OURS;
+    await deliver(app, paid);
 
     const other = await deliver(app, refundFailed("re_someone_else"));
     expect(await jsonBody(other)).toEqual({ received: true, outcome: "ignored" });
@@ -484,8 +489,24 @@ describe("a refund the bank returned", () => {
     expect(res.status).toBe(200);
     expect(await jsonBody(res)).toEqual({ received: true, outcome: "recorded" });
     expect(
-      db.$client.query("SELECT status FROM wedding_upgrade_purchases WHERE id = 'upg_1'").get(),
+      db.$client.query("SELECT status FROM wedding_upgrade_purchases WHERE id = ?").get(OURS),
     ).toEqual({ status: "refund_failed" });
+  });
+
+  /**
+   * Another integration's refund on the platform account can carry any
+   * metadata. Only a purchase id of the shape cire mints is read as cire's,
+   * so a stranger's refund raises no alarm about money cire owes.
+   */
+  it("reads a failed refund naming a purchase id cire never mints as not ours", async () => {
+    const { app } = buildApp();
+    for (const purchaseId of ["upg_1", "order_42", `${OURS}x`]) {
+      const logs = await captureLogs(async () => {
+        const res = await deliver(app, refundFailed("re_x", purchaseId));
+        expect(await jsonBody(res), purchaseId).toEqual({ received: true, outcome: "unknown" });
+      });
+      expect(logs, purchaseId).not.toContain("upgrade refund failed at the bank");
+    }
   });
 
   it("acknowledges a failed refund that names no purchase, or carries no refund at all", async () => {
