@@ -43,9 +43,12 @@
  * so before any write. The zone ids come from that listing.
  *
  * How the API shows a Worker's custom-domain record, `meta.origin_worker_id`
- * or a read-only AAAA to `100::`, is unverified until the dev-zone rehearsal
- * that precedes the first flip records Cloudflare's answers; a record that
- * matches neither fails the check, so the check fails closed.
+ * or a read-only AAAA to `100::`, is unverified until the domain move
+ * rehearsal (.github/workflows/domain-move-rehearsal.yml, run on the dev
+ * account before the first flip) records Cloudflare's answers; a record that
+ * matches neither fails the check, so the check fails closed. The rehearsal
+ * runs this file's reach check, `locateHost`, `detachHost` and `attachHost`
+ * on a dev host.
  *
  * Every request gives up after 15 s. A read is tried again after a network
  * error, a timeout, a 429 or a 5xx, 1 s then 2 s later; a write is sent once.
@@ -148,7 +151,30 @@ export function classify(
   };
 }
 
-class ApiError extends Error {}
+/** A Cloudflare call that failed, naming the call; `status` is null when no answer came. */
+export class ApiError extends Error {
+  readonly status: number | null;
+  readonly codes: readonly number[];
+
+  constructor(message: string, status: number | null = null, codes: readonly number[] = []) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.codes = codes;
+  }
+}
+
+/** One attempt at a call, as `observe` is told of it: never the token or a request header. */
+export interface ObservedAttempt {
+  readonly method: string;
+  readonly path: string;
+  readonly what: string;
+  /** The HTTP status, or null when no answer came. */
+  readonly status: number | null;
+  /** The parsed answer, or null when none could be read. */
+  readonly body: unknown;
+  readonly ms: number;
+}
 
 /** The most pages of Pages projects read before the listing gives up, failing. */
 const MAX_PROJECT_PAGES = 20;
@@ -173,16 +199,32 @@ interface Answer {
 
 type Attempt =
   | { readonly ok: true; readonly answer: Answer }
-  | { readonly ok: false; readonly transient: boolean; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly transient: boolean;
+      readonly message: string;
+      readonly status: number | null;
+      readonly codes: readonly number[];
+    };
 
-/** The few Cloudflare calls this makes, with the token; any failure throws ApiError naming the call. */
-function cloudflare(
-  env: Readonly<Record<string, string | undefined>>,
-  fetcher: typeof fetch,
-  sleep: (ms: number) => Promise<void>,
-) {
-  const account = env.CLOUDFLARE_ACCOUNT_ID ?? "";
-  const token = env.CLOUDFLARE_PAGES_DNS_TOKEN ?? "";
+export interface PagesDnsApiInput {
+  readonly account: string;
+  /** Sent only to api.cloudflare.com, in the authorization header; never observed. */
+  readonly token: string;
+  readonly fetch: typeof fetch;
+  readonly sleep: (ms: number) => Promise<void>;
+  /** Told of every attempt, retries included, after it ends. */
+  readonly observe?: (attempt: ObservedAttempt) => void;
+}
+
+/**
+ * The few Cloudflare calls this script makes with a Pages and DNS token, and
+ * `call` for any other; any failure throws ApiError naming the call.
+ * scripts/domain-move-rehearsal.ts uses it too, on the dev account.
+ */
+export function pagesDnsApi(input: PagesDnsApiInput) {
+  const { account, token, sleep } = input;
+  const fetcher = input.fetch;
   const once = async (
     method: string,
     path: string,
@@ -191,6 +233,9 @@ function cloudflare(
   ): Promise<Attempt> => {
     const headers = new Headers({ authorization: `Bearer ${token}` });
     if (body !== undefined) headers.set("content-type", "application/json");
+    const started = Date.now();
+    const observe = (status: number | null, answer: unknown) =>
+      input.observe?.({ method, path, what, status, body: answer, ms: Date.now() - started });
     let response: Response;
     let parsed: Answer | null;
     try {
@@ -202,18 +247,22 @@ function cloudflare(
       });
       parsed = (await response.json().catch(() => null)) as Answer | null;
     } catch {
-      return { ok: false, transient: true, message: `${what}: no answer` };
+      observe(null, null);
+      return { ok: false, transient: true, message: `${what}: no answer`, status: null, codes: [] };
     }
+    observe(response.status, parsed);
     if (response.ok && parsed?.success === true) return { ok: true, answer: parsed };
     const codes = (parsed?.errors ?? [])
       .map((error) => error.code)
-      .filter((code) => typeof code === "number");
+      .filter((code): code is number => typeof code === "number");
     return {
       ok: false,
       // A 200 whose body never arrived whole is as worth asking again as a 5xx.
       transient:
         response.status === 429 || response.status >= 500 || (response.ok && parsed === null),
       message: `${what}: Cloudflare answered ${response.status}${codes.length > 0 ? ` (codes ${codes.join(", ")})` : ""}`,
+      status: response.status,
+      codes,
     };
   };
   // A read changes nothing, so it is tried again after an answer a later
@@ -225,7 +274,9 @@ function cloudflare(
       const attempt = await once(method, path, what, body);
       if (attempt.ok) return attempt.answer;
       const delay = delays[index];
-      if (!attempt.transient || delay === undefined) throw new ApiError(attempt.message);
+      if (!attempt.transient || delay === undefined) {
+        throw new ApiError(attempt.message, attempt.status, attempt.codes);
+      }
       await sleep(delay);
       return attemptFrom(index + 1);
     };
@@ -233,6 +284,7 @@ function cloudflare(
   };
   const accountPath = `/accounts/${encodeURIComponent(account)}`;
   return {
+    call,
     /**
      * The zones the token sees, by name, once it is shown to reach exactly
      * the account and the `zones` named; throws ApiError otherwise.
@@ -365,6 +417,111 @@ function cloudflare(
   };
 }
 
+export type PagesDnsApi = ReturnType<typeof pagesDnsApi>;
+
+const pagesTarget = (project: string): string => `${project}.pages.dev`;
+
+/** A host as read: its zone's id, the zone's records for it, and where it is. */
+export interface Located {
+  readonly host: string;
+  readonly zone: string;
+  readonly records: readonly DnsRecord[];
+  readonly state: DomainState;
+}
+
+/**
+ * Where `host`, in the zone named `zoneName`, is, after the Pages projects
+ * were read. `label` names the host in a refusal. Throws ApiError when the
+ * token sees no such zone.
+ */
+export async function locateHost(
+  api: PagesDnsApi,
+  zones: ReadonlyMap<string, string>,
+  zoneName: string,
+  host: string,
+  projects: readonly PagesProject[],
+  label: string = host,
+): Promise<Located> {
+  const zone = zones.get(zoneName);
+  if (zone === undefined) {
+    throw new ApiError(`the token sees no ${zoneName} zone, which ${label} is in`);
+  }
+  const records = await api.records(zone, host);
+  return { host, zone, records, state: classify(host, projects, records) };
+}
+
+/** What a move did, or why it did nothing. */
+export interface MoveOutcome {
+  readonly ok: boolean;
+  readonly message: string;
+}
+
+/**
+ * Takes `located.host` off `project` and deletes the zone's CNAME to
+ * `<project>.pages.dev`, and only that record. Refused, writing nothing,
+ * unless the host reads `pages` on `project`.
+ */
+export async function detachHost(
+  api: PagesDnsApi,
+  located: Located,
+  project: string,
+): Promise<MoveOutcome> {
+  const { host, zone, records, state } = located;
+  if (state.kind !== "pages" || state.project !== project) {
+    return {
+      ok: false,
+      message: `${host} is not on the ${project} Pages project (${state.kind === "pages" ? `it is on ${state.project}` : state.kind}); nothing is detached.`,
+    };
+  }
+  await api.removeDomain(project, host);
+  const cnames = records.filter(
+    (record) => record.type === "CNAME" && record.content === pagesTarget(project),
+  );
+  await Promise.all(cnames.map((record) => api.deleteRecord(zone, record.id, host)));
+  return {
+    ok: true,
+    message: `Took ${host} off ${project} and deleted ${cnames.length} CNAME record${cnames.length === 1 ? "" : "s"} to ${pagesTarget(project)}.`,
+  };
+}
+
+/**
+ * Puts `located.host` back on `project`: makes the CNAME to
+ * `<project>.pages.dev` and adds the domain, each only when missing, so it
+ * also finishes a detach or an attach that stopped part-way. Refused,
+ * writing nothing, while another Pages project lists the host or the zone
+ * holds a record that could route it but that CNAME.
+ */
+export async function attachHost(
+  api: PagesDnsApi,
+  located: Located,
+  projects: readonly PagesProject[],
+  project: string,
+): Promise<MoveOutcome> {
+  const { host, zone, records } = located;
+  const ownCname = (record: DnsRecord) =>
+    record.type === "CNAME" && record.content === pagesTarget(project);
+  const holders = projects.filter((held) => held.domains.includes(host)).map((held) => held.name);
+  const deciding = records.filter((record) => decides(host, record));
+  if (holders.some((name) => name !== project) || !deciding.every(ownCname)) {
+    return {
+      ok: false,
+      message: `${host} is on another Pages project or has a DNS record that is not its CNAME to ${pagesTarget(project)}; remove the Worker's custom domain for it first, then attach.`,
+    };
+  }
+  // Only the site's own CNAME points the host at Pages: a TXT or MX record
+  // the apex keeps through a move is not one.
+  const pointed = deciding.some(ownCname);
+  const listed = holders.includes(project);
+  if (pointed && listed)
+    return { ok: true, message: `${host} is already on ${project}; nothing to do.` };
+  if (!pointed) await api.createCname(zone, host, pagesTarget(project));
+  if (!listed) await api.addDomain(project, host);
+  return {
+    ok: true,
+    message: `${pointed ? "Kept" : "Made"} ${host}'s CNAME to ${pagesTarget(project)} and ${listed ? "kept" : "added"} it on ${project}; Pages now validates it and issues its certificate.`,
+  };
+}
+
 export interface PagesDomainInput {
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -379,15 +536,9 @@ export interface PagesDomainInput {
 const isSiteSurface = (value: string): value is SiteSurface =>
   SITE_SURFACES.some((site) => site === value);
 
-const pagesTarget = (project: string): string => `${project}.pages.dev`;
-
-/** One site's host as read: its zone, the zone's records for it, and where it is. */
-interface Located {
+/** One site's host as read. */
+interface SiteLocated extends Located {
   readonly site: SiteSurface;
-  readonly host: string;
-  readonly zone: string;
-  readonly records: readonly DnsRecord[];
-  readonly state: DomainState;
 }
 
 export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
@@ -428,11 +579,12 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
     return usage("set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_DNS_TOKEN");
   }
 
-  const api = cloudflare(
-    env,
-    input.fetch,
-    input.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
-  );
+  const api = pagesDnsApi({
+    account: env.CLOUDFLARE_ACCOUNT_ID ?? "",
+    token: env.CLOUDFLARE_PAGES_DNS_TOKEN ?? "",
+    fetch: input.fetch,
+    sleep: input.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+  });
   /** The zones of the production hosts of every site that is not off: all the token may see. */
   const zoneNames = [
     ...new Set(
@@ -443,14 +595,13 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
   ];
   let zones: ReadonlyMap<string, string> = new Map();
   /** Where a site's host is, with its zone and records, read after the Pages projects. */
-  const locate = async (site: SiteSurface, projects: readonly PagesProject[]): Promise<Located> => {
+  const locate = async (
+    site: SiteSurface,
+    projects: readonly PagesProject[],
+  ): Promise<SiteLocated> => {
     const host = productionHost(site);
-    const zone = zones.get(zoneOf(host));
-    if (zone === undefined) {
-      throw new ApiError(`the token sees no ${zoneOf(host)} zone, which ${site}'s host is in`);
-    }
-    const records = await api.records(zone, host);
-    return { site, host, zone, records, state: classify(host, projects, records) };
+    const located = await locateHost(api, zones, zoneOf(host), host, projects, `${site}'s host`);
+    return { ...located, site };
   };
   try {
     if (command === "precheck") {
@@ -506,7 +657,8 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
       return unclear.length > 0 ? 1 : 0;
     }
     // detach and attach name one site.
-    const [{ site, host, zone, records, state }] = read as [Located];
+    const [located] = read as [SiteLocated];
+    const { site } = located;
     const project = PAGES_PROJECTS[site];
     if (project === undefined) {
       error(
@@ -521,48 +673,16 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
         );
         return 1;
       }
-      if (state.kind !== "pages" || state.project !== project) {
-        error(
-          `${host} is not on the ${project} Pages project (${state.kind === "pages" ? `it is on ${state.project}` : state.kind}); nothing is detached.`,
-        );
-        return 1;
-      }
-      await api.removeDomain(project, host);
-      const cnames = records.filter(
-        (record) => record.type === "CNAME" && record.content === pagesTarget(project),
-      );
-      await Promise.all(cnames.map((record) => api.deleteRecord(zone, record.id, host)));
-      out(
-        `Took ${host} off ${project} and deleted ${cnames.length} CNAME record${cnames.length === 1 ? "" : "s"} to ${pagesTarget(project)}.\n`,
-      );
-      return 0;
     }
-    // attach also finishes a detach or an attach that stopped part-way: the
-    // host's own CNAME to the project, and the project listing the host, are
-    // each kept or made; anything else holding the host refuses.
-    const ownCname = (record: DnsRecord) =>
-      record.type === "CNAME" && record.content === pagesTarget(project);
-    const holders = projects.filter((held) => held.domains.includes(host)).map((held) => held.name);
-    const deciding = records.filter((record) => decides(host, record));
-    if (holders.some((name) => name !== project) || !deciding.every(ownCname)) {
-      error(
-        `${host} is on another Pages project or has a DNS record that is not its CNAME to ${pagesTarget(project)}; remove the Worker's custom domain for it first, then attach.`,
-      );
+    const moved =
+      command === "detach"
+        ? await detachHost(api, located, project)
+        : await attachHost(api, located, projects, project);
+    if (!moved.ok) {
+      error(moved.message);
       return 1;
     }
-    // Only the site's own CNAME points the host at Pages: a TXT or MX record
-    // the apex keeps through a move is not one.
-    const pointed = deciding.some(ownCname);
-    const listed = holders.includes(project);
-    if (pointed && listed) {
-      out(`${host} is already on ${project}; nothing to do.\n`);
-      return 0;
-    }
-    if (!pointed) await api.createCname(zone, host, pagesTarget(project));
-    if (!listed) await api.addDomain(project, host);
-    out(
-      `${pointed ? "Kept" : "Made"} ${host}'s CNAME to ${pagesTarget(project)} and ${listed ? "kept" : "added"} it on ${project}; Pages now validates it and issues its certificate.\n`,
-    );
+    out(`${moved.message}\n`);
     return 0;
   } catch (failure) {
     if (failure instanceof ApiError) {

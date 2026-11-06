@@ -11,7 +11,14 @@ import {
   PRODUCTION_SITE_MODES,
   type SiteMode,
 } from "../../shared/infra/src/production-sites";
-import { classify, type DnsRecord, runPagesDomain } from "../pages-domain";
+import {
+  ApiError,
+  classify,
+  type DnsRecord,
+  type ObservedAttempt,
+  pagesDnsApi,
+  runPagesDomain,
+} from "../pages-domain";
 
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
 const TOKEN = "pages-dns-token-for-tests";
@@ -676,6 +683,55 @@ describe("what the token reaches", () => {
     expect(attach.code).toBe(1);
     expect(attach.sleeps).toEqual([]);
     expect(attach.calls.filter((call) => call.method === "POST")).toHaveLength(1);
+  });
+});
+
+describe("pagesDnsApi", () => {
+  // The domain move rehearsal records every answer through `observe` into an
+  // artifact; the token must never reach it, and a retried read must show
+  // each attempt, since the retries are part of what Cloudflare answered.
+  test("PD12: the observer sees every attempt, retries and failures included, and never the token", async () => {
+    const domains = `GET /accounts/${ACCOUNT}/pages/projects/cire-host/domains`;
+    const api = fakeCloudflare({
+      ...TODAY,
+      flaky: { [domains]: [failed(503, 0), new Error("connection reset")] },
+    });
+    const seen: ObservedAttempt[] = [];
+    const client = pagesDnsApi({
+      account: ACCOUNT,
+      token: TOKEN,
+      fetch: api.fetch,
+      sleep: async () => {},
+      observe: (attempt) => seen.push(attempt),
+    });
+    const listed = await client.call(
+      "GET",
+      `/accounts/${ACCOUNT}/pages/projects/cire-host/domains`,
+      "listing cire-host's domains",
+    );
+    expect(Array.isArray(listed.result)).toBe(true);
+    expect(seen.map((attempt) => [attempt.method, attempt.status])).toEqual([
+      ["GET", 503],
+      ["GET", null],
+      ["GET", 200],
+    ]);
+    expect(seen.every((attempt) => attempt.what === "listing cire-host's domains")).toBe(true);
+    expect(JSON.stringify(seen)).not.toContain(TOKEN);
+    // A refusal reaches the caller with its status and codes.
+    const refusing = pagesDnsApi({
+      account: ACCOUNT,
+      token: TOKEN,
+      fetch: fakeCloudflare({ ...TODAY, flaky: { [domains]: [failed(403, 10000)] } }).fetch,
+      sleep: async () => {},
+    });
+    const error = await refusing
+      .call("GET", `/accounts/${ACCOUNT}/pages/projects/cire-host/domains`, "listing")
+      .catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(ApiError);
+    expect({ status: (error as ApiError).status, codes: (error as ApiError).codes }).toEqual({
+      status: 403,
+      codes: [10000],
+    });
   });
 });
 
