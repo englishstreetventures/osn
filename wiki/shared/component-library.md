@@ -2286,9 +2286,8 @@ full-width filled pills, 40px on a desktop and 44px on a phone.
   {n}.". If the first call reached the server and was accepted, the repeat must
   come back as that answer; if it was refused, the request is gone and the
   repeat comes back expired. The pick lives in the page's memory only.
-- **It says who gets what.** The link is often opened on another device, and a
-  stranger can start a flow for someone else's address and then talk them into
-  pressing a button. So each flow says what confirming lets _the device that
+- **It says who gets what.** The link is often opened on another device than
+  the one that asked, so each flow says what confirming lets _the device that
   asked_ do: finish signing up; get into the account, signing out every other
   device (recovery's completion revokes every session,
   `osn/api/src/services/auth/recovery-factors.ts`); something sensitive such as
