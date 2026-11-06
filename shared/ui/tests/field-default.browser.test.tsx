@@ -100,7 +100,10 @@ describe("the default Field", () => {
 
     expect(getComputedStyle(wrapper).rowGap).toBe("6px");
     expect(getComputedStyle(hint).fontSize).toBe("11.2px");
-    expect(getComputedStyle(alert.querySelector("p")!).fontSize).toBe("12.8px");
+    expect(alert.children).toHaveLength(2);
+    for (const message of alert.children) {
+      expect(getComputedStyle(message).fontSize).toBe("12.8px");
+    }
     expect(getComputedStyle(alert).rowGap).toBe("2px");
     // The flex gap, with no margin on either side, so no font moves it.
     expect(alert.getBoundingClientRect().top - hint.getBoundingClientRect().bottom).toBe(6);

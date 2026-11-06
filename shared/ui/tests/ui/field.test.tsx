@@ -38,4 +38,43 @@ describe("Field's hint", () => {
     const hintId = screen.getByRole("textbox").getAttribute("aria-describedby");
     expect(document.getElementById(hintId!)?.textContent).toBe("12 of 40 seats");
   });
+
+  it("follows a hint that changes, disappears and comes back", async () => {
+    // Held once is not read once: a time-zone note that follows the chosen
+    // date, a quote total that follows the amount, a note shown only while a
+    // box is empty. A hint frozen at its first value would keep a stale note
+    // on screen, and `aria-describedby` would point at a hint that is gone.
+    const [hint, setHint] = createSignal<string | undefined>("Whole dollars");
+    render(() => (
+      <Field label="Total budget" hint={hint()}>
+        {(field) => <Input {...field} />}
+      </Field>
+    ));
+    const input = screen.getByRole("textbox");
+    const describedHint = () => {
+      const id = input.getAttribute("aria-describedby");
+      return id === null ? null : document.getElementById(id);
+    };
+
+    expect(input.getAttribute("aria-describedby")).toMatch(/-hint$/);
+    expect(describedHint()?.textContent).toBe("Whole dollars");
+
+    setHint("Whole cents");
+    await Promise.resolve();
+    expect(screen.queryByText("Whole dollars")).toBeNull();
+    expect(screen.getAllByText("Whole cents")).toHaveLength(1);
+    expect(describedHint()?.textContent).toBe("Whole cents");
+
+    setHint(undefined);
+    await Promise.resolve();
+    expect(screen.queryByText("Whole cents")).toBeNull();
+    expect(input.parentElement!.querySelector("p")).toBeNull();
+    expect(input.hasAttribute("aria-describedby")).toBe(false);
+
+    setHint("Whole dollars");
+    await Promise.resolve();
+    expect(screen.getAllByText("Whole dollars")).toHaveLength(1);
+    expect(input.getAttribute("aria-describedby")).toMatch(/-hint$/);
+    expect(describedHint()?.textContent).toBe("Whole dollars");
+  });
 });
