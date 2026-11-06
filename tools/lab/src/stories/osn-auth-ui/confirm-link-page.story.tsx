@@ -257,6 +257,103 @@ export const OpensConfirmed = state(
   ),
 );
 
+/** Types `value` into the page's field after mount and presses Confirm, as a person would. */
+function TypedIn(props: { value: string; children: JSX.Element }) {
+  let box: HTMLDivElement | undefined;
+  onMount(() => {
+    const input = box?.querySelector("input");
+    if (!input) return;
+    input.value = props.value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    Array.from(box?.querySelectorAll("button") ?? [])
+      .find((button) => button.textContent === "Confirm")
+      ?.click();
+  });
+  return <div ref={box}>{props.children}</div>;
+}
+
+export const TypedNumber = state(
+  "type the number",
+  <>
+    Recovery asks for the number to be typed, not picked (the host passes <Mono>typeNumber</Mono>):
+    one field for up to six digits, Confirm once it holds one, and "I didn't ask for this". A
+    letter, a space or a seventh digit does nothing. Type a number and press Confirm or Enter: "You
+    typed … Confirming…", then "Confirmed" after 600 ms.
+  </>,
+  () => (
+    <ConfirmLinkPage
+      purpose="recovery"
+      email={EMAIL}
+      typeNumber
+      onConfirm={(pick) => answerAfter(pick === null ? "declined" : "confirmed")}
+    />
+  ),
+);
+
+export const TypedNumberConfirming = state(
+  "type the number, confirming",
+  <>
+    A typed number sent, with no answer yet: the field keeps it, disabled, beside a disabled Confirm
+    and decline; the slow line comes after 10 seconds.
+  </>,
+  () => (
+    <TypedIn value="0730">
+      <ConfirmLinkPage purpose="recovery" email={EMAIL} typeNumber onConfirm={never} />
+    </TypedIn>
+  ),
+);
+
+export const TypedNumberErrorRetry = state(
+  "type the number, error, try again",
+  <>
+    The call threw. The field keeps "4821", disabled; "You typed 4821."; the danger notice; Try
+    again, which sends "4821" again and this time confirms after 600 ms.
+  </>,
+  () => {
+    const onConfirm = failOnceThenConfirm();
+    return (
+      <TypedIn value="4821">
+        <ConfirmLinkPage purpose="recovery" email={EMAIL} typeNumber onConfirm={onConfirm} />
+      </TypedIn>
+    );
+  },
+);
+
+export const TypedNumberExpired = state(
+  "type the number, expired",
+  <>
+    The host answered expired, as it does for every refusal, a number that is not the one shown
+    included: the same page as any other link that no longer works.
+  </>,
+  () => (
+    <TypedIn value="1956">
+      <ConfirmLinkPage
+        purpose="recovery"
+        email={EMAIL}
+        typeNumber
+        onConfirm={() => Promise.resolve<ConfirmOutcome>("expired")}
+      />
+    </TypedIn>
+  ),
+);
+
+/** Typing the number on a 320px phone: ready, with a long address, and after a throw. */
+export const TypedNumberPhone: Story = {
+  layout: "fullscreen",
+  render: () => (
+    <div class="flex w-80 flex-col gap-6 px-6 py-10">
+      <ConfirmLinkPage purpose="recovery" email={LONG_EMAIL} typeNumber onConfirm={never} />
+      <TypedIn value="123456">
+        <ConfirmLinkPage
+          purpose="recovery"
+          typeNumber
+          onConfirm={() => Promise.reject(new Error("story stub"))}
+        />
+      </TypedIn>
+    </div>
+  ),
+};
+
 const FLOWS: { purpose: ConfirmLinkPurpose; email?: string; note: string }[] = [
   { purpose: "sign-up", email: EMAIL, note: "sign-up" },
   { purpose: "recovery", note: "recovery: the asking device gets in; every other is signed out" },
@@ -346,22 +443,25 @@ interface PlaygroundArgs extends StoryArgs {
   purpose: ConfirmLinkPurpose;
   email: string;
   numbers: keyof typeof LISTS;
+  typeIt: boolean;
   answer: (typeof ANSWERS)[number];
   continueHere: boolean;
 }
 
 /**
  * "accepts" confirms a number and declines "I didn't ask for this"; "refuses"
- * answers either as expired. A change to the numbers, the answer or "continue
- * here" starts a fresh page,
- * ready to tap; a change to the flow or the address does not, so typing an
- * address keeps its focus. Clear the address to see the wording with none.
+ * answers either as expired. "typeIt" asks for the number to be typed instead
+ * of picked, and ignores the list. A change to the numbers, "typeIt", the
+ * answer or "continue here" starts a fresh page; a change to the flow or the
+ * address does not, so typing an address keeps its focus. Clear the address to
+ * see the wording with none.
  */
 export const Playground: Story<PlaygroundArgs> = {
   args: {
     purpose: "sign-up",
     email: EMAIL,
     numbers: "three of four digits",
+    typeIt: false,
     answer: "accepts",
     continueHere: false,
   },
@@ -373,23 +473,45 @@ export const Playground: Story<PlaygroundArgs> = {
   render: (args) => (
     <Column>
       <Show
-        when={{ numbers: args.numbers, answer: args.answer, continueHere: args.continueHere }}
+        when={{
+          numbers: args.numbers,
+          typeIt: args.typeIt,
+          answer: args.answer,
+          continueHere: args.continueHere,
+        }}
         keyed
       >
-        {(key) => (
-          <ConfirmLinkPage
-            purpose={args.purpose}
-            email={args.email || undefined}
-            candidates={LISTS[key.numbers]}
-            onConfirm={(pick) => {
-              if (key.answer === "throws") return failAfter();
-              if (key.answer === "never") return never();
-              if (key.answer === "refuses") return answerAfter("expired");
-              return answerAfter(pick === null ? "declined" : "confirmed");
-            }}
-            onContinue={key.continueHere ? () => {} : undefined}
-          />
-        )}
+        {(key) => {
+          const onConfirm = (pick: string | null) => {
+            if (key.answer === "throws") return failAfter();
+            if (key.answer === "never") return never();
+            if (key.answer === "refuses") return answerAfter("expired");
+            return answerAfter(pick === null ? "declined" : "confirmed");
+          };
+          const onContinue = key.continueHere ? () => {} : undefined;
+          return (
+            <Show
+              when={key.typeIt}
+              fallback={
+                <ConfirmLinkPage
+                  purpose={args.purpose}
+                  email={args.email || undefined}
+                  candidates={LISTS[key.numbers]}
+                  onConfirm={onConfirm}
+                  onContinue={onContinue}
+                />
+              }
+            >
+              <ConfirmLinkPage
+                purpose={args.purpose}
+                email={args.email || undefined}
+                typeNumber
+                onConfirm={onConfirm}
+                onContinue={onContinue}
+              />
+            </Show>
+          );
+        }}
       </Show>
     </Column>
   ),
