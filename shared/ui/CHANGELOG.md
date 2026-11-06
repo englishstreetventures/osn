@@ -1,5 +1,11 @@
 # @shared/ui
 
+## 0.10.3
+
+### Patch Changes
+
+- 6c81633: `Button`, and anything wearing `buttonVariants`, hides its focus outline instead of removing it, so in a Windows contrast theme (forced colours), which drops the focus ring, keyboard focus draws a 2px outline. Outside a contrast theme nothing changes.
+
 ## 0.10.2
 
 ### Patch Changes

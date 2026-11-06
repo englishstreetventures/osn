@@ -1,5 +1,12 @@
 # @tools/metrics
 
+## 0.2.46
+
+### Patch Changes
+
+- Updated dependencies [6c81633]
+  - @shared/ui@0.10.3
+
 ## 0.2.45
 
 ### Patch Changes

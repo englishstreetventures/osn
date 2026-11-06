@@ -1,5 +1,14 @@
 # @osn/social
 
+## 0.18.33
+
+### Patch Changes
+
+- 6c81633: A browser test checks that the app's stylesheet keeps `Button`'s keyboard-focus outline in a contrast theme (forced colours). `@musubi/social`'s `typecheck` also checks its tests. No runtime change.
+- Updated dependencies [6c81633]
+  - @shared/ui@0.10.3
+  - @osn/auth-ui@3.0.34
+
 ## 0.18.32
 
 ### Patch Changes
