@@ -10,6 +10,7 @@ import { checkServerIdentity } from "node:tls";
 
 import {
   REHEARSAL_MARKERS,
+  REHEARSAL_STAGE,
   REHEARSAL_WORKER,
   rehearsalProject,
 } from "../../shared/infra/rehearsal/names";
@@ -17,9 +18,11 @@ import {
   ATTACH_JOB_NAME,
   edgeProbe,
   type EdgeSocket,
+  PAGES_WAIT_MS,
   type ProbeResult,
   type RehearsalInput,
   runRehearsal,
+  WAIT_WATCH_MARGIN_MS,
   WATCH_JOB_NAME,
 } from "../domain-move-rehearsal";
 import type { DnsRecord } from "../pages-domain";
@@ -80,7 +83,16 @@ const workerRecord = (host: string): Rec => ({
 interface World {
   accounts: string[];
   zones: { id: string; name: string; account: { id: string; name?: string }; owner?: unknown }[];
-  projects: Record<string, { domains: string[]; subdomain?: string; status?: string }>;
+  projects: Record<
+    string,
+    {
+      domains: string[];
+      subdomain?: string;
+      status?: string;
+      /** How many reads of a project domain answer `pending` before its status applies. */
+      pendingReads?: number;
+    }
+  >;
   records: Record<string, Rec[]>;
   workerDomains: { id: string; hostname: string; service: string }[];
   worker: boolean;
@@ -195,10 +207,12 @@ function fakeFetch(w: World, calls: Call[]) {
       const held = w.projects[domain[1] ?? ""];
       const name = decodeURIComponent(domain[2] ?? "");
       if (method === "GET") {
+        const pending = (held?.pendingReads ?? 0) > 0;
+        if (held !== undefined && pending) held.pendingReads = (held.pendingReads ?? 0) - 1;
         return ok({
           name,
-          status: held?.status ?? "active",
-          validation_data: { status: "active" },
+          status: pending ? "pending" : (held?.status ?? "active"),
+          validation_data: { status: pending ? "pending" : "active" },
         });
       }
       if (method === "DELETE" && held !== undefined) {
@@ -248,10 +262,15 @@ function fakeFetch(w: World, calls: Call[]) {
   return fetch as unknown as typeof globalThis.fetch;
 }
 
-/** Who answers each host at the edge, read from the world as it is now. */
+/**
+ * Who answers each host at the edge, read from the world as it is now. Only
+ * the address the zone's own name servers give is the edge: a probe sent
+ * anywhere else, such as an address the system resolver gave, answers nothing.
+ */
 const edgeFromWorld =
   (w: World) =>
-  async (_address: string, host: string): Promise<ProbeResult> => {
+  async (address: string, host: string): Promise<ProbeResult> => {
+    if (address !== EDGE) return { outcome: "error", error: `ECONNREFUSED: ${address}` };
     if (w.workerDomains.some((held) => held.hostname === host))
       return { outcome: "worker", status: 200 };
     const pages = Object.values(w.projects).some((held) => held.domains.includes(host));
@@ -259,10 +278,17 @@ const edgeFromWorld =
     return pages && pointed ? { outcome: "pages", status: 200 } : { outcome: "other", status: 530 };
   };
 
-/** A name exists at the zone's servers while the zone holds a record for it. */
+/**
+ * A name exists at the zone's servers while the zone holds a record for it.
+ * The system resolver answers the name servers' names, and nothing else
+ * (as a runner holding a cached negative answer for the hosts would).
+ */
 const dnsFromWorld = (w: World) => ({
   resolveNs: async () => ["ada.ns.cloudflare.com"],
-  lookup4: async () => "192.0.2.53",
+  lookup4: async (name: string) => {
+    if (name !== "ada.ns.cloudflare.com") throw new Error(`ENOTFOUND ${name}`);
+    return "192.0.2.53";
+  },
   resolveAt: async (_servers: readonly string[], name: string) =>
     (w.records[name] ?? []).length > 0 ? [EDGE] : [],
   lookupSystem: async (name: string) =>
@@ -331,6 +357,79 @@ const onPages = (): World =>
     workerDomains: [{ id: "wd-spare", hostname: SPARE, service: REHEARSAL_WORKER }],
     worker: true,
   });
+
+/** A TLS socket for the edge probe, answering as `options` say. */
+interface FakeSocketOptions {
+  readonly response?: string;
+  readonly error?: { readonly code: string; readonly message: string };
+  readonly authorized?: boolean;
+  /** The one name the certificate covers; the probed host unless set. */
+  readonly names?: string;
+  /** Never connects or answers. */
+  readonly silent?: boolean;
+  /** Closes after the request with no answer. */
+  readonly closeEmpty?: boolean;
+  readonly throwOnConnect?: boolean;
+  /** Leave the certificate check to the script's own default. */
+  readonly defaultIdentity?: boolean;
+  readonly timeoutMs?: number;
+}
+
+/** Runs the edge probe against a fake TLS socket; returns what it found, sent and connected to. */
+async function probeWith(options: FakeSocketOptions) {
+  const handlers: Record<string, ((value: never) => void)[]> = {};
+  const emit = (event: string, value?: unknown) => {
+    for (const handler of handlers[event] ?? []) handler(value as never);
+  };
+  const written: string[] = [];
+  const connected: { host: string; port: number; servername: string }[] = [];
+  const fake: EdgeSocket = {
+    authorized: options.authorized ?? true,
+    authorizationError: options.authorized === false ? new Error("self signed") : undefined,
+    getPeerCertificate: () =>
+      ({
+        subject: { CN: options.names ?? HOST },
+        subjectaltname: `DNS:${options.names ?? HOST}`,
+      }) as never,
+    on: (event: string, handler: (value: never) => void) => {
+      (handlers[event] ??= []).push(handler);
+      return fake;
+    },
+    write: (text: string) => {
+      written.push(text);
+      queueMicrotask(() => {
+        if (options.closeEmpty === true) {
+          emit("close");
+          return;
+        }
+        emit("data", Buffer.from(options.response ?? ""));
+        emit("end");
+      });
+      return true;
+    },
+    destroy: () => fake,
+  };
+  const connect = (connectOptions: { host: string; port: number; servername: string }) => {
+    if (options.throwOnConnect === true) throw new Error("no route to host");
+    connected.push({ ...connectOptions });
+    if (options.silent !== true) {
+      queueMicrotask(() => {
+        if (options.error === undefined) emit("secureConnect");
+        else
+          emit(
+            "error",
+            Object.assign(new Error(options.error.message), { code: options.error.code }),
+          );
+      });
+    }
+    return fake;
+  };
+  const input = { connect, address: EDGE, host: HOST, timeoutMs: options.timeoutMs ?? 5_000 };
+  const result = await edgeProbe(
+    options.defaultIdentity === true ? input : { ...input, checkIdentity: checkServerIdentity },
+  );
+  return { result, written: written.join(""), connected };
+}
 
 describe("domain-move-rehearsal.ts", () => {
   test("R1: imports only the repository's import-free files and node built-ins", () => {
@@ -780,96 +879,78 @@ describe("domain-move-rehearsal.ts", () => {
   });
 
   test("R18: the edge probe classifies each answer, sends SNI, Host and the CI user agent, follows no redirect, and refuses a certificate that does not cover the host", async () => {
-    const socket = (options: {
-      response?: string;
-      error?: { code: string; message: string };
-      authorized?: boolean;
-      names?: string;
-    }) => {
-      const handlers: Record<string, ((value?: unknown) => void)[]> = {};
-      const written: string[] = [];
-      const fake: EdgeSocket = {
-        authorized: options.authorized ?? true,
-        authorizationError: options.authorized === false ? new Error("self signed") : undefined,
-        getPeerCertificate: () =>
-          ({
-            subject: { CN: options.names ?? HOST },
-            subjectaltname: `DNS:${options.names ?? HOST}`,
-          }) as never,
-        on: (event, handler) => {
-          (handlers[event] ??= []).push(handler as (value?: unknown) => void);
-          return fake;
-        },
-        write: (text) => {
-          written.push(String(text));
-          queueMicrotask(() => {
-            for (const handler of handlers.data ?? []) handler(Buffer.from(options.response ?? ""));
-            for (const handler of handlers.end ?? []) handler();
-          });
-          return true;
-        },
-        destroy: () => fake,
-      };
-      const connect = (connectOptions: { host: string; servername: string }) => {
-        seen.push(connectOptions);
-        queueMicrotask(() => {
-          if (options.error !== undefined) {
-            for (const handler of handlers.error ?? [])
-              handler(
-                Object.assign(new Error(options.error.message), { code: options.error.code }),
-              );
-          } else {
-            for (const handler of handlers.secureConnect ?? []) handler();
-          }
-        });
-        return fake;
-      };
-      return { connect, written };
-    };
-    const seen: { host: string; servername: string }[] = [];
-    const probe = async (options: Parameters<typeof socket>[0]) => {
-      const fake = socket(options);
-      const result = await edgeProbe({
-        connect: fake.connect as never,
-        checkIdentity: checkServerIdentity,
-        address: EDGE,
-        host: HOST,
-        timeoutMs: 5_000,
-      });
-      return { result, written: fake.written.join("") };
-    };
-    const page = (marker: string) =>
-      `HTTP/1.1 200 OK\r\ncontent-type: text/html\r\n\r\n<p>${marker}</p>`;
-    const pages = await probe({ response: page(REHEARSAL_MARKERS.pages) });
+    const page = (marker: string, status = "200 OK") =>
+      `HTTP/1.1 ${status}\r\ncontent-type: text/html\r\n\r\n<p>${marker}</p>`;
+    const pages = await probeWith({ response: page(REHEARSAL_MARKERS.pages) });
     expect(pages.result).toEqual({ outcome: "pages", status: 200 });
     expect(pages.written).toContain(`Host: ${HOST}\r\n`);
     expect(pages.written).toContain(`User-Agent: ${CI_USER_AGENT}\r\n`);
-    expect(seen.at(-1)).toMatchObject({ host: EDGE, servername: HOST });
-    expect((await probe({ response: page(REHEARSAL_MARKERS.worker) })).result).toEqual({
+    expect(pages.connected).toEqual([{ host: EDGE, port: 443, servername: HOST }]);
+    expect((await probeWith({ response: page(REHEARSAL_MARKERS.worker) })).result).toEqual({
       outcome: "worker",
       status: 200,
     });
+    // A redirect, and any answer but 200, is not the site, whatever its body holds.
     expect(
       (
-        await probe({
+        await probeWith({
           response: "HTTP/1.1 302 Found\r\nlocation: https://x.cloudflareaccess.com/\r\n\r\n",
         })
       ).result,
     ).toEqual({ outcome: "other", status: 302 });
-    const tls = await probe({
+    expect(
+      (await probeWith({ response: page(REHEARSAL_MARKERS.worker, "503 Service Unavailable") }))
+        .result,
+    ).toEqual({ outcome: "other", status: 503 });
+    const tls = await probeWith({
       error: { code: "ERR_TLS_CERT_ALTNAME_INVALID", message: `x`.repeat(500) },
     });
     expect(tls.result.outcome).toBe("error");
     expect(tls.result.error?.startsWith("ERR_TLS_CERT_ALTNAME_INVALID")).toBe(true);
     expect((tls.result.error ?? "").length).toBeLessThanOrEqual(240);
     // An unauthorized socket, or a certificate for another name, is an error even with a marker.
-    expect(
-      (await probe({ authorized: false, response: page(REHEARSAL_MARKERS.worker) })).result.outcome,
-    ).toBe("error");
-    expect(
-      (await probe({ names: "other.example.dev", response: page(REHEARSAL_MARKERS.worker) })).result
-        .outcome,
-    ).toBe("error");
+    const untrusted = await probeWith({
+      authorized: false,
+      response: page(REHEARSAL_MARKERS.worker),
+    });
+    expect(untrusted.result.outcome).toBe("error");
+    expect(untrusted.written).toBe("");
+    const misnamed = await probeWith({
+      names: "other.example.dev",
+      response: page(REHEARSAL_MARKERS.worker),
+    });
+    expect(misnamed.result.outcome).toBe("error");
+    expect(misnamed.written).toBe("");
+  });
+
+  test("R18a: the certificate check the script wires in by default refuses a certificate for another name", async () => {
+    const result = await probeWith({
+      names: "other.example.dev",
+      response: `HTTP/1.1 200 OK\r\n\r\n${REHEARSAL_MARKERS.worker}`,
+      defaultIdentity: true,
+    });
+    expect(result.result.outcome).toBe("error");
+    expect(result.result.error?.startsWith("ERR_TLS_CERT_ALTNAME_INVALID")).toBe(true);
+    const named = await probeWith({
+      response: `HTTP/1.1 200 OK\r\n\r\n${REHEARSAL_MARKERS.worker}`,
+      defaultIdentity: true,
+    });
+    expect(named.result.outcome).toBe("worker");
+  });
+
+  test("R18b: no whole answer in time, an answer that is not HTTP, a close with no answer, and a connect that throws are each an error", async () => {
+    const silent = await probeWith({ silent: true, timeoutMs: 5 });
+    expect(silent.result.outcome).toBe("error");
+    expect(silent.result.error?.startsWith("TIMEOUT")).toBe(true);
+    const garbage = await probeWith({ response: "SSH-2.0-OpenSSH\r\n" });
+    expect(garbage.result.outcome).toBe("error");
+    expect(garbage.result.error?.startsWith("NO_HTTP")).toBe(true);
+    const closed = await probeWith({ closeEmpty: true });
+    expect(closed.result.outcome).toBe("error");
+    expect(closed.result.error?.startsWith("CLOSED")).toBe(true);
+    const thrown = await probeWith({ throwOnConnect: true });
+    expect(thrown.result.outcome).toBe("error");
+    expect(thrown.result.error?.startsWith("CONNECT")).toBe(true);
   });
 
   test("R19: watch keeps run-length edge and DNS timelines and stops once the attach job completes, past a GitHub failure", async () => {
@@ -1057,5 +1138,242 @@ describe("domain-move-rehearsal.ts", () => {
     };
     expect(lateReport.intervals.edgeGapFrom).toBe("detach");
     expect(lateReport.intervals.edgeGapMs).toBe(112_000);
+  });
+
+  test("R10a: worker-staged deploys with REHEARSAL_MODE=staged, then waits for the Worker on the spare host; a failed deploy waits for nothing", async () => {
+    const w = world({ projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`] } } });
+    const log: { script: string; mode: string | undefined }[] = [];
+    const staged = await run(["worker-staged", ...OUT], w, DEPLOY_ENV, {
+      runAlchemy: alchemyMoving(w, log),
+    });
+    expect(staged.code).toBe(0);
+    expect(log).toEqual([{ script: "rehearsal:deploy", mode: "staged" }]);
+    expect(events(staged).firstSpareWorkerAnswerAt).toBeString();
+    expect(events(staged).workerDomainListedAt).toBeString();
+    // The Worker never answering on the spare host fails the step.
+    const w2 = world();
+    const silent = await run(["worker-staged", ...OUT], w2, DEPLOY_ENV, {
+      runAlchemy: alchemyMoving(w2, []),
+      probe: async () => ({ outcome: "error", error: "ERR_TLS_CERT_ALTNAME_INVALID: not yet" }),
+    });
+    expect(silent.code).toBe(1);
+    // A failed deploy fails at once, probing nothing, though the spare could be pinned.
+    let probes = 0;
+    const pinnable = world({ records: { [SPARE]: [workerRecord(SPARE)] } });
+    const deployFailed = await run(["worker-staged", ...OUT], pinnable, DEPLOY_ENV, {
+      runAlchemy: async () => ({ exitCode: 1, log: "boom" }),
+      probe: async () => {
+        probes += 1;
+        return { outcome: "worker" };
+      },
+    });
+    expect(deployFailed.code).toBe(1);
+    expect(probes).toBe(0);
+  });
+
+  test("R13a: unflip fails when the spare never answers the Worker, when the host keeps answering it, and when Alchemy fails though the domains moved", async () => {
+    const flipped = async () => {
+      const w = detached();
+      await alchemyMoving(w, [])("rehearsal:deploy", { REHEARSAL_MODE: "worker" });
+      return w;
+    };
+    const w1 = await flipped();
+    const spareSilent = await run(["unflip", ...OUT], w1, DEPLOY_ENV, {
+      runAlchemy: alchemyMoving(w1, []),
+      probe: async (address, host) =>
+        host === SPARE ? { outcome: "other", status: 522 } : edgeFromWorld(w1)(address, host),
+    });
+    expect(spareSilent.code).toBe(1);
+    const w2 = await flipped();
+    const hostStays = await run(["unflip", ...OUT], w2, DEPLOY_ENV, {
+      runAlchemy: alchemyMoving(w2, []),
+      probe: async (address, host) =>
+        host === HOST ? { outcome: "worker", status: 200 } : edgeFromWorld(w2)(address, host),
+    });
+    expect(hostStays.code).toBe(1);
+    const w3 = await flipped();
+    const alchemyFailed = await run(["unflip", ...OUT], w3, DEPLOY_ENV, {
+      runAlchemy: alchemyMoving(w3, [], 1),
+    });
+    expect(alchemyFailed.code).toBe(1);
+    expect(events(alchemyFailed).firstSpareWorkerAnswerAt).toBeString();
+    // The same for the flip: the Worker answering does not pass a failed deploy.
+    const w4 = detached();
+    const flipFailed = await run(["flip", ...OUT], w4, DEPLOY_ENV, {
+      runAlchemy: alchemyMoving(w4, [], 1),
+    });
+    expect(flipFailed.code).toBe(1);
+    expect(events(flipFailed).firstWorkerAnswerAt).toBeString();
+  });
+
+  test("R15a: destroy fails while another Worker's domain holds a rehearsal host, runs on a re-run attempt, and passes once the API has removed what Alchemy left", async () => {
+    const w = onPages();
+    w.workerDomains.push({ id: "wd-other", hostname: HOST, service: "someone-else" });
+    const held = await run(["destroy", ...OUT], w, DEPLOY_ENV, {
+      // Alchemy's destroy removes the rehearsal Worker and its own domains alone.
+      runAlchemy: async () => {
+        w.workerDomains = w.workerDomains.filter((domain) => domain.service !== REHEARSAL_WORKER);
+        w.worker = false;
+        return { exitCode: 0, log: "" };
+      },
+    });
+    expect(held.code).toBe(1);
+    expect(held.output).toContain("someone-else");
+    const w2 = onPages();
+    const rerun = await run(
+      ["destroy", ...OUT],
+      w2,
+      { ...DEPLOY_ENV, GITHUB_RUN_ATTEMPT: "2" },
+      {
+        runAlchemy: alchemyMoving(w2, []),
+      },
+    );
+    expect(rerun.code).toBe(0);
+    // Alchemy's destroy succeeds but leaves the Worker and its domain: the API removes both.
+    const w3 = onPages();
+    const log: { script: string; mode: string | undefined }[] = [];
+    const fellBack = await run(["destroy", ...OUT], w3, DEPLOY_ENV, {
+      runAlchemy: async (script, env) => {
+        log.push({ script, mode: env.REHEARSAL_MODE });
+        return { exitCode: 0, log: "" };
+      },
+    });
+    expect(fellBack.code).toBe(0);
+    expect(fellBack.output).toContain("the API removed them");
+    expect(log).toHaveLength(2);
+    expect(w3.worker).toBe(false);
+    expect(w3.workerDomains).toEqual([]);
+  });
+
+  test("R16a: cleanup leaves a CNAME at a rehearsal host that points anywhere but a rehearsal project, and takes a project's domains off before deleting it", async () => {
+    const w = world({
+      projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`, HOST] } },
+      records: {
+        [HOST]: [cname("c1", HOST, PROJECT)],
+        [SPARE]: [cname("c2", SPARE, "cire-host")],
+      },
+    });
+    const result = await run(["cleanup", ...OUT], w, DNS_ENV);
+    expect(w.records[SPARE]?.map((record) => record.id)).toEqual(["c2"]);
+    expect(result.code).toBe(1);
+    const order = writes(result.calls).map(
+      (call) => `${call.method} ${call.url.slice(API.length)}`,
+    );
+    const domainGone = order.indexOf(
+      `DELETE /accounts/${ACCOUNT}/pages/projects/${PROJECT}/domains/${HOST}`,
+    );
+    const projectGone = order.indexOf(`DELETE /accounts/${ACCOUNT}/pages/projects/${PROJECT}`);
+    expect(domainGone).toBeGreaterThan(-1);
+    expect(domainGone).toBeLessThan(projectGone);
+  });
+
+  test("R8a: pages-on waits past the Pages marker until the domain reads active, and passes without it at the cap", async () => {
+    // The domain reads pending twice, then active.
+    const w = world({
+      projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`], pendingReads: 2 } },
+    });
+    const result = await run(["pages-on", ...OUT], w, DNS_ENV);
+    expect(result.code).toBe(0);
+    const at = events(result);
+    expect(Date.parse(String(at.pagesDomainActiveAt))).toBeGreaterThan(
+      Date.parse(String(at.firstPagesAnswerAt)),
+    );
+    const never = world({
+      projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`], status: "pending" } },
+    });
+    const capped = await run(["pages-on", ...OUT], never, DNS_ENV);
+    expect(capped.code).toBe(0);
+    expect(events(capped).pagesDomainActiveAt).toBeUndefined();
+    expect(
+      Date.parse(String(capped.fragment.endedAt)) - Date.parse(String(capped.fragment.startedAt)),
+    ).toBeGreaterThanOrEqual(PAGES_WAIT_MS);
+  });
+
+  test("R19c: wait-watch waits out the 45 s margin after the watch job starts", async () => {
+    const now = new Date(Date.parse("2026-11-06T00:00:00Z")).toISOString();
+    const justStarted = await run(
+      ["wait-watch", ...OUT],
+      world({ jobs: [{ name: WATCH_JOB_NAME, status: "in_progress", started_at: now }] }),
+      GH_ENV,
+    );
+    const waited =
+      Date.parse(String(justStarted.fragment.endedAt)) -
+      Date.parse(String(justStarted.fragment.startedAt));
+    expect(waited).toBeGreaterThanOrEqual(WAIT_WATCH_MARGIN_MS);
+    expect(waited).toBeLessThan(WAIT_WATCH_MARGIN_MS + 10_000);
+    const queued = await run(
+      ["wait-watch", ...OUT],
+      world({ jobs: [{ name: WATCH_JOB_NAME, status: "queued" }] }),
+      GH_ENV,
+    );
+    expect(String(queued.fragment.message)).toContain("cap");
+  });
+
+  test("R20a: report writes the run summary, keeps an unreadable fragment as such, gives no edge gap when no Worker answered, takes the longest DNS gap, and fails on a directory it cannot read", async () => {
+    const at = (seconds: number) =>
+      new Date(Date.parse("2026-11-06T00:00:00Z") + seconds * 1000).toISOString();
+    const fragments = {
+      "flip.json": "{ not json",
+      "watch.json": JSON.stringify({
+        step: "watch",
+        timeline: [
+          { view: "edge", host: HOST, outcome: "pages", first: at(0), last: at(10), count: 5 },
+          { view: "edge", host: HOST, outcome: "other", first: at(12), last: at(300), count: 140 },
+          { view: "dns", host: HOST, outcome: "ENOTFOUND", first: at(20), last: at(30), count: 5 },
+          { view: "dns", host: HOST, outcome: "resolves", first: at(32), last: at(40), count: 4 },
+          {
+            view: "dns",
+            host: HOST,
+            outcome: "ENOTFOUND",
+            first: at(42),
+            last: at(342),
+            count: 150,
+          },
+        ],
+      }),
+    };
+    const result = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN, GITHUB_STEP_SUMMARY: "/tmp/summary.md" },
+      { readDir: () => fragments },
+    );
+    expect(result.code).toBe(0);
+    expect(result.files["/tmp/summary.md"]).toContain("## Domain move rehearsal");
+    const report = JSON.parse(
+      result.files["/tmp/rehearsal/domain-move-rehearsal.json"] ?? "{}",
+    ) as {
+      intervals: Record<string, unknown>;
+      steps: Record<string, { message: string }>;
+    };
+    expect(report.steps.flip?.message).toBe("the fragment could not be read");
+    expect(report.intervals.edgeGapMs).toBeNull();
+    expect(report.intervals.clientDnsGapMs).toBe(300_000);
+    const unreadable = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN },
+      {
+        readDir: () => {
+          throw new Error("ENOENT");
+        },
+      },
+    );
+    expect(unreadable.code).toBe(1);
+  });
+
+  test("R21: the script's Alchemy steps are shared/infra's rehearsal scripts, at the rehearsal stage, sending no telemetry", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(import.meta.dir, "..", "..", "shared", "infra", "package.json"), "utf8"),
+    ) as { scripts: Record<string, string> };
+    expect(manifest.scripts["rehearsal:deploy"]).toBe(
+      "CI=true DO_NOT_TRACK=1 bun alchemy deploy rehearsal/alchemy.run.ts --stage domain-move --yes",
+    );
+    expect(manifest.scripts["rehearsal:destroy"]).toBe(
+      "CI=true DO_NOT_TRACK=1 bun alchemy destroy rehearsal/alchemy.run.ts --stage domain-move --yes",
+    );
+    expect(REHEARSAL_STAGE).toBe("domain-move");
+    const source = readFileSync(join(import.meta.dir, "..", "domain-move-rehearsal.ts"), "utf8");
+    expect(source).toContain('spawn("bun", ["run", "--cwd", "shared/infra", script]');
   });
 });

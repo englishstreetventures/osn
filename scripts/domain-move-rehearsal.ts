@@ -1261,9 +1261,28 @@ export function intervals(fragments: Readonly<Record<string, Fragment>>, host: s
 
 const REPORT_FILE = "domain-move-rehearsal.json";
 
+/** Every fragment file in `out`, or null when the directory cannot be read. */
+function readFragments(
+  input: RehearsalInput,
+  out: string,
+): Readonly<Record<string, string>> | null {
+  try {
+    return input.readDir(out);
+  } catch {
+    return null;
+  }
+}
+
 function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): number {
+  const files = readFragments(input, out);
+  if (files === null) {
+    input.out(
+      `::error::domain-move-rehearsal: ${out} cannot be read: no job of this attempt left a record.\n`,
+    );
+    return 1;
+  }
   const fragments: Record<string, Fragment> = {};
-  for (const [name, text] of Object.entries(input.readDir(out))) {
+  for (const [name, text] of Object.entries(files)) {
     const step = name.replace(/\.json$/, "");
     if (name !== REPORT_FILE && isStep(step)) {
       try {
@@ -1500,17 +1519,12 @@ if (import.meta.main) {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text);
     },
-    readDir: (dir) => {
-      try {
-        return Object.fromEntries(
-          readdirSync(dir)
-            .filter((name) => name.endsWith(".json"))
-            .map((name) => [name, readFileSync(join(dir, name), "utf8")]),
-        );
-      } catch {
-        return {};
-      }
-    },
+    readDir: (dir) =>
+      Object.fromEntries(
+        readdirSync(dir)
+          .filter((name) => name.endsWith(".json"))
+          .map((name) => [name, readFileSync(join(dir, name), "utf8")]),
+      ),
   });
   process.exit(code);
 }

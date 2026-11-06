@@ -10,7 +10,15 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ATTACH_JOB_NAME, WATCH_JOB_NAME } from "../domain-move-rehearsal";
+import {
+  ATTACH_JOB_NAME,
+  PAGES_WAIT_MS,
+  PIN_TIMEOUT_MS,
+  WAIT_WATCH_CAP_MS,
+  WATCH_CAP_MS,
+  WATCH_JOB_NAME,
+  WORKER_WAIT_MS,
+} from "../domain-move-rehearsal";
 
 interface Step {
   readonly id?: string;
@@ -411,6 +419,32 @@ describe("domain-move-rehearsal.yml", () => {
       CLOUDFLARE_ACCOUNT_ID: DEV_ACCOUNT,
       CLOUDFLARE_API_TOKEN: UPLOAD_TOKEN,
     });
+  });
+
+  test("W11: the move itself runs only on success; the detach waits for the watch first; each job outlasts the waits its step can make", () => {
+    // The detach, flip and check run only once everything before them passed.
+    for (const id of ["detach", "flip", "check"]) {
+      expect({ id, if: jobs[id]?.if }).toEqual({ id, if: undefined });
+    }
+    const detach = stepsOf("detach");
+    const waitAt = detach.findIndex((step) => step.id === "wait_watch");
+    expect(waitAt).toBeGreaterThan(-1);
+    expect(waitAt).toBeLessThan(detach.findIndex((step) => step.id === "detach"));
+    // A job its timeout kills mid-wait records the wait as cut short, not as Cloudflare's answer.
+    const minutes = (ms: number) => ms / 60_000;
+    const longest: Readonly<Record<string, number>> = {
+      "pages-on": minutes(PIN_TIMEOUT_MS + PAGES_WAIT_MS),
+      attach: minutes(PIN_TIMEOUT_MS + PAGES_WAIT_MS),
+      "worker-staged": minutes(PIN_TIMEOUT_MS + WORKER_WAIT_MS),
+      flip: minutes(PIN_TIMEOUT_MS + WORKER_WAIT_MS),
+      unflip: minutes(PIN_TIMEOUT_MS + WORKER_WAIT_MS),
+      watch: minutes(PIN_TIMEOUT_MS + WATCH_CAP_MS),
+      detach: minutes(WAIT_WATCH_CAP_MS),
+    };
+    for (const [id, wait] of Object.entries(longest)) {
+      const timeout = jobs[id]?.["timeout-minutes"] ?? 0;
+      expect({ id, outlasts: timeout > wait }).toEqual({ id, outlasts: true });
+    }
   });
 
   test("every checkout leaves the job token off the disk", () => {
