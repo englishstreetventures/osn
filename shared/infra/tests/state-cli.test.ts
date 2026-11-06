@@ -23,6 +23,13 @@
  * of an installed Alchemy package names, in either copy or a type
  * declaration, must exist in the installed Effect, so a module that would fail
  * only when a deploy first reaches it fails here too.
+ *
+ * SC7 and SC8 cover the AWS SDK the provider installs, whose S3 module
+ * declares a schema Effect refuses. SC7 holds the whole tree to two S3
+ * operations, listing and aborting an R2 bucket's multipart uploads, both in
+ * the provider's multipart-upload module. SC8 runs each copy of that module
+ * under Bun's own loader, as a deploy does, against a scripted R2 on the
+ * installed Effect, and checks which copy of the SDK it loaded.
  */
 
 import {
@@ -292,4 +299,159 @@ describe("the installed Alchemy tree", () => {
     expect(checked).toBeGreaterThan(0);
     expect(missing).toEqual([]);
   });
+});
+
+/** The installed provider's root directory, as this package reaches it. */
+const providerDir = (): string => {
+  const dir = packageDirFrom("@alchemy.run/cloudflare", packageDir);
+  if (dir === undefined)
+    throw new Error(`@alchemy.run/cloudflare is not installed in ${packageDir}`);
+  return dir;
+};
+
+/** The AWS SDK's root directory, as the provider reaches it. */
+const awsSdkDir = (): string => {
+  const dir = packageDirFrom("@distilled.cloud/aws", providerDir());
+  if (dir === undefined) throw new Error("the provider reaches no @distilled.cloud/aws");
+  return dir;
+};
+
+/** A module of the AWS SDK named in a file (not `@distilled.cloud/aws4signer`), with its subpath. */
+const AWS_SPECIFIER = /["']@distilled\.cloud\/aws(?:\/([^"']*))?["']/g;
+
+/** The S3 client taken as a namespace, the one form SC7 can follow to every use. */
+const S3_NAMESPACE =
+  /\bimport\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s+from\s*["']@distilled\.cloud\/aws\/s3["']/g;
+
+/** The S3 operations the provider runs, both on an R2 bucket's multipart uploads. */
+const S3_OPERATIONS = ["abortMultipartUpload", "listMultipartUploads"];
+
+/** Both copies of the provider's module that aborts an R2 bucket's multipart uploads. */
+const MULTIPART_COPIES = [
+  "lib/R2/internal/MultipartUploads.js",
+  "src/R2/internal/MultipartUploads.ts",
+];
+
+/** An import declaration as Bun's transpiler prints one: a line of its own. */
+const IMPORT_LINE = /^import\b[^;]*;$/gm;
+
+/** A file's code as it runs, split into its imports and the rest: Bun's transpiler drops types and comments. */
+function runnableCode(file: string): { readonly imports: string; readonly body: string } {
+  const code = new Bun.Transpiler({ loader: file.endsWith(".ts") ? "ts" : "js" }).transformSync(
+    readFileSync(file, "utf8"),
+  );
+  return {
+    imports: (code.match(IMPORT_LINE) ?? []).join("\n"),
+    body: code.replace(IMPORT_LINE, ""),
+  };
+}
+
+/** The script SC8 runs: one copy of the multipart-upload module under Bun, against a scripted R2. */
+const MULTIPART_RUN = join(packageDir, "tests", "support", "r2-multipart-abort.ts");
+
+describe("the AWS SDK in the installed Alchemy tree", () => {
+  // `@distilled.cloud/aws` declares a record of optional values in its S3
+  // module, a schema Effect refuses when it is built. The module builds each
+  // operation's schemas on first use, so it loads (SC3, SC5), and only an
+  // operation whose shapes hold that record fails. SC7 holds the tree to the
+  // two operations SC8 runs.
+  test("SC7: only the provider's multipart-upload module names the AWS SDK, and it runs two S3 operations", () => {
+    const sdk = awsSdkDir();
+    const naming: string[] = [];
+    for (const dir of treePackages()) {
+      if (dir === sdk) continue;
+      const { name } = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+        readonly name: string;
+      };
+      for (const file of moduleFiles(dir)) {
+        // A declaration's imports are types, which run nowhere.
+        if (/\.d\.[cm]?ts$/.test(file)) continue;
+        if (readFileSync(file, "utf8").match(AWS_SPECIFIER) !== null) {
+          naming.push(`${name}/${relative(dir, file)}`);
+        }
+      }
+    }
+    expect(naming.toSorted()).toEqual(
+      MULTIPART_COPIES.map((copy) => `@alchemy.run/cloudflare/${copy}`),
+    );
+
+    for (const copy of MULTIPART_COPIES) {
+      const { imports, body } = runnableCode(join(providerDir(), copy));
+      // Only an import names the SDK: a dynamic import or a require would not
+      // be read below.
+      expect({ [copy]: body.match(AWS_SPECIFIER) }).toEqual({ [copy]: null });
+      const subpaths = [...imports.matchAll(AWS_SPECIFIER)].map((match) => match[1] ?? "");
+      expect({ [copy]: subpaths.toSorted() }).toEqual({
+        [copy]: ["Credentials", "Endpoint", "s3"],
+      });
+      const namespaces = [...imports.matchAll(S3_NAMESPACE)].map((match) => match[1] ?? "");
+      expect({ [copy]: namespaces.length }).toEqual({ [copy]: 1 });
+      const [namespace = ""] = namespaces;
+      // Every appearance of the namespace is a member read: passed on whole,
+      // destructured or indexed, it could reach any operation.
+      const uses = [
+        ...body.matchAll(
+          new RegExp(
+            String.raw`(?<![\w$.])${namespace}(?![\w$])(?:\s*\.\s*([A-Za-z_$][\w$]*))?`,
+            "g",
+          ),
+        ),
+      ];
+      expect({ [copy]: uses.filter((use) => use[1] === undefined).map((use) => use[0]) }).toEqual({
+        [copy]: [],
+      });
+      expect({ [copy]: [...new Set(uses.map((use) => use[1]))].toSorted() }).toEqual({
+        [copy]: S3_OPERATIONS,
+      });
+    }
+  });
+
+  test.each(MULTIPART_COPIES)(
+    "SC8: %s lists and aborts an R2 bucket's multipart uploads through the AWS SDK Bun loads, on the installed Effect",
+    async (copy) => {
+      const dir = mkdtempSync(join(tmpdir(), "r2-multipart-"));
+      let stdout: string;
+      try {
+        const child = Bun.spawn(["bun", "--no-env-file", MULTIPART_RUN, providerDir(), copy], {
+          cwd: dir,
+          env: { PATH: process.env.PATH ?? "", HOME: dir, DO_NOT_TRACK: "1" },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const [out, stderr] = await Promise.all([
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
+          child.exited,
+        ]);
+        expect({ exitCode: child.exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+        stdout = out;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+      const { result, requests, loaded } = JSON.parse(stdout) as {
+        readonly result: unknown;
+        readonly requests: readonly string[];
+        readonly loaded: readonly string[];
+      };
+      expect(result).toEqual({ aborted: 1 });
+      expect(requests.filter((request) => !request.includes("/tokens/verify"))).toEqual([
+        expect.stringMatching(/^GET \/cire-assets-dev\?.*uploads/),
+        expect.stringMatching(
+          /^DELETE \/cire-assets-dev\/weddings\/w1\/cover\.jpg\?.*uploadId=upload-1/,
+        ),
+      ]);
+      // The copy named ran. Under Bun, as under a deploy's `bun alchemy`, it
+      // reaches the SDK's `src/` services; the `lib/` and lazy copies load
+      // only under Node.
+      expect(loaded).toContain(join(providerDir(), copy));
+      const sdk = awsSdkDir();
+      const sdkFiles = loaded
+        .filter((file) => file.startsWith(`${sdk}/`))
+        .map((file) => relative(sdk, file));
+      expect(sdkFiles.filter((file) => /^(?:src|lib)\/services/.test(file))).toEqual([
+        "src/services/s3.ts",
+      ]);
+      expect(sdkFiles.filter((file) => file.startsWith("lib/"))).toEqual([]);
+    },
+  );
 });

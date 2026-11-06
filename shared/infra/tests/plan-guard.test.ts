@@ -3,8 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { formatPlanLines } from "alchemy/Cli/LoggingCli";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import { LoggingCli } from "alchemy/Cli/LoggingCli";
 import type { Plan } from "alchemy/Plan";
+import { Cli } from "alchemy/Report";
+import { prettyLine } from "alchemy/Util/ConsoleSink";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -24,14 +29,16 @@ import {
 } from "../src/plan-guard";
 import { PRODUCTION_SITE_MODES, type SiteMode, type SiteSurface } from "../src/production-sites";
 
-const ESC = String.fromCharCode(27);
-
-/** Each line as Effect's pretty console logger prints it in CI, with colour. */
+/** Each line as Alchemy's console prints a record, with colour (alchemy src/Util/ConsoleSink.ts). */
 const pretty = (...lines: string[]) =>
   lines
-    .map(
-      (line, index) =>
-        `${ESC}[2m[20:17:0${index % 10}.123]${ESC}[0m INFO (#12): ${ESC}[36m${line}${ESC}[0m`,
+    .map((text, index) =>
+      prettyLine({
+        date: new Date(2026, 10, 6, 20, 17, index % 60, 123),
+        level: "Info",
+        text,
+        colors: true,
+      }),
     )
     .join("\n");
 
@@ -75,16 +82,13 @@ describe("parsePlan", () => {
     expect(guardPlan({ plan, kinds: KINDS })).toEqual([]);
   });
 
-  test("G10: a logfmt record, a namespaced resource, unbind, `no changes` and `no resources`", () => {
-    expect(
-      messageOf('timestamp=2026-10-27T20:17:00Z level=INFO fiber=#3 message="[CireHost] update"'),
-    ).toBe("[CireHost] update");
+  test("G10: a namespaced resource, unbind, `no changes` and `no resources`", () => {
     const namespaced = parsePlan(
-      [
-        'level=INFO message="Plan: 1 to update, 1 binding changes"',
-        'level=INFO message="[Sites/CireHost] update"',
-        'level=INFO message="[Sites/CireHost/ASSETS] unbind"',
-      ].join("\n"),
+      pretty(
+        "Plan: 1 to update, 1 binding changes",
+        "[Sites/CireHost] update",
+        "[Sites/CireHost/ASSETS] unbind",
+      ),
     );
     expect(namespaced.resources).toEqual([{ fqn: "Sites/CireHost", action: "update" }]);
     expect(namespaced.bindings).toEqual([{ fqn: "Sites/CireHost/ASSETS", action: "unbind" }]);
@@ -207,12 +211,60 @@ describe("parsePlan reads what Alchemy prints", () => {
     };
     return plan as unknown as Plan;
   }
-  /** The plan as the production plan step logs it: each line one record, nothing after. */
-  const printed = (plan: Plan) => pretty(...formatPlanLines(plan));
+  /**
+   * The plan as the production plan step logs it: the installed Alchemy's
+   * own CLI service displays it, as `deploy --dry-run` does (alchemy
+   * src/Cli/commands/deploy.ts), and its console lines are kept.
+   */
+  async function printed(plan: Plan): Promise<string> {
+    const lines: string[] = [];
+    const console = {
+      ...globalThis.console,
+      log: (...args: unknown[]) => void lines.push(args.map(String).join(" ")),
+    };
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const cli = yield* Cli;
+        yield* cli.displayPlan(plan, {});
+      }).pipe(
+        Effect.provide(LoggingCli),
+        Effect.provide(BunServices.layer),
+        Effect.provideService(Console.Console, console),
+      ),
+    );
+    return lines.join("\n");
+  }
 
-  test("G15: every resource action, binding action and note the installed Alchemy prints reads back as itself", () => {
+  test("G16: Alchemy's console prefix, at each level and with colour or none, is removed and nothing else", () => {
+    for (const level of ["Trace", "Debug", "Info", "Warn", "Error", "Fatal"] as const) {
+      for (const colors of [true, false]) {
+        const line = prettyLine({ date: new Date(), level, text: "Plan: 1 to update", colors });
+        expect({ level, colors, message: messageOf(line) }).toEqual({
+          level,
+          colors,
+          message: "Plan: 1 to update",
+        });
+      }
+    }
+    // A record about one resource carries its tag, which a plan line never does.
+    expect(
+      messageOf(
+        prettyLine({
+          date: new Date(),
+          level: "Info",
+          text: "updating",
+          resource: "CireHost",
+          colors: false,
+        }),
+      ),
+    ).toBe("[CireHost] updating");
+    // A line in another shape keeps its text, so its Plan line is not read.
+    expect(parsePlan("INFO [20:17:00.123]: Plan: 1 to update\n").plan).toBe("missing");
+  });
+
+  test("G15: every resource action, binding action and note the installed Alchemy prints reads back as itself", async () => {
     const plan = parsePlan(
-      printed(
+      await printed(
         planOf({
           resources: [
             { fqn: "CireVendor", action: "create" },
@@ -269,13 +321,18 @@ describe("parsePlan reads what Alchemy prints", () => {
     ]);
     expect(planTextFaults(plan)).toEqual([]);
 
-    const quiet = parsePlan(printed(planOf({ resources: [{ fqn: "CireHost", action: "noop" }] })));
+    const quiet = parsePlan(
+      await printed(planOf({ resources: [{ fqn: "CireHost", action: "noop" }] })),
+    );
     expect(quiet).toMatchObject({ plan: "no-changes", counts: {}, problems: [] });
-    expect(parsePlan(printed(planOf({})))).toMatchObject({ plan: "no-resources", problems: [] });
+    expect(parsePlan(await printed(planOf({})))).toMatchObject({
+      plan: "no-resources",
+      problems: [],
+    });
 
     // What production never runs reads as a fault, not as a resource line.
     const refused = parsePlan(
-      printed(
+      await printed(
         planOf({
           resources: [
             { fqn: "CireHost", action: "update", mode: "local" },

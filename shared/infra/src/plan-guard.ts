@@ -76,11 +76,16 @@ export interface ParsedPlan {
 
 // oxlint-disable-next-line no-control-regex
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
-/** The prefix Effect's pretty logger puts on each record (alchemy src/Util/ResourceOutput.ts). */
-const EFFECT_PREFIX =
-  /^\[\d{2}:\d{2}:\d{2}\.\d{3}\] (?:ALL|TRACE|DEBUG|INFO|WARN|ERROR|FATAL|NONE) \(#\d+\)(?: [^:]+)?: /;
-/** A logfmt record's message, quoted or bare (Effect's `formatLogFmt`, the run-log file). */
-const LOGFMT = /^(?:\S+=\S*\s+)*?message=("(?:[^"\\]|\\.)*"|\S*)/;
+/**
+ * The prefix on each line of an Alchemy run's console: `[hh:mm:ss.mmm] LEVEL: `,
+ * as Alchemy's console sink prints a record and a plan line (alchemy
+ * src/Util/ConsoleSink.ts `prettyLine`, src/Cli/Present.ts `present`). A
+ * fiber id and span after the level, as Effect's own pretty logger prints a
+ * record, are read too: Alchemy's failure line carries them, and so do the
+ * dev deploy logs in tests/fixtures.
+ */
+const LINE_PREFIX =
+  /^\[\d{2}:\d{2}:\d{2}\.\d{3}\] (?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)(?: \(#\d+\)(?: [^:]+)?)?: /;
 const PLAN = /^Plan:\s+(.+?)\s*$/;
 const TAGGED = /^\[([^\]]+)\] (.+)$/;
 const PART =
@@ -88,20 +93,9 @@ const PART =
 const TASK = /^(?:run|drop) \[action\]$/;
 const NOTE = /^\(([^)]*)\)$/;
 
-/** One log line's message: colour, Effect's prefix and a logfmt wrapper removed. */
+/** One console line's message: colour and the line's prefix removed. */
 export function messageOf(line: string): string {
-  const plain = line.replace(ANSI, "").replace(/\r$/, "");
-  const logfmt = /\blevel=/.test(plain) ? LOGFMT.exec(plain) : null;
-  if (logfmt !== null) {
-    const value = logfmt[1] ?? "";
-    if (!value.startsWith('"')) return value;
-    try {
-      return String(JSON.parse(value));
-    } catch {
-      return value;
-    }
-  }
-  return plain.replace(EFFECT_PREFIX, "");
+  return line.replace(ANSI, "").replace(/\r$/, "").replace(LINE_PREFIX, "");
 }
 
 /** A Plan line read: its counts, and what in it the guard could not read. */
