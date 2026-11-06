@@ -2313,16 +2313,15 @@ For a host:
 
 `osn/auth-ui/tests/ConfirmLinkPage.test.tsx` holds the no-press guarantee, the
 one call per press, each answer's page, the fixed error line, each flow's words,
-the focus moves, what the output says and the slow timer's end. The lab's
-`osn/auth-ui/ConfirmLinkPage` stories show each state, every flow and a 320px
-phone ([[component-lab]]). At a 320px viewport, padded as `AuthorizePage` pads
-its column, the card is 272px wide, a long address breaks inside it and the
-page does not scroll sideways.
-
-_Measured 2026-11-06 — Playwright at a 320px viewport over the built lab's
-`osn/auth-ui/ConfirmLinkPage/Phone` story: `document.documentElement.scrollWidth`
-320, each card 272px with `scrollWidth` equal to `clientWidth`, the button 44px
-tall._
+the untranslated address, the focus moves, what the output says and the slow
+timer's end. `@osn/auth-ui` has no browser tier, so
+[`ConfirmLinkPage.layout.browser.test.tsx`](../../musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx)
+in `@musubi/social` holds the layout on a bare route under musubi's stylesheet,
+inside `AuthorizePage`'s `<main>`: at a 320px viewport a long address breaks
+inside a 272px card and nothing scrolls sideways; the button is 44px below `md`
+and 40px from it; the error notice sits directly above Try again
+([[browser-tests]]). The lab's `osn/auth-ui/ConfirmLinkPage` stories show each
+state, every flow and a 320px phone ([[component-lab]]).
 
 ## Adding a new component
 
