@@ -175,19 +175,32 @@ export function createRegistrationModule(
    * Mails the sign-up link for `handle` to `address`, after the answer: the
    * caller forks it. The address's limits are read here, so they cost the
    * answer nothing and are reached only where a link goes out — never for a
-   * taken address: no link goes to an address whose sign-up links drew too
-   * many wrong picks or declines today, or that has had its links for the
-   * hour. Either store failing to answer sends nothing. A held-back or failed
-   * send is counted and goes no further; the transport has already logged why
-   * a send failed. The request stays live either way, and Resend on it is the
+   * taken address:
+   *
+   *  - no link goes to an address whose sign-up links drew three wrong picks
+   *    today;
+   *  - a Resend's link counts against the address's hourly cap, and goes no
+   *    further past it. A begin's first link does not count, so the newest
+   *    sign-up always gets its first link whatever Resends came before it.
+   *
+   * Either store failing to answer sends nothing. A held-back or failed send
+   * is counted and goes no further; the transport has already logged why a
+   * send failed. The request stays live either way, and Resend on it is the
    * retry.
    */
-  const sendLink = (address: string, handle: string, url: string, ttlMinutes: number) =>
+  const sendLink = (
+    address: string,
+    handle: string,
+    url: string,
+    ttlMinutes: number,
+    kind: "first" | "resend",
+  ) =>
     Effect.gen(function* () {
       const key = serverMac.probeKey(address);
       const strikes = yield* Effect.promise(() => registrationLinkLockoutStore.status(key));
       const allowed =
-        strikes.status === "open" && (yield* Effect.promise(() => registrationSendCap.check(key)));
+        strikes.status === "open" &&
+        (kind === "first" || (yield* Effect.promise(() => registrationSendCap.check(key))));
       if (!allowed) {
         metricEmailLinkSend("registration", "capped");
         return;
@@ -352,7 +365,7 @@ export function createRegistrationModule(
       // address has an account. `forkBackground` registers the fibre with the
       // request's `waitUntil`, so the send still runs on workerd once the
       // response is out.
-      yield* forkBackground(sendLink(normalisedEmail, handle, opened.url, otpTtl / 60));
+      yield* forkBackground(sendLink(normalisedEmail, handle, opened.url, otpTtl / 60, "first"));
 
       return answer;
     }).pipe(withAuthRegister("begin"));
@@ -386,7 +399,9 @@ export function createRegistrationModule(
       if (pending?.requestId === requestId && pending.email) {
         const minutesLeft = Math.max(1, Math.ceil((resent.expiresAt - Date.now()) / 60_000));
         yield* logDevLink("registration", resent.url);
-        yield* forkBackground(sendLink(pending.email, pending.handle, resent.url, minutesLeft));
+        yield* forkBackground(
+          sendLink(pending.email, pending.handle, resent.url, minutesLeft, "resend"),
+        );
       }
       return { status: "sent" } as const;
     }).pipe(withAuthRegister("resend"));

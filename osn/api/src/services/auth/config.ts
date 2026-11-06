@@ -166,7 +166,7 @@ export interface AuthConfig {
    */
   recoveryOtpLockoutStore?: RecoveryLockoutStore;
   /**
-   * Per address: wrong picks and declines on sign-up links
+   * Per address: wrong picks on sign-up links
    * ({@link REGISTRATION_LINK_LOCKOUT_THRESHOLD} in
    * {@link REGISTRATION_LINK_LOCKOUT_MS}). Read before every sign-up link is
    * mailed; past the threshold, none is.

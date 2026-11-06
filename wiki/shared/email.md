@@ -75,9 +75,9 @@ import { EmailService } from "@shared/email";
 
 const email = yield* EmailService;
 yield* email.send({
-  template: "otp-registration",
+  template: "link-registration",
   to: normalisedEmail,
-  data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
+  data: { url, ttlMinutes: otpTtl / 60, instanceName: config.instanceName, handle },
 });
 ```
 
@@ -91,7 +91,7 @@ it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
 
 | Template                 | Data shape                          | Call site |
 |--------------------------|-------------------------------------|-----------|
-| `otp-registration`       | `{ code, ttlMinutes, instanceName }` | `beginRegistration` |
+| `link-registration`      | `{ url, ttlMinutes, instanceName, handle }` | `beginRegistration`, `resendRegistration` — see [[email-links]] |
 | `otp-step-up`            | `{ code, ttlMinutes, instanceName }` | `beginStepUpOtp` |
 | `otp-email-change`       | `{ code, ttlMinutes, instanceName }` | `beginEmailChange` |
 | `otp-recovery`           | `{ code, ttlMinutes, instanceName }` | `beginEmailRecovery` |
@@ -226,11 +226,12 @@ Content-Type: application/json
 
 > Dev-only OTP visibility: the email transport never logs the code, but
 > `osn/api`'s auth service has a **separate** `logDevOtp` helper that emits a
-> `[dev-otp] <purpose> code=…` debug line for registration / step-up /
-> email-change flows. It is gated strictly on `OSN_ENV` being unset or
-> `"local"` (returns `Effect.void` otherwise), so the code is never logged in
-> staging/production. This makes email-OTP dev flows testable without a real
-> inbox. See `osn/api/src/services/auth/helpers.ts`.
+> `[dev-otp] <purpose> code=…` debug line for the step-up, recovery and
+> email-change flows, and `logDevLink`, which emits `[dev-link] registration
+> <url>` with the sign-up link. Both are gated strictly on `OSN_ENV` being
+> unset or `"local"` (return `Effect.void` otherwise), so no code or link is
+> ever logged in staging/production. This makes the emailed dev flows testable
+> without a real inbox. See `osn/api/src/services/auth/helpers.ts`.
 >
 > **Fixed 2026-07-30:** the line used to interpolate the **recipient
 > address** too. A free-text message is not annotation-shaped, so the
@@ -370,7 +371,7 @@ read, instead of the in-memory recorder: the Resend service in
    ([[devloop-urls#Running without the proxy]]). Bun reads the package's own
    `.env`, and wrangler its `.dev.vars`; all four files are gitignored.
 3. Send something, and read it at `http://localhost:4008/inbox`. In osn-api, a
-   registration (`POST /register/begin`) sends its OTP. Every cire mail needs a
+   registration (`POST /register/begin`) sends its link. Every cire mail needs a
    signed-in organiser or osn-api's account lookups, so cire needs the whole
    local stack running.
 

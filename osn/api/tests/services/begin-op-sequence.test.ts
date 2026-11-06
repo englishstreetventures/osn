@@ -263,8 +263,9 @@ describe("POST /register/begin", () => {
         });
         expect(pending).toEqual(free);
         expect(taken).toEqual(free);
-        // Only the free address's send reads its limits: the lockout and the cap.
-        expect(yield* h.sendLimitCalls(2)).toBe(2);
+        // Only the free address's send reads a limit: the lockout. A begin's
+        // first link does not count against the Resend cap.
+        expect(yield* h.sendLimitCalls(1)).toBe(1);
       }).pipe(Effect.provide(h.layer));
     },
   );
@@ -329,14 +330,15 @@ describe("a wrong pick whose delete the store fails", () => {
         "seqwrongpick",
         "1990-01-01",
       );
-      // The send waits on the held send-limit stores; let it go and land.
-      yield* h.sendLimitCalls(2);
+      // The send waits on the held send-limit store; let it go and land.
+      yield* h.sendLimitCalls(1);
       const link = linksTo(h.recorded(), "seq-wrongpick@example.com")[0]!;
       h.fake.failWhen((call) => call.store === "email_link" && call.op === "remove");
 
+      const wrong = String(Number(begun.pairingCode) === 99 ? 10 : Number(begun.pairingCode) + 1);
       const answer = yield* h.auth.confirmEmailLink(link.requestId, {
         linkSecret: link.linkSecret,
-        pairingPick: "none",
+        pairingPick: wrong,
       });
       expect(answer).toBe("expired");
       const strikes = h.fake.calls.filter(

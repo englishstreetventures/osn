@@ -20,13 +20,13 @@ export const MAX_OTP_ATTEMPTS = 5;
 export const EMAIL_LINK_MAX_SENDS = 3;
 
 /**
- * Per-address cap on sign-up links, keyed on the address's probe key. The
- * request-level cap does not bound mail to one address on its own: a sign-up
- * retired with `previous`, or wiped by wrong secrets, frees the address for a
- * new request at once. Checked inside the send that runs after the answer, so
- * it adds nothing to the time to answer, and only where a link would go out,
- * so a taken address never reaches it. Six an hour covers a person's begin,
- * two Resends and a second try with a corrected handle.
+ * Per-address cap on Resend links, keyed on the address's probe key: the
+ * request-level cap bounds one request's Resends, and this bounds them across
+ * the requests an address can be given in an hour. A begin's first link does
+ * not count, so the newest sign-up always gets its first link. Checked inside
+ * the send that runs after the answer, so it adds nothing to the time to
+ * answer, and only where a link would go out, so a taken address never
+ * reaches it.
  */
 export const REGISTRATION_SENDS_PER_ADDRESS_MAX = 6;
 export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
@@ -39,9 +39,9 @@ export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
 export const EMAIL_LINK_PAIRING_CANDIDATES = 5;
 
 /**
- * Wrong picks and declines on sign-up links to one address, per window, before
- * no more sign-up links go to it until the window passes. Keyed on the
- * address's probe key; begin answers the same either way.
+ * Wrong picks on sign-up links to one address, per window, before no more
+ * sign-up links go to it until the window passes. A decline counts nothing.
+ * Keyed on the address's probe key; begin answers the same either way.
  */
 export const REGISTRATION_LINK_LOCKOUT_THRESHOLD = 3;
 export const REGISTRATION_LINK_LOCKOUT_MS = 24 * 60 * 60 * 1000;

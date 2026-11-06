@@ -126,7 +126,7 @@ const newSecret = (): string => {
   return Buffer.from(bytes).toString("hex");
 };
 
-/** Where a flow counts a wrong pick or a decline: its store, and the key for one subject. */
+/** Where a flow counts a wrong pick: its store, and the key for one subject. */
 interface StrikeCounter {
   readonly store: RecoveryLockoutStore;
   readonly key: string;
@@ -155,8 +155,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
   };
 
   /**
-   * Each flow's counter of wrong picks and declines, and the key it counts
-   * under for a request's subject. Sign-up counts per address.
+   * Each flow's counter of wrong picks, and the key it counts under for a
+   * request's subject. Sign-up counts per address.
    */
   const strikesOf = (flow: EmailLinkFlow, subject: string): StrikeCounter => {
     switch (flow) {
@@ -341,8 +341,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * waiting screen's number. Answers `confirmed` — again for a request already
    * confirmed, so a confirm whose answer was lost reads as done when retried —
    * and `expired` for every refusal. A wrong pick or a decline ends the
-   * request at once, on a confirmed request too, and counts a strike against
-   * the flow's subject.
+   * request at once, on a confirmed request too; a wrong pick also counts a
+   * strike against the flow's subject.
    */
   const confirm = (
     requestId: string,
@@ -360,10 +360,15 @@ export function createEmailLinkModule(ctx: AuthContext) {
         return WIPED;
       }
       if (!picksRight(requestId, entry, input.pairingPick)) {
-        const strikes = strikesOf(entry.flow, entry.subject);
-        yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
+        // A decline is the reader refusing a request they did not start: it
+        // ends the request and counts nothing against them.
+        const declined = input.pairingPick === EMAIL_LINK_DECLINE;
+        if (!declined) {
+          const strikes = strikesOf(entry.flow, entry.subject);
+          yield* Effect.promise(() => strikes.store.recordFailure(strikes.key));
+        }
         yield* end(requestId, entry);
-        return input.pairingPick === EMAIL_LINK_DECLINE ? DECLINED : WRONG_PICK;
+        return declined ? DECLINED : WRONG_PICK;
       }
       if (entry.status === "confirmed") return REPEAT;
 

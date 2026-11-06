@@ -337,22 +337,33 @@ describe("resend", () => {
     expect(linksTo(h.recorded(), email)).toHaveLength(1);
   });
 
-  it("mails one address no more than six links an hour, across requests", async () => {
+  it("resends one address no more than six links an hour across requests, and always sends a begin's first", async () => {
     const h = harness();
     const email = "address-cap@example.com";
     let current = await beginThroughRoutes(h.app, { email, handle: "addrcap" });
-    for (let round = 0; round < 2; round++) {
-      await resendThroughRoutes(h.app, current.body.requestId, current.body.claimSecret);
-      await resendThroughRoutes(h.app, current.body.requestId, current.body.claimSecret);
+    for (let round = 0; round < 3; round++) {
+      // Each round from its own address, so the per-IP Resend limit stays out of it.
+      const from = { "x-forwarded-for": `10.0.0.${round + 1}` };
+      await resendThroughRoutes(h.app, current.body.requestId, current.body.claimSecret, from);
+      await resendThroughRoutes(h.app, current.body.requestId, current.body.claimSecret, from);
       current = await beginThroughRoutes(h.app, {
         email,
         handle: "addrcap",
         previous: { requestId: current.body.requestId, claimSecret: current.body.claimSecret },
       });
     }
-    // Two rounds of three links, then a seventh begin: six mailed, not seven.
-    expect(current.res.status).toBe(200);
-    expect(linksTo(h.recorded(), email)).toHaveLength(6);
+    // Four begins, each with its first link, and six Resends: ten mailed.
+    expect(linksTo(h.recorded(), email)).toHaveLength(10);
+    // The seventh Resend in the hour mails nothing; the fourth begin's link stands.
+    const answer = await resendThroughRoutes(
+      h.app,
+      current.body.requestId,
+      current.body.claimSecret,
+      { "x-forwarded-for": "10.0.0.9" },
+    );
+    expect(await answer.json()).toEqual({ status: "sent" });
+    expect(linksTo(h.recorded(), email)).toHaveLength(10);
+    expect(linksTo(h.recorded(), email).at(-1)!.requestId).toBe(current.body.requestId);
   });
 });
 
@@ -508,17 +519,28 @@ describe("the number on the waiting screen", () => {
     });
   });
 
-  it(`stops links to an address after ${REGISTRATION_LINK_LOCKOUT_THRESHOLD} wrong picks or declines`, async () => {
+  it(`stops links to an address after ${REGISTRATION_LINK_LOCKOUT_THRESHOLD} wrong picks`, async () => {
     const h = harness();
     const email = "strikes@example.com";
     for (let n = 0; n < REGISTRATION_LINK_LOCKOUT_THRESHOLD; n++) {
       const s = await begun(h, email, "strikes");
-      await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, "none");
+      await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, await wrongPickFor(h, s));
     }
     const mailed = linksTo(h.recorded(), email).length;
     const after = await beginThroughRoutes(h.app, { email, handle: "strikes" });
     expect(after.res.status).toBe(200);
     expect(linksTo(h.recorded(), email)).toHaveLength(mailed);
+  });
+
+  it("counts nothing against an address for declining requests it did not start", async () => {
+    const h = harness();
+    const email = "declines@example.com";
+    for (let n = 0; n < REGISTRATION_LINK_LOCKOUT_THRESHOLD; n++) {
+      const s = await begun(h, email, "declines");
+      await confirmThroughRoutes(h.app, s.requestId, s.link.linkSecret, "none");
+    }
+    const after = await begun(h, email, "declines");
+    expect(after.link.requestId).toBe(after.requestId);
   });
 });
 

@@ -835,11 +835,12 @@ the checks already ask.
    enrol a passkey, sign out, sign back in. Proves ceremony state on the
    coordination store survives across requests, and that sign-up mail is delivered. The dev
    database starts empty, so an account, passkey or authenticator app from an
-   earlier dev tier is not there: sign up again. When "Verification code sent"
-   shows and no code arrives, search `osn-api-dev`'s Workers Logs for
+   earlier dev tier is not there: sign up again. Sign-up mails a link; open it
+   on any device and pick the number the waiting screen shows. When "Check your
+   email" shows and no link arrives, search `osn-api-dev`'s Workers Logs for
    `email.dispatch_failed`; its `status`, `resendError` and `resendDetail` say
-   why Resend refused ([[email#Observability]]). A refused send leaves nothing
-   pending, so "Resend code" sends a new one once the cause is fixed.
+   why Resend refused ([[email#Observability]]). A refused send leaves the
+   sign-up live, so "Resend link" sends another once the cause is fixed.
 4. Sign in on `https://host.cire.<D>` through the OIDC redirect. Proves the
    seeded `oauth_clients` row, the pairwise salt and the redirect URI agree. A
    consent row in `osn-db-dev` with no `organiser_sessions` row in `cire-db-dev`

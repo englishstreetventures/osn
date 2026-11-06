@@ -20,7 +20,7 @@ related:
 packages:
   - "@shared/coordination"
   - "@osn/api"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-07
 ---
 # Coordination store
 
@@ -29,10 +29,10 @@ osn-api keeps its short-lived shared state in one Durable Object class,
 `COORDINATION`. Every isolate of the deployed Worker sees the same state:
 
 - the rate limiters no native binding carries: the hour-window auth limiters, the per-account export limiter, the per-IP deletion and restore limiters, and the per-account caps (on the Bun dev server, every limiter);
-- the ceremony entries: identified passkey challenges, pending registrations, emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens;
+- the ceremony entries: identified passkey challenges, pending registrations and their emailed-link requests ([[email-links]]), emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens. A tab waiting on a sign-up link polls its request about once every two to ten seconds, one store read each: about seventy reads over the link's ten minutes at most, plus about four each time the person comes back to the tab;
 - each code ceremony's guess count, kept on its entry;
 - the step-up token ids already used, and the discoverable passkey challenges already used, by nonce;
-- the three per-account lockout counters (recovery code, emailed recovery code, TOTP);
+- the three per-account lockout counters (recovery code, emailed recovery code, TOTP), and the per-address count of wrong picks on sign-up links;
 - the health probe's round trip.
 
 Three things are not in it. Sessions and the record of rotated-out session
