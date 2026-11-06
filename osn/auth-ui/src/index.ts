@@ -1,7 +1,7 @@
 export { ChangeEmailForm } from "./ChangeEmailForm";
 export { CreateProfileForm } from "./CreateProfileForm";
 export { PasskeysView } from "./PasskeysView";
-export { describePasskeyError } from "./passkey-errors";
+export { describePasskeyError, type PasskeyCeremony } from "./passkey-errors";
 export { ProfileOnboarding } from "./ProfileOnboarding";
 export { ProfileSwitcher } from "./ProfileSwitcher";
 export { RecoveryCodesView } from "./RecoveryCodesView";

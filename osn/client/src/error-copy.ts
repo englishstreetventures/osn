@@ -8,7 +8,7 @@ import { isAuthExpiredError } from "./errors";
  *
  * - `code`: a one-time code (emailed, or from an authenticator app) for an
  *   account already named.
- * - `recovery`: an email or handle with a recovery code, emailed code or app
+ * - `recovery`: a handle or email with a recovery code, emailed code or app
  *   code.
  * - `passkey`: a passkey the server refused.
  * - `details`: a form of email, handle or date of birth.
@@ -36,9 +36,9 @@ const GENERAL = "Something went wrong. Try again.";
 const CONNECTION = "We couldn't connect. Check your connection and try again.";
 const WAIT = "Too many attempts. Wait a while, then try again.";
 const SESSION_ENDED = "Your session has ended. Sign in again.";
-const BLOCKED = "That request was blocked. Reload the page and try again.";
-const GONE = "That's no longer here. Reload the page and try again.";
-const CHANGED = "Something changed. Reload the page and try again.";
+const BLOCKED = "That request was blocked. Reload and try again.";
+const GONE = "That's no longer here. Reload and try again.";
+const CHANGED = "Something changed. Reload and try again.";
 const SERVER = "Something went wrong on our side. Try again.";
 const INPUT = "That didn't work. Try again.";
 
@@ -50,7 +50,7 @@ const INPUT = "That didn't work. Try again.";
 const INPUT_BY_CONTEXT = {
   code: "That code didn't work. Check it or get a new one, then try again. If it keeps failing, wait a while first.",
   recovery:
-    "That didn't work. Check your email or handle and the code, then try again. If it keeps failing, wait a while first.",
+    "That didn't work. Check your handle or email and the code, then try again. If it keeps failing, wait a while first.",
   passkey: "We couldn't verify that passkey. Try again.",
   details: "Check the details you entered and try again.",
 } as const satisfies Record<AuthErrorContext, string>;
@@ -119,8 +119,9 @@ function byStatusClass(status: number, refusedInput: string): string {
  * error's `status` and `code` (as every `OsnApiError` and
  * `ProfileManagementError` carries them), and on nothing else: never the
  * message, the cause or any other field. Two failures the server answers the
- * same way therefore always read the same, so the sentence never reveals more than the answer did — whether an
- * account exists, or which of two inputs was wrong. A `429` names the wait
+ * same way therefore always read the same, so the sentence never reveals more
+ * than the answer did — whether an account exists, or which of two inputs was
+ * wrong. A `429` names the wait
  * without a time. Any other input — a thrown string, `null`, an error with no
  * status — gets the general sentence. Never throws.
  */

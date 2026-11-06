@@ -1,6 +1,6 @@
 import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 import { OsnAuth, createOsnAuthLive } from "../src/service";
 import { createEphemeralStorage } from "../src/storage";
@@ -28,6 +28,8 @@ function seedSession(profileId = "usr_aaaaaaaaaaaa") {
     }),
   );
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 // ---------------------------------------------------------------------------
 // getActiveProfile
@@ -85,8 +87,6 @@ it.effect("listProfiles calls GET /profiles/list with Bearer auth and returns th
         headers: expect.objectContaining({ Authorization: expect.stringMatching(/^Bearer /) }),
       }),
     );
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -142,8 +142,6 @@ it.effect("switchProfile updates the active profile and caches the new access to
     // getSession should return the switched profile's session
     const currentSession = yield* auth.getSession();
     expect(currentSession?.accessToken).toBe(newAccessToken);
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -182,8 +180,6 @@ it.effect("createProfile calls POST /profiles/create and returns the new profile
     expect(body.handle).toBe("charlie");
     expect(body.display_name).toBe("Charlie");
     expect(body.refresh_token).toBeUndefined();
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -212,8 +208,6 @@ it.effect("createProfile omits display_name when not provided", () =>
 
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string);
     expect(body.display_name).toBeUndefined();
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -281,8 +275,6 @@ it.effect("deleteProfile removes the profile token from storage", () =>
     // Active profile should still be the original
     const active = yield* auth.getActiveProfile();
     expect(active).toBe("usr_aaaaaaaaaaaa");
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -326,8 +318,6 @@ it.effect("deleteProfile switches active profile when deleting the current one",
     // Should have fallen back to the original profile
     const active = yield* auth.getActiveProfile();
     expect(active).toBe("usr_aaaaaaaaaaaa");
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -368,7 +358,6 @@ it.effect("P4: a refused createProfile carries the response's status and the ser
     const error = yield* Effect.flip(auth.createProfile("charlie"));
     expect(error._tag).toBe("ProfileManagementError");
     expect(error).toMatchObject({ status: 429, code: "rate_limited" });
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -391,7 +380,6 @@ it.effect("P4: a profile call that reaches no server carries status 0", () =>
       expect(error).toMatchObject({ status: 0 });
       expect((error as { code?: string }).code).toBeUndefined();
     }
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -413,6 +401,53 @@ it.effect("P4: a non-JSON error page on a profile call keeps its status", () =>
       expect(error).toMatchObject({ _tag: "ProfileManagementError", status: 502 });
       expect((error as { code?: string }).code).toBeUndefined();
     }
-    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("P4: a 2xx whose body is not JSON keeps its status, with no code", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html>Sign in to the Wi-Fi</html>", { status: 200 })),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    for (const run of [
+      auth.listProfiles(),
+      auth.switchProfile("usr_bbbbbbbbbbbb"),
+      auth.createProfile("charlie"),
+      auth.deleteProfile("usr_bbbbbbbbbbbb"),
+    ]) {
+      const error = yield* Effect.flip(run);
+      expect(error).toMatchObject({ _tag: "ProfileManagementError", status: 200 });
+      expect((error as { code?: string }).code).toBeUndefined();
+    }
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("P4: a success body of the wrong shape fails its schema, with no status or code", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ profiles: "not-an-array" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    const auth = yield* OsnAuth;
+    yield* seedSession();
+    for (const run of [
+      auth.listProfiles().pipe(Effect.asVoid),
+      auth.switchProfile("usr_bbbbbbbbbbbb").pipe(Effect.asVoid),
+      auth.createProfile("charlie").pipe(Effect.asVoid),
+    ]) {
+      const error = yield* Effect.flip(run);
+      expect(error._tag).toBe("ProfileManagementError");
+      expect((error as { status?: number }).status).toBeUndefined();
+      expect((error as { code?: string }).code).toBeUndefined();
+    }
   }).pipe(Effect.provide(createTestLayer())),
 );

@@ -225,6 +225,16 @@ describe("every client error carries the response's status and the server's code
     expect(err).toMatchObject({ status: 400, code: undefined });
   });
 
+  it.each([
+    ["one letter", "a"],
+    ["64 characters, the longest code", "a".repeat(64)],
+  ] as const)("P3: a code of %s is kept", async (_label, value) => {
+    stubFetch(() => json({ error: value }, 400));
+    const err = await rejectionOf(() => login.passkeyBegin("alice"));
+    expect(err).toBeInstanceOf(LoginError);
+    expect(err).toMatchObject({ status: 400, code: value });
+  });
+
   it.each(SITES.map((s) => [s.name, s] as const))(
     "P3 %s: a long server message is capped",
     async (_name, s) => {
@@ -241,6 +251,17 @@ describe("every client error carries the response's status and the server's code
       const err = await rejectionOf(s.call);
       expect(err).toBeInstanceOf(s.ErrorClass);
       expect(err).toMatchObject({ status: 200, code: undefined });
+    },
+  );
+
+  it.each(SITES.filter((s) => !s.readsBody).map((s) => [s.name, s] as const))(
+    "P5 %s: reads no body on success, so an empty or non-JSON 2xx resolves",
+    async (name, s) => {
+      const status = name === "orgs.deleteOrg" ? 204 : 202;
+      stubFetch(() => new Response(null, { status }));
+      await expect(s.call()).resolves.toBeUndefined();
+      stubFetch(() => new Response("<html>Sign in to the Wi-Fi</html>", { status: 200 }));
+      await expect(s.call()).resolves.toBeUndefined();
     },
   );
 

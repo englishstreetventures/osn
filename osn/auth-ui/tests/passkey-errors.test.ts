@@ -1,4 +1,10 @@
-import { createLoginClient, describeAuthError, LoginError, OsnApiError } from "@osn/client";
+import {
+  AuthExpiredError,
+  createLoginClient,
+  describeAuthError,
+  LoginError,
+  OsnApiError,
+} from "@osn/client";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -46,14 +52,16 @@ async function failedCeremony(ceremony: Ceremony, error: unknown): Promise<unkno
   throw new Error("expected the ceremony to fail");
 }
 
+/** The names whose sentence is the same for both ceremonies. */
 const PINNED: Record<string, string> = {
-  NotAllowedError: "The passkey prompt was closed or timed out. Try again.",
+  NotAllowedError: "That passkey didn't work. Try again.",
   AbortError: "The passkey request was stopped. Try again.",
-  InvalidStateError: "This device already has a passkey for this account.",
   SecurityError: "Your browser didn't allow a passkey here. Try another browser or device.",
   NotSupportedError: "This device can't use a passkey here. Try another device or a security key.",
+  ConstraintError: "This device can't use a passkey here. Try another device or a security key.",
 };
-const NAMES = [...Object.keys(PINNED), "ConstraintError", "UnknownError"];
+const ALREADY_REGISTERED = "This device already has a passkey for this account.";
+const NAMES = [...Object.keys(PINNED), "InvalidStateError", "UnknownError"];
 const GENERAL = "Something went wrong with the passkey. Try again.";
 
 describe("describePasskeyError", () => {
@@ -79,17 +87,35 @@ describe("describePasskeyError", () => {
     async (ceremony, name) => {
       const thrown = await failedCeremony(ceremony, new DOMException(`${MARKER} ${name}`, name));
       expect(describePasskeyError(thrown)).not.toContain(MARKER);
+      expect(describePasskeyError(thrown, ceremony)).not.toContain(MARKER);
     },
   );
 
   // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
   it.each(CEREMONIES.flatMap((c) => Object.keys(PINNED).map((n) => [c, n] as const)))(
-    "W3 (%s): a %s gets its own sentence",
+    "W3 (%s): a %s gets its own sentence, named ceremony or not",
     async (ceremony, name) => {
       const thrown = await failedCeremony(ceremony, new DOMException("browser text", name));
       expect(describePasskeyError(thrown)).toBe(PINNED[name]);
+      expect(describePasskeyError(thrown, ceremony)).toBe(PINNED[name]);
     },
   );
+
+  // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
+  it("W3: an InvalidStateError says the passkey exists only when adding one", async () => {
+    const adding = await failedCeremony(
+      "registration",
+      new DOMException("browser text", "InvalidStateError"),
+    );
+    expect(describePasskeyError(adding, "registration")).toBe(ALREADY_REGISTERED);
+    expect(describePasskeyError(adding)).toBe(GENERAL);
+    const using = await failedCeremony(
+      "authentication",
+      new DOMException("browser text", "InvalidStateError"),
+    );
+    expect(describePasskeyError(using, "authentication")).toBe(GENERAL);
+    expect(describePasskeyError(using)).toBe(GENERAL);
+  });
 
   it("W4: anything it does not know gets the general sentence, without throwing", async () => {
     const throwingName = {
@@ -121,8 +147,11 @@ describe("describePasskeyError", () => {
   });
 
   it("W5: no sentence blames a domain or names a product", () => {
-    const sentences = [...Object.values(PINNED), GENERAL];
-    for (const name of NAMES) sentences.push(describePasskeyError({ name }));
+    const sentences = [...Object.values(PINNED), ALREADY_REGISTERED, GENERAL];
+    for (const name of NAMES) {
+      sentences.push(describePasskeyError({ name }));
+      for (const ceremony of CEREMONIES) sentences.push(describePasskeyError({ name }, ceremony));
+    }
     for (const sentence of sentences) {
       expect(sentence.toLowerCase()).not.toMatch(/musubi|domain|http|\.social|osn/);
     }
@@ -135,6 +164,14 @@ describe("describePasskeyError", () => {
     const limited = new LoginError("rate_limited", 429, "rate_limited");
     expect(describePasskeyError(limited)).toBe(describeAuthError(limited));
     expect(describePasskeyError(limited).toLowerCase()).toContain("wait");
+  });
+
+  it("W6: an expired session in a passkey flow gets the map's session sentence", () => {
+    const session = describeAuthError(new AuthExpiredError({}));
+    expect(session).not.toBe(GENERAL);
+    expect(describePasskeyError(new AuthExpiredError({}))).toBe(session);
+    expect(describePasskeyError({ _tag: "AuthExpiredError" })).toBe(session);
+    expect(describePasskeyError(new AuthExpiredError({}), "authentication")).toBe(session);
   });
 
   it("W7: a passkey flow that cannot reach the server gets the connection sentence", async () => {

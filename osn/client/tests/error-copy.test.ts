@@ -180,6 +180,43 @@ describe("describeAuthError", () => {
     }
   });
 
+  /**
+   * The server answers whose code has a sentence of its own, unlike the one
+   * its status alone gets. A code keyed under the wrong status falls back to
+   * the status's sentence there, and fails the first loop below.
+   */
+  const OWN_SENTENCE: ReadonlyArray<readonly [status: number, code: string]> = [
+    [400, "turnstile_failed"],
+    [400, "handle_mismatch"],
+    [400, "login_required"],
+    [401, "invalid_client"],
+    [403, "step_up_required"],
+    [404, "invalid_request"],
+    [404, "invalid_client"],
+    [409, "session_stale"],
+    [422, "age_restricted"],
+  ];
+
+  // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
+  it("C7: a code with a sentence of its own gets it, and every other code its status's", () => {
+    for (const [status, code] of OWN_SENTENCE) {
+      for (const context of CONTEXTS) {
+        expect(describeAuthError(api(status, code), context)).not.toBe(
+          describeAuthError(api(status), context),
+        );
+      }
+    }
+    const own = new Set(OWN_SENTENCE.map(([status, code]) => `${status} ${code}`));
+    for (const [status, code] of SERVER_ANSWERS) {
+      if (code === undefined || own.has(`${status} ${code}`)) continue;
+      for (const context of CONTEXTS) {
+        expect(describeAuthError(api(status, code), context)).toBe(
+          describeAuthError(api(status), context),
+        );
+      }
+    }
+  });
+
   // A copy test, not a redaction: #2044 replaces it with E2E checks or keeps it with a reason.
   it("C8: a client-wrapped transport failure gets the connection sentence, and nothing else does", () => {
     expect(CONNECTION).not.toBe(GENERAL);
