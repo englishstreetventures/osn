@@ -107,8 +107,8 @@ the test.
 
   | Utility | Size / line-height | Role |
   | --- | --- | --- |
-  | `text-display` | 24 / 30 | page titles (`h1`), large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, in tabular figures; larger than its dialog's heading on purpose) |
-  | `text-title`   | 14 / 20 | person & org names, section headers, card titles, default Button labels |
+  | `text-display` | 24 / 30 | page titles (`h1`) in the shell, large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
+  | `text-title`   | 14 / 20 | person & org names, section headers, card titles, default Button labels; the `h1` of a bare route whose page is one card (`/authorize`, the emailed-link confirm page) |
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
@@ -285,7 +285,14 @@ amending this file.
 - **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
-  `active:` classes for touch feedback. Tab rows scroll (`overflow-x-auto`)
+  `active:` classes for touch feedback. A full-width pill that is a page's
+  one next step, such as the emailed-link confirm page's Try again, draws it
+  at `size="lg"` with `max-md:h-11`: 40px from `md`, 44px below it. The
+  numbers that page offers to pick from are full-width `outline` Buttons 48px
+  tall at every width (`h-12`), and its "I didn't ask for this" a full-width
+  `ghost` `sm` Button, 44px below `md`. Where it asks for the number to be
+  typed, the field is `Input` at `size="touch"`: 46px with 16px type below
+  640px, 44px above. Tab rows scroll (`overflow-x-auto`)
   rather than wrap or shrink.
 - **Toasts** = top-center below `md` (clear of keyboard + tab bar),
   bottom-right at `md+`.

@@ -43,7 +43,7 @@ product layer, and which one a component belongs in is decided by
 | Package        | On disk                                   | Holds                                                                                                                                                                           | Depends on                                                              |
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
-| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
+| `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, `CheckEmailView`, `ConfirmLinkPage`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
 | `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `FileInput`, `Loading`, `MessageThread`, `Note`, `PersonAvatar`, `SegmentedTabs`, `SignInPanel`, `SignInCard`, `Skeleton`, `SkeletonOutline`, `Wordmark`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from, the footer (`site-footer.astro`) and the legal pages' document (`legal-layout.astro`) | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
@@ -126,6 +126,7 @@ osn/auth-ui/src/
 ├── SignIn.tsx              ← Button, Input, Label
 ├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
 ├── CheckEmailView.tsx      ← Button, Notice — the wait after a flow emails a link
+├── ConfirmLinkPage.tsx     ← Button, Card, Notice — the page an emailed link opens
 ├── pairing-code.ts         ← isPairingCode: the number's format, for every view that draws one (not exported)
 ├── CreateProfileForm.tsx   ← UsernameInput
 ├── PasskeysView.tsx  StepUpDialog.tsx  TotpView.tsx  SessionsView.tsx
@@ -1578,6 +1579,211 @@ box and the paragraph's accessible text "Your number: 123456"
 ([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each
 state, every flow, a 320px phone, and the number at rest, across a resend and
 on a phone ([[component-lab]]).
+
+### `@osn/auth-ui`'s `ConfirmLinkPage` — the page an emailed link opens
+
+[ConfirmLinkPage.tsx](../../osn/auth-ui/src/ConfirmLinkPage.tsx) is what a
+sign-up, recovery, step-up or email-change link opens: "Confirm this email",
+the numbers to pick from, and "I didn't ask for this". The page asks the person
+to pick the number shown on the waiting screen, which `CheckEmailView` draws
+from its `pairingCode`; with `typeNumber`, which recovery's host passes, it asks
+them to type that number instead. It is presentational. The host route reads the link,
+clears its secret from the address bar before anything else on the route can
+read the URL, reads the numbers with that secret, and passes `onConfirm`, which
+makes the confirm `POST`; the page decides when that call may run and what the
+person sees and hears around it. Its look follows `musubi/social/DESIGN.md` and
+[osn/auth-ui/DESIGN.md](../../osn/auth-ui/DESIGN.md), as `CheckEmailView`'s does.
+
+| Prop | What it does |
+| --- | --- |
+| `purpose` | `sign-up`, `recovery`, `step-up` or `email-change` — the type is `CheckEmailView`'s, so a new flow is a type error in both copy tables. Picks what confirming is said to do |
+| `email` | The address the link went to, in the body ink. Absent, the page says "this address", which is the usual case: the link carries no address. Where a host may get one is below |
+| `candidates` | The numbers to pick from, one of them the waiting screen's: three to five, all different, each one to six digits, 0-9 (`isPairingCode`). Drawn in the order given, exactly as written. Any other list draws the expired page |
+| `onConfirm` | Called with the number tapped, or `null` for "I didn't ask for this"; once per tap or Try again, never otherwise. Resolves `"confirmed"` for a number, `"declined"` for `null`, or `"expired"` for either; a throw, or any other answer, is an error the person can try again |
+| `onContinue` | Continue, after a confirm, where the host knows the person can carry on in this tab. Absent, the page sends them back to where they started |
+| `initialOutcome` | `"confirmed"` or `"expired"`: opens the page on that answer, with nothing to pick and no call. `candidates` may then be left out |
+| `typeNumber` | `true`: one field to type the number in, in place of the numbers to pick. `onConfirm` receives the entry exactly as typed. Never with `candidates`. The props type requires one of `candidates`, `initialOutcome` and `typeNumber` |
+
+What it draws, in musubi's sizes through the contract: the shared `Card`
+(`padding="lg"`: the surface, the hairline, the 16px corner); an `h1` at
+`text-ui-base` medium; the sentences at `text-ui-sm` in the secondary ink; the
+numbers in a `<fieldset>` whose `<legend>` is "Pick the number shown on the
+screen where you started.", one column of full-width `outline` Buttons 48px
+tall, each number at `text-ui-xl` medium in tabular figures, the size the
+waiting screen draws it; under them "I didn't ask for this", a full-width
+`ghost` `sm` Button, 44px below `md` and 32px from it. Try again and Continue are
+full-width filled pills, 40px on a desktop and 44px on a phone. With
+`typeNumber`, in place of the numbers: the shared `Label` "Type the number shown
+on the screen where you started." over one shared `Input` (`size="touch"`: 46px
+with 16px type below 640px, so a phone does not zoom, 44px above; `face="code"`:
+mono with wide tracking, for a value checked character by character;
+`fill="ink"`, because it sits on the card rather than the page's ground), then a
+full-width Confirm, 40px and 44px like Try again, then the decline.
+
+| State | Heading | Body | Buttons |
+| --- | --- | --- | --- |
+| ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and that "I didn't ask for this" is below | the numbers, or the field and Confirm (disabled until it holds one to six digits); I didn't ask for this |
+| confirming | Confirm this email | The same; "You picked {n}. Confirming…" or "You typed {n}. Confirming…" (or "Cancelling…"); after 10 seconds, "This is taking longer than usual. Keep this page open." | every one disabled, the field still holding the entry |
+| error | Confirm this email | The same, "You picked {n}." or "You typed {n}.", then a danger `Notice` — "We couldn't confirm this email just now.", or "We couldn't cancel this just now." — directly above Try again, where `CheckEmailView` puts its error too | the numbers, or the field, and the decline disabled; Try again |
+| confirmed | Confirmed | "Go back to where you started to …" and "You can close this page", or "Continue to …" with `onContinue` | none, or Continue |
+| declined | Cancelled | "Nothing was confirmed. You can close this page." (step-up: someone else may be signed in, so sign out the other sessions) | none |
+| expired | This link no longer works | It has expired or was used; if you confirmed it already, carry on where you started; if not, ask for a new link there. The same words for every refusal | none |
+
+- **Only a tap confirms.** Mail scanners open links before people do, so
+  nothing on mount, on a prop change or on a timer calls `onConfirm`. Tapping a
+  number is the confirm, with no second button: it sends that number, and every
+  choice disables itself the moment one is pressed. No click reaches a disabled
+  button, so one tap is one call.
+- **The person picks the number the waiting screen shows.** The page does not
+  know which number is right, never reorders the list, and draws each as
+  written: no `Intl`, no padding, no grouping. The digits carry
+  `translate="no"`, so page translation cannot rewrite them. One column at every
+  width: a number runs to six digits, and five of them do not fit a row of the
+  400px card; a row whose last line held fewer would make the buttons unequal.
+- **A refusal looks like every other refusal.** A number that is not the one
+  shown ends the request on the server, and the host answers `"expired"`, so the
+  page shows the same expired page as a used or out-of-date link, or a list it
+  cannot offer. No state says a pick was wrong, and nothing offers the same
+  numbers again.
+- **Or types it.** With `typeNumber` the page draws no numbers. The field takes
+  a numeric keyboard (`inputmode="numeric"`), no autocomplete and no spelling
+  help, at most six characters, and `translate="no"`. An insertion that would
+  leave anything but digits — a letter, a space, a dash in a paste, a seventh
+  digit — is refused at `beforeinput`, so the keystroke or paste does nothing;
+  what is already typed is never changed or stripped, so the page sends
+  exactly what the person typed. Nothing says the entry is wrong: Confirm, and
+  Enter in the field, stay inert until it holds one to six digits. Enter never
+  submits a form around the page. A number that is not the one shown is a
+  refusal like any other: the expired page.
+- **"I didn't ask for this"** sends `null` at once, with no second step, and a
+  `"declined"` answer shows "Cancelled". It is the person's own act, so it reads
+  differently from a refusal.
+- **An answer must fit what was sent.** A number can come back `confirmed` or
+  `expired`, a decline `declined` or `expired`. Anything else is the error
+  state, so a host's mistake never shows "Confirmed" after a decline.
+- **Try again sends the same attempt.** A throw means no answer about the link
+  came back. Try again sends the number already picked, or the decline, again,
+  never a new pick; the numbers stay on screen, disabled, with "You picked
+  {n}.". If the first call reached the server and was accepted, the repeat must
+  come back as that answer; if it was refused, the request is gone and the
+  repeat comes back expired. The pick lives in the page's memory only.
+- **It says who gets what.** The link is often opened on another device than
+  the one that asked, so each flow says what confirming lets _the device that
+  asked_ do: finish signing up; get into the account, signing out every other
+  device (recovery's completion revokes every session,
+  `osn/api/src/services/auth/recovery-factors.ts`); something sensitive such as
+  adding a passkey (step-up); set this address as the account's email. Every
+  flow points at "I didn't ask for this". For step-up that is not the end: an
+  unasked step-up means someone may be signed in, so it says to sign out the
+  other sessions.
+- **The page keeps its own state.** The guarantees above then hold in one
+  tested place rather than in four hosts, and the answer to the call is the
+  only source of truth. `initialOutcome` is the one way in from outside: a host
+  that already knows the answer opens the page on it.
+- **What is said aloud.** One `sr-only` `<output>` with `aria-live="polite"`
+  and `aria-atomic="true"`, mounted from the start and empty until something
+  changes, as `AuthorizePage`'s is ([[authorize-ui]]). It says "Confirming…" or
+  "Cancelling…", the slow line, the error, and each answer with its heading
+  word ("Confirmed. Go back to …"). An opening answer or a list the page cannot
+  offer is drawn from the start and says nothing. The heading sits outside it.
+- **Focus.** The heading (`tabindex="-1"`) takes focus on mount and on every
+  change. At a tap that moves focus off the button it just disabled, so focus
+  never falls to `<body>`. When the answer comes focus is usually already on the
+  heading, which is why the output carries the heading word.
+- **The error text is fixed.** A thrown error's own message ("Failed to fetch",
+  or whatever detail a host's error carries) never reaches the page.
+- **No deadline.** Confirming is a write. Abandoning it could offer "Try again"
+  over an approval that went through, which `AuthorizePage`'s decision call
+  avoids for the same reason. After 10 seconds the page only says it is still
+  working.
+- **Left-aligned**, unlike `AuthorizePage`'s centred terminal cards, which hold
+  one sentence each. This card holds two or three sentences and sometimes a
+  `Notice` with its mark; centred, both edges go ragged and the mark floats.
+- **No motion of its own.** `Button`'s colour transition is the only one.
+
+On the light surface the numbers measure 14.55:1, 13.23:1 hovered; the legend
+6.58:1; "I didn't ask for this" 14.55:1; the focus ring 6.58:1. On the dark one:
+15.22:1, 12.65:1, 6.15:1, 13.87:1 and 6.15:1. A disabled number is 3.03:1 and
+4.78:1, which WCAG 1.4.3 exempts. Each number's 1px border is `Button`'s
+`outline` border, 1.3:1 and 1.36:1 against the card, as on every outline
+Button: the digits, not the border, say it is a target. In a contrast theme a
+number reached from the keyboard draws a solid 2px outline 2px off.
+
+*Measured 2026-11-07 — the lab's `Ready` and `Confirming` stories at 1280px, light and dark, in Playwright's Chromium (`vite preview` of the built lab), each colour composited over the painted card on a one-pixel canvas; the contrast theme through `forcedColors: "active"`*
+
+The typed field's edge measures 3.45:1 on the light card and 5.18:1 on the dark
+one, its entry 13.46:1 and 12.47:1, its label 6.58:1 and 6.15:1; focus from the
+keyboard draws a solid 2px outline 2px off, 6.58:1 and 6.15:1, and the same in a
+contrast theme. Pressing "a" leaves "4821" as it was, and typing "12-3 4567"
+key by key leaves "123456".
+
+*Measured 2026-11-07 — the lab's `TypedNumber` story at 1280px and `TypedNumberPhone` at 320px, light and dark, in Playwright's Chromium (`vite preview` of the built lab), each colour composited over the painted card on a one-pixel canvas; the keystrokes through Playwright's keyboard*
+
+For a host:
+
+- For recovery, pass `typeNumber` and no `candidates`: the page asks the person
+  to type the number shown on the waiting screen. Never read the numbers for
+  recovery, and never show one. Send the entry as given; a number that is not
+  the one shown is refused like any other and resolves `"expired"`.
+- Read the numbers with the link's secret before the page renders, from a call
+  that presents it; never keep, log or store them, and never put them in a URL
+  or an attribute. Pass them already shuffled; the page keeps their order.
+- Pass `pick` to the confirm call as given, and `null` as the decline. Resolve
+  `"confirmed"` only for an accepted number and `"declined"` only for an
+  accepted `null`; map nothing else to either.
+- Resolve `"expired"` for every answer that refuses the link — unknown, wrong
+  secret, a number that is not the one shown, a refused decline, used or
+  expired; over HTTP, every 4xx but 429. Throw only when no answer about the
+  link came back: a network failure, a rate limit, a server error. Try again
+  has no cap and sends the same attempt, so a refused secret or number thrown
+  instead would offer a retry the server has already ended.
+- A repeat of an accepted attempt must come back as that answer, so the server
+  must answer a correct secret and number sent again to a request it approved
+  as confirmed, and a decline sent again to a request it ended as declined.
+- Pass `initialOutcome` instead of `candidates` when the answer is already
+  known: `"confirmed"` for a link opened again after it was confirmed,
+  `"expired"` when the read of the numbers was refused.
+- The link's secret is a one-use credential. Read it from the fragment and
+  clear it with `history.replaceState` before the page renders, so nothing else
+  on the route reads it from the URL. Hold it in memory only, never in
+  `sessionStorage`, `localStorage` or a cookie. Send it in the JSON body of the
+  confirm `POST`, never in its path or query, as the cross-device routes do
+  ([cross-device.ts](../../osn/api/src/routes/auth/cross-device.ts)). Keep it
+  out of anything the host throws or logs.
+- Pass `email` only from the answer to a call that presented the secret, or
+  pass none. Never take it from the link's URL, which mail scanners, history
+  and request logs keep, nor from a read keyed by the request id alone: the id
+  sits in the path and is not secret.
+- The page is the card alone. Draw the page around it — `<main>`, the column,
+  centring, the safe areas — as `AuthorizePage` draws its own, with no app
+  shell around it.
+- Its buttons are `type="button"`, so the page may sit inside a `<form>`.
+
+`osn/auth-ui/tests/ConfirmLinkPage.test.tsx` holds the no-tap guarantee, one
+call per tap with exactly the number tapped, the numbers in order as written
+and kept from translation, each list the page refuses, a refusal identical to
+every other, no word that a pick was wrong, the decline and its answer, an
+answer that does not fit what was sent, Try again with the same attempt, the
+opening answer (and, through `typecheck`, a page given neither numbers nor an
+opening answer, or both numbers and `typeNumber`), the typed field — Confirm
+inert until one to six digits, each insertion it refuses, Enter once, the entry
+sent as typed and again on Try again, the decline with nothing typed, the
+field's attributes, no numbers drawn — each flow's words, the untranslated address, the focus moves,
+what the output says and the slow timer's end. `@osn/auth-ui` has no browser
+tier, so
+[`ConfirmLinkPage.layout.browser.test.tsx`](../../musubi/social/tests/components/ConfirmLinkPage.layout.browser.test.tsx)
+in `@musubi/social` holds the layout on a bare route under musubi's stylesheet,
+inside `AuthorizePage`'s `<main>`: at a 320px viewport five six-digit numbers
+and a long address fit a 272px card with nothing to scroll sideways; the
+numbers stand one under another at 320 and 1280px, each at least 44px tall
+with its digits 24px in tabular figures; "I didn't ask for this" sits under them
+at 44px below `md` and 32px from it; Try again and Continue are 44px below `md`
+and 40px from it; typed, the field, Confirm and the decline fit the 272px card,
+each at least 44px tall, the field at 16px with an edge of at least 3:1, and
+Confirm 40px at 1280px; the number picked and the notice sit between the numbers and
+Try again ([[browser-tests]]). The lab's `osn/auth-ui/ConfirmLinkPage` stories
+show each state, every flow, the decline, an opening answer, the typed field
+and two 320px phones ([[component-lab]]).
 
 ## Adding a new component
 
