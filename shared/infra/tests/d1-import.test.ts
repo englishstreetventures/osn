@@ -1,6 +1,6 @@
 /**
  * The repository patches the Alchemy Cloudflare provider's D1 import
- * (`patches/@alchemy.run%2Fcloudflare@2.0.0-beta.84.patch`) so it reads every
+ * (`patches/@alchemy.run%2Fcloudflare@2.0.0-beta.85.patch`) so it reads every
  * Cloudflare reply the way wrangler does, and so a failed import reports
  * Cloudflare's error or the reply itself, with no presigned upload URL and no
  * R2 error body in the message. Each case runs against the provider's `src/`

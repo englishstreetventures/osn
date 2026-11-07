@@ -3,16 +3,13 @@ import { dirname } from "node:path";
 
 import {
   PRODUCTION_ADOPTIONS,
-  PRODUCTION_HOSTS,
   PRODUCTION_SITE_MODES,
   PRODUCTION_STAGING_HOSTS,
   productionHost,
-  RETIRED_STAGING_HOSTS,
   SITE_SURFACES,
   siteDomain,
   type SiteMode,
   type SiteSurface,
-  type SomeSites,
 } from "./production-sites";
 
 /**
@@ -79,11 +76,16 @@ export interface ParsedPlan {
 
 // oxlint-disable-next-line no-control-regex
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
-/** The prefix Effect's pretty logger puts on each record (alchemy src/Util/ResourceOutput.ts). */
-const EFFECT_PREFIX =
-  /^\[\d{2}:\d{2}:\d{2}\.\d{3}\] (?:ALL|TRACE|DEBUG|INFO|WARN|ERROR|FATAL|NONE) \(#\d+\)(?: [^:]+)?: /;
-/** A logfmt record's message, quoted or bare (Effect's `formatLogFmt`, the run-log file). */
-const LOGFMT = /^(?:\S+=\S*\s+)*?message=("(?:[^"\\]|\\.)*"|\S*)/;
+/**
+ * The prefix on each line of an Alchemy run's console: `[hh:mm:ss.mmm] LEVEL: `,
+ * as Alchemy's console sink prints a record and a plan line (alchemy
+ * src/Util/ConsoleSink.ts `prettyLine`, src/Cli/Present.ts `present`). A
+ * fiber id and span after the level, as Effect's own pretty logger prints a
+ * record, are read too: Alchemy's failure line carries them, and so do the
+ * dev deploy logs in tests/fixtures.
+ */
+const LINE_PREFIX =
+  /^\[\d{2}:\d{2}:\d{2}\.\d{3}\] (?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)(?: \(#\d+\)(?: [^:]+)?)?: /;
 const PLAN = /^Plan:\s+(.+?)\s*$/;
 const TAGGED = /^\[([^\]]+)\] (.+)$/;
 const PART =
@@ -91,20 +93,9 @@ const PART =
 const TASK = /^(?:run|drop) \[action\]$/;
 const NOTE = /^\(([^)]*)\)$/;
 
-/** One log line's message: colour, Effect's prefix and a logfmt wrapper removed. */
+/** One console line's message: colour and the line's prefix removed. */
 export function messageOf(line: string): string {
-  const plain = line.replace(ANSI, "").replace(/\r$/, "");
-  const logfmt = /\blevel=/.test(plain) ? LOGFMT.exec(plain) : null;
-  if (logfmt !== null) {
-    const value = logfmt[1] ?? "";
-    if (!value.startsWith('"')) return value;
-    try {
-      return String(JSON.parse(value));
-    } catch {
-      return value;
-    }
-  }
-  return plain.replace(EFFECT_PREFIX, "");
+  return line.replace(ANSI, "").replace(/\r$/, "").replace(LINE_PREFIX, "");
 }
 
 /** A Plan line read: its counts, and what in it the guard could not read. */
@@ -371,34 +362,21 @@ export function domainChanges(input: {
 }
 
 /**
- * A Worker may give up its site's spare host, as a flip does, or one of its
- * own site's `retired` spare hosts that is neither a production host nor any
- * site's current spare host. Any other host it holds (the production host,
- * another site's host, or one PRODUCTION_HOSTS no longer names) leaves only
- * in a release dispatched with `unflip` naming the site, so taking a site off
- * the internet is a named act, as moving it on is.
+ * A Worker may give up its site's spare host, as a flip does; any other host
+ * it holds (the production host, another site's host, or one PRODUCTION_HOSTS
+ * no longer names) leaves only in a release dispatched with `unflip` naming
+ * the site, so taking a site off the internet is a named act, as moving it on
+ * is.
  */
-export function domainRefusals(
-  changes: readonly DomainChange[],
-  unflip?: SiteSurface,
-  retired: SomeSites<readonly string[]> = RETIRED_STAGING_HOSTS,
-): string[] {
-  const inUse = new Set<string>([
-    ...Object.values(PRODUCTION_HOSTS),
-    ...SITE_SURFACES.flatMap((site) => PRODUCTION_STAGING_HOSTS[site] ?? []),
-  ]);
-  return changes.flatMap(({ site, removed }) => {
-    const ownRetired = new Set((retired[site] ?? []).filter((host) => !inUse.has(host)));
-    return removed
-      .filter(
-        (host) =>
-          host !== PRODUCTION_STAGING_HOSTS[site] && !ownRetired.has(host) && site !== unflip,
-      )
+export function domainRefusals(changes: readonly DomainChange[], unflip?: SiteSurface): string[] {
+  return changes.flatMap(({ site, removed }) =>
+    removed
+      .filter((host) => host !== PRODUCTION_STAGING_HOSTS[site] && site !== unflip)
       .map(
         (host) =>
           `${site}'s Worker would give up ${host}; only a release dispatched with unflip: ${site} takes a production host off its Worker`,
-      );
-  });
+      ),
+  );
 }
 
 /** The kinds of a stack's production sites: each staged or worker site is a Worker holding a domain. */

@@ -124,18 +124,6 @@ export const PRODUCTION_STAGING_HOSTS: SomeSites<string> = {
   osn_social: "next.musubi.social",
 };
 
-/**
- * Spare hosts a site served before its current one. The plan guard lets a
- * site's Worker give up one of its own without a `flip` or `unflip`, as it
- * does its current spare host, unless the host is a production host or a
- * current spare host. Removed by englishstreetventures/osn#1957 once the
- * swap has shipped.
- */
-export const RETIRED_STAGING_HOSTS: SomeSites<readonly string[]> = {
-  cire_host: ["next-host.cireweddings.com"],
-  cire_vendor: ["next-vendor.cireweddings.com"],
-};
-
 /** The Pages project that serves each site's production host today. */
 export const PAGES_PROJECTS: SomeSites<string> = {
   cire_host: "cire-host",

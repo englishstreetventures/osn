@@ -9,7 +9,7 @@ import config, { READS_REPO, RUNS_ALCHEMY } from "../vitest.config";
 import { ASSET_SITES, SOURCES } from "./support/asset-sites";
 
 /** The Alchemy release whose source this package's builders were checked against. */
-const AUDITED_ALCHEMY = "2.0.0-beta.84";
+const AUDITED_ALCHEMY = "2.0.0-beta.85";
 
 /** Alchemy's core and its Cloudflare provider, released together and pinned at that release. */
 const ALCHEMY_PACKAGES = ["alchemy", "@alchemy.run/cloudflare"];
@@ -148,22 +148,69 @@ describe("pinned Alchemy", () => {
     }
   });
 
-  test("the lockfile resolves no @distilled.cloud/aws and neither of the provider's optional Alchemy peers", () => {
-    // `@distilled.cloud/aws` builds a record of optional values, a schema
-    // Effect 4.0.7 refuses, and the provider reaches it lazily, from an R2
-    // bucket, so a deploy would fail long after start-up checks passed.
-    // `@alchemy.run/frontend-frameworks` depends on it. `@alchemy.run/domain`
-    // is used by no stack, and the dependency review in
-    // wiki/shared/infrastructure-as-code.md covers only what is installed.
+  test("the lockfile resolves every @effect/* package at the Effect version this package pins", () => {
+    // Effect releases `effect` and every `@effect/*` package together, and a
+    // package one release behind can call an export the installed `effect`
+    // no longer has, which fails only when that package's code first runs.
+    const lock = readFileSync(join(repoRoot, "bun.lock"), "utf8");
+    const resolved = [...lock.matchAll(/"(@effect\/[\w.-]+)@([^"]+)"/g)].map(
+      ([, name, version]) => `${name}@${version}`,
+    );
+    expect(resolved.length).toBeGreaterThan(0);
+    expect(
+      new Set(resolved.filter((entry) => !entry.endsWith(`@${own.dependencies?.effect}`))),
+    ).toEqual(new Set());
+  });
+
+  test("the lockfile resolves neither of the provider's optional Alchemy peers", () => {
+    // Both are optional peers of `alchemy` and the provider that no stack
+    // uses, and the dependency review in wiki/shared/infrastructure-as-code.md
+    // covers only what is installed. The AWS SDK the provider installs is
+    // held to what it runs by tests/state-cli.test.ts (SC7, SC8).
     // A resolved copy appears as `"<name>@<version>"`; a peer or optional
     // peer named in another entry's metadata appears without the `@`.
     const lock = readFileSync(join(repoRoot, "bun.lock"), "utf8");
-    const barred = [
-      "@distilled.cloud/aws",
-      "@alchemy.run/frontend-frameworks",
-      "@alchemy.run/domain",
-    ];
+    const barred = ["@alchemy.run/frontend-frameworks", "@alchemy.run/domain"];
     expect(barred.filter((name) => lock.includes(`"${name}@`))).toEqual([]);
+  });
+
+  test("the lockfile resolves one @distilled.cloud/aws, the one the provider pins, and nothing else depends on it", () => {
+    // The AWS SDK's S3 module declares a schema Effect refuses, and
+    // tests/state-cli.test.ts (SC7, SC8) holds what reaches it to the
+    // provider's two multipart-upload operations. A workspace or another
+    // package depending on it would reach the SDK where neither test looks.
+    /** What a lockfile entry or a workspace declares it depends on. */
+    type Declared = {
+      readonly [
+        field in "dependencies" | "devDependencies" | "peerDependencies" | "optionalDependencies"
+      ]?: Readonly<Record<string, string>>;
+    };
+    const lock = Bun.JSONC.parse(readFileSync(join(repoRoot, "bun.lock"), "utf8")) as {
+      readonly workspaces: Readonly<Record<string, Declared>>;
+      readonly packages: Readonly<Record<string, readonly [string, string?, Declared?]>>;
+    };
+    const SDK = "@distilled.cloud/aws";
+    const names = (declared: Declared): string[] =>
+      Object.keys({
+        ...declared.dependencies,
+        ...declared.devDependencies,
+        ...declared.peerDependencies,
+        ...declared.optionalDependencies,
+      });
+    const entries = Object.values(lock.packages);
+    const provider = `@alchemy.run/cloudflare@${AUDITED_ALCHEMY}`;
+    expect(
+      entries.filter(([, , meta]) => names(meta ?? {}).includes(SDK)).map(([id]) => id),
+    ).toEqual([provider]);
+    expect(
+      Object.entries(lock.workspaces)
+        .filter(([, workspace]) => names(workspace).includes(SDK))
+        .map(([dir]) => dir),
+    ).toEqual([]);
+    const pinned = entries.find(([id]) => id === provider)?.[2]?.dependencies?.[SDK];
+    expect(entries.filter(([id]) => id.startsWith(`${SDK}@`)).map(([id]) => id)).toEqual([
+      `${SDK}@${pinned}`,
+    ]);
   });
 
   test("Alchemy's CLI, started in this package or any stack, imports exactly one provider package, @alchemy.run/cloudflare", () => {

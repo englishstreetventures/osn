@@ -14,8 +14,10 @@ import * as BunServices from "@effect/platform-bun/BunServices";
 import * as Alchemy from "alchemy";
 import { AlchemyContextLive } from "alchemy/AlchemyContext";
 import { provideFreshArtifactStore } from "alchemy/Artifacts";
+import { AuthProvidersLive } from "alchemy/Auth/Registry";
+import { evalStack } from "alchemy/EvalStack";
 import { layerNonInteractive } from "alchemy/Interaction";
-import { evalStack } from "alchemy/Stack";
+import type { CompiledStack } from "alchemy/Stack";
 import { Cause, Effect, Exit, Layer } from "effect";
 
 import { hostsFor, origin } from "../../src/hosts";
@@ -96,8 +98,10 @@ export interface StackDirectories {
   readonly workingDir: string;
 }
 
-/** What `alchemy/Stack`'s `evalStack` takes: a stack built with `Alchemy.Stack`. */
-type CompiledStackEffect = Parameters<typeof evalStack>[0];
+/** What `alchemy/EvalStack`'s `evalStack` takes: a stack built with `Alchemy.Stack`. */
+type CompiledStackEffect = Parameters<
+  typeof evalStack<CompiledStack, unknown, unknown, never, never>
+>[0];
 
 /** The stack options for an offline evaluation: Cloudflare's providers and in-memory state. */
 export const offlineStackOptions = () => ({
@@ -107,14 +111,16 @@ export const offlineStackOptions = () => ({
 
 /**
  * What the CLI supplies around a stack (`alchemy/Cli/main.ts`, `alchemy/Test/Core.ts`):
- * the `.alchemy` directory, the platform, a state store, no prompts and an
- * artifact store. The stack's own layers replace the state store with the
+ * the `.alchemy` directory, the platform, a state store, no prompts, the
+ * registry the providers' sign-in methods register into, and an artifact
+ * store. The stack's own layers replace the state store with the
  * one it declares.
  */
 const cliServices = Layer.mergeAll(
   AlchemyContextLive,
   Alchemy.inMemoryState(),
   layerNonInteractive(),
+  AuthProvidersLive,
 ).pipe(Layer.provideMerge(BunServices.layer));
 
 /**
