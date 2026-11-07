@@ -374,15 +374,15 @@ describe("createOwnerNotices — each way a notice ends", () => {
     const { notices, run, transport } = setup({
       emailsPerDay: 3,
     });
-    const removeB = (weddingId: string, actorOsnProfileId: string) =>
+    const removeUsrB = (weddingId: string, actorOsnProfileId: string) =>
       notices.ownerChanged({
         weddingId,
         actorOsnProfileId,
         subjectOsnProfileId: "usr_b",
         change: "removed",
       });
-    await run(removeB("wed_one", "usr_a"));
-    await run(removeB("wed_two", "usr_c"));
+    await run(removeUsrB("wed_one", "usr_a"));
+    await run(removeUsrB("wed_two", "usr_c"));
     expect(transport.batches).toHaveLength(2);
   });
 
