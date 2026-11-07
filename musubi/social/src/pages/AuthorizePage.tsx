@@ -453,7 +453,7 @@ export function AuthorizePage() {
                   <button
                     type="button"
                     aria-pressed={profile.id === selectedId()}
-                    class="border-border hover:bg-muted aria-pressed:border-foreground focus-visible:ring-ui-focus flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                    class="border-border hover:bg-muted aria-pressed:border-foreground focus-visible:ring-ui-focus transition-ui-colors flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left focus-visible:ring-2 focus-visible:outline-hidden"
                     onClick={() => setChosenId(profile.id)}
                   >
                     <ProfileRow profile={profile} />
@@ -511,7 +511,7 @@ export function AuthorizePage() {
               {(profile) => (
                 <button
                   type="button"
-                  class="border-border hover:bg-muted flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors"
+                  class="border-border hover:bg-muted transition-ui-colors flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left"
                   onClick={() => {
                     setChosenId(profile.id);
                     setPickerOpen(false);
@@ -522,7 +522,7 @@ export function AuthorizePage() {
                     <span class="text-foreground text-body truncate font-medium">
                       {profile.displayName || `@${profile.handle}`}
                     </span>
-                    <span class="text-subtle text-meta truncate">@{profile.handle}</span>
+                    <span class="text-muted-foreground text-meta truncate">@{profile.handle}</span>
                   </div>
                 </button>
               )}
@@ -573,7 +573,7 @@ export function AuthorizePage() {
                   <span class="text-foreground text-body truncate font-medium">
                     {profile().displayName || `@${profile().handle}`}
                   </span>
-                  <span class="text-subtle text-meta truncate">@{profile().handle}</span>
+                  <span class="text-muted-foreground text-meta truncate">@{profile().handle}</span>
                 </div>
                 <Show when={profiles().length > 1}>
                   <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>
@@ -609,7 +609,7 @@ export function AuthorizePage() {
               Cancel
             </Button>
           </div>
-          <p class="text-subtle text-meta mt-3 text-center">
+          <p class="text-muted-foreground text-meta mt-3 text-center">
             You can undo this later in your {PRODUCT_NAME} settings.
           </p>
         </Match>
@@ -626,7 +626,7 @@ function ProfileRow(props: { profile: PublicProfile }) {
         <span class="text-foreground text-body truncate font-medium">
           {props.profile.displayName || `@${props.profile.handle}`}
         </span>
-        <span class="text-subtle text-meta truncate">@{props.profile.handle}</span>
+        <span class="text-muted-foreground text-meta truncate">@{props.profile.handle}</span>
       </div>
     </>
   );

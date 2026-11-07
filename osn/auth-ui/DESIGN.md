@@ -125,6 +125,8 @@ As built:
   an `outline` Button at the default size in `SessionsView`); then the list,
   each row a bordered `rounded-md` box with a name, a meta line and `outline`
   `sm` actions. `RecoveryCodesView` draws no heading; its host gives it one.
+  The rows' `border` names no colour, so the host decides it: Musubi's base
+  rule draws the hairline, `--border`.
 - **`ChangeEmailForm`** is the same `flex-col gap-3` column: its heading, then
   one phase at a time. The email and code phases are each a labelled field
   over a full-width Button; the step-up phase is `StepUpDialog`'s panel, and
@@ -168,7 +170,10 @@ themselves:
 
 - Raw `<input>`s: the new email and the code in `ChangeEmailForm`, and the
   emailed code and the authenticator code in `StepUpDialog`, each
-  `bg-background rounded-md border px-3 py-2` inside a `<label>`.
+  `bg-background rounded-md border px-3 py-2` inside a `<label>`. The `border`
+  names no colour; in Musubi a bare-bordered field keeps its ink edge
+  (`currentColor`), since `--input`, the edge `@shared/ui`'s `Input` draws,
+  sits under 3:1 (`musubi/social/DESIGN.md` §Borders).
 - A raw checkbox, "I've saved these codes somewhere safe.", in
   `RecoveryCodesView`.
 - Text `<button>`s: "Lost your passkey?" in `SignIn` and "Resend code" in
@@ -361,8 +366,10 @@ Button, `focus-visible:ring-2 focus-visible:ring-ui-focus`. A focus indicator
 appears at once, never animated.
 
 **As it stands.** No class in `osn/auth-ui/src` draws a focus ring. The
-`@shared/ui` parts draw their own; every control the views draw by hand (§5)
-shows the browser's default outline instead:
+`@shared/ui` parts draw their own. Every control the views draw by hand (§5)
+takes whatever outline its host's stylesheet gives `:focus-visible`: in Musubi,
+the only host, a 2px `--ui-focus` outline 2px off (`musubi/social/DESIGN.md`
+§Focus), which is not the ring the rule above asks for:
 
 - the raw code and email `<input>`s in `ChangeEmailForm` and `StepUpDialog`
   (#2041; `ChangeEmailForm`'s code field in #2056);

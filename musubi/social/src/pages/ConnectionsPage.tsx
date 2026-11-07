@@ -182,7 +182,7 @@ export function ConnectionsPage() {
               <div class="flex flex-col gap-1">
                 <For each={connections()?.connections}>
                   {(conn: ConnectionEntry) => (
-                    <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
                       <Avatar class="h-9 w-9">
                         <AvatarFallback>{conn.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
@@ -191,7 +191,7 @@ export function ConnectionsPage() {
                           {conn.displayName || `@${conn.handle}`}
                         </p>
                         <Show when={conn.displayName}>
-                          <p class="text-subtle text-meta">@{conn.handle}</p>
+                          <p class="text-muted-foreground text-meta">@{conn.handle}</p>
                         </Show>
                       </div>
                       <div class="flex items-center gap-1.5">
@@ -222,7 +222,7 @@ export function ConnectionsPage() {
               <div class="flex flex-col gap-1">
                 <For each={pending()?.pending}>
                   {(req: PendingRequestEntry) => (
-                    <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
                       <Avatar class="h-9 w-9">
                         <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
@@ -230,7 +230,7 @@ export function ConnectionsPage() {
                         <p class="text-foreground text-title font-medium">
                           {req.displayName || `@${req.handle}`}
                         </p>
-                        <p class="text-subtle text-meta">
+                        <p class="text-muted-foreground text-meta">
                           Requested {new Date(req.requestedAt).toLocaleDateString()}
                         </p>
                       </div>
@@ -269,7 +269,7 @@ export function ConnectionsPage() {
               <div class="flex flex-col gap-1">
                 <For each={sent()?.sent}>
                   {(req: SentRequestEntry) => (
-                    <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
                       <Avatar class="h-9 w-9">
                         <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
@@ -277,7 +277,7 @@ export function ConnectionsPage() {
                         <p class="text-foreground text-title font-medium">
                           {req.displayName || `@${req.handle}`}
                         </p>
-                        <p class="text-subtle text-meta">
+                        <p class="text-muted-foreground text-meta">
                           Requested {new Date(req.requestedAt).toLocaleDateString()}
                         </p>
                       </div>
@@ -352,7 +352,7 @@ export function ConnectionsPage() {
               <div class="flex flex-col gap-1">
                 <For each={blocked()?.blocks}>
                   {(profile: ProfileEntry) => (
-                    <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
                       <Avatar class="h-9 w-9">
                         <AvatarFallback>{profile.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>

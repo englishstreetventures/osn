@@ -90,7 +90,7 @@ export function OrganisationsPage() {
                     // linked to a 404. `GET /organisations/:handle` is what the
                     // detail route actually resolves.
                     href={`/organisations/${org.handle}`}
-                    class="border-border hover:bg-muted/30 active:bg-muted/30 rounded-card flex items-center gap-3 border px-4 py-3 transition-colors"
+                    class="border-border hover:bg-muted/30 active:bg-muted/30 rounded-card transition-ui-colors flex items-center gap-3 border px-4 py-3"
                   >
                     <Avatar class="h-10 w-10">
                       <Show when={safeAvatarUrl(org.avatarUrl)}>
@@ -107,10 +107,10 @@ export function OrganisationsPage() {
                     </Avatar>
                     <div class="min-w-0 flex-1">
                       <p class="text-foreground text-title font-medium">{org.name}</p>
-                      <p class="text-subtle text-meta">@{org.handle}</p>
+                      <p class="text-muted-foreground text-meta">@{org.handle}</p>
                     </div>
                     <Show when={org.description}>
-                      <p class="text-subtle text-meta hidden max-w-48 truncate sm:block">
+                      <p class="text-muted-foreground text-meta hidden max-w-48 truncate sm:block">
                         {org.description}
                       </p>
                     </Show>
@@ -151,7 +151,9 @@ export function OrganisationsPage() {
                 }
                 required
               />
-              <p class="text-subtle text-meta">Lowercase letters, numbers, and underscores only.</p>
+              <p class="text-muted-foreground text-meta">
+                Lowercase letters, numbers, and underscores only.
+              </p>
             </div>
             <div class="flex flex-col gap-1.5">
               <Label for="org-name">Name</Label>

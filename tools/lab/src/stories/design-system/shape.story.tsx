@@ -76,8 +76,8 @@ export const Radius: Story<RadiusArgs> = {
             <Mono>{'<Button class="rounded-pill">'}</Mono> ×16 in musubi was. <Mono>control</Mono>{" "}
             defaults to <Mono>md</Mono> rather than to a literal, so an app with no opinion gets its
             own mid radius and not this package's. <Mono>field</Mono> is the text input's corner and
-            falls back to <Mono>control</Mono>: this page maps no field radius, so its input is a
-            pill like its button.
+            falls back to <Mono>control</Mono>: this page maps it to <Mono>md</Mono>, 8px, so its
+            button is a pill and its input is not.
           </Rule>
           <div class="flex flex-wrap items-start gap-6">
             <div class="flex flex-col gap-3">

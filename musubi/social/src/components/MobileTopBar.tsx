@@ -66,7 +66,7 @@ export function MobileTopBar() {
               }
             >
               <AccountMenu
-                triggerClass="cursor-pointer rounded-pill outline-none"
+                triggerClass="cursor-pointer rounded-pill"
                 onSwitchProfile={() => setShowSwitcher(true)}
               >
                 <Avatar class="h-9 w-9">

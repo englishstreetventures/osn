@@ -44,7 +44,7 @@ export function SearchPage() {
           <label class="sr-only" for="search-page-input">
             Search people and organisations
           </label>
-          <span class="text-muted-foreground pointer-events-none text-sm" aria-hidden="true">
+          <span class="text-muted-foreground text-title pointer-events-none" aria-hidden="true">
             @
           </span>
           <Input
@@ -80,11 +80,11 @@ export function SearchPage() {
             }
           >
             <Show when={controller.people().length > 0}>
-              <h2 class="text-subtle text-meta mb-1 px-3">People</h2>
+              <h2 class="text-muted-foreground text-meta mb-1 px-3">People</h2>
               <ul class="mb-6 flex flex-col gap-0.5">
                 <For each={controller.people()}>
                   {(person) => (
-                    <li class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <li class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
                       <PersonRow person={person} controller={controller} actions={actions} />
                     </li>
                   )}
@@ -93,14 +93,14 @@ export function SearchPage() {
             </Show>
 
             <Show when={controller.organisations().length > 0}>
-              <h2 class="text-subtle text-meta mb-1 px-3">Organisations</h2>
+              <h2 class="text-muted-foreground text-meta mb-1 px-3">Organisations</h2>
               <ul class="flex flex-col gap-0.5">
                 <For each={controller.organisations()}>
                   {(organisation) => (
                     <li>
                       <OrganisationLink
                         organisation={organisation}
-                        class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors"
+                        class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5"
                       />
                     </li>
                   )}

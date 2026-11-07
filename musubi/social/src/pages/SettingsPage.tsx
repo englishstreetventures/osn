@@ -125,7 +125,7 @@ export function SettingsPage() {
                 Handle
               </Label>
               <Input value={`@${claims().handle ?? ""}`} disabled />
-              <p class="text-subtle text-meta">Handles cannot be changed.</p>
+              <p class="text-muted-foreground text-meta">Handles cannot be changed.</p>
             </div>
 
             <div class="flex flex-col gap-1.5">
@@ -137,7 +137,7 @@ export function SettingsPage() {
                 disabled
                 placeholder="No display name set"
               />
-              <p class="text-subtle text-meta">Profile editing coming soon.</p>
+              <p class="text-muted-foreground text-meta">Profile editing coming soon.</p>
             </div>
           </Card>
         </Show>
@@ -161,7 +161,7 @@ export function SettingsPage() {
 
             <div class="border-border border-t pt-4">
               <h3 class="text-foreground text-title font-medium">Danger zone</h3>
-              <p class="text-subtle text-meta mt-1 mb-3">
+              <p class="text-muted-foreground text-meta mt-1 mb-3">
                 Account deletion is permanent and cannot be undone.
               </p>
               <Button variant="ghostDanger" size="sm" disabled>
@@ -192,9 +192,13 @@ export function SettingsPage() {
           <Card padding="md" class="flex flex-col gap-4">
             <Show
               when={accessToken()}
-              fallback={<p class="text-subtle text-meta">Sign in to manage your connected apps.</p>}
+              fallback={
+                <p class="text-muted-foreground text-meta">
+                  Sign in to manage your connected apps.
+                </p>
+              }
             >
-              <Suspense fallback={<p class="text-subtle text-meta">Loading…</p>}>
+              <Suspense fallback={<p class="text-muted-foreground text-meta">Loading…</p>}>
                 <ConnectedAppsSection accessToken={accessToken()!} />
               </Suspense>
             </Show>

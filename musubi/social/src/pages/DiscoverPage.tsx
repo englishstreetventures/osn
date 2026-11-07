@@ -3,6 +3,7 @@ import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
@@ -87,7 +88,9 @@ export function DiscoverPage() {
             <div class="grid gap-3 sm:grid-cols-2">
               <For each={recommendations()?.suggestions}>
                 {(suggestion) => (
-                  <div class="border-border hover:bg-muted/30 rounded-card flex flex-col gap-3 border p-4 transition-colors">
+                  // A card, not a row: the tile itself is not a control (its
+                  // Connect button is), so it takes no hover wash.
+                  <Card padding="sm" class="flex flex-col gap-3">
                     <div class="flex items-center gap-3">
                       <Avatar class="h-10 w-10">
                         <Show when={safeAvatarUrl(suggestion.avatarUrl)}>
@@ -109,12 +112,14 @@ export function DiscoverPage() {
                           {suggestion.displayName || `@${suggestion.handle}`}
                         </p>
                         <Show when={suggestion.displayName}>
-                          <p class="text-subtle text-meta truncate">@{suggestion.handle}</p>
+                          <p class="text-muted-foreground text-meta truncate">
+                            @{suggestion.handle}
+                          </p>
                         </Show>
                       </div>
                     </div>
                     <div class="flex items-center justify-between gap-2">
-                      <span class="text-subtle text-meta min-w-0 truncate">
+                      <span class="text-muted-foreground text-meta min-w-0 truncate">
                         {suggestionReason(suggestion)}
                       </span>
                       <Button
@@ -126,7 +131,7 @@ export function DiscoverPage() {
                         {sending().has(suggestion.handle) ? "Sending..." : "Connect"}
                       </Button>
                     </div>
-                  </div>
+                  </Card>
                 )}
               </For>
             </div>

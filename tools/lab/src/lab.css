@@ -3,7 +3,9 @@
  * `--background`, `--foreground`, the `.dark` block and the `base:` variant
  * that every @shared/ui component's classes are written against, so importing it
  * is what makes those components render here exactly as they render in the
- * app. A second copy would drift within a week. */
+ * app. A second copy would drift within a week. It also brings
+ * `transition-ui-colors`, the colour-only fade every cire app stylesheet defines
+ * word for word, so a cire component's story hovers as it does in its app. */
 @import "../../../musubi/social/src/App.css";
 
 /* Tailwind only generates classes it can see. App.css already scans
@@ -16,15 +18,6 @@
 @source "../../../cire";
 @source "../../../zap";
 @source "../../../shared";
-
-/* The cire apps' colour-only fade, so an app component's story hovers as it
- * does in its app: colours fade, the outline does not, so a focus ring lands at
- * once. Each cire app stylesheet defines the same utility. */
-@utility transition-ui-colors {
-  transition-property: color, background-color, border-color, text-decoration-color;
-  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
-  transition-duration: var(--tw-duration, var(--default-transition-duration));
-}
 
 /* Preview backdrops. A component that looks right on paper can disappear on
  * ink, and transparency is invisible until something is behind it. */

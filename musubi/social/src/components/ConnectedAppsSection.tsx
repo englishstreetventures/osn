@@ -54,11 +54,14 @@ export function ConnectedAppsSection(props: { accessToken: string }) {
         </p>
       </Show>
 
-      <Show when={!connections.loading} fallback={<p class="text-subtle text-meta">Loading…</p>}>
+      <Show
+        when={!connections.loading}
+        fallback={<p class="text-muted-foreground text-meta">Loading…</p>}
+      >
         <Show
           when={(connections() ?? []).length > 0}
           fallback={
-            <p class="text-subtle text-meta">
+            <p class="text-muted-foreground text-meta">
               You haven't connected any apps to your {PRODUCT_NAME} account yet.
             </p>
           }
@@ -82,7 +85,7 @@ export function ConnectedAppsSection(props: { accessToken: string }) {
                       <p class="text-foreground text-title truncate font-medium">
                         {conn.clientName ?? "Unknown app"}
                       </p>
-                      <p class="text-subtle text-meta truncate">
+                      <p class="text-muted-foreground text-meta truncate">
                         Access: {scopesOf(conn.scope).join(", ") || "—"}
                       </p>
                     </div>

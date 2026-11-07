@@ -42,11 +42,14 @@ export function ProfileSwitcherDialog(props: {
           <For each={profiles() ?? []}>
             {(profile) => {
               const active = () => profile.id === activeProfileId();
+              // The rows run to the dialog's edges, and below `md` the sheet
+              // scrolls, which clips anything drawn outside a row: the focus
+              // ring sits inside it.
               return (
                 <button
                   type="button"
                   class={clsx(
-                    "text-body active:bg-muted flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors max-md:min-h-11",
+                    "text-body active:bg-muted flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-ui-colors focus-visible:-outline-offset-2 max-md:min-h-11",
                     active() ? "bg-muted text-foreground" : "hover:bg-muted/60 text-foreground",
                   )}
                   disabled={switching()}
@@ -68,7 +71,9 @@ export function ProfileSwitcherDialog(props: {
                   <span class="flex-1 truncate">
                     @{profile.handle}
                     <Show when={profile.displayName}>
-                      <span class="text-subtle text-meta ml-1">({profile.displayName})</span>
+                      <span class="text-muted-foreground text-meta ml-1">
+                        ({profile.displayName})
+                      </span>
                     </Show>
                   </span>
                   <Show when={active()}>
