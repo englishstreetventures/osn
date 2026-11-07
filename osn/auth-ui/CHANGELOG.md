@@ -1,5 +1,17 @@
 # @osn/ui
 
+## 3.1.0
+
+### Minor Changes
+
+- ff7a76f: Every `@osn/client` REST client's error now extends `OsnApiError` and carries the response's HTTP `status` (`0` when no response arrived) and the server's `error` code. A non-JSON error page, or a success whose body is not JSON, throws the client's own error instead of a `SyntaxError` or `null`; a failed `fetch` throws it at status `0`, and a caller's own abort still passes through. `ProfileManagementError`, an Effect tagged error rather than an `OsnApiError`, carries `status` and `code` as optional fields. New `describeAuthError(err, context?)` in `@osn/client`, which reads either, and `describePasskeyError(err, ceremony)` in `@osn/auth-ui`, whose caller names the WebAuthn ceremony that failed, turn a failure into one plain sentence that never shows the error's message, the code or the browser's text.
+
+### Patch Changes
+
+- 11685a5: Musubi's stylesheet takes on the base rules its screens were missing. Readable small text (handles, statuses, hints, "Loading…" lines) moves from `text-subtle` to `text-muted-foreground`, and `--subtle` darkens to `#8d8d8d` in light so the icons and ornaments that keep it clear 3:1 on every ground; the contrast contract now holds `--ui-ink-tertiary` without a waiver. Text fields take an 8px corner (`--ui-radius-field`) while buttons stay pills. A bare `border` draws the hairline instead of ink; a bare-bordered field keeps its ink edge. Every element reached from the keyboard gets the house focus outline, the account-menu triggers included, drawn inside the box where a row would clip it (the bottom bar, section tabs, the profile switcher). `transition-ui-colors` replaces `transition-colors`, so the outline lands at once. The theme menu is now `@shared/ui`'s `DropdownMenu` with radio rows, so it matches the account menu and a screen reader hears which theme is on. The current bottom-bar tab draws a bar along its top edge as well as full ink. The legal pages sit on Musubi's type scale: the body through `.prose-legal`, the title, date and draft notice through the scale's own steps. Discover's suggestions are `Card`s; the organisation page's loading blocks and the search fields' "@" sit on the scale. `@osn/auth-ui`'s `DESIGN.md` records how those base rules reach its views in Musubi. The lab drops its copy of `transition-ui-colors`, which it now takes from Musubi's stylesheet, and its radius stories say Musubi's fields are 8px.
+- Updated dependencies [ff7a76f]
+  - @osn/client@2.20.0
+
 ## 3.0.35
 
 ### Patch Changes
