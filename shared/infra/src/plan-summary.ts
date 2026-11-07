@@ -1,7 +1,7 @@
 /**
  * What one Alchemy run's log says it planned. Alchemy prints no JSON plan and
  * no distinguishing exit code, only a `Plan:` line (alchemy
- * src/Cli/LoggingCli.ts:84-135), so this reads that line.
+ * src/Cli/LoggingCli.ts `formatPlanLines`), so this reads that line.
  */
 type PlanSummary =
   | { readonly kind: "no-changes" }

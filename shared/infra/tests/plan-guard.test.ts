@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { LoggingCli } from "alchemy/Cli/LoggingCli";
+import type { ResourceStatusChanged as ApplyEvent } from "alchemy/Events";
 import type { Plan } from "alchemy/Plan";
 import { Cli } from "alchemy/Report";
 import { prettyLine } from "alchemy/Util/ConsoleSink";
@@ -234,6 +235,66 @@ describe("parsePlan reads what Alchemy prints", () => {
     );
     return lines.join("\n");
   }
+  /**
+   * The plan and its progress lines as a deploy that applies logs them, the
+   * log `plan-summary` reads on dev: the installed Alchemy's CLI service
+   * starts its apply session (alchemy src/Cli/LoggingCli.ts
+   * `startApplySession`), and each resource reports its statuses.
+   */
+  async function applied(
+    plan: Plan,
+    statuses: readonly (readonly [fqn: string, status: ApplyEvent["status"]])[],
+  ): Promise<string> {
+    const lines: string[] = [];
+    const console = {
+      ...globalThis.console,
+      log: (...args: unknown[]) => void lines.push(args.map(String).join(" ")),
+    };
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const cli = yield* Cli;
+        const session = yield* cli.startApplySession(plan, {});
+        for (const [fqn, status] of statuses) {
+          yield* session.emit({
+            type: "apply.resource.status",
+            fqn,
+            id: fqn,
+            resourceType: "Cloudflare.Worker",
+            status,
+            providerMode: "live",
+          });
+        }
+      }).pipe(
+        Effect.provide(LoggingCli),
+        Effect.provide(BunServices.layer),
+        Effect.provideService(Console.Console, console),
+      ),
+    );
+    return lines.join("\n");
+  }
+
+  test("G19: a deploy's progress lines after its plan, tagged as plan lines are, are not read as part of the plan", async () => {
+    const log = await applied(
+      planOf({
+        resources: [
+          { fqn: "CireHost", action: "update" },
+          { fqn: "CireVendor", action: "noop" },
+        ],
+      }),
+      [
+        ["CireHost", "updating"],
+        ["CireHost", "updated"],
+      ],
+    );
+    expect(log).toContain("[CireHost] updating");
+    const plan = parsePlan(log);
+    expect(plan).toMatchObject({ plan: "changes", counts: { update: 1 }, problems: [] });
+    expect(plan.resources).toEqual([
+      { fqn: "CireHost", action: "update" },
+      { fqn: "CireVendor", action: "noop" },
+    ]);
+    expect(planTextFaults(plan)).toEqual([]);
+  });
 
   test("G16: Alchemy's console prefix, at each level and with colour or none, is removed and nothing else", () => {
     for (const level of ["Trace", "Debug", "Info", "Warn", "Error", "Fatal"] as const) {
