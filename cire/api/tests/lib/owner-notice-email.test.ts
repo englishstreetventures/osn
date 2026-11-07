@@ -370,6 +370,22 @@ describe("createOwnerNotices — each way a notice ends", () => {
     expect(toB?.template === "wedding-owner-change" && toB.data.actorName).toBeNull();
   });
 
+  it("keeps one wedding's and one owner's budget apart from another's", async () => {
+    const { notices, run, transport } = setup({
+      emailsPerDay: 3,
+    });
+    const removeB = (weddingId: string, actorOsnProfileId: string) =>
+      notices.ownerChanged({
+        weddingId,
+        actorOsnProfileId,
+        subjectOsnProfileId: "usr_b",
+        change: "removed",
+      });
+    await run(removeB("wed_one", "usr_a"));
+    await run(removeB("wed_two", "usr_c"));
+    expect(transport.batches).toHaveLength(2);
+  });
+
   it("spends the wedding's budget across owners taking turns", async () => {
     const { notices, run, transport } = setup({
       emailsPerDay: 3,
