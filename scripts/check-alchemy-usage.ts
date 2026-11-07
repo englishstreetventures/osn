@@ -36,14 +36,23 @@
  *    stage comes from `ALCHEMY_STAGE` in the environment, `--env-file` or
  *    `.env`, and a variable or expression may hold either.
  *  - all three, in every command whether or not it runs Alchemy itself (a
- *    package script passes its arguments on): `--log-level` only at `info`,
- *    `warn`, `warning`, `error`, `fatal` or `none`, since a lower level
- *    prints Debug records, whole failure causes among them, into a public run
- *    log; `--log-format` only as `pretty`, since under `json` Alchemy prints
- *    no plan for the plan summary or the production plan guard to read; and
- *    `ALCHEMY_LOG_LEVEL` and `ALCHEMY_LOG_FORMAT` never named, in a command
- *    or as a key of any workflow, job or step `env`: a variable reaches every
- *    Alchemy run after it, which the guard cannot follow.
+ *    package script passes its arguments on): `--log-level` only as `info`,
+ *    since a lower level prints Debug records, whole failure causes among
+ *    them, into a public run log and a higher one prints no plan; `--log-format`
+ *    only as `pretty`, since under `json` Alchemy prints no plan for the plan
+ *    summary or the production plan guard to read; either flag with no value
+ *    of its own fails, since it would take the caller's next argument; and
+ *    `ALCHEMY_LOG_LEVEL` and `ALCHEMY_LOG_FORMAT` never named, in a command,
+ *    as a key of any workflow, job or step `env`, or in a tracked `.env*`
+ *    file, which Bun loads into a run started in its directory: a variable
+ *    reaches every Alchemy run after it, which the guard cannot follow. An
+ *    `env` given as one `${{ … }}` expression fails, since it may hold either.
+ *  - all three: a `bun run` of a package script that runs Alchemy (one of that
+ *    name in any tracked manifest) passes it no argument but `--force`,
+ *    written out or as `${NAME:+--force}`, and the script's command with that
+ *    appended passes every rule above. Bun appends a script's arguments to its
+ *    command, so `bun run state:bootstrap --force` runs `state bootstrap
+ *    --force`.
  *  - stack files (`*\/infra/**\/*.ts`, `*alchemy.run.ts`, tests excluded): no
  *    state constructor name (`localState`, `inMemoryState`, `postgresState`,
  *    `makeLocalState`, `makePostgresState`, `makeHttpStateStore`,
@@ -87,23 +96,30 @@ const INVOCATION = String.raw`\balchemy(?:@\S+)?\s+`;
 /** Alchemy's console log settings as environment variables. */
 const LOG_SETTING_VARIABLE = /\bALCHEMY_LOG_(?:LEVEL|FORMAT)\b/;
 
-/** A `--log-level` or `--log-format` flag in a command's words, and its value. */
-const LOG_FLAG = /(?:^|\s)--log-(level|format)(?:=|\s+)(\S*)/gi;
+/**
+ * A `--log-level` or `--log-format` flag in a command's words, and its value:
+ * empty when the command gives it none, so that the caller's next argument
+ * would become its value.
+ */
+const LOG_FLAG = /(?:^|\s)--log-(level|format)(?:(?:=|\s+)(\S*))?(?=\s|$)/gi;
 
-/** The values each flag may take: Info and above, and the text format. */
-const ALLOWED_LOG_VALUES = {
-  level: new Set(["info", "warn", "warning", "error", "fatal", "none"]),
-  format: new Set(["pretty"]),
-} as const;
+/** The one value each flag may take: Info, the level that prints the plan and no Debug record, and the text format. */
+const ALLOWED_LOG_VALUES = { level: "info", format: "pretty" } as const;
 
 export const LOG_LEVEL_WHY =
-  "`--log-level` below info, or at a value the guard cannot read, prints Debug records, which carry whole failure causes, into a public run log";
+  "`--log-level` other than info: a lower level prints Debug records, which carry whole failure causes, into a public run log, a higher one prints no plan for the plan summary or the production plan guard to read, and a value the guard cannot read, or none, may be either";
 
 export const LOG_FORMAT_WHY =
   "`--log-format` other than pretty: under json Alchemy prints no plan, which the plan summary and the production plan guard read";
 
 export const LOG_VARIABLE_WHY =
   "ALCHEMY_LOG_LEVEL and ALCHEMY_LOG_FORMAT reach every Alchemy run after them, which the guard cannot follow; pass `--log-level` or `--log-format` instead";
+
+export const ENV_EXPRESSION_WHY =
+  "an env block given as one expression may set ALCHEMY_LOG_LEVEL or ALCHEMY_LOG_FORMAT, which the guard cannot read; write it as a mapping";
+
+export const PASSED_ON_WHY =
+  "a command passes an Alchemy package script no argument but --force: Bun appends what it passes to the script's command, which the guard reads only as the script writes it";
 
 const FORBIDDEN: readonly { readonly pattern: RegExp; readonly why: string }[] = [
   {
@@ -235,6 +251,12 @@ const ALCHEMY_WORD = /(?:^|\/)alchemy(?:@\S+)?$/;
 /** A brace expansion starting at an unquoted `{`: `{a,b}` or `{1..3}`. */
 const BRACE_EXPANSION = /^\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}/;
 
+/** One word of a segment as the shell hands it over, and whether it uses an expansion. */
+interface Word {
+  readonly text: string;
+  readonly expands: boolean;
+}
+
 /**
  * The words of one segment as the shell hands them to the command: a backslash
  * keeps the next character, `'…'` keeps everything up to the next `'`, `$'…'`
@@ -243,8 +265,8 @@ const BRACE_EXPANSION = /^\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}/;
  * backtick. An unquoted or double-quoted `$` or backtick, or an unquoted
  * brace expansion, marks its word as expanding.
  */
-function readSegment(raw: string): Segment {
-  const words: { text: string; expands: boolean }[] = [];
+function readWords(raw: string): Word[] {
+  const words: Word[] = [];
   let text = "";
   let expands = false;
   let open = false;
@@ -291,6 +313,12 @@ function readSegment(raw: string): Segment {
     }
   }
   end();
+  return words;
+}
+
+/** A segment's words joined, and whether any word after the `alchemy` word expands. */
+function readSegment(raw: string): Segment {
+  const words = readWords(raw);
   const command = words.findIndex((word) => ALCHEMY_WORD.test(word.text));
   return {
     text: words.map((word) => word.text).join(" "),
@@ -298,13 +326,125 @@ function readSegment(raw: string): Segment {
   };
 }
 
-/** The Alchemy segments of a command: one per part between separators. */
-const alchemySegments = (command: string): Segment[] =>
+/** A command's parts between separators, each as written. */
+const rawSegments = (command: string): string[] =>
   joinContinuations(command)
     .split("\n")
-    .flatMap((line) => line.split(COMMAND_SEPARATOR))
+    .flatMap((line) => line.split(COMMAND_SEPARATOR));
+
+/** The Alchemy segments of a command: one per part between separators. */
+const alchemySegments = (command: string): Segment[] =>
+  rawSegments(command)
     .map(readSegment)
     .filter((segment) => ALCHEMY_COMMAND.test(segment.text));
+
+/** Each package script that runs Alchemy, by its name: that script in every manifest that has one. */
+export type AlchemyScripts = ReadonlyMap<string, readonly string[]>;
+
+const NO_SCRIPTS: AlchemyScripts = new Map();
+
+/** Every script of `manifestTexts` that runs Alchemy, keyed by its name. */
+export function alchemyScripts(manifestTexts: readonly string[]): AlchemyScripts {
+  const scripts = new Map<string, string[]>();
+  for (const text of manifestTexts) {
+    for (const [name, value] of Object.entries((JSON.parse(text) as Manifest).scripts ?? {})) {
+      if (alchemySegments(value).length > 0)
+        scripts.set(name, [...(scripts.get(name) ?? []), value]);
+    }
+  }
+  return scripts;
+}
+
+/** `bun`'s and `bun run`'s own options that take the next word as their value. */
+const BUN_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  "--cwd",
+  "--filter",
+  "-F",
+  "--elide-lines",
+  "--env-file",
+  "--config",
+  "-c",
+]);
+
+/** A redirection operator alone, whose target is the next word. */
+const REDIRECTION = /^\d*(?:>>?|<|&>>?)$/;
+
+/** A redirection with its target in the same word: `2>&1`, `>"$LOG"`. */
+const REDIRECTION_WITH_TARGET = /^\d*(?:>>?|<|&>>?)\S+$/;
+
+/** `${NAME:+word}`, which expands to nothing or to its literal word; read as the word. */
+const SET_ALTERNATIVE = /^\$\{[A-Za-z_]\w*:\+([^\s$`{}"'\\]+)\}$/;
+
+/**
+ * The package script a segment runs with `bun run`, by name, and the words
+ * it passes on, which Bun appends to the script's command: redirections left
+ * out and a leading `--` dropped. Undefined for any other command.
+ */
+function packageScriptCall(
+  words: readonly Word[],
+): { readonly name: string; readonly passed: readonly Word[] } | undefined {
+  let at = 0;
+  const skipOptions = (): void => {
+    while ((words[at]?.text ?? "").startsWith("-")) {
+      at += BUN_VALUE_OPTIONS.has(words[at]?.text ?? "") ? 2 : 1;
+    }
+  };
+  while (/^[A-Za-z_]\w*=/.test(words[at]?.text ?? "")) at++;
+  if (words[at]?.text !== "bun") return undefined;
+  at++;
+  skipOptions();
+  if (words[at]?.text !== "run") return undefined;
+  at++;
+  skipOptions();
+  const name = words[at]?.text;
+  if (name === undefined) return undefined;
+  const passed: Word[] = [];
+  for (let next = at + 1; next < words.length; next++) {
+    const word = words[next];
+    if (word === undefined || REDIRECTION_WITH_TARGET.test(word.text)) continue;
+    if (REDIRECTION.test(word.text)) {
+      next++;
+      continue;
+    }
+    passed.push(word);
+  }
+  if (passed[0]?.text === "--") passed.shift();
+  return { name, passed };
+}
+
+/**
+ * What a command segment passes on to an Alchemy package script, read as part
+ * of that script's command: only `--force` may be passed, written out or as
+ * `${NAME:+--force}`, and the script's command with it appended must pass
+ * every rule a package script does. A script of that name in any manifest
+ * counts, since the guard does not follow `--cwd` or a working directory.
+ */
+function passedOnProblems(raw: string, scripts: AlchemyScripts): string[] {
+  const call = packageScriptCall(readWords(raw));
+  const bodies = call === undefined ? undefined : scripts.get(call.name);
+  if (call === undefined || bodies === undefined) return [];
+  const problems = new Set<string>();
+  const appended: string[] = [];
+  for (const word of call.passed) {
+    const literal = word.expands ? SET_ALTERNATIVE.exec(word.text)?.[1] : word.text;
+    if (literal !== "--force") problems.add(PASSED_ON_WHY);
+    if (literal !== undefined) appended.push(literal);
+  }
+  for (const body of bodies) {
+    const command = [body, ...appended].join(" ");
+    for (const segment of alchemySegments(command)) {
+      for (const { problem } of forbidden("", segment)) problems.add(problem);
+    }
+    for (const problem of logSettingProblems(command)) problems.add(problem);
+  }
+  return [...problems];
+}
+
+/** Every finding of what `command`'s segments pass on to Alchemy package scripts, at `where`. */
+const passedOnFindings = (where: string, command: string, scripts: AlchemyScripts): Finding[] =>
+  rawSegments(command).flatMap((raw) =>
+    passedOnProblems(raw, scripts).map((problem) => ({ where, problem })),
+  );
 
 /** The `NAME=value` assignments a command segment starts with. */
 const LEADING_ASSIGNMENTS = /^\s*((?:[A-Za-z_]\w*=\S*\s+)*)/;
@@ -343,7 +483,11 @@ const scriptSegments = (
     alchemySegments(value).map((segment) => ({ at: `${where} scripts.${name}`, segment })),
   );
 
-export function checkPackageScripts(where: string, manifestText: string): Finding[] {
+export function checkPackageScripts(
+  where: string,
+  manifestText: string,
+  scripts: AlchemyScripts = NO_SCRIPTS,
+): Finding[] {
   const findings: Finding[] = [];
   for (const [name, value] of Object.entries(
     (JSON.parse(manifestText) as Manifest).scripts ?? {},
@@ -351,6 +495,7 @@ export function checkPackageScripts(where: string, manifestText: string): Findin
     for (const problem of logSettingProblems(value)) {
       findings.push({ where: `${where} scripts.${name}`, problem });
     }
+    findings.push(...passedOnFindings(`${where} scripts.${name}`, value, scripts));
   }
   for (const { at, segment } of scriptSegments(where, manifestText)) {
     if (inlineValue(segment, "DO_NOT_TRACK") !== "1") {
@@ -395,25 +540,39 @@ interface CompositeAction {
 function logSettingProblems(command: string): string[] {
   const problems = new Set<string>();
   if (LOG_SETTING_VARIABLE.test(command)) problems.add(LOG_VARIABLE_WHY);
-  const segments = joinContinuations(command)
-    .split("\n")
-    .flatMap((line) => line.split(COMMAND_SEPARATOR))
-    .map(readSegment);
-  for (const segment of segments) {
+  for (const segment of rawSegments(command).map(readSegment)) {
     for (const [, kind = "", value = ""] of segment.text.matchAll(LOG_FLAG)) {
       const level = kind.toLowerCase() === "level";
       const allowed = level ? ALLOWED_LOG_VALUES.level : ALLOWED_LOG_VALUES.format;
-      if (!allowed.has(value.toLowerCase())) problems.add(level ? LOG_LEVEL_WHY : LOG_FORMAT_WHY);
+      if (value !== allowed) problems.add(level ? LOG_LEVEL_WHY : LOG_FORMAT_WHY);
     }
   }
   return [...problems];
 }
 
-/** An env block that sets either of Alchemy's log variables, whatever the value. */
-const envLogProblems = (where: string, env: EnvBlock | undefined): Finding[] =>
-  Object.keys(env ?? {}).some((key) => LOG_SETTING_VARIABLE.test(key))
+/**
+ * An env block that sets either of Alchemy's log variables, whatever the
+ * value, or that is not a mapping: a `${{ … }}` expression may hold any key.
+ */
+const envLogProblems = (where: string, env: unknown): Finding[] => {
+  if (env === undefined || env === null) return [];
+  if (typeof env !== "object" || Array.isArray(env)) {
+    return [{ where, problem: ENV_EXPRESSION_WHY }];
+  }
+  return Object.keys(env).some((key) => LOG_SETTING_VARIABLE.test(key))
     ? [{ where, problem: LOG_VARIABLE_WHY }]
     : [];
+};
+
+/**
+ * A tracked env file that names either log variable. Bun loads `.env`,
+ * `.env.local` and the file for `NODE_ENV` (`.env.development` when it is
+ * unset) from the directory a run starts in, so a setting there reaches every
+ * Alchemy run started in it.
+ */
+export function checkEnvFile(where: string, text: string): Finding[] {
+  return LOG_SETTING_VARIABLE.test(text) ? [{ where, problem: LOG_VARIABLE_WHY }] : [];
+}
 
 /** The first env block that sets `DO_NOT_TRACK` decides; none set means on. */
 const telemetryOff = (...levels: readonly (EnvBlock | undefined)[]): boolean => {
@@ -425,6 +584,7 @@ function checkSteps(
   where: string,
   steps: readonly Step[],
   outer: readonly (EnvBlock | undefined)[],
+  scripts: AlchemyScripts,
 ): Finding[] {
   const findings: Finding[] = [];
   for (const [index, step] of steps.entries()) {
@@ -432,6 +592,7 @@ function checkSteps(
     findings.push(...envLogProblems(`${at}.env`, step.env));
     if (typeof step.run !== "string") continue;
     for (const problem of logSettingProblems(step.run)) findings.push({ where: at, problem });
+    findings.push(...passedOnFindings(at, step.run, scripts));
     const segments = alchemySegments(step.run);
     if (segments.length === 0) continue;
     const off = telemetryOff(step.env, ...outer);
@@ -447,21 +608,29 @@ function checkSteps(
   return findings;
 }
 
-export function checkWorkflow(where: string, yamlText: string): Finding[] {
+export function checkWorkflow(
+  where: string,
+  yamlText: string,
+  scripts: AlchemyScripts = NO_SCRIPTS,
+): Finding[] {
   const workflow = (Bun.YAML.parse(yamlText) ?? {}) as Workflow;
   const findings = envLogProblems(`${where} env`, workflow.env);
   for (const [jobId, job] of Object.entries(workflow.jobs ?? {})) {
     findings.push(...envLogProblems(`${where} jobs.${jobId}.env`, job.env));
     findings.push(
-      ...checkSteps(`${where} jobs.${jobId}`, job.steps ?? [], [job.env, workflow.env]),
+      ...checkSteps(`${where} jobs.${jobId}`, job.steps ?? [], [job.env, workflow.env], scripts),
     );
   }
   return findings;
 }
 
-export function checkCompositeAction(where: string, yamlText: string): Finding[] {
+export function checkCompositeAction(
+  where: string,
+  yamlText: string,
+  scripts: AlchemyScripts = NO_SCRIPTS,
+): Finding[] {
   const action = (Bun.YAML.parse(yamlText) ?? {}) as CompositeAction;
-  return checkSteps(`${where} runs`, action.runs?.steps ?? [], []);
+  return checkSteps(`${where} runs`, action.runs?.steps ?? [], [], scripts);
 }
 
 export function checkStackSource(where: string, text: string): Finding[] {
@@ -488,16 +657,20 @@ if (import.meta.main) {
   };
   const read = (path: string): string => readFileSync(resolve(root, path), "utf8");
   const manifests = tracked("package.json", "*/package.json");
+  const scripts = alchemyScripts(manifests.map(read));
   const findings = [
     ...manifests.flatMap((path) => [
-      ...checkPackageScripts(path, read(path)),
+      ...checkPackageScripts(path, read(path), scripts),
       ...checkScriptsRunAsCi(path, read(path)),
     ]),
     ...tracked(".github/workflows/*.yml", ".github/workflows/*.yaml").flatMap((path) =>
-      checkWorkflow(path, read(path)),
+      checkWorkflow(path, read(path), scripts),
     ),
     ...tracked(".github/actions/*/action.yml", ".github/actions/*/action.yaml").flatMap((path) =>
-      checkCompositeAction(path, read(path)),
+      checkCompositeAction(path, read(path), scripts),
+    ),
+    ...tracked(".env", ".env.*", "*/.env", "*/.env.*").flatMap((path) =>
+      checkEnvFile(path, read(path)),
     ),
     ...tracked("*/infra/*.ts", "*alchemy.run.ts")
       .filter((path) => path !== STATE_STORE_FILE && !/(?:^|\/)tests\//.test(path))

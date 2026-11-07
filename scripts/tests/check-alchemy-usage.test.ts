@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  alchemyScripts,
   checkCompositeAction,
+  checkEnvFile,
   checkPackageScripts,
   checkScriptsRunAsCi,
   checkStackSource,
   checkWorkflow,
+  ENV_EXPRESSION_WHY,
   LOG_FORMAT_WHY,
   LOG_LEVEL_WHY,
   LOG_VARIABLE_WHY,
+  PASSED_ON_WHY,
 } from "../check-alchemy-usage";
 
 const manifest = (scripts: Record<string, string>) => JSON.stringify({ name: "x", scripts });
@@ -613,15 +617,26 @@ describe("console log settings that reach a public run log", () => {
     'CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level "debug"',
     'bun run deploy:dev -- --log-level "$LEVEL"',
     "bun run deploy:dev -- --log-level debug",
-  ])("refuses %j, which prints Debug records or a level it cannot read", (script) => {
-    expect(problems(checkPackageScripts("p", manifest({ x: script })))).toEqual([LOG_LEVEL_WHY]);
-  });
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level=warn",
+    "CI=true DO_NOT_TRACK=1 bun alchemy plan --stage dev --log-level none",
+    "bun run deploy:dev -- --log-level error",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level INFO",
+    // A flag left without its value takes the caller's next argument.
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes --log-level",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes --log-level=",
+  ])(
+    "refuses %j, which prints Debug records, hides the plan, or leaves the level unread",
+    (script) => {
+      expect(problems(checkPackageScripts("p", manifest({ x: script })))).toEqual([LOG_LEVEL_WHY]);
+    },
+  );
 
   test.each([
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run --log-format json",
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-format=json",
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-format 'json'",
     "bun run plan:production -- --log-format json",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run --log-format",
   ])("refuses %j, under which Alchemy prints no plan", (script) => {
     expect(problems(checkPackageScripts("p", manifest({ x: script })))).toEqual([LOG_FORMAT_WHY]);
   });
@@ -640,10 +655,11 @@ describe("console log settings that reach a public run log", () => {
 
   test.each([
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level info",
-    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level=warn",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-level=info",
     "CI=true DO_NOT_TRACK=1 bun alchemy --log-level info plan --stage dev",
     "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-format pretty",
-    "bun run deploy:dev -- --log-level error",
+    "bun run deploy:dev -- --log-level info",
+    "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --log-levels-are-not-a-flag",
   ])("passes %j", (script) => {
     expect(checkPackageScripts("p", manifest({ x: script }))).toEqual([]);
   });
@@ -744,6 +760,45 @@ runs:
     ]);
   });
 
+  test("refuses an env block given as one expression, at the workflow, a job or a step, since it may set either variable", () => {
+    const expression = "${{ fromJSON(vars.ALCHEMY_ENV) }}";
+    expect(
+      checkWorkflow("w", blockWorkflow(`env: ${expression}`, "", ["bun run deploy:dev"])),
+    ).toEqual([{ where: "w env", problem: ENV_EXPRESSION_WHY }]);
+    const nested = `
+name: t
+on: workflow_dispatch
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    env: ${expression}
+    steps:
+      - env: ${expression}
+        run: bun run deploy:dev
+`;
+    expect(checkWorkflow("w", nested)).toEqual([
+      { where: "w jobs.a.env", problem: ENV_EXPRESSION_WHY },
+      { where: "w jobs.a.steps[0].env", problem: ENV_EXPRESSION_WHY },
+    ]);
+  });
+
+  test.each([
+    "ALCHEMY_LOG_LEVEL=debug\n",
+    "CLOUDFLARE_ACCOUNT_ID=x\nexport ALCHEMY_LOG_FORMAT=json\n",
+    "# ALCHEMY_LOG_LEVEL stays unset\n",
+  ])(
+    "refuses an env file naming either variable, which Bun loads into every run started in its directory: %j",
+    (text) => {
+      expect(checkEnvFile("cire/infra/.env.development", text)).toEqual([
+        { where: "cire/infra/.env.development", problem: LOG_VARIABLE_WHY },
+      ]);
+    },
+  );
+
+  test("passes an env file naming neither variable", () => {
+    expect(checkEnvFile("pulse/web/.env.development", "VITE_API_URL=https://x\n")).toEqual([]);
+  });
+
   test("refuses makeBucketState in a stack file, called or not", () => {
     expect(
       checkStackSource("cire/infra/alchemy.run.ts", "const s = makeBucketState({ bucket });"),
@@ -751,5 +806,75 @@ runs:
     expect(
       checkStackSource("cire/infra/alchemy.run.ts", "const make = makeBucketState;"),
     ).toHaveLength(1);
+  });
+});
+
+describe("arguments a command passes on to an Alchemy package script", () => {
+  const BOOTSTRAP_FORCE = "`state bootstrap --force` redeploys a state store that is serving";
+  const scripts = alchemyScripts([
+    manifest({
+      "deploy:dev": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes",
+      "plan:production": "CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
+      "plan:guard": "bun run scripts/plan-guard.ts",
+    }),
+    manifest({
+      "state:bootstrap": "CI=true DO_NOT_TRACK=1 bun alchemy state bootstrap --backend cloudflare",
+      "state:check": "CI=true DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare",
+      "rehearsal:destroy":
+        "CI=true DO_NOT_TRACK=1 bun alchemy destroy rehearsal/alchemy.run.ts --stage domain-move --yes",
+    }),
+  ]);
+  const problems = (findings: readonly { readonly problem: string }[]) =>
+    findings.map((finding) => finding.problem);
+  const step = (line: string) => checkWorkflow("w", blockWorkflow(TRACK_OFF, "", [line]), scripts);
+
+  test.each([
+    'bun run deploy:dev ${FORCE:+--force} 2>&1 | tee "$RUNNER_TEMP/alchemy.log"',
+    'bun run plan:production ${FORCE:+--force} > "$RUNNER_TEMP/plan/cire.log" 2>&1',
+    "bun run --cwd shared/infra state:check || exit 1",
+    "bun run state:bootstrap",
+    "bun run deploy:dev -- --force",
+    'bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" ${FLIP:+--flip "$FLIP"}',
+  ])("passes %j", (line) => {
+    expect(step(line)).toEqual([]);
+  });
+
+  test.each([
+    "bun run state:bootstrap --force",
+    "bun run --cwd shared/infra state:bootstrap -- --force",
+    "bun run state:bootstrap ${FORCE:+--force}",
+  ])("refuses %j, which runs a refused Alchemy command", (line) => {
+    expect(problems(step(line))).toContain(BOOTSTRAP_FORCE);
+  });
+
+  test.each([
+    "bun run deploy:dev nuke",
+    "bun run deploy:dev -- --stage production",
+    'bun run deploy:dev -- "$ARGS"',
+    "bun run --cwd cire/infra deploy:dev -- debug",
+    "bun run rehearsal:destroy --stage dev",
+  ])("refuses %j, which passes the script an argument other than --force", (line) => {
+    expect(problems(step(line))).toContain(PASSED_ON_WHY);
+  });
+
+  test("refuses the same from a package script and from a composite action", () => {
+    expect(
+      problems(
+        checkPackageScripts(
+          "p",
+          manifest({ x: "bun run --cwd shared/infra state:bootstrap --force" }),
+          scripts,
+        ),
+      ),
+    ).toContain(BOOTSTRAP_FORCE);
+    const action = `
+name: a
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: bun run deploy:dev -- --log-level info
+`;
+    expect(problems(checkCompositeAction("a", action, scripts))).toEqual([PASSED_ON_WHY]);
   });
 });
