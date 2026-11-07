@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRecommendationClient, RecommendationClientError } from "../src/recommendations";
+import type { AuthFetch } from "../src/runtime";
 
-const client = createRecommendationClient({ issuerUrl: "https://osn.example.com" });
+/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
+const authFetch: AuthFetch = (input, init) => fetch(input, init);
+
+const client = createRecommendationClient({ issuerUrl: "https://osn.example.com", authFetch });
 const base = "https://osn.example.com/recommendations";
-const TOKEN = "test-token";
 
 function mockFetch(response: { ok: boolean; status?: number; json: () => Promise<unknown> }) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
@@ -15,27 +18,26 @@ afterEach(() => {
 });
 
 describe("createRecommendationClient", () => {
-  it("GETs /recommendations/connections with Bearer auth and no limit by default", async () => {
+  it("GETs /recommendations/connections through authFetch and no limit by default", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ suggestions: [] }) });
-    await client.suggestConnections(TOKEN);
+    await client.suggestConnections();
     const call = vi.mocked(fetch).mock.calls[0]!;
     expect(call[0]).toBe(`${base}/connections`);
-    const headers = (call[1] as RequestInit).headers as Record<string, string>;
-    expect(headers.Authorization).toBe(`Bearer ${TOKEN}`);
+    // `authFetch` supplies the token; the cookie stays home on these routes.
+    expect(new Headers((call[1] as RequestInit).headers).get("authorization")).toBeNull();
+    expect((call[1] as RequestInit).credentials).toBe("same-origin");
   });
 
   it("appends ?limit when provided", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ suggestions: [] }) });
-    await client.suggestConnections(TOKEN, { limit: 20 });
+    await client.suggestConnections({ limit: 20 });
     expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/connections?limit=20`);
   });
 
   it("throws RecommendationClientError with server message on non-2xx", async () => {
     mockFetch({ ok: false, json: () => Promise.resolve({ error: "Too many requests" }) });
-    await expect(client.suggestConnections(TOKEN)).rejects.toBeInstanceOf(
-      RecommendationClientError,
-    );
-    await expect(client.suggestConnections(TOKEN)).rejects.toThrow("Too many requests");
+    await expect(client.suggestConnections()).rejects.toBeInstanceOf(RecommendationClientError);
+    await expect(client.suggestConnections()).rejects.toThrow("Too many requests");
   });
 
   it("surfaces RecommendationClientError (not SyntaxError) when error body is not JSON", async () => {
@@ -47,57 +49,58 @@ describe("createRecommendationClient", () => {
         json: () => Promise.reject(new SyntaxError("Unexpected token <")),
       }),
     );
-    await expect(client.suggestConnections(TOKEN)).rejects.toBeInstanceOf(
-      RecommendationClientError,
-    );
+    await expect(client.suggestConnections()).rejects.toBeInstanceOf(RecommendationClientError);
   });
 
   it("strips trailing slash from issuerUrl", async () => {
-    const trimmed = createRecommendationClient({ issuerUrl: "https://osn.example.com/" });
+    const trimmed = createRecommendationClient({
+      issuerUrl: "https://osn.example.com/",
+      authFetch,
+    });
     mockFetch({ ok: true, json: () => Promise.resolve({ suggestions: [] }) });
-    await trimmed.suggestConnections(TOKEN);
+    await trimmed.suggestConnections();
     expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/connections`);
   });
 
   describe("search", () => {
     it("GETs /recommendations/search with the query and Bearer auth", async () => {
       mockFetch({ ok: true, json: () => Promise.resolve({ people: [], organisations: [] }) });
-      await client.search(TOKEN, "ali");
+      await client.search("ali");
       const call = vi.mocked(fetch).mock.calls[0]!;
       expect(call[0]).toBe(`${base}/search?q=ali`);
-      const headers = (call[1] as RequestInit).headers as Record<string, string>;
-      expect(headers.Authorization).toBe(`Bearer ${TOKEN}`);
+      expect(new Headers((call[1] as RequestInit).headers).get("authorization")).toBeNull();
+      expect((call[1] as RequestInit).credentials).toBe("same-origin");
     });
 
     it("URL-encodes the query so a typed @ or & can't break out of the param", async () => {
       mockFetch({ ok: true, json: () => Promise.resolve({ people: [], organisations: [] }) });
-      await client.search(TOKEN, "@ali&limit=99");
+      await client.search("@ali&limit=99");
       expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/search?q=%40ali%26limit%3D99`);
     });
 
     it("appends ?limit when provided", async () => {
       mockFetch({ ok: true, json: () => Promise.resolve({ people: [], organisations: [] }) });
-      await client.search(TOKEN, "ali", { limit: 5 });
+      await client.search("ali", { limit: 5 });
       expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/search?q=ali&limit=5`);
     });
 
     it("forwards the abort signal so stale keystrokes can be cancelled", async () => {
       mockFetch({ ok: true, json: () => Promise.resolve({ people: [], organisations: [] }) });
       const controller = new AbortController();
-      await client.search(TOKEN, "ali", { signal: controller.signal });
+      await client.search("ali", { signal: controller.signal });
       const init = vi.mocked(fetch).mock.calls[0]![1] as RequestInit;
       expect(init.signal).toBe(controller.signal);
     });
 
     it("appends ?orgLimit when provided", async () => {
       mockFetch({ ok: true, json: () => Promise.resolve({ people: [], organisations: [] }) });
-      await client.search(TOKEN, "ali", { limit: 5, orgLimit: 2 });
+      await client.search("ali", { limit: 5, orgLimit: 2 });
       expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/search?q=ali&limit=5&orgLimit=2`);
     });
 
     it("throws RecommendationClientError on non-2xx", async () => {
       mockFetch({ ok: false, status: 429, json: () => Promise.resolve({ error: "Rate limited" }) });
-      await expect(client.search(TOKEN, "ali")).rejects.toBeInstanceOf(RecommendationClientError);
+      await expect(client.search("ali")).rejects.toBeInstanceOf(RecommendationClientError);
     });
   });
 });

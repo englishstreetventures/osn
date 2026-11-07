@@ -1,15 +1,18 @@
 /**
- * Plain-fetch client for the organisations API. No Effect — mirrors the
- * pattern in `./login.ts`. Each method calls the OSN core REST API with
- * Bearer token auth.
+ * Promise client for the organisations API. No Effect — mirrors the pattern
+ * in `./login.ts`. Each method calls the OSN core REST API through the page's
+ * `authFetch`, which supplies and renews the access token.
  */
 
 import { OsnApiError } from "./api-error";
 import { createAuthFetchers, qs } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
 
 export interface OrgClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 /**
@@ -52,39 +55,28 @@ export class OrgClientError extends OsnApiError {
  * addressed by its `handle`, a member by their profile's `profileHandle`.
  */
 export interface OrgClient {
-  listMyOrgs(
-    token: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<{ organisations: OrgSummary[] }>;
-  getOrg(token: string, handle: string): Promise<{ organisation: OrgSummary }>;
-  createOrg(
-    token: string,
-    data: { handle: string; name: string; description?: string },
-  ): Promise<{ ok: boolean; organisation: OrgSummary }>;
+  listMyOrgs(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ organisations: OrgSummary[] }>;
+  getOrg(handle: string): Promise<{ organisation: OrgSummary }>;
+  createOrg(data: {
+    handle: string;
+    name: string;
+    description?: string;
+  }): Promise<{ ok: boolean; organisation: OrgSummary }>;
   updateOrg(
-    token: string,
     handle: string,
     data: { name?: string; description?: string },
   ): Promise<{ ok: boolean; organisation: OrgSummary }>;
-  deleteOrg(token: string, handle: string): Promise<void>;
+  deleteOrg(handle: string): Promise<void>;
   listMembers(
-    token: string,
     handle: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ members: OrgMember[] }>;
-  addMember(
-    token: string,
-    handle: string,
-    profileHandle: string,
-    role: "admin" | "member",
-  ): Promise<void>;
-  removeMember(token: string, handle: string, profileHandle: string): Promise<void>;
-  updateMemberRole(
-    token: string,
-    handle: string,
-    profileHandle: string,
-    role: "admin" | "member",
-  ): Promise<void>;
+  addMember(handle: string, profileHandle: string, role: "admin" | "member"): Promise<void>;
+  removeMember(handle: string, profileHandle: string): Promise<void>;
+  updateMemberRole(handle: string, profileHandle: string, role: "admin" | "member"): Promise<void>;
 }
 
 export function createOrgClient(config: OrgClientConfig): OrgClient {
@@ -93,7 +85,10 @@ export function createOrgClient(config: OrgClientConfig): OrgClient {
   // a call no bundler will drop, which pinned this module into the entry
   // chunk of every app importing the barrel. `/* @__PURE__ */` does not fix
   // that on a destructuring declarator.
-  const { authGet, authPost, authPatch, authDeleteVoid } = createAuthFetchers(OrgClientError);
+  const { authGet, authPost, authPatch, authDeleteVoid } = createAuthFetchers(
+    OrgClientError,
+    config.authFetch,
+  );
   // `deleteOrg` and `removeMember` are declared `Promise<void>` on `OrgClient`
   // and their callers use no body, so this module discards it. The routes do
   // return `{ ok: true }` (see `osn/api/src/routes/organisation.ts`) — the
@@ -106,29 +101,26 @@ export function createOrgClient(config: OrgClientConfig): OrgClient {
     `${org(handle)}/members/${encodeURIComponent(profileHandle)}`;
 
   return {
-    listMyOrgs: (token, options) =>
-      authGet<{ organisations: OrgSummary[] }>(`${base}${qs(options)}`, token),
+    listMyOrgs: (options) => authGet<{ organisations: OrgSummary[] }>(`${base}${qs(options)}`),
 
-    getOrg: (token, handle) => authGet<{ organisation: OrgSummary }>(org(handle), token),
+    getOrg: (handle) => authGet<{ organisation: OrgSummary }>(org(handle)),
 
-    createOrg: (token, data) =>
-      authPost<{ ok: boolean; organisation: OrgSummary }>(base, token, data),
+    createOrg: (data) => authPost<{ ok: boolean; organisation: OrgSummary }>(base, data),
 
-    updateOrg: (token, handle, data) =>
-      authPatch<{ ok: boolean; organisation: OrgSummary }>(org(handle), token, data),
+    updateOrg: (handle, data) =>
+      authPatch<{ ok: boolean; organisation: OrgSummary }>(org(handle), data),
 
-    deleteOrg: (token, handle) => authDelete(org(handle), token),
+    deleteOrg: (handle) => authDelete(org(handle)),
 
-    listMembers: (token, handle, options) =>
-      authGet<{ members: OrgMember[] }>(`${org(handle)}/members${qs(options)}`, token),
+    listMembers: (handle, options) =>
+      authGet<{ members: OrgMember[] }>(`${org(handle)}/members${qs(options)}`),
 
-    addMember: (token, handle, profileHandle, role) =>
-      authPost(member(handle, profileHandle), token, { role }).then(() => undefined),
+    addMember: (handle, profileHandle, role) =>
+      authPost(member(handle, profileHandle), { role }).then(() => undefined),
 
-    removeMember: (token, handle, profileHandle) =>
-      authDelete(member(handle, profileHandle), token),
+    removeMember: (handle, profileHandle) => authDelete(member(handle, profileHandle)),
 
-    updateMemberRole: (token, handle, profileHandle, role) =>
-      authPatch(member(handle, profileHandle), token, { role }).then(() => undefined),
+    updateMemberRole: (handle, profileHandle, role) =>
+      authPatch(member(handle, profileHandle), { role }).then(() => undefined),
   };
 }

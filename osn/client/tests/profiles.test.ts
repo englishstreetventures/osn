@@ -80,13 +80,10 @@ it.effect("listProfiles calls GET /profiles/list with Bearer auth and returns th
     const result = yield* auth.listProfiles();
 
     expect(result).toEqual(profiles);
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      "https://osn.example.com/profiles/list",
-      expect.objectContaining({
-        method: "GET",
-        headers: expect.objectContaining({ Authorization: expect.stringMatching(/^Bearer /) }),
-      }),
-    );
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe("https://osn.example.com/profiles/list");
+    expect(init).toEqual(expect.objectContaining({ method: "GET", credentials: "include" }));
+    expect(new Headers(init!.headers).get("authorization")).toMatch(/^Bearer /);
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -174,8 +171,7 @@ it.effect("createProfile calls POST /profiles/create and returns the new profile
     expect(result).toEqual(newProfile);
 
     const call = vi.mocked(fetch).mock.calls[0]!;
-    const headers = call[1]!.headers as Record<string, string>;
-    expect(headers.Authorization).toMatch(/^Bearer /);
+    expect(new Headers(call[1]!.headers).get("authorization")).toMatch(/^Bearer /);
     const body = JSON.parse(call[1]!.body as string);
     expect(body.handle).toBe("charlie");
     expect(body.display_name).toBe("Charlie");

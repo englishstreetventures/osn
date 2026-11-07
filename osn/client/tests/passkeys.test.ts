@@ -1,19 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { createPasskeysClient, PasskeysError } from "../src/passkeys";
+import type { AuthFetch } from "../src/runtime";
+
+/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
+const authFetch: AuthFetch = (input, init) => fetch(input, init);
 
 /**
- * Wire-contract tests for `createPasskeysClient` (T-M2). Mirrors the
+ * Wire-contract tests for `createPasskeysClient`. Mirrors the
  * stubFetch harness used in `login.test.ts`. Catches silent drift on:
  *   • HTTP verb + path
- *   • Authorization header (and X-Step-Up-Token on delete)
+ *   • no Authorization of its own (authFetch supplies it); X-Step-Up-Token on delete
  *   • `credentials: "include"` flag (HttpOnly session cookie)
  *   • request / response bodies
  *   • error shape propagation as PasskeysError
  *   • :id path encoding
  */
 
-const config = { issuerUrl: "https://osn.example.com" };
+const config = { issuerUrl: "https://osn.example.com", authFetch };
 
 interface FetchCall {
   url: string;
@@ -80,33 +84,32 @@ describe("createPasskeysClient", () => {
   });
 
   describe("list", () => {
-    it("GETs /passkeys with Authorization bearer + credentials: include", async () => {
+    it("GETs /passkeys through authFetch with credentials: include", async () => {
       const { calls } = stubFetch(() => jsonResponse({ passkeys: [samplePasskey] }));
-      const result = await client.list({ accessToken: "acc_abc" });
+      const result = await client.list();
       expect(result).toEqual({ passkeys: [samplePasskey] });
       expect(calls[0]!.url).toBe("https://osn.example.com/passkeys");
       expect(calls[0]!.init?.method).toBeUndefined();
       const h = headerMap(calls[0]!.init);
-      expect(h["authorization"]).toBe("Bearer acc_abc");
+      expect(h["authorization"]).toBeUndefined();
       expect(calls[0]!.init?.credentials).toBe("include");
     });
 
     it("throws PasskeysError on non-2xx", async () => {
       stubFetch(() => jsonResponse({ error: "unauthorized" }, { status: 401 }));
-      await expect(client.list({ accessToken: "x" })).rejects.toBeInstanceOf(PasskeysError);
+      await expect(client.list()).rejects.toBeInstanceOf(PasskeysError);
     });
 
     it("throws PasskeysError when the body is missing the passkeys array", async () => {
       stubFetch(() => jsonResponse({ something: "else" }));
-      await expect(client.list({ accessToken: "x" })).rejects.toBeInstanceOf(PasskeysError);
+      await expect(client.list()).rejects.toBeInstanceOf(PasskeysError);
     });
   });
 
   describe("rename", () => {
-    it("PATCHes /passkeys/:id with Authorization + X-Step-Up-Token + body { label }", async () => {
+    it("PATCHes /passkeys/:id with X-Step-Up-Token + body { label }", async () => {
       const { calls } = stubFetch(() => jsonResponse({ success: true }));
       await client.rename({
-        accessToken: "acc_abc",
         id: "pk_aaaaaaaaaaaa",
         label: "Primary",
         stepUpToken: "stpup_xyz",
@@ -114,7 +117,7 @@ describe("createPasskeysClient", () => {
       expect(calls[0]!.url).toBe("https://osn.example.com/passkeys/pk_aaaaaaaaaaaa");
       expect(calls[0]!.init?.method).toBe("PATCH");
       const h = headerMap(calls[0]!.init);
-      expect(h["authorization"]).toBe("Bearer acc_abc");
+      expect(h["authorization"]).toBeUndefined();
       expect(h["content-type"]).toBe("application/json");
       expect(h["x-step-up-token"]).toBe("stpup_xyz");
       expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({ label: "Primary" });
@@ -124,7 +127,6 @@ describe("createPasskeysClient", () => {
     it("encodes :id path segment", async () => {
       const { calls } = stubFetch(() => jsonResponse({ success: true }));
       await client.rename({
-        accessToken: "t",
         id: "pk_ab+cd ef",
         label: "x",
         stepUpToken: "s",
@@ -135,16 +137,15 @@ describe("createPasskeysClient", () => {
     it("throws PasskeysError if the body does not confirm success", async () => {
       stubFetch(() => jsonResponse({ success: false, error: "Passkey not found" }));
       await expect(
-        client.rename({ accessToken: "t", id: "pk_x", label: "y", stepUpToken: "s" }),
+        client.rename({ id: "pk_x", label: "y", stepUpToken: "s" }),
       ).rejects.toBeInstanceOf(PasskeysError);
     });
   });
 
   describe("delete", () => {
-    it("DELETEs /passkeys/:id with Authorization + X-Step-Up-Token headers", async () => {
+    it("DELETEs /passkeys/:id with X-Step-Up-Token headers", async () => {
       const { calls } = stubFetch(() => jsonResponse({ success: true, remaining: 1 }));
       const result = await client.delete({
-        accessToken: "acc_abc",
         id: "pk_aaaaaaaaaaaa",
         stepUpToken: "stpup_xyz",
       });
@@ -152,7 +153,7 @@ describe("createPasskeysClient", () => {
       expect(calls[0]!.url).toBe("https://osn.example.com/passkeys/pk_aaaaaaaaaaaa");
       expect(calls[0]!.init?.method).toBe("DELETE");
       const h = headerMap(calls[0]!.init);
-      expect(h["authorization"]).toBe("Bearer acc_abc");
+      expect(h["authorization"]).toBeUndefined();
       expect(h["x-step-up-token"]).toBe("stpup_xyz");
       expect(calls[0]!.init?.credentials).toBe("include");
     });
@@ -160,7 +161,6 @@ describe("createPasskeysClient", () => {
     it("defaults remaining to 0 when the server omits it but signals success", async () => {
       stubFetch(() => jsonResponse({ success: true }));
       const result = await client.delete({
-        accessToken: "t",
         id: "pk_x",
         stepUpToken: "s",
       });
@@ -169,9 +169,9 @@ describe("createPasskeysClient", () => {
 
     it("throws PasskeysError on 403 (step-up missing server-side)", async () => {
       stubFetch(() => jsonResponse({ error: "step_up_required" }, { status: 403 }));
-      await expect(
-        client.delete({ accessToken: "t", id: "pk_x", stepUpToken: "s" }),
-      ).rejects.toBeInstanceOf(PasskeysError);
+      await expect(client.delete({ id: "pk_x", stepUpToken: "s" })).rejects.toBeInstanceOf(
+        PasskeysError,
+      );
     });
   });
 
@@ -180,7 +180,6 @@ describe("createPasskeysClient", () => {
       const options = { challenge: "chal_xyz" };
       const { calls } = stubFetch(() => jsonResponse(options));
       const result = await client.registerBegin({
-        accessToken: "acc_abc",
         profileId: "prof_123",
         stepUpToken: "stpup_xyz",
       });
@@ -188,7 +187,7 @@ describe("createPasskeysClient", () => {
       expect(calls[0]!.url).toBe("https://osn.example.com/passkey/register/begin");
       expect(calls[0]!.init?.method).toBe("POST");
       const h = headerMap(calls[0]!.init);
-      expect(h["authorization"]).toBe("Bearer acc_abc");
+      expect(h["authorization"]).toBeUndefined();
       expect(h["content-type"]).toBe("application/json");
       expect(h["x-step-up-token"]).toBe("stpup_xyz");
       expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({
@@ -202,7 +201,6 @@ describe("createPasskeysClient", () => {
       stubFetch(() => jsonResponse({ error: "step_up_required" }, { status: 403 }));
       await expect(
         client.registerBegin({
-          accessToken: "t",
           profileId: "prof",
           stepUpToken: "s",
         }),
@@ -215,7 +213,6 @@ describe("createPasskeysClient", () => {
       const attestation = { id: "cred_abc" };
       const { calls } = stubFetch(() => jsonResponse({ passkeyId: "pk_new" }));
       const result = await client.registerComplete({
-        accessToken: "acc_abc",
         profileId: "prof_123",
         attestation,
       });
@@ -223,7 +220,7 @@ describe("createPasskeysClient", () => {
       expect(calls[0]!.url).toBe("https://osn.example.com/passkey/register/complete");
       expect(calls[0]!.init?.method).toBe("POST");
       const h = headerMap(calls[0]!.init);
-      expect(h["authorization"]).toBe("Bearer acc_abc");
+      expect(h["authorization"]).toBeUndefined();
       expect(h["content-type"]).toBe("application/json");
       expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({
         profileId: "prof_123",
@@ -236,21 +233,19 @@ describe("createPasskeysClient", () => {
       stubFetch(() => jsonResponse({ error: "bad_attestation" }, { status: 400 }));
       await expect(
         client.registerComplete({
-          accessToken: "t",
           profileId: "prof",
           attestation: {},
         }),
       ).rejects.toBeInstanceOf(PasskeysError);
     });
 
-    // T-E1: the negative test above hits `!res.ok` before the missing-
+    // The negative test above hits `!res.ok` before the missing-
     // passkeyId guard is even reached. Cover the guard directly: a 2xx
     // with a non-string `passkeyId` must still surface as PasskeysError.
     it("throws PasskeysError on 2xx when passkeyId is absent / wrong type", async () => {
       stubFetch(() => jsonResponse({ ok: true }, { status: 200 }));
       await expect(
         client.registerComplete({
-          accessToken: "t",
           profileId: "prof",
           attestation: {},
         }),

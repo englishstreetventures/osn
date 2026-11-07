@@ -1,17 +1,18 @@
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import {
   createContext,
   createEffect,
   createResource,
   createSignal,
+  onCleanup,
   useContext,
   type Accessor,
   type ParentProps,
   type Resource,
 } from "solid-js";
 
-import { OsnAuth, createOsnAuthLive, type OsnAuthConfig } from "../service";
-import { Storage, StorageLive } from "../storage";
+import type { AuthFetch, OsnAuthRuntime } from "../runtime";
+import { OsnAuth } from "../service";
 import type { HeldSession, PublicProfile, Session } from "../tokens";
 
 interface AuthContextValue {
@@ -44,42 +45,39 @@ interface AuthContextValue {
   createProfile: (handle: string, displayName?: string) => Promise<PublicProfile>;
   deleteProfile: (profileId: string) => Promise<void>;
   /**
-   * Access-token-aware fetch with silent refresh on 401. Mirrors
-   * `OsnAuthService.authFetch`, wrapped for Promise-returning Solid
-   * consumers. Throws on `AuthExpiredError` so callers can redirect to
-   * sign-in.
+   * The runtime's `authFetch`: sends the active profile's access token and
+   * renews it. Build authenticated clients with it. When it rejects with
+   * `AuthExpiredError` this provider has already gone to the signed-out state.
    */
-  authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  authFetch: AuthFetch;
 }
 
 export const AuthContext = createContext<AuthContextValue>();
 
 interface AuthProviderProps extends ParentProps {
-  config: OsnAuthConfig;
   /**
-   * The `Storage` layer backing the session. Defaults to `StorageLive`
-   * (`localStorage`). Callers on a platform where `localStorage` must never
-   * hold auth data (e.g. iOS) pass a different layer, such as
-   * `createEphemeralStorage()`.
+   * The page's auth runtime, from `createOsnAuthRuntime`. Pass the same one to
+   * every provider on the page and build every authenticated client with its
+   * `authFetch`: one runtime is one session cache and one set of single-flight
+   * guards, so two providers never race each other for a `/token` grant.
+   * Read once, at mount.
    */
-  storage?: Layer.Layer<Storage>;
+  auth: OsnAuthRuntime;
 }
 
 export function AuthProvider(props: AuthProviderProps) {
-  const layer = createOsnAuthLive(props.config).pipe(Layer.provide(props.storage ?? StorageLive));
-
-  const run = <A,>(eff: Effect.Effect<A, unknown, OsnAuth>): Promise<A> =>
-    Effect.runPromise(
-      Effect.provide(eff, layer).pipe(Effect.orDie) as Effect.Effect<A, never, never>,
-    );
+  // Read once: the runtime lives as long as the page.
+  const runtime = props.auth;
+  const run = runtime.run;
 
   // On mount this calls loadSession (not getSession): when there is no stored
   // account it bootstraps from the HttpOnly refresh cookie via /token before
   // concluding "logged out", so a post-login full-page navigation re-establishes
   // the session instead of bouncing RequireAuth back to /login.
-  const [session, { refetch: refetchSession }] = createResource<Session | null>(() =>
-    run(Effect.flatMap(OsnAuth, (auth) => auth.loadSession())),
-  );
+  const [session, { refetch: refetchSession, mutate: mutateSession }] =
+    createResource<Session | null>(() =>
+      run(Effect.flatMap(OsnAuth, (auth) => auth.loadSession())),
+    );
 
   // Gate profiles on session — only fetch when a session exists.
   // SolidJS createResource with a source signal only fires the fetcher when
@@ -96,6 +94,24 @@ export function AuthProvider(props: AuthProviderProps) {
   );
 
   const [activeProfileId, setActiveProfileId] = createSignal<string | null>(null);
+
+  // The runtime changes the session on its own when a renewal is refused or
+  // the active profile has to fall back to the default one. An ended session
+  // is set to null, not refetched: a refetch would spend a `/token` grant the
+  // issuer has just refused. A reset refetches from the runtime's cache, which
+  // already holds the default profile's fresh token, so it sends nothing.
+  onCleanup(
+    runtime.onSessionChange((change) => {
+      if (change.kind === "ended") {
+        mutateSession(null);
+        mutateProfiles(null);
+        setActiveProfileId(null);
+        return;
+      }
+      setActiveProfileId(change.profileId);
+      void refetchSession();
+    }),
+  );
 
   // Derive activeProfileId reactively from session state instead of
   // a fire-and-forget initialisation call.
@@ -149,8 +165,7 @@ export function AuthProvider(props: AuthProviderProps) {
     await refetchProfiles();
   };
 
-  const authFetch = (input: RequestInfo | URL, init?: RequestInit) =>
-    run(Effect.flatMap(OsnAuth, (auth) => auth.authFetch(input, init)));
+  const authFetch = runtime.authFetch;
 
   return (
     <AuthContext.Provider

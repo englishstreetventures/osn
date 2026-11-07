@@ -5,7 +5,7 @@ import { Route, Router, useLocation } from "@solidjs/router";
 import { createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
 
 import { AccountBanners } from "./components/AccountBanners";
-import { OSN_ISSUER_URL } from "./lib/auth";
+import { osnAuth } from "./lib/auth";
 
 import "./App.css";
 
@@ -68,7 +68,7 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
       <Show
         when={bare()}
         fallback={
-          <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+          <AuthProvider auth={osnAuth}>
             {/* Mount only the active shell: one chunk fetched, one
                 shell hydrating, and a single mounted auth-dialog surface at
                 any width. The CSS hidden classes on each shell remain

@@ -1,17 +1,18 @@
 import { OsnApiError } from "./api-error";
 import { reach, readJson, responseError } from "./auth-fetch";
 import { safeJson } from "./response-body";
+import type { AuthFetch } from "./runtime";
 import { sessionFetch } from "./session-fetch";
 import { parseTokenResponse, type Session } from "./tokens";
 
 /**
  * Plain-fetch helpers for Copenhagen Book M2 — recovery codes.
  *
- *  1. `generateRecoveryCodes({ accessToken, stepUpToken })` — authenticated
- *     and step-up gated. Returns the fresh set once; replaces any existing
- *     set on the server.
- *  2. `getRecoveryCodesStatus({ accessToken })` — authenticated. Counts only,
- *     so a settings panel can say "you have none" without a ceremony.
+ *  1. `generateRecoveryCodes({ stepUpToken })` — authenticated (through
+ *     `authFetch`) and step-up gated. Returns the fresh set once; replaces any
+ *     existing set on the server.
+ *  2. `getRecoveryCodesStatus()` — authenticated. Counts only, so a settings
+ *     panel can say "you have none" without a ceremony.
  *  3. `loginWithRecoveryCode({ identifier, code })` — unauthenticated. Burns
  *     the supplied code and establishes a full session + profile. All other
  *     existing sessions for the account are revoked server-side.
@@ -30,6 +31,8 @@ import { parseTokenResponse, type Session } from "./tokens";
 export interface RecoveryClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch`, for the two authenticated methods. */
+  authFetch: AuthFetch;
 }
 
 export class RecoveryError extends OsnApiError {
@@ -72,15 +75,12 @@ export interface RecoveryClient {
    * 403 `step_up_required`, so run the step-up ceremony first and pass the
    * token it mints.
    */
-  generateRecoveryCodes(input: {
-    accessToken: string;
-    stepUpToken?: string;
-  }): Promise<{ codes: string[] }>;
+  generateRecoveryCodes(input: { stepUpToken?: string }): Promise<{ codes: string[] }>;
   /**
    * How many codes the account has left and when the set was minted. Carries
    * no secret, so it needs no step-up.
    */
-  getRecoveryCodesStatus(input: { accessToken: string }): Promise<RecoveryCodesStatus>;
+  getRecoveryCodesStatus(): Promise<RecoveryCodesStatus>;
   /**
    * Exchange an identifier + recovery code for a session. Consumes the code
    * (single-use) and revokes all other sessions for the account.
@@ -130,14 +130,14 @@ export interface RecoveryClient {
 
 export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  // The two authenticated methods send through the page's `authFetch`.
+  const sendAuthed = (url: string, init: RequestInit) =>
+    reach(RecoveryError, url, init, config.authFetch);
 
-  const generateRecoveryCodes = async (input: { accessToken: string; stepUpToken?: string }) => {
-    const res = await reach(RecoveryError, `${base}/recovery/generate`, {
+  const generateRecoveryCodes = async (input: { stepUpToken?: string }) => {
+    const res = await sendAuthed(`${base}/recovery/generate`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.accessToken}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify(input.stepUpToken ? { step_up_token: input.stepUpToken } : {}),
     });
@@ -146,11 +146,8 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
     return { codes: json.recoveryCodes };
   };
 
-  const getRecoveryCodesStatus = async (input: { accessToken: string }) => {
-    const res = await reach(RecoveryError, `${base}/recovery/status`, {
-      headers: { Authorization: `Bearer ${input.accessToken}` },
-      credentials: "include",
-    });
+  const getRecoveryCodesStatus = async () => {
+    const res = await sendAuthed(`${base}/recovery/status`, { credentials: "include" });
     const json = await readJson<Partial<RecoveryCodesStatus>>(RecoveryError, res);
     if (typeof json.active !== "number" || typeof json.total !== "number") {
       throw responseError(RecoveryError, res, json);

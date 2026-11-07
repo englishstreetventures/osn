@@ -122,9 +122,7 @@ describe("PasskeysView", () => {
 
   it("renders the passkey list with user labels and friendly fallbacks", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
     await waitFor(() => {
       // First row: user-provided label.
@@ -147,7 +145,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         runPasskeyCeremony={runPasskeyCeremony}
       />
     ));
@@ -162,7 +159,6 @@ describe("PasskeysView", () => {
 
     await waitFor(() =>
       expect(pk.rename).toHaveBeenCalledWith({
-        accessToken: "acc",
         id: "pk_aaaaaaaaaaaa",
         label: "Primary",
         stepUpToken: stepUpToken.token,
@@ -180,7 +176,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         runPasskeyCeremony={runPasskeyCeremony}
       />
     ));
@@ -193,9 +188,7 @@ describe("PasskeysView", () => {
 
   it("disables save when the draft label is empty / whitespace-only", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
     await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
     fireEvent.click(screen.getAllByRole("button", { name: /^Rename$/ })[0]!);
@@ -216,7 +209,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         runPasskeyCeremony={runPasskeyCeremony}
       />
     ));
@@ -228,7 +220,6 @@ describe("PasskeysView", () => {
 
     await waitFor(() =>
       expect(pk.delete).toHaveBeenCalledWith({
-        accessToken: "acc",
         id: "pk_aaaaaaaaaaaa",
         stepUpToken: stepUpToken.token,
       }),
@@ -240,9 +231,7 @@ describe("PasskeysView", () => {
   it("delete is skipped entirely if the user dismisses confirm()", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
     window.confirm = () => false;
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
     await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
     fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
@@ -261,7 +250,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         runPasskeyCeremony={runPasskeyCeremony}
       />
     ));
@@ -279,9 +267,7 @@ describe("PasskeysView", () => {
 
   it("hides the Add-passkey button when profileId / runPasskeyRegistration are missing", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
     await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
     expect(screen.queryByRole("button", { name: /Add passkey/i })).toBeNull();
   });
@@ -314,7 +300,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         profileId="prof_123"
         runPasskeyRegistration={runRegistration}
       />
@@ -332,14 +317,12 @@ describe("PasskeysView", () => {
 
     await waitFor(() =>
       expect(pk.registerBegin).toHaveBeenCalledWith({
-        accessToken: "acc",
         profileId: "prof_123",
         stepUpToken: stepUpToken.token,
       }),
     );
     expect(runRegistration).toHaveBeenCalledWith({ challenge: "chal" });
     expect(pk.registerComplete).toHaveBeenCalledWith({
-      accessToken: "acc",
       profileId: "prof_123",
       attestation: { id: "cred_abc" },
     });
@@ -357,7 +340,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         profileId="prof_123"
         runPasskeyRegistration={vi.fn()}
       />
@@ -390,7 +372,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         profileId="prof_123"
         runPasskeyRegistration={runRegistration}
       />
@@ -422,7 +403,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         profileId="prof_123"
         runPasskeyRegistration={vi.fn()}
       />
@@ -455,7 +435,6 @@ describe("PasskeysView", () => {
       <PasskeysView
         client={asPasskeys(pk)}
         stepUpClient={asStepUp(su)}
-        accessToken="acc"
         passkeyOnly
         runPasskeyCeremony={runCeremony}
       />
@@ -469,7 +448,6 @@ describe("PasskeysView", () => {
     expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
     await waitFor(() =>
       expect(pk.delete).toHaveBeenCalledWith({
-        accessToken: "acc",
         id: "pk_aaaaaaaaaaaa",
         stepUpToken: stepUpToken.token,
       }),
@@ -482,9 +460,7 @@ describe("PasskeysView", () => {
   it("locks every Rename/Delete button while a step-up is in flight (S-L1)", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
 
-    render(() => (
-      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
-    ));
+    render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
 
     await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
     fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);

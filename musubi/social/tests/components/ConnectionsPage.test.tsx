@@ -130,7 +130,7 @@ describe("<ConnectionsPage /> — remove friend confirmation", () => {
     fireEvent.click(confirmButton);
 
     expect(mocks.removeConnection).toHaveBeenCalledTimes(1);
-    expect(mocks.removeConnection).toHaveBeenCalledWith("tkn", "bob");
+    expect(mocks.removeConnection).toHaveBeenCalledWith("bob");
   });
 });
 
@@ -149,7 +149,7 @@ describe("<ConnectionsPage /> — sent requests", () => {
     fireEvent.click(screen.getByText("Cancel"));
 
     expect(mocks.removeConnection).toHaveBeenCalledTimes(1);
-    expect(mocks.removeConnection).toHaveBeenCalledWith("tkn", "carol");
+    expect(mocks.removeConnection).toHaveBeenCalledWith("carol");
   });
 
   it("shows an empty state when there are no outgoing requests", async () => {

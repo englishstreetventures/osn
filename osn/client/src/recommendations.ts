@@ -1,14 +1,17 @@
 /**
- * Plain-fetch client for the recommendations API. Mirrors the pattern in
+ * Promise client for the recommendations API. Mirrors the pattern in
  * `./graph.ts` and `./organisations.ts`.
  */
 
 import { OsnApiError } from "./api-error";
 import { createAuthFetchers } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
 
 export interface RecommendationClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 /** Why a profile was suggested. Mirrors `SuggestionReason` in `@osn/api`. */
@@ -56,10 +59,9 @@ export class RecommendationClientError extends OsnApiError {
 }
 
 export interface RecommendationClient {
-  suggestConnections(
-    token: string,
-    options?: { limit?: number },
-  ): Promise<{ suggestions: Suggestion[]; generatedAt: string }>;
+  suggestConnections(options?: {
+    limit?: number;
+  }): Promise<{ suggestions: Suggestion[]; generatedAt: string }>;
   /**
    * Search people and organisations for autocomplete. A query with no word
    * characters left after trimming and stripping a leading `@` comes back as
@@ -74,7 +76,6 @@ export interface RecommendationClient {
    * land after — and overwrite — a fast later one.
    */
   search(
-    token: string,
     query: string,
     options?: { limit?: number; orgLimit?: number; signal?: AbortSignal },
   ): Promise<SearchResults>;
@@ -88,23 +89,22 @@ export function createRecommendationClient(
   // a call no bundler will drop, which pinned this module into the entry
   // chunk of every app importing the barrel. `/* @__PURE__ */` does not fix
   // that on a destructuring declarator.
-  const { authGet } = createAuthFetchers(RecommendationClientError);
+  const { authGet } = createAuthFetchers(RecommendationClientError, config.authFetch);
 
   return {
-    suggestConnections: async (token, options) => {
+    suggestConnections: async (options) => {
       const limit = options?.limit;
       const qs = limit !== undefined ? `?limit=${encodeURIComponent(String(limit))}` : "";
       return authGet<{ suggestions: Suggestion[]; generatedAt: string }>(
         `${base}/connections${qs}`,
-        token,
       );
     },
 
-    search: async (token, query, options) => {
+    search: async (query, options) => {
       const params = new URLSearchParams({ q: query });
       if (options?.limit !== undefined) params.set("limit", String(options.limit));
       if (options?.orgLimit !== undefined) params.set("orgLimit", String(options.orgLimit));
-      return authGet<SearchResults>(`${base}/search?${params.toString()}`, token, {
+      return authGet<SearchResults>(`${base}/search?${params.toString()}`, {
         signal: options?.signal,
       });
     },

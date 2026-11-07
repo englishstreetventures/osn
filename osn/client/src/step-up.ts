@@ -9,14 +9,20 @@
  * The WebAuthn browser ceremony (`startAuthentication`) is intentionally
  * left to the caller so `@osn/client` stays free of
  * `@simplewebauthn/browser` as a runtime dep.
+ *
+ * The step-up token travels in the gated call's body or `X-Step-Up-Token`,
+ * never in `Authorization`, so `authFetch` neither renews nor replaces it.
  */
 
 import { OsnApiError } from "./api-error";
 import { reach, readJson } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
 
 export interface StepUpClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 export class StepUpError extends OsnApiError {
@@ -54,6 +60,11 @@ export type StepUpPurpose =
   | "pulse_app_delete"
   | "zap_app_delete";
 
+/**
+ * A rejection of `authFetch` about the session, or the caller's abort,
+ * reaches the caller unchanged (`./auth-fetch.ts`); every other failure is
+ * a `StepUpError`.
+ */
 export interface StepUpClient {
   /**
    * Fetch a WebAuthn assertion challenge scoped to the authenticated
@@ -65,22 +76,17 @@ export interface StepUpClient {
    * enrolment half of this flow — so callers get the real challenge shape
    * instead of having to assert their way out of `unknown`.
    */
-  passkeyBegin(input: { accessToken: string }): Promise<{
+  passkeyBegin(): Promise<{
     options: PublicKeyCredentialRequestOptionsJSON;
   }>;
   passkeyComplete(input: {
-    accessToken: string;
     assertion: unknown;
     /** Binds the minted token to one ceremony. Omit only for legacy gates. */
     purpose?: StepUpPurpose;
   }): Promise<StepUpToken>;
   /** Sends an OTP to the authenticated account's verified email. */
-  otpBegin(input: { accessToken: string }): Promise<{ sent: true }>;
-  otpComplete(input: {
-    accessToken: string;
-    code: string;
-    purpose?: StepUpPurpose;
-  }): Promise<StepUpToken>;
+  otpBegin(): Promise<{ sent: true }>;
+  otpComplete(input: { code: string; purpose?: StepUpPurpose }): Promise<StepUpToken>;
   /**
    * Exchange a code from the account's authenticator app for a step-up token.
    *
@@ -88,23 +94,21 @@ export interface StepUpClient {
    * the server to mint or park. Whether this factor is available at all is what
    * `TotpClient.status` answers.
    */
-  totpComplete(input: {
-    accessToken: string;
-    code: string;
-    purpose?: StepUpPurpose;
-  }): Promise<StepUpToken>;
+  totpComplete(input: { code: string; purpose?: StepUpPurpose }): Promise<StepUpToken>;
 }
 
-async function postJson<T>(url: string, bearer: string, body: unknown): Promise<T> {
-  const res = await reach(StepUpError, url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${bearer}`,
+async function postJson<T>(authFetch: AuthFetch, url: string, body: unknown): Promise<T> {
+  const res = await reach(
+    StepUpError,
+    url,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
     },
-    credentials: "include",
-    body: JSON.stringify(body),
-  });
+    authFetch,
+  );
   return readJson<T>(StepUpError, res);
 }
 
@@ -117,39 +121,39 @@ function toToken(raw: { step_up_token: string; expires_in: number }): StepUpToke
 
 export function createStepUpClient(config: StepUpClientConfig): StepUpClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  const { authFetch } = config;
 
   return {
-    passkeyBegin: (input) =>
+    passkeyBegin: () =>
       postJson<{ options: PublicKeyCredentialRequestOptionsJSON }>(
+        authFetch,
         `${base}/step-up/passkey/begin`,
-        input.accessToken,
         {},
       ),
     passkeyComplete: async (input) =>
       toToken(
         await postJson<{ step_up_token: string; expires_in: number }>(
+          authFetch,
           `${base}/step-up/passkey/complete`,
-          input.accessToken,
           // `JSON.stringify` drops an undefined `purpose`, so an unbound
           // ceremony still posts the legacy body shape.
           { assertion: input.assertion, purpose: input.purpose },
         ),
       ),
-    otpBegin: (input) =>
-      postJson<{ sent: true }>(`${base}/step-up/otp/begin`, input.accessToken, {}),
+    otpBegin: () => postJson<{ sent: true }>(authFetch, `${base}/step-up/otp/begin`, {}),
     otpComplete: async (input) =>
       toToken(
         await postJson<{ step_up_token: string; expires_in: number }>(
+          authFetch,
           `${base}/step-up/otp/complete`,
-          input.accessToken,
           { code: input.code, purpose: input.purpose },
         ),
       ),
     totpComplete: async (input) =>
       toToken(
         await postJson<{ step_up_token: string; expires_in: number }>(
+          authFetch,
           `${base}/step-up/totp/complete`,
-          input.accessToken,
           { code: input.code, purpose: input.purpose },
         ),
       ),

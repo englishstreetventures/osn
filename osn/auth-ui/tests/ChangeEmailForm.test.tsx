@@ -46,7 +46,6 @@ describe("ChangeEmailForm", () => {
       <ChangeEmailForm
         accountClient={account as unknown as AccountClient}
         stepUpClient={stepUp as unknown as StepUpClient}
-        accessToken="acc"
         onChanged={onChanged}
       />
     ));

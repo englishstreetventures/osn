@@ -65,7 +65,6 @@ function mount() {
     <TotpView
       client={asTotp(totp)}
       stepUpClient={asStepUp(su)}
-      accessToken="acc"
       runPasskeyCeremony={async () => assertion}
     />
   ));
@@ -130,7 +129,6 @@ describe("TotpView", () => {
 
     await waitFor(() =>
       expect(totp.enrollBegin).toHaveBeenCalledWith({
-        accessToken: "acc",
         stepUpToken: "stpup_x",
       }),
     );
@@ -170,7 +168,6 @@ describe("TotpView", () => {
 
     await waitFor(() =>
       expect(totp.enrollComplete).toHaveBeenCalledWith({
-        accessToken: "acc",
         code: "123456",
         label: undefined,
       }),
@@ -227,7 +224,6 @@ describe("TotpView", () => {
 
     await waitFor(() =>
       expect(totp.enrollComplete).toHaveBeenCalledWith({
-        accessToken: "acc",
         code: "123456",
         label: "Pixel",
       }),
@@ -243,9 +239,7 @@ describe("TotpView", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Remove$/i }));
     await passStepUp();
 
-    await waitFor(() =>
-      expect(totp.disable).toHaveBeenCalledWith({ accessToken: "acc", stepUpToken: "stpup_x" }),
-    );
+    await waitFor(() => expect(totp.disable).toHaveBeenCalledWith({ stepUpToken: "stpup_x" }));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /Add an authenticator app/i })).toBeTruthy(),
     );

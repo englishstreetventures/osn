@@ -11,8 +11,11 @@ Every export is listed in [`src/index.ts`](src/index.ts) and
 
 ### REST clients
 
-Each factory takes `{ issuerUrl }` and returns a client whose methods throw
-its own error class, a subclass of `OsnApiError`.
+Each factory returns a client whose methods throw its own error class, a
+subclass of `OsnApiError`. `createRegistrationClient`, `createLoginClient`
+and `createAuthorizeClient` take `{ issuerUrl }`. Every other factory takes
+`{ issuerUrl, authFetch }`, the page runtime's `authFetch`, and no method
+takes a token.
 
 | Factory | Source | Error class | Calls |
 |---|---|---|---|
@@ -31,7 +34,23 @@ its own error class, a subclass of `OsnApiError`.
 | `createOrgClient` | `organisations.ts` | `OrgClientError` | organisations and their members |
 | `createRecommendationClient` | `recommendations.ts` | `RecommendationClientError` | suggested connections and search |
 
-### Errors and the session
+A client that sends through `authFetch` lets a rejection about the session
+(`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`,
+`StorageError`) and the caller's own abort reach the caller unchanged.
+
+### The auth runtime and the session
+
+- `createOsnAuthRuntime({ issuerUrl }, { storage? })` — the page's one
+  auth runtime: a `ManagedRuntime` over a single `OsnAuthService`. Its
+  `authFetch` sends the active profile's access token and renews it before
+  it expires and on a 401; `onSessionChange` tells listeners when it ended
+  the session or reset the active profile. Build it once per page.
+- `OsnAuthService` (via `createOsnAuthLive`) — the Effect-based service
+  behind the runtime: the persisted account, the single-flight `/token`
+  grant, `authFetch`, and profile management
+  (`switchProfile`/`createProfile`/`deleteProfile`).
+
+### Errors
 
 - `OsnApiError` — the base of every error class above: `status` (the
   response's HTTP status, `0` when no response arrived) and `code` (the
@@ -42,22 +61,16 @@ its own error class, a subclass of `OsnApiError`.
   session), never from the message. `context` (`code`, `recovery`,
   `passkey`, `new-passkey`, `details`) names what the person submitted.
 - `isAuthExpiredError(err)` — whether `err` is, or wraps, an
-  `AuthExpiredError`: `authFetch`'s failure when the access token has
-  expired and a silent refresh failed.
-- `OsnAuthService` (via `createOsnAuthLive`) — the Effect-based service
-  that holds the persisted `Session`, handles silent-refresh on 401
-  (`authFetch`), and drives profile management
-  (`switchProfile`/`createProfile`/`deleteProfile`). Used by the SolidJS
-  `AuthProvider`.
+  `AuthExpiredError`: `authFetch`'s failure when the session has ended.
 
 ### `@osn/client/solid`
 
-- `<AuthProvider>` + `useAuth()` — `session`, `logout`, `adoptSession`,
-  `authFetch`, and the profile management methods.
-- `<GraphProvider>` + `useGraph()`, `<OrgProvider>` + `useOrgs()` — the
-  graph and organisation clients, given to the components below them.
+- `<AuthProvider auth={runtime}>` + `useAuth()` — `session`, `logout`,
+  `adoptSession`, `authFetch`, and the profile management methods. It
+  signs itself out when the runtime ends the session.
 
 ## Consumed by
 
-`@musubi/social` and `@osn/auth-ui` components (which inject client
-instances via props).
+`@musubi/social`, and `@osn/auth-ui` components (which take client
+instances as props). Pulse and cire sign in through `@shared/rp-auth`
+instead.

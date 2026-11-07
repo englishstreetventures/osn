@@ -27,11 +27,11 @@ function suggestionReason(suggestion: Suggestion): string {
 
 export function DiscoverPage() {
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
 
+  // Keyed on the session object: a new session refetches, a token renewal does not.
   const [recommendations, { refetch }] = createResource(
-    () => token() || false,
-    (t) => recommendationClient.suggestConnections(t as string, { limit: 20 }),
+    () => session() ?? false,
+    () => recommendationClient.suggestConnections({ limit: 20 }),
   );
 
   const [sending, setSending] = createSignal<Set<string>>(new Set());
@@ -39,7 +39,7 @@ export function DiscoverPage() {
   async function connect(handle: string) {
     setSending((s) => new Set(s).add(handle));
     try {
-      await graphClient.sendConnectionRequest(token(), handle);
+      await graphClient.sendConnectionRequest(handle);
       toast.success(`Request sent to @${handle}`);
       refetch();
     } catch (err) {

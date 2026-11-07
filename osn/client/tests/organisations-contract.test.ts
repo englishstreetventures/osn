@@ -22,6 +22,10 @@ import {
   type OrgMember,
   type OrgSummary,
 } from "../src/organisations";
+import type { AuthFetch } from "../src/runtime";
+
+/** Passes straight to the stubbed global `fetch`; the runtime's own behaviour is `runtime.test.ts`'s. */
+const authFetch: AuthFetch = (input, init) => fetch(input, init);
 
 interface Schema {
   properties?: Record<string, Schema>;
@@ -37,8 +41,7 @@ interface Operation {
 
 const spec = openapi as unknown as { paths: Record<string, Record<string, Operation>> };
 
-const TOKEN = "test-token";
-const client = createOrgClient({ issuerUrl: "https://osn.example.com" });
+const client = createOrgClient({ issuerUrl: "https://osn.example.com", authFetch });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -81,15 +84,15 @@ async function sent(run: () => Promise<unknown>) {
 
 /** One call per method; the record's type makes a new method fail until it is listed. */
 const CALLS: Record<keyof OrgClient, () => Promise<unknown>> = {
-  listMyOrgs: () => client.listMyOrgs(TOKEN, { limit: 5, offset: 0 }),
-  getOrg: () => client.getOrg(TOKEN, "acme"),
-  createOrg: () => client.createOrg(TOKEN, { handle: "acme", name: "Acme", description: "d" }),
-  updateOrg: () => client.updateOrg(TOKEN, "acme", { name: "Acme", description: "d" }),
-  deleteOrg: () => client.deleteOrg(TOKEN, "acme"),
-  listMembers: () => client.listMembers(TOKEN, "acme", { limit: 5, offset: 10 }),
-  addMember: () => client.addMember(TOKEN, "acme", "alice", "member"),
-  removeMember: () => client.removeMember(TOKEN, "acme", "alice"),
-  updateMemberRole: () => client.updateMemberRole(TOKEN, "acme", "alice", "admin"),
+  listMyOrgs: () => client.listMyOrgs({ limit: 5, offset: 0 }),
+  getOrg: () => client.getOrg("acme"),
+  createOrg: () => client.createOrg({ handle: "acme", name: "Acme", description: "d" }),
+  updateOrg: () => client.updateOrg("acme", { name: "Acme", description: "d" }),
+  deleteOrg: () => client.deleteOrg("acme"),
+  listMembers: () => client.listMembers("acme", { limit: 5, offset: 10 }),
+  addMember: () => client.addMember("acme", "alice", "member"),
+  removeMember: () => client.removeMember("acme", "alice"),
+  updateMemberRole: () => client.updateMemberRole("acme", "alice", "admin"),
 };
 
 /** The JSON schema a route answers with on success. */
