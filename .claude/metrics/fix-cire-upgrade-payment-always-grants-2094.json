@@ -1,0 +1,188 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 2094,
+    "branch": "fix/cire-upgrade-payment-always-grants",
+    "base_sha": "98a30273380697f839c68aa62dc1c74c1f39ef3d",
+    "head_sha": "c6010a5af630262e56ce86beb34795b36ca86e5a",
+    "generated_at": "2026-11-07T02:25:14.558Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2081,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 12,
+    "first_ts": "2026-11-06T11:13:45.669Z",
+    "last_ts": "2026-11-07T02:25:06.939Z",
+    "span_seconds": 54681,
+    "active_seconds": 5407,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 73.85331120000002,
+    "tokens": {
+      "input": 1340,
+      "output": 454922,
+      "thinking": 173695,
+      "cache_write_5m": 1571222,
+      "cache_write_1h": 0,
+      "cache_read": 142233503
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1340,
+          "output": 454922,
+          "thinking": 173695,
+          "cache_write_5m": 1571222,
+          "cache_write_1h": 0,
+          "cache_read": 142233503
+        },
+        "usd_equivalent": 73.85331120000002,
+        "messages": 662
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 3
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 38,
+          "output": 6832,
+          "thinking": 3713,
+          "cache_write_5m": 212917,
+          "cache_write_1h": 0,
+          "cache_read": 464120
+        },
+        "usd_equivalent": 1.3870250000000002,
+        "messages": 21
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1302,
+          "output": 448090,
+          "thinking": 169982,
+          "cache_write_5m": 1358305,
+          "cache_write_1h": 0,
+          "cache_read": 141769383
+        },
+        "usd_equivalent": 72.4662862,
+        "messages": 644
+      }
+    },
+    "effort": {
+      "medium": 19,
+      "high": 175,
+      "xhigh": 468
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 12,
+      "docs": 8,
+      "config": 1,
+      "source": 20
+    },
+    "loc": {
+      "generated": {
+        "added": 30,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1541,
+        "deleted": 91
+      },
+      "docs": {
+        "added": 84,
+        "deleted": 36
+      },
+      "config": {
+        "added": 1,
+        "deleted": 0
+      },
+      "source": {
+        "added": 1085,
+        "deleted": 248
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "shared/email",
+      "tools/e2e"
+    ],
+    "touches_migration": true,
+    "commits": 11
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 588,
+      "Read": 49,
+      "Skill": 11,
+      "Edit": 10,
+      "StructuredOutput": 9,
+      "Write": 9,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "Grep": 3,
+      "ToolSearch": 1,
+      "Monitor": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 4
+    },
+    "skills": {
+      "review-pr": 2,
+      "write-issue": 1,
+      "write-pr": 2,
+      "write-wiki": 1,
+      "review-security": 1,
+      "review-tests": 1,
+      "review-state": 1,
+      "review-performance": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "reviewer": 4
+    },
+    "requests": {
+      "main": 19,
+      "subagent": 643,
+      "with_tools": 660,
+      "with_one_tool": 635,
+      "context_median": 165467,
+      "context_p90": 423475
+    }
+  },
+  "review": null
+}
