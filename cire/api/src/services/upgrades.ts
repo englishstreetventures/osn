@@ -169,7 +169,7 @@ export const RECONCILE_PER_RUN = 2;
 export const REFUND_GIVE_UP_MS = 13 * 24 * 60 * 60 * 1000;
 
 /** How long the owners' refund notice may take, osn-api's lookup and Resend's send together. */
-const NOTICE_TIMEOUT = "20 seconds";
+export const NOTICE_TIMEOUT = "20 seconds";
 
 /**
  * Tell a unique-constraint violation from any other write failure, in the text
