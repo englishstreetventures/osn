@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
 import { weddingUpgradePurchases } from "@cire/db";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Fiber, Option } from "effect";
+import { TestClock } from "effect/testing";
 
 import { buildTierChange, tierChangeToSql } from "../../scripts/grant-tier";
 import { DbService, driverErrorText } from "../../src/db";
@@ -13,6 +14,7 @@ import type { Tier } from "../../src/services/tiers";
 import { createUpgradeCatalogue } from "../../src/services/upgrade-catalogue";
 import {
   createUpgradeService,
+  NOTICE_TIMEOUT,
   productsAbove,
   type RefundNotice,
   RECONCILE_PER_RUN,
@@ -2978,6 +2980,45 @@ describe("reconcile", () => {
     await captureLogs(() => run(db, svc.reconcile()));
     expect(stripe.probed).toEqual(["cs_s"]);
     expect(purchases(db).find((r) => r.id === "upg_s")?.status).toBe("succeeded");
+  });
+
+  /**
+   * The email transport sets no timeout, so a send that never answers is cut
+   * off at {@link NOTICE_TIMEOUT}: the daily run, or the webhook's
+   * `waitUntil`, finishes with the refund recorded and the owners not marked
+   * as told.
+   */
+  it("gives up on a notice that never answers, keeping the refund", async () => {
+    const db = createDb();
+    seedWedding(db);
+    seedPurchase(db, {
+      id: "upg_r",
+      product: "gold",
+      status: "refunding",
+      sessionId: "cs_1",
+      paymentIntentId: "pi_1",
+    });
+    const stripe = stubStripe();
+    const svc = createUpgradeService({
+      stripe: stripe.client,
+      catalogue: createUpgradeCatalogue({ stripe: stripe.client, prices: PRICES }),
+      now: () => BASE_MS + DAY,
+      notifyRefund: () => Effect.never,
+    });
+    const settled = await run(
+      db,
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(svc.reconcile());
+        // Real time, so the run reaches the hung notice before the clock moves.
+        yield* TestClock.withLive(Effect.sleep("20 millis"));
+        yield* TestClock.adjust(NOTICE_TIMEOUT);
+        return yield* TestClock.withLive(Fiber.join(fiber).pipe(Effect.timeoutOption("1 second")));
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+    expect(Option.isSome(settled)).toBe(true);
+    const record = refundRecords(db)[0];
+    expect(record?.status).toBe("auto_refunded");
+    expect(record?.owners_notified_at).toBeNull();
   });
 
   /**
