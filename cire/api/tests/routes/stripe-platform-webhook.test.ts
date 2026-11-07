@@ -1,11 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, weddingUpgradePurchases } from "@cire/db";
+import { EmailService, type SendEmailInput } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
+import { setExecutionCtx } from "../../src/lib/execution-ctx";
 import { StripeError, type StripeClient } from "../../src/services/stripe";
 import { jsonBody } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
@@ -65,7 +67,10 @@ function stripeStub(refunds: RefundLog): StripeClient {
   } as unknown as StripeClient;
 }
 
-function buildApp({ platformSecret = PLATFORM_SECRET as string | null } = {}) {
+function buildApp({
+  platformSecret = PLATFORM_SECRET as string | null,
+  mail = undefined as { sent: SendEmailInput[]; lookup: Promise<void> } | undefined,
+} = {}) {
   const refunds: RefundLog = { calls: [], refuse: null };
   const db = createDb(":memory:");
   seedDb(db);
@@ -81,6 +86,22 @@ function buildApp({ platformSecret = PLATFORM_SECRET as string | null } = {}) {
     stripeWebhookSecret: CONNECT_SECRET,
     upgradePrices: { crimson: "price_c" },
     upgradeLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+    // Owner mail on: the address lookup answers once `mail.lookup` settles,
+    // and the transport keeps what it is handed.
+    ...(mail === undefined
+      ? {}
+      : {
+          organiserEmailLookup: async (ids: readonly string[]) => {
+            await mail.lookup;
+            return {
+              answered: true,
+              emails: new Map(ids.map((id) => [id, `${id}@example.test`] as const)),
+            };
+          },
+          emailLayer: Layer.succeed(EmailService, {
+            send: (input: SendEmailInput) => Effect.sync(() => void mail.sent.push(input)),
+          }),
+        }),
   });
   return { app, db, refunds };
 }
@@ -120,20 +141,24 @@ function seedPurchase(
 async function deliver(
   app: App,
   body: Record<string, unknown>,
-  { secret = PLATFORM_SECRET, path = "/api/stripe/platform-webhook" } = {},
+  {
+    secret = PLATFORM_SECRET,
+    path = "/api/stripe/platform-webhook",
+    waitUntil = undefined as ((promise: Promise<unknown>) => void) | undefined,
+  } = {},
 ): Promise<Response> {
   const text = JSON.stringify(body);
   const at = nowSeconds();
-  return app.fetch(
-    new Request(`http://localhost${path}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "stripe-signature": `t=${at},v1=${await hmacHex(secret, `${at}.${text}`)}`,
-      },
-      body: text,
-    }),
-  );
+  const request = new Request(`http://localhost${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "stripe-signature": `t=${at},v1=${await hmacHex(secret, `${at}.${text}`)}`,
+    },
+    body: text,
+  });
+  if (waitUntil !== undefined) setExecutionCtx(request, { waitUntil });
+  return app.fetch(request);
 }
 
 const completed = (extra: Record<string, unknown> = {}) => ({
@@ -426,6 +451,42 @@ describe("a payment for a wedding deleted while its checkout was open", () => {
     expect(purchaseRow(db)).toEqual({ status: "auto_refunded", refund_id: "re_1" });
     expect(tierOf(db)).toEqual(IVORY);
     expect(db.$client.query("SELECT COUNT(*) AS n FROM platform_sales").get()).toEqual({ n: 0 });
+  });
+
+  /**
+   * Stripe counts a slow answer as a failed delivery, so the owners' mail goes
+   * after the answer, held by the request's `waitUntil`. The address lookup
+   * here does not answer until the response is in hand: a webhook that waited
+   * on the mail would never answer at all.
+   */
+  it("answers before the owners are mailed, and mails them through the request's waitUntil", async () => {
+    let answerLookup = () => {};
+    const lookup = new Promise<void>((resolve) => {
+      answerLookup = resolve;
+    });
+    const sent: SendEmailInput[] = [];
+    const { app, db } = buildApp({ mail: { sent, lookup } });
+    seedPurchase(db);
+    deleteWedding(db);
+    const kept: Promise<unknown>[] = [];
+
+    const res = await deliver(app, completed(), { waitUntil: (p) => void kept.push(p) });
+
+    expect(await jsonBody(res)).toEqual({ received: true, outcome: "auto_refunded" });
+    expect(kept).toHaveLength(1);
+    expect(sent).toEqual([]);
+    answerLookup();
+    await Promise.all(kept);
+    expect(sent.map((m) => [m.template, m.to])).toEqual([
+      ["upgrade-refund", "usr_dev_bootstrap_owner@example.test"],
+    ]);
+    expect(
+      db.$client
+        .query(
+          "SELECT owners_notified_at IS NOT NULL AS told FROM platform_refunds WHERE purchase_id = 'upg_1'",
+        )
+        .get(),
+    ).toEqual({ told: 1 });
   });
 
   /**
