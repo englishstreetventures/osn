@@ -9,14 +9,17 @@
  * to forge a DELETE.
  */
 
+import { OsnApiError } from "./api-error";
+import { reach, readJson, responseError } from "./auth-fetch";
+
 export interface SessionsClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
 }
 
-export class SessionsError extends Error {
-  constructor(message: string) {
-    super(message);
+export class SessionsError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "SessionsError";
   }
 }
@@ -59,38 +62,30 @@ export function createSessionsClient(config: SessionsClientConfig): SessionsClie
 
   return {
     list: async (input) => {
-      const res = await fetch(`${base}/sessions`, { ...withAuth(input.accessToken) });
-      const json = (await res.json()) as { sessions?: SessionSummary[]; error?: string };
-      if (!res.ok || !Array.isArray(json.sessions)) {
-        throw new SessionsError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const res = await reach(SessionsError, `${base}/sessions`, {
+        ...withAuth(input.accessToken),
+      });
+      const json = await readJson<{ sessions?: SessionSummary[] }>(SessionsError, res);
+      if (!Array.isArray(json.sessions)) throw responseError(SessionsError, res, json);
       return { sessions: json.sessions };
     },
     revoke: async (input) => {
-      const res = await fetch(`${base}/sessions/${encodeURIComponent(input.id)}`, {
+      const res = await reach(SessionsError, `${base}/sessions/${encodeURIComponent(input.id)}`, {
         ...withAuth(input.accessToken),
         method: "DELETE",
       });
-      const json = (await res.json()) as {
-        success?: boolean;
-        revokedSelf?: boolean;
-        error?: string;
-      };
-      if (!res.ok || json.success !== true) {
-        throw new SessionsError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ success?: boolean; revokedSelf?: boolean }>(SessionsError, res);
+      if (json.success !== true) throw responseError(SessionsError, res, json);
       return { revokedSelf: json.revokedSelf === true };
     },
     revokeAllOther: async (input) => {
-      const res = await fetch(`${base}/sessions/revoke-all-other`, {
+      const res = await reach(SessionsError, `${base}/sessions/revoke-all-other`, {
         ...withAuth(input.accessToken),
         method: "POST",
         body: "{}",
       });
-      const json = (await res.json()) as { success?: boolean; error?: string };
-      if (!res.ok || json.success !== true) {
-        throw new SessionsError(json.error ?? `Request failed: ${res.status}`);
-      }
+      const json = await readJson<{ success?: boolean }>(SessionsError, res);
+      if (json.success !== true) throw responseError(SessionsError, res, json);
       return { success: true };
     },
   };

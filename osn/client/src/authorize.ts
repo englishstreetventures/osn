@@ -1,3 +1,4 @@
+import { OsnApiError } from "./api-error";
 import type { PublicProfile } from "./tokens";
 
 /**
@@ -66,15 +67,12 @@ export type AuthorizeErrorCode =
   /** Anything else, including a transport failure. */
   | "unknown";
 
-export class AuthorizeError extends Error {
-  readonly code: AuthorizeErrorCode;
-  readonly status: number;
+export class AuthorizeError extends OsnApiError {
+  declare readonly code: AuthorizeErrorCode;
 
   constructor(code: AuthorizeErrorCode, status: number, message: string) {
-    super(message);
+    super(message, status, code);
     this.name = "AuthorizeError";
-    this.code = code;
-    this.status = status;
   }
 
   /** True when the parked request is dead and no retry can revive it. */

@@ -19,7 +19,7 @@ related:
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
 dev-host: https://id.musubi.localhost
-last-reviewed: 2026-09-17
+last-reviewed: 2026-11-07
 ---
 
 # OSN Core
@@ -31,9 +31,9 @@ OSN Core is the identity stack every other OSN app builds on. It owns auth (pass
 | Package | Role |
 |---|---|
 | `@osn/api` | Binary server (port 4000). Hosts auth, graph, organisations, recommendations, S2S routes, and JWKS. |
-| `@osn/client` | Browser/SDK: `OsnAuthService`, `useAuth`, plus typed graph / organisation / recommendation clients. |
+| `@osn/client` | Browser/SDK: `OsnAuthService`, `useAuth`, plus typed clients for the auth ceremonies, graph, organisations and recommendations. Every REST client's error extends `OsnApiError`, carrying the response's `status` (`0` when none arrived) and the server's `code`. `ProfileManagementError`, from `OsnAuthService`'s profile calls, carries both as optional fields. `describeAuthError` reads either and turns it into a plain sentence. |
 | `@osn/db` | Drizzle + SQLite schema (accounts, profiles, passkeys, sessions, social graph, organisations, service accounts). |
-| `@osn/auth-ui` | SolidJS views for the ceremonies below: `<SignIn>`, `<Register>`, `<PasskeysView>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<TotpView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`, the profile forms, `<TurnstileWidget>`. |
+| `@osn/auth-ui` | SolidJS views for the ceremonies below: `<SignIn>`, `<Register>`, `<PasskeysView>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<TotpView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`, the profile forms, `<TurnstileWidget>`; and `describePasskeyError`, a plain sentence for a failed passkey step. |
 | `@shared/crypto` | ARC token primitives + recovery-code helpers. |
 
 `@osn/auth-ui` renders `@shared/ui` primitives but is not itself one of them: a

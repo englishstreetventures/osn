@@ -6,6 +6,7 @@ import {
   StorageError,
   TokenRefreshError,
 } from "./errors";
+import { errorCode, safeJson } from "./response-body";
 import { sessionFetch } from "./session-fetch";
 import { Storage } from "./storage";
 import {
@@ -77,6 +78,37 @@ function sessionToAccountSession(session: Session): AccountSession {
     idToken: session.idToken,
   };
 }
+
+/**
+ * One profile-management request, resolving to its JSON success body as
+ * `decode` reads it. Fails with a `ProfileManagementError` that carries the
+ * response's status and the server's code for a refusal, the status alone for
+ * a success whose body is not JSON, and status `0` when no response arrived.
+ * A `decode` failure propagates as it is.
+ */
+async function profileRequest<T>(
+  url: string,
+  init: RequestInit,
+  decode: (body: unknown) => T,
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (cause) {
+    throw new ProfileManagementError({ cause, status: 0 });
+  }
+  const body = await safeJson<unknown>(res);
+  if (res.ok && body !== null) return decode(body);
+  throw new ProfileManagementError({
+    cause: new Error(`${res.ok ? "Invalid response" : "Request failed"}: ${res.status}`),
+    status: res.status,
+    code: res.ok ? undefined : errorCode(body),
+  });
+}
+
+/** A profile call's failure, keeping a `ProfileManagementError` `profileRequest` already built. */
+const asProfileManagementError = (cause: unknown): ProfileManagementError =>
+  cause instanceof ProfileManagementError ? cause : new ProfileManagementError({ cause });
 
 /**
  * Returns the Authorization header value for the active profile's
@@ -665,15 +697,13 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           // S-M4: Validate response schema
           const res = yield* Effect.tryPromise({
             try: async () => {
-              const r = await fetch(`${config.issuerUrl}/profiles/list`, {
-                method: "GET",
-                headers,
-                credentials: "include",
-              });
-              if (!r.ok) throw new Error(`Request failed: ${r.status}`);
-              return decodeListProfilesResponse(await r.json());
+              return profileRequest(
+                `${config.issuerUrl}/profiles/list`,
+                { method: "GET", headers, credentials: "include" },
+                decodeListProfilesResponse,
+              );
             },
-            catch: (cause) => new ProfileManagementError({ cause }),
+            catch: asProfileManagementError,
           });
 
           return res.profiles as PublicProfile[];
@@ -698,16 +728,18 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           // S-M4: Validate response schema
           const res = yield* Effect.tryPromise({
             try: async () => {
-              const r = await fetch(`${config.issuerUrl}/profiles/switch`, {
-                method: "POST",
-                headers,
-                credentials: "include",
-                body: JSON.stringify({ profile_id: profileId }),
-              });
-              if (!r.ok) throw new Error(`Request failed: ${r.status}`);
-              return decodeSwitchProfileResponse(await r.json());
+              return profileRequest(
+                `${config.issuerUrl}/profiles/switch`,
+                {
+                  method: "POST",
+                  headers,
+                  credentials: "include",
+                  body: JSON.stringify({ profile_id: profileId }),
+                },
+                decodeSwitchProfileResponse,
+              );
             },
-            catch: (cause) => new ProfileManagementError({ cause }),
+            catch: asProfileManagementError,
           });
 
           // S-L1: Use server-authoritative profile ID, not caller-supplied
@@ -753,16 +785,13 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           // S-M4: Validate response schema
           const res = yield* Effect.tryPromise({
             try: async () => {
-              const r = await fetch(`${config.issuerUrl}/profiles/create`, {
-                method: "POST",
-                headers,
-                credentials: "include",
-                body: JSON.stringify(body),
-              });
-              if (!r.ok) throw new Error(`Request failed: ${r.status}`);
-              return decodeCreateProfileResponse(await r.json());
+              return profileRequest(
+                `${config.issuerUrl}/profiles/create`,
+                { method: "POST", headers, credentials: "include", body: JSON.stringify(body) },
+                decodeCreateProfileResponse,
+              );
             },
-            catch: (cause) => new ProfileManagementError({ cause }),
+            catch: asProfileManagementError,
           });
 
           return res.profile as PublicProfile;
@@ -786,16 +815,19 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
           yield* Effect.tryPromise({
             try: async () => {
-              const r = await fetch(`${config.issuerUrl}/profiles/delete`, {
-                method: "POST",
-                headers,
-                credentials: "include",
-                body: JSON.stringify({ profile_id: profileId }),
-              });
-              if (!r.ok) throw new Error(`Request failed: ${r.status}`);
-              return (await r.json()) as unknown;
+              // The body is not used: a success is enough.
+              await profileRequest(
+                `${config.issuerUrl}/profiles/delete`,
+                {
+                  method: "POST",
+                  headers,
+                  credentials: "include",
+                  body: JSON.stringify({ profile_id: profileId }),
+                },
+                () => undefined,
+              );
             },
-            catch: (cause) => new ProfileManagementError({ cause }),
+            catch: asProfileManagementError,
           });
 
           delete account.profileTokens[profileId];

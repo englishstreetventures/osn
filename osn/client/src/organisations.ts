@@ -4,6 +4,7 @@
  * Bearer token auth.
  */
 
+import { OsnApiError } from "./api-error";
 import { createAuthFetchers, qs } from "./auth-fetch";
 
 export interface OrgClientConfig {
@@ -35,14 +36,10 @@ export interface OrgMember {
   joinedAt: string;
 }
 
-export class OrgClientError extends Error {
-  /** The HTTP status of the response that failed. */
-  readonly status: number | undefined;
-
-  constructor(message: string, status?: number) {
-    super(message);
+export class OrgClientError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "OrgClientError";
-    this.status = status;
   }
 }
 

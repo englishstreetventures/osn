@@ -13,7 +13,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-07
 ---
 
 # Passkey-Primary Login
@@ -191,9 +191,9 @@ with a second factor (UV = PIN, biometric, or device unlock).
 ## Step-up gating on register
 
 `/passkey/register/begin` requires a fresh step-up token (`X-Step-Up-Token`
-header or `step_up_token` body field; webauthn or otp AMR) when the account
-already has ≥1 passkey. First-passkey enrolment (bootstrap) bypasses the
-gate because no step-up ceremony is reachable before the account has any
+header or `step_up_token` body field; webauthn, otp or totp AMR) when the
+account already has ≥1 passkey. First-passkey enrolment (bootstrap) bypasses
+the gate because no step-up ceremony is reachable before the account has any
 credentials. This closes the "stolen access token → silent authenticator
 binding" vector that the enrollmentToken deletion otherwise opened.
 

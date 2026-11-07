@@ -301,6 +301,22 @@ As built:
   code didn't work. Double-check the code and identifier."; "Enter the 6-digit
   code" in `StepUpDialog`; and `SignIn`'s line when the browser refuses a
   passkey, which points to "Lost your passkey?".
+- **The sentence helpers.** `describePasskeyError` (this package) gives one
+  fixed sentence for each way a passkey ceremony fails, read from the error's
+  `name` and the ceremony the caller names, `authentication` or
+  `registration`. A prompt the person closed, or one that timed out, reads
+  "That passkey didn't work. Try again." when signing in and "The passkey
+  wasn't added. Try again." when adding one. The signing-in sentence names no
+  cause, so a view with another way in shows that way beside it, as `SignIn`
+  does with "Lost your passkey?". "This device already has a passkey for this
+  account." appears only when adding one. `describeAuthError` (`@osn/client`)
+  gives one for each server answer or an expired session, read from the
+  error's `status` and `code` and the form the person submitted (`code`,
+  `recovery`, `passkey`, `new-passkey` or `details`). `describePasskeyError`
+  hands a server error to it, as `passkey` when signing in and `new-passkey`
+  when adding one. Neither shows an error's message, a code or the browser's
+  own text, and neither tells apart two failures the server answers the same
+  way. The views do not call them yet: each shows `message` as above (#2044).
 - A recovery session that runs out is its own state in `RecoveryLoginForm`
   ("That recovery session timed out"), not an error line.
 
@@ -368,7 +384,7 @@ no product.
 
 - `SignIn`, `Register`, `RecoveryCodesView` and `SecurityEventsBanner` take
   `productName`. `SignIn`'s line for a refused passkey names `musubi.social`
-  in its own text (#2042).
+  in its own text (#2044).
 - The identifier: "Email or @handle" in `SignIn`; "Handle or email" in
   `RecoveryLoginForm`; "Email address on the account" on its emailed-code
   step; "Email" in `Register`.
@@ -389,7 +405,9 @@ As built:
   happy-dom (`// @vitest-environment happy-dom`), plus
   `webauthn-browser.test.ts`, which runs the real `@simplewebauthn/browser`
   against a stubbed `navigator.credentials` for registration, authentication
-  and conditional autofill. Run `bun run --cwd osn/auth-ui test:run`.
+  and conditional autofill. `passkey-errors.test.ts` drives the same library
+  into each failure and checks the sentence `describePasskeyError` gives. Run
+  `bun run --cwd osn/auth-ui test:run`.
 - **No real-browser tier and no lab stories** for the package yet (#2045 adds
   the lab).
 - **In the host.** `musubi/social/tests/styles/design-token-contract.test.ts`

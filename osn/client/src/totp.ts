@@ -11,14 +11,17 @@
  * lives on `StepUpClient.totpComplete`.
  */
 
+import { OsnApiError } from "./api-error";
+import { reach, readJson } from "./auth-fetch";
+
 export interface TotpClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
 }
 
-export class TotpError extends Error {
-  constructor(message: string) {
-    super(message);
+export class TotpError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "TotpError";
   }
 }
@@ -86,12 +89,8 @@ async function request<T>(
   };
   // A GET carries no body at all — `fetch` rejects one outright.
   if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await fetch(url, init);
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) {
-    throw new TotpError(json.error ?? `Request failed: ${res.status}`);
-  }
-  return json;
+  const res = await reach(TotpError, url, init);
+  return readJson<T>(TotpError, res);
 }
 
 export function createTotpClient(config: TotpClientConfig): TotpClient {

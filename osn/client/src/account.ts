@@ -4,14 +4,17 @@
  * only what it needs without dragging in the full Effect service.
  */
 
+import { OsnApiError } from "./api-error";
+import { reach, readJson } from "./auth-fetch";
+
 export interface AccountClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
 }
 
-export class AccountError extends Error {
-  constructor(message: string) {
-    super(message);
+export class AccountError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "AccountError";
   }
 }
@@ -68,7 +71,7 @@ export interface AccountClient {
 }
 
 async function postJson<T>(url: string, bearer: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await reach(AccountError, url, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -77,15 +80,11 @@ async function postJson<T>(url: string, bearer: string, body: unknown): Promise<
     },
     body: JSON.stringify(body),
   });
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) {
-    throw new AccountError(json.error ?? `Request failed: ${res.status}`);
-  }
-  return json;
+  return readJson<T>(AccountError, res);
 }
 
 async function deleteJson<T>(url: string, bearer: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await reach(AccountError, url, {
     method: "DELETE",
     credentials: "include",
     headers: {
@@ -94,24 +93,16 @@ async function deleteJson<T>(url: string, bearer: string, body: unknown): Promis
     },
     body: JSON.stringify(body),
   });
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok && res.status !== 202) {
-    throw new AccountError(json.error ?? `Request failed: ${res.status}`);
-  }
-  return json;
+  return readJson<T>(AccountError, res);
 }
 
 async function getJson<T>(url: string, bearer: string): Promise<T> {
-  const res = await fetch(url, {
+  const res = await reach(AccountError, url, {
     method: "GET",
     credentials: "include",
     headers: { Authorization: `Bearer ${bearer}` },
   });
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) {
-    throw new AccountError(json.error ?? `Request failed: ${res.status}`);
-  }
-  return json;
+  return readJson<T>(AccountError, res);
 }
 
 export function createAccountClient(config: AccountClientConfig): AccountClient {

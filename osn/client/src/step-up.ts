@@ -11,14 +11,17 @@
  * `@simplewebauthn/browser` as a runtime dep.
  */
 
+import { OsnApiError } from "./api-error";
+import { reach, readJson } from "./auth-fetch";
+
 export interface StepUpClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
 }
 
-export class StepUpError extends Error {
-  constructor(message: string) {
-    super(message);
+export class StepUpError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "StepUpError";
   }
 }
@@ -93,7 +96,7 @@ export interface StepUpClient {
 }
 
 async function postJson<T>(url: string, bearer: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await reach(StepUpError, url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -102,11 +105,7 @@ async function postJson<T>(url: string, bearer: string, body: unknown): Promise<
     credentials: "include",
     body: JSON.stringify(body),
   });
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) {
-    throw new StepUpError(json.error ?? `Request failed: ${res.status}`);
-  }
-  return json;
+  return readJson<T>(StepUpError, res);
 }
 
 function toToken(raw: { step_up_token: string; expires_in: number }): StepUpToken {

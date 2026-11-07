@@ -1,3 +1,6 @@
+import { OsnApiError } from "./api-error";
+import { reach, readJson, responseError } from "./auth-fetch";
+import { safeJson } from "./response-body";
 import { sessionFetch } from "./session-fetch";
 import { parseTokenResponse, type Session } from "./tokens";
 
@@ -44,9 +47,9 @@ export interface RegistrationClientConfig {
   issuerUrl: string;
 }
 
-export class RegistrationError extends Error {
-  constructor(message: string) {
-    super(message);
+export class RegistrationError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "RegistrationError";
   }
 }
@@ -82,17 +85,13 @@ async function postJson<T>(
   // to the consent screen's sign-up panel again because `/authorize/context`
   // still saw a signed-out browser. Every other cookie-setting route in this
   // package (`login`, `recovery`, `/token`) already sends it.
-  const res = await sessionFetch(url, {
-    method: "POST",
-    headers,
-    credentials: "include",
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) {
-    throw new RegistrationError(json.error ?? `Request failed: ${res.status}`);
-  }
-  return json;
+  const res = await reach(
+    RegistrationError,
+    url,
+    { method: "POST", headers, credentials: "include", body: JSON.stringify(body) },
+    sessionFetch,
+  );
+  return readJson<T>(RegistrationError, res);
 }
 
 export interface CompleteRegistrationResult {
@@ -153,15 +152,17 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
   const base = config.issuerUrl.replace(/\/$/, "");
 
   const checkHandle = async (handle: string, signal?: AbortSignal) => {
-    const res = await fetch(
+    const res = await reach(
+      RegistrationError,
       `${base}/handle/${encodeURIComponent(handle)}`,
       signal ? { signal } : undefined,
     );
-    const json = (await res.json()) as { available?: boolean; error?: string };
-    if (!res.ok || typeof json.available !== "boolean") {
-      throw new RegistrationError(json.error ?? "Invalid handle");
-    }
-    return { available: json.available };
+    const json = await safeJson<{ available?: boolean }>(res);
+    if (typeof json?.available === "boolean" && res.ok) return { available: json.available };
+    const err = responseError(RegistrationError, res, json);
+    // A refusal with no message of its own reads "Invalid handle", not "Request failed".
+    if (typeof json?.error === "string" && json.error.length > 0) throw err;
+    throw new RegistrationError("Invalid handle", err.status, err.code);
   };
 
   const beginRegistration = (input: {
