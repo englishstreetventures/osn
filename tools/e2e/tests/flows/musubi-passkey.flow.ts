@@ -1,9 +1,10 @@
 /**
  * Musubi: create an account with a passkey, sign out, sign back in with the
- * passkey, keep the session across a reload and past its access token's
- * expiry, and sign the page out when the issuer refuses to renew it. Signed in,
- * before the expiry steps, it measures and shoots Musubi's base styles
- * (`musubi-surfaces.ts`).
+ * passkey, keep the session across a reload, add and remove an authenticator
+ * app behind passkey step-ups, keep the session past its access token's
+ * expiry, list the connected apps, and sign the page out when the issuer
+ * refuses to renew it. Signed in, before the authenticator steps, it measures
+ * and shoots Musubi's base styles (`musubi-surfaces.ts`).
  *
  * The session cookie is set by osn-api (`localhost:4000`) on responses to
  * Musubi's (`localhost:1422`) cross-origin fetches, so it only lands — and only
@@ -20,6 +21,7 @@ import {
   mailFor,
   otpFor,
   test,
+  totpCode,
 } from "../support/fixtures";
 import { musubiSurfaces } from "../support/musubi-surfaces";
 
@@ -126,6 +128,45 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   // reload the page for the legal routes, and each reload posts to /token.
   await musubiSurfaces(flow, page);
 
+  const settingsTab = (name: string) =>
+    page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name, exact: true });
+
+  // Each step-up below is a passkey assertion the virtual authenticator
+  // answers. The code is computed from the setup key the page shows, on the
+  // suite clock the servers run on.
+  await flow.step("add an authenticator app", async () => {
+    await page.getByRole("link", { name: "Settings" }).first().click();
+    await settingsTab("Security").click();
+    await page.getByRole("button", { name: "Add an authenticator app" }).click();
+    await page.getByRole("button", { name: "Use passkey" }).click();
+    const secret = (await page.getByLabel("Or enter this setup key by hand").textContent()) ?? "";
+    await page.getByLabel("Digit 1").pressSequentially(totpCode(secret));
+    await page.getByRole("button", { name: "Confirm" }).click();
+    await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
+  });
+  flow.check(
+    "the authenticator app was enrolled",
+    true,
+    flow.saw("POST osn-api /totp/enroll/complete 200"),
+  );
+
+  await flow.step("remove the authenticator app", async () => {
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("button", { name: "Remove" }).click();
+    await page.getByRole("button", { name: "Use passkey" }).click();
+    await expect(page.getByRole("button", { name: "Add an authenticator app" })).toBeVisible();
+    // Leave the Security tab, so the next step's visit mounts its views again.
+    await settingsTab("Profile").click();
+  });
+  flow.check("the authenticator app was removed", true, flow.saw("DELETE osn-api /totp 200"));
+  flow.check(
+    "each step-up passed with the passkey",
+    2,
+    flow.count("POST osn-api /step-up/passkey/complete 200"),
+  );
+
   // From here the page's clock runs ahead of the servers'. osn-api still takes
   // the old access token, so only the client can know it is stale. Each step
   // moves the page past the stored token's expiry and opens the Security tab,
@@ -150,11 +191,6 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     const now = await page.evaluate(() => Date.now());
     await page.clock.fastForward(expiresAt - now + 60_000);
   };
-  const settingsTab = (name: string) =>
-    page
-      .getByRole("navigation", { name: "Settings sections" })
-      .getByRole("button", { name, exact: true });
-
   const grantsBefore = flow.count("POST osn-api /token 200");
   const okBefore = securityGets(" 200");
   const refusedGetsBefore = sum(securityGets(" 401"));
@@ -191,6 +227,18 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   );
   flow.check("no Security GET refused", 0, sum(securityGets(" 401")) - refusedGetsBefore);
   flow.check("the grant answered before any GET left", "grant", seen[0] ?? "");
+
+  await flow.step("list the connected apps", async () => {
+    await settingsTab("Connected apps").click();
+    await expect(
+      page.getByText("You haven't connected any apps to your Musubi account yet."),
+    ).toBeVisible();
+  });
+  flow.check(
+    "connected apps listed through authFetch",
+    true,
+    flow.saw("GET osn-api /oidc/connections 200"),
+  );
 
   const refusedGrantsBefore = flow.count("POST osn-api /token 400");
   const sentBefore = sum(securityGets());
