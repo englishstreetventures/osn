@@ -46,7 +46,8 @@ import { RECORD_ATTACHMENT } from "../../src/reporter";
 
 /** The launcher's real start; the suite's clock reads `CLOCK_T0` at that instant. */
 const REAL_START = Number(process.env["E2E_CLOCK_R0"] ?? Date.now());
-const suiteNow = (): number => CLOCK_T0 + (Date.now() - REAL_START);
+/** Now on the suite's clock, in epoch ms, as the stack's servers read it. */
+export const suiteNow = (): number => CLOCK_T0 + (Date.now() - REAL_START);
 
 /**
  * Every push socket the organiser portal opens: cire-api's origin over `ws:`,
@@ -361,6 +362,21 @@ export function queryOne<T>(
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     return db.prepare(sql).get(...params) as T | undefined;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Writes to a stack database, for a state the browser cannot reach: a race the
+ * servers refuse from any page. Waits out the server's own write lock.
+ */
+export function writeRow(dbPath: string, sql: string, ...params: Array<string | number>): void {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    const changed = db.prepare(sql).run(...params).changes;
+    if (changed !== 1) throw new Error(`writeRow: ${changed} rows changed by ${sql}`);
   } finally {
     db.close();
   }

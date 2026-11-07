@@ -2140,6 +2140,65 @@ export const platformSales = sqliteTable("platform_sales", {
   settledAt: integer("settled_at", { mode: "timestamp" }).notNull(),
 });
 
+// The record of an upgrade payment cire is giving back, kept OUTSIDE the
+// wedding's cascade like `platform_sales`: no foreign key, no wedding id, no
+// profile id. Pseudonymous, not anonymous: the PaymentIntent and refund ids
+// open the buyer's charge in Stripe. A refund cire owes must outlive the wedding
+// row, so the daily reconciliation retries it from here and the purge never
+// has to wait for it. Written in the same D1 batch as the purchase row's
+// `refunding` claim, and moved with it to `auto_refunded`, `refunded` or
+// `refund_failed`.
+export const platformRefunds = sqliteTable(
+  "platform_refunds",
+  {
+    id: text("id").primaryKey(), // rfd_<uuid>
+    // UNIQUE with no FK: one refund per purchase, and an orphan opaque string
+    // once the purge takes the purchase row.
+    purchaseId: text("purchase_id").notNull().unique(),
+    // The product sold, as `wedding_upgrade_purchases.entitlement` names it.
+    entitlement: text("entitlement").notNull(),
+    // The PaymentIntent refunded, in full, and what it took.
+    paymentIntentId: text("payment_intent_id"),
+    amountMinor: integer("amount_minor"),
+    currency: text("currency"),
+    // Why the payment could not upgrade the wedding; `unrecorded` for a refund
+    // the table's migration found already under way, which stored no reason.
+    reason: text("reason", {
+      enum: [
+        "no_tier",
+        "wedding_not_live",
+        "unknown_tier",
+        "not_from_tier",
+        "already_held",
+        "unrecorded",
+      ],
+    }).notNull(),
+    // `refunding` until Stripe accepts the refund (`auto_refunded`, with
+    // `refund_id`); `refunded` when a person refunded it first; `refund_failed`
+    // when a person has to return the money.
+    status: text("status", {
+      enum: ["refunding", "auto_refunded", "refunded", "refund_failed"],
+    }).notNull(),
+    // The Stripe refund (`re_…`), once Stripe accepts it.
+    refundId: text("refund_id"),
+    // When the wedding's owners were emailed about the refund: written once
+    // the notice has gone out, so NULL means nobody was mailed. Whether to
+    // mail is decided by the status move to `auto_refunded`, once.
+    ownersNotifiedAt: integer("owners_notified_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // The daily reconciliation's read: `refunding` rows, least recently moved
+    // first, and the count of those waiting for a person.
+    index("platform_refunds_status_updated_idx").on(t.status, t.updatedAt),
+    check(
+      "platform_refunds_status_ck",
+      sql`status in ('refunding','auto_refunded','refunded','refund_failed')`,
+    ),
+  ],
+);
+
 // How many Images-binding transforms the registry link picker's thumbnails have
 // spent in one calendar month (UTC), across every wedding. One row per month.
 //

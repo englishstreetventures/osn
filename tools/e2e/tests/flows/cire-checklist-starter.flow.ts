@@ -21,9 +21,15 @@
  * Then, on the same page, the owner collapses the module rail to its icons,
  * reads a module's label from the keyboard, reloads to find the rail still
  * collapsed, opens and closes the locked Vendors card from the narrow rail,
- * presses its Upgrade to find nothing for sale on this stack, which has no
- * platform webhook to grant a tier, expands the rail again and scrolls to
- * check it sticks below the top bar.
+ * presses its Upgrade to find Crimson not for sale on this stack, which prices
+ * Gold alone, expands the rail again and scrolls to check it sticks below the
+ * top bar.
+ *
+ * Last, on the same signed-in page, the owner opens a Gold checkout for an
+ * Ivory wedding that is then deleted while the checkout is open, so its
+ * payment is refunded and its owner mailed, and buys Gold for another Ivory
+ * wedding through the Stripe stand-in and is granted it
+ * (`tests/support/cire-upgrade.ts`).
  */
 
 import { mkdirSync, readFileSync } from "node:fs";
@@ -39,6 +45,7 @@ import {
   REALTIME_KEEPALIVE,
   SCREENSHOT_DIR,
 } from "../../src/config";
+import { buyGold, refundGold } from "../support/cire-upgrade";
 import { expect, onSuiteClock, queryOne, signInToCireHost, test } from "../support/fixtures";
 
 const { weddingId, firstItem } = CIRE_ORGANISER.checklist;
@@ -491,10 +498,9 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   flow.check("rail: a second click on the locked icon closes its card", true, card.closedByClick);
   flow.check("rail: Escape hands focus back to the locked row", true, card.returned);
 
-  // This stack's cire-api holds a Stripe key and a Price but no platform
-  // webhook secret: it could take an upgrade's money and never grant the tier,
-  // so it mounts no upgrade route, and the portal reads that as nothing for sale.
-  const upgrade = await flow.step("press Upgrade where no tier can be granted", async () => {
+  // This stack's cire-api sells Gold alone: a Gold wedding is offered no
+  // Crimson, and the portal reads the empty catalogue as nothing for sale.
+  const upgrade = await flow.step("press Upgrade where no tier is priced", async () => {
     const catalogue = page.waitForResponse(
       (res) =>
         res.url() === `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/upgrade/catalogue`,
@@ -506,21 +512,23 @@ test("cire-checklist-starter", async ({ page, flow }) => {
       .click();
     const dialog = page.getByRole("dialog", { name: "Upgrade: Crimson" });
     await expect(dialog.getByText("Upgrades are not available on this site yet.")).toBeVisible();
-    const status = (await catalogue).status();
+    const response = await catalogue;
+    const entries = ((await response.json()) as { upgrades?: unknown[] }).upgrades?.length ?? -1;
     const payDisabled = await dialog
       .getByRole("button", { name: "Continue to payment" })
       .isDisabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
-    return { status, payDisabled };
+    return { status: response.status(), entries, payDisabled };
   });
-  flow.check("upgrade: cire-api has no catalogue route", 404, upgrade.status);
+  flow.check("upgrade: cire-api answers the catalogue", 200, upgrade.status);
+  flow.check("upgrade: the catalogue prices nothing above Gold", 0, upgrade.entries);
   flow.check("upgrade: the dialog offers no payment", true, upgrade.payDisabled);
-  // The stack is the one these labels name: cire-api logs this only with a key
-  // and a Price and no platform secret, once, when it builds the app.
+  // The stack is the one these labels name: cire-api logs this only when it
+  // has a key and a Price but no platform secret, and so sells nothing.
   flow.check(
-    "upgrade: cire-api warned once of a Stripe key with no platform webhook secret",
-    1,
+    "upgrade: cire-api built its upgrade routes, with no warning of a missing platform secret",
+    0,
     readFileSync(resolve(LOG_DIR, "cireApi.log"), "utf8").split(
       "upgrades disabled: STRIPE_SECRET_KEY is set without STRIPE_PLATFORM_WEBHOOK_SECRET",
     ).length - 1,
@@ -535,7 +543,7 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     await expect.poll(railWidth).toBe(RAIL_EXPANDED);
     await expect(nav.getByText("Run sheet", { exact: true })).toBeVisible();
     const labels = await labelsOnFocus("Overview");
-    // Off the rail, so the final screenshot shows the rail with no label and
+    // Off the rail, so the rail screenshot shows the rail with no label and
     // no focus ring.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await panelHeading.hover();
@@ -565,4 +573,13 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   });
   flow.check("rail: the page scrolled past the rail's own place", true, stuck.far);
   flow.check("rail: sticks below the top bar", true, stuck.below);
+
+  // The rail as the steps above leave it, before the upgrade steps take the
+  // page elsewhere and end on the grant, the flow's final screenshot.
+  await page.screenshot({
+    path: resolve(SCREENSHOT_DIR, "cire-checklist-starter", "rail-expanded.png"),
+    animations: "disabled",
+  });
+  await refundGold(flow, page);
+  await buyGold(flow, page);
 });

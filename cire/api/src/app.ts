@@ -1559,7 +1559,13 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
   // price caches in the same isolate, so every cached read would be paid for
   // twice against the platform's Stripe quota.
   const upgradeCatalogue = createUpgradeCatalogue({ stripe, prices: upgradePrices });
-  const upgrades = createUpgradeService({ stripe, catalogue: upgradeCatalogue });
+  const upgrades = createUpgradeService({
+    stripe,
+    catalogue: upgradeCatalogue,
+    // A refund cire makes is told to the wedding's owners where cire can send
+    // owner mail.
+    notifyRefund: ownerNotices?.refundIssued,
+  });
   return withStripeWebhook
     .use(
       createUpgradeRoutes(db, osnAuthOptions, {

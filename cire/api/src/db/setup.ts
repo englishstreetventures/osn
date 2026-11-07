@@ -664,6 +664,22 @@ CREATE TABLE IF NOT EXISTS platform_sales (
   currency TEXT NOT NULL,
   settled_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS platform_refunds (
+  id TEXT PRIMARY KEY,
+  purchase_id TEXT NOT NULL UNIQUE,
+  entitlement TEXT NOT NULL,
+  payment_intent_id TEXT,
+  amount_minor INTEGER,
+  currency TEXT,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL,
+  refund_id TEXT,
+  owners_notified_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CONSTRAINT platform_refunds_status_ck CHECK (status in ('refunding','auto_refunded','refunded','refund_failed'))
+);
+CREATE INDEX IF NOT EXISTS platform_refunds_status_updated_idx ON platform_refunds(status, updated_at);
 CREATE TABLE IF NOT EXISTS link_thumb_transforms (
   period TEXT PRIMARY KEY NOT NULL,
   used INTEGER DEFAULT 0 NOT NULL
@@ -1184,10 +1200,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Eight weddings for the E2E suite's organiser flows, each on Gold, and one
- * whose guests open an envelope. The dev profile, which osn-api's `/dev/login`
- * signs in as, owns all but `wed_e2e_rs_helper`, where it is a helper, and
- * `wed_e2e_envelope`, which has no seat:
+ * Weddings for the E2E suite's organiser flows, each on Gold but the two upgrade
+ * weddings, on Ivory, and one whose guests open an envelope. The dev profile,
+ * which osn-api's `/dev/login` signs in as, owns all but `wed_e2e_rs_helper`,
+ * where it is a helper, and `wed_e2e_envelope`, which has no seat:
  *
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
@@ -1223,6 +1239,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * - `wed_e2e_oauth`: Garden Wedding, which the dev profile owns alone, with an
  *   open registry and no Stripe account, for connecting a Stripe account the
  *   owner already has through the E2E suite's Stripe stand-in.
+ * - `wed_e2e_upgrade` and `wed_e2e_upgrade_refund`: two Ivory weddings the
+ *   dev profile owns alone, for buying Gold through the Stripe stand-in. The
+ *   first is granted Gold; the second is deleted while its checkout is open,
+ *   so its payment is refunded.
  * - `wed_e2e_emails`: one household, Tanaka, of Gus with no address and Hana
  *   with an address she gave herself on the invite, for adding an address in
  *   the guest editor under the organiser's attestation.
@@ -1244,14 +1264,20 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  */
 function seedE2eOrganiser(db: TestDb): void {
   const now = new Date();
-  const wedding = (id: string, slug: string, displayName: string, weddingDate?: string) =>
+  const wedding = (
+    id: string,
+    slug: string,
+    displayName: string,
+    weddingDate?: string,
+    tier: "ivory" | "gold" = "gold",
+  ) =>
     db
       .insert(schema.weddings)
       .values({
         id,
         slug,
         displayName,
-        tier: "gold",
+        tier,
         weddingDate: weddingDate ?? null,
         createdAt: now,
         updatedAt: now,
@@ -1661,6 +1687,13 @@ function seedE2eOrganiser(db: TestDb): void {
 
   wedding("wed_e2e_oauth", "garden-wedding", "Garden Wedding");
   seatDevOwner(db, "wed_e2e_oauth", "whost_e2e_oauth_owner", now);
+
+  // Two Ivory weddings to buy Gold for: one is granted it, and one is deleted
+  // while its checkout is open, so its payment is refunded.
+  wedding("wed_e2e_upgrade", "upgrade-wedding", "Upgrade Wedding", undefined, "ivory");
+  seatDevOwner(db, "wed_e2e_upgrade", "whost_e2e_upgrade_owner", now);
+  wedding("wed_e2e_upgrade_refund", "refund-wedding", "Refund Wedding", undefined, "ivory");
+  seatDevOwner(db, "wed_e2e_upgrade_refund", "whost_e2e_upgrade_refund_owner", now);
   // An open registry with no account: the OAuth connect fills an existing row.
   db.insert(schema.registrySettings)
     .values({ weddingId: "wed_e2e_oauth", createdAt: now, updatedAt: now })

@@ -331,7 +331,13 @@ batch. Whichever lands first decides; the other follows what it reads.
 #### The refund
 
 The row moves to `refunding` **before** Stripe is asked, recording the payment
-intent and what arrived, so no later delivery can grant it. Then
+intent and what arrived, so no later delivery can grant it. The same batch
+writes the refund's record, `platform_refunds`: the purchase id, product,
+payment intent, amount, reason and status, with no foreign key, no wedding id
+so it outlives the purge; it is pseudonymous, not anonymous, since its
+PaymentIntent and refund ids open the charge in Stripe. Every later move of the refund
+(`auto_refunded`, `refunded`, `refund_failed`) changes the record and, while it
+exists, the purchase row, in one batch; the record decides. Then
 `POST /v1/refunds` with the payment intent and `metadata[purchaseId]`, a full
 refund, under one idempotency key per purchase, `cire-upgrade-refund-<id>`:
 
@@ -350,6 +356,22 @@ its idempotency key for at least a day and replays it, so a redelivery would
 only repeat it and count against the endpoint until Stripe disabled it. The
 next fresh attempt comes from the daily reconciliation, a day or two later.
 
+Once Stripe accepts a refund cire made, every owner of the wedding gets an
+email (`upgrade-refund`, through the owner-notice sender in
+`cire/api/src/lib/owner-notice-email.ts`): the wedding, the tier, the amount
+refunded and cire's contact address, and no reason, since a reason can be
+another owner's act. It is sent once per refund: only the call whose write
+moved the record to `auto_refunded` sends, and `owners_notified_at` is written
+once the notice has gone out, so an empty one means the owners were not
+mailed. A replay, the reconciliation's
+retry, a refund a person made and a payment that is not cire's mail nobody,
+and nobody is mailed when the purge has taken the wedding. The webhook sends
+the mail after it has answered Stripe (the Worker's `waitUntil`), so a slow
+osn-api or Resend never holds a delivery open; the daily run sends it in the
+run. Either way the send has 20 seconds, and spends a refund budget of the
+wedding's own (`refund:<wedding id>`, 30 emails a UTC day), apart from the
+owner-change notices'.
+
 A refund Stripe accepted can still fail at the bank — a closed card. Stripe
 sends `refund.failed`; when its refund id is the one the row recorded, or the
 row is still `refunding` with none recorded (cire's call timed out after Stripe
@@ -364,11 +386,15 @@ balance, and a person has to return it.
 Cron job 13 (`reconcile` in `cire/api/src/services/upgrades.ts`) finishes what
 a webhook could not. It runs wherever there is a `STRIPE_SECRET_KEY`, without
 the platform webhook's secret: a refund cire owes is asked for even where
-upgrades are not sold any more. Each run reads at most `RECONCILE_PER_RUN` (2)
-rows, least recently moved first (index `(status, updated_at)`):
+upgrades are not sold any more. Each run works at most `RECONCILE_PER_RUN` (2)
+rows from one queue across both kinds below, least recently moved first
+(indexes on `(status, updated_at)` of each table), so refunds Stripe keeps
+refusing cannot keep a paid checkout waiting:
 
-- a **`refunding`** row: the refund is tried again. One Stripe still refuses
-  13 days after the purchase (`REFUND_GIVE_UP_MS`) moves to `refund_failed`,
+- a **`refunding`** refund, read from its record, so it completes after the
+  purge has taken the purchase row: the refund is tried again. One Stripe still refuses
+  13 days after cire decided to refund (`REFUND_GIVE_UP_MS`, from the record's
+  creation) moves to `refund_failed`,
   logged `upgrade refund given up; a person must return the money`, and the
   daily asking stops. One whose call went unanswered, or that another
   delivery is still making, is never given up on. A refund Stripe accepted
@@ -379,9 +405,10 @@ rows, least recently moved first (index `(status, updated_at)`):
   dashboard is marked `refunded`, never granted; a part refund still grants.
   Stripe's own `expired` closes it `expired`. Anything else stays.
 
-Every row read is moved to the back (`updated_at`), so one that keeps failing
-cannot hold every run's places. Each run also counts the `refund_failed`
-purchases and, while there are any, logs `upgrade refunds waiting for a person`
+A row whose step fails is moved to the back (`updated_at`), so one that keeps
+failing cannot hold every run's places; a row read but not worked keeps its
+place. Each run also counts the `refund_failed`
+refunds and, while there are any, logs `upgrade refunds waiting for a person`
 at error with the count. This is what makes a storage error that
 outlasts Stripe's retries end in a grant rather than a payment for nothing.
 
@@ -395,11 +422,16 @@ unixepoch() WHERE id = '<purchase id>' AND status IN ('pending', 'expired',
 'failed', 'mismatch');`, then refund it in the dashboard. Settle grants
 nothing for a `refunded` purchase.
 
-A `refund_failed` purchase is money cire owes. Return it from the Stripe
+A `refund_failed` refund is money cire owes. Return it from the Stripe
 dashboard (the refund or the PaymentIntent names the purchase in its metadata),
-then mark the row so nothing asks again and the purge may take a deleted
-wedding: an operator-authorised production D1 write, `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at =
-unixepoch() WHERE id = '<purchase id>' AND status = 'refund_failed';`. Never
+then mark its record, and the purchase row while it exists, so nothing asks
+again: an operator-authorised production D1 write, both statements in one
+`--command`, the record's first: `UPDATE platform_refunds SET
+status = 'refunded', updated_at = unixepoch() WHERE purchase_id = '<purchase id>'
+AND status = 'refund_failed';` and `UPDATE wedding_upgrade_purchases SET status = 'refunded', updated_at =
+unixepoch() WHERE id = '<purchase id>' AND status = 'refund_failed' AND EXISTS
+(SELECT 1 FROM platform_refunds WHERE purchase_id = '<purchase id>' AND status =
+'refunded');`. Never
 on a `refunding` row: cire is still asking Stripe for that refund, and one
 that lands after a refund by hand pays the buyer twice.
 
@@ -492,7 +524,7 @@ It is written at **settle**, not at deletion: a sale must exist whether or not t
 > [!caution]
 > The row is **pseudonymous, not anonymous**. `settled_at` is the same moment the purchase row settles and the tier is raised, and the amount and product repeat the purchase row, so while that row exists the join is exact — and afterwards it stays linkable through Stripe's own retained session. See `wiki/compliance/data-map.md` and `wiki/compliance/retention.md`.
 
-A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending`, up to 14 days from its creation (`PURGE_PENDING_HOLD_S`), and while one is `refunding` or `refund_failed`, however old: the purchase row is the only record cire keeps of money it owes back, and the cascade would delete it. That hold ends when the refund lands or a person marks the purchase `refunded`. An `auto_refunded` purchase holds for 30 days after its refund was recorded (`AUTO_REFUND_HOLD_S`), while the bank can still return it. Two triggers (`wedding_upgrade_purchases_status_known`) refuse any `status` outside the set, so a hand-written typo cannot slip past the purge or the reconciliation. An upgrade paid for a soft-deleted wedding is refunded, never granted.
+A purchase row goes with the wedding when the daily purge hard-deletes one its owners deleted, 7–8 days after the delete ([[cire-auth#Soft-deleted weddings]]). The purge waits while a purchase is still `pending`, up to 14 days from its creation (`PURGE_PENDING_HOLD_S`). A refund cire owes does not hold it: the refund's record, `platform_refunds`, is outside the cascade like `platform_sales`, and the reconciliation and `refund.failed` work from it after the purchase row has gone. Two triggers (`wedding_upgrade_purchases_status_known`) refuse any `status` outside the set, so a hand-written typo cannot slip past the purge or the reconciliation. An upgrade paid for a soft-deleted wedding is refunded, never granted.
 
 Refunds do not lower a tier on their own; an operator lowers it with
 `grant-tier.ts --lower` ([[cire-entitlements]]), whose printed SQL first marks
@@ -534,6 +566,11 @@ and it is what the wrong-secret test pins.
 
 Creating either endpoint and the three Prices in the Stripe dashboard, and
 verifying a deployed tier end to end, is [[stripe-webhooks]].
+
+The E2E suite sells Gold through a Stripe stand-in, with no Stripe account:
+`cire-checklist-starter` buys it and is granted it, and pays for a second
+checkout whose wedding was deleted while it was open, which is refunded and
+its owner mailed ([[testing-patterns]] §An upgrade bought and refunded).
 
 ---
 

@@ -14,12 +14,52 @@ import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 
-import { accounts, oauthClients, organisationMembers, organisations, users } from "@osn/db/schema";
+import {
+  accounts,
+  oauthClients,
+  organisationMembers,
+  organisations,
+  serviceAccountKeys,
+  serviceAccounts,
+  users,
+} from "@osn/db/schema";
 import { applySchema as applyOsnSchema } from "@osn/db/testing";
 import { applySchema as applyPulseSchema } from "@pulse/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { CIRE_OIDC, CLOCK_T0, MUSUBI_ORG, PULSE_OIDC } from "./config";
+
+/**
+ * cire-api's ARC key for one run: osn-api holds the public half (`seedOsn`),
+ * cire-api signs with the private half (`appSpecs`). Made fresh each run, so
+ * no private key is ever written into the repository.
+ */
+export interface CireArcKey {
+  readonly keyId: string;
+  /** The private ES256 JWK, as `CIRE_API_ARC_PRIVATE_KEY` carries it. */
+  readonly privateJwk: string;
+  /** The public half, as osn-api stores it in `service_account_keys`. */
+  readonly publicJwk: string;
+}
+
+export async function generateCireArcKey(): Promise<CireArcKey> {
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+    "sign",
+    "verify",
+  ]);
+  const { kty, crv, x, y, d } = await crypto.subtle.exportKey("jwk", pair.privateKey);
+  return {
+    keyId: crypto.randomUUID(),
+    privateJwk: JSON.stringify({ kty, crv, x, y, d }),
+    publicJwk: JSON.stringify({ kty, crv, x, y }),
+  };
+}
+
+/**
+ * The one scope cire-api's ARC tokens need on this stack: the owners'
+ * addresses (`/internal/accounts/emails`), for its owner notices.
+ */
+const CIRE_API_ARC_SCOPES = "account:email-read";
 
 function freshDatabase(path: string): Database {
   if (existsSync(path)) {
@@ -53,7 +93,7 @@ function firstPartyClient(
  * osn-api: the schema, Pulse and cire registered as first-party OIDC clients,
  * and `MUSUBI_ORG`'s member profile with the organisation it owns.
  */
-export function seedOsn(path: string): void {
+export function seedOsn(path: string, cireArc?: CireArcKey): void {
   const sqlite = freshDatabase(path);
   try {
     // One transaction: on a file each autocommitted statement syncs its own journal.
@@ -106,6 +146,25 @@ export function seedOsn(path: string): void {
           createdAt: at,
         })
         .run();
+
+      if (cireArc) {
+        db.insert(serviceAccounts)
+          .values({
+            serviceId: "cire-api",
+            allowedScopes: CIRE_API_ARC_SCOPES,
+            createdAt: at,
+            updatedAt: at,
+          })
+          .run();
+        db.insert(serviceAccountKeys)
+          .values({
+            keyId: cireArc.keyId,
+            serviceId: "cire-api",
+            publicKeyJwk: cireArc.publicJwk,
+            registeredAt: at,
+          })
+          .run();
+      }
     })();
   } finally {
     sqlite.close();

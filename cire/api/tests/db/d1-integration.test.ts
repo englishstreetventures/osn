@@ -40,6 +40,7 @@ import {
   weddingHosts,
   weddingInviteCustomisations,
   weddings,
+  platformRefunds,
   weddingUpgradePurchases,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
@@ -5564,6 +5565,23 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .from(weddingUpgradePurchases)
         .where(eq(weddingUpgradePurchases.id, "upg_d1_refund"));
       expect(row).toEqual({ status: "auto_refunded", refundId: "re_d1" });
+      // The record outside the cascade, inserted in the claim's batch from the
+      // row the same batch moved, and moved with the acceptance.
+      const [record] = await db
+        .select({
+          status: platformRefunds.status,
+          refundId: platformRefunds.refundId,
+          paymentIntentId: platformRefunds.paymentIntentId,
+          reason: platformRefunds.reason,
+        })
+        .from(platformRefunds)
+        .where(eq(platformRefunds.purchaseId, "upg_d1_refund"));
+      expect(record).toEqual({
+        status: "auto_refunded",
+        refundId: "re_d1",
+        paymentIntentId: "pi_d1_refund",
+        reason: "wedding_not_live",
+      });
       expect(
         await db
           .select({ id: platformSales.purchaseId })

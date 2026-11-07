@@ -105,8 +105,14 @@ export const ORIGINS: Record<AppName, string> = Object.fromEntries(
   Object.entries(PORTS).map(([name, port]) => [name, `http://localhost:${port}`]),
 ) as Record<AppName, string>;
 
-/** The Resend key the stack's osn-api sends to the mail stand-in with; never real. */
+/** The Resend key the stack's osn-api and cire-api send to the mail stand-in with; never real. */
 export const E2E_RESEND_KEY = "re_e2e_local";
+
+/**
+ * The secret cire-api checks a platform Stripe event's signature with, and the
+ * Stripe stand-in signs the events the flows deliver with. Local only.
+ */
+export const STRIPE_PLATFORM_WEBHOOK_SECRET = "whsec_e2e_platform_not_a_real_secret";
 
 /** Names the request log uses for each API origin. Only these are recorded. */
 export const API_LABELS = {
@@ -172,14 +178,27 @@ export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 /**
  * The organiser weddings cire-api adds when the stack sets
  * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
- * which these values copy). All seven are on Gold; `profileId`, the profile
- * osn-api's `/dev/login` signs in as, owns six and is a helper on
- * `runSheetHelper`. The co-hosts are bare
- * profile ids: the local cire-api resolves no names, so the portal shows the
- * ids, and a flow finds each person by theirs.
+ * which these values copy). All are on Gold but the two `upgrade` weddings,
+ * which are on Ivory; `profileId`, the profile osn-api's `/dev/login` signs in
+ * as, owns every one but `runSheetHelper`, where it is a helper. The co-hosts
+ * are bare profile ids: the local cire-api resolves no names, so the portal
+ * shows the ids, and a flow finds each person by theirs.
  */
 export const CIRE_ORGANISER = {
   profileId: "usr_dev_bootstrap_owner",
+  /** The address osn-api's `/dev/login` gives `profileId`'s account, where
+   *  cire-api's owner notices to it land (`DEV_PRINCIPAL` in
+   *  osn/api/src/routes/auth/dev-login.ts). */
+  email: "dev@seed.osn.dev",
+  /**
+   * Two Ivory weddings the dev profile owns alone, for buying Gold through the
+   * Stripe stand-in: `bought` keeps its purchase and is granted Gold; `refunded`
+   * is deleted while its checkout is open, so its payment is refunded.
+   */
+  upgrade: {
+    bought: { weddingId: "wed_e2e_upgrade", name: "Upgrade Wedding" },
+    refunded: { weddingId: "wed_e2e_upgrade_refund", name: "Refund Wedding" },
+  },
   /** A wedding date and an empty checklist, for the starter checklist. */
   checklist: {
     weddingId: "wed_e2e_checklist",

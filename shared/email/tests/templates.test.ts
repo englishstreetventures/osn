@@ -133,6 +133,13 @@ describe("renderTemplate", () => {
       heldRuns: 1,
       runsLeft: 6,
     },
+    "upgrade-refund": {
+      weddingName: "Ama & Jonah",
+      tierName: "Gold",
+      amount: "A$79.00",
+      contactEmail: "help@cire.example.test",
+      portalUrl: "https://host.example.test",
+    },
     "wedding-delete-started": {
       weddingName: "Ama & Jonah",
       actorName: "Ama Mensah (@ama)",

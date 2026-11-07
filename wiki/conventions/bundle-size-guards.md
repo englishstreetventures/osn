@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-06
 ---
 
 # Guards with a threshold
@@ -594,9 +594,14 @@ guard reads; if the two disagree, it is right and this page is stale.
 
 | Chain | Schema writes now | Line | Priced at 27 | Replays a day (indicative) |
 |---|---:|---:|---:|---:|
-| `cire/db/migrations` | **96** | **192** | 2,592 → 5,184 rows | ~38 now, ~19 at the line |
+| `cire/db/migrations` | **194** | **194** | 5,238 rows | ~19 |
 
-*Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+*Measured 2026-11-06 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+
+The line is twice the squashed baseline's 96 writes, 192, plus the two writes of
+`platform_refunds`, which landed while the newest migration had not yet
+shipped to production, so the chain could not be squashed first. Bounded until
+englishstreetventures/osn#2096 lands.
 
 The left two columns are exact; the right two move with the constant. The
 chain is one baseline file, one `CREATE` per table and per index, and the line

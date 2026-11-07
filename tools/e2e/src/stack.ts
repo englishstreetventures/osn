@@ -25,8 +25,11 @@ import {
   PORTS,
   PULSE_OIDC,
   REPO_ROOT,
+  STRIPE_PLATFORM_WEBHOOK_SECRET,
   type AppName,
 } from "./config";
+import type { CireArcKey } from "./seed";
+import { STRIPE_STANDIN_GOLD_PRICE } from "./stripe";
 
 export const CLOCK_MODULE = resolve(import.meta.dirname, "clock.mjs");
 
@@ -108,8 +111,20 @@ export function baseEnv(
   };
 }
 
-/** Boot order matters: pulse-api registers its service key with osn-api once, at start. */
-export function appSpecs(): AppSpec[] {
+/**
+ * Boot order matters: pulse-api registers its service key with osn-api once, at
+ * start. `cireArc` is cire-api's ARC key, which `seedOsn` registered with
+ * osn-api; without it cire-api finds no owner's address and mails no owner.
+ */
+export function appSpecs(cireArc?: CireArcKey): AppSpec[] {
+  // cire-api's way to the owners' addresses: osn-api, over ARC, with the key
+  // `seedOsn` registered. None without the key.
+  const ownerAddresses: Record<string, string> = {};
+  if (cireArc) {
+    ownerAddresses.OSN_API_URL = ORIGINS.osnApi;
+    ownerAddresses.CIRE_API_ARC_KEY_ID = cireArc.keyId;
+    ownerAddresses.CIRE_API_ARC_PRIVATE_KEY = cireArc.privateJwk;
+  }
   return [
     {
       name: "osnApi",
@@ -190,13 +205,12 @@ export function appSpecs(): AppSpec[] {
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
         CIRE_OIDC_CLIENT_SECRET: CIRE_OIDC.secret,
         // A Stripe key and no Connect webhook secret: a deployment that could
-        // open a payment page but never record the gift, so cire-api must offer
-        // guests no money at all. The gift-list flows check that it does not.
-        // Not a real key, and it only ever reaches the Stripe stand-in
-        // (`src/stripe.ts`), which every Stripe call goes to. The one flow
-        // that reaches the Stripe routes (`cire-registry-money`) calls it only
-        // to connect an account the owner already has, through OAuth; its
-        // other steps are refused before a Stripe call or read cire's rows.
+        // open a gift's payment page but never record the gift, so cire-api
+        // must offer guests no money at all. The gift-list flows check that it
+        // does not. Not a real key, and it only ever reaches the Stripe
+        // stand-in (`src/stripe.ts`), which every Stripe call goes to: the
+        // OAuth connect (`cire-registry-money`), and an upgrade's Checkout and
+        // refund (`cire-checklist-starter`).
         STRIPE_SECRET_KEY: "e2e-placeholder-no-stripe-account",
         STRIPE_API_URL: ORIGINS.stripe,
         STRIPE_CONNECT_URL: ORIGINS.stripe,
@@ -204,11 +218,16 @@ export function appSpecs(): AppSpec[] {
         // with it and CIRE_API_ORIGIN, the portal offers "Connect a Stripe
         // account you already have".
         STRIPE_CONNECT_CLIENT_ID: "ca_e2eStandIn",
-        // A Gold Price beside that key, and no platform webhook secret: a
-        // deployment that means to sell a tier but could never grant one, so
-        // cire-api mounts no upgrade route. The checklist flow checks that the
-        // portal offers no payment. Not a real Price; nothing reads it there.
-        STRIPE_UPGRADE_PRICE_GOLD: "price_e2e_placeholder_gold",
+        // A Gold Price and the platform webhook's secret: the stack sells Gold,
+        // and grants it when the signed `checkout.session.completed` the flow
+        // delivers arrives. No Crimson Price, so nothing sells Crimson.
+        STRIPE_UPGRADE_PRICE_GOLD: STRIPE_STANDIN_GOLD_PRICE.id,
+        STRIPE_PLATFORM_WEBHOOK_SECRET,
+        // Owner notices (an automatic refund's among them): mail to the
+        // stand-in, and each owner's address from osn-api over ARC.
+        RESEND_API_KEY: E2E_RESEND_KEY,
+        RESEND_API_URL: ORIGINS.mail,
+        ...ownerAddresses,
         // What osn-api presents to end organiser sessions; the same value as its own.
         CIRE_INTERNAL_REVOKE_SECRET,
       },
