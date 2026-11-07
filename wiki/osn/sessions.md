@@ -256,7 +256,7 @@ How a failed renewal ends:
 
 A transient failure keeps the session and the active profile. If the token in hand has not expired yet, the request goes out with it; otherwise the call rejects with `TokenRefreshError`. Renewal then pauses: until the pause ends, a call that needs a renewal sends no grant. The pause is the 429's `Retry-After`, or else 2 s doubling to 30 s across failures in a row, and a renewal that gets a token ends it.
 
-`authFetch` rejects with what `fetch` rejected with when the request itself fails or is aborted, so a client sees the same `TypeError` or `AbortError` a bare `fetch` gives it. Ending a session never calls `/logout`: a refusal means the issuer has let the session go already, and the marker is the issuer's to retract.
+`authFetch` rejects with what `fetch` rejected with when the request itself fails or is aborted, as a bare `fetch` does. The REST clients turn that failure into their own `OsnApiError` at status `0`, and pass an abort and the session rejections above (`AuthExpiredError`, `TokenRefreshError`, `ActiveProfileResetError`, `StorageError`) through unchanged (`reach` in `osn/client/src/auth-fetch.ts`). Ending a session never calls `/logout`: a refusal means the issuer has let the session go already, and the marker is the issuer's to retract.
 
 Held sessions stay outside all of this: `Register` and `RecoveryLoginForm` send their tokens through `RegistrationClient` themselves, and the recovery flow renews through `refreshHeldSession` (above).
 

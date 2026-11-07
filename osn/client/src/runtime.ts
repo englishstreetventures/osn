@@ -26,7 +26,10 @@ import { StorageLive, type Storage } from "./storage";
  * - `StorageError`.
  *
  * Every authenticated client in this package is built with one. A client
- * passes its own `credentials`; the default is `"include"`.
+ * passes its own `credentials`; the default is `"include"`. A client passes
+ * an abort and the other rejections here through unchanged, and turns a
+ * request that failed into its own error at status `0` (`reach` in
+ * `./auth-fetch.ts`).
  */
 export type AuthFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
