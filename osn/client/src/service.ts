@@ -144,7 +144,7 @@ function grantRefusalLeftStatusUnknown(body: unknown): boolean {
 const RETRY_AFTER_MAX_MS = 60_000;
 
 /** `Retry-After` in milliseconds when it is a whole number of seconds. */
-function retryAfterMs(header: string | null): number | undefined {
+function parseRetryAfterMs(header: string | null): number | undefined {
   const value = header?.trim();
   if (!value || !/^\d+$/.test(value)) return undefined;
   return Math.min(Number(value) * 1000, RETRY_AFTER_MAX_MS);
@@ -546,7 +546,9 @@ export function createOsnAuthLive(
               // 429 ⇒ rate limited. 5xx ⇒ transient: throw a plain Error so
               // the retry policy kicks in.
               if (response.status === 429) {
-                throw new RateLimitedGrantError(retryAfterMs(response.headers.get("retry-after")));
+                throw new RateLimitedGrantError(
+                  parseRetryAfterMs(response.headers.get("retry-after")),
+                );
               }
               if (response.status >= 400 && response.status < 500) {
                 const body: unknown = await response.json().catch(() => null);
