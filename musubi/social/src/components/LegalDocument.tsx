@@ -1,5 +1,7 @@
 import type { JSX } from "solid-js";
 
+import { usePageTitle } from "../lib/page-title";
+
 /**
  * Shell for the two legal routes. They are the only pages in this app that are
  * long-form prose rather than UI, so they own their own measure and rhythm
@@ -20,6 +22,7 @@ export function LegalDocument(props: {
   draft: boolean;
   children?: JSX.Element;
 }): JSX.Element {
+  usePageTitle(() => props.title);
   return (
     <article class="mx-auto w-full max-w-2xl px-6 py-12">
       {props.draft && (

@@ -61,7 +61,8 @@ values; `muted/60` composited first, each sRGB channel `0.6 × muted + 0.4 ×
 the five contract grounds in both themes.*
 
 `text-subtle` rests in five places: the rail's small-caps "Social" tag, part of
-the wordmark, which WCAG 1.4.3 exempts as a logotype (`Sidebar.tsx`); the
+the wordmark, which WCAG 1.4.3 exempts as a logotype (`RailHead` in
+`ShellFrame.tsx`, drawn by the rail and its loading frame); the
 rail's and the bottom bar's resting nav icons (`Sidebar.tsx`, `MobileNav.tsx`);
 the theme menu's option icons (`ThemeToggle.tsx`); and the organisation list's
 row chevron (`OrganisationsPage.tsx`).
@@ -193,8 +194,10 @@ Where the app does not follow this yet — known breaks include:
 - **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows,
   dropdown triggers, small controls; text fields (`@shared/ui`'s `Input`,
   `Textarea` and `Select`, through the contract's `--ui-radius-field`, which
-  Musubi maps to `--radius-md`); and, through `--ui-radius-md`, `@shared/ui`'s
-  Popover and menu panels and `OtpInput`'s boxes.
+  Musubi maps to `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s
+  Popover and menu panels and `OtpInput`'s boxes; and the rail search's
+  results panel (`GlobalSearch`), a floating panel drawn as the menus are:
+  `rounded-md`, `bg-popover`, `shadow-md`.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
   (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions),
   bordered rows, dialogs, empty states. A card that is not itself a control
@@ -271,6 +274,16 @@ holds at 3:1. A focus mark appears at once, never animated.
   `focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden`;
   the profile choice on `/authorize`'s account screen does
   (`AuthorizePage.tsx`, in the contract's `ring-ui-focus`, the same colour).
+- **Where focus goes when a dialog closes.** Back to the element that had it
+  when the dialog opened, if it is still in the page: `ResponsiveDialogContent`
+  does this for every app dialog. No app dialog has a `Dialog.Trigger`, so
+  without it Kobalte leaves focus on `<body>`. A shell dialog whose opener has
+  gone — the shell switched while the dialog was open — gives focus to the
+  current shell's control for the same dialog, which carries
+  `data-dialog-return="sign-in" | "register" | "switcher"` (the shells' Sign
+  in and Create account buttons, the account-menu trigger). After a sign-in
+  succeeds, or a removal takes the row that opened it, neither exists, and
+  focus stays on the page.
 - **Contrast themes.** Windows forced colours drop the ring and the fill, and
   `outline-hidden` there is a 2px system-colour outline, so a `Button`, a menu
   row or the profile choice still shows focus. `outline-none` removes that outline
@@ -295,10 +308,31 @@ close (`zoom-in-95`, `zoom-out-95`) (#2040).
 
 - Desktop shell (`md+`) = fixed **240px left rail** (`Sidebar.tsx`) +
   scrollable content.
+- **The shell holds still.** Each shell is a lazy chunk, so on a cold load the
+  page can paint before its shell arrives. Until it does, `Layout` draws the
+  shell's frame in its place: the rail's 240px `aside` with its hairline and
+  wordmark row, or the top bar's 48px header with the wordmark
+  (`RailFrame`, `TopBarFrame` in `ShellFrame.tsx`). The shells are built from
+  the same parts, so the frame and the shell share one box and the page beside
+  them does not move when the shell lands. The rule covers the shell only:
+  the account banners above a signed-in page still push it down when they
+  arrive. The phone's tab bar needs no frame; it is fixed to the bottom edge,
+  out of the flow, and the scroll column carries `pb-nav` from the first paint.
+- **A shell whose chunk, or the shell dialogs' chunk, fails to load**
+  (offline, or a chunk renamed by a deploy since the page loaded) leaves its
+  frame in place with the failed-load line
+  (§Empty states and failed loads): "Musubi could not finish loading. Reload
+  and try again." The page beside it keeps working. A later load that succeeds
+  (the other shell's, after a crossing) draws the shell with its dialogs.
 - Content column centered at `max-w-2xl`, `px-4 py-6 md:px-8 md:py-8` — every
   page's `main`, and the account banners above it at the same width and side
   padding. The legal pages use `max-w-2xl px-6 py-12`.
 - Page head = `text-display` title + optional `text-body` muted subtitle.
+- **Page title** = the page's `h1` text, then " · Musubi" ("Discover ·
+  Musubi"), set by `usePageTitle` (`src/lib/page-title.ts`); "Musubi" alone
+  while the head is unknown. An organisation's page names the organisation
+  once it loads and "Organisations" until then, as its `h1` does. `/authorize`
+  keeps the plain "Musubi" from `index.html`.
 - `/authorize` = no shell; one centred column, `max-w-md px-6 py-10`, centred
   vertically in the viewport.
 
@@ -306,12 +340,22 @@ close (`zoom-in-95`, `zoom-out-95`) (#2040).
 
 One breakpoint: **`md` (768px)**. Below it the app is a mobile shell; at and
 above it, the desktop rail. Never introduce additional breakpoints without
-amending this file.
+amending this file. `tests/styles/one-breakpoint.test.ts` fails on any other
+breakpoint in `src/`, naming the file and line: a variant (`sm:`, `lg:`,
+`xl:`, `2xl:`, their `max-*:` forms, an arbitrary `min-[…]:` or `max-[…]:`)
+in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
+`@variant` in a `.css` file at any width but 767px or 768px.
 
 - **One shell at a time** — `Layout` (`App.tsx`) mounts either the rail or the
-  mobile shell, chosen by an `md` media-query signal.
+  mobile shell, chosen by an `md` media-query signal. The shell's dialogs —
+  sign in, create account, switch profile — are mounted once, above that
+  switch (`ShellDialogs.tsx`), so a dialog open when the window crosses 768px
+  stays open, with what was typed in it. A control in either shell, or a page,
+  opens one through `useShellDialogs()`.
 - **Mobile shell** = `MobileTopBar` (wordmark · theme toggle · account
-  control) above the scroll column + `MobileNav` (fixed bottom tab bar, the
+  control, in a 48px row, `--topbar-h` in `App.css`; every control 40px tall,
+  the theme toggle a 40px square, `TOGGLE_BOX` in `ShellFrame.tsx`) above the
+  scroll column + `MobileNav` (fixed bottom tab bar, the
   five primary destinations, 20px icons + `text-meta` labels). The current tab
   draws a 2px `--foreground` bar along its top edge as well as full ink, as
   `SectionTabs` underlines its current tab, so ink is not its only mark. Nav
@@ -338,25 +382,28 @@ amending this file.
   `DialogContent` with `presentation="sheet"`: a bottom sheet below `md`
   (16px top corners, square bottom corners, `max-h-[85dvh]`, scrolling, padded
   clear of the home indicator), the shared centred card at `md+`. All app
-  dialogs go through it; never mount a raw `DialogContent` in a screen.
+  dialogs go through it; never mount a raw `DialogContent` in a screen. Below
+  `md` the sheet is as wide as the screen. The card's cap at `md+` is the
+  `width` prop: `"sm"`, 384px, the default, or `"xs"`, 320px, which the
+  profile switcher takes. The component takes no `class`, `classList` or
+  `style`: the sheet's rules sit behind `base:`, so a call-site `max-w-*` would
+  cap the sheet too and pin a narrow sheet to a phone's left edge. A dialog's
+  padding and layout go on the children it wraps. Every dialog has a name: a
+  `DialogTitle` in a `DialogHeader`, or, where the view inside draws its own
+  heading (`@osn/auth-ui`'s `SignIn` and `Register`), an `aria-label` on
+  `ResponsiveDialogContent`.
 - **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
   `active:` classes for touch feedback. Tab rows scroll (`overflow-x-auto`)
   rather than wrap or shrink.
-- **Toasts** = top-center below `md` (clear of keyboard + tab bar),
+- **Toasts** = top-center below `md`, one spacing step under the top bar
+  (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
 - The bare `/authorize` route renders with **no shell at any width**.
 
 Where the app does not follow this yet:
 
-- Three classes switch at `sm` (640px), not `md`: Discover's two grids of
-  suggestions, the loaded one and its placeholder (`sm:grid-cols-2`,
-  `DiscoverPage.tsx`), and the organisation list's description line
-  (`sm:block`, `OrganisationsPage.tsx`) (#2057).
-- Each app dialog passes a width cap (`max-w-sm`, or `max-w-xs` on the profile
-  switcher), and the cap applies to the sheet too, so on a phone a sheet is no
-  wider than the cap (#2038).
 - The dialogs `@osn/auth-ui`'s views open themselves use `DialogContent`
   without `presentation="sheet"`, so they stay a centred card below `md`
   (#2045).
@@ -371,7 +418,8 @@ Where the app does not follow this yet:
   `text-destructive text-meta` line with `role="alert"` that ends "Reload and
   try again." — never the empty-state block, which means "nothing here". A
   screen whose head comes from what failed to load keeps its section's head
-  above the line (`OrgDetailPage` falls back to "Organisations").
+  above the line (`OrgDetailPage` falls back to "Organisations"). A shell that
+  failed to load shows the line inside its frame (§Layout).
 
 ## Auth surfaces
 
@@ -398,7 +446,7 @@ draw by hand shows the base focus outline (§Borders, §Focus).
 
 | View | Where | Host file |
 | --- | --- | --- |
-| `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet below `md`, a centred card capped at `max-w-sm` above | `components/AuthDialogs.tsx`, mounted by `Sidebar` and `MobileTopBar` |
+| `SignIn`, `Register` | The sign-in and create-account dialogs: a sheet as wide as the screen below `md`, a centred card capped at 384px above | `components/AuthDialogs.tsx`, mounted once above the shell switch by `ShellDialogs.tsx` |
 | `SignIn`, `Register` | `/authorize`, in a bordered `rounded-card` frame under the client card; "No account yet? Create one" swaps to `Register` | `components/AuthorizeSignIn.tsx` |
 | `RecoveryLoginForm` | Inside `SignIn`, from "Lost your passkey?" | — |
 | `TurnstileWidget` | Inside `SignIn`, `Register` and `RecoveryLoginForm`'s emailed-code step, when a site key is set | — |

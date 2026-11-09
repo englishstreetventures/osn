@@ -5,6 +5,7 @@ import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MobileTopBar } from "../../src/components/MobileTopBar";
+import { ShellDialogsProvider } from "../../src/components/ShellDialogs";
 
 /** Mocked AuthContext resource helper — same fixture shape as Sidebar.test.tsx. */
 function resource<T>(value: T) {
@@ -68,7 +69,14 @@ function renderTopBar(value: any) {
   return render(() => (
     <AuthContext.Provider value={value}>
       <MemoryRouter>
-        <Route path="*" component={MobileTopBar} />
+        <Route
+          path="*"
+          component={() => (
+            <ShellDialogsProvider>
+              <MobileTopBar />
+            </ShellDialogsProvider>
+          )}
+        />
       </MemoryRouter>
     </AuthContext.Provider>
   ));

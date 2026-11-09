@@ -96,6 +96,7 @@ describe("<SearchPage />", () => {
   it("prompts before searching, and searches from the first character", async () => {
     renderPage();
     expect(screen.getByText(/Start typing to find people/)).toBeDefined();
+    expect(document.title).toBe("Search · Musubi");
     expect(mocks.search).not.toHaveBeenCalled();
 
     // One character is a real search — the server scopes it to the caller's own

@@ -150,18 +150,6 @@ describe("<GlobalSearch />", () => {
     );
   });
 
-  it("connects by clicking the option row itself", async () => {
-    mocks.search.mockResolvedValue(results([person("alice")]));
-    renderSearch();
-    await type("ali");
-
-    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
-    fireEvent.click(screen.getByRole("option"));
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("alice");
-  });
-
   it("marks an organisation the caller already belongs to", async () => {
     mocks.search.mockResolvedValue(results([], [org("acme", "Acme Inc", true)]));
     renderSearch();

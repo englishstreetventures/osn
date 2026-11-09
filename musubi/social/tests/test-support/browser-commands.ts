@@ -26,7 +26,24 @@ export const emulateMedia = defineBrowserCommand<
 });
 
 /**
- * Teach `commands` about the command above, so a call site needs no cast and
+ * Fails every request whose path ends with `pathSuffix`, as the network does
+ * when a chunk is missing or the browser is offline: a dynamic import of that
+ * module rejects in the page. `restoreRequests` lifts it; call it in an
+ * `afterAll`, since routing outlives the test that set it.
+ */
+export const failRequests = defineBrowserCommand<[pathSuffix: string]>(async (ctx, pathSuffix) => {
+  await ctx.page.route(
+    (url) => url.pathname.endsWith(pathSuffix),
+    (route) => route.abort("internetdisconnected"),
+  );
+});
+
+export const restoreRequests = defineBrowserCommand<[]>(async (ctx) => {
+  await ctx.page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
+/**
+ * Teach `commands` about the commands above, so a call site needs no cast and
  * a re-shaped command is a type error rather than a runtime failure.
  */
 declare module "vitest/browser" {
@@ -35,5 +52,7 @@ declare module "vitest/browser" {
       reducedMotion?: "reduce" | "no-preference";
       forcedColors?: "active" | "none";
     }) => Promise<void>;
+    failRequests: (pathSuffix: string) => Promise<void>;
+    restoreRequests: () => Promise<void>;
   }
 }

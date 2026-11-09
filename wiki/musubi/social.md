@@ -52,9 +52,19 @@ a route there only when leaving the flow would be a security problem.
 The app has two shells split at the `md` (768 px) breakpoint: the 240 px
 left rail on desktop, and a bottom-tab-bar + top-bar shell on mobile
 (`MobileNav` / `MobileTopBar`, nav items shared via `nav.tsx`; dialogs render
-as bottom sheets through `ResponsiveDialogContent`). The mobile UX audit and
-the design rules the responsive work follows live in [[social-mobile-ux]] and
-`DESIGN.md` §Responsive layout.
+as bottom sheets through `ResponsiveDialogContent`). Each shell is a lazy
+chunk; until it lands, `Layout` draws a frame of the same box
+(`ShellFrame.tsx`), so the page does not move. The sign-in, create-account and
+profile-switcher dialogs are mounted once above the shell switch
+(`ShellDialogs.tsx`, which loads all three as one lazy chunk,
+`ShellDialogSet.tsx`), and the shell waits for that chunk too, so no Sign in
+button shows before its dialog can open; a later load that succeeds mounts
+them. Every app dialog gives focus back to the control that opened it
+(`ResponsiveDialogContent`). Each page in the shell (every route but
+`/authorize`) names the browser tab after its `h1` through `usePageTitle`
+(`src/lib/page-title.ts`).
+The mobile UX audit and the design rules the responsive work follows live in
+[[social-mobile-ux]] and `DESIGN.md` §Responsive layout.
 
 ## Account-health banners
 
@@ -109,7 +119,7 @@ blast radius: one 429 on a shared address would otherwise blank every route.
 
 The rail (`GlobalSearch`) and the page (`SearchPage`) render the same results under different accessibility contracts, because the two patterns are mutually exclusive:
 
-- **Rail = combobox + listbox.** Activation runs through virtual focus (`aria-activedescendant` + Enter), and an ARIA listbox option may not contain operable descendants — assistive tech flattens an option to its accessible name, so a nested button or link is announced as text and cannot be triggered. So the option **is** the target (click or Enter), the Connect/Accept text is a non-interactive label, and each option carries an `aria-label` naming what activating it does ("Alice A, @alice, accept connection request").
+- **Rail = combobox + listbox.** Activation runs through virtual focus (`aria-activedescendant` + Enter), and an ARIA listbox option may not contain operable descendants — assistive tech flattens an option to its accessible name, so a nested button or link is announced as text and cannot be triggered. So the option **is** the target (click or Enter), the Connect/Accept text is a non-interactive label, and each option carries an `aria-label` naming what activating it does ("Alice A, @alice, accept connection request"). An option cannot take focus, so the results panel cancels `mousedown`: a press keeps focus in the field, the field's `focusout` does not close the panel, and the click lands on the option. A press outside the panel still blurs the field and closes it.
 - **Page = plain list.** No virtual focus, no listbox constraint, so it keeps real `<Button>`s and a real `<A>` per row.
 
 `PersonAction`'s `interactive` prop is what switches between them. Changing one surface to match the other is almost always wrong — check which pattern you're in first.
@@ -281,6 +291,8 @@ Per-user limiters on the two recommendations endpoints, both fail-closed — 20 
 
 `tests/lib/search.test.ts` drives `createSearchController` directly, covering three properties no component test can reach: it searches only while enabled (signed in) and never handles a token, the previous page stays on screen while the next loads, and disposal aborts the in-flight request.
 
-`tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, queries below the two-character minimum never leave the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter and click both activate the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
+`tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, a query that normalises to nothing never leaves the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter activates the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. A pointer click is tested in Chromium instead (`tests/components/GlobalSearch.browser.test.tsx`), because happy-dom's synthetic click skips the press and the focus change that decide whether it lands: clicking an organisation opens it, clicking a person connects once and leaves focus in the field, and a click outside still closes the results.
+
+`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch; at 320px the signed-out top bar fits its three 40px controls. `tests/App.signed-in.browser.test.tsx` opens the profile switcher from the rail's account menu, crosses to 390 with it open, and closes it onto the top bar's trigger. `tests/App.load-failure.browser.test.tsx`, `App.dialogs-load-failure.browser.test.tsx` and `App.phone-load-failure.browser.test.tsx` each fail one chunk at the network — the rail's, the shell dialogs', the phone shell's — and check that the frame stays with the reload line while the page still renders. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
 
 `tests/components/AuthorizePage.test.tsx` drives the consent screen the same way, with the authorize client mocked and `location.assign` stubbed: a malformed request id never reaches the API, a 404 is terminal, the decision carries the chosen profile, `login_required` keeps the request alive, and `invalid_client` ends the flow naming the app.

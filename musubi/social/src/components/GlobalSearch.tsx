@@ -113,8 +113,9 @@ export function GlobalSearch() {
       class="relative px-3 pt-3"
       onFocusIn={() => setOpen(true)}
       onFocusOut={(event) => {
-        // Only close when focus actually leaves the combobox — clicking a
-        // result button must not tear the panel down before the click lands.
+        // Close when focus leaves the combobox: a click elsewhere, or Tab.
+        // Pressing a result does not move focus (the panel cancels it), so
+        // the panel is still there when the click lands.
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) close();
       }}
     >
@@ -150,7 +151,16 @@ export function GlobalSearch() {
       </div>
 
       <Show when={showPanel()}>
-        <div class="border-border bg-background rounded-card absolute top-14 right-3 left-3 z-30 border p-1 shadow-lg">
+        {/* A press anywhere in the panel keeps focus in the field. An option
+            cannot take focus — the field keeps it and moves a virtual one —
+            so without this a press would blur the field, the focusout above
+            would close the panel, and the click would land on nothing.
+            Drawn as a floating panel, as the rail's menus are: 8px corners
+            on the raised surface. */}
+        <div
+          class="border-border bg-popover text-popover-foreground absolute top-14 right-3 left-3 z-30 rounded-md border p-1 shadow-md"
+          onMouseDown={(event) => event.preventDefault()}
+        >
           {/* The status line lives outside the listbox: a listbox may only
               contain options, so "Searching…" can't be a child of the <ul>. */}
           <Show when={rows().length === 0}>

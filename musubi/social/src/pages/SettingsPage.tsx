@@ -12,6 +12,7 @@ import { EmptyNote } from "../components/EmptyNote";
 import { SectionTabs } from "../components/SectionTabs";
 import { PRODUCT_NAME } from "../lib/auth";
 import { registrationClient } from "../lib/authClients";
+import { usePageTitle } from "../lib/page-title";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
 // Code-split the Security section so `@simplewebauthn/browser` is only
@@ -43,6 +44,7 @@ function sectionFromHash(hash: string): Section {
 
 export function SettingsPage() {
   const { session, profiles, activeProfileId } = useAuth();
+  usePageTitle(() => "Settings");
   const location = useLocation();
   const navigate = useNavigate();
 

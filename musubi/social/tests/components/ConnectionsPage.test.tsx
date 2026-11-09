@@ -88,6 +88,7 @@ afterEach(() => {
 describe("<ConnectionsPage /> — remove friend confirmation", () => {
   it("opens a confirmation dialog and does not call the API when clicking Remove on a row", async () => {
     await renderConnectionsPage();
+    expect(document.title).toBe("Connections · Musubi");
 
     // The row-level "Remove" button is the only one in the DOM before the
     // dialog opens (the confirm button lives inside the portaled dialog).
