@@ -25,7 +25,7 @@ import { createSchemaSql } from "../src/testing";
 // actions. Pulse's schema uses none of those today, so the bug was latent
 // here — this test is what keeps it so.
 //
-// It also guards the defect that motivated it (D-H1): the `user_id` ->
+// It also guards the defect that motivated it: the `user_id` ->
 // `profile_id` rename reached src/schema without ever reaching migration
 // 0000, so the chain could not build the schema it claims to. Every Pulse
 // test builds from applySchema(), never the chain, which is why nothing
@@ -244,7 +244,7 @@ describe("Pulse DDL lockstep", () => {
     expect(emitted[table]?.foreignKeys).toEqual(migrated[table].foreignKeys);
   });
 
-  // osn has no CHECK constraints, triggers or views today. Pinned as empty so
+  // pulse has no CHECK constraints, triggers or views today. Pinned as empty so
   // the migration that introduces the first one can't skip the emitter.
   it("has no CHECK constraints, triggers or views on either surface", () => {
     const nonTableObjects = (db: Database): string[] =>

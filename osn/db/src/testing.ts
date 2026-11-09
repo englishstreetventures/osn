@@ -10,14 +10,19 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 import * as schema from "./schema";
+import { TRIGGERS } from "./triggers";
 
 /**
  * Build CREATE TABLE + CREATE INDEX statements for the live OSN Drizzle schema,
- * in foreign-key-respecting order. Tests run these against a fresh in-memory
- * SQLite (bun:sqlite) or a Miniflare-backed D1 so that adding a column is a
- * one-file change in `src/schema/` rather than a hand-rolled DDL block.
+ * in foreign-key-respecting order, then the triggers in `./triggers`. Tests run
+ * these against a fresh in-memory SQLite (bun:sqlite) or a Miniflare-backed D1
+ * so that adding a column is a one-file change in `src/schema/` rather than a
+ * hand-rolled DDL block.
  *
  * Mirrors `@pulse/db/testing` — keep the two in sync if the emitter is extended.
+ * The triggers are osn's alone: Drizzle cannot declare one, so they are a
+ * hand-written copy of the migrations', held to them by
+ * `tests/ddl-lockstep.test.ts`.
  */
 let cachedSchemaSql: string[] | undefined;
 
@@ -41,6 +46,8 @@ function buildSchemaSql(): string[] {
       out.push(emitCreateIndex(idx, table));
     }
   }
+  // Last: a trigger names its table, so every table must exist first.
+  out.push(...TRIGGERS);
   return out;
 }
 

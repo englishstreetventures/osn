@@ -9,7 +9,7 @@ import { listMigrations, migrationStatements } from "../../../scripts/migration-
 import { createSchemaSql } from "../src/testing";
 
 // Mechanical enforcement of the OSN DDL lockstep contract, ported from
-// cire/api's ddl-lockstep.test.ts (T-S1).
+// cire/api's ddl-lockstep.test.ts.
 //
 // Two surfaces must describe the same database shape:
 //   1. osn/db/drizzle/*.sql — what production D1 actually is,
@@ -243,9 +243,13 @@ describe("OSN DDL lockstep", () => {
     expect(emitted[table]?.foreignKeys).toEqual(migrated[table].foreignKeys);
   });
 
-  // osn has no CHECK constraints, triggers or views today. Pinned as empty so
-  // the migration that introduces the first one can't skip the emitter.
-  it("has no CHECK constraints, triggers or views on either surface", () => {
+  // Drizzle cannot declare a trigger, so the emitter's triggers are a
+  // hand-written copy (src/triggers.ts); this holds that copy to the
+  // migrations, and a trigger, view or CHECK added by a migration alone fails
+  // here. Compared without case, string literals included, so the spelling of
+  // a trigger's value list is not held here: osn/api's D1 test
+  // organisation-member-role.test.ts runs the migration itself.
+  it("has the same CHECK constraints, triggers and views on both surfaces", () => {
     const nonTableObjects = (db: Database): string[] =>
       (
         db
