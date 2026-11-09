@@ -1,3 +1,4 @@
+import { describeAuthError } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -28,7 +29,7 @@ export function ConnectedAppsSection() {
       await connectionsClient.revoke({ clientId });
       await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't revoke this app");
+      setError(`Couldn't revoke this app. ${describeAuthError(e)}`);
     } finally {
       setRevoking(null);
     }

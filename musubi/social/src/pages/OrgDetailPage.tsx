@@ -1,4 +1,4 @@
-import { OrgClientError } from "@osn/client";
+import { describeAuthError, OrgClientError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
@@ -95,7 +95,7 @@ export function OrgDetailPage() {
       setShowEdit(false);
       setOrg(organisation);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update");
+      toast.error(`Couldn't save the organisation. ${describeAuthError(err)}`);
     } finally {
       setSaving(false);
     }
@@ -108,7 +108,7 @@ export function OrgDetailPage() {
       toast.success("Organisation deleted");
       navigate("/organisations");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete");
+      toast.error(`Couldn't delete the organisation. ${describeAuthError(err)}`);
     }
   }
 
@@ -121,7 +121,7 @@ export function OrgDetailPage() {
           roster && { members: roster.members.filter((member) => member.handle !== profileHandle) },
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove member");
+      toast.error(`Couldn't remove @${profileHandle}. ${describeAuthError(err)}`);
     }
   }
 
