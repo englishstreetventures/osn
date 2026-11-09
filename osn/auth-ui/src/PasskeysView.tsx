@@ -17,21 +17,20 @@ import { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } fr
  *
  * Design notes
  * ------------
- * - The list response intentionally omits `credentialId` (S-L2) — the
+ * - The list response intentionally omits `credentialId` — the
  *   only handle the UI needs is the opaque `pk_<hex>` `id`.
- * - Both rename and delete are step-up gated. Rename is gated (S-M2)
+ * - Both rename and delete are step-up gated. Rename is gated
  *   because relabelling is a precondition-inflation attack on the very
  *   confirmation prompt the user uses to choose which credential to
  *   delete.
  * - Once a step-up is in flight, every Rename / Delete button on the
- *   page is disabled (S-L1) so a rapid double-click can't mutate a
+ *   page is disabled so a rapid double-click can't mutate a
  *   different credential than the one the user just confirmed.
  */
 
 export interface PasskeysViewProps {
   client: PasskeysClient;
   stepUpClient: StepUpClient;
-  accessToken: string;
   /**
    * Profile ID used for passkey enrolment. Required to surface the "Add
    * passkey" button; without it, enrolment stays hidden and only the
@@ -84,7 +83,7 @@ type PendingAction =
 export function PasskeysView(props: PasskeysViewProps) {
   const [reloadKey, setReloadKey] = createSignal(0);
   const [passkeys] = createResource(reloadKey, async () => {
-    const res = await props.client.list({ accessToken: props.accessToken });
+    const res = await props.client.list();
     return res.passkeys;
   });
   const [error, setError] = createSignal<string | null>(null);
@@ -103,7 +102,7 @@ export function PasskeysView(props: PasskeysViewProps) {
     setDraftLabel("");
   }
 
-  // S-L1: while a step-up ceremony is in flight, freeze every destructive
+  // While a step-up ceremony is in flight, freeze every destructive
   // button on the page. Otherwise a rapid double-click could open the
   // dialog with a different `pending` than the one the user thought they
   // confirmed (the `confirm`/dialog is async; the second click overwrites).
@@ -141,7 +140,6 @@ export function PasskeysView(props: PasskeysViewProps) {
     try {
       if (action.kind === "rename") {
         await props.client.rename({
-          accessToken: props.accessToken,
           id: action.id,
           label: action.label,
           stepUpToken: token.token,
@@ -149,7 +147,6 @@ export function PasskeysView(props: PasskeysViewProps) {
         cancelEdit();
       } else if (action.kind === "delete") {
         await props.client.delete({
-          accessToken: props.accessToken,
           id: action.id,
           stepUpToken: token.token,
         });
@@ -158,13 +155,11 @@ export function PasskeysView(props: PasskeysViewProps) {
         const profileId = props.profileId!;
         const runRegistration = props.runPasskeyRegistration!;
         const options = await props.client.registerBegin({
-          accessToken: props.accessToken,
           profileId,
           stepUpToken: token.token,
         });
         const attestation = await runRegistration(options);
         await props.client.registerComplete({
-          accessToken: props.accessToken,
           profileId,
           attestation,
         });
@@ -300,7 +295,6 @@ export function PasskeysView(props: PasskeysViewProps) {
         {(action) => (
           <StepUpDialog
             client={props.stepUpClient}
-            accessToken={props.accessToken}
             onToken={handleStepUp}
             onCancel={cancelStepUp}
             runPasskeyCeremony={props.runPasskeyCeremony}

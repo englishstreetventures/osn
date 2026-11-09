@@ -62,7 +62,7 @@ describe("SessionsView", () => {
 
   it("renders all sessions with UA labels and marks the current one", async () => {
     stub.list.mockResolvedValue({ sessions });
-    render(() => <SessionsView client={asClient(stub)} accessToken="acc" />);
+    render(() => <SessionsView client={asClient(stub)} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Firefox on macOS/)).toBeTruthy();
@@ -75,7 +75,7 @@ describe("SessionsView", () => {
     stub.list.mockResolvedValueOnce({ sessions });
     stub.list.mockResolvedValueOnce({ sessions: [sessions[0]] });
     stub.revoke.mockResolvedValue({ revokedSelf: false });
-    render(() => <SessionsView client={asClient(stub)} accessToken="acc" />);
+    render(() => <SessionsView client={asClient(stub)} />);
 
     await waitFor(() => screen.getAllByRole("button", { name: /^Revoke$/ }));
     const buttons = screen.getAllByRole("button", { name: /^Revoke$/ }) as HTMLButtonElement[];
@@ -85,7 +85,6 @@ describe("SessionsView", () => {
     fireEvent.click(buttons[1]!);
     await waitFor(() =>
       expect(stub.revoke).toHaveBeenCalledWith({
-        accessToken: "acc",
         id: "deadbeef87654321",
       }),
     );
@@ -95,7 +94,7 @@ describe("SessionsView", () => {
     stub.list.mockResolvedValueOnce({ sessions });
     stub.list.mockResolvedValueOnce({ sessions: [sessions[0]] });
     stub.revokeAllOther.mockResolvedValue({ success: true });
-    render(() => <SessionsView client={asClient(stub)} accessToken="acc" />);
+    render(() => <SessionsView client={asClient(stub)} />);
 
     await waitFor(() => screen.getByRole("button", { name: /Sign out everywhere else/ }));
     fireEvent.click(screen.getByRole("button", { name: /Sign out everywhere else/ }));

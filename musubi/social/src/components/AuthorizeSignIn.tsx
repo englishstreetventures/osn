@@ -3,7 +3,7 @@ import { SignIn } from "@osn/auth-ui/SignIn";
 import { AuthProvider } from "@osn/client/solid";
 import { createSignal, Show } from "solid-js";
 
-import { OSN_ISSUER_URL, PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";
+import { osnAuth, PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";
 import { loginClient, recoveryClient, registrationClient } from "../lib/authClients";
 import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-deferred";
 
@@ -15,8 +15,9 @@ import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-def
  * list the consent screen never reads (`GET /authorize/context` already
  * carries both). Neither belongs on the signed-in path, which is the common
  * one, so the provider is mounted here rather than around the route: the
- * Effect runtime and the WebAuthn code load only when a ceremony is actually
- * required.
+ * session load and the WebAuthn code run only when a ceremony is actually
+ * required. It takes the page's one auth runtime, as the shell's provider does,
+ * so the two share one session cache and one `/token` grant.
  *
  * Both halves of "who are you" live here. A visitor sent by an app they have
  * never used may not have a Musubi account at all, and until this screen offered
@@ -33,7 +34,7 @@ export function AuthorizeSignIn(props: {
   const [mode, setMode] = createSignal<"signIn" | "register">(props.initialMode ?? "signIn");
 
   return (
-    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+    <AuthProvider auth={osnAuth}>
       <Show
         when={mode() === "register"}
         fallback={

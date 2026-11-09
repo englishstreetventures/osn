@@ -410,7 +410,9 @@ draw by hand shows the base focus outline (§Borders, §Focus).
 **What Musubi supplies:**
 
 - `productName` — `PRODUCT_NAME`, "Musubi" (`src/lib/auth.ts`).
-- The API clients, built once in `src/lib/authClients.ts`.
+- The API clients, built once in `src/lib/authClients.ts`; the authenticated
+  ones send through `osnAuth.authFetch`, the page's one auth runtime
+  (`src/lib/auth.ts`), so no view is handed a token.
 - Ceremony runners: `runPasskeyCeremony` (`src/lib/webauthn-ceremony.ts`) to
   the Security views and the banner; `runPasskeyRegistration`
   (`src/lib/webauthn-registration.ts`) to `PasskeysView`;
@@ -418,7 +420,7 @@ draw by hand shows the base focus outline (§Borders, §Focus).
   to `SignIn`.
 - The Turnstile site key, `TURNSTILE_SITEKEY` (`src/lib/auth.ts`).
 - `AuthProvider` around the shell, and a second one inside
-  `AuthorizeSignIn` on `/authorize`; the `Toaster` in `App.tsx`; and the
+  `AuthorizeSignIn` on `/authorize`, both on the same `osnAuth` runtime; the `Toaster` in `App.tsx`; and the
   `Dialog` that frames `SignIn` and `Register`, which draw none of their own.
 
 ## Token contract

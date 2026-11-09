@@ -26,7 +26,7 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
           // it too.
           set.headers["cache-control"] = "no-store";
 
-          const { grant_type } = body as { grant_type: string };
+          const { grant_type, profile_id } = body as { grant_type: string; profile_id?: string };
 
           if (grant_type !== "refresh_token") {
             set.status = 400;
@@ -47,7 +47,9 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
             return { error: "invalid_request" };
           }
           try {
-            const tokens = await run(auth.refreshTokens(refresh_token));
+            // `profile_id` names the profile the caller is acting as; the
+            // service mints for it only when the session's account owns it.
+            const tokens = await run(auth.refreshTokens(refresh_token, profile_id));
             set.headers["set-cookie"] = buildSessionCookies(tokens.refreshToken, cookieConfig);
             return toTokenResponseCookieOnly(tokens);
           } catch (e) {
@@ -67,6 +69,12 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
         {
           body: t.Object({
             grant_type: t.String(),
+            // Every profile id osn-api issues: `genId`'s twelve hex digits and
+            // the dev principal's fixed id (`dev-login.ts`). Ownership is the
+            // service's check. The client reads any 4xx here as a refused
+            // grant and signs the page out, so an issued id must never fail
+            // this pattern.
+            profile_id: t.Optional(t.String({ pattern: "^usr_[a-z0-9_]{1,64}$" })),
           }),
           response: {
             200: tokenResponse,

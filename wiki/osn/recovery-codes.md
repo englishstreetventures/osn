@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-07
 ---
 # Recovery Codes
 
@@ -246,12 +246,12 @@ Migration: `osn/db/drizzle/0006_security_events.sql`.
 
 ## Client
 
-`createRecoveryClient({ issuerUrl })` in `@osn/client`:
+`createRecoveryClient({ issuerUrl, authFetch })` in `@osn/client`. The two authenticated calls send through `authFetch`, the page runtime's, which supplies and renews the access token ([[sessions#Renewal in the browser]]):
 
 ```ts
-await client.generateRecoveryCodes({ accessToken, stepUpToken });  // → { codes }
-await client.getRecoveryCodesStatus({ accessToken });  // → { active, total, generatedAt }
-await client.loginWithRecoveryCode({ identifier, code });  // → { session, profile }
+await client.generateRecoveryCodes({ stepUpToken });  // resolves to { codes }
+await client.getRecoveryCodesStatus();  // resolves to { active, total, generatedAt }
+await client.loginWithRecoveryCode({ identifier, code });  // resolves to { session, profile }
 ```
 
 `stepUpToken` is optional in the type only so the call compiles in hosts that thread it separately; omit it and the server answers 403.
@@ -267,7 +267,7 @@ await client.loginWithRecoveryCode({ identifier, code });  // → { session, pro
 - shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox. The file is named after the product the view is rendered for (`recoveryCodesFileName`: "Musubi" → `musubi-recovery-codes.txt`), so somebody who keeps codes for several services can tell the files apart;
 - fails soft on a status read error — the count goes unknown, generation still works.
 
-Props: `client`, `stepUpClient`, `accessToken`, `productName` (the name the download is filed under; `@osn/auth-ui` names no product of its own), plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `totpClient`, `passkeyOnly`, `onSaved`.
+Props: `client`, `stepUpClient`, `productName` (the name the download is filed under; `@osn/auth-ui` names no product of its own), plus optional `runPasskeyCeremony` (kept caller-side so `@osn/auth-ui` doesn't depend on `@simplewebauthn/browser`), `totpClient`, `passkeyOnly`, `onSaved`.
 
 Mounted in `musubi/social/src/components/SecuritySection.tsx` — Settings → Security, under the passkey list. cire's portal mounts none of the auth-ui views; its `SecurityPanel` links to Musubi instead.
 

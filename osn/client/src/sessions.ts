@@ -11,10 +11,13 @@
 
 import { OsnApiError } from "./api-error";
 import { reach, readJson, responseError } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
 
 export interface SessionsClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 export class SessionsError extends OsnApiError {
@@ -41,46 +44,47 @@ export interface SessionSummary {
   isCurrent: boolean;
 }
 
+/**
+ * A rejection of `authFetch` about the session, or the caller's abort,
+ * reaches the caller unchanged (`./auth-fetch.ts`); every other failure is a
+ * `SessionsError`.
+ */
 export interface SessionsClient {
-  list(input: { accessToken: string }): Promise<{ sessions: SessionSummary[] }>;
-  revoke(input: { accessToken: string; id: string }): Promise<{ revokedSelf: boolean }>;
-  revokeAllOther(input: { accessToken: string }): Promise<{ success: true }>;
+  list(): Promise<{ sessions: SessionSummary[] }>;
+  revoke(input: { id: string }): Promise<{ revokedSelf: boolean }>;
+  revokeAllOther(): Promise<{ success: true }>;
 }
 
-function withAuth(accessToken: string): RequestInit {
-  return {
-    credentials: "include",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-  };
-}
+// The cookie rides along: it is how the server marks the caller's own sessions.
+const INIT: RequestInit = {
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+};
 
 export function createSessionsClient(config: SessionsClientConfig): SessionsClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  const send = (url: string, init: RequestInit) =>
+    reach(SessionsError, url, init, config.authFetch);
 
   return {
-    list: async (input) => {
-      const res = await reach(SessionsError, `${base}/sessions`, {
-        ...withAuth(input.accessToken),
-      });
+    list: async () => {
+      const res = await send(`${base}/sessions`, INIT);
       const json = await readJson<{ sessions?: SessionSummary[] }>(SessionsError, res);
       if (!Array.isArray(json.sessions)) throw responseError(SessionsError, res, json);
       return { sessions: json.sessions };
     },
     revoke: async (input) => {
-      const res = await reach(SessionsError, `${base}/sessions/${encodeURIComponent(input.id)}`, {
-        ...withAuth(input.accessToken),
+      const res = await send(`${base}/sessions/${encodeURIComponent(input.id)}`, {
+        ...INIT,
         method: "DELETE",
       });
       const json = await readJson<{ success?: boolean; revokedSelf?: boolean }>(SessionsError, res);
       if (json.success !== true) throw responseError(SessionsError, res, json);
       return { revokedSelf: json.revokedSelf === true };
     },
-    revokeAllOther: async (input) => {
-      const res = await reach(SessionsError, `${base}/sessions/revoke-all-other`, {
-        ...withAuth(input.accessToken),
+    revokeAllOther: async () => {
+      const res = await send(`${base}/sessions/revoke-all-other`, {
+        ...INIT,
         method: "POST",
         body: "{}",
       });

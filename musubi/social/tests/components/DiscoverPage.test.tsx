@@ -120,7 +120,7 @@ describe("<DiscoverPage />", () => {
     renderDiscover();
     fireEvent.click(await screen.findByText("Connect"));
 
-    await waitFor(() => expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("tkn", "bob"));
+    await waitFor(() => expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("bob"));
   });
 
   it("points an empty suggestion list at search rather than a dead end", async () => {

@@ -28,8 +28,8 @@ export function Sidebar() {
   const [showSignIn, setShowSignIn] = createSignal(false);
   const [showSwitcher, setShowSwitcher] = createSignal(false);
 
-  const accessToken = () => session()?.accessToken ?? null;
-  const claims = createMemo(() => getTokenClaims(accessToken()));
+  // Claims are read for display only; no request carries this token.
+  const claims = createMemo(() => getTokenClaims(session()?.accessToken ?? null));
   const activeProfile = createMemo(
     () => profiles()?.find((p) => p.id === activeProfileId()) ?? null,
   );
@@ -46,10 +46,10 @@ export function Sidebar() {
           <ThemeToggle />
         </div>
 
-        {/* Search — signed-in only; the endpoint needs an access token, and an
+        {/* Search — signed-in only; the endpoint needs a session, and an
             input that can only fail is worse than no input. */}
         <Show when={session()}>
-          <GlobalSearch token={accessToken() ?? ""} />
+          <GlobalSearch />
         </Show>
 
         {/* Navigation */}

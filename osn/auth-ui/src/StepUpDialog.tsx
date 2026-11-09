@@ -79,7 +79,6 @@ const PURPOSE_FACTORS = {
  */
 export interface StepUpDialogProps {
   client: StepUpClient;
-  accessToken: string;
   /**
    * Fires as soon as a step-up token is successfully minted. The caller
    * should close the dialog and proceed with the gated action.
@@ -151,7 +150,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
     () => props.totpClient,
     async (client: TotpClient) => {
       try {
-        return await client.status({ accessToken: props.accessToken });
+        return await client.status();
       } catch {
         // Whether an authenticator exists is not worth failing a ceremony
         // over — the user still has a passkey, and may still have email.
@@ -178,10 +177,9 @@ export function StepUpDialog(props: StepUpDialogProps) {
     setBusy(true);
     setError(null);
     try {
-      const begin = await props.client.passkeyBegin({ accessToken: props.accessToken });
+      const begin = await props.client.passkeyBegin();
       const assertion = await props.runPasskeyCeremony(begin.options);
       const token = await props.client.passkeyComplete({
-        accessToken: props.accessToken,
         assertion,
         purpose: props.purpose,
       });
@@ -197,7 +195,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
     setBusy(true);
     setError(null);
     try {
-      await props.client.otpBegin({ accessToken: props.accessToken });
+      await props.client.otpBegin();
       setMode("otp");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send code");
@@ -215,7 +213,6 @@ export function StepUpDialog(props: StepUpDialogProps) {
     setError(null);
     try {
       const token = await props.client.otpComplete({
-        accessToken: props.accessToken,
         code: code(),
         purpose: props.purpose,
       });
@@ -245,7 +242,6 @@ export function StepUpDialog(props: StepUpDialogProps) {
     setError(null);
     try {
       const token = await props.client.totpComplete({
-        accessToken: props.accessToken,
         code: code(),
         purpose: props.purpose,
       });

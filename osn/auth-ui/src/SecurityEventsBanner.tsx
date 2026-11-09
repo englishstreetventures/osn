@@ -27,12 +27,12 @@ import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
  *
  * Design notes
  * ------------
- * - S-M1: the access token alone cannot dismiss the banner — the banner
+ * - The access token alone cannot dismiss the banner — the banner
  *   exists precisely to notice that compromise. Clicking "Acknowledge"
  *   opens `StepUpDialog` (passkey or OTP). On success the step-up token
  *   is posted to `/account/security-events/ack-all`, which clears every
  *   unacked event in one call.
- * - P-I3: the UI removes rows optimistically from a local signal after
+ * - The UI removes rows optimistically from a local signal after
  *   a successful ack. No follow-up GET to the list endpoint — the server
  *   is already consistent and the refetch wasted a rate-limit slot.
  * - `kind` is a bounded string union; the headline switch falls through to
@@ -43,7 +43,6 @@ import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 export interface SecurityEventsBannerProps {
   client: SecurityEventsClient;
   stepUpClient: StepUpClient;
-  accessToken: string;
   /**
    * Executes the browser-side WebAuthn assertion. Same shape as
    * `StepUpDialog.runPasskeyCeremony`. Pass undefined to hide the passkey
@@ -87,11 +86,11 @@ function headlineFor(kind: SecurityEventSummary["kind"], productName: string): s
 }
 
 export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
-  // `events` loads once on mount. Further updates are local-optimistic (P-I3)
+  // `events` loads once on mount. Further updates are local-optimistic
   // — a successful ack-all empties `localEvents` without re-hitting the list
   // endpoint, which would otherwise burn a rate-limit slot per click.
   const [serverEvents] = createResource(async () => {
-    const res = await props.client.list({ accessToken: props.accessToken });
+    const res = await props.client.list();
     return res.events;
   });
   const [localRemovedAll, setLocalRemovedAll] = createSignal(false);
@@ -120,7 +119,6 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
     setError(null);
     try {
       await props.client.acknowledgeAll({
-        accessToken: props.accessToken,
         stepUpToken: token.token,
       });
       setLocalRemovedAll(true);
@@ -166,7 +164,6 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
       <Show when={stepUpOpen()}>
         <StepUpDialog
           client={props.stepUpClient}
-          accessToken={props.accessToken}
           onToken={onStepUpToken}
           onCancel={() => setStepUpOpen(false)}
           runPasskeyCeremony={props.runPasskeyCeremony}

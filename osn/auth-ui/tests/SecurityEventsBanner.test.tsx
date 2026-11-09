@@ -11,7 +11,7 @@ import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
  *   - recovery_code_generate event renders headline + timestamp + UA label
  *   - recovery_code_consume event renders the takeover-specific headline
  *   - unknown kinds fall through to a generic message (forward-compat)
- *   - "Acknowledge" opens the step-up dialog, NOT the ack endpoint directly (S-M1)
+ *   - "Acknowledge" opens the step-up dialog, NOT the ack endpoint directly
  *   - a successful step-up ceremony calls acknowledgeAll and optimistically removes the events
  *   - a rejected acknowledgeAll surfaces the error text in the banner
  */
@@ -82,7 +82,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -90,7 +89,7 @@ describe("SecurityEventsBanner", () => {
     expect(container.textContent?.trim()).toBe("");
   });
 
-  // S-H1: the takeover half of the threat model — gets its own headline so
+  // The takeover half of the threat model — gets its own headline so
   // the user knows the codes were USED, not just regenerated.
   it("renders the recovery_code_generate headline with UA label", async () => {
     stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
@@ -98,7 +97,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -114,7 +112,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -134,7 +131,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -143,7 +139,7 @@ describe("SecurityEventsBanner", () => {
     });
   });
 
-  // S-M1: clicking "Acknowledge" must NOT hit the ack endpoint with the raw
+  // Clicking "Acknowledge" must NOT hit the ack endpoint with the raw
   // access token — it opens the step-up dialog instead.
   it("'Acknowledge' opens the step-up dialog; ack-all is only called after a token is minted", async () => {
     stub.list.mockResolvedValue({ events: [recoveryGenerateEvent, recoveryConsumeEvent] });
@@ -152,7 +148,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -174,11 +169,10 @@ describe("SecurityEventsBanner", () => {
 
     await waitFor(() =>
       expect(stub.acknowledgeAll).toHaveBeenCalledWith({
-        accessToken: "acc",
         stepUpToken: "eyJ.step.up",
       }),
     );
-    // P-I3: list NOT re-fetched — the banner removed events optimistically.
+    // List NOT re-fetched — the banner removed events optimistically.
     expect(stub.list).toHaveBeenCalledTimes(1);
     // Banner collapses.
     await waitFor(() => {
@@ -193,7 +187,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -222,7 +215,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
       />
     ));
@@ -242,7 +234,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
         onVisibleCountChange={(count) => counts.push(count)}
       />
@@ -263,7 +254,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
         onVisibleCountChange={(count) => counts.push(count)}
       />
@@ -278,7 +268,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
         onVisibleCountChange={(count) => counts.push(count)}
       />
@@ -294,7 +283,6 @@ describe("SecurityEventsBanner", () => {
       <SecurityEventsBanner
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
-        accessToken="acc"
         productName="Musubi"
         onVisibleCountChange={(count) => counts.push(count)}
       />

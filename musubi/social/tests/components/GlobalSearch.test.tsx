@@ -46,7 +46,7 @@ const results = (
 function renderSearch() {
   return render(() => (
     <MemoryRouter>
-      <Route path="/" component={() => <GlobalSearch token="tkn" />} />
+      <Route path="/" component={() => <GlobalSearch />} />
       {/* Landing marker: MemoryRouter never touches window.location, so a
           rendered destination is how we observe that navigation happened. */}
       <Route path="/organisations/:handle" component={() => <p>org detail</p>} />
@@ -84,7 +84,7 @@ describe("<GlobalSearch />", () => {
     expect(mocks.search).not.toHaveBeenCalled();
 
     await type("a");
-    expect(mocks.search).toHaveBeenCalledWith("tkn", "a", expect.anything());
+    expect(mocks.search).toHaveBeenCalledWith("a", expect.anything());
   });
 
   it("debounces so a burst of keystrokes issues a single request", async () => {
@@ -97,17 +97,13 @@ describe("<GlobalSearch />", () => {
     await vi.advanceTimersByTimeAsync(300);
 
     expect(mocks.search).toHaveBeenCalledTimes(1);
-    expect(mocks.search).toHaveBeenCalledWith(
-      "tkn",
-      "alice",
-      expect.objectContaining({ limit: 6 }),
-    );
+    expect(mocks.search).toHaveBeenCalledWith("alice", expect.objectContaining({ limit: 6 }));
   });
 
   it("strips a leading @ before querying", async () => {
     renderSearch();
     await type("@alice");
-    expect(mocks.search).toHaveBeenCalledWith("tkn", "alice", expect.anything());
+    expect(mocks.search).toHaveBeenCalledWith("alice", expect.anything());
   });
 
   it("renders people and organisations as one flat listbox, people first", async () => {
@@ -163,7 +159,7 @@ describe("<GlobalSearch />", () => {
     fireEvent.click(screen.getByRole("option"));
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("tkn", "alice");
+    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("alice");
   });
 
   it("marks an organisation the caller already belongs to", async () => {
@@ -183,7 +179,7 @@ describe("<GlobalSearch />", () => {
     fireEvent.click(screen.getByRole("option"));
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("tkn", "alice");
+    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("alice");
     await waitFor(() => expect(screen.getByText("Requested")).toBeDefined());
   });
 
@@ -196,7 +192,7 @@ describe("<GlobalSearch />", () => {
     fireEvent.click(screen.getByRole("option"));
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(mocks.acceptConnection).toHaveBeenCalledWith("tkn", "alice");
+    expect(mocks.acceptConnection).toHaveBeenCalledWith("alice");
     expect(mocks.sendConnectionRequest).not.toHaveBeenCalled();
   });
 
@@ -248,7 +244,7 @@ describe("<GlobalSearch />", () => {
 
     fireEvent.keyDown(input, { key: "Enter" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("tkn", "alicia");
+    expect(mocks.sendConnectionRequest).toHaveBeenCalledWith("alicia");
   });
 
   it("walks past the people section into organisations with the arrow keys", async () => {
@@ -302,7 +298,7 @@ describe("<GlobalSearch />", () => {
   it("passes an abort signal so a superseded request can be cancelled", async () => {
     renderSearch();
     await type("ali");
-    const options = mocks.search.mock.calls[0]![2] as { signal?: AbortSignal };
+    const options = mocks.search.mock.calls[0]![1] as { signal?: AbortSignal };
     expect(options.signal).toBeInstanceOf(AbortSignal);
     expect(options.signal!.aborted).toBe(false);
   });

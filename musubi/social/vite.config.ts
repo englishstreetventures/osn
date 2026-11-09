@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { devPort } from "@shared/dev-urls";
 import tailwindcss from "@tailwindcss/vite";
@@ -126,9 +128,181 @@ export function webauthnBarrelHasNoSideEffects(): Plugin {
   };
 }
 
+/**
+ * Cloudflare Turnstile's host: the widget's script (`api.js`) and its frame
+ * load from it (`osn/auth-ui/src/TurnstileWidget.tsx`). Cloudflare's Turnstile
+ * CSP reference asks for it in `script-src` and `frame-src`; this policy
+ * leaves `frame-src` open, so only `script-src` names it.
+ */
+export const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
+/** Vite's resolved env, as a build reads it: `VITE_*` strings, and `DEV`/`PROD`/`SSR` booleans. */
+type BuildEnv = Readonly<Record<string, string | boolean | undefined>>;
+
+/** The issuer `src/lib/auth.ts` calls when `VITE_OSN_ISSUER_URL` is unset. */
+const LOCAL_ISSUER_URL = "http://localhost:4000";
+
+/**
+ * A DNS name as `new URL` leaves it. URL parsing lets `*`, `;`, `,` and quotes
+ * through in a host; written into the policy, any of them would widen a source
+ * list or start a directive.
+ */
+const PLAIN_HOSTNAME = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/;
+
+/** Hosts on this machine: the only ones the policy may reach over plain http. */
+const isLoopback = (hostname: string) =>
+  hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1";
+
+/**
+ * The issuer origin the build's policy names, from the chain `src/lib/auth.ts`
+ * reads, so the policy admits exactly the host the bundle calls. Throws on a
+ * URL that is not http(s), whose host is not a plain DNS name, or that is
+ * plain http off this machine: a deployed issuer is https, and its tokens must
+ * not travel in clear.
+ */
+export function policyIssuerOrigin(env: BuildEnv): string {
+  const raw = env.VITE_OSN_ISSUER_URL;
+  const issuerUrl = typeof raw === "string" ? raw : LOCAL_ISSUER_URL;
+  const bad = (why: string) =>
+    new Error(`content-security-policy: VITE_OSN_ISSUER_URL ${JSON.stringify(issuerUrl)} ${why}`);
+  let url: URL;
+  try {
+    url = new URL(issuerUrl);
+  } catch {
+    throw bad("is not a URL");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw bad("is not http(s)");
+  if (!PLAIN_HOSTNAME.test(url.hostname)) throw bad("has a host that is not a plain DNS name");
+  if (url.protocol === "http:" && !isLoopback(url.hostname)) {
+    throw bad("is plain http off this machine; a deployed issuer is https");
+  }
+  return url.origin;
+}
+
+/** True when the build carries a Turnstile sitekey: `src/lib/auth.ts` treats a blank one as none. */
+export function turnstileOn(env: BuildEnv): boolean {
+  const key = env.VITE_TURNSTILE_SITEKEY;
+  return typeof key === "string" && key.trim() !== "";
+}
+
+/**
+ * A `'sha256-…'` source for each inline script in `html`, in page order: the
+ * hash of the exact text between the tags, which is what the browser hashes.
+ */
+export function inlineScriptHashes(html: string): string[] {
+  const hashes: string[] = [];
+  for (const [, attrs = "", body = ""] of html.matchAll(
+    /<script\b([^>]*)>([\s\S]*?)<\/script>/gi,
+  )) {
+    if (/\bsrc\s*=/i.test(attrs)) continue;
+    hashes.push(`'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`);
+  }
+  return hashes;
+}
+
+/**
+ * The two directives the build adds to the policy. `script-src` admits the
+ * app's own bundle, the page's inline scripts by hash, and Turnstile when the
+ * build renders it; `connect-src` admits the app's own origin and the issuer.
+ * Neither ever carries `'unsafe-inline'` or `'unsafe-eval'`.
+ */
+export function buildDirectives(policy: {
+  readonly issuerOrigin: string;
+  readonly turnstile: boolean;
+  readonly inlineHashes: readonly string[];
+}): string {
+  const scripts = ["'self'", ...policy.inlineHashes];
+  if (policy.turnstile) scripts.push(TURNSTILE_ORIGIN);
+  return `script-src ${scripts.join(" ")}; connect-src 'self' ${policy.issuerOrigin}`;
+}
+
+/**
+ * `headers` with `directives` appended to the Content-Security-Policy of the
+ * `/*` rule. Throws when that rule has no policy, or when the policy already
+ * sets `script-src` or `connect-src`: a second copy of either directive is
+ * ignored by the browser, so the build's would never apply.
+ */
+export function withBuildDirectives(headers: string, directives: string): string {
+  const lines = headers.split("\n");
+  const rule = lines.findIndex((line) => line.trim() === "/*");
+  if (rule === -1) throw new Error("content-security-policy: _headers has no /* rule");
+  for (let i = rule + 1; i < lines.length && /^\s+\S/.test(lines[i] ?? ""); i++) {
+    const match = /^(\s+Content-Security-Policy:\s*)(.*)$/i.exec(lines[i] ?? "");
+    if (!match) continue;
+    const policy = (match[2] ?? "").trim().replace(/;\s*$/, "");
+    if (/(^|;)\s*(script-src|connect-src)\b/i.test(policy)) {
+      throw new Error(
+        "content-security-policy: the /* rule already sets script-src or connect-src; the build writes those",
+      );
+    }
+    lines[i] = `${match[1]}${policy}; ${directives}`;
+    return lines.join("\n");
+  }
+  throw new Error(
+    "content-security-policy: the /* rule of _headers has no Content-Security-Policy",
+  );
+}
+
+/**
+ * Writes the build's `script-src` and `connect-src` into the built `_headers`.
+ *
+ * Both depend on the build: the issuer origin differs per tier
+ * (`VITE_OSN_ISSUER_URL`), Turnstile loads only when the build carries a
+ * sitekey, and the inline scripts' hashes come from the HTML the build emits,
+ * so an edit to either script changes its hash with it. A committed policy
+ * could only guess at all three. The issuer is read off the resolved config,
+ * as `issuerPreconnect` reads it, so it is what `import.meta.env` holds, and
+ * the build fails unless a script in the bundle carries that origin: the
+ * policy and the code agree, or nothing ships.
+ *
+ * Build only: the dev server does not serve `_headers` as headers.
+ */
+export function contentSecurityPolicy(): Plugin {
+  let env: BuildEnv = {};
+  let outDir = "dist";
+  return {
+    name: "musubi-content-security-policy",
+    apply: "build",
+    configResolved(resolved) {
+      env = resolved.env;
+      outDir = resolve(resolved.root, resolved.build.outDir);
+    },
+    async writeBundle(_options, bundle) {
+      const page = Object.values(bundle).find((file) => file.fileName === "index.html");
+      if (page?.type !== "asset") {
+        throw new Error("content-security-policy: the build emitted no index.html");
+      }
+      const html =
+        typeof page.source === "string" ? page.source : new TextDecoder().decode(page.source);
+      const issuerOrigin = policyIssuerOrigin(env);
+      const carried = Object.values(bundle).some(
+        (file) => file.type === "chunk" && file.code.includes(issuerOrigin),
+      );
+      if (!carried) {
+        throw new Error(
+          `content-security-policy: no script in the bundle calls ${issuerOrigin}, the issuer the policy would name`,
+        );
+      }
+      const path = resolve(outDir, "_headers");
+      const directives = buildDirectives({
+        issuerOrigin,
+        turnstile: turnstileOn(env),
+        inlineHashes: inlineScriptHashes(html),
+      });
+      await writeFile(path, withBuildDirectives(await readFile(path, "utf8"), directives));
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [tailwindcss(), solid(), issuerPreconnect(), webauthnBarrelHasNoSideEffects()],
+  plugins: [
+    tailwindcss(),
+    solid(),
+    issuerPreconnect(),
+    webauthnBarrelHasNoSideEffects(),
+    contentSecurityPolicy(),
+  ],
 
   clearScreen: false,
   // Portless assigns the port and passes it as `PORT`; the literal is the
