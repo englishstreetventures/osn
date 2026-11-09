@@ -40,12 +40,12 @@
     "@shared/rate-limit": "workspace:*",
     "@zap/db": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5",
-    "effect": "4.0.7",
+    "effect": "4.1.2",
     "elysia": "^1.4.30"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
-    "@effect/vitest": "4.0.5",
+    "@effect/vitest": "4.1.2",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "jose": "6.2.14",

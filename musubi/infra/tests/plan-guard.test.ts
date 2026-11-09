@@ -18,12 +18,12 @@ const DEV_LOG = fileURLToPath(
 /** The production plan step's log: Alchemy's records, the plan lines last. */
 const PRODUCTION_LOG = [
   "$ CI=true DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
-  "[20:17:41.001] INFO (#1): Deploy · production",
-  "[20:17:44.120] INFO (#1): Computing plan",
-  "[20:17:45.300] INFO (#1): Plan ready (4.2s)",
-  "[20:17:45.301] INFO (#1): Plan: no changes",
-  "[20:17:45.301] INFO (#1): [MusubiLanding] noop",
-  "[20:17:45.301] INFO (#1): [MusubiSocial] noop",
+  "[20:17:41.001] INFO: Plan · production",
+  "[20:17:44.120] INFO: Computing plan",
+  "[20:17:45.300] INFO: Plan ready (4.2s)",
+  "[20:17:45.301] INFO: Plan: no changes",
+  "[20:17:45.301] INFO: [MusubiLanding] noop",
+  "[20:17:45.301] INFO: [MusubiSocial] noop",
   "",
 ].join("\n");
 
