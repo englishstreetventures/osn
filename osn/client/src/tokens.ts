@@ -80,6 +80,8 @@ export interface ProfileToken {
 export interface AccountSession {
   hasSession: boolean;
   activeProfileId: string;
+  /** The sign-in this session belongs to; see {@link StoredAccount.signInId}. */
+  signInId: string;
   profileTokens: Record<string, ProfileToken>;
   scopes: string[];
   idToken: string | null;
@@ -87,12 +89,18 @@ export interface AccountSession {
 
 /**
  * What a reload needs that is not a credential: whether this device holds a
- * session, and the profile the page was on, which the reload's grant names.
- * The only auth state the client writes to storage.
+ * session, the profile the page was on, which the reload's grant names, and
+ * which sign-in it is. The only auth state the client writes to storage.
  */
 export interface StoredAccount {
   hasSession: boolean;
   activeProfileId: string;
+  /**
+   * A random id each sign-in on this device gets, and every later write of
+   * the same session keeps. A tab whose id is not the stored one belongs to a
+   * sign-in that has ended. Never sent anywhere.
+   */
+  signInId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,12 +108,14 @@ export interface StoredAccount {
 // ---------------------------------------------------------------------------
 
 /**
- * Reads exactly the two fields; anything else in the stored value, the tokens
- * an older client wrote included, is dropped.
+ * Reads exactly these fields; anything else in the stored value, the tokens
+ * an older client wrote included, is dropped. A value an older client wrote
+ * has no `signInId`; the reader gives it one.
  */
 const StoredAccountSchema = Schema.Struct({
   hasSession: Schema.Boolean,
   activeProfileId: Schema.String,
+  signInId: Schema.optional(Schema.String),
 });
 
 export const decodeStoredAccount = Schema.decodeUnknownSync(StoredAccountSchema);

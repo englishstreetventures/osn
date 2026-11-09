@@ -30,7 +30,11 @@ import type {
   StoredAccount,
 } from "./tokens";
 
-const ACCOUNT_SESSION_KEY = "@osn/client:account_session";
+/** The storage key of the stored account (`StoredAccount`). */
+export const ACCOUNT_SESSION_KEY = "@osn/client:account_session";
+
+/** A fresh id for a new sign-in on this device (`StoredAccount.signInId`). */
+const newSignInId = () => crypto.randomUUID();
 
 /**
  * The JS-readable marker the issuer sets next to the HttpOnly session cookie.
@@ -79,6 +83,7 @@ function sessionToAccountSession(session: Session): AccountSession {
   return {
     hasSession: true,
     activeProfileId: profileId,
+    signInId: newSignInId(),
     profileTokens: {
       [profileId]: {
         accessToken: session.accessToken,
@@ -172,6 +177,7 @@ function storedValue(account: AccountSession): string {
   const stored: StoredAccount = {
     hasSession: account.hasSession,
     activeProfileId: account.activeProfileId,
+    signInId: account.signInId,
   };
   return JSON.stringify(stored);
 }
@@ -284,6 +290,15 @@ export interface OsnAuthService {
   readonly getActiveProfile: () => Effect.Effect<string | null, StorageError>;
 
   /**
+   * Ends this page's session, with no request and without touching storage,
+   * when another tab has signed out or signed in since: the stored account is
+   * gone, or belongs to another sign-in. `createOsnAuthRuntime` calls it on
+   * every `storage` event for the stored account; every `authFetch` makes the
+   * same check first.
+   */
+  readonly checkStoredAccount: () => Effect.Effect<void, StorageError>;
+
+  /**
    * `fetch` with the active profile's access token, renewed as needed. The
    * contract is `AuthFetch`'s (`./runtime`): a token inside its renew lead is
    * renewed before the request goes out, a 401 is renewed and retried once,
@@ -362,7 +377,7 @@ export function createOsnAuthLive(
           }
           // Validate storage data against schema before consuming: any
           // script on the origin can write to it.
-          let stored: StoredAccount;
+          let stored: ReturnType<typeof decodeStoredAccount>;
           try {
             stored = decodeStoredAccount(JSON.parse(raw));
           } catch {
@@ -373,6 +388,7 @@ export function createOsnAuthLive(
           const account: AccountSession = {
             hasSession: stored.hasSession,
             activeProfileId: stored.activeProfileId,
+            signInId: stored.signInId ?? newSignInId(),
             profileTokens: {},
             scopes: [],
             idToken: null,
@@ -384,16 +400,19 @@ export function createOsnAuthLive(
         });
 
       /**
-       * Ends the session this service holds: clears the cache and the stored
+       * Ends the session this service holds: clears the cache and, unless
+       * `keepStored` (the stored account is another sign-in's), the stored
        * account, then tells the listeners — once, however many callers end it.
        * It does not call `/logout`. A refusal means the issuer has already let
        * the session go, and the session marker is the issuer's to retract.
        */
-      const endSession = () =>
+      const endSession = (keepStored = false) =>
         Effect.gen(function* () {
           const held = cache !== null && cache !== undefined;
           cache = null;
-          yield* storage.remove(ACCOUNT_SESSION_KEY).pipe(Effect.catch(() => Effect.void));
+          if (!keepStored) {
+            yield* storage.remove(ACCOUNT_SESSION_KEY).pipe(Effect.catch(() => Effect.void));
+          }
           if (held) notify({ kind: "ended" });
         });
 
@@ -403,8 +422,10 @@ export function createOsnAuthLive(
        * Tabs share the stored account but nothing else: each holds its own
        * tokens in memory and acts as the profile its own screen shows, so
        * neither is taken from storage. A stored account that has gone means
-       * another tab signed out or saw the session end, so it ends here too,
-       * with no request.
+       * another tab signed out or saw the session end; one with another
+       * sign-in id means another tab signed out and someone signed in since.
+       * Either way the session ends here too, with no request, and a new
+       * sign-in's stored account is left alone.
        */
       const syncFromStorage = () =>
         Effect.gen(function* () {
@@ -415,6 +436,16 @@ export function createOsnAuthLive(
           const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
           if (raw === null) {
             yield* endSession();
+            return null;
+          }
+          let stored: ReturnType<typeof decodeStoredAccount> | null = null;
+          try {
+            stored = decodeStoredAccount(JSON.parse(raw));
+          } catch {
+            // Unreadable: it says nothing about which sign-in is stored.
+          }
+          if (stored && stored.signInId !== account.signInId) {
+            yield* endSession(true);
             return null;
           }
           return account;
@@ -881,7 +912,9 @@ export function createOsnAuthLive(
       // `wanted` is the profile the page was on before the reload; the
       // issuer mints for it while the account owns it, and for the default
       // profile otherwise.
-      const doBootstrap = (wanted: string | undefined) =>
+      // `signInId` is the stored account's on a reload; a cold start with no
+      // stored account begins a new one.
+      const doBootstrap = (wanted: string | undefined, signInId: string | undefined) =>
         Effect.gen(function* () {
           const next = yield* sharedTokenGrant(wanted);
 
@@ -890,6 +923,7 @@ export function createOsnAuthLive(
           const account: AccountSession = {
             hasSession: true,
             activeProfileId: profileId,
+            signInId: signInId ?? newSignInId(),
             profileTokens: {
               [profileId]: {
                 accessToken: next.accessToken,
@@ -903,11 +937,11 @@ export function createOsnAuthLive(
           return next;
         });
 
-      const bootstrapFromCookie = (wanted?: string) =>
+      const bootstrapFromCookie = (wanted?: string, signInId?: string) =>
         Effect.gen(function* () {
           if (!inFlightBootstrap) {
             const promise = Effect.runPromise(
-              Effect.result(doBootstrap(wanted)),
+              Effect.result(doBootstrap(wanted, signInId)),
             ) as Promise<RefreshResult>;
             inFlightBootstrap = promise;
             void promise.finally(() => {
@@ -971,7 +1005,10 @@ export function createOsnAuthLive(
           // session, the refresh cookie should rehydrate it, as the profile
           // the page was on.
           if (account.hasSession) {
-            return yield* bootstrapFromCookie(account.activeProfileId || undefined);
+            return yield* bootstrapFromCookie(
+              account.activeProfileId || undefined,
+              account.signInId,
+            );
           }
           return null;
         });
@@ -1261,6 +1298,8 @@ export function createOsnAuthLive(
           return account?.activeProfileId || null;
         });
 
+      const checkStoredAccount = () => Effect.asVoid(syncFromStorage());
+
       return {
         getSession,
         loadSession,
@@ -1273,6 +1312,7 @@ export function createOsnAuthLive(
         createProfile,
         deleteProfile,
         getActiveProfile,
+        checkStoredAccount,
         authFetch,
       };
     }),

@@ -179,6 +179,7 @@ describe("the stored account", () => {
       expect(JSON.parse(value)).toEqual({
         hasSession: true,
         activeProfileId: expect.any(String),
+        signInId: expect.any(String),
       });
     }
   });
@@ -199,7 +200,11 @@ describe("the stored account", () => {
     const res = await runtime.authFetch(API);
 
     expect(res.status).toBe(200);
-    expect(read(storage)).toEqual({ hasSession: true, activeProfileId: DEFAULT });
+    expect(read(storage)).toEqual({
+      hasSession: true,
+      activeProfileId: DEFAULT,
+      signInId: expect.any(String),
+    });
     expect(fetches.to("/token")).toHaveLength(1);
     expect(bearer(fetches.api()[0])).not.toBe(`Bearer ${stale}`);
   });
@@ -274,6 +279,6 @@ describe("the stored account", () => {
     expect(await run(page(storage), (auth) => auth.loadSession())).toBeNull();
 
     expect(fetches.to("/token")).toHaveLength(3);
-    expect(read(storage)).toEqual({ hasSession: true, activeProfileId: DEFAULT });
+    expect(read(storage)).toMatchObject({ hasSession: true, activeProfileId: DEFAULT });
   });
 });

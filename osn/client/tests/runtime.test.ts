@@ -61,7 +61,15 @@ interface Seed {
 interface StoredAccount {
   readonly hasSession: boolean;
   readonly activeProfileId: string;
+  readonly signInId?: string;
 }
+
+/** The stored account for `active`, under whatever sign-in id the page gave it. */
+const storedFor = (active: string) => ({
+  hasSession: true,
+  activeProfileId: active,
+  signInId: expect.any(String),
+});
 
 function json(status: number, body: unknown = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -527,7 +535,7 @@ describe("authFetch on the page's runtime", () => {
     expect(fetches.to("/token")).toHaveLength(2);
     expect(bearerSub(fetches.api()[1])).toBe(DEFAULT);
     expect(bearer(fetches.api()[1])).not.toBe(bearer(fetches.api()[0]));
-    expect(second.stored()).toEqual({ hasSession: true, activeProfileId: DEFAULT });
+    expect(second.stored()).toEqual(storedFor(DEFAULT));
   });
 
   it("F16: the stored account removed by another runtime ends this one's session with no request", async () => {
@@ -597,7 +605,7 @@ describe("authFetch on the page's runtime", () => {
     expect(isAuthExpiredError(err)).toBe(false);
     expect(fetches.api()).toHaveLength(0);
     expect(changes).toEqual([]);
-    expect(stored()).toEqual({ hasSession: true, activeProfileId: DEFAULT });
+    expect(stored()).toEqual(storedFor(DEFAULT));
   });
 
   it.each([
@@ -711,21 +719,81 @@ describe("authFetch on the page's runtime", () => {
     expect(bearerSub(fetches.api()[0])).toBe(DEFAULT);
   });
 
-  it("F30: a sync never takes another tab's active profile", async () => {
+  it("F30: a sync never takes another tab's active profile, and a switch there ends nothing here", async () => {
     const fetches = stubFetch({});
     const storage = createEphemeralStorage();
     const ours = token(DEFAULT, 120_000);
     const { runtime } = await harness({ active: DEFAULT, token: ours }, storage);
     await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getSession()));
 
-    // Another tab switched to OTHER.
-    write(storage, { hasSession: true, activeProfileId: OTHER });
+    // Another tab, on the same sign-in, switched to OTHER.
+    write(storage, { ...read(storage)!, activeProfileId: OTHER });
     await runtime.authFetch(API);
 
     expect(bearerSub(fetches.api()[0])).toBe(DEFAULT);
     expect(bearer(fetches.api()[0])).toBe(`Bearer ${ours.accessToken}`);
     expect(fetches.to("/token")).toHaveLength(0);
     expect(fetches.to("/profiles/switch")).toHaveLength(0);
+  });
+
+  it("F44: another tab's sign-out and new sign-in end this tab's session before it sends", async () => {
+    const fetches = stubFetch({});
+    const storage = createEphemeralStorage();
+    const { runtime, changes } = await harness(
+      { active: DEFAULT, token: token(DEFAULT, 120_000) },
+      storage,
+    );
+    const other = await harness(undefined, storage);
+
+    // The other tab signs out, and someone signs in there before this tab sends.
+    await other.runtime.run(
+      Effect.flatMap(OsnAuth, (auth) => auth.logout()).pipe(Effect.catch(() => Effect.void)),
+    );
+    await other.runtime.run(
+      Effect.flatMap(OsnAuth, (auth) =>
+        auth.setSession({
+          accessToken: token(OTHER, 120_000).accessToken,
+          idToken: null,
+          expiresAt: Date.now() + 120_000,
+          scopes: [],
+        }),
+      ),
+    );
+    const theirs = read(storage);
+    const err = await rejection(runtime.authFetch(API));
+
+    expect(isAuthExpiredError(err)).toBe(true);
+    expect(fetches.api()).toHaveLength(0);
+    expect(fetches.to("/token")).toHaveLength(0);
+    expect(changes).toEqual([{ kind: "ended" }]);
+    // The new sign-in's account is left where it is.
+    expect(read(storage)).toEqual(theirs);
+    expect(theirs?.activeProfileId).toBe(OTHER);
+  });
+
+  it("F44b: a storage event for the account ends the session at once when another tab signed in", async () => {
+    let onStorage: ((event: { key: string | null }) => void) | undefined;
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, listener: (event: { key: string | null }) => void) => {
+        if (type === "storage") onStorage = listener;
+      },
+    });
+    stubFetch({});
+    const storage = createEphemeralStorage();
+    const { runtime, changes } = await harness(
+      { active: DEFAULT, token: token(DEFAULT, 120_000) },
+      storage,
+    );
+    await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getSession()));
+
+    // An unrelated key changes nothing.
+    onStorage?.({ key: "osn-theme" });
+    await vi.waitFor(() => expect(onStorage).toBeDefined());
+    write(storage, { hasSession: true, activeProfileId: OTHER, signInId: "another-sign-in" });
+    onStorage?.({ key: KEY });
+
+    await vi.waitFor(() => expect(changes).toEqual([{ kind: "ended" }]));
+    expect(read(storage)?.signInId).toBe("another-sign-in");
   });
 
   it("F31: concurrent refusals end the session once, and a throwing listener stops no other", async () => {

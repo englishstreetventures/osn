@@ -1,7 +1,7 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 
 import { AuthFetchTransportError } from "./errors";
-import { OsnAuth, createOsnAuthLive, type OsnAuthConfig } from "./service";
+import { ACCOUNT_SESSION_KEY, OsnAuth, createOsnAuthLive, type OsnAuthConfig } from "./service";
 import { StorageLive, type Storage } from "./storage";
 
 /**
@@ -92,6 +92,16 @@ export function createOsnAuthRuntime(
     run(Effect.flatMap(OsnAuth, (auth) => auth.authFetch(input, init))).catch((err: unknown) => {
       throw err instanceof AuthFetchTransportError ? err.cause : err;
     });
+
+  // A browser tells every other tab when one changes the stored account, or
+  // clears storage (`key` null). A sign-out there, or a sign-in after it,
+  // ends this page's session at once rather than at its next request.
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("storage", (event: { key: string | null }) => {
+      if (event.key !== null && event.key !== ACCOUNT_SESSION_KEY) return;
+      run(Effect.flatMap(OsnAuth, (auth) => auth.checkStoredAccount())).catch(() => undefined);
+    });
+  }
 
   return {
     authFetch,
