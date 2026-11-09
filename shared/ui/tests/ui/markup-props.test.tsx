@@ -59,6 +59,10 @@ describe("the menu's, the popover's, the chip's and the badge's parts", () => {
         <Chip title="Owners can change anything">Owner</Chip>
         {/* @ts-expect-error — markup is not a badge's prop: its label is children. */}
         <Badge innerHTML="<img src=x onerror=alert(1)>" />
+        {/* @ts-expect-error — nor is text written over its label. */}
+        <Badge textContent="Owner" />
+        {/* @ts-expect-error — nor is text written over its label as plain text. */}
+        <Badge innerText="Owner" />
       </>
     );
     expect(typeof refused).toBe("function");

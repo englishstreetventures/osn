@@ -60,19 +60,7 @@ function weights(parent: HTMLElement): string[] {
 }
 
 describe("Badge's weight", () => {
-  it.each(CASES)(
-    "$variant, treatment $treatment, is 600 with no token set",
-    ({ variant, treatment }) => {
-      render(() => (
-        <Badge variant={variant} treatment={treatment} data-testid="badge">
-          Sold out
-        </Badge>
-      ));
-      expect(getComputedStyle(screen.getByTestId("badge")).fontWeight).toBe("600");
-    },
-  );
-
-  it("follows `--ui-weight-title` set on an ancestor, in every variant and treatment", async () => {
+  it("is 600 with no token set, and follows `--ui-weight-title` set on an ancestor, in every variant and treatment", async () => {
     render(() => (
       <div data-testid="frame" class="flex gap-6">
         <AllBadges testId="unset" />
