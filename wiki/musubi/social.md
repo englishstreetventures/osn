@@ -259,8 +259,10 @@ the build:
 | `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the `pages.dev` redirect and the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
 | `connect-src` | `'self'` and the issuer origin from `VITE_OSN_ISSUER_URL` (`http://localhost:4000` when unset, as `src/lib/auth.ts` reads it) |
 
-No `'unsafe-inline'`, no `'unsafe-eval'` and no `default-src`, so styles, images
-and frames are as before. An edit to either inline script changes its hash with
+No `'unsafe-inline'`, no `'unsafe-eval'` and no `default-src`, so styles, images,
+frames and navigation are as before: the policy limits where script comes from
+and where `fetch`, XHR, WebSocket and `sendBeacon` go, and an injected script
+can still send data off the page through an image, a frame or a navigation. An edit to either inline script changes its hash with
 it. The build fails on an issuer URL that is not http(s), whose host is not a
 plain DNS name, or that is plain http off this machine; on a bundle with no
 script that calls the issuer the policy names; and on a committed `_headers`

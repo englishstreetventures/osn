@@ -177,20 +177,21 @@ Two profile management endpoints:
 | Where | Shape | Holds |
 |-------|-------|-------|
 | The service's memory | `AccountSession` | Active profile ID, per-profile access tokens, scopes, ID token |
-| `localStorage` key `@osn/client:account_session` | `StoredAccount` JSON | `hasSession` and the active profile ID — nothing else |
+| `localStorage` key `@osn/client:account_session` | `StoredAccount` JSON | `hasSession`, the active profile ID and the sign-in's id — nothing else |
 
 ```typescript
 interface StoredAccount {
   hasSession: boolean;      // this device holds a session cookie, as far as the client knows
   activeProfileId: string;  // the profile the page was on; a reload's grant names it
+  signInId: string;         // random, one per sign-in on this device; never sent anywhere
 }
 ```
 
 **Design decisions:**
 - No credential is written to storage. Page script reads `localStorage` as easily as the page does, so a token there is a token any injected script can take elsewhere. A reload gets its token from the HttpOnly session cookie instead ([[#Session load on mount — durable refresh across reloads]]).
 - Every write goes through `saveAccountSession`, which keeps the full session in memory and writes only the `StoredAccount` cut.
-- Every read is validated against Effect Schema (`decodeStoredAccount`), which takes the two fields and nothing else; malformed data is removed rather than consumed. A stored value with more fields — an older client's tokens — is rewritten as the two fields on the first read, and no token is ever read from storage.
-- Tabs share the stored account but nothing in memory: each holds its own tokens and renews for itself, and acts as the profile its own screen shows. A stored account another tab removed ends this tab's session at its next request ([[sessions#Renewal in the browser]]).
+- Every read is validated against Effect Schema (`decodeStoredAccount`), which takes those fields and nothing else; malformed data is removed rather than consumed. A stored value with more fields — an older client's tokens — is rewritten without them on the first read (an older value with no `signInId` gets one), and no token is ever read from storage.
+- Tabs share the stored account but nothing in memory: each holds its own tokens and renews for itself, and acts as the profile its own screen shows. A sign-in (`setSession`) or a cold-start bootstrap begins a new `signInId`; a reload, a renewal and a profile switch keep it. A tab ends its session, with no request and leaving storage alone, when the stored account is gone or carries another `signInId` — another tab signed out, and perhaps someone signed in since. The runtime checks on every `storage` event for the key (`checkStoredAccount`) and `authFetch` before every request ([[sessions#Renewal in the browser]]).
 - Expired tokens of profiles other than the active one are pruned from memory on every save.
 - iOS passes `createEphemeralStorage()`, so not even the stored account reaches disk there.
 
