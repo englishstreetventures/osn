@@ -159,8 +159,8 @@ part sets a short title or a tag in, one step over body text. An app maps
 declares as `--font-weight-ui-title: var(--ui-weight-title, 600)` in its
 `@theme inline` block. Tailwind tells it apart from the `font-ui-*` families by
 the key: `--font-weight-*` builds a weight utility, `--font-*` a family. The
-fallback, 600, is the weight those parts drew at before the token, so an app
-that maps nothing draws as it did. `@shared/ui`'s `Badge` reads it
+fallback is 600, Tailwind's `font-semibold`, so an app that maps nothing sets
+those parts semibold. `@shared/ui`'s `Badge` reads it
 ([[component-library]], §Variant components). No app maps it: pulse, musubi and
 the lab all draw a badge at 600. `shared/ui/tests/badge-default.browser.test.tsx`
 holds the unmapped badge's whole computed style, and pulse's

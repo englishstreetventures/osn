@@ -184,10 +184,9 @@
   /* ── Type weight ──────────────────────────────────────────────────────────
    * `title` is a role, not a step on a scale: the weight a shared part sets a
    * short title or a tag in, one step over body text. `Badge`'s label reads it
-   * through `font-ui-title`. The fallback is 600, the weight those parts drew
-   * at before the token existed, so an app that maps nothing draws as it did;
-   * an app whose house style stops at 500 maps the token once and every part
-   * that reads it follows. The `font-` namespace is shared with the families
+   * through `font-ui-title`. The fallback is 600, Tailwind's `font-semibold`,
+   * so an app that maps nothing sets them semibold; an app whose house style
+   * stops at 500 maps the token once and every part that reads it follows. The `font-` namespace is shared with the families
    * above, and Tailwind tells the two apart by the key: `--font-weight-*` is a
    * weight, `--font-*` a family. */
   --font-weight-ui-title: var(--ui-weight-title, 600);

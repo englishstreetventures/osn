@@ -73,8 +73,8 @@ export const CONTRACT_SCALAR_TOKENS = {
   ],
   fontFamily: ["--ui-font-body", "--ui-font-display", "--ui-font-mono"],
   // A role, not a step: the weight a shared part sets a short title or a tag
-  // in — `Badge`'s label today — one step over body text. It falls back to
-  // 600, so an app that does not map it draws what it drew before the token.
+  // in — `Badge`'s label — one step over body text. It falls back to 600,
+  // Tailwind's `font-semibold`.
   fontWeight: ["--ui-weight-title"],
   focus: ["--ui-focus-width", "--ui-focus-offset"],
   motion: [
