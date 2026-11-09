@@ -5,11 +5,13 @@
  * load, add and remove an authenticator app behind passkey step-ups, keep the
  * session past its access token's expiry, list the connected apps, sign the
  * page out — and say so — when the issuer refuses to renew it, sign out a
- * reload that has no cookie, and sign in to Pulse through Musubi's
- * `/authorize`. Signed in, before the authenticator steps, it measures and
- * shoots Musubi's base styles and the notices the shell draws
- * (`musubi-surfaces.ts`); signed out by the refused renewal, the signed-out
- * note's Sign in; on the consent screen, its first-party mark.
+ * reload that has no cookie, sign in to Pulse through Musubi's `/authorize`,
+ * then open a third-party client's consent screen and leave it undecided.
+ * Signed in, before the authenticator steps, it measures and shoots Musubi's
+ * base styles and the notices the shell draws (`musubi-surfaces.ts`); signed
+ * out by the refused renewal, the signed-out note's Sign in; on Pulse's
+ * consent screen, its first-party mark and the chosen profile's name; on the
+ * third-party one, its "Third-party app" chip and its scope rows.
  *
  * The failures are made by answering one osn-api route in the page
  * (`refuse`), so no limiter or session on the stack is spent on them. Every
@@ -29,7 +31,7 @@
 
 import type { Request, Response, Route } from "@playwright/test";
 
-import { ORIGINS, PEOPLE, TURNSTILE_ORIGIN } from "../../src/config";
+import { ORIGINS, PEOPLE, THIRD_PARTY_OIDC, TURNSTILE_ORIGIN } from "../../src/config";
 import {
   addVirtualAuthenticator,
   cookieNamed,
@@ -40,6 +42,7 @@ import {
   totpCode,
 } from "../support/fixtures";
 import {
+  authorizeThirdPartySurfaces,
   authorizeVerifiedSurfaces,
   musubiNotice,
   musubiSurfaces,
@@ -610,7 +613,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByText("Verified by Musubi")).toBeVisible();
-    await authorizeVerifiedSurfaces(flow, page);
+    await authorizeVerifiedSurfaces(flow, page, ada.name);
     await page.getByRole("button", { name: "Allow" }).click();
     await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
   });
@@ -626,6 +629,28 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     true,
     turnstileAfter.script > turnstileBefore.script && turnstileAfter.frame > turnstileBefore.frame,
   );
+
+  // A third-party client always asks for consent. Signed in to OSN by the step
+  // above, the browser goes from osn-api straight to the consent screen. The
+  // flow reads it and leaves without deciding, so the client's redirect URI is
+  // never loaded.
+  await flow.step("open a third-party client's consent screen", async () => {
+    const request = new URLSearchParams({
+      client_id: THIRD_PARTY_OIDC.clientId,
+      redirect_uri: THIRD_PARTY_OIDC.redirectUri,
+      response_type: "code",
+      scope: "openid profile",
+      state: "e2e-third-party",
+      // RFC 7636's example challenge: any 43-character S256 value is accepted
+      // here, and no code is ever redeemed against it.
+      code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+      code_challenge_method: "S256",
+    });
+    await page.goto(`${ORIGINS.osnApi}/authorize?${request}`);
+    await expect(page).toHaveURL(new RegExp(`^${ORIGINS.musubi}/authorize\\?`));
+    await expect(page.getByText("Third-party app", { exact: true })).toBeVisible();
+  });
+  await authorizeThirdPartySurfaces(flow, page);
   flow.check(
     "no Content-Security-Policy message on a Musubi page",
     "",

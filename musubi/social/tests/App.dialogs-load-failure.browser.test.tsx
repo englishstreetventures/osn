@@ -9,7 +9,8 @@ import "../src/App.css";
  * The shell dialogs' chunk fails to load. The shell waits for it as well as
  * for its own chunk, so it never offers a Sign in that cannot open: the rail's
  * frame stays and says to reload, and the page beside it still renders. The
- * page's signed-out note holds its Sign in back too, keeping its place.
+ * page's signed-out note holds its Sign in back too, keeping its place: the
+ * note is as tall then as once the button shows.
  *
  * Then the network comes back and the window crosses 768px. The phone shell
  * loads the chunk again, and once it draws, its Sign in opens the dialog: the
@@ -106,6 +107,8 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
   // Neither the shell's Sign in nor the note's: the dialog it opens is not there.
   expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   expect(screen.getByRole("status").textContent).toBe("Sign in to discover people.");
+  const note = screen.getByRole("status").parentElement!;
+  const heldBack = note.getBoundingClientRect().height;
   expect(screen.getByRole("heading", { name: "Discover" })).toBeDefined();
   expect(document.querySelector("main")!.getBoundingClientRect().left).toBe(504);
   await page.screenshot({ path: "../../../e2e-artifacts/musubi-shell/dialogs-failed-1440.png" });
@@ -126,4 +129,17 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
   expect(inNote[0]!.closest("output")).toBeNull();
   await userEvent.click(signIn);
   await waitFor(() => expect(screen.getByRole("dialog", { name: "Sign in" })).toBeDefined());
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  // Back at the first width, where the rail now draws its own Sign in: the
+  // note's button shows in the room it held, so the note is no taller.
+  await page.viewport(1440, 900);
+  await waitFor(() => {
+    const inRail = screen
+      .queryAllByRole("button", { name: "Sign in" })
+      .find((b) => b.closest("aside"));
+    expect(inRail).toBeDefined();
+  });
+  expect(note.getBoundingClientRect().height).toBe(heldBack);
 });

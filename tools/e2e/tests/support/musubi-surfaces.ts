@@ -20,8 +20,9 @@
  * The exports after it check the call sites that draw from shared parts, from
  * the flows that already reach them: `musubi-org-detail` the organisation
  * dialogs, list rows, roster, a search result and `/authorize`'s dead end;
- * `musubi-passkey` the signed-out note and the consent screen's first-party
- * mark. Each puts back the viewport and scheme it found.
+ * `musubi-passkey` the signed-out note, the first-party consent screen's mark
+ * and chosen profile, and the third-party consent screen's chip and scope
+ * rows. Each puts back the viewport and scheme it found.
  */
 
 import { mkdirSync } from "node:fs";
@@ -660,6 +661,12 @@ export async function orgListSurfaces(flow: Flow, page: Page, link: Locator): Pr
       "16px",
       await computed(card, "border-top-left-radius"),
     );
+    // The loading placeholder (`OrganisationsPage.tsx`) takes the row's shape.
+    flow.check(
+      "organisations: a row is as tall as its loading placeholder",
+      await probed(link, "block h-18.5", "height"),
+      await computed(link, "height"),
+    );
     // The card keeps its fill under the pointer; the chevron marks the hover.
     const chevron = card.locator("svg");
     await link.hover();
@@ -685,7 +692,8 @@ export async function orgListSurfaces(flow: Flow, page: Page, link: Locator): Pr
 /**
  * An organisation's roster: a member's name at title size and 500, and the
  * role as an outlined `Chip` tag — pill corner, hairline edge, secondary ink,
- * 12px, set as written.
+ * 12px, set as written — reading "Admin" for the owner and "Member" for the
+ * member, never the API's raw value.
  */
 export async function orgRosterSurfaces(flow: Flow, page: Page, memberName: string): Promise<void> {
   const main = page.getByRole("main");
@@ -726,6 +734,11 @@ export async function orgRosterSurfaces(flow: Flow, page: Page, memberName: stri
     "roster: the role chip reads in sentence case",
     "Member",
     (await chip.textContent()) ?? "",
+  );
+  flow.check(
+    "roster: the owner's role reads Admin",
+    1,
+    await main.getByText("Admin", { exact: true }).count(),
   );
   await restoring(page, () =>
     flow.step("surfaces: shoot the organisation's roster", () =>
@@ -793,8 +806,16 @@ export async function authorizeDeadSurfaces(flow: Flow, page: Page): Promise<voi
   });
 }
 
-/** `/authorize`'s "Verified by Musubi" line: a `text-meta` line at 500. */
-export async function authorizeVerifiedSurfaces(flow: Flow, page: Page): Promise<void> {
+/**
+ * `/authorize`'s consent screen for a first-party client: "Verified by Musubi"
+ * a `text-meta` line at 500, and the chosen profile's name at title size and
+ * 500.
+ */
+export async function authorizeVerifiedSurfaces(
+  flow: Flow,
+  page: Page,
+  profileName: string,
+): Promise<void> {
   const verified = page.getByText("Verified by Musubi", { exact: true });
   flow.check(
     "authorize: the first-party mark takes text-meta at 500",
@@ -806,6 +827,58 @@ export async function authorizeVerifiedSurfaces(flow: Flow, page: Page): Promise
     "12px",
     await computed(verified, "font-size"),
   );
+  const name = page.getByText(profileName, { exact: true });
+  flow.check(
+    "authorize: the chosen profile's name is at title size and 500",
+    await probedType(name, "text-title font-medium"),
+    await type(name),
+  );
+}
+
+/**
+ * `/authorize`'s consent screen for a third-party client: "Third-party app" an
+ * outlined `Chip` tag — pill corner, hairline edge — whose word keeps 500 at
+ * 12px, and each scope row a `Card` on the card's fill in both themes.
+ */
+export async function authorizeThirdPartySurfaces(flow: Flow, page: Page): Promise<void> {
+  const word = page.getByText("Third-party app", { exact: true });
+  const chip = word.locator("xpath=..");
+  flow.check("authorize: the third-party mark is 12px at 500", "12px 500", await type(word));
+  flow.check(
+    "authorize: the third-party chip takes the pill corner",
+    await probed(chip, "rounded-pill", "border-top-left-radius"),
+    await computed(chip, "border-top-left-radius"),
+  );
+  flow.check(
+    "authorize: the third-party chip draws a 1px edge",
+    "1px",
+    await computed(chip, "border-top-width"),
+  );
+  flow.check(
+    "authorize: the third-party chip's edge is the hairline",
+    await painted(chip, "var(--border)"),
+    await computed(chip, "border-top-color"),
+  );
+  const scopeRow = page.getByRole("listitem").first().locator(":scope > div");
+  await restoring(page, async () => {
+    for (const colorScheme of SCHEMES) {
+      await at(page, DESKTOP, colorScheme, true);
+      await settled(scopeRow);
+      flow.check(
+        `authorize (${colorScheme}): a scope row takes the card's fill`,
+        await painted(scopeRow, "var(--card)"),
+        await computed(scopeRow, "background-color"),
+      );
+    }
+    flow.check(
+      "authorize: a scope row takes the 16px card corner",
+      "16px",
+      await computed(scopeRow, "border-top-left-radius"),
+    );
+    await flow.step("surfaces: shoot /authorize's third-party consent", () =>
+      shoot(page, "authorize-third-party", () => expect(word).toBeVisible(), { bare: true }),
+    );
+  });
 }
 
 /**
