@@ -1,8 +1,11 @@
 /**
  * `OtpInput` in real Chromium: what a DOM shim cannot see.
  *
- * - Geometry. Six boxes share the column's width and never pass 48px, so the
- *   row fits a 320px phone and is unchanged on a desktop.
+ * - Geometry. Six boxes share the column's width and never pass 48px; the gaps
+ *   close from 8px to 4px before the boxes shrink, so the boxes keep Musubi's
+ *   40px touch floor down to a 260px column, the row fits a 320px phone, and a
+ *   desktop row is unchanged.
+ * - The empty box's edge reads at 3:1 on Musubi's light and dark grounds.
  * - Names and errors as Chrome hands them to a screen reader (its
  *   accessibility tree over CDP, the pattern in `tooltip.browser.test.tsx`).
  * - Focus. `autofocus` and the refocus after an error both wait one task and
@@ -11,8 +14,9 @@
  *   and re-enables them in a `finally`. Inside a Kobalte dialog the wait also
  *   lets the dialog's own first-focus run first.
  * - Input. The value is a digit string with no gaps; typing over a digit
- *   replaces it; Delete and cut remove one; an autofill of the whole code is
- *   taken whole.
+ *   replaces it; Backspace, Delete and cut remove one; an input that leaves the
+ *   value as it was puts the box back; arrow keys move focus but never past the
+ *   first empty box; an autofill of the whole code is taken whole.
  * - The focus mark: the text field's ring outside a contrast theme, and an
  *   outline the theme paints on the focused box only inside one.
  */
@@ -119,6 +123,33 @@ function paint(token: string): string {
   return colour;
 }
 
+/** The sRGB pixel a colour paints over a ground, read back from a canvas. */
+function composite(color: string, ground: string): [number, number, number] {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return [r!, g!, b!];
+}
+
+function luminance([r, g, b]: [number, number, number]): number {
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function contrast(a: [number, number, number], b: [number, number, number]): number {
+  const [la, lb] = [luminance(a), luminance(b)];
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
 afterEach(async () => {
   await emulateMedia({ forcedColors: "none" });
   for (const d of document.querySelectorAll("dialog[open]")) (d as HTMLDialogElement).close();
@@ -163,19 +194,66 @@ describe("OtpInput geometry", () => {
     expect(rects[0]!.left).toBe(group().getBoundingClientRect().left);
   });
 
-  it("keeps every box 48px tall and at least 24px wide in a 212px column", async () => {
+  /** Each box's width and height, and the gaps between them, in a column of `width`. */
+  async function rowIn(width: string) {
     await page.viewport(320, 700);
     render(() => (
-      <div style={{ width: "212px" }}>
+      <div style={{ width }}>
         <OtpInput value="" onChange={() => {}} />
       </div>
     ));
-    for (const b of boxes()) {
-      const r = b.getBoundingClientRect();
-      expect(r.height).toBe(48);
-      expect(r.width).toBeGreaterThanOrEqual(24);
-    }
+    const rects = boxes().map((b) => b.getBoundingClientRect());
+    return {
+      widths: rects.map((r) => r.width),
+      heights: rects.map((r) => r.height),
+      gaps: rects.slice(1).map((r, i) => r.left - rects[i]!.right),
+    };
+  }
+
+  it("closes the gaps before the boxes shrink: 48px boxes 6px apart in a 318px column", async () => {
+    const { widths, gaps } = await rowIn("318px");
+    expect(widths).toEqual(Array(6).fill(48));
+    for (const gap of gaps) expect(gap).toBeCloseTo(6, 1);
   });
+
+  // Musubi's touch floor (`musubi/social/DESIGN.md` §Responsive layout).
+  it("keeps every box 40px wide and 48px tall in a 260px column, 4px apart", async () => {
+    const { widths, heights, gaps } = await rowIn("260px");
+    for (const width of widths) expect(width).toBeGreaterThanOrEqual(40);
+    expect(heights).toEqual(Array(6).fill(48));
+    for (const gap of gaps) expect(gap).toBeCloseTo(4, 1);
+  });
+
+  // Under 260px a host has broken the touch floor; the row still fits, and
+  // stays over WCAG's 24px minimum target.
+  it("keeps every box 48px tall and 32px wide in a 212px column", async () => {
+    const { widths, heights } = await rowIn("212px");
+    expect(heights).toEqual(Array(6).fill(48));
+    for (const width of widths) expect(width).toBeCloseTo(32, 1);
+  });
+});
+
+describe("OtpInput edge", () => {
+  // Musubi's light and dark palettes (`musubi/social/src/App.css`): the box is
+  // filled with the ground, and the sign-up sheet around it is `--card`.
+  const themes = [
+    { theme: "light", ink: "#292929", ground: "#ffffff", around: "#ffffff" },
+    { theme: "dark", ink: "#f2f2f2", ground: "#1c1c1c", around: "#242424" },
+  ];
+
+  it.each(themes)(
+    "draws an empty box's edge at 3:1 against its fill and its surround ($theme)",
+    ({ ink, ground, around }) => {
+      render(() => (
+        <div style={{ "--ui-ink": ink, "--ui-ground": ground, background: around }}>
+          <OtpInput value="" onChange={() => {}} />
+        </div>
+      ));
+      const edge = composite(getComputedStyle(box(1)).borderTopColor, ground);
+      expect(contrast(edge, composite(ground, ground))).toBeGreaterThanOrEqual(3);
+      expect(contrast(edge, composite(around, around))).toBeGreaterThanOrEqual(3);
+    },
+  );
 });
 
 describe("OtpInput names and errors", () => {
@@ -345,6 +423,52 @@ describe("OtpInput input", () => {
     expect(onChange).toHaveBeenLastCalledWith("12456");
     expect(shown()).toEqual(["1", "2", "4", "5", "6", ""]);
     expect(document.activeElement).toBe(box(3));
+  });
+
+  // Chrome's own Backspace would delete again from the box the handler has just
+  // rewritten, taking a second digit.
+  it("Backspace on a filled box removes its digit and moves the later digits left", async () => {
+    const { onChange } = mountControlled("123456");
+    await userEvent.click(box(3));
+    await userEvent.keyboard("{Backspace}");
+    expect(onChange).toHaveBeenLastCalledWith("12456");
+    expect(shown()).toEqual(["1", "2", "4", "5", "6", ""]);
+    expect(document.activeElement).toBe(box(3));
+  });
+
+  it("Backspace on the first empty box removes the digit before it and moves there", async () => {
+    const { onChange } = mountControlled("12");
+    box(3).focus();
+    await userEvent.keyboard("{Backspace}");
+    expect(onChange).toHaveBeenLastCalledWith("1");
+    expect(shown()).toEqual(["1", "", "", "", "", ""]);
+    expect(document.activeElement).toBe(box(2));
+  });
+
+  it("an input that leaves the value as it was puts the box's text back", async () => {
+    const { onChange } = mountControlled("123");
+    await userEvent.click(box(2));
+    await userEvent.keyboard("2");
+    expect(shown()).toEqual(["1", "2", "3", "", "", ""]);
+    const calls = onChange.mock.calls.length;
+    await userEvent.keyboard("a");
+    expect(shown()).toEqual(["1", "2", "3", "", "", ""]);
+    expect(onChange).toHaveBeenCalledTimes(calls);
+  });
+
+  it("arrow keys move focus a box at a time, never past the first empty box", async () => {
+    mountControlled("123");
+    box(2).focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(document.activeElement).toBe(box(1));
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(document.activeElement).toBe(box(1));
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    expect(document.activeElement).toBe(box(3));
+    await userEvent.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(box(4));
+    await userEvent.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(box(4));
   });
 
   // What Chrome fires after a cut empties the box. A real clipboard cut needs a

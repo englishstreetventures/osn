@@ -1212,19 +1212,41 @@ authenticator enrolment (`TotpView`).
 | Prop | What it does |
 |---|---|
 | `value`, `onChange` | Controlled: a digit string of up to six, with no gaps. The caller's value follows `onChange` in the same tick |
-| `status` | `idle` (default), `error`, `verifying`, `accepted`. `verifying` and `accepted` disable the boxes. `error` paints every border `--ui-danger`, sets `aria-invalid` on every box and refocuses box 1; `accepted` paints `--ui-success`; otherwise `--ui-hairline` |
+| `status` | `idle` (default), `error`, `verifying`, `accepted`. `verifying` and `accepted` disable the boxes. `error` paints every border `--ui-danger`, sets `aria-invalid` on every box and refocuses box 1; `accepted` paints `--ui-success`; otherwise `--ui-ink` at 55% (below) |
 | `disabled` | Disables every box |
 | `autofocus` | Focuses box 1 once it is mounted and enabled (below) |
 | `aria-labelledby` | `id` of the visible label. The group is named by it and box N is `<label> Digit N`. Without it the group is "Verification code" and box N "Digit N" |
 | `aria-describedby` | `id`s of the lines that describe the code (its error, a hint), set on every box |
 
-**Geometry.** The group is a `<fieldset>` with its browser box cleared; it fills its column and the boxes share it: each grows to
-48px and no further, 8px apart, 48px tall at every width. From a 328px column
-up the row is six 48px squares from the left edge; in the narrowest host, a
-212px column on a 320px phone, the boxes are about 28px wide. Height stays
-48px rather than following the width (`aspect-square`), which would make those
-boxes 28px tall, under a touch target's floor. The digit is `text-ui-md`,
-16px, the size under which iOS zooms a field on focus.
+**Geometry.** The group is a `<fieldset>` with its browser box cleared; it
+fills its column and the boxes share it, each growing to 48px and no further,
+48px tall at every width. From a 328px column up the row is six 48px squares
+8px apart from the left edge. Narrower, the gaps close first, to 4px at a
+308px column, while the boxes stay 48px (the gap is
+`clamp(4px, 20% - 57.6px, 8px)`, a percentage of the column); then the boxes
+shrink. They are 40px wide, Musubi's touch floor
+([musubi/social/DESIGN.md](../../musubi/social/DESIGN.md) §Responsive layout),
+at a 260px column, so a host gives the row at least 260px on a phone. Narrower
+still the row fits but breaks that floor: 32px boxes in a 212px column. Height
+stays 48px rather than following the width (`aspect-square`), which would make
+narrow boxes as short as they are wide.
+
+*Measured 2026-11-09 — `bun run --cwd shared/ui test:browser -- tests/otp-input.browser.test.tsx`, OtpInput geometry*
+
+The digit is `text-ui-md` (1.05rem unless the app maps `--ui-text-md`; musubi
+maps 16px). Keep it at 16px or more: below that, iOS zooms a field on focus.
+
+The corner is the contract's `field` radius, the one `Input`, `Textarea` and
+`Select` take, so the boxes round like the text fields beside them. An empty
+box's edge is `--ui-ink` at 55%, the ink fill's edge in `control.ts`: the box
+is filled with the ground, so the edge alone shows where it is, and the
+browser test holds it at 3:1 or more against the fill and the sheet around it
+on Musubi's light and dark grounds. Disabled boxes (`disabled`, `verifying`,
+`accepted`) dim to 70%, not the 50% the text fields take, so a code being
+checked stays readable: Musubi's ink at 70% over white is 5.5:1, at 50% 3:1,
+under the 4.5:1 text floor.
+
+*Computed 2026-11-09 — `--foreground` #292929 flattened at 0.7 and 0.5 over #ffffff (`musubi/social/src/App.css`), WCAG contrast*
 
 **The value has no gaps.** The boxes show the value from box 1, with no state
 of their own:
@@ -1240,11 +1262,12 @@ of their own:
   there.
 - A paste, or an insert of more than one digit (a one-time-code autofill, a
   keyboard's suggestion, a password manager setting the value), becomes the
-  whole value from its first six digits, and focus goes to the box after the
-  last. No box has `maxlength`, which would cut such a fill to one digit.
+  whole value from its first six digits, wherever it lands, and focus goes to
+  the first empty box, or to box 6 when all six hold a digit. No box has
+  `maxlength`, which would cut such a fill to one digit.
 
-**Focus.** `autofocus`, and `status` turning to `error`, focus box 1 one task
-later (`setTimeout(0)`), and only if box 1 is connected and enabled then. Every
+**Focus.** `autofocus`, and `status` being `error` (on mount, or when it
+changes to `error`), focus box 1 one task later (`setTimeout(0)`), and only if box 1 is connected and enabled then. Every
 caller sets the state that disables the boxes and the state that asks for focus
 in one synchronous run and clears its busy flag in a `finally`, so a focus
 call in `onMount` or in the effect lands on a disabled box and does nothing.
@@ -1252,11 +1275,15 @@ Inside a Kobalte `Dialog` the focus scope queues its own first-focus as a 0ms
 timer before the boxes mount, so the boxes' timer runs after it and wins. If
 box 1 is still disabled when the timer runs, focus does not move.
 
-The focus mark is the text field's ring (`GROUND_TAIL` in `control.ts`): 2px of
-`--ui-focus` 2px off a `--ui-ground` offset, at once, since only colours fade.
-`focus-visible:outline-hidden` adds a transparent 2px outline that only a
-Windows contrast theme paints, on the focused box only, because the theme drops
-the ring's box shadow.
+The focus mark matches the ground-fill text field's ring (`GROUND_HEAD` and
+`GROUND_TAIL` in `control.ts`), written out again in `otp-input.tsx`; a unit
+test fails when a ring class on `Input` is missing from the boxes, so a change
+to one reaches the other. It is 2px of `--ui-focus` 2px off a `--ui-ground`
+offset, drawn at once because the boxes fade only their colours, on the
+contract's `--ui-dur-fast`. `focus-visible:outline-hidden`, where the text
+field has `outline-none`, adds a transparent 2px outline that only a Windows
+contrast theme paints, on the focused box only, because the theme drops the
+ring's box shadow.
 
 **Errors.** `OtpInput` renders no text. The caller's error line takes an `id`
 the boxes name in `aria-describedby` — an inline `Notice` with `alert`, or any
@@ -1272,11 +1299,14 @@ also matches `aria-label`); Playwright's `getByLabel("Digit 1")` does not,
 since it reads only the `aria-labelledby` text, so an E2E flow finds a
 labelled box with `getByRole("textbox", { name: /Digit 1$/ })`.
 
-`tests/otp-input.browser.test.tsx` holds the geometry, the names and error as
-Chrome exposes them, each focus case (a disabled mount, a Kobalte dialog, a
-`Modal`, a step switch inside an open dialog, the error refocus), the input
-rules and the focus mark in and out of a contrast theme;
-`tests/ui/otp-input.test.tsx` holds the attributes and the unlabelled names. The
+`tests/otp-input.browser.test.tsx` holds the geometry, the empty box's edge
+contrast, the names and error as Chrome exposes them, each focus case (a
+disabled mount, a Kobalte dialog, a `Modal`, a step switch inside an open
+dialog, the error refocus), the input rules (Backspace, Delete, cut, arrow
+keys, an input that changes nothing, a whole-code fill) and the focus mark in
+and out of a contrast theme; `tests/ui/otp-input.test.tsx` holds the
+attributes, the unlabelled names, a paste into a later box and the ring shared
+with `Input`. The
 lab draws it in `shared/ui/forms` as `Otp`, `OtpStates` and `OtpNarrow`
 ([[component-lab]]).
 

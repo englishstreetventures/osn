@@ -40,9 +40,10 @@ const onlyDigits = (text: string) => text.replace(/\D/g, "");
 /**
  * Six one-digit boxes for a verification code.
  *
- * - **Width.** The group fills its column; the boxes share it and never pass
- *   48px, with 8px between them, so the row fits a 320px phone and from a
- *   328px column up is six 48px squares from the left edge. Height stays 48px.
+ * - **Width.** The group fills its column. From a 328px column up the row is
+ *   six 48px squares 8px apart from the left edge. Narrower, the gaps close to
+ *   4px first, then the boxes shrink: 40px wide (Musubi's touch floor) at a
+ *   260px column, and the row still fits a 212px one. Height stays 48px.
  * - **Value.** A digit string with no gaps, shown from box 1. Focus that lands
  *   past the first empty box moves to it, and those boxes are out of the Tab
  *   order. Typing over a digit replaces it. Backspace, Delete or a cut on a
@@ -175,7 +176,9 @@ const OtpInput: Component<OtpInputProps> = (props) => {
     // that has to read as an error on whatever ground the host paints.
     if (s === "error") return "base:border-ui-danger";
     if (s === "accepted") return "base:border-ui-success";
-    return "base:border-ui-hairline";
+    // The box's fill is the ground's, so the edge alone shows where it is: ink
+    // at 55%, the ink fill's edge, which holds 3:1 on a light and a dark ground.
+    return "base:border-ui-ink/55";
   }
 
   const label = () => local["aria-labelledby"];
@@ -183,9 +186,11 @@ const OtpInput: Component<OtpInputProps> = (props) => {
   return (
     // A fieldset is a group without a role attribute. Its browser box (margin,
     // border, padding, `min-inline-size: min-content`) is cleared, so it lays
-    // out as a plain block.
+    // out as a plain block. The gap is 8px from a 328px column up and closes
+    // to 4px by 308px, while the boxes stay 48px: a percentage gap resolves
+    // against the column, and 20% - 57.6px is 8px at 328px and 4px at 308px.
     <fieldset
-      class="base:m-0 base:flex base:w-full base:min-w-0 base:gap-2 base:border-0 base:p-0"
+      class="base:m-0 base:flex base:w-full base:min-w-0 base:gap-[clamp(4px,20%_-_57.6px,8px)] base:border-0 base:p-0"
       aria-label={label() ? undefined : "Verification code"}
       aria-labelledby={label()}
     >
@@ -211,10 +216,13 @@ const OtpInput: Component<OtpInputProps> = (props) => {
             aria-describedby={local["aria-describedby"]}
             aria-invalid={status() === "error" ? "true" : undefined}
             class={clsx(
-              // Focus is the text field's ring, plus an outline that only a
-              // contrast theme paints, since the theme drops the ring's box
-              // shadow. Only colours fade, so both land at once.
-              "base:h-12 base:max-w-12 base:min-w-0 base:flex-1 base:rounded-ui-md base:border-2 base:bg-ui-ground base:text-center base:text-ui-md base:font-medium base:text-ui-ink base:ring-offset-ui-ground base:transition-[color,background-color,border-color] base:focus-visible:outline-hidden base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:focus-visible:ring-offset-2 base:disabled:cursor-not-allowed base:disabled:opacity-70",
+              // Focus is the ground-fill text field's ring (a unit test holds
+              // the two together), plus an outline that only a contrast theme
+              // paints, since the theme drops the ring's box shadow. Only
+              // colours fade, on the contract's fast step, so both land at
+              // once. Disabled boxes dim to 70%, not the text fields' 50%: a
+              // code being verified stays readable at 4.5:1.
+              "base:h-12 base:max-w-12 base:min-w-0 base:flex-1 base:rounded-ui-field base:border-2 base:bg-ui-ground base:text-center base:text-ui-md base:font-medium base:text-ui-ink base:ring-offset-ui-ground base:transition-[color,background-color,border-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] base:ease-[var(--ease-out,var(--ui-ease-out))] base:focus-visible:outline-hidden base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:focus-visible:ring-offset-2 base:disabled:cursor-not-allowed base:disabled:opacity-70",
               borderClass(),
             )}
           />

@@ -130,7 +130,7 @@ export const Otp: Story<OtpArgs> = {
   args: { status: "idle", disabled: false, labelled: true, autofocus: false, column: "400px" },
   controls: {
     status: { kind: "select", options: ["idle", "error", "verifying", "accepted"] },
-    column: { kind: "select", options: ["212px", "300px", "400px", "100%"] },
+    column: { kind: "select", options: ["212px", "260px", "300px", "400px", "100%"] },
   },
   render: (args) => {
     const [code, setCode] = createSignal("12");
@@ -197,12 +197,13 @@ export const OtpStates = () => {
 
 /**
  * The row in the columns it has to fit: 212px (an authenticator enrolment box
- * in Settings on a 320px phone), 300px (`/authorize` at 390px) and 400px, where
- * the boxes reach their 48px and stop growing.
+ * in Settings on a 320px phone, under Musubi's touch floor), 260px (the
+ * narrowest column that keeps 40px boxes), 300px (`/authorize` at 390px) and
+ * 400px, where the boxes reach their 48px and stop growing.
  */
 export const OtpNarrow = () => (
   <div class="flex flex-wrap items-start gap-8">
-    {["212px", "300px", "400px"].map((width) => {
+    {["212px", "260px", "300px", "400px"].map((width) => {
       const [code, setCode] = createSignal("1234");
       return (
         <div class="flex flex-col gap-2" style={{ width }}>
