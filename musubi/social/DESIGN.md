@@ -158,6 +158,18 @@ not name it (§Borders).
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
+- **Names and section heads** — a person's or an organisation's name, wherever
+  it stands for them in a row or a card, is `text-title` at 500: the
+  organisations list, the roster, search results (the page and the rail's
+  panel), Settings' profile card, and `/authorize`'s account screen, profile
+  picker and consent screen. The handle under it is `text-meta` in
+  `text-muted-foreground`. A heading that opens a section inside a page
+  ("Members", "Signed in as") takes the same step and weight. A page's `h1`
+  is `text-display` (§Layout); the rail's account trigger is shell chrome and
+  keeps its own size.
+- **Consent marks** — `/authorize`'s "Verified by Musubi" and its "Third-party
+  app" chip (§Chips) are `text-meta` at 500, so neither reads quieter than the
+  other.
 - **Buttons** — `@shared/ui`'s Button sets its label at `--ui-text-base`,
   which Musubi maps to `text-title` (14px), weight 500; `size="sm"` steps down
   to `--ui-text-sm`, `text-body` (13px).
@@ -190,13 +202,12 @@ Where the app does not follow this yet — known breaks include:
 
 - `@shared/ui`'s `DialogTitle` and `CardTitle`: 16px (`--ui-text-md`) at
   weight 600 (#2040).
-- `@shared/ui`'s `Badge`: weight 600 (#2041). `AvatarFallback`: weight 600.
-  `OtpInput`'s digits: 16px (`--ui-text-md`).
+- `@shared/ui`'s `AvatarFallback`: weight 600. `OtpInput`'s digits: 16px
+  (`--ui-text-md`). `Badge` sets 600 too (#2041), but no Musubi screen draws
+  one: a role is a `Chip` (§Chips).
 - Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
   and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`).
-- `/authorize` writes `text-caption`, which no stylesheet defines, so those two
-  lines take the size around them (#2039).
 - The auth views (§Auth surfaces) (#2045).
 
 ## Radii — two families + pill
@@ -209,13 +220,22 @@ Where the app does not follow this yet — known breaks include:
   results panel (`GlobalSearch`), a floating panel drawn as the menus are:
   `rounded-md`, `bg-popover`, `shadow-md`.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
-  (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions),
+  (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions, the
+  organisations list's rows, `/authorize`'s dead-end and error boxes),
   bordered rows, dialogs, empty states. A card that is not itself a control
   takes no hover wash; a row that is a link or a button does.
+- **A card that is a link** — the organisations list — is a `Card`
+  (`padding="sm"`) inside its `<A>`. `Card` owns its fill and padding (the
+  `shadcn(no-restyle)` lint refuses a colour or padding class on it), so it
+  takes no wash: its chevron turns from `--subtle` to full ink on hover and
+  press (`group-hover:`, `group-active:` from the link), and the link's focus
+  outline follows its 16px corner. Never a hand-drawn bordered box to win the
+  wash back: that box has no fill, so in dark it loses the card's raised
+  ground.
 - **pill** (`rounded-pill`; the contract's `--ui-radius-control` and
   `--ui-radius-pill`) — every Button variant, `ghost`, `ghostDanger` and
   `link` included (the radius sits on Button's base class,
-  `shared/ui/src/ui/button.tsx`); badges; avatars.
+  `shared/ui/src/ui/button.tsx`); chips (§Chips); avatars.
 - **Sheets** — below `md`, dialogs render as bottom sheets: 16px top corners
   (the contract's `--ui-radius-sheet`, which Musubi leaves to fall back to
   `--ui-radius-lg`) with square bottom corners, pinned to the bottom edge (see
@@ -227,6 +247,26 @@ Where the app does not follow this yet — known breaks include:
   take `--ui-radius-sm`, 6px (#2103). The token stays 6px because
   `@shared/ui`'s drawn Checkbox, a 16px box, reads it too, and would turn
   round at 8px.
+
+## Chips
+
+A word that names a role or a kind is `@shared/ui`'s `Chip`,
+`variant="outline" treatment="tag"` in the neutral tone: a hairline edge,
+secondary ink, 12px (`--ui-text-xs`, which Musubi maps to `text-meta`), set as
+written in sentence case, on the pill corner. Uses today: the roster's role
+("Admin", "Member", from `ROLE_LABEL` in `OrgDetailPage.tsx`, never the API's
+raw value) and `/authorize`'s "Third-party app".
+
+- **Not filled.** The filled neutral chip paints `--ui-surface` at 60%, which
+  Musubi maps to `--card`: white on a white page, so its shape vanishes in
+  light.
+- **Not small caps.** The rail's "Social" tag is the only small-caps label,
+  and a chip's word reads as written.
+- **Weight.** A chip's word is 400, except "Third-party app": a trust mark
+  beside a name the app chose for itself, it keeps 500, the weight of the
+  consent screen's other mark (§Typography, Consent marks). The weight comes
+  from a `font-medium` span inside the chip; `Chip`'s `class` is for layout
+  only.
 
 ## Icons
 
@@ -405,11 +445,24 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   `DialogTitle` in a `DialogHeader`, or, where the view inside draws its own
   heading (`@osn/auth-ui`'s `SignIn` and `Register`), an `aria-label` on
   `ResponsiveDialogContent`.
+- **A form dialog** (create and edit organisation) = `DialogHeader` ›
+  `DialogTitle`, then the `<form>`: its fields in a body `div` padded 16px
+  (`flex flex-col gap-4 p-4`), its actions in `DialogFooter` (16px padding, a
+  hairline above, right-aligned; Cancel `secondary`, then the commit). The
+  footer sits inside the form, so Enter in a field submits. A confirmation
+  dialog has the same shape with its words in the body (`ConnectionsPage`'s
+  remove dialog).
 - **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
   is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
   `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
   `active:` classes for touch feedback. Tab rows scroll (`overflow-x-auto`)
-  rather than wrap or shrink.
+  rather than wrap or shrink. Buttons keep these call-site heights: no
+  `Button` size draws 40px at `sm`'s padding, and `default` would widen the
+  top bar's pair past what 320px holds.
+- **Text fields** take `Input`'s own sizes, with no height class: the rail's
+  search is `md`, 36px. One exception: `/search`'s field keeps `h-11`, 44px
+  at every width. `Input`'s `touch` size, the only one that tall, steps from
+  46px to 44px at 640px, a width this file's one breakpoint does not use.
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
@@ -424,9 +477,21 @@ Where the app does not follow this yet:
 ## Empty states and failed loads
 
 - **Empty states** = `EmptyNote` (`src/components/EmptyNote.tsx`): the dashed
-  `rounded-card` block, `size="page"` (`py-16`) for a page's whole content,
-  `size="section"` (`py-12`) for one list. It is an `<output>`, so a state
-  that replaces a skeleton is read out. Never draw the block by hand.
+  `rounded-card` block, 16px at the sides, `size="page"` (`py-16`) for a
+  page's whole content, `size="section"` (`py-12`) for one list. Its words sit
+  centred in an `<output>`, so a state that replaces a skeleton is read out.
+  An optional `action` sits 16px under the words, outside the `<output>`, so
+  what is read out is the message and not a button's name too. Never draw the
+  block by hand.
+- **A signed-out page** = `SignedOutNote` (`src/components/SignedOutNote.tsx`):
+  the page's `EmptyNote`, whose words say what signing in gives, with one
+  Sign in under them that opens the shell's sign-in dialog. It is `secondary`
+  and `sm`, as the shell's own Sign in is, so the page never shows a second
+  filled button beside the shell's Create account. Create account stays in
+  the shell. Until the shell's dialogs have loaded the button is `invisible`
+  — not painted, not focusable, out of the accessibility tree — so it never
+  offers a dialog that cannot open, and the note keeps its height when they
+  land (§Layout, a shell that fails to load).
 - **A load that failed** for any reason the screen does not name is one
   line, `@shared/ui`'s `Notice` (`tone="danger"`, `size="inline"`, `alert`):
   the danger mark and the sentence at the body size, announced as it appears.

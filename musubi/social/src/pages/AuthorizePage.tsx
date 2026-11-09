@@ -2,6 +2,8 @@ import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError, describeAuthError } from "@osn/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
+import { Chip } from "@shared/ui/ui/chip";
 import { Notice } from "@shared/ui/ui/notice";
 import { useSearchParams } from "@solidjs/router";
 import {
@@ -351,18 +353,18 @@ export function AuthorizePage() {
         </Match>
 
         <Match when={screen() === "dead"}>
-          <div class="border-border rounded-card border p-6 text-center">
+          <Card padding="lg" class="text-center">
             <h1 class="text-foreground text-title font-medium">{deadMessage()}</h1>
             <p class="text-muted-foreground text-body mt-2">
               <Show when={clientName()} fallback="Go back to the app you came from and try again.">
                 {(name) => <>Go back to {name()} and start again.</>}
               </Show>
             </p>
-          </div>
+          </Card>
         </Match>
 
         <Match when={screen() === "error"}>
-          <div class="border-border rounded-card border p-6 text-center">
+          <Card padding="lg" class="text-center">
             <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
             <p class="text-muted-foreground text-body mt-2" role="alert">
               {loadError()}
@@ -370,7 +372,7 @@ export function AuthorizePage() {
             <Button class="mt-4" onClick={() => void refetch()}>
               Try again
             </Button>
-          </div>
+          </Card>
         </Match>
 
         <Match when={screen() === "redirecting"}>
@@ -431,7 +433,7 @@ export function AuthorizePage() {
 
         <Match when={screen() === "account"}>
           <ClientCard context={ctx()} />
-          <h2 class="text-foreground text-body mt-6 mb-2 font-medium">Signed in as</h2>
+          <h2 class="text-foreground text-title mt-6 mb-2 font-medium">Signed in as</h2>
           <Show when={profiles().length > 1}>
             <p class="text-muted-foreground text-meta mb-2">
               {clientName()} will see the profile you pick, and only that one.
@@ -521,7 +523,7 @@ export function AuthorizePage() {
                 >
                   <ProfileAvatar profile={profile} />
                   <div class="flex min-w-0 flex-col">
-                    <span class="text-foreground text-body truncate font-medium">
+                    <span class="text-foreground text-title truncate font-medium">
                       {profile.displayName || `@${profile.handle}`}
                     </span>
                     <span class="text-muted-foreground text-meta truncate">@{profile.handle}</span>
@@ -572,7 +574,7 @@ export function AuthorizePage() {
               <div class="border-border mt-6 flex items-center gap-3 rounded-lg border px-3 py-2.5">
                 <ProfileAvatar profile={profile()} />
                 <div class="flex min-w-0 flex-1 flex-col">
-                  <span class="text-foreground text-body truncate font-medium">
+                  <span class="text-foreground text-title truncate font-medium">
                     {profile().displayName || `@${profile().handle}`}
                   </span>
                   <span class="text-muted-foreground text-meta truncate">@{profile().handle}</span>
@@ -625,7 +627,7 @@ function ProfileRow(props: { profile: PublicProfile }) {
     <>
       <ProfileAvatar profile={props.profile} />
       <div class="flex min-w-0 flex-col">
-        <span class="text-foreground text-body truncate font-medium">
+        <span class="text-foreground text-title truncate font-medium">
           {props.profile.displayName || `@${props.profile.handle}`}
         </span>
         <span class="text-muted-foreground text-meta truncate">@{props.profile.handle}</span>
@@ -675,10 +677,12 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
       <Show
         when={client()?.firstParty}
         fallback={
-          <p class="text-muted-foreground text-caption mt-3 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
-            <span class="border-border text-muted-foreground rounded-full border px-2 py-0.5 font-medium">
-              Third-party app
-            </span>
+          <p class="text-muted-foreground text-meta mt-3 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
+            {/* The word at 500, as the consent screen's other marker is: it
+                stands beside a name the app chose for itself. */}
+            <Chip variant="outline" treatment="tag">
+              <span class="font-medium">Third-party app</span>
+            </Chip>
             <Show when={client()?.redirectDomain}>
               {(domain) => (
                 <span>
@@ -689,7 +693,7 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
           </p>
         }
       >
-        <p class="text-caption text-success mt-3 font-medium">Verified by {PRODUCT_NAME}</p>
+        <p class="text-meta text-success mt-3 font-medium">Verified by {PRODUCT_NAME}</p>
       </Show>
     </div>
   );

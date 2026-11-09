@@ -134,7 +134,7 @@ export function GlobalSearch() {
           type="search"
           autocomplete="off"
           placeholder="Search"
-          class="h-9 flex-1"
+          class="flex-1"
           role="combobox"
           aria-expanded={showPanel()}
           aria-controls={LISTBOX_ID}

@@ -13,8 +13,15 @@
  * `musubi-passkey` calls it while signed in, after its own `POST /token`
  * check, so it spends no sign-in of its own (`tests/flows.test.ts` counts
  * them). Every check reads computed style against a probe painted with the
- * token itself, as `cire-surfaces.ts` does, so a token that resolves elsewhere
- * fails it. Each view is shot into `screenshots/musubi-surfaces/`.
+ * token itself, or wearing the class itself, as `cire-surfaces.ts` does, so a
+ * token that resolves elsewhere fails it. Each view is shot into
+ * `screenshots/musubi-surfaces/`.
+ *
+ * The exports after it check the call sites that draw from shared parts, from
+ * the flows that already reach them: `musubi-org-detail` the organisation
+ * dialogs, list rows, roster, a search result and `/authorize`'s dead end;
+ * `musubi-passkey` the signed-out note and the consent screen's first-party
+ * mark. Each puts back the viewport and scheme it found.
  */
 
 import { mkdirSync } from "node:fs";
@@ -44,11 +51,19 @@ async function scheme(page: Page, colorScheme: Scheme): Promise<void> {
   );
 }
 
-/** One width and scheme, with the rail or the bottom bar that width mounts. */
-async function at(page: Page, size: { width: number; height: number }, colorScheme: Scheme) {
+/**
+ * One width and scheme, with the rail or the bottom bar that width mounts —
+ * or, on `/authorize`, which runs with no shell, none.
+ */
+async function at(
+  page: Page,
+  size: { width: number; height: number },
+  colorScheme: Scheme,
+  bare = false,
+) {
   await page.setViewportSize(size);
   await scheme(page, colorScheme);
-  await expect(size.width >= 768 ? rail(page) : primaryBar(page)).toBeVisible();
+  if (!bare) await expect(size.width >= 768 ? rail(page) : primaryBar(page)).toBeVisible();
   // A scheme change fades every `transition-ui-colors` row; a read or a shot
   // taken mid-fade sees the colour between the two themes.
   await page.evaluate(() =>
@@ -76,6 +91,41 @@ function painted(target: Locator, value: string): Promise<string> {
     probe.remove();
     return resolved;
   }, value);
+}
+
+/**
+ * The value `property` takes on a probe that wears `classes` beside `target`,
+ * so the probe sits in the same scope and the class decides it.
+ */
+function probed(target: Locator, classes: string, property: string): Promise<string> {
+  return target.evaluate(
+    (el, [cls, prop]) => {
+      const probe = document.createElement("span");
+      probe.className = cls!;
+      el.parentElement!.append(probe);
+      const value = getComputedStyle(probe).getPropertyValue(prop!);
+      probe.remove();
+      return value;
+    },
+    [classes, property] as const,
+  );
+}
+
+/** Font size and weight, in one string: "14px 500". */
+async function type(target: Locator): Promise<string> {
+  return `${await computed(target, "font-size")} ${await computed(target, "font-weight")}`;
+}
+
+/** Font size and weight a probe wearing `classes` takes beside `target`. */
+async function probedType(target: Locator, classes: string): Promise<string> {
+  return `${await probed(target, classes, "font-size")} ${await probed(target, classes, "font-weight")}`;
+}
+
+/** Padding on all four sides, in one string. */
+async function padding(target: Locator): Promise<string> {
+  const sides = ["top", "right", "bottom", "left"] as const;
+  const read = await Promise.all(sides.map((side) => computed(target, `padding-${side}`)));
+  return read.join(" ");
 }
 
 /** Waits out `target`'s running transitions, so a read is of the settled colour. */
@@ -108,12 +158,16 @@ async function shoot(
   page: Page,
   view: string,
   settle: () => Promise<void>,
-  options: { widths?: readonly { width: number; height: number }[]; whole?: boolean } = {},
+  options: {
+    widths?: readonly { width: number; height: number }[];
+    whole?: boolean;
+    bare?: boolean;
+  } = {},
 ): Promise<void> {
   mkdirSync(SHOTS, { recursive: true });
   for (const size of options.widths ?? WIDTHS) {
     for (const colorScheme of SCHEMES) {
-      await at(page, size, colorScheme);
+      await at(page, size, colorScheme, options.bare);
       await settle();
       if (options.whole) {
         // The page scrolls inside the app's column, not the document, so a
@@ -326,7 +380,7 @@ async function menus(flow: Flow, page: Page): Promise<void> {
     "solid 2px 2px",
     await outline(avatar),
   );
-  const switcher = page.getByRole("dialog");
+  const switcher = page.getByRole("dialog", { name: "Switch profile" });
   const profile = switcher.getByRole("button").first();
   await flow.step("surfaces: open the profile switcher from the keyboard", async () => {
     await page.keyboard.press("Enter");
@@ -353,10 +407,11 @@ async function menus(flow: Flow, page: Page): Promise<void> {
 }
 
 /**
- * Settings: the Profile section's hint in secondary ink and its field on the
- * 8px corner, then Security's rows and rules, drawn as hairlines.
+ * Settings: the Profile section's name at title size, its hint in secondary
+ * ink and its field on the 8px corner, then Security's rows and rules, drawn
+ * as hairlines.
  */
-async function security(flow: Flow, page: Page): Promise<void> {
+async function security(flow: Flow, page: Page, profileName: string): Promise<void> {
   const row = page.locator("li.rounded-md.border").first();
   const hint = page.getByText("Handles cannot be changed.", { exact: true });
   await flow.step("surfaces: open Settings → Profile", async () => {
@@ -364,6 +419,12 @@ async function security(flow: Flow, page: Page): Promise<void> {
     await rail(page).getByRole("link", { name: "Settings" }).click();
     await expect(hint).toBeVisible();
   });
+  const name = page.getByRole("main").getByText(profileName, { exact: true });
+  flow.check(
+    "settings: the profile's name is at title size and 500",
+    await probedType(name, "text-title font-medium"),
+    await type(name),
+  );
   flow.check(
     "settings: a field's hint is secondary ink",
     await painted(hint, "var(--muted-foreground)"),
@@ -429,8 +490,6 @@ async function legal(flow: Flow, page: Page): Promise<void> {
     const prose = page.locator(".prose-legal");
     const h2 = prose.locator("h2").first();
     const p = prose.locator("h2 ~ p").first();
-    const type = async (target: Locator) =>
-      `${await computed(target, "font-size")} ${await computed(target, "font-weight")}`;
     flow.check(`${view}: a section heading is 14px at 500`, "14px 500", await type(h2));
     flow.check(`${view}: a paragraph is 13px`, "13px", await computed(p, "font-size"));
     flow.check(`${view}: a paragraph's line is 1.65`, "21.45px", await computed(p, "line-height"));
@@ -506,12 +565,285 @@ export async function musubiNotice(
  * Every surface above, then the viewport and scheme the flow had, so its next
  * step finds the page as it left it.
  */
-export async function musubiSurfaces(flow: Flow, page: Page): Promise<void> {
+export async function musubiSurfaces(flow: Flow, page: Page, profileName: string): Promise<void> {
   const viewport = page.viewportSize();
   await shell(flow, page);
   await menus(flow, page);
-  await security(flow, page);
+  await security(flow, page, profileName);
   await legal(flow, page);
   if (viewport) await page.setViewportSize(viewport);
   await page.emulateMedia({ colorScheme: null });
+}
+
+/** Runs `body`, then puts back the viewport the flow had and the system scheme. */
+async function restoring(page: Page, body: () => Promise<void>): Promise<void> {
+  const viewport = page.viewportSize();
+  try {
+    await body();
+  } finally {
+    if (viewport) await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme: null });
+  }
+}
+
+/**
+ * A form dialog's body and footer: the fields padded 16px from the dialog's
+ * edge, the actions in `DialogFooter` under a hairline. `field` is one of the
+ * body's fields, `action` the footer's commit button.
+ */
+async function formDialog(flow: Flow, label: string, field: Locator, action: Locator) {
+  // The field sits in its label's column; the column sits in the body.
+  const body = field.locator("xpath=../..");
+  const footer = action.locator("xpath=..");
+  flow.check(`${label}: the body is padded 16px`, "16px 16px 16px 16px", await padding(body));
+  flow.check(`${label}: the footer is padded 16px`, "16px 16px 16px 16px", await padding(footer));
+  flow.check(
+    `${label}: the footer draws a 1px rule`,
+    "1px",
+    await computed(footer, "border-top-width"),
+  );
+  flow.check(
+    `${label}: the footer's rule is the hairline`,
+    await painted(footer, "var(--border)"),
+    await computed(footer, "border-top-color"),
+  );
+}
+
+/**
+ * The organisation create dialog, filled and not yet sent: its padded body and
+ * its footer, measured and shot as card and as sheet.
+ */
+export async function orgCreateDialogSurfaces(flow: Flow, page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Create organisation" });
+  const field = dialog.getByLabel("Handle", { exact: true });
+  const create = dialog.getByRole("button", { name: "Create", exact: true });
+  await formDialog(flow, "create dialog", field, create);
+  await restoring(page, () =>
+    flow.step("surfaces: shoot the create dialog", () =>
+      shoot(page, "org-create-dialog", () => expect(dialog).toBeVisible()),
+    ),
+  );
+}
+
+/** The organisation edit dialog, filled and not yet saved. */
+export async function orgEditDialogSurfaces(flow: Flow, page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Edit organisation" });
+  await formDialog(
+    flow,
+    "edit dialog",
+    dialog.getByLabel("Name", { exact: true }),
+    dialog.getByRole("button", { name: "Save", exact: true }),
+  );
+}
+
+/**
+ * The organisations list: a row is a `Card` inside its link, on the card's
+ * fill in both themes and the 16px corner, which keeps its fill under the
+ * pointer while its chevron turns to full ink.
+ */
+export async function orgListSurfaces(flow: Flow, page: Page, link: Locator): Promise<void> {
+  const card = link.locator(":scope > div");
+  await restoring(page, async () => {
+    for (const colorScheme of SCHEMES) {
+      await at(page, DESKTOP, colorScheme);
+      // Off the row: a read under the pointer would see the hover fill.
+      await page.mouse.move(0, 0);
+      await settled(card);
+      flow.check(
+        `organisations (${colorScheme}): a row takes the card's fill`,
+        await painted(card, "var(--card)"),
+        await computed(card, "background-color"),
+      );
+    }
+    flow.check(
+      "organisations: a row takes the 16px card corner",
+      "16px",
+      await computed(card, "border-top-left-radius"),
+    );
+    // The card keeps its fill under the pointer; the chevron marks the hover.
+    const chevron = card.locator("svg");
+    await link.hover();
+    await settled(chevron);
+    await settled(card);
+    flow.check(
+      "organisations: a hovered row keeps the card's fill",
+      await painted(card, "var(--card)"),
+      await computed(card, "background-color"),
+    );
+    flow.check(
+      "organisations: a hovered row's chevron is full ink",
+      await painted(chevron, "var(--foreground)"),
+      await computed(chevron, "color"),
+    );
+    await page.mouse.move(0, 0);
+    await flow.step("surfaces: shoot the organisations list", () =>
+      shoot(page, "organisations", () => expect(card).toBeVisible()),
+    );
+  });
+}
+
+/**
+ * An organisation's roster: a member's name at title size and 500, and the
+ * role as an outlined `Chip` tag — pill corner, hairline edge, secondary ink,
+ * 12px, set as written.
+ */
+export async function orgRosterSurfaces(flow: Flow, page: Page, memberName: string): Promise<void> {
+  const main = page.getByRole("main");
+  const name = main.getByText(memberName, { exact: true });
+  flow.check(
+    "roster: a member's name is at title size and 500",
+    await probedType(name, "text-title font-medium"),
+    await type(name),
+  );
+  const chip = main.getByText("Member", { exact: true });
+  flow.check(
+    "roster: the role chip takes the pill corner",
+    await probed(chip, "rounded-pill", "border-top-left-radius"),
+    await computed(chip, "border-top-left-radius"),
+  );
+  flow.check(
+    "roster: the role chip draws a 1px edge",
+    "1px",
+    await computed(chip, "border-top-width"),
+  );
+  flow.check(
+    "roster: the role chip's edge is the hairline",
+    await painted(chip, "var(--border)"),
+    await computed(chip, "border-top-color"),
+  );
+  flow.check(
+    "roster: the role chip's word is secondary ink",
+    await painted(chip, "var(--muted-foreground)"),
+    await computed(chip, "color"),
+  );
+  flow.check("roster: the role chip's word is 12px", "12px", await computed(chip, "font-size"));
+  flow.check(
+    "roster: the role chip is set as written",
+    "none",
+    await computed(chip, "text-transform"),
+  );
+  flow.check(
+    "roster: the role chip reads in sentence case",
+    "Member",
+    (await chip.textContent()) ?? "",
+  );
+  await restoring(page, () =>
+    flow.step("surfaces: shoot the organisation's roster", () =>
+      shoot(page, "organisation", async () => {
+        await expect(chip).toBeVisible();
+        await settled(chip);
+      }),
+    ),
+  );
+}
+
+/** A search result's name at title size and 500, and the rail's field at `Input`'s own 36px. */
+export async function searchSurfaces(
+  flow: Flow,
+  page: Page,
+  option: Locator,
+  resultName: string,
+): Promise<void> {
+  const name = option.getByText(resultName, { exact: true });
+  flow.check(
+    "search: a result's name is at title size and 500",
+    await probedType(name, "text-title font-medium"),
+    await type(name),
+  );
+  flow.check(
+    "search: the rail's field is Input's 36px",
+    "36px",
+    await computed(
+      page.getByRole("combobox", { name: "Search people and organisations" }),
+      "height",
+    ),
+  );
+}
+
+/**
+ * `/authorize` with no request id: the dead-end box, a `Card` on the card's
+ * fill in both themes. Opened with a page load; the route runs outside the
+ * session provider, so it trades no cookie for a token and lists no profiles.
+ */
+export async function authorizeDeadSurfaces(flow: Flow, page: Page): Promise<void> {
+  const heading = page.getByRole("heading", { level: 1, name: "This sign-in link is not valid." });
+  await flow.step("surfaces: open /authorize with no request", async () => {
+    await page.goto(`${ORIGINS.musubi}/authorize`);
+    await expect(heading).toBeVisible();
+  });
+  const box = heading.locator("xpath=..");
+  await restoring(page, async () => {
+    for (const colorScheme of SCHEMES) {
+      await at(page, DESKTOP, colorScheme, true);
+      await settled(box);
+      flow.check(
+        `authorize (${colorScheme}): the dead-end box takes the card's fill`,
+        await painted(box, "var(--card)"),
+        await computed(box, "background-color"),
+      );
+    }
+    flow.check(
+      "authorize: the dead-end box takes the 16px card corner",
+      "16px",
+      await computed(box, "border-top-left-radius"),
+    );
+    await flow.step("surfaces: shoot /authorize's dead end", () =>
+      shoot(page, "authorize-dead", () => expect(heading).toBeVisible(), { bare: true }),
+    );
+  });
+}
+
+/** `/authorize`'s "Verified by Musubi" line: a `text-meta` line at 500. */
+export async function authorizeVerifiedSurfaces(flow: Flow, page: Page): Promise<void> {
+  const verified = page.getByText("Verified by Musubi", { exact: true });
+  flow.check(
+    "authorize: the first-party mark takes text-meta at 500",
+    await probedType(verified, "text-meta font-medium"),
+    await type(verified),
+  );
+  flow.check(
+    "authorize: the first-party mark is 12px",
+    "12px",
+    await computed(verified, "font-size"),
+  );
+}
+
+/**
+ * A signed-out page's note: the message alone in the `<output>`, one Sign in
+ * under it outside the live region, which opens the shell's sign-in dialog
+ * and takes focus back when it closes.
+ */
+export async function signedOutSurfaces(flow: Flow, page: Page, message: string): Promise<void> {
+  const main = page.getByRole("main");
+  // No `.first()`: strict mode fails if the note draws its button twice.
+  const signIn = main.getByRole("button", { name: "Sign in" });
+  const note = main.getByRole("status").filter({ hasText: message });
+  await expect(signIn).toBeVisible();
+  flow.check(
+    "signed out: the note's live region holds the message alone",
+    message,
+    (await note.textContent()) ?? "",
+  );
+  flow.check(
+    "signed out: the note's Sign in sits outside its live region",
+    true,
+    await signIn.evaluate((el) => el.closest("output") === null),
+  );
+  const dialog = page.getByRole("dialog", { name: "Sign in" });
+  await flow.step("surfaces: open sign-in from the signed-out note", async () => {
+    await signIn.click();
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  });
+  flow.check(
+    "signed out: closing the dialog gives focus back to the note's Sign in",
+    true,
+    await signIn.evaluate((el) => el === document.activeElement),
+  );
+  await restoring(page, () =>
+    flow.step("surfaces: shoot the signed-out note", () =>
+      shoot(page, "signed-out", () => expect(signIn).toBeVisible()),
+    ),
+  );
 }

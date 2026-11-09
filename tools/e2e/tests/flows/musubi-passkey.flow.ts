@@ -8,7 +8,8 @@
  * reload that has no cookie, and sign in to Pulse through Musubi's
  * `/authorize`. Signed in, before the authenticator steps, it measures and
  * shoots Musubi's base styles and the notices the shell draws
- * (`musubi-surfaces.ts`).
+ * (`musubi-surfaces.ts`); signed out by the refused renewal, the signed-out
+ * note's Sign in; on the consent screen, its first-party mark.
  *
  * The failures are made by answering one osn-api route in the page
  * (`refuse`), so no limiter or session on the stack is spent on them. Every
@@ -38,7 +39,12 @@ import {
   test,
   totpCode,
 } from "../support/fixtures";
-import { musubiNotice, musubiSurfaces } from "../support/musubi-surfaces";
+import {
+  authorizeVerifiedSurfaces,
+  musubiNotice,
+  musubiSurfaces,
+  signedOutSurfaces,
+} from "../support/musubi-surfaces";
 
 const ada = PEOPLE.musubi;
 
@@ -102,6 +108,9 @@ test.use({ turnstile: true });
 
 test("musubi-passkey", async ({ page, context, flow }) => {
   const authenticator = await addVirtualAuthenticator(page);
+  // The shell's Sign in, in the rail or the top bar: a signed-out page draws
+  // its own in its note as well.
+  const shellSignIn = () => page.locator("aside, header").getByRole("button", { name: "Sign in" });
   // The virtual authenticator answers a conditional-UI (autofill) request on
   // its own, which a person never does: it would sign in the moment the dialog
   // opens, racing the "@handle → Continue" path this flow drives. Report
@@ -203,7 +212,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   await flow.step("sign out", async () => {
     await page.getByRole("button", { name: `@${ada.handle}` }).click();
     await page.getByRole("menuitem", { name: "Log out" }).click();
-    await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+    await expect(shellSignIn()).toBeVisible();
   });
   flow.check(
     "session cookie cleared on sign-out",
@@ -219,7 +228,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     const handler = refuse("POST", 429, "rate_limited");
     await page.route(passkeyBegin, handler);
     try {
-      await page.getByRole("button", { name: "Sign in" }).first().click();
+      await shellSignIn().click();
       await identifierField.fill(`@${ada.handle}`);
       await page.getByRole("button", { name: "Continue" }).click();
       await expect(dialogAlert).toContainText(WAIT);
@@ -288,7 +297,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
 
   // Signed in, after the check above has read the request log: the surfaces
   // reload the page for the legal routes, and each reload posts to /token.
-  await musubiSurfaces(flow, page);
+  await musubiSurfaces(flow, page, ada.name);
 
   const nav = page.getByRole("link", { name: "Settings" }).first();
   const profilesList = `${ORIGINS.osnApi}/profiles/list`;
@@ -491,7 +500,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await settingsTab("Profile").click();
     await settingsTab("Security").click();
     await expect(page.getByText("Sign in to manage your settings.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+    await expect(shellSignIn()).toBeVisible();
     await expect(signedOutNotice).toBeVisible();
   });
   flow.check(
@@ -508,6 +517,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   );
   flow.check("no Security GET sent after the refusal", 0, sum(securityGets()) - sentBefore);
   flow.check("the stored account is gone", "", await storedAccount());
+  await signedOutSurfaces(flow, page, "Sign in to manage your settings.");
 
   // A phone mounts the top bar in place of the rail; both open their dialogs
   // from one store, which the notice opens too.
@@ -564,7 +574,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
         signedInAccount,
       ] as const);
       await page.reload();
-      await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+      await expect(shellSignIn()).toBeVisible();
     },
   );
   flow.check(
@@ -600,6 +610,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByText("Verified by Musubi")).toBeVisible();
+    await authorizeVerifiedSurfaces(flow, page);
     await page.getByRole("button", { name: "Allow" }).click();
     await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
   });

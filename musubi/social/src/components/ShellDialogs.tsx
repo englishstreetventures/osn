@@ -29,6 +29,12 @@ type ShellDialogs = {
    * this again tries the chunk again, and mounts the dialogs if it arrives.
    */
   load: () => Promise<void>;
+  /**
+   * True once a load has mounted the dialogs. A Sign in drawn outside the
+   * shell (a page's `SignedOutNote`) holds itself back until then, for the
+   * same reason the shell does.
+   */
+  ready: () => boolean;
 };
 
 const ShellDialogsContext = createContext<ShellDialogs>();
@@ -93,7 +99,7 @@ export function ShellDialogsProvider(props: { children?: JSX.Element }) {
   }
 
   return (
-    <ShellDialogsContext.Provider value={{ open, load }}>
+    <ShellDialogsContext.Provider value={{ open, load, ready }}>
       {props.children}
       <Show when={ready()}>
         <ShellDialogSet

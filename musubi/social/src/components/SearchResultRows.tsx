@@ -157,7 +157,7 @@ export function PersonRow(props: {
     <>
       <ResultAvatar url={props.person.avatarUrl} label={props.person.handle} size="h-8 w-8" />
       <div class="min-w-0 flex-1">
-        <p class="text-foreground text-body truncate font-medium">
+        <p class="text-foreground text-title truncate font-medium">
           {props.person.displayName || `@${props.person.handle}`}
         </p>
         <Show when={props.person.displayName}>
@@ -184,7 +184,7 @@ export function OrganisationRow(props: { organisation: OrganisationSearchResult 
         size="h-8 w-8 rounded-md"
       />
       <div class="min-w-0 flex-1">
-        <p class="text-foreground text-body truncate font-medium">{props.organisation.name}</p>
+        <p class="text-foreground text-title truncate font-medium">{props.organisation.name}</p>
         <p class="text-muted-foreground text-meta truncate">@{props.organisation.handle}</p>
       </div>
       <Show when={props.organisation.isMember}>

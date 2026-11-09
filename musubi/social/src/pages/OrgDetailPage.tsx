@@ -1,10 +1,10 @@
-import { describeAuthError, OrgClientError } from "@osn/client";
+import { describeAuthError, OrgClientError, type OrgMember } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Badge } from "@shared/ui/ui/badge";
 import { Button } from "@shared/ui/ui/button";
-import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
+import { Chip } from "@shared/ui/ui/chip";
+import { Dialog, DialogFooter, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
@@ -17,6 +17,12 @@ import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
 import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
+
+/** A member's role as the roster shows it: a label set as written, so in sentence case. */
+const ROLE_LABEL = {
+  admin: "Admin",
+  member: "Member",
+} satisfies Record<OrgMember["role"], string>;
 
 /** The HTTP status a failed request carried, when it got as far as a response. */
 function statusOf(error: unknown): number | undefined {
@@ -234,7 +240,9 @@ export function OrgDetailPage() {
                               </p>
                             </Show>
                           </div>
-                          <Badge variant="secondary">{member.role}</Badge>
+                          <Chip variant="outline" treatment="tag">
+                            {ROLE_LABEL[member.role]}
+                          </Chip>
                           <Show when={member.role !== "admin"}>
                             <Button
                               variant="ghost"
@@ -263,26 +271,29 @@ export function OrgDetailPage() {
           <DialogHeader>
             <DialogTitle>Edit organisation</DialogTitle>
           </DialogHeader>
-          <form class="flex flex-col gap-4 pt-2" onSubmit={handleSave}>
-            <div class="flex flex-col gap-1.5">
-              <Label for="edit-name">Name</Label>
-              <Input
-                id="edit-name"
-                value={editName()}
-                onInput={(e) => setEditName(e.currentTarget.value)}
-                required
-              />
+          {/* The footer sits inside the form, so Enter in a field still submits. */}
+          <form onSubmit={handleSave}>
+            <div class="flex flex-col gap-4 p-4">
+              <div class="flex flex-col gap-1.5">
+                <Label for="edit-name">Name</Label>
+                <Input
+                  id="edit-name"
+                  value={editName()}
+                  onInput={(e) => setEditName(e.currentTarget.value)}
+                  required
+                />
+              </div>
+              <div class="flex flex-col gap-1.5">
+                <Label for="edit-desc">Description</Label>
+                <Textarea
+                  id="edit-desc"
+                  value={editDesc()}
+                  onInput={(e) => setEditDesc(e.currentTarget.value)}
+                  rows={2}
+                />
+              </div>
             </div>
-            <div class="flex flex-col gap-1.5">
-              <Label for="edit-desc">Description</Label>
-              <Textarea
-                id="edit-desc"
-                value={editDesc()}
-                onInput={(e) => setEditDesc(e.currentTarget.value)}
-                rows={2}
-              />
-            </div>
-            <div class="flex justify-end gap-2 pt-1">
+            <DialogFooter>
               <Button
                 type="button"
                 variant="secondary"
@@ -295,7 +306,7 @@ export function OrgDetailPage() {
               <Button type="submit" size="sm" class="max-md:h-10" disabled={saving()}>
                 {saving() ? "Saving..." : "Save"}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
         </ResponsiveDialogContent>
       </Dialog>

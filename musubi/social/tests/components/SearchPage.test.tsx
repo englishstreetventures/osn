@@ -19,6 +19,7 @@ vi.mock("../../src/lib/api", () => ({
   recommendationClient: { search: mocks.search },
 }));
 
+import { ShellDialogsProvider } from "../../src/components/ShellDialogs";
 import { SearchPage } from "../../src/pages/SearchPage";
 
 function authedProvider(signedIn = true) {
@@ -66,9 +67,12 @@ const org = (handle: string, name: string, isMember = false) => ({
 function renderPage(signedIn = true) {
   return render(() => (
     <AuthContext.Provider value={authedProvider(signedIn)}>
-      <MemoryRouter>
-        <Route path="/" component={SearchPage} />
-      </MemoryRouter>
+      {/* The signed-out note's Sign in opens the shell's dialog. */}
+      <ShellDialogsProvider>
+        <MemoryRouter>
+          <Route path="/" component={SearchPage} />
+        </MemoryRouter>
+      </ShellDialogsProvider>
     </AuthContext.Provider>
   ));
 }

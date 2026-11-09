@@ -2,8 +2,8 @@ import { useAuth } from "@osn/client/solid";
 import { Input } from "@shared/ui/ui/input";
 import { For, onMount, Show } from "solid-js";
 
-import { EmptyNote } from "../components/EmptyNote";
 import { OrganisationLink, PersonRow, useSearchActions } from "../components/SearchResultRows";
+import { SignedOutNote } from "../components/SignedOutNote";
 import { usePageTitle } from "../lib/page-title";
 import { createSearchController } from "../lib/search";
 
@@ -39,7 +39,7 @@ export function SearchPage() {
 
       <Show
         when={session()}
-        fallback={<EmptyNote>Sign in to search people and organisations.</EmptyNote>}
+        fallback={<SignedOutNote>Sign in to search people and organisations.</SignedOutNote>}
       >
         {/* The "@" sits ahead of the box rather than over it: `Input` owns its
             padding, and this is the treatment `@shared/ui`'s own `UsernameInput`

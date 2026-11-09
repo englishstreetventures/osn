@@ -1,5 +1,5 @@
 import { MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
@@ -8,11 +8,13 @@ import "../src/App.css";
 /**
  * The shell dialogs' chunk fails to load. The shell waits for it as well as
  * for its own chunk, so it never offers a Sign in that cannot open: the rail's
- * frame stays and says to reload, and the page beside it still renders.
+ * frame stays and says to reload, and the page beside it still renders. The
+ * page's signed-out note holds its Sign in back too, keeping its place.
  *
  * Then the network comes back and the window crosses 768px. The phone shell
  * loads the chunk again, and once it draws, its Sign in opens the dialog: the
- * dialogs mount on the load that succeeds, not only on the first.
+ * dialogs mount on the load that succeeds, not only on the first. The note's
+ * Sign in shows then, once, outside the note's `<output>`.
  *
  * Its own file because a page keeps a failed module for the rest of the file.
  */
@@ -68,6 +70,7 @@ vi.mock("@osn/auth-ui/Register", () => ({
 }));
 
 import { Layout } from "../src/App";
+import { SignedOutNote } from "../src/components/SignedOutNote";
 
 beforeAll(async () => {
   await commands.failRequests("/src/components/ShellDialogSet.tsx");
@@ -90,6 +93,7 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
         component={() => (
           <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
             <h1>Discover</h1>
+            <SignedOutNote>Sign in to discover people.</SignedOutNote>
           </main>
         )}
       />
@@ -99,7 +103,9 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
   const alert = await waitFor(() => screen.getByRole("alert"));
   expect(alert.textContent).toBe("Musubi could not finish loading. Reload and try again.");
   expect(alert.closest("aside")!.getBoundingClientRect().width).toBe(240);
+  // Neither the shell's Sign in nor the note's: the dialog it opens is not there.
   expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  expect(screen.getByRole("status").textContent).toBe("Sign in to discover people.");
   expect(screen.getByRole("heading", { name: "Discover" })).toBeDefined();
   expect(document.querySelector("main")!.getBoundingClientRect().left).toBe(504);
   await page.screenshot({ path: "../../../e2e-artifacts/musubi-shell/dialogs-failed-1440.png" });
@@ -113,6 +119,11 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
     expect(button).toBeDefined();
     return button!;
   });
+  const inNote = within(document.querySelector("main")!).getAllByRole("button", {
+    name: "Sign in",
+  });
+  expect(inNote).toHaveLength(1);
+  expect(inNote[0]!.closest("output")).toBeNull();
   await userEvent.click(signIn);
   await waitFor(() => expect(screen.getByRole("dialog", { name: "Sign in" })).toBeDefined());
 });
