@@ -14,15 +14,21 @@
 -- If it stops, a later migration cannot fix it: wrangler and Alchemy apply
 -- files in name order and stop at the first that fails, so every release that
 -- applies osn migrations stops at this file. Recover in this order:
---   1. The owner, under the `production` Environment approval, reads counts
---      only, never rows: CI logs are public.
+--   1. The owner counts the rows on the database that stopped, under their own
+--      Cloudflare login; an agent never runs it. It reads counts only, never
+--      rows. On production, through
+--      `wrangler d1 execute osn-db-prod --remote --env production` from osn/api:
 --      SELECT count(*) FROM organisation_members WHERE role NOT IN ('admin', 'member');
 --   2. The owner decides whether each such row becomes 'member' or 'admin', or
 --      is deleted. It is a permission decision.
---   3. Either the owner writes that change on the database, after which the
---      next release applies this file unchanged, or this file is rewritten
---      under the `migrations:rewrite` label, without which the
---      `Migration history` check refuses an edit to a merged migration.
+--   3. The owner writes that change on the same database with
+--      `wrangler d1 execute`, and the next release applies this file
+--      unchanged. Each row changed or deleted is an admin action on user
+--      data: record it per
+--      "Internal admin actions on user data" in wiki/compliance/access-control.md
+--      (row count, the decision, who made it and when).
+--   Never rewrite this file to recover: osn-db-dev has almost always applied
+--   it by then, and Alchemy refuses an applied file whose bytes changed.
 CREATE TRIGGER IF NOT EXISTS `organisation_members_role_known` BEFORE INSERT ON `organisation_members`
 WHEN NEW.`role` NOT IN ('admin', 'member')
 BEGIN
