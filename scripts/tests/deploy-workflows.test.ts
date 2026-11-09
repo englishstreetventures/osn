@@ -1534,6 +1534,7 @@ describe("PW1: one production job per stack with a production deploy", () => {
       const sites = productionSitesOf(key);
       const steps = stepsOf(job);
       expect(stepById(job, "hosts")?.run).toBe("bun run --cwd shared/infra production-hosts");
+      expect(stepById(job, "hosts")?.env).toEqual({ FLIP: "${{ needs.plan.outputs.flip }}" });
       expect(stepById(job, "snapshot")?.run).toBe(
         `bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production ${sites.join(" ")}`,
       );
@@ -1581,12 +1582,17 @@ describe("PW1: one production job per stack with a production deploy", () => {
       expect(runStep(guard!, { FLIP: "", UNFLIP: "" }, 1).exitCode).not.toBe(0);
       expect(stepIndex(job, "deploy")).toBe(stepIndex(job, "guard") + 1);
       expect(deploy?.["working-directory"]).toBe(`${key}/infra`);
+      // On a flip the deploy's attach replaces the CNAME the detach kept;
+      // on any other release the hosts step writes it empty.
       expect(deploy?.env).toEqual({
         FORCE: "${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}",
         DO_NOT_TRACK: "1",
         OSN_DEPLOY_TIER: "production",
+        OSN_WORKER_DOMAIN_REPLACE_CNAME: "${{ steps.hosts.outputs.replace_cname }}",
         ...PRODUCTION_CREDENTIALS,
       });
+      // The re-plan attaches nothing, so it is never given the replacement.
+      expect(plan?.env?.OSN_WORKER_DOMAIN_REPLACE_CNAME).toBeUndefined();
       expect(runStep(deploy!, { FORCE: "" }).bunCalls).toEqual(["run deploy:production"]);
       expect(runStep(deploy!, { FORCE: "yes" }).bunCalls).toEqual([
         "run deploy:production --force",
@@ -1831,12 +1837,36 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
       const install = steps.findIndex(
         (step) => step.run === `bun install --frozen-lockfile --filter @${key}/infra`,
       );
-      const order = ["token", "state", "snapshot", "worker_domains", "plan", "guard"].map((id) =>
-        stepIndex(job, id),
-      );
+      const order = [
+        "hosts",
+        "token",
+        "flip_record",
+        "state",
+        "snapshot",
+        "worker_domains",
+        "plan",
+        "guard",
+      ].map((id) => stepIndex(job, id));
       expect(install).toBeGreaterThan(-1);
       expect(order.every((at) => at > install)).toBe(true);
       expect(order).toEqual(order.toSorted((a, b) => a - b));
+      // The flip host's records, read with the deploy's own token once its
+      // reach is checked and before the detach: the deploy would refuse what
+      // this refuses, and the summary names what it will replace.
+      const hosts = stepById(job, "hosts");
+      expect([hosts?.run, hosts?.env]).toEqual([
+        "bun run --cwd shared/infra production-hosts",
+        { FLIP: "${{ needs.plan.outputs.flip }}" },
+      ]);
+      const record = stepById(job, "flip_record");
+      expect(record?.run).toBe("bun run scripts/flip-record-check.ts");
+      expect(record?.env).toEqual({
+        REPLACE_CNAME: "${{ steps.hosts.outputs.replace_cname }}",
+        ...PRODUCTION_CREDENTIALS,
+      });
+      expect([record?.if, record?.["continue-on-error"]]).toEqual([undefined, undefined]);
+      expect(runStep(record!, {}).bunCalls).toEqual(["run scripts/flip-record-check.ts"]);
+      expect(runStep(record!, {}, 1).exitCode).not.toBe(0);
       expect(stepById(job, "snapshot")?.run).toBe(
         `bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production ${productionSitesOf(key).join(" ")}`,
       );

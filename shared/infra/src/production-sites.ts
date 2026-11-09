@@ -178,19 +178,42 @@ export function siteDomain(surface: SiteSurface, mode: SiteMode): string | null 
 }
 
 /**
+ * What a flip of `surface` deploys with as OSN_WORKER_DOMAIN_REPLACE_CNAME:
+ * `<production host>=<project>.pages.dev`, the CNAME the flip's detach keeps
+ * and its deploy's Worker custom domain replaces in one request (the
+ * provider patch's `Workers/ReplaceCname`). Throws SiteModeError for a site
+ * with no Pages project, which no flip can move.
+ */
+export function flipReplaceCname(surface: SiteSurface): string {
+  const project = PAGES_PROJECTS[surface];
+  if (project === undefined) {
+    throw new SiteModeError(
+      surface,
+      `${surface} has no Pages project in PAGES_PROJECTS, so no flip moves its host.`,
+    );
+  }
+  return `${productionHost(surface)}=${project}.pages.dev`;
+}
+
+/**
  * What the `production-hosts` command writes, one GitHub step output each:
  * `<surface>_origin`, the origin each non-off site's Worker serves at its
- * mode, which the production stack job's smoke checks probe.
+ * mode, which the production stack job's smoke checks probe; and
+ * `replace_cname`, `flipReplaceCname(flip)` on a flip release and empty on
+ * any other, which the stack deploy passes as
+ * OSN_WORKER_DOMAIN_REPLACE_CNAME and the verify job checks.
  */
 export function productionHostOutputs(
   modes: Readonly<Record<SiteSurface, SiteMode>> = PRODUCTION_SITE_MODES,
+  flip: SiteSurface | "" = "",
 ): ReadonlyMap<string, string> {
-  return new Map(
-    SITE_SURFACES.flatMap((surface): [string, string][] => {
+  return new Map([
+    ...SITE_SURFACES.flatMap((surface): [string, string][] => {
       const host = siteDomain(surface, modes[surface]);
       return host === null ? [] : [[`${surface}_origin`, `https://${host}`]];
     }),
-  );
+    ["replace_cname", flip === "" ? "" : flipReplaceCname(flip)],
+  ]);
 }
 
 /** The zone a production host is in: its last two labels. */

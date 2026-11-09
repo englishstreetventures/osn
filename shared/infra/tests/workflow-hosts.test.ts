@@ -52,13 +52,14 @@ const HOST_STEPS: Readonly<Record<string, typeof DEV_HOSTS | ProductionHosts>> =
   "deploy.yml": DEV_HOSTS,
   "production-release.yml": {
     run: "bun run --cwd shared/infra production-hosts",
-    env: undefined,
+    // The flip, so the step names the CNAME a flip's deploy replaces.
+    env: { FLIP: "${{ needs.plan.outputs.flip }}" },
     outputs: () => productionHostOutputs(),
   },
 };
 interface ProductionHosts {
   readonly run: string;
-  readonly env: undefined;
+  readonly env: { readonly FLIP: string };
   readonly outputs: () => ReadonlyMap<string, string>;
 }
 
@@ -119,4 +120,31 @@ describe.each(READERS)("the host outputs %s reads", (file) => {
     const read = [...new Set([...TEXT.matchAll(HOST_READ)].map((match) => match[1] ?? ""))];
     expect(read.filter((key) => !written.has(key))).toEqual([]);
   });
+});
+
+test("production-release.yml's hosts step, run on a flip, names the CNAME the flip's deploy replaces, and refuses a flip that is no site", () => {
+  const text = readFileSync(`${WORKFLOWS}production-release.yml`, "utf8");
+  const step = Object.values((Bun.YAML.parse(text) as Workflow).jobs)
+    .flatMap((job) => job.steps ?? [])
+    .find((candidate) => candidate.id === "hosts");
+  const runWith = (flip: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "workflow-hosts-flip-"));
+    const output = join(dir, "output");
+    writeFileSync(output, "");
+    const run = Bun.spawnSync(["bash", "--noprofile", "--norc", "-e", "-c", step?.run ?? ""], {
+      cwd: ROOT,
+      env: { PATH: process.env.PATH ?? "", FLIP: flip, GITHUB_OUTPUT: output },
+    });
+    return { exitCode: run.exitCode, written: readFileSync(output, "utf8") };
+  };
+  const flipped = runWith("cire_vendor");
+  expect(flipped.exitCode).toBe(0);
+  expect(flipped.written).toContain(
+    "\nreplace_cname=vendor.cireweddings.com=cire-vendor.pages.dev\n",
+  );
+  for (const flip of ["cire_api", "musubi_landing"]) {
+    const refused = runWith(flip);
+    expect({ flip, exitCode: refused.exitCode }).toEqual({ flip, exitCode: 1 });
+    expect(refused.written).toBe("");
+  }
 });

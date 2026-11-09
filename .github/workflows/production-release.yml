@@ -98,8 +98,9 @@ name: Production release
 # Environment also allows `main` alone; the plan job refuses any other ref
 # before the build starts. In the Alchemy jobs it reaches only the steps that
 # check the token, read the state store, snapshot or compare deployments,
-# read the Workers' custom domains, plan, deploy and smoke-check, and in the
-# Pages jobs only the deploy step; CLOUDFLARE_PAGES_DNS_TOKEN, which may move
+# read the Workers' custom domains, plan, deploy and smoke-check, and, in a
+# flip's verify job, read the flip host's DNS records (flip_record), and in
+# the Pages jobs only the deploy step; CLOUDFLARE_PAGES_DNS_TOKEN, which may move
 # a Pages domain, reaches only the pages-domain steps: alchemy-plan's
 # precheck, before any install, and the detach and attach jobs, which install
 # nothing. The jobs that install a narrower tree than `sites` and hold a
@@ -1269,14 +1270,19 @@ jobs:
   # A release dispatched with `flip` moves one site's domain from its Pages
   # project to its Worker, in three jobs that each ask their own approval:
   # stack-cire-verify plans the stack again and holds the plan to the flip
-  # and to the one approved at alchemy-plan, deploying nothing;
-  # flip-detach-cire takes the domain and its CNAME off the Pages project on
-  # a fresh runner with nothing installed, so the narrow Pages and DNS token
-  # reaches no dependency's code; then stack-cire-production plans and guards
-  # once more, as on every release, and deploys, which attaches the domain to
-  # the Worker. A refusal in the first detaches nothing; one in the last
-  # leaves the host on neither, for `pages-domain.ts attach` to put back.
-  # The site is unreachable from the detach until the deploy attaches it.
+  # and to the one approved at alchemy-plan, deploying nothing, and checks
+  # the flip host holds only the CNAME the deploy replaces;
+  # flip-detach-cire takes the domain off the Pages project and keeps its
+  # CNAME, on a fresh runner with nothing installed, so the narrow Pages and
+  # DNS token reaches no dependency's code; then stack-cire-production
+  # plans and guards once more, as on every release, and deploys, whose
+  # Worker custom-domain attach replaces that CNAME in one request
+  # (OSN_WORKER_DOMAIN_REPLACE_CNAME), so the zone holds a record for the
+  # host throughout and no resolver caches it as missing. A refusal in the
+  # first detaches nothing; one in the last leaves the host `detached`, on no
+  # project with its CNAME kept, for `pages-domain.ts attach` to put back.
+  # From the detach until the deploy attaches it the host still resolves,
+  # and its Pages project no longer lists it.
   stack-cire-verify:
     name: Verify the cire flip plan
     needs: [plan, build, sites, alchemy-plan]
@@ -1324,10 +1330,31 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
+      # The CNAME the flip's deploy replaces with the Worker's custom domain:
+      # replace_cname, `<host>=<project>.pages.dev`.
+      - name: Production site hosts
+        id: hosts
+        run: bun run --cwd shared/infra production-hosts
+        env:
+          FLIP: ${{ needs.plan.outputs.flip }}
+
       - name: Check the token reaches only the production account
         id: token
         run: bun run --cwd shared/infra token:check -- --tier production
         env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The flip's detach keeps the host's CNAME to its Pages project, and
+      # the deploy's attach replaces it in one request. Read the host's
+      # records with the deploy's own token now, before the detach, and
+      # refuse what the deploy would refuse; the job summary names what it
+      # will replace.
+      - name: Check the flip host holds only the CNAME the deploy replaces
+        id: flip_record
+        run: bun run scripts/flip-record-check.ts
+        env:
+          REPLACE_CNAME: ${{ steps.hosts.outputs.replace_cname }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1407,12 +1434,13 @@ jobs:
       # No install: pages-domain.ts imports only the repository's import-free
       # files. `detach` checks the token's reach, reads where the host is and
       # prints it, and refuses unless the host is on the site's own Pages
-      # project and the site is a worker site in this commit.
+      # project, its CNAME to it is the one record that routes it, and the
+      # site is a worker site in this commit; it keeps that CNAME.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
 
-      - name: Take the flip site's domain and CNAME off its Pages project
+      - name: Take the flip site's domain off its Pages project, keeping its CNAME
         id: detach
         run: bun run scripts/pages-domain.ts detach "$FLIP"
         env:
@@ -1474,10 +1502,13 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
-      # The host each site's Worker serves at its mode, which its smoke check asks.
+      # The host each site's Worker serves at its mode, which its smoke check
+      # asks, and on a flip the CNAME its deploy replaces.
       - name: Production site hosts
         id: hosts
         run: bun run --cwd shared/infra production-hosts
+        env:
+          FLIP: ${{ needs.plan.outputs.flip }}
 
       - name: Check the token reaches only the production account
         id: token
@@ -1559,6 +1590,9 @@ jobs:
           FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
+          # On a flip, the CNAME the detach kept, which the Worker's custom
+          # domain replaces in one request; empty on any other release.
+          OSN_WORKER_DOMAIN_REPLACE_CNAME: ${{ steps.hosts.outputs.replace_cname }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1662,14 +1696,19 @@ jobs:
   # A release dispatched with `flip` moves one site's domain from its Pages
   # project to its Worker, in three jobs that each ask their own approval:
   # stack-musubi-verify plans the stack again and holds the plan to the flip
-  # and to the one approved at alchemy-plan, deploying nothing;
-  # flip-detach-musubi takes the domain and its CNAME off the Pages project on
-  # a fresh runner with nothing installed, so the narrow Pages and DNS token
-  # reaches no dependency's code; then stack-musubi-production plans and
-  # guards once more, as on every release, and deploys, which attaches the
-  # domain to the Worker. A refusal in the first detaches nothing; one in the
-  # last leaves the host on neither, for `pages-domain.ts attach` to put back.
-  # The site is unreachable from the detach until the deploy attaches it.
+  # and to the one approved at alchemy-plan, deploying nothing, and checks
+  # the flip host holds only the CNAME the deploy replaces;
+  # flip-detach-musubi takes the domain off the Pages project and keeps its
+  # CNAME, on a fresh runner with nothing installed, so the narrow Pages and
+  # DNS token reaches no dependency's code; then stack-musubi-production
+  # plans and guards once more, as on every release, and deploys, whose
+  # Worker custom-domain attach replaces that CNAME in one request
+  # (OSN_WORKER_DOMAIN_REPLACE_CNAME), so the zone holds a record for the
+  # host throughout and no resolver caches it as missing. A refusal in the
+  # first detaches nothing; one in the last leaves the host `detached`, on no
+  # project with its CNAME kept, for `pages-domain.ts attach` to put back.
+  # From the detach until the deploy attaches it the host still resolves,
+  # and its Pages project no longer lists it.
   stack-musubi-verify:
     name: Verify the musubi flip plan
     needs: [plan, build, sites, alchemy-plan]
@@ -1717,10 +1756,31 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
+      # The CNAME the flip's deploy replaces with the Worker's custom domain:
+      # replace_cname, `<host>=<project>.pages.dev`.
+      - name: Production site hosts
+        id: hosts
+        run: bun run --cwd shared/infra production-hosts
+        env:
+          FLIP: ${{ needs.plan.outputs.flip }}
+
       - name: Check the token reaches only the production account
         id: token
         run: bun run --cwd shared/infra token:check -- --tier production
         env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The flip's detach keeps the host's CNAME to its Pages project, and
+      # the deploy's attach replaces it in one request. Read the host's
+      # records with the deploy's own token now, before the detach, and
+      # refuse what the deploy would refuse; the job summary names what it
+      # will replace.
+      - name: Check the flip host holds only the CNAME the deploy replaces
+        id: flip_record
+        run: bun run scripts/flip-record-check.ts
+        env:
+          REPLACE_CNAME: ${{ steps.hosts.outputs.replace_cname }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
@@ -1800,12 +1860,13 @@ jobs:
       # No install: pages-domain.ts imports only the repository's import-free
       # files. `detach` checks the token's reach, reads where the host is and
       # prints it, and refuses unless the host is on the site's own Pages
-      # project and the site is a worker site in this commit.
+      # project, its CNAME to it is the one record that routes it, and the
+      # site is a worker site in this commit; it keeps that CNAME.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
 
-      - name: Take the flip site's domain and CNAME off its Pages project
+      - name: Take the flip site's domain off its Pages project, keeping its CNAME
         id: detach
         run: bun run scripts/pages-domain.ts detach "$FLIP"
         env:
@@ -1866,10 +1927,13 @@ jobs:
           name: alchemy-plan
           path: ${{ runner.temp }}/approved
 
-      # The host each site's Worker serves at its mode, which its smoke check asks.
+      # The host each site's Worker serves at its mode, which its smoke check
+      # asks, and on a flip the CNAME its deploy replaces.
       - name: Production site hosts
         id: hosts
         run: bun run --cwd shared/infra production-hosts
+        env:
+          FLIP: ${{ needs.plan.outputs.flip }}
 
       - name: Check the token reaches only the production account
         id: token
@@ -1951,6 +2015,9 @@ jobs:
           FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
           DO_NOT_TRACK: "1"
           OSN_DEPLOY_TIER: production
+          # On a flip, the CNAME the detach kept, which the Worker's custom
+          # domain replaces in one request; empty on any other release.
+          OSN_WORKER_DOMAIN_REPLACE_CNAME: ${{ steps.hosts.outputs.replace_cname }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 

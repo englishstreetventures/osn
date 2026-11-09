@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { hostsFor, PRODUCTION_ZONES, stageHosts } from "../src/hosts";
 import {
+  flipReplaceCname,
   PAGES_PROJECTS,
   PRODUCTION_ADOPTIONS,
   PRODUCTION_HOSTS,
@@ -85,19 +86,37 @@ describe("production-sites.ts", () => {
     }
   });
 
-  test("production-hosts names each non-off site's origin at its mode, the origin its smoke check probes", () => {
+  test("production-hosts names each non-off site's origin at its mode, the origin its smoke check probes, and an empty replace_cname with no flip", () => {
     expect(Object.fromEntries(productionHostOutputs())).toEqual({
       cire_host_origin: "https://next.host.cireweddings.com",
       cire_vendor_origin: "https://vendor.cireweddings.com",
       cire_landing_origin: "https://next.cireweddings.com",
       osn_social_origin: "https://next.musubi.social",
       musubi_landing_origin: "https://www.musubi.social",
+      replace_cname: "",
     });
     expect(
       Object.fromEntries(
         productionHostOutputs({ ...PRODUCTION_SITE_MODES, cire_host: "worker", osn_social: "off" }),
       ),
     ).toMatchObject({ cire_host_origin: "https://host.cireweddings.com" });
+  });
+
+  test("PS7: a flip deploys with its host's CNAME to its own Pages project named for replacement; a site with no Pages project has none", () => {
+    expect(flipReplaceCname("cire_vendor")).toBe("vendor.cireweddings.com=cire-vendor.pages.dev");
+    expect(flipReplaceCname("cire_host")).toBe("host.cireweddings.com=cire-host.pages.dev");
+    expect(flipReplaceCname("cire_landing")).toBe("cireweddings.com=cire-landing.pages.dev");
+    expect(flipReplaceCname("osn_social")).toBe("musubi.social=osn-social.pages.dev");
+    for (const site of ["musubi_landing", "pulse_landing"] as const) {
+      expect(() => flipReplaceCname(site)).toThrow(SiteModeError);
+      expect(() => flipReplaceCname(site)).toThrow(/no Pages project/);
+    }
+    expect(productionHostOutputs(PRODUCTION_SITE_MODES, "cire_vendor").get("replace_cname")).toBe(
+      "vendor.cireweddings.com=cire-vendor.pages.dev",
+    );
+    expect(() => productionHostOutputs(PRODUCTION_SITE_MODES, "musubi_landing")).toThrow(
+      SiteModeError,
+    );
   });
 
   test("PS6: production runs on today's production hosts and reads no DEV_DOMAIN; every other stage derives its own", () => {
