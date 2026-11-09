@@ -54,6 +54,9 @@ function memberRows(): number {
 
 test("musubi-org-detail", async ({ page, flow }) => {
   const token = await signInToMusubiAsDev(flow, page, "/organisations");
+  // The page names the tab once it has rendered; the shell can land first.
+  await expect(page.getByRole("heading", { level: 1, name: "Organisations" })).toBeVisible();
+  flow.check("list tab title", "Organisations · Musubi", await page.title());
 
   await flow.step("create the organisation", async () => {
     await page.getByRole("button", { name: "Create", exact: true }).click();
@@ -87,6 +90,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
     org.name,
     (await page.getByRole("heading", { level: 1 }).textContent()) ?? "",
   );
+  flow.check("tab names the organisation", `${org.name} · Musubi`, await page.title());
   flow.check(
     "header shows the handle",
     true,
@@ -118,6 +122,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
     org.handle,
   );
   flow.check("organisation renamed in the database", org.renamed, saved?.name ?? "");
+  flow.check("tab follows the rename", `${org.renamed} · Musubi`, await page.title());
   flow.check("organisation row on the suite clock", true, onSuiteClock(saved?.created_at));
 
   await flow.step("remove the member", async () => {

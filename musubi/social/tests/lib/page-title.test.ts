@@ -4,33 +4,39 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { usePageTitle } from "../../src/lib/page-title";
 
+/** Every page a case mounted, so `afterEach` can unmount what a failed case left. */
+const mounted: (() => void)[] = [];
+
 /** Mounts a page that titles itself; returns its unmount. */
 function mountPage(title: () => string | undefined): () => void {
-  return createRoot((dispose) => {
+  const dispose = createRoot((d) => {
     usePageTitle(title);
-    return dispose;
+    return d;
   });
+  mounted.push(dispose);
+  return dispose;
 }
 
 afterEach(() => {
+  // Unmounting releases the module's owner, so one failing case cannot leave
+  // the next one a title it does not own. Disposing twice is a no-op.
+  for (const dispose of mounted.splice(0)) dispose();
   document.title = "Musubi";
 });
 
 describe("usePageTitle", () => {
   it("names the page ahead of the product", () => {
-    const unmount = mountPage(() => "Discover");
+    mountPage(() => "Discover");
     expect(document.title).toBe("Discover · Musubi");
-    unmount();
   });
 
   it("follows a title that arrives or changes after mount", () => {
     const [name, setName] = createSignal<string | undefined>("Organisations");
-    const unmount = mountPage(name);
+    mountPage(name);
     expect(document.title).toBe("Organisations · Musubi");
 
     setName("Walkers Club");
     expect(document.title).toBe("Walkers Club · Musubi");
-    unmount();
   });
 
   it("gives the product name back when the page goes", () => {
@@ -44,17 +50,27 @@ describe("usePageTitle", () => {
     expect(document.title).toBe("Musubi");
     unmountEmpty();
 
-    const unmountUndefined = mountPage(() => undefined);
+    mountPage(() => undefined);
     expect(document.title).toBe("Musubi");
-    unmountUndefined();
   });
 
   it("leaves the next page's title alone when the last page unmounts after it", () => {
-    const unmountOld = mountPage(() => "Connections");
-    const unmountNew = mountPage(() => "Connections");
+    const unmountOld = mountPage(() => "Organisations");
+    const unmountNew = mountPage(() => "Discover");
     unmountOld();
-    expect(document.title).toBe("Connections · Musubi");
+    expect(document.title).toBe("Discover · Musubi");
     unmountNew();
     expect(document.title).toBe("Musubi");
+  });
+
+  it("keeps the next page's title when the last page's title changes before it unmounts", () => {
+    const [oldName, setOldName] = createSignal<string | undefined>("Organisations");
+    const unmountOld = mountPage(oldName);
+    mountPage(() => "Discover");
+
+    setOldName("Acme");
+    expect(document.title).toBe("Discover · Musubi");
+    unmountOld();
+    expect(document.title).toBe("Discover · Musubi");
   });
 });

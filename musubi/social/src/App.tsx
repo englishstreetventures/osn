@@ -5,7 +5,7 @@ import { Route, Router, useLocation } from "@solidjs/router";
 import { createSignal, lazy, onCleanup, onMount, Show, type Component, type JSX } from "solid-js";
 
 import { AccountBanners } from "./components/AccountBanners";
-import { loadShellDialogs, ShellDialogsProvider } from "./components/ShellDialogs";
+import { ShellDialogsProvider, useShellDialogs } from "./components/ShellDialogs";
 import { RailFrame, TopBarFrame } from "./components/ShellFrame";
 import { osnAuth } from "./lib/auth";
 
@@ -81,8 +81,8 @@ export function Layout(props: { children?: JSX.Element }) {
         position={isMobile() ? "top-center" : "bottom-right"}
         style={
           isMobile()
-            ? // Clear the mobile top bar (3rem) plus the notch inset.
-              { top: "calc(3rem + env(safe-area-inset-top, 0px) + 8px)" }
+            ? // Under the phone top bar and the notch inset, one step clear.
+              { top: "calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + var(--spacing) * 2)" }
             : undefined
         }
       />
@@ -131,8 +131,9 @@ function Reserved(props: {
   shell: Component & { preload: () => Promise<{ default: Component }> };
   frame: Component<{ failed: boolean }>;
 }) {
+  const dialogs = useShellDialogs();
   const [state, setState] = createSignal<"loading" | "ready" | "failed">("loading");
-  Promise.all([props.shell.preload(), loadShellDialogs()]).then(
+  Promise.all([props.shell.preload(), dialogs.load()]).then(
     () => setState("ready"),
     () => setState("failed"),
   );

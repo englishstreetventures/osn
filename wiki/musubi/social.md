@@ -56,9 +56,13 @@ as bottom sheets through `ResponsiveDialogContent`). Each shell is a lazy
 chunk; until it lands, `Layout` draws a frame of the same box
 (`ShellFrame.tsx`), so the page does not move. The sign-in, create-account and
 profile-switcher dialogs are mounted once above the shell switch
-(`ShellDialogs.tsx`, one lazy chunk), and the shell waits for that chunk too,
-so no Sign in button shows before its dialog can open. Each routed page names
-the browser tab after its `h1` through `usePageTitle` (`src/lib/page-title.ts`).
+(`ShellDialogs.tsx`, which loads all three as one lazy chunk,
+`ShellDialogSet.tsx`), and the shell waits for that chunk too, so no Sign in
+button shows before its dialog can open; a later load that succeeds mounts
+them. Every app dialog gives focus back to the control that opened it
+(`ResponsiveDialogContent`). Each page in the shell (every route but
+`/authorize`) names the browser tab after its `h1` through `usePageTitle`
+(`src/lib/page-title.ts`).
 The mobile UX audit and the design rules the responsive work follows live in
 [[social-mobile-ux]] and `DESIGN.md` §Responsive layout.
 
@@ -289,6 +293,6 @@ Per-user limiters on the two recommendations endpoints, both fail-closed — 20 
 
 `tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, a query that normalises to nothing never leaves the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter activates the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. A pointer click is tested in Chromium instead (`tests/components/GlobalSearch.browser.test.tsx`), because happy-dom's synthetic click skips the press and the focus change that decide whether it lands: clicking an organisation opens it, clicking a person connects once and leaves focus in the field, and a click outside still closes the results.
 
-`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch. `tests/App.load-failure.browser.test.tsx` fails the rail's chunk at the network and checks that the frame stays with the reload line while the page still renders. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
+`tests/App.browser.test.tsx` renders `Layout` signed out in Chromium: the page column and the wordmark stay put while the rail's chunk and the top bar's chunk land, an open sign-in dialog survives the 768px switch with what was typed in it, the sheet is as wide as a phone and the card 384px on desktop, and focus goes back to the shell's own Sign in button when the dialog closes, on either side of a switch; at 320px the signed-out top bar fits its three 40px controls. `tests/App.signed-in.browser.test.tsx` opens the profile switcher from the rail's account menu, crosses to 390 with it open, and closes it onto the top bar's trigger. `tests/App.load-failure.browser.test.tsx`, `App.dialogs-load-failure.browser.test.tsx` and `App.phone-load-failure.browser.test.tsx` each fail one chunk at the network — the rail's, the shell dialogs', the phone shell's — and check that the frame stays with the reload line while the page still renders. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
 
 `tests/components/AuthorizePage.test.tsx` drives the consent screen the same way, with the authorize client mocked and `location.assign` stubbed: a malformed request id never reaches the API, a 404 is terminal, the decision carries the chosen profile, `login_required` keeps the request alive, and `invalid_client` ends the flow naming the app.

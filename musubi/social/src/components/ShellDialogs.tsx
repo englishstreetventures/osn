@@ -19,19 +19,22 @@ const ShellDialogSet = lazy(() =>
  */
 export type ShellDialog = "sign-in" | "register" | "switcher";
 
-/**
- * Fetches the dialogs' chunk. `App.tsx` draws the shell only once this has
- * resolved, so no Sign in button shows before its dialog can open. A
- * rejection is the shell's to report.
- */
-export async function loadShellDialogs(): Promise<void> {
-  await ShellDialogSet.preload();
-}
+type ShellDialogs = {
+  /** Opens a dialog, closing any other. */
+  open: (dialog: ShellDialog) => void;
+  /**
+   * Fetches the dialogs' chunk and mounts the dialogs once it is in. `App.tsx`
+   * draws a shell only once this has resolved, so no Sign in button shows
+   * before its dialog can open. A rejection is the shell's to report; calling
+   * this again tries the chunk again, and mounts the dialogs if it arrives.
+   */
+  load: () => Promise<void>;
+};
 
-const ShellDialogsContext = createContext<{ open: (dialog: ShellDialog) => void }>();
+const ShellDialogsContext = createContext<ShellDialogs>();
 
-/** Opens a shell dialog. Throws outside `ShellDialogsProvider`. */
-export function useShellDialogs(): { open: (dialog: ShellDialog) => void } {
+/** The shell's dialogs. Throws outside `ShellDialogsProvider`. */
+export function useShellDialogs(): ShellDialogs {
   const value = useContext(ShellDialogsContext);
   if (!value) throw new Error("useShellDialogs needs a ShellDialogsProvider above it");
   return value;
@@ -50,11 +53,16 @@ export function useShellDialogs(): { open: (dialog: ShellDialog) => void } {
  */
 export function ShellDialogsProvider(props: { children?: JSX.Element }) {
   const [current, setCurrent] = createSignal<ShellDialog | null>(null);
+  // The dialogs mount when any load succeeds, so a shell that draws after a
+  // retried load always has dialogs to open. `lazy` keeps no failed load, so
+  // each call after a failure fetches the chunk again.
   const [ready, setReady] = createSignal(false);
-  loadShellDialogs().then(
-    () => setReady(true),
-    () => {},
-  );
+  const load = () =>
+    ShellDialogSet.preload().then(() => {
+      setReady(true);
+    });
+  // Started here as well as by the shell: a failure is the shell's to report.
+  load().catch(() => {});
 
   let opener: { element: HTMLElement | null; dialog: ShellDialog } | null = null;
 
@@ -85,7 +93,7 @@ export function ShellDialogsProvider(props: { children?: JSX.Element }) {
   }
 
   return (
-    <ShellDialogsContext.Provider value={{ open }}>
+    <ShellDialogsContext.Provider value={{ open, load }}>
       {props.children}
       <Show when={ready()}>
         <ShellDialogSet

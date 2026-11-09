@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
@@ -70,6 +70,49 @@ function ceremonyImports(relativePath: string): string {
   return match[1] ?? "";
 }
 
+const SRC = new URL("../src/", import.meta.url).pathname;
+
+/** A static import or re-export, `import type` aside: the bundler erases those. */
+const STATIC_IMPORT =
+  /^(?:import|export)\s(?!type\s)[^;]*?from\s*"([^"]+)";$|^import\s*"([^"]+)";$/gm;
+
+/** A relative specifier as the bundler finds it: the path itself, or with `.ts`/`.tsx`. */
+function resolveSource(fromFile: string, specifier: string): string | null {
+  const base = resolve(dirname(fromFile), specifier);
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/**
+ * What the entry chunk holds: every file in `src/` that `entry` reaches
+ * through static imports, by its path under `src/`, and every package
+ * specifier named on the way. A dynamic `import()` ends the walk, as it ends
+ * the chunk.
+ */
+function staticGraph(entry: string): Set<string> {
+  const reached = new Set<string>();
+  const queue = [join(SRC, entry)];
+  for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
+    const name = file.slice(SRC.length);
+    if (reached.has(name)) continue;
+    reached.add(name);
+    if (!/\.tsx?$/.test(file)) continue;
+    for (const match of readFileSync(file, "utf8").matchAll(STATIC_IMPORT)) {
+      const specifier = match[1] ?? match[2] ?? "";
+      if (!specifier.startsWith(".")) {
+        reached.add(specifier);
+        continue;
+      }
+      const target = resolveSource(file, specifier);
+      if (target === null) throw new Error(`${name} imports ${specifier}, which does not resolve`);
+      queue.push(target);
+    }
+  }
+  return reached;
+}
+
 describe("webauthn chunk split", () => {
   it("puts each ceremony's method file in its own named chunk", async () => {
     const chunkFor = await manualChunks();
@@ -128,22 +171,29 @@ describe("webauthn chunk split", () => {
   });
 
   it("keeps the entry chunk off the sign-in and switcher dialogs", () => {
-    // `ShellDialogs` is imported statically by `App.tsx`, so it is in the
-    // entry chunk. The dialogs it mounts reach `@osn/auth-ui`'s `SignIn` and
-    // `Register`, which `/authorize` must not pay for before it paints, so it
-    // may name them only in a dynamic import. An allowlist, for the reason the
-    // banner case above gives.
-    const provider = readSource("../src/components/ShellDialogs.tsx");
-    const staticSpecifiers = [...provider.matchAll(/^import\s[^;]*?from\s*"([^"]+)";$/gm)].map(
-      (m) => m[1],
+    // The dialogs reach `@osn/auth-ui`'s `SignIn` and `Register`, which
+    // `/authorize` must not pay for before it paints. `ShellDialogs`, in the
+    // entry chunk, names them in one dynamic import; a static import of any of
+    // them from anywhere the entry reaches would put them back.
+    const entry = staticGraph("index.tsx");
+    expect(entry, "the walk reaches the dialogs' provider").toContain(
+      "components/ShellDialogs.tsx",
     );
-    expect(staticSpecifiers.toSorted()).toEqual(["solid-js"]);
+    for (const dialogModule of [
+      "components/ShellDialogSet.tsx",
+      "components/AuthDialogs.tsx",
+      "components/ProfileSwitcherDialog.tsx",
+    ]) {
+      expect(entry, `${dialogModule} is in the entry chunk`).not.toContain(dialogModule);
+    }
+    expect([...entry].filter((specifier) => specifier.startsWith("@osn/auth-ui"))).toEqual([]);
+
     // One dynamic import for all three dialogs: one per dialog makes the
     // bundler split the entry chunk and keep client code it otherwise drops.
-    expect([...provider.matchAll(/\bimport\(/g)]).toHaveLength(1);
-    expect(provider).toMatch(
-      /lazy\(\s*\(\)\s*=>\s*import\(\s*"\.\/ShellDialogSet"\s*\)\.then\(\s*\(m\)\s*=>\s*\(\{\s*default:\s*m\.ShellDialogSet,?\s*\}\)\s*,?\s*\)\s*,?\s*\)/,
-    );
+    const provider = readSource("../src/components/ShellDialogs.tsx");
+    expect([...provider.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)].map((m) => m[1])).toEqual([
+      "./ShellDialogSet",
+    ]);
   });
 
   it("keeps the sign-in dialog off a static registration import", () => {

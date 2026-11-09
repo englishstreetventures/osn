@@ -28,7 +28,7 @@ export function MobileTopBar() {
     <TopBarHeader
       end={
         <div class="flex items-center gap-2">
-          <ThemeToggle />
+          <ThemeToggle place="bar" />
           <Show
             when={session()}
             fallback={
@@ -36,7 +36,7 @@ export function MobileTopBar() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  class="h-9"
+                  class="h-10"
                   data-dialog-return="sign-in"
                   onClick={() => dialogs.open("sign-in")}
                 >
@@ -44,7 +44,7 @@ export function MobileTopBar() {
                 </Button>
                 <Button
                   size="sm"
-                  class="h-9"
+                  class="h-10"
                   data-dialog-return="register"
                   onClick={() => dialogs.open("register")}
                 >
@@ -57,7 +57,7 @@ export function MobileTopBar() {
               triggerClass="cursor-pointer rounded-pill"
               onSwitchProfile={() => dialogs.open("switcher")}
             >
-              <Avatar class="h-9 w-9">
+              <Avatar class="h-10 w-10">
                 <Show when={safeAvatarUrl(activeProfile()?.avatarUrl)}>
                   {(url) => (
                     <AvatarImage

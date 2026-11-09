@@ -154,9 +154,11 @@ export function GlobalSearch() {
         {/* A press anywhere in the panel keeps focus in the field. An option
             cannot take focus — the field keeps it and moves a virtual one —
             so without this a press would blur the field, the focusout above
-            would close the panel, and the click would land on nothing. */}
+            would close the panel, and the click would land on nothing.
+            Drawn as a floating panel, as the rail's menus are: 8px corners
+            on the raised surface. */}
         <div
-          class="border-border bg-background rounded-card absolute top-14 right-3 left-3 z-30 border p-1 shadow-lg"
+          class="border-border bg-popover text-popover-foreground absolute top-14 right-3 left-3 z-30 rounded-md border p-1 shadow-md"
           onMouseDown={(event) => event.preventDefault()}
         >
           {/* The status line lives outside the listbox: a listbox may only

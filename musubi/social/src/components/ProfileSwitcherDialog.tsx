@@ -3,7 +3,7 @@ import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
-import { Dialog } from "@shared/ui/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 import { createSignal, For, Show } from "solid-js";
 
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
@@ -40,19 +40,22 @@ export function ProfileSwitcherDialog(props: {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <ResponsiveDialogContent width="xs" onCloseAutoFocus={props.onCloseAutoFocus}>
+        <DialogHeader>
+          <DialogTitle>Switch profile</DialogTitle>
+        </DialogHeader>
         <div class="flex flex-col gap-1 py-2">
-          <p class="text-foreground text-title mb-2 px-3 font-medium">Switch profile</p>
           <For each={profiles() ?? []}>
             {(profile) => {
               const active = () => profile.id === activeProfileId();
               // The rows run to the dialog's edges, and below `md` the sheet
               // scrolls, which clips anything drawn outside a row: the focus
-              // ring sits inside it.
+              // ring sits inside it. Their text lines up with the title's.
               return (
                 <button
                   type="button"
+                  aria-current={active() ? "true" : undefined}
                   class={clsx(
-                    "text-body active:bg-muted flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-ui-colors focus-visible:-outline-offset-2 max-md:min-h-11",
+                    "text-body active:bg-muted flex w-full items-center gap-2.5 rounded-lg px-4 py-2 text-left transition-ui-colors focus-visible:-outline-offset-2 max-md:min-h-11",
                     active() ? "bg-muted text-foreground" : "hover:bg-muted/60 text-foreground",
                   )}
                   disabled={switching()}
@@ -80,7 +83,9 @@ export function ProfileSwitcherDialog(props: {
                     </Show>
                   </span>
                   <Show when={active()}>
-                    <span class="text-foreground text-meta">&#10003;</span>
+                    <span class="text-foreground text-meta" aria-hidden="true">
+                      &#10003;
+                    </span>
                   </Show>
                 </button>
               );

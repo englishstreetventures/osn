@@ -84,7 +84,7 @@ vi.mock("../../src/lib/authClients", () => ({
 }));
 
 import { AuthorizeSignIn } from "../../src/components/AuthorizeSignIn";
-import { loadShellDialogs, ShellDialogsProvider } from "../../src/components/ShellDialogs";
+import { ShellDialogsProvider, useShellDialogs } from "../../src/components/ShellDialogs";
 import { Sidebar } from "../../src/components/Sidebar";
 
 /** A signed-out AuthContext — the state in which the auth dialogs render. */
@@ -117,7 +117,17 @@ function signedOutAuth() {
 // the sitekey test below resets the module registry, and a dialog loaded after
 // that would bind to the blank-sitekey copy of `src/lib/auth.ts` it leaves.
 beforeAll(async () => {
-  await loadShellDialogs();
+  let load: (() => Promise<void>) | undefined;
+  const { unmount } = render(() => (
+    <ShellDialogsProvider>
+      {(() => {
+        load = useShellDialogs().load;
+        return null;
+      })()}
+    </ShellDialogsProvider>
+  ));
+  await load!();
+  unmount();
 });
 
 beforeEach(() => {

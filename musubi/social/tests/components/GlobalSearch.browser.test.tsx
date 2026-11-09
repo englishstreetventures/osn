@@ -1,7 +1,7 @@
 import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import "../../src/App.css";
 
@@ -111,4 +111,35 @@ describe("<GlobalSearch /> under a real pointer", () => {
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
     expect(mocks.sendConnectionRequest).not.toHaveBeenCalled();
   });
+
+  it.each(["light", "dark"])(
+    "draws the results as a floating panel, as the rail's menus are (%s)",
+    async (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      mocks.search.mockResolvedValue({
+        people: [
+          { handle: "alice", displayName: "Alice", avatarUrl: null, connectionStatus: "none" },
+        ],
+        organisations: [{ handle: "acme", name: "Acme Inc", avatarUrl: null, isMember: false }],
+      });
+      renderSearch();
+      await userEvent.fill(screen.getByRole("combobox"), "a");
+      const listbox = await waitFor(() => screen.getByRole("listbox"), { timeout: 2000 });
+      await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(2));
+      const panel = getComputedStyle(listbox.parentElement!);
+      const root = getComputedStyle(document.documentElement);
+
+      // 8px corners (`--radius-md`) on the raised surface, as `@shared/ui`'s menus.
+      expect(panel.borderTopLeftRadius).toBe(root.getPropertyValue("--radius").trim());
+      const probe = document.createElement("div");
+      probe.style.backgroundColor = "var(--popover)";
+      document.body.append(probe);
+      expect(panel.backgroundColor).toBe(getComputedStyle(probe).backgroundColor);
+      probe.remove();
+      await page.screenshot({
+        path: `../../../../e2e-artifacts/musubi-shell/search-panel-${theme}.png`,
+      });
+      document.documentElement.classList.remove("dark");
+    },
+  );
 });

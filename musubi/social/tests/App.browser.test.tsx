@@ -169,6 +169,8 @@ describe("one set of shell dialogs", () => {
     await waitFor(() => expect(railSignIn()).toBeDefined());
 
     await userEvent.click(railSignIn()!);
+    // Named for assistive technology: the view inside heads itself with a plain heading.
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Sign in" })).toBeDefined());
     const field = await waitFor(() => screen.getByLabelText("Email or handle"));
     await userEvent.fill(field, "alice");
     // A centred card, capped at 384px.
@@ -213,5 +215,29 @@ describe("one set of shell dialogs", () => {
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toBe(topBarSignIn()));
     expect(dialogs()).toHaveLength(0);
+  });
+});
+
+describe("the phone top bar", () => {
+  it("fits its signed-out controls at 320px, each at the 40px touch floor", async () => {
+    await page.viewport(320, 640);
+    renderApp();
+    await waitFor(() => expect(topBarSignIn()).toBeDefined());
+
+    const header = document.querySelector("header")!;
+    const row = header.firstElementChild as HTMLElement;
+    expect(row.scrollWidth, "nothing overflows the bar").toBeLessThanOrEqual(row.clientWidth);
+    const controls = [...header.querySelectorAll("button")];
+    expect(controls.map((c) => c.getAttribute("aria-label") ?? c.textContent)).toEqual([
+      "Theme: System",
+      "Sign in",
+      "Create account",
+    ]);
+    const short = controls.filter((c) => c.getBoundingClientRect().height < 40);
+    expect(short.map((c) => c.getAttribute("aria-label") ?? c.textContent)).toEqual([]);
+    const theme = controls[0]!.getBoundingClientRect();
+    expect(theme.width).toBeGreaterThanOrEqual(40);
+    expect(wordmark().right, "the wordmark clears the controls").toBeLessThan(theme.left);
+    await page.screenshot({ path: `${SHOTS}/topbar-320.png` });
   });
 });

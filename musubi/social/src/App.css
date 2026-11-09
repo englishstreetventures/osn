@@ -282,6 +282,11 @@
 @utility pb-nav {
   padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
 }
+/* The phone top bar's row, under the notch inset: `TopBarHeader` draws it, and
+ * the toaster below `md` sits under it. */
+:root {
+  --topbar-h: calc(var(--spacing) * 12);
+}
 
 html {
   font-family: var(--font-sans);
