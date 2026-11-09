@@ -30,19 +30,23 @@ the inline script that sets the theme before first paint, under each portal's
 own storage keys), and `createHaptics` (touch feedback by event name). The
 guest and marketing sites import none of them.
 
-`UsernameInput` is one of two apparent duplicates, and the reason is the API rather
-than the styling: `@shared/ui`'s is controlled and renders its own debounced
-availability status, this one spreads raw input props because its single call
-site (`cire/host`'s add-host combobox) drives `aria-expanded`,
-`aria-activedescendant` and a suggestion list onto the box. The full argument is
-in `src/username-input.tsx`.
+Four names here are also `@shared/ui` parts. `Button` and `Card` are the house
+style above.
 
-`Skeleton` is the second, and the reason is the look: cire's paints
-`--ui-surface`, at full strength for a card or a row and at 60% for a field or
-a pill, with the corners of cire's own stand-ins, and pulses on `PULSE`, which
-follows `--motion-scale`. `@shared/ui`'s paints the sunk well, because an app
-such as Musubi maps `--ui-surface` to its page colour, and pulses on Tailwind's
-`--animate-pulse`.
+`UsernameInput` differs in its API rather than its styling: `@shared/ui`'s is
+controlled and renders its own debounced availability status, this one spreads
+raw input props because its single call site (`cire/host`'s add-host combobox)
+drives `aria-expanded`, `aria-activedescendant` and a suggestion list onto the
+box. The full argument is in `src/username-input.tsx`.
+
+`Skeleton` differs in its look: cire's paints `--ui-surface`, at full strength
+for a card or a row and at 60% for a field or a pill, with the corners of
+cire's own stand-ins, and pulses on `PULSE`, which follows `--motion-scale`.
+`@shared/ui`'s paints the sunk well, because an app such as Musubi maps
+`--ui-surface` to its page colour, and pulses on Tailwind's `--animate-pulse`.
+The two share the words `row` and `card` but not the default or the corner
+of a row; `wiki/shared/component-library.md` §`Skeleton` sets them side by
+side.
 
 ## It is written against the token contract
 

@@ -114,7 +114,7 @@ shared/ui/src/
     ├── qr-code.tsx         ← QrCode
     ├── radio-group.tsx     ← RadioGroup, RadioGroupItem (native)
     ├── select.tsx          ← Select (native <select>, Input's box)
-    ├── skeleton.tsx        ← Skeleton — a loading placeholder in the corner of a line, row, card or pill
+    ├── skeleton.tsx        ← Skeleton — a loading placeholder in the corner of what it stands in for
     ├── stat.tsx            ← Stat
     ├── switch.tsx          ← Switch — an on/off change that takes effect at once (native)
     ├── switch-classes.ts   ← the switch's track and thumb classes, which the menu's switch row draws too
@@ -1314,8 +1314,8 @@ lab draws it in `shared/ui/forms` as `Otp`, `OtpStates` and `OtpNarrow`
 ### `Skeleton` — a loading placeholder in the corner of what it stands in for
 
 `Skeleton` (`shared/ui/src/ui/skeleton.tsx`) is the block a list or a panel
-shows in place of each line, row, card or chip while it loads, so the page
-holds its shape and nothing jumps when the content lands.
+shows in place of each line, row, field, button, card or chip while it loads,
+so the page holds its shape and nothing jumps when the content lands.
 
 ```tsx
 <Skeleton standsFor="line" width={48} height={8} />   // a heading's line, 12rem × 2rem
@@ -1328,9 +1328,17 @@ holds its shape and nothing jumps when the content lands.
 | `standsFor` | Stands in for | Corner | Musubi |
 |---|---|---|---|
 | `line` | a line of text | `rounded-ui-sm` | 6px |
-| `row` | a list row, a field. The default, and the corner for any value it does not know | `rounded-ui-md` | 8px |
+| `row` | a list row. The default, and the corner for any value it does not know | `rounded-ui-md` | 8px |
+| `field` | a text field or a select | `rounded-ui-field` | 8px |
+| `control` | a button | `rounded-ui-control` | pill |
 | `card` | a card | `rounded-ui-lg` | 16px |
-| `pill` | a chip, a button; an avatar when `width` equals `height` | `rounded-ui-pill` | pill |
+| `pill` | a chip; an avatar when `width` equals `height` | `rounded-ui-pill` | pill |
+
+`field` and `control` read the contract's role corners, the ones `Input`,
+`Select` and `Button` read, not a size ([[design-tokens#The tokens]]). So a
+placeholder takes the corner of the field or button that replaces it in every
+app: pulse's buttons are a rounded rectangle, not a pill, and cire's fields are
+14px against its 10px `md`.
 
 **Fill.** Every block paints the contract's sunk well, `bg-ui-surface-sunk`,
 at full strength, with no edge. Not `--ui-surface`: Musubi maps that to
@@ -1338,8 +1346,19 @@ at full strength, with no edge. Not `--ui-surface`: Musubi maps that to
 because the pulse halves it: a half-strength `bg-muted/50` would reach about
 `#fcfcfc` on white at the pulse's low point. In Musubi's dark theme the well
 (`--muted`, `#2b2b2b`) sits close to a card (`--card`, `#242424`), so a
-skeleton inside a card is faint there; the lab's `SkeletonGrounds` shows it.
-A placeholder is `aria-hidden` and has no contrast floor to meet.
+skeleton inside a card is faint there; the lab's `SkeletonGrounds` shows it,
+beside the half-strength well Musubi's call sites draw by hand. A placeholder
+is `aria-hidden` and has no contrast floor to meet.
+
+**Contrast themes.** A forced-colours theme repaints every background as
+`Canvas`, the page's own colour, which would erase the block. So under
+`forced-colors: active` the block draws a 1px edge (`forced-colors:border`),
+which the theme paints in its own text colour, `CanvasText`; the pulse runs on
+it as it does anywhere else. The block does not opt out of the repaint
+(`forced-color-adjust: none`) to fill with `currentColor`, as the switch's
+thumb does: with the repaint off, `currentColor` is the page's own text colour,
+and where the page is dark and the theme light, or the reverse, that is the
+theme's `Canvas` and the block vanishes again.
 
 **Motion.** It pulses on `base:motion-safe:animate-pulse`: Tailwind's own theme
 token `--animate-pulse` (`pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite`, down
@@ -1371,8 +1390,9 @@ rather than an invalid `calc()` that draws nothing.
 children: it stands for nothing a screen reader should read. The region that
 holds the skeletons and the content that replaces them carries `aria-busy`
 while it loads; that is the caller's. Its `class` carries the block's place
-only — a margin, a flex or grid placement — and its inline size wins over a
-`w-*` or `h-*` passed there. No other prop reaches the block. That is a
+only — a margin, a flex or grid placement. Width and height are always inline,
+the full width included, so a `w-*` or `h-*` passed there never resizes the
+block. No other prop reaches the block. That is a
 deliberate exception to step 2 of §Adding a new component (`splitProps`,
 `...others`, `SafeProps<"div">`), as `Meter` is: no role, handler, title or
 child should be able to turn a placeholder into something a reader reaches.
@@ -1381,19 +1401,24 @@ child should be able to turn a placeholder into something a reader reaches.
 `--ui-surface`, at full and 60%, with corners for cire's own stand-ins, and
 pulses on `--motion-scale` and the app's `--ease-in-out` through `PULSE`;
 `cire/ui/README.md` says why both exist. Neither cire nor pulse imports this
-one.
-
-**Gap.** In a forced-colours theme the browser repaints its background as
-`Canvas`, the page's own colour, so the block disappears. Forced colours
-beyond focus stay open under englishstreetventures/osn#2034.
+one. The two share the prop `standsFor` and four of its words. `field`, `card`
+and `pill` take the same corner in both. `row` does not: cire's stands in for a
+row of a table, inside `Table`'s frame, and takes that frame's
+`rounded-ui-sm`; this one's stands in for a list row drawn as a block of its
+own, as Musubi's connections and members lists draw theirs, and takes
+`rounded-ui-md`. The defaults differ too: cire's is `card`, this one's is
+`row`. So `<Skeleton standsFor="row">` and a bare `<Skeleton>` draw different
+corners in the two packages.
 
 `tests/skeleton.browser.test.tsx` holds the pulse (the theme's token, the fade
 to half at 1s, an app's own `--animate-pulse`, and the stop under reduced
-motion), the fill and the absent edge for every stand-in, each one's corner and
+motion), the fill and the absent edge for every stand-in, the edge in the
+theme's text colour in a contrast theme, each one's corner (a role's for `field` and `control`) and
 a row's for an unknown or missing value, the size in spacing steps under an
-app's `--spacing`, the refused sizes, the phone column, the square pill in a
-crowded row, Chrome's accessibility tree hiding it for `aria-hidden`, and a
-caller's margin ([[browser-tests]]). The lab draws it in `shared/ui/feedback`
+app's `--spacing`, a size of 0, the refused sizes (a refused width fills what
+its flex row leaves), the phone column, the square pill in a crowded row,
+Chrome's accessibility tree hiding it for `aria-hidden`, a caller's margin, and
+a caller's `w-*` and `h-*` leaving its size alone ([[browser-tests]]). The lab draws it in `shared/ui/feedback`
 as `Skeletons`, `SkeletonGrounds`, `SkeletonInPlace` and `SkeletonPlayground`
 ([[component-lab]]).
 

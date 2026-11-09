@@ -1,24 +1,33 @@
+import { clsx } from "clsx";
 import type { JSX } from "solid-js";
 
 /**
  * "Something loads here." The block a list or a panel shows in place of each
- * line, row, card or chip while it loads, so the page holds its shape and
- * nothing jumps when the content lands.
+ * line, row, field, button, card or chip while it loads, so the page holds its
+ * shape and nothing jumps when the content lands.
  *
  * `standsFor` names what the block stands in for, and the block takes its
- * corner:
+ * corner. Where the thing it stands in for reads a role corner, so does the
+ * block, so it follows each app's mapping of that role:
  *
  * - `line` — a line of text: `rounded-ui-sm`.
- * - `row` — a list row or a field: `rounded-ui-md`. The default, and the corner
- *   for any value it does not know: a value cast from stored data must not
- *   paint a block with no corner.
+ * - `row` — a list row: `rounded-ui-md`. The default, and the corner for any
+ *   value it does not know: a value cast from stored data must not paint a
+ *   block with no corner.
+ * - `field` — a text field or a select: `rounded-ui-field`, the role `Input`
+ *   and `Select` read.
+ * - `control` — a button: `rounded-ui-control`, the role `Button` reads.
  * - `card` — a card: `rounded-ui-lg`.
- * - `pill` — a chip or a button; an avatar when width and height match:
- *   `rounded-ui-pill`.
+ * - `pill` — a chip; an avatar when width and height match: `rounded-ui-pill`.
  *
  * Every block fills with the contract's sunk well (`bg-ui-surface-sunk`) at
  * full strength and draws no edge. Not `--ui-surface`: an app may map that to
- * its page colour, as Musubi does, and the block would vanish.
+ * its page colour, as Musubi does, and the block would vanish. In a contrast
+ * theme (forced colours) the browser repaints every background as `Canvas`,
+ * the page's own colour, so there the block draws a 1px edge, which the theme
+ * paints in its own text colour, `CanvasText`. It does not opt out of the
+ * repaint to fill with `currentColor`: that would take the page's text colour,
+ * which can be the theme's `Canvas` when the two disagree on light or dark.
  *
  * It pulses on the theme's `--animate-pulse` (Tailwind's own token: down to
  * half strength and back over 2s), behind `motion-safe:`, so for a reader who
@@ -39,16 +48,18 @@ import type { JSX } from "solid-js";
  * the caller's.
  *
  * The caller's `class` carries only the block's place: a margin, a flex or grid
- * placement. Size goes through `width` and `height`, which are inline and win
- * over a `w-*` or `h-*`. No other prop reaches the block, so no role, handler,
- * title or child can.
+ * placement. Width and height are always inline, the full width included, so
+ * a `w-*` or `h-*` passed there never resizes the block. No other prop reaches
+ * the block, so no role, handler, title or child can.
  */
 
-export type SkeletonStandIn = "line" | "row" | "card" | "pill";
+export type SkeletonStandIn = "line" | "row" | "field" | "control" | "card" | "pill";
 
 const CORNER = {
   line: "base:rounded-ui-sm",
   row: "base:rounded-ui-md",
+  field: "base:rounded-ui-field",
+  control: "base:rounded-ui-control",
   card: "base:rounded-ui-lg",
   pill: "base:rounded-ui-pill",
 } as const satisfies Readonly<Record<SkeletonStandIn, string>>;
@@ -87,8 +98,13 @@ export function Skeleton(props: SkeletonProps): JSX.Element {
   return (
     <div
       aria-hidden="true"
-      class={`base:bg-ui-surface-sunk base:max-w-full base:motion-safe:animate-pulse ${corner(props.standsFor)} ${width() === undefined ? "base:w-full" : "base:shrink-0"}${props.class ? ` ${props.class}` : ""}`}
-      style={{ width: width(), height: steps(props.height) ?? steps(LINE_STEPS) }}
+      class={clsx(
+        "base:bg-ui-surface-sunk base:max-w-full base:motion-safe:animate-pulse base:forced-colors:border",
+        corner(props.standsFor),
+        width() !== undefined && "base:shrink-0",
+        props.class,
+      )}
+      style={{ width: width() ?? "100%", height: steps(props.height) ?? steps(LINE_STEPS) }}
     />
   );
 }

@@ -408,15 +408,24 @@ export const NoticePlayground: Story<NoticeArgs> = {
   ),
 };
 
-const STAND_INS = ["line", "row", "card", "pill"] as const satisfies readonly SkeletonStandIn[];
+const STAND_INS = [
+  "line",
+  "row",
+  "field",
+  "control",
+  "card",
+  "pill",
+] as const satisfies readonly SkeletonStandIn[];
 
 /**
- * Each stand-in at the sizes it takes, one group each: `line` for text,
- * `row` for a list row or a field, `card` for a card, `pill` for a chip, a
- * button and, square, an avatar. Every one fills with the sunk well and pulses
- * on Tailwind's `--animate-pulse`. To see the still state, emulate
- * `prefers-reduced-motion: reduce` (DevTools, Rendering): each block stands at
- * full strength.
+ * Each stand-in at the sizes it takes, one group each: `line` for text, `row`
+ * for a list row, `field` for a text field or a select, `control` for a
+ * button, `card` for a card, `pill` for a chip and, square, an avatar. Every
+ * one fills with the sunk well and pulses on Tailwind's `--animate-pulse`. To
+ * see the still state, emulate `prefers-reduced-motion: reduce` (DevTools,
+ * Rendering): each block stands at full strength. Emulate
+ * `forced-colors: active` there to see the contrast theme: each block draws
+ * an edge in the theme's text colour.
  */
 export const Skeletons = () => (
   <div class="flex max-w-xl flex-col gap-8">
@@ -431,6 +440,18 @@ export const Skeletons = () => (
       <Skeleton height={14} />
       <Skeleton height={12} />
       <Skeleton width={40} height={10} />
+    </section>
+    <section class="flex flex-col gap-2">
+      <h3 class="text-meta text-subtle">field</h3>
+      <Skeleton standsFor="field" height={9} />
+      <Skeleton standsFor="field" width={48} height={9} />
+    </section>
+    <section class="flex flex-col gap-2">
+      <h3 class="text-meta text-subtle">control</h3>
+      <div class="flex flex-wrap items-center gap-2">
+        <Skeleton standsFor="control" width={24} height={9} />
+        <Skeleton standsFor="control" width={32} height={11} />
+      </div>
     </section>
     <section class="flex flex-col gap-2">
       <h3 class="text-meta text-subtle">card</h3>
@@ -449,26 +470,50 @@ export const Skeletons = () => (
   </div>
 );
 
-/** One of each stand-in, a line's width for `line` and the column's for the rest. Not exported. */
+/** Each stand-in's size in a column: a line's, a button's or a chip's width, the column's for the rest. */
+const ONE_OF_EACH = {
+  line: { width: 48, height: 5 },
+  row: { width: "full", height: 12 },
+  field: { width: "full", height: 9 },
+  control: { width: 24, height: 9 },
+  card: { width: "full", height: 20 },
+  pill: { width: 16, height: 6 },
+} as const satisfies Record<SkeletonStandIn, { width: number | "full"; height: number }>;
+
+/** One of each stand-in. Not exported. */
 function EveryStandIn() {
   return (
     <For each={STAND_INS}>
-      {(standIn) => (
-        <Skeleton
-          standsFor={standIn}
-          width={standIn === "line" ? 48 : "full"}
-          height={standIn === "line" ? 5 : 12}
-        />
-      )}
+      {(standIn) => <Skeleton standsFor={standIn} {...ONE_OF_EACH[standIn]} />}
     </For>
   );
 }
 
 /**
+ * The placeholder Musubi's call sites draw today (`bg-muted/50 animate-pulse`,
+ * 8px corners on lines and rows, the card's on cards), written in the
+ * contract's names, which the lab's Musubi mapping resolves to the same values.
+ * Drawn by hand only to compare against `Skeleton`'s full-strength well.
+ */
+function MusubiToday() {
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        class="bg-ui-surface-sunk/50 rounded-ui-md h-5 w-48 max-w-full animate-pulse"
+      />
+      <div aria-hidden="true" class="bg-ui-surface-sunk/50 rounded-ui-md h-12 animate-pulse" />
+      <div aria-hidden="true" class="bg-ui-surface-sunk/50 rounded-ui-lg h-20 animate-pulse" />
+    </>
+  );
+}
+
+/**
  * Each stand-in on the page ground and inside a `Card`, to judge the fill against
- * both. Toggle **light · dark**: under Musubi's dark mapping the sunk well
- * (`--muted`) sits close to the card (`--card`), and at the pulse's low point
- * closer still.
+ * both, and below them the half-strength placeholder Musubi's call sites draw
+ * today, on the same two grounds. Toggle **light · dark**: under Musubi's dark
+ * mapping the sunk well (`--muted`) sits close to the card (`--card`), and at
+ * the pulse's low point closer still.
  */
 export const SkeletonGrounds = () => (
   <div class="grid max-w-3xl gap-6 sm:grid-cols-2">
@@ -479,6 +524,14 @@ export const SkeletonGrounds = () => (
     <Card padding="md" class="flex flex-col gap-3">
       <h3 class="text-meta text-subtle">In a card</h3>
       <EveryStandIn />
+    </Card>
+    <section class="flex flex-col gap-3">
+      <h3 class="text-meta text-subtle">Musubi today, on the page</h3>
+      <MusubiToday />
+    </section>
+    <Card padding="md" class="flex flex-col gap-3">
+      <h3 class="text-meta text-subtle">Musubi today, in a card</h3>
+      <MusubiToday />
     </Card>
   </div>
 );
