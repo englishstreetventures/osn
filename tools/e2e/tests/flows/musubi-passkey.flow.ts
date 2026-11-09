@@ -2,9 +2,16 @@
  * Musubi: create an account with a passkey, sign out, sign back in with the
  * passkey, keep the session across a reload, add and remove an authenticator
  * app behind passkey step-ups, keep the session past its access token's
- * expiry, list the connected apps, and sign the page out when the issuer
- * refuses to renew it. Signed in, before the authenticator steps, it measures
- * and shoots Musubi's base styles (`musubi-surfaces.ts`).
+ * expiry, list the connected apps, sign the page out when the issuer refuses
+ * to renew it, sign out a reload that has no cookie, and sign in to Pulse
+ * through Musubi's `/authorize`. Signed in, before the authenticator steps, it
+ * measures and shoots Musubi's base styles (`musubi-surfaces.ts`).
+ *
+ * Musubi is served as it deploys, its Content-Security-Policy included
+ * (`appSpecs` in `src/stack.ts`): the flow checks the policy it is served and
+ * that no Musubi page logs a refusal under it, Turnstile's widget among them.
+ * Access tokens live only in the page's memory; the flow checks that storage
+ * never holds one.
  *
  * The session cookie is set by osn-api (`localhost:4000`) on responses to
  * Musubi's (`localhost:1422`) cross-origin fetches, so it only lands — and only
@@ -13,7 +20,7 @@
 
 import type { Request, Response } from "@playwright/test";
 
-import { ORIGINS, PEOPLE } from "../../src/config";
+import { ORIGINS, PEOPLE, TURNSTILE_ORIGIN } from "../../src/config";
 import {
   addVirtualAuthenticator,
   cookieNamed,
@@ -27,6 +34,29 @@ import { musubiSurfaces } from "../support/musubi-surfaces";
 
 const ada = PEOPLE.musubi;
 
+/** Where `@osn/client` keeps the stored account: never a token. */
+const ACCOUNT_KEY = "@osn/client:account_session";
+
+/** The stored account: whether a session is held and the profile the page is on, nothing else. */
+const STORED_ACCOUNT = /^\{"hasSession":true,"activeProfileId":"usr_[a-z0-9_]+"\}$/;
+
+/** A JSON Web Token, as any access or ID token osn-api issues is written. */
+const JWT = /eyJ[\w-]+\.[\w-]+\./;
+
+/**
+ * The access-token lifetime osn-api issues on this stack, which sets no
+ * `OSN_ACCESS_TOKEN_TTL` (`osn/api/src/build-deps.ts`).
+ */
+const ACCESS_TOKEN_TTL_MS = 300_000;
+
+/**
+ * The policy the build writes (`contentSecurityPolicy` in
+ * `musubi/social/vite.config.ts`), with each inline-script hash written as
+ * `'sha256-…'`: scripts from Musubi itself, its two inline scripts and
+ * Turnstile; connections to Musubi itself and osn-api.
+ */
+const MUSUBI_POLICY = `frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'sha256-…' 'sha256-…' ${TURNSTILE_ORIGIN}; connect-src 'self' ${ORIGINS.osnApi}`;
+
 test("musubi-passkey", async ({ page, context, flow }) => {
   const authenticator = await addVirtualAuthenticator(page);
   // The virtual authenticator answers a conditional-UI (autofill) request on
@@ -37,11 +67,23 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     PublicKeyCredential.isConditionalMediationAvailable = () => Promise.resolve(false);
   });
 
+  let servedPolicy = "";
   await flow.step("open Musubi", async () => {
-    await page.goto(ORIGINS.musubi);
+    const response = await page.goto(ORIGINS.musubi);
+    servedPolicy = (await response?.headerValue("content-security-policy")) ?? "";
     await expect(page.getByRole("button", { name: "Create account" }).first()).toBeVisible();
   });
   flow.check("tab title", "Musubi", await page.title());
+  flow.check(
+    "Musubi is served the policy its build wrote",
+    MUSUBI_POLICY,
+    servedPolicy.replace(/'sha256-[A-Za-z0-9+/]+=*'/g, "'sha256-…'"),
+  );
+
+  // Every value Musubi keeps in the browser's storage, none of which may be a token.
+  const storedValues = () =>
+    page.evaluate(() => [...Object.values(localStorage), ...Object.values(sessionStorage)]);
+  const storedAccount = () => page.evaluate((key) => localStorage.getItem(key) ?? "", ACCOUNT_KEY);
 
   // The narrowest phone: the signed-out top bar must hold the wordmark, the
   // theme toggle, "Sign in" and "Create account" without running off the right
@@ -114,15 +156,29 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   flow.check("osn_session cookie set by osn-api", true, cookie !== undefined);
   flow.check("osn_session is HttpOnly", true, cookie?.httpOnly ?? false);
   flow.check("osn_session is SameSite=Lax", "Lax", cookie?.sameSite ?? "");
+  flow.check(
+    "signed in, no stored value holds a token",
+    false,
+    (await storedValues()).some((v) => JWT.test(v)),
+  );
+  flow.check(
+    "the stored account is its two fields",
+    true,
+    STORED_ACCOUNT.test(await storedAccount()),
+  );
 
+  const grantsBeforeReload = flow.count("POST osn-api /token 200");
   await flow.step("reload restores the session from the cookie alone", async () => {
-    // Drop the client's cached account, so the only way back to a session is
+    // The stored account holds no token, so the only way back to a session is
     // the HttpOnly cookie riding on a credentialed `POST /token`.
-    await page.evaluate(() => localStorage.clear());
     await page.reload();
     await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
   });
-  flow.check("session restored through POST /token", true, flow.saw("POST osn-api /token 200"));
+  flow.check(
+    "one POST /token restores the session",
+    1,
+    flow.count("POST osn-api /token 200") - grantsBeforeReload,
+  );
 
   // Signed in, after the check above has read the request log: the surfaces
   // reload the page for the legal routes, and each reload posts to /token.
@@ -169,28 +225,16 @@ test("musubi-passkey", async ({ page, context, flow }) => {
 
   // From here the page's clock runs ahead of the servers'. osn-api still takes
   // the old access token, so only the client can know it is stale. Each step
-  // moves the page past the stored token's expiry and opens the Security tab,
-  // whose three views each make an authenticated GET. The checks are counts
-  // and sets, never request order across the three, which varies by run.
+  // moves the page past its token's expiry and opens the Security tab, whose
+  // three views each make an authenticated GET. The checks are counts and
+  // sets, never request order across the three, which varies by run.
   const SECURITY_GETS = ["/passkeys", "/totp/status", "/recovery/status"];
   const securityGets = (suffix = "") =>
     SECURITY_GETS.map((path) => flow.count(`GET osn-api ${path}${suffix}`));
   const sum = (counts: number[]) => counts.reduce((a, b) => a + b, 0);
-  const pastExpiry = async () => {
-    // The number only; no token leaves the page.
-    const expiresAt = await page.evaluate(() => {
-      const raw = localStorage.getItem("@osn/client:account_session");
-      if (!raw) return null;
-      const account = JSON.parse(raw) as {
-        activeProfileId: string;
-        profileTokens: Record<string, { expiresAt: number }>;
-      };
-      return account.profileTokens[account.activeProfileId]?.expiresAt ?? null;
-    });
-    if (expiresAt === null) throw new Error("no stored access token");
-    const now = await page.evaluate(() => Date.now());
-    await page.clock.fastForward(expiresAt - now + 60_000);
-  };
+  // The token lives only in the page's memory, so its expiry cannot be read;
+  // any token the page holds was issued at or before the page's now.
+  const pastExpiry = () => page.clock.fastForward(ACCESS_TOKEN_TTL_MS + 60_000);
   const grantsBefore = flow.count("POST osn-api /token 200");
   const okBefore = securityGets(" 200");
   const refusedGetsBefore = sum(securityGets(" 401"));
@@ -239,6 +283,14 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     true,
     flow.saw("GET osn-api /oidc/connections 200"),
   );
+  // What the page stores while signed in, kept for the no-cookie reload below.
+  const signedInAccount = await storedAccount();
+  flow.check(
+    "renewed, no stored value holds a token",
+    false,
+    (await storedValues()).some((v) => JWT.test(v)),
+  );
+  flow.check("still the stored account's two fields", true, STORED_ACCOUNT.test(signedInAccount));
 
   const refusedGrantsBefore = flow.count("POST osn-api /token 400");
   const sentBefore = sum(securityGets());
@@ -258,21 +310,68 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     flow.count("POST osn-api /token 400") - refusedGrantsBefore,
   );
   flow.check("no Security GET sent after the refusal", 0, sum(securityGets()) - sentBefore);
-  flow.check(
-    "the stored account is gone",
-    true,
-    await page.evaluate(() => localStorage.getItem("@osn/client:account_session") === null),
-  );
+  flow.check("the stored account is gone", "", await storedAccount());
 
-  await flow.step("without the cookie, the reload is signed out", async () => {
-    await context.clearCookies();
-    await page.evaluate(() => localStorage.clear());
-    await page.reload();
-    await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
-  });
+  const refusedBeforeReload = flow.count("POST osn-api /token 400");
+  await flow.step(
+    "without the cookie, a reload with the stored account is signed out",
+    async () => {
+      await context.clearCookies();
+      // What the page stored while signed in: an account and no token.
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [
+        ACCOUNT_KEY,
+        signedInAccount,
+      ] as const);
+      await page.reload();
+      await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+    },
+  );
   flow.check(
     "signed out with no cookie",
     false,
     await page.getByRole("button", { name: `@${ada.handle}` }).isVisible(),
+  );
+  flow.check(
+    "the reload's grant was refused once",
+    1,
+    flow.count("POST osn-api /token 400") - refusedBeforeReload,
+  );
+  flow.check("the refused reload forgot the stored account", "", await storedAccount());
+
+  // Pulse is a first-party app, so osn-api sends a browser with no session to
+  // Musubi's `/authorize` to sign in, then on to consent, and back to Pulse.
+  const authorizePages: string[] = [];
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && frame.url().startsWith(`${ORIGINS.musubi}/authorize`)) {
+      authorizePages.push(frame.url());
+    }
+  });
+  const contextReadsBefore = flow.count("GET osn-api /authorize/context 200");
+  const turnstileBefore = flow.turnstileServed();
+  await flow.step("sign in to Pulse through Musubi's /authorize", async () => {
+    await page.goto(ORIGINS.pulseWeb);
+    await page.getByRole("button", { name: "Continue with musubi" }).click();
+    await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByText("Verified by Musubi")).toBeVisible();
+    await page.getByRole("button", { name: "Allow" }).click();
+    await expect(page).toHaveURL(`${ORIGINS.pulseWeb}/welcome`);
+  });
+  const turnstileAfter = flow.turnstileServed();
+  flow.check("Musubi's /authorize page shown", true, authorizePages.length > 0);
+  flow.check(
+    "the consent screen read its context",
+    true,
+    flow.count("GET osn-api /authorize/context 200") > contextReadsBefore,
+  );
+  flow.check(
+    "/authorize loaded Turnstile's script and frame",
+    true,
+    turnstileAfter.script > turnstileBefore.script && turnstileAfter.frame > turnstileBefore.frame,
+  );
+  flow.check(
+    "no Content-Security-Policy message on a Musubi page",
+    "",
+    flow.cspMessages(ORIGINS.musubi).join("\n"),
   );
 });

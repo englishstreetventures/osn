@@ -105,6 +105,17 @@ export const ORIGINS: Record<AppName, string> = Object.fromEntries(
   Object.entries(PORTS).map(([name, port]) => [name, `http://localhost:${port}`]),
 ) as Record<AppName, string>;
 
+/**
+ * Cloudflare's Turnstile test sitekey that always passes and shows a visible
+ * widget. The stack's Musubi build carries it, so its forms render Turnstile;
+ * the fixtures answer for Turnstile's script and frame, and osn-api, holding no
+ * secret, checks no token.
+ */
+export const TURNSTILE_TEST_SITEKEY = "1x00000000000000000000AA";
+
+/** Turnstile's script and frame host, where the fixtures' stand-in answers. */
+export const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
 /** The Resend key the stack's osn-api sends to the mail stand-in with; never real. */
 export const E2E_RESEND_KEY = "re_e2e_local";
 

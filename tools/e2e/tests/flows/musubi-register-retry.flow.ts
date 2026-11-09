@@ -84,4 +84,9 @@ test("musubi-register-retry", async ({ page, flow }) => {
     flow.count("POST osn-api /register/begin 200"),
   );
   flow.check("account created", true, flow.saw("POST osn-api /register/complete 201"));
+  flow.check(
+    "no Content-Security-Policy message on a Musubi page",
+    "",
+    flow.cspMessages(ORIGINS.musubi).join("\n"),
+  );
 });

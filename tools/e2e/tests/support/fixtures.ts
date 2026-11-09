@@ -5,7 +5,9 @@
  * API requests and assertions, and at the end takes the final-state screenshot
  * and attaches the record the results reporter writes into `results.json`.
  * In each context it records, it stands in for cire's realtime hub, which the
- * stack does not run (`standInForCireHub`). Flows touch the stack only through
+ * stack does not run (`standInForCireHub`), and for Cloudflare Turnstile
+ * (`standInForTurnstile`), and it collects every Content-Security-Policy
+ * message a page logs. Flows touch the stack only through
  * the browser, the API request context and the read-only helpers here. The one
  * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
  * not part of the stack.
@@ -40,6 +42,7 @@ import {
   ORIGINS,
   REALTIME_KEEPALIVE,
   SCREENSHOT_DIR,
+  TURNSTILE_ORIGIN,
 } from "../../src/config";
 import type { CapturedMail } from "../../src/mail";
 import { requestLine, requestSet, type Assertion, type FlowRecord } from "../../src/record";
@@ -81,6 +84,58 @@ async function standInForCireHub(ctx: BrowserContext, seen: HubStandInLog): Prom
   });
 }
 
+/** Where the Turnstile stand-in's widget frame loads from: Turnstile's own host. */
+const TURNSTILE_FRAME = `${TURNSTILE_ORIGIN}/e2e-stand-in/frame`;
+
+/**
+ * Turnstile's `api.js`, standing in: `render` puts a frame from Turnstile's
+ * host into the widget's element and hands back the token Cloudflare's test
+ * sitekeys return. Served at the real script URL, so the page loads it, and
+ * the frame, through the same Content-Security-Policy the real one meets: a
+ * policy that refused either would refuse it before the request left, and
+ * this stand-in would never be asked.
+ */
+const TURNSTILE_STAND_IN = `window.turnstile = {
+  render: function (el, opts) {
+    var frame = document.createElement("iframe");
+    frame.src = ${JSON.stringify(TURNSTILE_FRAME)};
+    frame.title = "Turnstile";
+    el.appendChild(frame);
+    Promise.resolve().then(function () { if (opts.callback) opts.callback("XXXX.DUMMY.TOKEN.XXXX"); });
+    return "e2e-turnstile";
+  },
+  remove: function () {},
+  reset: function () {},
+};`;
+
+/**
+ * Answers for Cloudflare Turnstile in `ctx`, which the stack cannot reach
+ * offline, and counts what it served. Only Musubi's build carries a sitekey.
+ */
+async function standInForTurnstile(ctx: BrowserContext, served: TurnstileLog): Promise<void> {
+  await ctx.route(`${TURNSTILE_ORIGIN}/**`, async (route) => {
+    const url = route.request().url();
+    if (url === `${TURNSTILE_ORIGIN}/turnstile/v0/api.js`) {
+      served.script += 1;
+      await route.fulfill({ contentType: "text/javascript", body: TURNSTILE_STAND_IN });
+    } else if (url === TURNSTILE_FRAME) {
+      served.frame += 1;
+      await route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><title>Turnstile</title>",
+      });
+    } else {
+      await route.fulfill({ status: 404, body: "" });
+    }
+  });
+}
+
+/** What the Turnstile stand-in has served in one flow, across its contexts. */
+interface TurnstileLog {
+  script: number;
+  frame: number;
+}
+
 /** What the hub stand-in has seen in one flow, across its contexts. */
 interface HubStandInLog {
   /** Each socket's topic, in the order the sockets arrived. */
@@ -106,6 +161,14 @@ export interface Flow {
   realtimeTopics(): readonly string[];
   /** How many pings the hub stand-in has received so far. */
   realtimePings(): number;
+  /** How many times the Turnstile stand-in has served its script and its frame. */
+  turnstileServed(): { readonly script: number; readonly frame: number };
+  /**
+   * Every message a page whose address starts with `origin` has logged about
+   * its Content-Security-Policy so far — a blocked script, frame or
+   * connection, enforced or report-only — as `<page path>: <message>`.
+   */
+  cspMessages(origin: string): readonly string[];
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
   finalPage: Page;
 }
@@ -131,6 +194,8 @@ export const test = base.extend<{ flow: Flow; envelope: boolean }>({
     const lines: string[] = [];
     const assertions: Assertion[] = [];
     const hub: HubStandInLog = { topics: [], pings: 0 };
+    const turnstile: TurnstileLog = { script: 0, frame: 0 };
+    const csp: { readonly url: string; readonly text: string }[] = [];
     const watched = new WeakSet<BrowserContext>();
     const watch = async (ctx: BrowserContext): Promise<void> => {
       if (watched.has(ctx)) return;
@@ -141,7 +206,15 @@ export const test = base.extend<{ flow: Flow; envelope: boolean }>({
         const line = requestLine(request.method(), request.url(), response.status(), API_LABELS);
         if (line) lines.push(line);
       });
+      // The browser logs every policy refusal to the console, whatever the
+      // page's own code does with it.
+      ctx.on("console", (message) => {
+        const text = message.text();
+        if (!/Content[- ]Security[- ]Policy/i.test(text)) return;
+        csp.push({ url: message.location().url || (message.page()?.url() ?? ""), text });
+      });
       await standInForCireHub(ctx, hub);
+      await standInForTurnstile(ctx, turnstile);
     };
 
     const flow: Flow = {
@@ -176,6 +249,14 @@ export const test = base.extend<{ flow: Flow; envelope: boolean }>({
       },
       realtimePings() {
         return hub.pings;
+      },
+      turnstileServed() {
+        return { ...turnstile };
+      },
+      cspMessages(origin) {
+        return csp
+          .filter((entry) => entry.url.startsWith(origin))
+          .map((entry) => `${new URL(entry.url).pathname}: ${entry.text}`);
       },
     };
 

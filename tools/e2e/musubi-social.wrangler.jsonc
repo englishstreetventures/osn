@@ -1,0 +1,14 @@
+// The stack's Musubi: musubi/social's build, served by Wrangler's local asset
+// server as the deployed `osn-social` Worker serves it (`socialSite` in
+// musubi/infra/src/declaration.ts): its `_headers` applied, deep links answered
+// with the single-page fallback, slash handling the same. The launcher builds
+// it first (`appSpecs` in src/stack.ts). Local only; nothing deploys from here.
+{
+  "name": "osn-social-e2e",
+  "compatibility_date": "2025-03-01",
+  "assets": {
+    "directory": "../../musubi/social/dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "single-page-application"
+  }
+}

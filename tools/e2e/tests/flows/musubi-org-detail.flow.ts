@@ -235,4 +235,9 @@ test("musubi-org-detail", async ({ page, flow }) => {
   // One page load: Musubi read its profiles and traded the cookie for a token once.
   flow.check("profiles listed once", 1, flow.count("GET osn-api /profiles/list "));
   flow.check("token granted once", 1, flow.count("POST osn-api /token "));
+  flow.check(
+    "no Content-Security-Policy message on a Musubi page",
+    "",
+    flow.cspMessages(ORIGINS.musubi).join("\n"),
+  );
 });
