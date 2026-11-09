@@ -3,7 +3,9 @@
  * (`patches/@alchemy.run%2Fcloudflare@2.0.0-beta.85.patch`) so it reads every
  * Cloudflare reply the way wrangler does, and so a failed import reports
  * Cloudflare's error or the reply itself, with no presigned upload URL and no
- * R2 error body in the message. Each case runs against the provider's `src/`
+ * R2 error body in the message: a reply that failed with its status, or that
+ * is not JSON, gives only Cloudflare's error codes and messages, or its
+ * length, never its text. Each case runs against the provider's `src/`
  * copy, which Bun loads in a deploy, and its `lib/` copy, which Node-style
  * resolution loads, over a scripted Cloudflare API, so this file fails if the
  * patch stops applying to either.
@@ -362,12 +364,69 @@ describe.each(COPIES)("alchemy's D1 import, $copy copy", ({ path }) => {
     expect(sleeps).toEqual([1000, 1000]);
   });
 
-  test("h: a poll answered with a body that is not JSON carries the body", async () => {
-    const { exit } = await run(await load(path), {
-      polls: [{ status: 200, body: "<html>upstream timed out</html>" }],
-    });
-    expect(failure(exit)).toContain("upstream timed out");
+  test("h: a poll answered with a body that is not JSON reports its status and length, never the body", async () => {
+    const body = "<html>upstream timed out</html>";
+    const { exit } = await run(await load(path), { polls: [{ status: 200, body }] });
+    const message = failure(exit);
+    expect(message).toContain(`D1 import reply is not JSON (200, ${body.length} bytes)`);
+    expect(message).not.toContain("upstream timed out");
   });
+
+  const ENVELOPE_WITH_URL = {
+    success: false,
+    errors: [{ code: 7500, message: "import ran out of time" }],
+    messages: [],
+    upload_url: UPLOAD_URL,
+    result: { upload_url: UPLOAD_URL },
+  };
+  const PAGE_WITH_URL = `<html><body>bad gateway for PUT ${UPLOAD_URL}</body></html>`;
+
+  test.each([
+    {
+      name: "a 500 whose JSON carries an upload URL",
+      reply: json(ENVELOPE_WITH_URL, 500),
+      shows: "D1 import request failed (500): 7500 import ran out of time",
+    },
+    {
+      name: "a 502 page that echoes the upload URL",
+      reply: { status: 502, body: PAGE_WITH_URL },
+      shows: "D1 import request failed (502)",
+    },
+  ])(
+    "T1: an ingest answered with $name carries Cloudflare's code and message alone",
+    async ({ reply, shows }) => {
+      const { exit, requests } = await run(await load(path), { ingest: reply });
+      const message = failure(exit);
+      expect(message).toContain(shows);
+      expect(message).not.toContain(SIGNATURE);
+      expect(message).not.toContain("upload_url");
+      expect(message).not.toContain("bad gateway");
+      expect(pollBookmarks(requests)).toEqual([]);
+    },
+  );
+
+  test.each([
+    {
+      name: "a 200 page that echoes the upload URL",
+      reply: { status: 200, body: PAGE_WITH_URL },
+      shows: `D1 import reply is not JSON (200, ${PAGE_WITH_URL.length} bytes)`,
+    },
+    {
+      name: "a 503 whose JSON carries an upload URL",
+      reply: json(ENVELOPE_WITH_URL, 503),
+      shows: "D1 import request failed (503): 7500 import ran out of time",
+    },
+  ])(
+    "T2: a poll answered with $name carries Cloudflare's code and message alone",
+    async ({ reply, shows }) => {
+      const { exit } = await run(await load(path), { polls: [reply] });
+      const message = failure(exit);
+      expect(message).toContain(shows);
+      expect(message).not.toContain(SIGNATURE);
+      expect(message).not.toContain("upload_url");
+      expect(message).not.toContain("bad gateway");
+    },
+  );
 
   test("i: an init reply with no upload URL polls the import it started, with no upload or ingest", async () => {
     const { exit, requests } = await run(await load(path), {

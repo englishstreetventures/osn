@@ -1,5 +1,5 @@
 diff --git a/lib/D1/ImportDatabase.js b/lib/D1/ImportDatabase.js
-index 0ea3ee4b32582dc0402546acb2855d494e7b9511..30bceeb631ed0b7faaf0d7d5d6f84646b978823b 100644
+index 0ea3ee4b32582dc0402546acb2855d494e7b9511..6236c7244d430da1d74ff2a600fc30d9404634a9 100644
 --- a/lib/D1/ImportDatabase.js
 +++ b/lib/D1/ImportDatabase.js
 @@ -1,3 +1,4 @@
@@ -7,7 +7,7 @@ index 0ea3ee4b32582dc0402546acb2855d494e7b9511..30bceeb631ed0b7faaf0d7d5d6f84646
  import * as d1 from "@distilled.cloud/cloudflare/d1";
  import { md5 } from "alchemy/Util/md5";
  import * as Data from "effect/Data";
-@@ -5,76 +6,136 @@ import * as Effect from "effect/Effect";
+@@ -5,76 +6,165 @@ import * as Effect from "effect/Effect";
  import * as HttpClient from "effect/http/HttpClient";
  import * as HttpClientRequest from "effect/http/HttpClientRequest";
  /**
@@ -25,6 +25,33 @@ index 0ea3ee4b32582dc0402546acb2855d494e7b9511..30bceeb631ed0b7faaf0d7d5d6f84646
 + * replaced by "[redacted]": deploy logs can be public.
 + */
 +const describeReply = (reply) => JSON.stringify(reply, (key, value) => key === "upload_url" || key === "uploadUrl" ? "[redacted]" : value);
++/**
++ * The codes and messages of the Cloudflare errors in a failed reply's body,
++ * as `: <code> <message>; ...`, and nothing else from it: a body that is not
++ * a JSON envelope holding errors gives an empty string, so no reply text,
++ * and no upload URL a reply might echo, reaches the message.
++ */
++const describeErrors = (body) => {
++    let parsed;
++    try {
++        parsed = JSON.parse(body);
++    }
++    catch {
++        return "";
++    }
++    const errors = parsed?.errors;
++    if (!Array.isArray(errors))
++        return "";
++    const described = errors.flatMap((error) => {
++        const { code, message } = (error ?? {});
++        const parts = [
++            typeof code === "number" ? String(code) : "",
++            typeof message === "string" ? message : "",
++        ].filter((part) => part !== "");
++        return parts.length > 0 ? [parts.join(" ")] : [];
++    });
++    return described.length > 0 ? `: ${described.join("; ")}` : "";
++};
 +/**
 + * R2's error code and message from a failed upload's body, and nothing else
 + * from it: an S3-style signature error echoes the request's signature.
@@ -48,7 +75,9 @@ index 0ea3ee4b32582dc0402546acb2855d494e7b9511..30bceeb631ed0b7faaf0d7d5d6f84646
 + *
 + * Every reply is read as wrangler reads it. A failed import dies with
 + * Cloudflare's error or the reply itself, and no message carries an upload
-+ * URL or an R2 error body.
++ * URL or an R2 error body. A reply that failed with its status gives only
++ * Cloudflare's error codes and messages, and one that is not JSON only its
++ * status and length, never its text.
   */
 -export const importD1Database = Effect.fn(function* (options) {
 -    const { accountId, databaseId } = options;
@@ -64,7 +93,7 @@ index 0ea3ee4b32582dc0402546acb2855d494e7b9511..30bceeb631ed0b7faaf0d7d5d6f84646
 +        const res = yield* client.execute(req).pipe(Effect.orDie);
 +        if (res.status < 200 || res.status >= 300) {
 +            const text = yield* res.text.pipe(Effect.orElseSucceed(() => ""));
-+            return yield* Effect.die(`D1 import request failed (${res.status}): ${text}`);
++            return yield* Effect.die(`D1 import request failed (${res.status})${describeErrors(text)}`);
 +        }
 +        const text = yield* res.text.pipe(Effect.orDie);
 +        let envelope;
@@ -72,7 +101,7 @@ index 0ea3ee4b32582dc0402546acb2855d494e7b9511..30bceeb631ed0b7faaf0d7d5d6f84646
 +            envelope = JSON.parse(text);
 +        }
 +        catch {
-+            return yield* Effect.die(`D1 import reply is not JSON: ${text}`);
++            return yield* Effect.die(`D1 import reply is not JSON (${res.status}, ${text.length} bytes)`);
 +        }
 +        if (envelope?.success === false) {
 +            return yield* Effect.die(`D1 import request failed: ${describeReply(envelope)}`);
@@ -138,15 +167,15 @@ index 0ea3ee4b32582dc0402546acb2855d494e7b9511..30bceeb631ed0b7faaf0d7d5d6f84646
 -                databaseId,
 -                message: response.error ?? "Error during D1 import",
 -            });
--        }
++        if (!reply.at_bookmark) {
++            return yield* Effect.die(`${missingBookmark}: ${describeReply(reply)}`);
+         }
 -        if (!response.atBookmark) {
 -            return yield* new D1ImportError({
 -                databaseId,
 -                message: response.error ?? "D1 import response is incomplete and has no bookmark to poll",
 -            });
-+        if (!reply.at_bookmark) {
-+            return yield* Effect.die(`${missingBookmark}: ${describeReply(reply)}`);
-         }
+-        }
 -        return yield* poll(yield* importDb({
 -            accountId,
 -            databaseId,
@@ -284,8 +313,318 @@ index 075182ce9116cef909966f252d0c4c406e0dbc34..1e06984724b4d5f72a5089c81e221219
              return hashed;
          })), Effect.flatMap(sha256), Effect.map((hash) => hash.slice(0, 32)));
          count++;
+diff --git a/lib/Workers/ReplaceCname.js b/lib/Workers/ReplaceCname.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..746f61561d049c6c2ebec32d223d008299990d6b
+--- /dev/null
++++ b/lib/Workers/ReplaceCname.js
+@@ -0,0 +1,257 @@
++import { Credentials, formatHeaders } from "@distilled.cloud/cloudflare/Credentials";
++import * as Config from "effect/Config";
++import * as Effect from "effect/Effect";
++import * as HttpClient from "effect/http/HttpClient";
++import * as HttpClientRequest from "effect/http/HttpClientRequest";
++import * as Option from "effect/Option";
++import * as Schedule from "effect/Schedule";
++/**
++ * One host whose CNAME to its own Pages project this deploy replaces with its
++ * Worker's custom domain, as `<host>=<project>.pages.dev`. Unset or empty,
++ * every attach runs as it always has.
++ */
++export const REPLACE_CNAME_ENV = "OSN_WORKER_DOMAIN_REPLACE_CNAME";
++/**
++ * Set to `1`, lets the replacement run at a zone's apex while the apex holds
++ * records beside its CNAME (TXT, MX, CAA): unset, such an apex stops the
++ * deploy before any write.
++ */
++export const REPLACE_ALLOW_APEX_ENV = "OSN_WORKER_DOMAIN_REPLACE_ALLOW_APEX";
++const LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
++const HOSTNAME = new RegExp(`^${LABEL}(?:\\.${LABEL})+$`);
++const PAGES_TARGET = new RegExp(`^${LABEL}\\.pages\\.dev$`);
++/**
++ * The host and target `value` names, or undefined when it is unset or empty.
++ * Throws unless it is exactly one `<host>=<label>.pages.dev` pair, in lower
++ * case.
++ */
++export const parseReplaceCname = (value) => {
++    const text = (value ?? "").trim();
++    if (text === "")
++        return undefined;
++    const parts = text.split("=");
++    const [host = "", target = ""] = parts;
++    if (parts.length !== 2 || !HOSTNAME.test(host) || !PAGES_TARGET.test(target)) {
++        throw new Error(`${REPLACE_CNAME_ENV} must name exactly one host and its Pages project's name, as <host>=<project>.pages.dev, in lower case; nothing was changed.`);
++    }
++    return { host, target };
++};
++/** A record a Worker custom domain made. */
++const isWorkerRecord = (record) => {
++    const worker = record.meta?.origin_worker_id;
++    if (typeof worker === "string" && worker !== "")
++        return true;
++    return record.type === "AAAA" && record.content === "100::" && record.meta?.read_only === true;
++};
++/** Record types that route nothing. */
++const NOT_ROUTING = new Set(["TXT", "MX", "CAA"]);
++/** The zone a host is in: its last two labels. */
++const zoneOf = (host) => host.split(".").slice(-2).join(".");
++/**
++ * Whether `record`, at `host`, could route the host: a Worker's record, or
++ * any record but TXT, MX, CAA and the zone's own NS records at its apex. The
++ * same rule as scripts/pages-domain.ts's `decides`, which reads the host
++ * before the detach.
++ */
++export const routesHost = (host, record) => {
++    if (isWorkerRecord(record))
++        return true;
++    if (NOT_ROUTING.has(record.type))
++        return false;
++    return !(record.type === "NS" && host === zoneOf(host));
++};
++const REPLACE_CNAME = Config.String(REPLACE_CNAME_ENV).pipe(Config.option);
++const REPLACE_ALLOW_APEX = Config.String(REPLACE_ALLOW_APEX_ENV).pipe(Config.option);
++/** Cloudflare's code for a script its registry does not list yet, retried as `putDomain` retries it. */
++const WORKER_NOT_FOUND = 10007;
++/** Cloudflare's code for a hostname another attachment still holds for a moment. */
++const HOSTNAME_IN_USE = 100116;
++const notFoundSchedule = Schedule.max([Schedule.exponential(200), Schedule.recurs(15)]);
++const conflictSchedule = Schedule.max([Schedule.spaced("2 seconds"), Schedule.recurs(8)]);
++/** A Cloudflare call that failed: its description, Cloudflare's codes, and what to say. */
++class CallFailed {
++    message;
++    codes;
++    _tag = "CallFailed";
++    constructor(message, codes) {
++        this.message = message;
++        this.codes = codes;
++    }
++}
++/**
++ * The raw Cloudflare calls the replacement makes, with the deploy's own
++ * credentials. A failure names the call, its status and Cloudflare's error
++ * codes and messages, with the account id and the token replaced, and never
++ * the text of the reply.
++ */
++const cloudflare = (accountId) => Effect.gen(function* () {
++    const credentials = yield* yield* Credentials;
++    const headers = formatHeaders(credentials);
++    const client = yield* HttpClient.HttpClient;
++    const secrets = Object.values(headers)
++        .map((value) => String(value).replace(/^Bearer /, ""))
++        .filter((value) => value.length >= 4);
++    const redact = (text) => secrets
++        .reduce((current, secret) => current.split(secret).join("<secret>"), text)
++        .split(accountId)
++        .join("<account>");
++    const call = (method, path, what, body) => Effect.gen(function* () {
++        const url = `${credentials.apiBaseUrl}${path}`;
++        const base = (method === "GET" ? HttpClientRequest.get(url) : HttpClientRequest.put(url)).pipe(HttpClientRequest.setHeaders(headers));
++        const request = body === undefined ? base : base.pipe(HttpClientRequest.bodyJsonUnsafe(body));
++        const response = yield* client
++            .execute(request)
++            .pipe(Effect.mapError(() => new CallFailed(`${what}: no answer from Cloudflare`, [])));
++        const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
++        let envelope = null;
++        try {
++            envelope = JSON.parse(text);
++        }
++        catch {
++            envelope = null;
++        }
++        if (response.status >= 200 && response.status < 300 && envelope?.success === true) {
++            return envelope;
++        }
++        const errors = Array.isArray(envelope?.errors) ? envelope.errors : [];
++        const codes = errors.flatMap((error) => {
++            const code = error?.code;
++            return typeof code === "number" ? [code] : [];
++        });
++        const described = errors
++            .map((error) => {
++            const { code, message } = (error ?? {});
++            return [typeof code === "number" ? String(code) : "", typeof message === "string" ? message : ""]
++                .filter((part) => part !== "")
++                .join(" ");
++        })
++            .filter((part) => part !== "");
++        return yield* Effect.fail(new CallFailed(redact(`${what}: Cloudflare answered ${response.status}${described.length > 0 ? ` (${described.join("; ")})` : ""}`), codes));
++    });
++    const records = (zoneId, host) => call("GET", `/zones/${encodeURIComponent(zoneId)}/dns_records?name.exact=${encodeURIComponent(host)}&per_page=100`, `reading ${host}'s DNS records`).pipe(Effect.flatMap((envelope) => {
++        const listed = envelope.result;
++        const total = envelope.result_info?.total_count;
++        if (!Array.isArray(listed)) {
++            return Effect.fail(new CallFailed(`reading ${host}'s DNS records: Cloudflare answered no list`, []));
++        }
++        if (typeof total === "number" && total > listed.length) {
++            return Effect.fail(new CallFailed(`reading ${host}'s DNS records: Cloudflare holds ${total}, more than one page`, []));
++        }
++        return Effect.succeed(listed);
++    }));
++    return { call, records };
++});
++const stop = (message) => Effect.die(new Error(message));
++/**
++ * Reads what the replacement needs before `reconcileDomains` reads or
++ * deletes any domain, so a refusal leaves every domain as it was. Undefined,
++ * having made no request, when the variable is unset or names a host this
++ * Worker does not want; undefined after one read, logging it, when the host
++ * holds no record that routes it, so it attaches as usual. Otherwise the host
++ * must be the Worker's one custom domain and hold exactly its CNAME to the
++ * target, and an apex nothing beside it unless allowed; anything else stops
++ * the deploy, having written nothing.
++ */
++export const checkReplaceCname = (input) => Effect.gen(function* () {
++    const configured = yield* REPLACE_CNAME;
++    let named;
++    try {
++        named = parseReplaceCname(Option.getOrUndefined(configured));
++    }
++    catch (error) {
++        return yield* Effect.die(error);
++    }
++    if (named === undefined || !input.desired.includes(named.host))
++        return undefined;
++    const { host, target } = named;
++    if (input.desired.length !== 1) {
++        return yield* stop(`${REPLACE_CNAME_ENV} names ${host}, but ${input.scriptName} wants ${input.desired.length} custom domains; its CNAME is replaced only when it is the Worker's one custom domain. Nothing was changed.`);
++    }
++    const zoneId = yield* input.zoneIdOf(host);
++    const api = yield* cloudflare(input.accountId);
++    const records = yield* api
++        .records(zoneId, host)
++        .pipe(Effect.catch((failure) => stop(`${failure.message}; nothing was changed.`)));
++    const routing = records.filter((record) => routesHost(host, record));
++    const kept = records.filter((record) => !routesHost(host, record));
++    if (routing.length === 0) {
++        yield* Effect.logInfo(`Cloudflare Worker custom domain: ${host} holds no record that routes it; its CNAME to ${target} was already gone, so it attaches as usual`);
++        return undefined;
++    }
++    const [only] = routing;
++    if (routing.length !== 1 || only?.type !== "CNAME" || only.content !== target) {
++        const held = routing.map((record) => String(record.type)).join(", ");
++        return yield* stop(`${host} holds ${held} record${routing.length === 1 ? "" : "s"} that could route it, not exactly its CNAME to ${target}; nothing was changed.`);
++    }
++    if (host === zoneOf(host) && kept.length > 0) {
++        const allowed = Option.getOrUndefined(yield* REPLACE_ALLOW_APEX);
++        if (allowed !== "1") {
++            return yield* stop(`${host} is its zone's apex and holds ${kept.map((record) => String(record.type)).join(", ")} beside its CNAME; replacing an apex that holds other records is unproven, so it waits for ${REPLACE_ALLOW_APEX_ENV}=1. Nothing was changed.`);
++        }
++    }
++    return { host, target, zoneId, kept };
++});
++/**
++ * Attaches `input.hostname` to the Worker by replacing its CNAME, when the
++ * check found it holding one: one `PUT …/workers/scripts/<script>/domains/records`
++ * with the fields Wrangler sends, retried while Cloudflare has not yet listed
++ * the script or still holds the hostname, then a read of the host's records,
++ * which stops the deploy if a record that routes nothing is gone, and a read
++ * of the Worker's custom domains for its id. Undefined for any other host,
++ * which `putDomain` attaches as before.
++ */
++export const replacingAttach = (replacement, input) => Effect.gen(function* () {
++    if (replacement === undefined || replacement.host !== input.hostname)
++        return undefined;
++    const { host, target, zoneId, kept } = replacement;
++    if (input.zoneId !== zoneId) {
++        return yield* stop(`${host}'s zone was read as two different zones; its CNAME was not replaced.`);
++    }
++    const api = yield* cloudflare(input.accountId);
++    const replacing = `replacing ${host}'s CNAME with ${input.scriptName}'s custom domain`;
++    yield* api
++        .call("PUT", `/accounts/${encodeURIComponent(input.accountId)}/workers/scripts/${encodeURIComponent(input.scriptName)}/domains/records`, replacing, {
++        override_scope: true,
++        override_existing_origin: false,
++        override_existing_dns_record: true,
++        origins: [
++            {
++                hostname: host,
++                zone_id: zoneId,
++                ...(input.previewsEnabled === true ? { previews_enabled: true } : {}),
++            },
++        ],
++    })
++        .pipe(Effect.retry({
++        while: (failure) => failure.codes.includes(WORKER_NOT_FOUND),
++        schedule: notFoundSchedule,
++    }), Effect.retry({
++        while: (failure) => failure.codes.includes(HOSTNAME_IN_USE),
++        schedule: conflictSchedule,
++    }), Effect.catch((failure) => stop(failure.message)));
++    yield* Effect.logInfo(`Cloudflare Worker custom domain: replaced ${host}'s CNAME to ${target} with ${input.scriptName}'s custom domain`);
++    const after = yield* api
++        .records(zoneId, host)
++        .pipe(Effect.catch((failure) => stop(`${failure.message}, after ${host}'s CNAME was replaced; check its other records by hand.`)));
++    const present = new Set(after.map((record) => record.id));
++    const lost = kept.filter((record) => !present.has(record.id));
++    if (lost.length > 0) {
++        return yield* stop(`${host}'s ${lost.map((record) => String(record.type)).join(", ")} record${lost.length === 1 ? " is" : "s are"} gone after its CNAME was replaced; put ${lost.length === 1 ? "it" : "them"} back by hand.`);
++    }
++    const listing = `listing ${input.scriptName}'s custom domain for ${host}`;
++    const listed = yield* api
++        .call("GET", `/accounts/${encodeURIComponent(input.accountId)}/workers/domains?hostname=${encodeURIComponent(host)}&service=${encodeURIComponent(input.scriptName)}`, listing)
++        .pipe(Effect.flatMap((envelope) => {
++        const found = (Array.isArray(envelope.result) ? envelope.result : []).find((domain) => domain.hostname === host &&
++            domain.service === input.scriptName &&
++            typeof domain.id === "string");
++        return found === undefined
++            ? Effect.fail(new CallFailed(`${listing}: Cloudflare lists none yet`, []))
++            : Effect.succeed(found);
++    }), Effect.retry({ schedule: conflictSchedule }), Effect.catch((failure) => stop(failure.message)));
++    return {
++        hostname: host,
++        id: listed.id,
++        zoneId: typeof listed.zone_id === "string" ? listed.zone_id : zoneId,
++    };
++});
+diff --git a/lib/Workers/WorkerProvider.js b/lib/Workers/WorkerProvider.js
+index dfb1556eb8940a581533238bb7518ebd11cc3abc..1fceedf1ad90262b63e46344b5599b4fda316a34 100644
+--- a/lib/Workers/WorkerProvider.js
++++ b/lib/Workers/WorkerProvider.js
+@@ -36,6 +36,7 @@ import { getCompatibility } from "./Compatibility.js";
+ import { isDurableObjectExport } from "./DurableObject.js";
+ import { LocalWorkerProvider } from "./LocalWorkerProvider.js";
+ import { placeholderResetReason } from "./Placeholder.js";
++import { checkReplaceCname, replacingAttach } from "./ReplaceCname.js";
+ import { routePatternUrl } from "./RoutePattern.js";
+ import { isAssetsOnly, makeSourceContext, resolveSource } from "./Source.js";
+ import { assertCloudflareTelemetryCompatibility } from "./Telemetry.js";
+@@ -1023,6 +1024,16 @@ export const LiveWorkerProvider = () => Provider.effect(Worker, Effect.gen(funct
+     });
+     const reconcileDomains = (scriptName, desired, zone, previewsEnabled) => Effect.gen(function* () {
+         const { accountId } = yield* yield* CloudflareEnvironment;
++        // A host whose CNAME to its own Pages project this deploy replaces
++        // (OSN_WORKER_DOMAIN_REPLACE_CNAME) is read and checked here,
++        // before anything below reads or deletes a domain, so a refusal
++        // leaves every domain as it was.
++        const replacement = yield* checkReplaceCname({
++            accountId,
++            scriptName,
++            desired,
++            zoneIdOf: (hostname) => inferZoneIdForHostname(hostname, new Map(), zone),
++        });
+         // Always query the live state of domains attached to *this*
+         // Worker rather than trusting `_previous` from local state.
+         // State may have been wiped, populated by another machine, or
+@@ -1084,6 +1095,17 @@ export const LiveWorkerProvider = () => Provider.effect(Worker, Effect.gen(funct
+                     `Detach it from that Worker first, or pick a different hostname.`));
+             }
+             const zoneId = desiredZoneId ?? (yield* inferZoneIdForHostname(hostname, zoneCache));
++            // The checked host replaces its CNAME in the one request Wrangler
++            // sends; every other host attaches with `putDomain` below.
++            const replaced = yield* replacingAttach(replacement, {
++                accountId,
++                scriptName,
++                hostname,
++                zoneId,
++                previewsEnabled,
++            });
++            if (replaced !== undefined)
++                return replaced;
+             // Same eventual-consistency window as `setWorkerSubdomain`:
+             // PUT /accounts/.../workers/domains right after `putScript`
+             // can return `WorkerNotFound` until Cloudflare's script
 diff --git a/src/D1/ImportDatabase.ts b/src/D1/ImportDatabase.ts
-index 70dc62fe415a69e4d5eab54d74263f33247e6b35..4a8f7be5ccfb270dad730db35f8cb78643be1866 100644
+index 70dc62fe415a69e4d5eab54d74263f33247e6b35..1e1a14992904a78ba8fde8484548083d21d7aa00 100644
 --- a/src/D1/ImportDatabase.ts
 +++ b/src/D1/ImportDatabase.ts
 @@ -1,3 +1,4 @@
@@ -293,7 +632,7 @@ index 70dc62fe415a69e4d5eab54d74263f33247e6b35..4a8f7be5ccfb270dad730db35f8cb786
  import * as d1 from "@distilled.cloud/cloudflare/d1";
  import { md5 } from "alchemy/Util/md5";
  import * as Data from "effect/Data";
-@@ -18,92 +19,190 @@ export interface ImportDatabaseResult {
+@@ -18,92 +19,218 @@ export interface ImportDatabaseResult {
  }
  
  /**
@@ -338,6 +677,32 @@ index 70dc62fe415a69e4d5eab54d74263f33247e6b35..4a8f7be5ccfb270dad730db35f8cb786
 +  );
 +
 +/**
++ * The codes and messages of the Cloudflare errors in a failed reply's body,
++ * as `: <code> <message>; ...`, and nothing else from it: a body that is not
++ * a JSON envelope holding errors gives an empty string, so no reply text,
++ * and no upload URL a reply might echo, reaches the message.
++ */
++const describeErrors = (body: string): string => {
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(body);
++  } catch {
++    return "";
++  }
++  const errors = (parsed as { errors?: unknown } | null)?.errors;
++  if (!Array.isArray(errors)) return "";
++  const described = errors.flatMap((error: unknown) => {
++    const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
++    const parts = [
++      typeof code === "number" ? String(code) : "",
++      typeof message === "string" ? message : "",
++    ].filter((part) => part !== "");
++    return parts.length > 0 ? [parts.join(" ")] : [];
++  });
++  return described.length > 0 ? `: ${described.join("; ")}` : "";
++};
++
++/**
 + * R2's error code and message from a failed upload's body, and nothing else
 + * from it: an S3-style signature error echoes the request's signature.
 + */
@@ -362,7 +727,9 @@ index 70dc62fe415a69e4d5eab54d74263f33247e6b35..4a8f7be5ccfb270dad730db35f8cb786
 + *
 + * Every reply is read as wrangler reads it. A failed import dies with
 + * Cloudflare's error or the reply itself, and no message carries an upload
-+ * URL or an R2 error body.
++ * URL or an R2 error body. A reply that failed with its status gives only
++ * Cloudflare's error codes and messages, and one that is not JSON only its
++ * status and length, never its text.
   */
 -export const importD1Database = Effect.fn(function* (options: ImportDatabaseOptions) {
 -  const { accountId, databaseId } = options;
@@ -393,14 +760,14 @@ index 70dc62fe415a69e4d5eab54d74263f33247e6b35..4a8f7be5ccfb270dad730db35f8cb786
 +        const res = yield* client.execute(req).pipe(Effect.orDie);
 +        if (res.status < 200 || res.status >= 300) {
 +          const text = yield* res.text.pipe(Effect.orElseSucceed(() => ""));
-+          return yield* Effect.die(`D1 import request failed (${res.status}): ${text}`);
++          return yield* Effect.die(`D1 import request failed (${res.status})${describeErrors(text)}`);
 +        }
 +        const text = yield* res.text.pipe(Effect.orDie);
 +        let envelope: ImportEnvelope | null;
 +        try {
 +          envelope = JSON.parse(text) as ImportEnvelope | null;
 +        } catch {
-+          return yield* Effect.die(`D1 import reply is not JSON: ${text}`);
++          return yield* Effect.die(`D1 import reply is not JSON (${res.status}, ${text.length} bytes)`);
 +        }
 +        if (envelope?.success === false) {
 +          return yield* Effect.die(`D1 import request failed: ${describeReply(envelope)}`);
@@ -640,3 +1007,432 @@ index 1cd1de32a9e6fa9eb4ecf76256e54682c53f5d72..5a894b8626a9c9f6b010ba5708587ace
              return hashed;
            }),
          ),
+diff --git a/src/Workers/ReplaceCname.ts b/src/Workers/ReplaceCname.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ae816ca16a4ca636e5c82d538e63aafb3c8da27
+--- /dev/null
++++ b/src/Workers/ReplaceCname.ts
+@@ -0,0 +1,377 @@
++import { Credentials, formatHeaders } from "@distilled.cloud/cloudflare/Credentials";
++import * as Config from "effect/Config";
++import * as Effect from "effect/Effect";
++import * as HttpClient from "effect/http/HttpClient";
++import * as HttpClientRequest from "effect/http/HttpClientRequest";
++import * as Option from "effect/Option";
++import * as Schedule from "effect/Schedule";
++
++/**
++ * One host whose CNAME to its own Pages project this deploy replaces with its
++ * Worker's custom domain, as `<host>=<project>.pages.dev`. Unset or empty,
++ * every attach runs as it always has.
++ */
++export const REPLACE_CNAME_ENV = "OSN_WORKER_DOMAIN_REPLACE_CNAME";
++
++/**
++ * Set to `1`, lets the replacement run at a zone's apex while the apex holds
++ * records beside its CNAME (TXT, MX, CAA): unset, such an apex stops the
++ * deploy before any write.
++ */
++export const REPLACE_ALLOW_APEX_ENV = "OSN_WORKER_DOMAIN_REPLACE_ALLOW_APEX";
++
++const LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
++const HOSTNAME = new RegExp(`^${LABEL}(?:\\.${LABEL})+$`);
++const PAGES_TARGET = new RegExp(`^${LABEL}\\.pages\\.dev$`);
++
++export interface ReplaceCname {
++  readonly host: string;
++  readonly target: string;
++}
++
++/** A host the check found holding exactly its CNAME to the target, in the zone `zoneId`. */
++export interface Replacement extends ReplaceCname {
++  readonly zoneId: string;
++  /** The host's records that route nothing, each of which must survive the replacement. */
++  readonly kept: readonly DnsRecord[];
++}
++
++interface DnsRecord {
++  readonly id?: unknown;
++  readonly type?: unknown;
++  readonly content?: unknown;
++  readonly meta?: { readonly origin_worker_id?: unknown; readonly read_only?: unknown } | null;
++}
++
++/**
++ * The host and target `value` names, or undefined when it is unset or empty.
++ * Throws unless it is exactly one `<host>=<label>.pages.dev` pair, in lower
++ * case.
++ */
++export const parseReplaceCname = (value: string | undefined): ReplaceCname | undefined => {
++  const text = (value ?? "").trim();
++  if (text === "") return undefined;
++  const parts = text.split("=");
++  const [host = "", target = ""] = parts;
++  if (parts.length !== 2 || !HOSTNAME.test(host) || !PAGES_TARGET.test(target)) {
++    throw new Error(
++      `${REPLACE_CNAME_ENV} must name exactly one host and its Pages project's name, as <host>=<project>.pages.dev, in lower case; nothing was changed.`,
++    );
++  }
++  return { host, target };
++};
++
++/** A record a Worker custom domain made. */
++const isWorkerRecord = (record: DnsRecord): boolean => {
++  const worker = record.meta?.origin_worker_id;
++  if (typeof worker === "string" && worker !== "") return true;
++  return record.type === "AAAA" && record.content === "100::" && record.meta?.read_only === true;
++};
++
++/** Record types that route nothing. */
++const NOT_ROUTING: ReadonlySet<unknown> = new Set(["TXT", "MX", "CAA"]);
++
++/** The zone a host is in: its last two labels. */
++const zoneOf = (host: string): string => host.split(".").slice(-2).join(".");
++
++/**
++ * Whether `record`, at `host`, could route the host: a Worker's record, or
++ * any record but TXT, MX, CAA and the zone's own NS records at its apex. The
++ * same rule as scripts/pages-domain.ts's `decides`, which reads the host
++ * before the detach.
++ */
++export const routesHost = (host: string, record: DnsRecord): boolean => {
++  if (isWorkerRecord(record)) return true;
++  if (NOT_ROUTING.has(record.type)) return false;
++  return !(record.type === "NS" && host === zoneOf(host));
++};
++
++const REPLACE_CNAME = Config.String(REPLACE_CNAME_ENV).pipe(Config.option);
++const REPLACE_ALLOW_APEX = Config.String(REPLACE_ALLOW_APEX_ENV).pipe(Config.option);
++
++/** Cloudflare's code for a script its registry does not list yet, retried as `putDomain` retries it. */
++const WORKER_NOT_FOUND = 10007;
++/** Cloudflare's code for a hostname another attachment still holds for a moment. */
++const HOSTNAME_IN_USE = 100116;
++const notFoundSchedule = Schedule.max([Schedule.exponential(200), Schedule.recurs(15)]);
++const conflictSchedule = Schedule.max([Schedule.spaced("2 seconds"), Schedule.recurs(8)]);
++
++/** A Cloudflare call that failed: its description, Cloudflare's codes, and what to say. */
++class CallFailed {
++  readonly _tag = "CallFailed";
++  constructor(
++    readonly message: string,
++    readonly codes: readonly number[],
++  ) {}
++}
++
++interface Envelope {
++  readonly success?: unknown;
++  readonly errors?: unknown;
++  readonly result?: unknown;
++  readonly result_info?: { readonly total_count?: unknown } | null;
++}
++
++/**
++ * The raw Cloudflare calls the replacement makes, with the deploy's own
++ * credentials. A failure names the call, its status and Cloudflare's error
++ * codes and messages, with the account id and the token replaced, and never
++ * the text of the reply.
++ */
++const cloudflare = (accountId: string) =>
++  Effect.gen(function* () {
++    const credentials = yield* yield* Credentials;
++    const headers = formatHeaders(credentials);
++    const client = yield* HttpClient.HttpClient;
++    const secrets = Object.values(headers)
++      .map((value) => String(value).replace(/^Bearer /, ""))
++      .filter((value) => value.length >= 4);
++    const redact = (text: string): string =>
++      secrets
++        .reduce((current, secret) => current.split(secret).join("<secret>"), text)
++        .split(accountId)
++        .join("<account>");
++    const call = (
++      method: "GET" | "PUT",
++      path: string,
++      what: string,
++      body?: unknown,
++    ): Effect.Effect<Envelope, CallFailed> =>
++      Effect.gen(function* () {
++        const url = `${credentials.apiBaseUrl}${path}`;
++        const base = (method === "GET" ? HttpClientRequest.get(url) : HttpClientRequest.put(url)).pipe(
++          HttpClientRequest.setHeaders(headers),
++        );
++        const request = body === undefined ? base : base.pipe(HttpClientRequest.bodyJsonUnsafe(body));
++        const response = yield* client
++          .execute(request)
++          .pipe(Effect.mapError(() => new CallFailed(`${what}: no answer from Cloudflare`, [])));
++        const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
++        let envelope: Envelope | null = null;
++        try {
++          envelope = JSON.parse(text) as Envelope | null;
++        } catch {
++          envelope = null;
++        }
++        if (response.status >= 200 && response.status < 300 && envelope?.success === true) {
++          return envelope;
++        }
++        const errors = Array.isArray(envelope?.errors) ? (envelope.errors as unknown[]) : [];
++        const codes = errors.flatMap((error) => {
++          const code = (error as { code?: unknown } | null)?.code;
++          return typeof code === "number" ? [code] : [];
++        });
++        const described = errors
++          .map((error) => {
++            const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
++            return [typeof code === "number" ? String(code) : "", typeof message === "string" ? message : ""]
++              .filter((part) => part !== "")
++              .join(" ");
++          })
++          .filter((part) => part !== "");
++        return yield* Effect.fail(
++          new CallFailed(
++            redact(
++              `${what}: Cloudflare answered ${response.status}${described.length > 0 ? ` (${described.join("; ")})` : ""}`,
++            ),
++            codes,
++          ),
++        );
++      });
++    const records = (zoneId: string, host: string) =>
++      call(
++        "GET",
++        `/zones/${encodeURIComponent(zoneId)}/dns_records?name.exact=${encodeURIComponent(host)}&per_page=100`,
++        `reading ${host}'s DNS records`,
++      ).pipe(
++        Effect.flatMap((envelope) => {
++          const listed = envelope.result;
++          const total = envelope.result_info?.total_count;
++          if (!Array.isArray(listed)) {
++            return Effect.fail(
++              new CallFailed(`reading ${host}'s DNS records: Cloudflare answered no list`, []),
++            );
++          }
++          if (typeof total === "number" && total > listed.length) {
++            return Effect.fail(
++              new CallFailed(
++                `reading ${host}'s DNS records: Cloudflare holds ${total}, more than one page`,
++                [],
++              ),
++            );
++          }
++          return Effect.succeed(listed as DnsRecord[]);
++        }),
++      );
++    return { call, records };
++  });
++
++const stop = (message: string) => Effect.die(new Error(message));
++
++/**
++ * Reads what the replacement needs before `reconcileDomains` reads or
++ * deletes any domain, so a refusal leaves every domain as it was. Undefined,
++ * having made no request, when the variable is unset or names a host this
++ * Worker does not want; undefined after one read, logging it, when the host
++ * holds no record that routes it, so it attaches as usual. Otherwise the host
++ * must be the Worker's one custom domain and hold exactly its CNAME to the
++ * target, and an apex nothing beside it unless allowed; anything else stops
++ * the deploy, having written nothing.
++ */
++export const checkReplaceCname = <E, R>(input: {
++  readonly accountId: string;
++  readonly scriptName: string;
++  readonly desired: readonly string[];
++  readonly zoneIdOf: (hostname: string) => Effect.Effect<string, E, R>;
++}) =>
++  Effect.gen(function* () {
++    const configured = yield* REPLACE_CNAME;
++    let named: ReplaceCname | undefined;
++    try {
++      named = parseReplaceCname(Option.getOrUndefined(configured));
++    } catch (error) {
++      return yield* Effect.die(error);
++    }
++    if (named === undefined || !input.desired.includes(named.host)) return undefined;
++    const { host, target } = named;
++    if (input.desired.length !== 1) {
++      return yield* stop(
++        `${REPLACE_CNAME_ENV} names ${host}, but ${input.scriptName} wants ${input.desired.length} custom domains; its CNAME is replaced only when it is the Worker's one custom domain. Nothing was changed.`,
++      );
++    }
++    const zoneId = yield* input.zoneIdOf(host);
++    const api = yield* cloudflare(input.accountId);
++    const records = yield* api
++      .records(zoneId, host)
++      .pipe(Effect.catch((failure) => stop(`${failure.message}; nothing was changed.`)));
++    const routing = records.filter((record) => routesHost(host, record));
++    const kept = records.filter((record) => !routesHost(host, record));
++    if (routing.length === 0) {
++      yield* Effect.logInfo(
++        `Cloudflare Worker custom domain: ${host} holds no record that routes it; its CNAME to ${target} was already gone, so it attaches as usual`,
++      );
++      return undefined;
++    }
++    const [only] = routing;
++    if (routing.length !== 1 || only?.type !== "CNAME" || only.content !== target) {
++      const held = routing.map((record) => String(record.type)).join(", ");
++      return yield* stop(
++        `${host} holds ${held} record${routing.length === 1 ? "" : "s"} that could route it, not exactly its CNAME to ${target}; nothing was changed.`,
++      );
++    }
++    if (host === zoneOf(host) && kept.length > 0) {
++      const allowed = Option.getOrUndefined(yield* REPLACE_ALLOW_APEX);
++      if (allowed !== "1") {
++        return yield* stop(
++          `${host} is its zone's apex and holds ${kept.map((record) => String(record.type)).join(", ")} beside its CNAME; replacing an apex that holds other records is unproven, so it waits for ${REPLACE_ALLOW_APEX_ENV}=1. Nothing was changed.`,
++        );
++      }
++    }
++    return { host, target, zoneId, kept } satisfies Replacement;
++  });
++
++/**
++ * Attaches `input.hostname` to the Worker by replacing its CNAME, when the
++ * check found it holding one: one `PUT …/workers/scripts/<script>/domains/records`
++ * with the fields Wrangler sends, retried while Cloudflare has not yet listed
++ * the script or still holds the hostname, then a read of the host's records,
++ * which stops the deploy if a record that routes nothing is gone, and a read
++ * of the Worker's custom domains for its id. Undefined for any other host,
++ * which `putDomain` attaches as before.
++ */
++export const replacingAttach = (
++  replacement: Replacement | undefined,
++  input: {
++    readonly accountId: string;
++    readonly scriptName: string;
++    readonly hostname: string;
++    readonly zoneId: string;
++    readonly previewsEnabled?: boolean;
++  },
++) =>
++  Effect.gen(function* () {
++    if (replacement === undefined || replacement.host !== input.hostname) return undefined;
++    const { host, target, zoneId, kept } = replacement;
++    if (input.zoneId !== zoneId) {
++      return yield* stop(
++        `${host}'s zone was read as two different zones; its CNAME was not replaced.`,
++      );
++    }
++    const api = yield* cloudflare(input.accountId);
++    const replacing = `replacing ${host}'s CNAME with ${input.scriptName}'s custom domain`;
++    yield* api
++      .call(
++        "PUT",
++        `/accounts/${encodeURIComponent(input.accountId)}/workers/scripts/${encodeURIComponent(input.scriptName)}/domains/records`,
++        replacing,
++        {
++          override_scope: true,
++          override_existing_origin: false,
++          override_existing_dns_record: true,
++          origins: [
++            {
++              hostname: host,
++              zone_id: zoneId,
++              ...(input.previewsEnabled === true ? { previews_enabled: true } : {}),
++            },
++          ],
++        },
++      )
++      .pipe(
++        Effect.retry({
++          while: (failure) => failure.codes.includes(WORKER_NOT_FOUND),
++          schedule: notFoundSchedule,
++        }),
++        Effect.retry({
++          while: (failure) => failure.codes.includes(HOSTNAME_IN_USE),
++          schedule: conflictSchedule,
++        }),
++        Effect.catch((failure) => stop(failure.message)),
++      );
++    yield* Effect.logInfo(
++      `Cloudflare Worker custom domain: replaced ${host}'s CNAME to ${target} with ${input.scriptName}'s custom domain`,
++    );
++    const after = yield* api
++      .records(zoneId, host)
++      .pipe(
++        Effect.catch((failure) =>
++          stop(
++            `${failure.message}, after ${host}'s CNAME was replaced; check its other records by hand.`,
++          ),
++        ),
++      );
++    const present = new Set(after.map((record) => record.id));
++    const lost = kept.filter((record) => !present.has(record.id));
++    if (lost.length > 0) {
++      return yield* stop(
++        `${host}'s ${lost.map((record) => String(record.type)).join(", ")} record${lost.length === 1 ? " is" : "s are"} gone after its CNAME was replaced; put ${lost.length === 1 ? "it" : "them"} back by hand.`,
++      );
++    }
++    const listing = `listing ${input.scriptName}'s custom domain for ${host}`;
++    const listed = yield* api
++      .call(
++        "GET",
++        `/accounts/${encodeURIComponent(input.accountId)}/workers/domains?hostname=${encodeURIComponent(host)}&service=${encodeURIComponent(input.scriptName)}`,
++        listing,
++      )
++      .pipe(
++        Effect.flatMap((envelope) => {
++          const found = (Array.isArray(envelope.result) ? envelope.result : []).find(
++            (domain: { hostname?: unknown; service?: unknown; id?: unknown }) =>
++              domain.hostname === host &&
++              domain.service === input.scriptName &&
++              typeof domain.id === "string",
++          ) as { id: string; zone_id?: unknown } | undefined;
++          return found === undefined
++            ? Effect.fail(new CallFailed(`${listing}: Cloudflare lists none yet`, []))
++            : Effect.succeed(found);
++        }),
++        Effect.retry({ schedule: conflictSchedule }),
++        Effect.catch((failure) => stop(failure.message)),
++      );
++    return {
++      hostname: host,
++      id: listed.id,
++      zoneId: typeof listed.zone_id === "string" ? listed.zone_id : zoneId,
++    };
++  });
+diff --git a/src/Workers/WorkerProvider.ts b/src/Workers/WorkerProvider.ts
+index 90aabe32b61600c3a9f5c8855f2f1b7dc9607009..a4686fa3899591468bbf9393ec3546e739345ab2 100644
+--- a/src/Workers/WorkerProvider.ts
++++ b/src/Workers/WorkerProvider.ts
+@@ -46,6 +46,7 @@ import { getCompatibility } from "./Compatibility.ts";
+ import { isDurableObjectExport } from "./DurableObject.ts";
+ import { LocalWorkerProvider } from "./LocalWorkerProvider.ts";
+ import { placeholderResetReason } from "./Placeholder.ts";
++import { checkReplaceCname, replacingAttach } from "./ReplaceCname.ts";
+ import { routePatternUrl } from "./RoutePattern.ts";
+ import { isAssetsOnly, makeSourceContext, resolveSource } from "./Source.ts";
+ import { assertCloudflareTelemetryCompatibility } from "./Telemetry.ts";
+@@ -1400,6 +1401,16 @@ export const LiveWorkerProvider = () =>
+       ) =>
+         Effect.gen(function* () {
+           const { accountId } = yield* yield* CloudflareEnvironment;
++          // A host whose CNAME to its own Pages project this deploy replaces
++          // (OSN_WORKER_DOMAIN_REPLACE_CNAME) is read and checked here,
++          // before anything below reads or deletes a domain, so a refusal
++          // leaves every domain as it was.
++          const replacement = yield* checkReplaceCname({
++            accountId,
++            scriptName,
++            desired,
++            zoneIdOf: (hostname) => inferZoneIdForHostname(hostname, new Map(), zone),
++          });
+           // Always query the live state of domains attached to *this*
+           // Worker rather than trusting `_previous` from local state.
+           // State may have been wiped, populated by another machine, or
+@@ -1492,6 +1503,16 @@ export const LiveWorkerProvider = () =>
+             }
+ 
+             const zoneId = desiredZoneId ?? (yield* inferZoneIdForHostname(hostname, zoneCache));
++            // The checked host replaces its CNAME in the one request Wrangler
++            // sends; every other host attaches with `putDomain` below.
++            const replaced = yield* replacingAttach(replacement, {
++              accountId,
++              scriptName,
++              hostname,
++              zoneId,
++              previewsEnabled,
++            });
++            if (replaced !== undefined) return replaced;
+             // Same eventual-consistency window as `setWorkerSubdomain`:
+             // PUT /accounts/.../workers/domains right after `putScript`
+             // can return `WorkerNotFound` until Cloudflare's script
