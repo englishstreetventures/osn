@@ -1595,9 +1595,9 @@ approvals, one per job, in this order:
    host off the project and keeps the CNAME. It then reads the host back and fails unless
    it reads `detached`, reading again up to twice, 2 s apart, while the project still
    lists it. The zone holds a record for the host
-   throughout, so no resolver caches it as missing. **Treat the site as down from here**
-   until step 4's deploy attaches the domain: the host resolves, but its Pages project no
-   longer lists it. Approve step 4 at once: the outage is your wait plus step 4's
+   throughout, so no resolver caches it as missing. **Treat the site as offline from this
+   step** until step 4's deploy attaches the domain: the host resolves, but no Pages
+   project lists it. Approve step 4 at once: the outage is your wait plus step 4's
    install, state store check, snapshot and plan, a few minutes. The approved plan from
    step 1 is kept 7 days; step 4 refuses without it.
 4. `stack-<stack>-production` — installs, checks the state store, plans the stack once
