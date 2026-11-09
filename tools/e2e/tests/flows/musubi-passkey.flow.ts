@@ -57,6 +57,9 @@ const ACCESS_TOKEN_TTL_MS = 300_000;
  */
 const MUSUBI_POLICY = `frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'sha256-…' 'sha256-…' ${TURNSTILE_ORIGIN}; connect-src 'self' ${ORIGINS.osnApi}`;
 
+// Musubi's forms load Turnstile, which the fixtures stand in for.
+test.use({ turnstile: true });
+
 test("musubi-passkey", async ({ page, context, flow }) => {
   const authenticator = await addVirtualAuthenticator(page);
   // The virtual authenticator answers a conditional-UI (autofill) request on

@@ -24,6 +24,9 @@ import {
 
 const grace = PEOPLE.musubiRetry;
 
+// Musubi's forms load Turnstile, which the fixtures stand in for.
+test.use({ turnstile: true });
+
 test("musubi-register-retry", async ({ page, flow }) => {
   await flow.step("open Musubi", async () => {
     await page.goto(ORIGINS.musubi);

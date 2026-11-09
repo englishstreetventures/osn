@@ -5,9 +5,9 @@
  * API requests and assertions, and at the end takes the final-state screenshot
  * and attaches the record the results reporter writes into `results.json`.
  * In each context it records, it stands in for cire's realtime hub, which the
- * stack does not run (`standInForCireHub`), and for Cloudflare Turnstile
- * (`standInForTurnstile`), and it collects every Content-Security-Policy
- * message a page logs. Flows touch the stack only through
+ * stack does not run (`standInForCireHub`), and, in a flow that asks for it,
+ * for Cloudflare Turnstile (`standInForTurnstile`); and it collects every
+ * Content-Security-Policy message a page logs. Flows touch the stack only through
  * the browser, the API request context and the read-only helpers here. The one
  * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
  * not part of the stack.
@@ -110,7 +110,10 @@ const TURNSTILE_STAND_IN = `window.turnstile = {
 
 /**
  * Answers for Cloudflare Turnstile in `ctx`, which the stack cannot reach
- * offline, and counts what it served. Only Musubi's build carries a sitekey.
+ * offline, and counts what it served. Only Musubi's build carries a sitekey,
+ * so only a flow that sets `turnstile: true` gets it: any `route` in a
+ * context turns off that context's HTTP cache, which flows that count
+ * downloads (the cire invite's hero image) rely on.
  */
 async function standInForTurnstile(ctx: BrowserContext, served: TurnstileLog): Promise<void> {
   await ctx.route(`${TURNSTILE_ORIGIN}/**`, async (route) => {
@@ -182,14 +185,19 @@ export interface Flow {
  */
 export const NO_HTML_IN_CANVAS = "delete HTMLCanvasElement.prototype.requestPaint;";
 
-export const test = base.extend<{ flow: Flow; envelope: boolean }>({
+export const test = base.extend<{ flow: Flow; envelope: boolean; turnstile: boolean }>({
   /**
    * Whether the cire invite may play its envelope opening in this flow's
    * contexts. Off by default, so no flow meets the envelope by accident once
    * the bundled Chromium has the API on.
    */
   envelope: [false, { option: true }],
-  flow: async ({ page, context, envelope }, use, testInfo) => {
+  /**
+   * Whether this flow's contexts get the Turnstile stand-in. Every flow that
+   * opens a Musubi sign-in or registration form needs it.
+   */
+  turnstile: [false, { option: true }],
+  flow: async ({ page, context, envelope, turnstile: standIn }, use, testInfo) => {
     const steps: string[] = [];
     const lines: string[] = [];
     const assertions: Assertion[] = [];
@@ -214,7 +222,7 @@ export const test = base.extend<{ flow: Flow; envelope: boolean }>({
         csp.push({ url: message.location().url || (message.page()?.url() ?? ""), text });
       });
       await standInForCireHub(ctx, hub);
-      await standInForTurnstile(ctx, turnstile);
+      if (standIn) await standInForTurnstile(ctx, turnstile);
     };
 
     const flow: Flow = {
