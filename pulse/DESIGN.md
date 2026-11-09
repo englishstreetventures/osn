@@ -28,7 +28,7 @@ Where the app does not follow this yet: a category pill drawn with `@shared/ui`'
 `Badge treatment="eyebrow"` (Design Decisions §7) is set in Geist at weight 600,
 not Geist Mono at 400–500. 600 is the fallback of the contract's
 `--ui-weight-title`, which pulse does not map, and the badge takes the page's
-family.
+family (#2122).
 
 ### Named type tokens
 

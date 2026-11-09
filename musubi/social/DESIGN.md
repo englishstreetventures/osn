@@ -754,6 +754,8 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   | `--ui-text-xl` | `--text-display`, 24px |
   | `--ui-text-2xl` | 32px |
 
+  No `--ui-weight-title` is set, so `Badge` takes the contract's fallback,
+  600, against the house's 500 (#2041).
 - **Tracking.** `--ui-tracking-tight` and `-normal` are `-0.15px`; `-wide` is
   `0em`, which the rail's small-caps "Social" tag uses.
 - **Overrides.** Every `@shared/ui` class sits behind the `base:` variant, which
