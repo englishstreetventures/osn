@@ -8,9 +8,12 @@ import type { SafeProps } from "./props";
  * The label's weight is the contract's title weight, `--ui-weight-title`,
  * through `font-ui-title`, and 600 where an app does not map it. An app sets
  * the weight once, for every shared title and tag, rather than per badge.
+ *
+ * A badge is a label, not a control, so it carries no focus style: nothing
+ * here draws a ring or hides the outline.
  */
 const badgeVariants = cva(
-  "base:inline-flex base:items-center base:rounded-ui-pill base:px-2.5 base:py-0.5 base:text-ui-sm base:font-ui-title base:transition-colors base:focus:outline-none base:focus:ring-2 base:focus:ring-ui-focus base:focus:ring-offset-2",
+  "base:inline-flex base:items-center base:rounded-ui-pill base:px-2.5 base:py-0.5 base:text-ui-sm base:font-ui-title base:transition-colors",
   {
     variants: {
       variant: {

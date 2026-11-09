@@ -179,7 +179,7 @@ menu's parts, `PopoverContent`, `RadioGroup`, `Select`, `Switch`, the table's
 parts, `Textarea` and `Tooltip` are typed with it; `Notice` and `Chip` go
 further and take an allow-list of props. `shared/ui/tests/ui/markup-props.test.tsx`
 fails the type check if the menu's parts, `PopoverContent`, `Chip` or `Badge`
-takes markup again, and `tests/ui/notice.test.tsx` does the same for `Notice`.
+takes markup again, and `shared/ui/tests/ui/notice.test.tsx` does the same for `Notice`.
 
 ### `InfoPopover` — the form-field explainer
 
@@ -1117,7 +1117,7 @@ import { buttonVariants } from "@shared/ui/ui/button";
 Every size, the link inside a sentence, the `busy` wait and keyboard focus
 are in [[#Button — a link inside a sentence, and a wait]].
 
-**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse, musubi and the lab draw ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
+**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse, musubi and the lab draw ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
 
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 
