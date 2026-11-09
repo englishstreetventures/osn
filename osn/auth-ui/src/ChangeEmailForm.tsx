@@ -18,7 +18,6 @@ import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 export interface ChangeEmailFormProps {
   accountClient: AccountClient;
   stepUpClient: StepUpClient;
-  accessToken: string;
   /** Fires after a successful email swap with the new address. */
   onChanged?: (newEmail: string) => void;
   /** Forwarded to the step-up dialog so passkeys work when available. */
@@ -40,7 +39,6 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
     setError(null);
     try {
       await props.accountClient.changeEmailBegin({
-        accessToken: props.accessToken,
         newEmail: newEmail(),
       });
       setPhase("enter_code");
@@ -60,7 +58,6 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
     setError(null);
     try {
       const result = await props.accountClient.changeEmailComplete({
-        accessToken: props.accessToken,
         code: code(),
         stepUpToken: stepUp()!.token,
       });
@@ -115,7 +112,6 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
       <Show when={phase() === "step_up"}>
         <StepUpDialog
           client={props.stepUpClient}
-          accessToken={props.accessToken}
           runPasskeyCeremony={props.runPasskeyCeremony}
           purpose="email_change"
           onToken={(tok) => {

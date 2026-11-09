@@ -12426,6 +12426,10 @@
                 "properties": {
                   "grant_type": {
                     "type": "string"
+                  },
+                  "profile_id": {
+                    "pattern": "^usr_[a-z0-9_]{1,64}$",
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -12439,6 +12443,10 @@
                 "properties": {
                   "grant_type": {
                     "type": "string"
+                  },
+                  "profile_id": {
+                    "pattern": "^usr_[a-z0-9_]{1,64}$",
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -12451,6 +12459,10 @@
               "schema": {
                 "properties": {
                   "grant_type": {
+                    "type": "string"
+                  },
+                  "profile_id": {
+                    "pattern": "^usr_[a-z0-9_]{1,64}$",
                     "type": "string"
                   }
                 },

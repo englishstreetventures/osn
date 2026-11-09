@@ -1,7 +1,22 @@
 import { Data } from "effect";
 
+/**
+ * A `/token` grant did not produce a token set.
+ *
+ * `refused` is true only when the issuer refused the grant outright: the
+ * session cookie is gone, expired or revoked, so the session is over. When it
+ * is false or absent the issuer could not be reached or could not say (a 5xx,
+ * a 429, a network failure, a refusal that left the session's status unknown).
+ * The session may still be alive, and a later attempt can succeed.
+ *
+ * `retryAfterMs` is the pause a 429's `Retry-After` asked for, when it gave
+ * one in whole seconds.
+ */
 export class TokenRefreshError extends Data.TaggedError("TokenRefreshError")<{
   readonly cause: unknown;
+  readonly refused?: boolean;
+  readonly message?: string;
+  readonly retryAfterMs?: number | undefined;
 }> {}
 
 export class StorageError extends Data.TaggedError("StorageError")<{
@@ -22,11 +37,37 @@ export class ProfileManagementError extends Data.TaggedError("ProfileManagementE
 }> {}
 
 /**
- * Surfaced from `authFetch` when the access token is expired AND a silent
- * refresh cycle has failed. Callers should redirect the user to sign in.
+ * Surfaced from `authFetch` when the session has ended: the issuer refused to
+ * renew it, a renewed token was refused again, or another tab removed the
+ * stored account. The `onSessionChange` listeners have been told. Callers
+ * should send the user to sign in.
  */
 export class AuthExpiredError extends Data.TaggedError("AuthExpiredError")<{
   readonly cause?: unknown;
+}> {}
+
+/**
+ * Renewing the token of the profile a request was made as did not produce
+ * it: the issuer would not mint for that profile, because the account no
+ * longer owns it. The request was not sent, so nothing ran as the wrong
+ * profile; the session itself is alive. The account's default profile is
+ * active now, unless the page switched to another profile while the renewal
+ * was out: that one stays active.
+ */
+export class ActiveProfileResetError extends Data.TaggedError("ActiveProfileResetError")<{
+  /** The profile that is active now. */
+  readonly profileId: string;
+  readonly message: string;
+}> {}
+
+/**
+ * `fetch` itself rejected inside `authFetch`: a transport failure or an abort.
+ * `cause` is exactly what `fetch` rejected with. The Promise `authFetch` of
+ * `createOsnAuthRuntime` rethrows `cause` itself, so callers see the same
+ * `TypeError` or `AbortError` a bare `fetch` gives them.
+ */
+export class AuthFetchTransportError extends Data.TaggedError("AuthFetchTransportError")<{
+  readonly cause: unknown;
 }> {}
 
 /**
@@ -56,7 +97,7 @@ const TAGGED_ERROR_PRINTOUT = /^(?:\(FiberFailure\)\s*)?AuthExpiredError\b/;
  *     `(FiberFailure) AuthExpiredError: …`; v4 removed that wrapper, but a
  *     bundle built against v3 still produces the string, and any boundary
  *     that loses the prototype and the `_tag` leaves only the printout. The
- *     match is ANCHORED to that shape (S-L2) rather than scanning the whole
+ *     match is ANCHORED to that shape rather than scanning the whole
  *     string for the tag name. An unanchored `includes` would classify any
  *     error whose message merely quotes the tag — including one echoing a
  *     server-supplied code — as an expiry, which is a sign-out decision taken

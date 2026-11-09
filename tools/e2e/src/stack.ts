@@ -3,7 +3,8 @@
  * environment, and how the launcher knows each one is ready.
  *
  * The frontends run their own package's `dev:app` script, exactly what
- * `PORTLESS=0 bun run dev` runs. The APIs run their `src/local.ts` entry — what
+ * `PORTLESS=0 bun run dev` runs, except Musubi, which runs as it deploys: built,
+ * and served with its `_headers` (below). The APIs run their `src/local.ts` entry — what
  * `dev:app` runs, minus `--watch` — directly, because the clock preload and
  * `--no-env-file` are Bun flags, and `BUN_OPTIONS` breaks `bun run <script>`.
  * `dev-env` adds nothing without `PORTLESS_URL`, so every sibling origin is set
@@ -25,10 +26,20 @@ import {
   PORTS,
   PULSE_OIDC,
   REPO_ROOT,
+  TURNSTILE_TEST_SITEKEY,
   type AppName,
 } from "./config";
 
 export const CLOCK_MODULE = resolve(import.meta.dirname, "clock.mjs");
+
+/** The repository's Wrangler, which serves Musubi's build. */
+const WRANGLER = resolve(REPO_ROOT, "node_modules/.bin/wrangler");
+
+/** Where Wrangler finds Musubi's build and how it serves it. */
+export const MUSUBI_WRANGLER_CONFIG = resolve(
+  import.meta.dirname,
+  "../musubi-social.wrangler.jsonc",
+);
 
 /** `@cire/vendor`'s dev origin (`DEV_APPS`). Not booted; cire-api is told it. */
 export const VENDOR_PORTAL_ORIGIN = "http://localhost:4326";
@@ -67,6 +78,8 @@ export interface AppSpec {
   readonly name: AppName;
   /** Package directory, relative to the repository root. */
   readonly dir: string;
+  /** Run to completion, in `dir` with `env`, before `command` starts; a failure stops the run. */
+  readonly build?: readonly string[];
   readonly command: readonly string[];
   /** Polled until it answers with any status below 500: the server is listening and serving. */
   readonly readyUrl: string;
@@ -214,11 +227,32 @@ export function appSpecs(): AppSpec[] {
       },
     },
     {
+      // Built, then served by Wrangler's asset server with the build's
+      // `_headers` applied, as the deployed Worker serves it: every Musubi
+      // page in the flows runs under the Content-Security-Policy that ships.
+      // The dev server sends no such header. The build carries Turnstile's
+      // test sitekey, so the sign-in and registration forms load the widget as
+      // the deployed tiers do; osn-api holds no secret and checks nothing, as
+      // on dev, and the fixtures stand in for Turnstile at its real URLs.
       name: "musubi",
       dir: "musubi/social",
-      command: ["bun", "run", "dev:app"],
+      build: ["bun", "run", "build"],
+      command: [
+        WRANGLER,
+        "dev",
+        "--config",
+        MUSUBI_WRANGLER_CONFIG,
+        "--port",
+        String(PORTS.musubi),
+        "--ip",
+        "localhost",
+        "--show-interactive-dev-session=false",
+      ],
       readyUrl: `${ORIGINS.musubi}/`,
-      env: { PORT: String(PORTS.musubi), VITE_OSN_ISSUER_URL: ORIGINS.osnApi },
+      env: {
+        VITE_OSN_ISSUER_URL: ORIGINS.osnApi,
+        VITE_TURNSTILE_SITEKEY: TURNSTILE_TEST_SITEKEY,
+      },
     },
     {
       name: "pulseWeb",

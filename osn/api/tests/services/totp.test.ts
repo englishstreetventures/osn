@@ -20,6 +20,7 @@ import { createAuthService, type AuthConfig } from "../../src/services/auth";
 import { TOTP_LOCKOUT_THRESHOLD } from "../../src/services/auth/constants";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
 /**
@@ -768,21 +769,37 @@ describe("TOTP per-account lockout", () => {
 
   it.effect("clears the counter after a success", () =>
     Effect.gen(function* () {
-      const { profile, secret } = yield* enrolled("totp-n@example.com", "totpn");
+      // The reset runs after the answer, in the background (`forkBackground`),
+      // and the deployed store is a Durable Object a network hop away. A store
+      // whose reset takes a real 25 ms makes that order certain here: the
+      // success is `settle`d, as the Worker's `waitUntil` would hold it, so the
+      // next attempt is counted after the reset and never races it.
+      const memory = createInMemoryRecoveryLockoutStore();
+      const slowReset = {
+        ...memory,
+        reset: (key: string, failures: number) =>
+          new Promise<void>((resolve) => setTimeout(resolve, 25)).then(() =>
+            memory.reset(key, failures),
+          ),
+      };
+      const service = createAuthService({ ...config, totpLockoutStore: slowReset });
+      const { profile, secret } = yield* enrolledWith(service, "totp-n@example.com", "totpn");
 
       for (let i = 0; i < TOTP_LOCKOUT_THRESHOLD - 1; i++) {
-        yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, "000000"));
+        yield* Effect.flip(service.completeStepUpTotp(profile.accountId, "000000"));
       }
 
       vi.useFakeTimers({ toFake: ["Date"] });
       advanceOneStep();
-      yield* auth.completeStepUpTotp(profile.accountId, yield* codeAtStep(secret, currentStep()));
+      yield* settle(
+        service.completeStepUpTotp(profile.accountId, yield* codeAtStep(secret, currentStep())),
+      );
 
       // Were the counter still at threshold-1, one more failure would lock the
       // account and the next correct code would be refused.
-      yield* Effect.flip(auth.completeStepUpTotp(profile.accountId, "000000"));
+      yield* Effect.flip(service.completeStepUpTotp(profile.accountId, "000000"));
       advanceOneStep();
-      const ok = yield* auth.completeStepUpTotp(
+      const ok = yield* service.completeStepUpTotp(
         profile.accountId,
         yield* codeAtStep(secret, currentStep()),
       );

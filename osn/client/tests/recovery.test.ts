@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { createRecoveryClient, RecoveryError } from "../src/recovery";
+import { authFetchSpy, expectAllThroughAuthFetch } from "./helpers/auth-fetch-spy";
 
-const config = { issuerUrl: "https://osn.example.com" };
+const authFetch = authFetchSpy();
+
+const config = { issuerUrl: "https://osn.example.com", authFetch };
 
 interface FetchCall {
   url: string;
@@ -64,41 +67,40 @@ describe("createRecoveryClient", () => {
   });
 
   afterEach(() => {
+    expectAllThroughAuthFetch(authFetch, "include", (url) =>
+      /\/recovery\/(generate|status)$/.test(new URL(url).pathname),
+    );
     vi.unstubAllGlobals();
   });
 
   describe("generateRecoveryCodes", () => {
-    it("POSTs /recovery/generate with Bearer auth and returns the codes", async () => {
+    it("POSTs /recovery/generate through authFetch and returns the codes", async () => {
       const { calls } = stubFetch(() => jsonResponse({ recoveryCodes: sampleCodes }));
-      const result = await client.generateRecoveryCodes({ accessToken: "acc_live" });
+      const result = await client.generateRecoveryCodes({});
 
       expect(result.codes).toEqual(sampleCodes);
       expect(calls[0]!.url).toBe("https://osn.example.com/recovery/generate");
       expect(calls[0]!.init?.method).toBe("POST");
       const headers = new Headers(calls[0]!.init?.headers);
-      expect(headers.get("authorization")).toBe("Bearer acc_live");
+      expect(headers.get("authorization")).toBeNull();
       expect(headers.get("content-type")).toBe("application/json");
       expect(calls[0]!.init?.credentials).toBe("include");
     });
 
     it("throws RecoveryError on non-2xx", async () => {
       stubFetch(() => jsonResponse({ error: "unauthorized" }, { status: 401 }));
-      await expect(
-        client.generateRecoveryCodes({ accessToken: "acc_live" }),
-      ).rejects.toBeInstanceOf(RecoveryError);
+      await expect(client.generateRecoveryCodes({})).rejects.toBeInstanceOf(RecoveryError);
     });
 
     it("throws RecoveryError when the response body lacks a recoveryCodes array", async () => {
       stubFetch(() => jsonResponse({}, { status: 200 }));
-      await expect(
-        client.generateRecoveryCodes({ accessToken: "acc_live" }),
-      ).rejects.toBeInstanceOf(RecoveryError);
+      await expect(client.generateRecoveryCodes({})).rejects.toBeInstanceOf(RecoveryError);
     });
 
     it("strips a trailing slash from issuerUrl", async () => {
-      const trailing = createRecoveryClient({ issuerUrl: "https://osn.example.com/" });
+      const trailing = createRecoveryClient({ issuerUrl: "https://osn.example.com/", authFetch });
       const { calls } = stubFetch(() => jsonResponse({ recoveryCodes: sampleCodes }));
-      await trailing.generateRecoveryCodes({ accessToken: "acc_live" });
+      await trailing.generateRecoveryCodes({});
       expect(calls[0]!.url).toBe("https://osn.example.com/recovery/generate");
     });
   });

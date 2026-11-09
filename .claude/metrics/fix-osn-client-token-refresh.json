@@ -1,0 +1,199 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 2114,
+    "branch": "fix/osn-client-token-refresh",
+    "base_sha": "98a30273380697f839c68aa62dc1c74c1f39ef3d",
+    "head_sha": "08284c022f2b3bea340e40f93641ed98b85ddb9b",
+    "generated_at": "2026-11-06T18:32:34.047Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 2043,
+    "type": null,
+    "labels": [
+      "complexity:5",
+      "product:musubi"
+    ]
+  },
+  "complexity": {
+    "declared": 10,
+    "method": "unconfirmed",
+    "issues": 2
+  },
+  "window": {
+    "sessions": 8,
+    "first_ts": "2026-11-06T12:51:05.443Z",
+    "last_ts": "2026-11-06T18:32:22.709Z",
+    "span_seconds": 20477,
+    "active_seconds": 7447,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 82.67514400000005,
+    "tokens": {
+      "input": 1512,
+      "output": 665420,
+      "thinking": 305627,
+      "cache_write_5m": 2613711,
+      "cache_write_1h": 0,
+      "cache_read": 140988052
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1508,
+          "output": 665148,
+          "thinking": 305627,
+          "cache_write_5m": 2575977,
+          "cache_write_1h": 0,
+          "cache_read": 140957968
+        },
+        "usd_equivalent": 82.57206420000004,
+        "messages": 745
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 7
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 4,
+          "output": 272,
+          "thinking": 0,
+          "cache_write_5m": 37734,
+          "cache_write_1h": 0,
+          "cache_read": 30084
+        },
+        "usd_equivalent": 0.1030798,
+        "messages": 2
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 46,
+          "output": 13006,
+          "thinking": 6453,
+          "cache_write_5m": 365794,
+          "cache_write_1h": 0,
+          "cache_read": 781836
+        },
+        "usd_equivalent": 2.4020083999999997,
+        "messages": 24
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1466,
+          "output": 652414,
+          "thinking": 299174,
+          "cache_write_5m": 2247917,
+          "cache_write_1h": 0,
+          "cache_read": 140206216
+        },
+        "usd_equivalent": 80.27313560000005,
+        "messages": 730
+      }
+    },
+    "effort": {
+      "medium": 25,
+      "high": 154,
+      "xhigh": 568
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 38,
+      "docs": 9,
+      "config": 2,
+      "source": 52
+    },
+    "loc": {
+      "generated": {
+        "added": 19,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1796,
+        "deleted": 491
+      },
+      "docs": {
+        "added": 94,
+        "deleted": 43
+      },
+      "config": {
+        "added": 21,
+        "deleted": 3
+      },
+      "source": {
+        "added": 1323,
+        "deleted": 934
+      }
+    },
+    "packages": [
+      "musubi/social",
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "shared/openapi",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 671,
+      "Read": 40,
+      "Edit": 25,
+      "Skill": 13,
+      "StructuredOutput": 13,
+      "Write": 11,
+      "Grep": 11,
+      "Monitor": 4,
+      "ToolSearch": 3,
+      "TaskStop": 3
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 13
+    },
+    "skills": {
+      "new-feat": 3,
+      "write-wiki": 2,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "write-pr": 1,
+      "retro-v2": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 23,
+      "subagent": 724,
+      "with_tools": 746,
+      "with_one_tool": 706,
+      "context_median": 165390,
+      "context_p90": 364177
+    }
+  },
+  "review": null
+}

@@ -92,7 +92,6 @@ function renderView(extra: Record<string, unknown> = {}) {
     <RecoveryCodesView
       client={asClient(stub)}
       stepUpClient={asStepUp(stepUp)}
-      accessToken="acc_live"
       runPasskeyCeremony={async () => assertion}
       passkeyOnly
       productName="Musubi"
@@ -159,9 +158,8 @@ describe("RecoveryCodesView", () => {
       }
     });
 
-    expect(stepUp.passkeyBegin).toHaveBeenCalledWith({ accessToken: "acc_live" });
+    expect(stepUp.passkeyBegin).toHaveBeenCalledWith();
     expect(stub.generateRecoveryCodes).toHaveBeenCalledWith({
-      accessToken: "acc_live",
       stepUpToken: "su_tok",
     });
   });

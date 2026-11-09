@@ -31,7 +31,7 @@ OSN Core is the identity stack every other OSN app builds on. It owns auth (pass
 | Package | Role |
 |---|---|
 | `@osn/api` | Binary server (port 4000). Hosts auth, graph, organisations, recommendations, S2S routes, and JWKS. |
-| `@osn/client` | Browser/SDK: `OsnAuthService`, `useAuth`, plus typed clients for the auth ceremonies, graph, organisations and recommendations. Every REST client's error extends `OsnApiError`, carrying the response's `status` (`0` when none arrived) and the server's `code`. `ProfileManagementError`, from `OsnAuthService`'s profile calls, carries both as optional fields. `describeAuthError` reads either and turns it into a plain sentence. |
+| `@osn/client` | Browser/SDK: `createOsnAuthRuntime` (the page's one `OsnAuthService` and its renewing `authFetch`), `useAuth`, plus typed clients for the auth ceremonies, graph, organisations and recommendations, the authenticated ones built on that `authFetch`. Every REST client's error extends `OsnApiError`, carrying the response's `status` (`0` when none arrived) and the server's `code`. `ProfileManagementError`, from `OsnAuthService`'s profile calls, carries both as optional fields. `describeAuthError` reads either and turns it into a plain sentence. |
 | `@osn/db` | Drizzle + SQLite schema (accounts, profiles, passkeys, sessions, social graph, organisations, service accounts). |
 | `@osn/auth-ui` | SolidJS views for the ceremonies below: `<SignIn>`, `<Register>`, `<PasskeysView>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<TotpView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`, the profile forms, `<TurnstileWidget>`; and `describePasskeyError`, a plain sentence for a failed passkey step. |
 | `@shared/crypto` | ARC token primitives + recovery-code helpers. |
@@ -61,7 +61,7 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 | `POST /passkey/register/{begin,complete}` | Bind a passkey (mandatory at signup; step-up gated thereafter) |
 | `POST /login/passkey/{begin,complete}` | Identifier-bound or discoverable WebAuthn login |
 | `POST /login/recovery/complete` | Recovery-code login |
-| `POST /token` | Refresh-grant rotation (refresh token read **only** from HttpOnly cookie) |
+| `POST /token` | Refresh-grant rotation (refresh token read **only** from HttpOnly cookie); an optional `profile_id` names the profile to mint for ([[identity-model#Session load on mount — durable refresh across reloads]]) |
 | `POST /logout` | Server-side session destruction |
 | `POST /step-up/{passkey,otp}/{begin,complete}` | Mint a single-use sudo token |
 | `GET/DELETE /sessions[/:id]`, `POST /sessions/revoke-all-other` | Per-device session management |

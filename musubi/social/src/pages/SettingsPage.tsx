@@ -66,8 +66,9 @@ export function SettingsPage() {
     navigate(`/settings#${value}`, { replace: true, scroll: false });
   };
 
-  const accessToken = () => session()?.accessToken ?? null;
-  const claims = createMemo(() => getTokenClaims(accessToken()));
+  // Claims are read for display and the profile id only; no request carries
+  // this token — every client sends through the page's auth runtime.
+  const claims = createMemo(() => getTokenClaims(session()?.accessToken ?? null));
   const activeProfile = createMemo(
     () => profiles()?.find((p) => p.id === activeProfileId()) ?? null,
   );
@@ -175,14 +176,16 @@ export function SettingsPage() {
         <Show when={section() === "security"}>
           <Card padding="md" class="flex flex-col gap-3">
             <Show
-              when={accessToken() && claims().profileId}
+              when={claims().profileId}
               fallback={
                 <p class="text-muted-foreground text-body">Sign in to manage your passkeys.</p>
               }
             >
-              <Suspense fallback={<p class="text-muted-foreground text-body">Loading…</p>}>
-                <SecuritySection accessToken={accessToken()!} profileId={claims().profileId!} />
-              </Suspense>
+              {(profileId) => (
+                <Suspense fallback={<p class="text-muted-foreground text-body">Loading…</p>}>
+                  <SecuritySection profileId={profileId()} />
+                </Suspense>
+              )}
             </Show>
           </Card>
         </Show>
@@ -190,18 +193,9 @@ export function SettingsPage() {
         {/* Connected apps section */}
         <Show when={section() === "apps"}>
           <Card padding="md" class="flex flex-col gap-4">
-            <Show
-              when={accessToken()}
-              fallback={
-                <p class="text-muted-foreground text-meta">
-                  Sign in to manage your connected apps.
-                </p>
-              }
-            >
-              <Suspense fallback={<p class="text-muted-foreground text-meta">Loading…</p>}>
-                <ConnectedAppsSection accessToken={accessToken()!} />
-              </Suspense>
-            </Show>
+            <Suspense fallback={<p class="text-muted-foreground text-meta">Loading…</p>}>
+              <ConnectedAppsSection />
+            </Suspense>
           </Card>
         </Show>
       </Show>

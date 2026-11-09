@@ -24,15 +24,10 @@ import { RecoveryCodesPrompt } from "../../src/components/RecoveryCodesPrompt";
 
 const HEADING = "Set up recovery codes";
 
-/** An unsigned access token carrying just the `sub` claim the prompt reads. */
-function tokenFor(profileId: string): string {
-  return `header.${btoa(JSON.stringify({ sub: profileId }))}.signature`;
-}
-
-function renderPrompt(token: Accessor<string>) {
+function renderPrompt(profileId: Accessor<string>) {
   return render(() => (
     <MemoryRouter>
-      <Route path="*" component={() => <RecoveryCodesPrompt accessToken={token()} />} />
+      <Route path="*" component={() => <RecoveryCodesPrompt profileId={profileId()} />} />
     </MemoryRouter>
   ));
 }
@@ -47,7 +42,7 @@ afterEach(() => cleanup());
 describe("<RecoveryCodesPrompt />", () => {
   it("offers setup when the account has never generated a set", async () => {
     client.getRecoveryCodesStatus.mockResolvedValue({ active: 0, total: 0, generatedAt: null });
-    renderPrompt(() => tokenFor("prof_1"));
+    renderPrompt(() => "prof_1");
 
     expect(await screen.findByText(HEADING)).toBeTruthy();
     const link = screen.getByRole("link", { name: "Go to Security settings" });
@@ -60,7 +55,7 @@ describe("<RecoveryCodesPrompt />", () => {
       total: 10,
       generatedAt: 1_750_000_000,
     });
-    renderPrompt(() => tokenFor("prof_1"));
+    renderPrompt(() => "prof_1");
 
     await vi.waitFor(() => expect(client.getRecoveryCodesStatus).toHaveBeenCalled());
     expect(screen.queryByText(HEADING)).toBeNull();
@@ -69,7 +64,7 @@ describe("<RecoveryCodesPrompt />", () => {
   it("stays quiet, and reaches no network, once dismissed on this device", async () => {
     localStorage.setItem("musubi:recovery-codes-prompt-dismissed:prof_1", "1");
     client.getRecoveryCodesStatus.mockResolvedValue({ active: 0, total: 0, generatedAt: null });
-    renderPrompt(() => tokenFor("prof_1"));
+    renderPrompt(() => "prof_1");
 
     await Promise.resolve();
     expect(screen.queryByText(HEADING)).toBeNull();
@@ -80,7 +75,7 @@ describe("<RecoveryCodesPrompt />", () => {
 
   it("hides on dismissal and records it for the signed-in profile", async () => {
     client.getRecoveryCodesStatus.mockResolvedValue({ active: 0, total: 0, generatedAt: null });
-    renderPrompt(() => tokenFor("prof_1"));
+    renderPrompt(() => "prof_1");
 
     (await screen.findByRole("button", { name: "Dismiss" })).click();
 
@@ -96,39 +91,29 @@ describe("<RecoveryCodesPrompt />", () => {
     // codes to somebody who already has them — nor into a thrown resource, in
     // a component that renders in the application shell.
     client.getRecoveryCodesStatus.mockRejectedValue(new Error("Request failed: 429"));
-    renderPrompt(() => tokenFor("prof_1"));
+    renderPrompt(() => "prof_1");
 
     await vi.waitFor(() => expect(client.getRecoveryCodesStatus).toHaveBeenCalled());
     expect(screen.queryByText(HEADING)).toBeNull();
   });
 
   it("asks the profile that is signed in now, not the one that was", async () => {
-    // Switching profile swaps the access token without remounting anything:
+    // Switching profile swaps the profile id without remounting anything:
     // `Show` in the shell compares truthiness only. Read once at mount, this
     // would show profile A's answer — and A's dismissal — to profile B.
     localStorage.setItem("musubi:recovery-codes-prompt-dismissed:prof_1", "1");
     client.getRecoveryCodesStatus.mockResolvedValue({ active: 0, total: 0, generatedAt: null });
 
-    const [token, setToken] = createSignal(tokenFor("prof_1"));
-    renderPrompt(token);
+    const [profileId, setProfileId] = createSignal("prof_1");
+    renderPrompt(profileId);
 
     await Promise.resolve();
     expect(screen.queryByText(HEADING)).toBeNull();
     expect(client.getRecoveryCodesStatus).not.toHaveBeenCalled();
 
-    setToken(tokenFor("prof_2"));
+    setProfileId("prof_2");
 
     expect(await screen.findByText(HEADING)).toBeTruthy();
-    expect(client.getRecoveryCodesStatus).toHaveBeenCalledWith({
-      accessToken: tokenFor("prof_2"),
-    });
-  });
-
-  it("stays quiet when the token carries no profile id", async () => {
-    renderPrompt(() => "not-a-token");
-
-    await Promise.resolve();
-    expect(screen.queryByText(HEADING)).toBeNull();
-    expect(client.getRecoveryCodesStatus).not.toHaveBeenCalled();
+    expect(client.getRecoveryCodesStatus).toHaveBeenCalledTimes(1);
   });
 });

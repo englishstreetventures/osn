@@ -38,12 +38,10 @@ import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
  */
 
 export interface RecoveryCodesViewProps {
-  /** Recovery client, built via `createRecoveryClient({ issuerUrl })`. */
+  /** Recovery client, built via `createRecoveryClient({ issuerUrl, authFetch })`. */
   client: RecoveryClient;
-  /** Step-up client, built via `createStepUpClient({ issuerUrl })`. */
+  /** Step-up client, built via `createStepUpClient({ issuerUrl, authFetch })`. */
   stepUpClient: StepUpClient;
-  /** The caller's current access token — required to authenticate generate. */
-  accessToken: string;
   /**
    * Executes the browser-side WebAuthn assertion for the step-up ceremony.
    * Kept caller-side so the host picks the WebAuthn wrapper.
@@ -154,7 +152,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   // stranding the user on an error screen with no way to make codes.
   const [status] = createResource(reloadKey, async () => {
     try {
-      return await props.client.getRecoveryCodesStatus({ accessToken: props.accessToken });
+      return await props.client.getRecoveryCodesStatus();
     } catch {
       return null;
     }
@@ -212,7 +210,6 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
     setError(null);
     try {
       const res = await props.client.generateRecoveryCodes({
-        accessToken: props.accessToken,
         stepUpToken: token.token,
       });
       setCodes(res.codes);
@@ -376,7 +373,6 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
       <Show when={pending()}>
         <StepUpDialog
           client={props.stepUpClient}
-          accessToken={props.accessToken}
           onToken={handleStepUp}
           onCancel={cancelStepUp}
           runPasskeyCeremony={props.runPasskeyCeremony}

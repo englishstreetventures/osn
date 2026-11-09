@@ -159,6 +159,24 @@ async function bootStack(realStart: number, procs: Started[]): Promise<void> {
   };
   const ready = (spec: (typeof specs)[number], proc: Started) =>
     waitUntilReady(proc, () => httpAnswers(spec.readyUrl), READY_TIMEOUT_MS);
+  // A spec's build runs to the end before its server starts, logging where the
+  // server will; a build that fails stops the run.
+  const built = async (spec: (typeof specs)[number]): Promise<void> => {
+    if (!spec.build) return;
+    say(`building ${spec.name}`);
+    const proc = startProcess({
+      name: `${spec.name} build`,
+      command: spec.build,
+      cwd: appDir(spec),
+      env: { ...env, ...spec.env },
+      logPath: resolve(LOG_DIR, `${spec.name}.log`),
+    });
+    procs.push(proc);
+    const code = await proc.exited;
+    if (code !== 0) {
+      throw new Error(`${spec.name}: build exited ${code}; see ${proc.logPath ?? "its output"}`);
+    }
+  };
 
   // One ordering matters: pulse-api registers its service key with osn-api
   // once, at boot, so it starts after osn-api answers and counts as ready only
@@ -179,7 +197,12 @@ async function bootStack(realStart: number, procs: Started[]): Promise<void> {
   // (cire invites' `/<slug>`) still compiles on the flow's first visit.
   await Promise.all([
     identityChain(),
-    ...specs.filter((s) => s !== osn && s !== pulse).map((spec) => ready(spec, start(spec))),
+    ...specs
+      .filter((s) => s !== osn && s !== pulse)
+      .map(async (spec) => {
+        await built(spec);
+        await ready(spec, start(spec));
+      }),
   ]);
 }
 

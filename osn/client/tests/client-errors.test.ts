@@ -4,6 +4,12 @@ import { AccountError, createAccountClient } from "../src/account";
 import { OsnApiError } from "../src/api-error";
 import { AuthorizeError, createAuthorizeClient } from "../src/authorize";
 import { ConnectionsError, createConnectionsClient } from "../src/connections";
+import {
+  ActiveProfileResetError,
+  AuthExpiredError,
+  StorageError,
+  TokenRefreshError,
+} from "../src/errors";
 import { createGraphClient, GraphClientError } from "../src/graph";
 import { createLoginClient, LoginError } from "../src/login";
 import { createOrgClient, OrgClientError } from "../src/organisations";
@@ -11,6 +17,7 @@ import { createPasskeysClient, PasskeysError } from "../src/passkeys";
 import { createRecommendationClient, RecommendationClientError } from "../src/recommendations";
 import { createRecoveryClient, RecoveryError } from "../src/recovery";
 import { createRegistrationClient, RegistrationError } from "../src/register";
+import type { AuthFetch } from "../src/runtime";
 import { createSecurityEventsClient, SecurityEventsError } from "../src/security-events";
 import { createSessionsClient, SessionsError } from "../src/sessions";
 import { createStepUpClient, StepUpError } from "../src/step-up";
@@ -19,19 +26,29 @@ import { createTotpClient, TotpError } from "../src/totp";
 const config = { issuerUrl: "https://osn.example.com" };
 const TOKEN = "acc_token";
 
+/**
+ * Stands in for the page runtime's `authFetch`: it sends through the stubbed
+ * global `fetch`, so each case below reaches the client's own error handling.
+ * P9 swaps in a rejection the runtime gives.
+ */
+const sendThroughFetch: AuthFetch = (input, init) => fetch(input, init);
+let sendThrough: AuthFetch = sendThroughFetch;
+const authFetch: AuthFetch = (input, init) => sendThrough(input, init);
+const authed = { ...config, authFetch };
+
 const login = createLoginClient(config);
-const stepUp = createStepUpClient(config);
-const passkeys = createPasskeysClient(config);
-const account = createAccountClient(config);
+const stepUp = createStepUpClient(authed);
+const passkeys = createPasskeysClient(authed);
+const account = createAccountClient(authed);
 const register = createRegistrationClient(config);
-const recovery = createRecoveryClient(config);
-const events = createSecurityEventsClient(config);
-const connections = createConnectionsClient(config);
-const totp = createTotpClient(config);
-const sessions = createSessionsClient(config);
-const graph = createGraphClient(config);
-const orgs = createOrgClient(config);
-const recs = createRecommendationClient(config);
+const recovery = createRecoveryClient(authed);
+const events = createSecurityEventsClient(authed);
+const connections = createConnectionsClient(authed);
+const totp = createTotpClient(authed);
+const sessions = createSessionsClient(authed);
+const graph = createGraphClient(authed);
+const orgs = createOrgClient(authed);
+const recs = createRecommendationClient(authed);
 
 interface Site {
   name: string;
@@ -58,45 +75,33 @@ const SITES: Site[] = [
   site("login.passkeyComplete", LoginError, () =>
     login.passkeyComplete({ identifier: "alice", assertion: {} }),
   ),
-  site("stepUp.passkeyBegin", StepUpError, () => stepUp.passkeyBegin({ accessToken: TOKEN })),
-  site("stepUp.passkeyComplete", StepUpError, () =>
-    stepUp.passkeyComplete({ accessToken: TOKEN, assertion: {} }),
-  ),
-  site("stepUp.otpBegin", StepUpError, () => stepUp.otpBegin({ accessToken: TOKEN })),
-  site("stepUp.otpComplete", StepUpError, () =>
-    stepUp.otpComplete({ accessToken: TOKEN, code: "123456" }),
-  ),
-  site("stepUp.totpComplete", StepUpError, () =>
-    stepUp.totpComplete({ accessToken: TOKEN, code: "123456" }),
-  ),
-  site("passkeys.list", PasskeysError, () => passkeys.list({ accessToken: TOKEN })),
+  site("stepUp.passkeyBegin", StepUpError, () => stepUp.passkeyBegin()),
+  site("stepUp.passkeyComplete", StepUpError, () => stepUp.passkeyComplete({ assertion: {} })),
+  site("stepUp.otpBegin", StepUpError, () => stepUp.otpBegin()),
+  site("stepUp.otpComplete", StepUpError, () => stepUp.otpComplete({ code: "123456" })),
+  site("stepUp.totpComplete", StepUpError, () => stepUp.totpComplete({ code: "123456" })),
+  site("passkeys.list", PasskeysError, () => passkeys.list()),
   site("passkeys.rename", PasskeysError, () =>
-    passkeys.rename({ accessToken: TOKEN, id: "pk_1", label: "Laptop", stepUpToken: "su" }),
+    passkeys.rename({ id: "pk_1", label: "Laptop", stepUpToken: "su" }),
   ),
-  site("passkeys.delete", PasskeysError, () =>
-    passkeys.delete({ accessToken: TOKEN, id: "pk_1", stepUpToken: "su" }),
-  ),
+  site("passkeys.delete", PasskeysError, () => passkeys.delete({ id: "pk_1", stepUpToken: "su" })),
   site("passkeys.registerBegin", PasskeysError, () =>
-    passkeys.registerBegin({ accessToken: TOKEN, profileId: "usr_1", stepUpToken: "su" }),
+    passkeys.registerBegin({ profileId: "usr_1", stepUpToken: "su" }),
   ),
   site("passkeys.registerComplete", PasskeysError, () =>
-    passkeys.registerComplete({ accessToken: TOKEN, profileId: "usr_1", attestation: {} }),
+    passkeys.registerComplete({ profileId: "usr_1", attestation: {} }),
   ),
   site("account.changeEmailBegin", AccountError, () =>
-    account.changeEmailBegin({ accessToken: TOKEN, newEmail: "b@example.com" }),
+    account.changeEmailBegin({ newEmail: "b@example.com" }),
   ),
   site("account.changeEmailComplete", AccountError, () =>
-    account.changeEmailComplete({ accessToken: TOKEN, code: "123456", stepUpToken: "su" }),
+    account.changeEmailComplete({ code: "123456", stepUpToken: "su" }),
   ),
   site("account.deleteAccount", AccountError, () =>
-    account.deleteAccount({ accessToken: TOKEN, confirmHandle: "alice", stepUpToken: "su" }),
+    account.deleteAccount({ confirmHandle: "alice", stepUpToken: "su" }),
   ),
-  site("account.cancelAccountDeletion", AccountError, () =>
-    account.cancelAccountDeletion({ accessToken: TOKEN }),
-  ),
-  site("account.getAccountDeletionStatus", AccountError, () =>
-    account.getAccountDeletionStatus({ accessToken: TOKEN }),
-  ),
+  site("account.cancelAccountDeletion", AccountError, () => account.cancelAccountDeletion()),
+  site("account.getAccountDeletionStatus", AccountError, () => account.getAccountDeletionStatus()),
   site("register.checkHandle", RegistrationError, () => register.checkHandle("alice")),
   site("register.beginRegistration", RegistrationError, () =>
     register.beginRegistration({
@@ -115,11 +120,9 @@ const SITES: Site[] = [
     register.passkeyRegisterComplete({ profileId: "usr_1", accessToken: TOKEN, attestation: {} }),
   ),
   site("recovery.generateRecoveryCodes", RecoveryError, () =>
-    recovery.generateRecoveryCodes({ accessToken: TOKEN, stepUpToken: "su" }),
+    recovery.generateRecoveryCodes({ stepUpToken: "su" }),
   ),
-  site("recovery.getRecoveryCodesStatus", RecoveryError, () =>
-    recovery.getRecoveryCodesStatus({ accessToken: TOKEN }),
-  ),
+  site("recovery.getRecoveryCodesStatus", RecoveryError, () => recovery.getRecoveryCodesStatus()),
   site("recovery.loginWithRecoveryCode", RecoveryError, () =>
     recovery.loginWithRecoveryCode({ identifier: "alice", code: "abcd-efgh" }),
   ),
@@ -136,39 +139,29 @@ const SITES: Site[] = [
     recovery.totpRecoveryComplete({ identifier: "alice", code: "123456" }),
   ),
   site("recovery.disown", RecoveryError, () => recovery.disown({ token: "tok" }), false),
-  site("events.list", SecurityEventsError, () => events.list({ accessToken: TOKEN })),
+  site("events.list", SecurityEventsError, () => events.list()),
   site("events.acknowledge", SecurityEventsError, () =>
-    events.acknowledge({ accessToken: TOKEN, id: "ev_1", stepUpToken: "su" }),
+    events.acknowledge({ id: "ev_1", stepUpToken: "su" }),
   ),
   site("events.acknowledgeAll", SecurityEventsError, () =>
-    events.acknowledgeAll({ accessToken: TOKEN, stepUpToken: "su" }),
+    events.acknowledgeAll({ stepUpToken: "su" }),
   ),
-  site("connections.list", ConnectionsError, () => connections.list({ accessToken: TOKEN })),
-  site("connections.revoke", ConnectionsError, () =>
-    connections.revoke({ accessToken: TOKEN, clientId: "app" }),
-  ),
-  site("totp.enrollBegin", TotpError, () =>
-    totp.enrollBegin({ accessToken: TOKEN, stepUpToken: "su" }),
-  ),
-  site("totp.enrollComplete", TotpError, () =>
-    totp.enrollComplete({ accessToken: TOKEN, code: "123456" }),
-  ),
-  site("totp.disable", TotpError, () => totp.disable({ accessToken: TOKEN, stepUpToken: "su" })),
-  site("totp.status", TotpError, () => totp.status({ accessToken: TOKEN })),
-  site("sessions.list", SessionsError, () => sessions.list({ accessToken: TOKEN })),
-  site("sessions.revoke", SessionsError, () => sessions.revoke({ accessToken: TOKEN, id: "s1" })),
-  site("sessions.revokeAllOther", SessionsError, () =>
-    sessions.revokeAllOther({ accessToken: TOKEN }),
-  ),
-  site("graph.listConnections", GraphClientError, () => graph.listConnections(TOKEN)),
-  site("graph.removeConnection", GraphClientError, () => graph.removeConnection(TOKEN, "bob")),
-  site("orgs.getOrg", OrgClientError, () => orgs.getOrg(TOKEN, "acme")),
-  site("orgs.createOrg", OrgClientError, () =>
-    orgs.createOrg(TOKEN, { handle: "acme", name: "Acme" }),
-  ),
-  site("orgs.updateOrg", OrgClientError, () => orgs.updateOrg(TOKEN, "acme", { name: "Acme" })),
-  site("orgs.deleteOrg", OrgClientError, () => orgs.deleteOrg(TOKEN, "acme"), false),
-  site("recs.search", RecommendationClientError, () => recs.search(TOKEN, "ali")),
+  site("connections.list", ConnectionsError, () => connections.list()),
+  site("connections.revoke", ConnectionsError, () => connections.revoke({ clientId: "app" })),
+  site("totp.enrollBegin", TotpError, () => totp.enrollBegin({ stepUpToken: "su" })),
+  site("totp.enrollComplete", TotpError, () => totp.enrollComplete({ code: "123456" })),
+  site("totp.disable", TotpError, () => totp.disable({ stepUpToken: "su" })),
+  site("totp.status", TotpError, () => totp.status()),
+  site("sessions.list", SessionsError, () => sessions.list()),
+  site("sessions.revoke", SessionsError, () => sessions.revoke({ id: "s1" })),
+  site("sessions.revokeAllOther", SessionsError, () => sessions.revokeAllOther()),
+  site("graph.listConnections", GraphClientError, () => graph.listConnections()),
+  site("graph.removeConnection", GraphClientError, () => graph.removeConnection("bob")),
+  site("orgs.getOrg", OrgClientError, () => orgs.getOrg("acme")),
+  site("orgs.createOrg", OrgClientError, () => orgs.createOrg({ handle: "acme", name: "Acme" })),
+  site("orgs.updateOrg", OrgClientError, () => orgs.updateOrg("acme", { name: "Acme" })),
+  site("orgs.deleteOrg", OrgClientError, () => orgs.deleteOrg("acme"), false),
+  site("recs.search", RecommendationClientError, () => recs.search("ali")),
 ];
 
 function stubFetch(respond: () => Response | Promise<Response>) {
@@ -194,7 +187,10 @@ async function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
   throw new Error("expected the call to reject, and it resolved");
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  sendThrough = sendThroughFetch;
+});
 
 describe("every client error carries the response's status and the server's code", () => {
   it.each(SITES.map((s) => [s.name, s] as const))(
@@ -328,7 +324,7 @@ describe("every client error carries the response's status and the server's code
 
   it.each([
     ["register.checkHandle", (signal: AbortSignal) => register.checkHandle("alice", signal)],
-    ["recs.search", (signal: AbortSignal) => recs.search(TOKEN, "ali", { signal })],
+    ["recs.search", (signal: AbortSignal) => recs.search("ali", { signal })],
   ] as const)("P7 %s: the caller's own abort passes through untouched", async (_name, call) => {
     vi.stubGlobal(
       "fetch",
@@ -343,6 +339,46 @@ describe("every client error carries the response's status and the server's code
     const err = await rejectionOf(() => call(controller.signal));
     expect(err).not.toBeInstanceOf(OsnApiError);
     expect(err).toMatchObject({ name: "AbortError" });
+  });
+});
+
+/** The sites that send without the page's `authFetch`. */
+const SENDS_WITHOUT_AUTH_FETCH = new Set([
+  "recovery.loginWithRecoveryCode",
+  "recovery.emailRecoveryBegin",
+  "recovery.emailRecoveryComplete",
+  "recovery.totpRecoveryComplete",
+  "recovery.disown",
+]);
+const AUTH_FETCH_SITES = SITES.filter(
+  (s) => !/^(login|register)\./.test(s.name) && !SENDS_WITHOUT_AUTH_FETCH.has(s.name),
+);
+
+/**
+ * What `authFetch` rejects with when the session, not the network, is the
+ * problem. A client that wrapped one as its own error at status 0 would hide
+ * a sign-out from `isAuthExpiredError` and show the connection sentence.
+ */
+const SESSION_REJECTIONS = [
+  new AuthExpiredError({ cause: "refused" }),
+  new TokenRefreshError({ cause: "unreachable" }),
+  new ActiveProfileResetError({ profileId: "usr_1", message: "reset" }),
+  new StorageError({ cause: "quota" }),
+] as const;
+
+describe("a session rejection from authFetch", () => {
+  it("P9: covers every authenticated client method", () => {
+    expect(AUTH_FETCH_SITES).toHaveLength(36);
+  });
+
+  it.each(
+    AUTH_FETCH_SITES.flatMap((s) =>
+      SESSION_REJECTIONS.map((rejection) => [s.name, rejection._tag, s, rejection] as const),
+    ),
+  )("P9 %s: %s reaches the caller as it is", async (_name, _tag, s, rejection) => {
+    sendThrough = () => Promise.reject(rejection);
+    const err = await rejectionOf(s.call);
+    expect(err).toBe(rejection);
   });
 });
 

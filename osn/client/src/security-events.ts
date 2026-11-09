@@ -10,10 +10,13 @@
 
 import { OsnApiError } from "./api-error";
 import { reach, readJson, responseError } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
 
 export interface SecurityEventsClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 export class SecurityEventsError extends OsnApiError {
@@ -35,59 +38,51 @@ export interface SecurityEventSummary {
   ipHash: string | null;
 }
 
+/**
+ * A rejection of `authFetch` about the session, or the caller's abort,
+ * reaches the caller unchanged (`./auth-fetch.ts`); every other failure is
+ * a `SecurityEventsError`.
+ */
 export interface SecurityEventsClient {
-  list(input: { accessToken: string }): Promise<{ events: SecurityEventSummary[] }>;
+  list(): Promise<{ events: SecurityEventSummary[] }>;
   /**
    * Acknowledges a single security event. Requires a fresh step-up token —
    * the banner is the defence against a compromised access token, so the
    * access token alone cannot dismiss it.
    */
-  acknowledge(input: {
-    accessToken: string;
-    id: string;
-    stepUpToken: string;
-  }): Promise<{ acknowledged: boolean }>;
+  acknowledge(input: { id: string; stepUpToken: string }): Promise<{ acknowledged: boolean }>;
   /**
    * Dismisses every unacknowledged event in a single call. One step-up
    * ceremony → the entire banner clears. Matches the UX pattern used by
    * `POST /sessions/revoke-all-other`.
    */
-  acknowledgeAll(input: {
-    accessToken: string;
-    stepUpToken: string;
-  }): Promise<{ acknowledged: number }>;
+  acknowledgeAll(input: { stepUpToken: string }): Promise<{ acknowledged: number }>;
 }
 
-function withAuth(accessToken: string): RequestInit {
-  return {
-    credentials: "include",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-  };
-}
+const INIT: RequestInit = {
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+};
 
 export function createSecurityEventsClient(
   config: SecurityEventsClientConfig,
 ): SecurityEventsClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  const send = (url: string, init: RequestInit) =>
+    reach(SecurityEventsError, url, init, config.authFetch);
 
   return {
-    list: async (input) => {
-      const res = await reach(SecurityEventsError, `${base}/account/security-events`, {
-        ...withAuth(input.accessToken),
-      });
+    list: async () => {
+      const res = await send(`${base}/account/security-events`, INIT);
       const json = await readJson<{ events?: SecurityEventSummary[] }>(SecurityEventsError, res);
       if (!Array.isArray(json.events)) throw responseError(SecurityEventsError, res, json);
       return { events: json.events };
     },
     acknowledge: async (input) => {
-      const res = await reach(
-        SecurityEventsError,
+      const res = await send(
         `${base}/account/security-events/${encodeURIComponent(input.id)}/ack`,
         {
-          ...withAuth(input.accessToken),
+          ...INIT,
           method: "POST",
           body: JSON.stringify({ step_up_token: input.stepUpToken }),
         },
@@ -96,8 +91,8 @@ export function createSecurityEventsClient(
       return { acknowledged: json.acknowledged === true };
     },
     acknowledgeAll: async (input) => {
-      const res = await reach(SecurityEventsError, `${base}/account/security-events/ack-all`, {
-        ...withAuth(input.accessToken),
+      const res = await send(`${base}/account/security-events/ack-all`, {
+        ...INIT,
         method: "POST",
         body: JSON.stringify({ step_up_token: input.stepUpToken }),
       });

@@ -19,7 +19,7 @@ import { safeAvatarUrl } from "../lib/utils";
  * than in each surface so the rail dropdown and the `/search` page can never
  * drift on what a row does.
  */
-export function useSearchActions(token: () => string, controller: SearchController) {
+export function useSearchActions(controller: SearchController) {
   const [pending, setPending] = createSignal<Set<string>>(new Set());
 
   function withPending(handle: string, run: () => Promise<void>) {
@@ -36,7 +36,7 @@ export function useSearchActions(token: () => string, controller: SearchControll
   function connect(handle: string) {
     withPending(handle, async () => {
       try {
-        await graphClient.sendConnectionRequest(token(), handle);
+        await graphClient.sendConnectionRequest(handle);
         controller.setConnectionStatus(handle, "pending_sent");
         toast.success(`Request sent to @${handle}`);
       } catch (err) {
@@ -48,7 +48,7 @@ export function useSearchActions(token: () => string, controller: SearchControll
   function accept(handle: string) {
     withPending(handle, async () => {
       try {
-        await graphClient.acceptConnection(token(), handle);
+        await graphClient.acceptConnection(handle);
         controller.setConnectionStatus(handle, "connected");
         toast.success(`You and @${handle} are connected`);
       } catch (err) {

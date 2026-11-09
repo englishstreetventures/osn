@@ -16,11 +16,11 @@ import { safeAvatarUrl } from "../lib/utils";
 
 export function OrganisationsPage() {
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
 
+  // Keyed on the session object: a new session refetches, a token renewal does not.
   const [orgs, { refetch }] = createResource(
-    () => token() || false,
-    (t) => orgClient.listMyOrgs(t as string),
+    () => session() ?? false,
+    () => orgClient.listMyOrgs(),
   );
 
   const [showCreate, setShowCreate] = createSignal(false);
@@ -34,7 +34,7 @@ export function OrganisationsPage() {
     if (!handle() || !name()) return;
     setCreating(true);
     try {
-      await orgClient.createOrg(token(), {
+      await orgClient.createOrg({
         handle: handle(),
         name: name(),
         description: description() || undefined,

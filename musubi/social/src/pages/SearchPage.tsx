@@ -18,10 +18,12 @@ import { createSearchController } from "../lib/search";
  */
 export function SearchPage() {
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? "";
 
-  const controller = createSearchController(token, { limit: 15, orgLimit: 8 });
-  const actions = useSearchActions(token, controller);
+  const controller = createSearchController(() => Boolean(session()), {
+    limit: 15,
+    orgLimit: 8,
+  });
+  const actions = useSearchActions(controller);
 
   let inputRef: HTMLInputElement | undefined;
   // The tab exists to search, so the keyboard should already be up on arrival.

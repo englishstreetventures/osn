@@ -5,12 +5,15 @@
  * API requests and assertions, and at the end takes the final-state screenshot
  * and attaches the record the results reporter writes into `results.json`.
  * In each context it records, it stands in for cire's realtime hub, which the
- * stack does not run (`standInForCireHub`). Flows touch the stack only through
+ * stack does not run (`standInForCireHub`), and, in a flow that asks for it,
+ * for Cloudflare Turnstile (`standInForTurnstile`); and it collects every
+ * Content-Security-Policy message a page logs. Flows touch the stack only through
  * the browser, the API request context and the read-only helpers here. The one
  * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
  * not part of the stack.
  */
 
+import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -39,6 +42,7 @@ import {
   ORIGINS,
   REALTIME_KEEPALIVE,
   SCREENSHOT_DIR,
+  TURNSTILE_ORIGIN,
 } from "../../src/config";
 import type { CapturedMail } from "../../src/mail";
 import { requestLine, requestSet, type Assertion, type FlowRecord } from "../../src/record";
@@ -80,6 +84,87 @@ async function standInForCireHub(ctx: BrowserContext, seen: HubStandInLog): Prom
   });
 }
 
+/**
+ * Hands each `securitypolicyviolation` event to `__e2eCspViolation`, with the
+ * document it happened in. The event is the browser's own record of a
+ * refusal, whichever script caused it, so a refusal a cross-origin script
+ * meets on a Musubi page is filed under the Musubi page.
+ */
+const CSP_VIOLATION_REPORTER = `document.addEventListener("securitypolicyviolation", function (e) {
+  if (typeof window.__e2eCspViolation !== "function") return;
+  window.__e2eCspViolation({
+    documentURI: e.documentURI,
+    directive: e.effectiveDirective,
+    blockedURI: e.blockedURI,
+    sourceFile: e.sourceFile,
+    disposition: e.disposition,
+  });
+});`;
+
+/** One `securitypolicyviolation` event, as the reporter hands it over. */
+interface CspViolation {
+  readonly documentURI: string;
+  readonly directive: string;
+  readonly blockedURI: string;
+  readonly sourceFile: string;
+  readonly disposition: string;
+}
+
+/** Where the Turnstile stand-in's widget frame loads from: Turnstile's own host. */
+const TURNSTILE_FRAME = `${TURNSTILE_ORIGIN}/e2e-stand-in/frame`;
+
+/**
+ * Turnstile's `api.js`, standing in: `render` puts a frame from Turnstile's
+ * host into the widget's element and hands back the token Cloudflare's test
+ * sitekeys return. Served at the real script URL, so the page loads it, and
+ * the frame, through the same Content-Security-Policy the real one meets: a
+ * policy that refused either would refuse it before the request left, and
+ * this stand-in would never be asked.
+ */
+const TURNSTILE_STAND_IN = `window.turnstile = {
+  render: function (el, opts) {
+    var frame = document.createElement("iframe");
+    frame.src = ${JSON.stringify(TURNSTILE_FRAME)};
+    frame.title = "Turnstile";
+    el.appendChild(frame);
+    Promise.resolve().then(function () { if (opts.callback) opts.callback("XXXX.DUMMY.TOKEN.XXXX"); });
+    return "e2e-turnstile";
+  },
+  remove: function () {},
+  reset: function () {},
+};`;
+
+/**
+ * Answers for Cloudflare Turnstile in `ctx`, which the stack cannot reach
+ * offline, and counts what it served. Only Musubi's build carries a sitekey,
+ * so only a flow that sets `turnstile: true` gets it: any `route` in a
+ * context turns off that context's HTTP cache, which flows that count
+ * downloads (the cire invite's hero image) rely on.
+ */
+async function standInForTurnstile(ctx: BrowserContext, served: TurnstileLog): Promise<void> {
+  await ctx.route(`${TURNSTILE_ORIGIN}/**`, async (route) => {
+    const url = route.request().url();
+    if (url === `${TURNSTILE_ORIGIN}/turnstile/v0/api.js`) {
+      served.script += 1;
+      await route.fulfill({ contentType: "text/javascript", body: TURNSTILE_STAND_IN });
+    } else if (url === TURNSTILE_FRAME) {
+      served.frame += 1;
+      await route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><title>Turnstile</title>",
+      });
+    } else {
+      await route.fulfill({ status: 404, body: "" });
+    }
+  });
+}
+
+/** What the Turnstile stand-in has served in one flow, across its contexts. */
+interface TurnstileLog {
+  script: number;
+  frame: number;
+}
+
 /** What the hub stand-in has seen in one flow, across its contexts. */
 interface HubStandInLog {
   /** Each socket's topic, in the order the sockets arrived. */
@@ -105,6 +190,15 @@ export interface Flow {
   realtimeTopics(): readonly string[];
   /** How many pings the hub stand-in has received so far. */
   realtimePings(): number;
+  /** How many times the Turnstile stand-in has served its script and its frame. */
+  turnstileServed(): { readonly script: number; readonly frame: number };
+  /**
+   * Every Content-Security-Policy refusal so far in a document whose address
+   * starts with `origin` — a blocked script, frame or connection, enforced or
+   * report-only, whatever script caused it — as `<page path>: <message>`,
+   * from the browser's violation event and from its console line.
+   */
+  cspMessages(origin: string): readonly string[];
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
   finalPage: Page;
 }
@@ -118,18 +212,25 @@ export interface Flow {
  */
 export const NO_HTML_IN_CANVAS = "delete HTMLCanvasElement.prototype.requestPaint;";
 
-export const test = base.extend<{ flow: Flow; envelope: boolean }>({
+export const test = base.extend<{ flow: Flow; envelope: boolean; turnstile: boolean }>({
   /**
    * Whether the cire invite may play its envelope opening in this flow's
    * contexts. Off by default, so no flow meets the envelope by accident once
    * the bundled Chromium has the API on.
    */
   envelope: [false, { option: true }],
-  flow: async ({ page, context, envelope }, use, testInfo) => {
+  /**
+   * Whether this flow's contexts get the Turnstile stand-in. Every flow that
+   * opens a Musubi sign-in or registration form needs it.
+   */
+  turnstile: [false, { option: true }],
+  flow: async ({ page, context, envelope, turnstile: standIn }, use, testInfo) => {
     const steps: string[] = [];
     const lines: string[] = [];
     const assertions: Assertion[] = [];
     const hub: HubStandInLog = { topics: [], pings: 0 };
+    const turnstile: TurnstileLog = { script: 0, frame: 0 };
+    const csp: { readonly url: string; readonly text: string }[] = [];
     const watched = new WeakSet<BrowserContext>();
     const watch = async (ctx: BrowserContext): Promise<void> => {
       if (watched.has(ctx)) return;
@@ -140,7 +241,23 @@ export const test = base.extend<{ flow: Flow; envelope: boolean }>({
         const line = requestLine(request.method(), request.url(), response.status(), API_LABELS);
         if (line) lines.push(line);
       });
+      // Every refusal twice over: the browser's own violation event, filed
+      // under the document it happened in, and the console line the browser
+      // logs, filed under the page that logged it.
+      await ctx.exposeBinding("__e2eCspViolation", (_source, report: CspViolation) => {
+        csp.push({
+          url: report.documentURI,
+          text: `${report.disposition} ${report.directive} refused ${report.blockedURI || "inline"} (from ${report.sourceFile || "the document"})`,
+        });
+      });
+      await ctx.addInitScript(CSP_VIOLATION_REPORTER);
+      ctx.on("console", (message) => {
+        const text = message.text();
+        if (!/Content[- ]Security[- ]Policy/i.test(text)) return;
+        csp.push({ url: message.page()?.url() || message.location().url, text });
+      });
       await standInForCireHub(ctx, hub);
+      if (standIn) await standInForTurnstile(ctx, turnstile);
     };
 
     const flow: Flow = {
@@ -175,6 +292,14 @@ export const test = base.extend<{ flow: Flow; envelope: boolean }>({
       },
       realtimePings() {
         return hub.pings;
+      },
+      turnstileServed() {
+        return { ...turnstile };
+      },
+      cspMessages(origin) {
+        return csp
+          .filter((entry) => entry.url.startsWith(origin))
+          .map((entry) => `${new URL(entry.url).pathname}: ${entry.text}`);
       },
     };
 
@@ -395,6 +520,25 @@ export async function claimFromOrganiserAddress(context: BrowserContext): Promis
 /** A cookie in `context` by name, or undefined. */
 export async function cookieNamed(context: BrowserContext, url: string, name: string) {
   return (await context.cookies(url)).find((c) => c.name === name);
+}
+
+/**
+ * The code an authenticator app shows for `secret` (the base32 setup key) at
+ * the suite clock's now, which is the servers' now: RFC 6238 with SHA-1, six
+ * digits and a 30-second step, as `@shared/crypto/totp` verifies it.
+ */
+export function totpCode(secret: string): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const bits = [...secret.replace(/[\s=]/g, "").toUpperCase()]
+    .map((c) => alphabet.indexOf(c).toString(2).padStart(5, "0"))
+    .join("");
+  const key = Buffer.from((bits.match(/.{8}/g) ?? []).map((b) => Number.parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(suiteNow() / 30_000)));
+  const mac = createHmac("sha1", key).update(counter).digest();
+  const at = mac[mac.length - 1]! & 0xf;
+  const value = (mac.readUInt32BE(at) & 0x7fffffff) % 1_000_000;
+  return value.toString().padStart(6, "0");
 }
 
 /**

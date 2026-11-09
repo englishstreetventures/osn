@@ -135,7 +135,7 @@ export const runRotatedSessionSweep = (
 
 export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config, accessTokenTtl, refreshTokenTtl, hashIp, passkeyRegisterAllowedAmr } = ctx;
-  const { findDefaultProfile } = profiles;
+  const { findDefaultProfile, findProfileById } = profiles;
 
   // -------------------------------------------------------------------------
   // Token issuance
@@ -768,8 +768,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     }).pipe(Effect.withSpan("auth.session.reuse_detect"));
 
   /**
-   * Refreshes a session: verifies the session token, finds the default
-   * profile, issues a new access token, and **rotates** the session token
+   * Refreshes a session: verifies the session token, picks the profile the
+   * access token is for, issues it, and **rotates** the session token
    * (Copenhagen Book C2): the new session row is inserted, then the old
    * hash's `rotated_sessions` record, then the old row deleted, so a replayed
    * old token triggers full family revocation (reuse detection). On D1 the
@@ -778,9 +778,17 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * `DatabaseError`, which `POST /token` reads as "session status unknown",
    * and the old session stays, able to rotate. A revoke of the family or the
    * account that lands at any point of a rotation leaves no session behind it.
+   *
+   * The access token is for `profileId` when the session's account owns that
+   * profile, and for the account's default profile otherwise — a profile that
+   * is gone, or another account's, gets the same answer as naming none, so
+   * the grant says nothing about which profiles exist. A restricted recovery
+   * session ignores `profileId`: it mints only for the default profile, on
+   * its own audience.
    */
   const refreshTokens = (
     sessionToken: string,
+    profileId?: string,
   ): Effect.Effect<
     { accessToken: string; refreshToken: string; expiresIn: number },
     AuthError | DatabaseError,
@@ -795,7 +803,12 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         // The one caller allowed to rotate a restricted session — rotating it
         // is the only thing a restricted session is for.
       } = yield* verifyRefreshToken(sessionToken, { allowRestricted: true });
-      const profile = yield* findDefaultProfile(accountId);
+      const named =
+        profileId !== undefined && restrictedUntil === null
+          ? yield* findProfileById(profileId)
+          : null;
+      const profile =
+        named && named.accountId === accountId ? named : yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }

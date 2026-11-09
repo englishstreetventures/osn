@@ -80,13 +80,10 @@ it.effect("listProfiles calls GET /profiles/list with Bearer auth and returns th
     const result = yield* auth.listProfiles();
 
     expect(result).toEqual(profiles);
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      "https://osn.example.com/profiles/list",
-      expect.objectContaining({
-        method: "GET",
-        headers: expect.objectContaining({ Authorization: expect.stringMatching(/^Bearer /) }),
-      }),
-    );
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe("https://osn.example.com/profiles/list");
+    expect(init).toEqual(expect.objectContaining({ method: "GET", credentials: "include" }));
+    expect(new Headers(init!.headers).get("authorization")).toMatch(/^Bearer /);
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -174,8 +171,7 @@ it.effect("createProfile calls POST /profiles/create and returns the new profile
     expect(result).toEqual(newProfile);
 
     const call = vi.mocked(fetch).mock.calls[0]!;
-    const headers = call[1]!.headers as Record<string, string>;
-    expect(headers.Authorization).toMatch(/^Bearer /);
+    expect(new Headers(call[1]!.headers).get("authorization")).toMatch(/^Bearer /);
     const body = JSON.parse(call[1]!.body as string);
     expect(body.handle).toBe("charlie");
     expect(body.display_name).toBe("Charlie");
@@ -449,5 +445,81 @@ it.effect("P4: a success body of the wrong shape fails its schema, with no statu
       expect((error as { status?: number }).status).toBeUndefined();
       expect((error as { code?: string }).code).toBeUndefined();
     }
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// Profile methods send through authFetch (F34)
+// ---------------------------------------------------------------------------
+
+function seedExpiredSession(profileId = "usr_aaaaaaaaaaaa") {
+  return Effect.flatMap(OsnAuth, (auth) =>
+    auth.setSession({
+      accessToken: fakeJwt(profileId),
+      idToken: null,
+      expiresAt: Date.now() - 1_000,
+      scopes: ["openid", "profile"],
+    }),
+  );
+}
+
+it.effect("F34: listProfiles renews an expired token before it sends", () =>
+  Effect.gen(function* () {
+    const renewed = fakeJwt("usr_aaaaaaaaaaaa") + "renewed";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: renewed,
+            token_type: "Bearer",
+            expires_in: 300,
+            scope: "openid profile",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ profiles: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    yield* seedExpiredSession();
+    yield* auth.listProfiles();
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls).toEqual([
+      "https://osn.example.com/token",
+      "https://osn.example.com/profiles/list",
+    ]);
+    const listInit = (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1];
+    expect(new Headers(listInit.headers).get("authorization")).toBe(`Bearer ${renewed}`);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("F34: a profile call whose renewal is refused fails with AuthExpiredError", () =>
+  Effect.gen(function* () {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "invalid_grant", message: "AuthError: gone" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+
+    const auth = yield* OsnAuth;
+    yield* seedExpiredSession();
+    const err = yield* Effect.flip(auth.listProfiles());
+
+    expect(err._tag).toBe("AuthExpiredError");
+
+    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );

@@ -6,10 +6,13 @@
 
 import { OsnApiError } from "./api-error";
 import { reach, readJson } from "./auth-fetch";
+import type { AuthFetch } from "./runtime";
 
 export interface AccountClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
+  /** The page runtime's `authFetch` (`createOsnAuthRuntime`). */
+  authFetch: AuthFetch;
 }
 
 export class AccountError extends OsnApiError {
@@ -19,19 +22,20 @@ export class AccountError extends OsnApiError {
   }
 }
 
+/**
+ * A rejection of `authFetch` about the session, or the caller's abort,
+ * reaches the caller unchanged (`./auth-fetch.ts`); every other failure is
+ * an `AccountError`.
+ */
 export interface AccountClient {
   /** Sends an OTP to the NEW email address. Does not mutate the account yet. */
-  changeEmailBegin(input: { accessToken: string; newEmail: string }): Promise<{ sent: true }>;
+  changeEmailBegin(input: { newEmail: string }): Promise<{ sent: true }>;
   /**
    * Swaps the account's email after verifying both the OTP (sent to the
    * new address by `changeEmailBegin`) and a fresh step-up token. Revokes
    * every other session atomically with the email update.
    */
-  changeEmailComplete(input: {
-    accessToken: string;
-    code: string;
-    stepUpToken: string;
-  }): Promise<{ email: string }>;
+  changeEmailComplete(input: { code: string; stepUpToken: string }): Promise<{ email: string }>;
 
   /**
    * GDPR Art. 17 — Right of erasure (Flow A — full OSN account deletion).
@@ -45,7 +49,6 @@ export interface AccountClient {
    * already-pending deletions: `already_pending = true`.
    */
   deleteAccount(input: {
-    accessToken: string;
     /** Must equal the user's current handle verbatim. */
     confirmHandle: string;
     /** Fresh step-up token from osn-api's begin/complete ceremony. */
@@ -57,84 +60,83 @@ export interface AccountClient {
    * called from the original requesting session (the only surviving
    * session — we revoked all others at soft-delete time).
    */
-  cancelAccountDeletion(input: { accessToken: string }): Promise<{ cancelled: boolean }>;
+  cancelAccountDeletion(): Promise<{ cancelled: boolean }>;
 
   /**
    * Returns the current deletion status. The UI uses this to decide
    * whether to show the "scheduled for deletion" banner.
    */
-  getAccountDeletionStatus(input: {
-    accessToken: string;
-  }): Promise<
+  getAccountDeletionStatus(): Promise<
     { scheduled: false } | { scheduled: true; scheduledFor: number; softDeletedAt: number }
   >;
 }
 
-async function postJson<T>(url: string, bearer: string, body: unknown): Promise<T> {
-  const res = await reach(AccountError, url, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${bearer}`,
+async function postJson<T>(authFetch: AuthFetch, url: string, body: unknown): Promise<T> {
+  const res = await reach(
+    AccountError,
+    url,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+    authFetch,
+  );
   return readJson<T>(AccountError, res);
 }
 
-async function deleteJson<T>(url: string, bearer: string, body: unknown): Promise<T> {
-  const res = await reach(AccountError, url, {
-    method: "DELETE",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${bearer}`,
+async function deleteJson<T>(authFetch: AuthFetch, url: string, body: unknown): Promise<T> {
+  const res = await reach(
+    AccountError,
+    url,
+    {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+    authFetch,
+  );
   return readJson<T>(AccountError, res);
 }
 
-async function getJson<T>(url: string, bearer: string): Promise<T> {
-  const res = await reach(AccountError, url, {
-    method: "GET",
-    credentials: "include",
-    headers: { Authorization: `Bearer ${bearer}` },
-  });
+async function getJson<T>(authFetch: AuthFetch, url: string): Promise<T> {
+  const res = await reach(AccountError, url, { method: "GET", credentials: "include" }, authFetch);
   return readJson<T>(AccountError, res);
 }
 
 export function createAccountClient(config: AccountClientConfig): AccountClient {
   const base = config.issuerUrl.replace(/\/$/, "");
+  const { authFetch } = config;
 
   return {
     changeEmailBegin: (input) =>
-      postJson<{ sent: true }>(`${base}/account/email/begin`, input.accessToken, {
+      postJson<{ sent: true }>(authFetch, `${base}/account/email/begin`, {
         new_email: input.newEmail,
       }),
     changeEmailComplete: (input) =>
-      postJson<{ email: string }>(`${base}/account/email/complete`, input.accessToken, {
+      postJson<{ email: string }>(authFetch, `${base}/account/email/complete`, {
         code: input.code,
         step_up_token: input.stepUpToken,
       }),
     deleteAccount: (input) =>
       deleteJson<{ scheduled_for: number; already_pending: boolean }>(
+        authFetch,
         `${base}/account`,
-        input.accessToken,
         {
           confirm_handle: input.confirmHandle,
           step_up_token: input.stepUpToken,
         },
       ),
-    cancelAccountDeletion: (input) =>
-      postJson<{ cancelled: boolean }>(`${base}/account/restore`, input.accessToken, {}),
-    getAccountDeletionStatus: async (input) => {
+    cancelAccountDeletion: () =>
+      postJson<{ cancelled: boolean }>(authFetch, `${base}/account/restore`, {}),
+    getAccountDeletionStatus: async () => {
       const raw = await getJson<{
         scheduled: boolean;
         scheduledFor?: number;
         softDeletedAt?: number;
-      }>(`${base}/account/deletion-status`, input.accessToken);
+      }>(authFetch, `${base}/account/deletion-status`);
       if (!raw.scheduled) return { scheduled: false };
       return {
         scheduled: true,
