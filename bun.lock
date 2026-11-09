@@ -337,7 +337,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.18.40",
+      "version": "0.19.0",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -399,7 +399,7 @@
     },
     "osn/auth-ui": {
       "name": "@osn/auth-ui",
-      "version": "4.0.2",
+      "version": "4.1.0",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@shared/toast": "workspace:*",
@@ -421,7 +421,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "3.0.0",
+      "version": "3.1.0",
       "dependencies": {
         "effect": "4.1.2",
       },
@@ -541,7 +541,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.63",
+      "version": "0.24.64",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -644,7 +644,7 @@
     },
     "shared/design-tokens": {
       "name": "@shared/design-tokens",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@shared/color": "workspace:*",
       },
@@ -897,7 +897,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.41",
+      "version": "0.3.42",
       "dependencies": {
         "@cire/ui": "workspace:*",
         "@shared/color": "workspace:*",
