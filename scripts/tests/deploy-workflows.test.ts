@@ -1627,6 +1627,53 @@ describe("PW1: one production job per stack with a production deploy", () => {
   );
 
   test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
+    "%s: on a flip, a deploy that found the host's CNAME already gone says so in a warning a passing run shows",
+    (key) => {
+      const job = productionStackJob(key);
+      const step = stepById(job, "cname_gone");
+      expect(step?.if).toBe(
+        "${{ !cancelled() && steps.deploy.outcome != 'skipped' && steps.hosts.outputs.replace_cname != '' }}",
+      );
+      // It holds no secret, and reads the deploy's log after the step that
+      // shows a failed deploy's log, before anything else reads the deploy.
+      expect(step?.env).toEqual({ REPLACE_CNAME: "${{ steps.hosts.outputs.replace_cname }}" });
+      expect(stepIndex(job, "cname_gone")).toBe(stepIndex(job, "deploy") + 2);
+      expect(stepIndex(job, "cname_gone")).toBeLessThan(stepIndex(job, "deployments"));
+      // The text it looks for is the line both copies of the provider patch log.
+      const phrase = /grep -qsF "([^"]+)" "\$RUNNER_TEMP\/alchemy\.log"/.exec(step?.run ?? "")?.[1];
+      expect(phrase).toBe("was already gone, so it attaches as usual");
+      const patch = readFileSync(
+        join(root, "patches", "@alchemy.run%2Fcloudflare@2.0.0-beta.85.patch"),
+        "utf8",
+      );
+      expect(
+        patch.split("\n").filter((line) => line.startsWith("+") && line.includes(phrase!)),
+      ).toHaveLength(2);
+      const logDir = (log: string | null) => {
+        const dir = mkdtempSync(join(tmpdir(), "cname-gone-"));
+        if (log !== null) writeFileSync(join(dir, "alchemy.log"), log);
+        return dir;
+      };
+      const env = (dir: string) => ({
+        RUNNER_TEMP: dir,
+        REPLACE_CNAME: "vendor.cireweddings.com=cire-vendor.pages.dev",
+      });
+      const gone = logDir(
+        `✓ cire-vendor\nCloudflare Worker custom domain: vendor.cireweddings.com holds no record that routes it; its CNAME to cire-vendor.pages.dev ${phrase}\n`,
+      );
+      const warned = runStep(step!, env(gone));
+      expect(warned.exitCode).toBe(0);
+      expect(warned.output).toStartWith("::warning::vendor.cireweddings.com ");
+      expect(warned.output).not.toContain("Cloudflare Worker custom domain");
+      for (const quiet of [logDir("✓ cire-vendor\nreplaced its CNAME\n"), logDir(null)]) {
+        const ran = runStep(step!, env(quiet));
+        expect(ran.exitCode).toBe(0);
+        expect(ran.output).toBe("");
+      }
+    },
+  );
+
+  test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
     "%s: PW9 each site's check runs after the deploy, never fails the job alone, and the last step fails it when any failed",
     (key) => {
       const job = productionStackJob(key);

@@ -1602,6 +1602,20 @@ jobs:
         if: ${{ failure() && steps.deploy.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/alchemy.log"
 
+      # On a flip, a deploy that found the host holding no record that routes
+      # it attached the Worker's custom domain the usual way, so the zone held
+      # no record for the host until the attach. A passing deploy shows no
+      # log, so the line becomes a warning; no line of the log is printed.
+      - name: Warn when the flip host's CNAME was already gone
+        id: cname_gone
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' && steps.hosts.outputs.replace_cname != '' }}
+        run: |
+          if grep -qsF "was already gone, so it attaches as usual" "$RUNNER_TEMP/alchemy.log"; then
+            echo "::warning::${REPLACE_CNAME%%=*} held no record that routes it when the deploy attached its Worker's custom domain: its CNAME had gone, so the zone held no record for it until the attach. Check the site answers."
+          fi
+        env:
+          REPLACE_CNAME: ${{ steps.hosts.outputs.replace_cname }}
+
       # Change counts alone to the run summary, never a line of the log.
       - name: Summarise the plan
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
@@ -2026,6 +2040,20 @@ jobs:
       - name: Show the musubi deploy log, as the step failed
         if: ${{ failure() && steps.deploy.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/alchemy.log"
+
+      # On a flip, a deploy that found the host holding no record that routes
+      # it attached the Worker's custom domain the usual way, so the zone held
+      # no record for the host until the attach. A passing deploy shows no
+      # log, so the line becomes a warning; no line of the log is printed.
+      - name: Warn when the flip host's CNAME was already gone
+        id: cname_gone
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' && steps.hosts.outputs.replace_cname != '' }}
+        run: |
+          if grep -qsF "was already gone, so it attaches as usual" "$RUNNER_TEMP/alchemy.log"; then
+            echo "::warning::${REPLACE_CNAME%%=*} held no record that routes it when the deploy attached its Worker's custom domain: its CNAME had gone, so the zone held no record for it until the attach. Check the site answers."
+          fi
+        env:
+          REPLACE_CNAME: ${{ steps.hosts.outputs.replace_cname }}
 
       # Change counts alone to the run summary, never a line of the log.
       - name: Summarise the plan
