@@ -98,6 +98,8 @@ export function AuthProvider(props: AuthProviderProps) {
   // active profile, not the account's list. SolidJS fires the fetcher only
   // when the source turns truthy, so a signed-out page lists nothing. The
   // calls that change the list (adopt, create, delete) refetch it themselves.
+  // A session that failed to load counts as none: reading the resource then
+  // would rethrow its error here, outside any boundary.
   //
   // A failed list keeps the one it had, so a shell drawn from it stays drawn,
   // and says why in `profilesError`. Ending the session or logging out moves
@@ -111,7 +113,7 @@ export function AuthProvider(props: AuthProviderProps) {
     PublicProfile[] | null,
     true
   >(
-    () => (session() ? true : null),
+    () => (!session.error && session() ? true : null),
     async (_, info) => {
       const epoch = profilesEpoch;
       try {
@@ -163,7 +165,7 @@ export function AuthProvider(props: AuthProviderProps) {
   // Derive activeProfileId reactively from session state instead of
   // a fire-and-forget initialisation call.
   createEffect(() => {
-    const sess = session();
+    const sess = session.error ? null : session();
     if (sess) {
       run(Effect.flatMap(OsnAuth, (auth) => auth.getActiveProfile())).then(setActiveProfileId, () =>
         setActiveProfileId(null),
@@ -186,6 +188,9 @@ export function AuthProvider(props: AuthProviderProps) {
     // session that replaces another leaves the source on, so list again.
     const replacing = !session.error && session.latest != null;
     await run(Effect.flatMap(OsnAuth, (auth) => auth.setSession(next)));
+    // The old account's list goes with its session, and nothing still in
+    // flight for it may land, so a failed list for the new one shows none.
+    if (replacing) clearProfiles();
     await refetchSession();
     if (replacing) await refetchProfiles();
   };

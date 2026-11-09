@@ -73,8 +73,8 @@ A client that sends through `authFetch` lets a rejection about the session
 - `profiles` never throws when read. A list that fails to load keeps the
   last list it had (null before the first) and sets `profilesError`, which
   goes to `describeAuthError`; `refetchProfiles()` tries again. Signing out,
-  or a session that ends while a list is loading, leaves neither the old
-  list nor an error behind.
+  a session that ends while a list is loading, or adopting another account's
+  session leaves neither the old list nor an error behind.
 
 ## Consumed by
 

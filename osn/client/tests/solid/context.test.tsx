@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { createRoot } from "solid-js";
 import { expect, it, vi } from "vitest";
 
-import { AuthExpiredError, ProfileManagementError } from "../../src/errors";
+import { AuthExpiredError, ProfileManagementError, StorageError } from "../../src/errors";
 import type { OsnAuthRuntime, SessionChange } from "../../src/runtime";
 import { OsnAuth, type OsnAuthService } from "../../src/service";
 import { AuthProvider, useAuth } from "../../src/solid/context";
@@ -161,9 +161,11 @@ const bob = {
  */
 function listingRuntime(
   steps: Array<(emit: (change: SessionChange) => void) => Effect.Effect<unknown, unknown>>,
+  options: { failFirstLoad?: boolean } = {},
 ) {
   const listeners = new Set<(change: SessionChange) => void>();
   let signedIn = true;
+  let failLoad = options.failFirstLoad ?? false;
   const emit = (change: SessionChange) => {
     if (change.kind === "ended") signedIn = false;
     for (const listener of listeners) listener(change);
@@ -174,14 +176,24 @@ function listingRuntime(
   });
   const service = {
     loadSession: () =>
-      Effect.sync(() =>
-        signedIn
-          ? { accessToken: "token", idToken: null, expiresAt: Date.now() + 60_000, scopes: [] }
-          : null,
-      ),
+      Effect.suspend(() => {
+        if (failLoad) {
+          failLoad = false;
+          return Effect.fail(new StorageError({ cause: "PLANTED" }));
+        }
+        return Effect.succeed(
+          signedIn
+            ? { accessToken: "token", idToken: null, expiresAt: Date.now() + 60_000, scopes: [] }
+            : null,
+        );
+      }),
     setSession: () =>
       Effect.sync(() => {
         signedIn = true;
+      }),
+    logout: () =>
+      Effect.sync(() => {
+        signedIn = false;
       }),
     listProfiles,
     getActiveProfile: () => Effect.succeed(alice.id),
@@ -247,6 +259,70 @@ it("an ended session clears a list error it outlives", async () => {
 
   expect(auth().profiles()).toBeNull();
   expect(auth().profilesError()).toBeUndefined();
+  dispose();
+});
+
+it("a log out clears a list error it outlives", async () => {
+  const { runtime } = listingRuntime([() => Effect.fail(serverFailure())]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profilesError()).toBeDefined();
+
+  await auth().logout();
+  await settle();
+
+  expect(auth().session()).toBeNull();
+  expect(auth().profiles()).toBeNull();
+  expect(auth().profilesError()).toBeUndefined();
+  dispose();
+});
+
+// Another account's list must not stand in for this one's, even when this
+// one's list fails.
+it("adopting a session over another drops the old list, even if the new list fails", async () => {
+  const { runtime } = listingRuntime([
+    () => Effect.succeed([alice, bob]),
+    () => Effect.fail(serverFailure()),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profiles()).toEqual([alice, bob]);
+
+  await auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+
+  expect(auth().profiles() ?? null).toBeNull();
+  expect(auth().profilesError()).toBeInstanceOf(ProfileManagementError);
+  dispose();
+});
+
+// A failed load leaves the session resource in error, and reading
+// `session.latest` then rethrows that error.
+it("adopting a session after the stored one failed to load lists the profiles once", async () => {
+  const { runtime, listProfiles } = listingRuntime([() => Effect.succeed([alice])], {
+    failFirstLoad: true,
+  });
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(listProfiles).not.toHaveBeenCalled();
+
+  await expect(
+    auth().adoptSession({
+      accessToken: "token-2",
+      idToken: null,
+      expiresAt: Date.now() + 60_000,
+      scopes: [],
+    } as never),
+  ).resolves.toBeUndefined();
+  await settle();
+
+  expect(listProfiles).toHaveBeenCalledTimes(1);
+  expect(auth().profiles()).toEqual([alice]);
   dispose();
 });
 
