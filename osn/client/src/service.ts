@@ -735,8 +735,11 @@ export function createOsnAuthLive(
 
           // The session token is in the HttpOnly cookie; send credentials:
           // include. The grant names the active profile, so the issuer mints
-          // for it rather than for the account's default profile.
-          const next = yield* sharedTokenGrant(account.activeProfileId || undefined);
+          // for it rather than for the account's default profile. `wanted` is
+          // read now: a switch can change the active profile while the grant
+          // is out, and the answer is about the profile the grant named.
+          const wanted = account.activeProfileId || undefined;
+          const next = yield* sharedTokenGrant(wanted);
 
           // The profile the issuer minted for. A token that does not say is
           // never stored: filed under the active profile it could carry
@@ -760,15 +763,29 @@ export function createOsnAuthLive(
           // profile is active now, as after a reload.
           if (!account.activeProfileId) account.activeProfileId = granted;
 
-          if (account.activeProfileId === granted) {
+          // The issuer minted what the grant asked for. A switch that landed
+          // meanwhile stays: the token is stored, and the request that needed
+          // it goes out as the profile it was made as.
+          if (wanted === undefined || granted === wanted || account.activeProfileId === granted) {
             yield* saveAccountSession(account);
             return next;
           }
 
           // The issuer mints for the named profile only while the account
-          // owns it, so the active profile has been deleted, or was never this
-          // account's. Fall back to the default profile, as a reload does; the
-          // request that needed the token is not sent.
+          // owns it, so that profile has been deleted, or was never this
+          // account's. The request that needed its token is not sent.
+          if (account.activeProfileId !== wanted) {
+            // The page has switched to another profile since, which holds its
+            // own token: nothing to reset.
+            yield* saveAccountSession(account);
+            return yield* Effect.fail(
+              new ActiveProfileResetError({
+                profileId: account.activeProfileId,
+                message: "The profile this request was made as is gone; nothing was sent",
+              }),
+            );
+          }
+          // Fall back to the default profile, as a reload does.
           account.activeProfileId = granted;
           yield* saveAccountSession(account);
           notify({ kind: "profile-reset", profileId: granted });

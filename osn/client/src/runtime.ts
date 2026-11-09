@@ -21,8 +21,9 @@ import { StorageLive, type Storage } from "./storage";
  *   expired is sent instead. After such a failure renewal pauses, 2 s
  *   doubling to 30 s or the issuer's `Retry-After`, and the calls in the
  *   pause send no grant.
- * - `ActiveProfileResetError` — the account no longer owns the active profile
- *   and the default profile is active now; the request was not sent.
+ * - `ActiveProfileResetError` — the account no longer owns the profile the
+ *   request was made as; the default profile is active now, unless the page
+ *   switched profile meanwhile. The request was not sent.
  * - `StorageError`.
  *
  * Every authenticated client in this package is built with one. A client

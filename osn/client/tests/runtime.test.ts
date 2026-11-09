@@ -10,7 +10,7 @@ import { extractJwtSub, type AccountSession } from "../src/tokens";
 /**
  * The page's one auth runtime: every authenticated client sends through its
  * `authFetch`. One test per way the renewal can fail that the E2E flow cannot
- * reach (NEW-FEAT.md F1–F31; F19's provider half is in `solid/context.test.tsx`).
+ * reach (NEW-FEAT.md F1–F37b; F19's provider half is in `solid/context.test.tsx`).
  */
 
 const ISSUER = "https://osn.example.com";
@@ -18,6 +18,7 @@ const API = `${ISSUER}/thing`;
 const KEY = "@osn/client:account_session";
 const DEFAULT = "usr_default00001";
 const OTHER = "usr_other0000001";
+const THIRD = "usr_third0000001";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -237,6 +238,72 @@ describe("authFetch on the page's runtime", () => {
     expect(fetches.api()).toHaveLength(0);
     expect(changes).toEqual([{ kind: "profile-reset", profileId: DEFAULT }]);
     expect(stored()?.activeProfileId).toBe(DEFAULT);
+  });
+
+  /**
+   * A renewal that leaves on a 401, while the held token is still valid, and
+   * a switch to `THIRD` that sends with that token and lands before the grant
+   * answers. `answer` is what `/token` sends once the switch has landed.
+   */
+  async function renewalAcrossASwitch(answer: (call: Call) => Response) {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let apiCalls = 0;
+    const fetches = stubFetch({
+      token: async (call) => {
+        await released;
+        return answer(call);
+      },
+      api: (call) => {
+        if (call.url === `${ISSUER}/profiles/switch`) {
+          return json(200, {
+            access_token: jwt({ sub: THIRD, iat: nowSec(), exp: nowSec() + 300 }),
+            expires_in: 300,
+            profile: {
+              id: THIRD,
+              handle: "third",
+              email: "third@example.com",
+              displayName: null,
+              avatarUrl: null,
+            },
+          });
+        }
+        apiCalls += 1;
+        return apiCalls === 1 ? json(401) : json(200, { ok: true });
+      },
+    });
+    const h = harness(account(OTHER, { [OTHER]: token(OTHER, 120_000) }));
+
+    const pending = h.runtime.authFetch(API).then(
+      (res) => ({ res }),
+      (err: unknown) => ({ err }),
+    );
+    await vi.waitFor(() => expect(fetches.to("/token")).toHaveLength(1));
+    await h.runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.switchProfile(THIRD)));
+    release();
+    return { ...h, fetches, outcome: await pending };
+  }
+
+  it("F37: a renewal that resolves after a profile switch keeps the switch", async () => {
+    const { fetches, outcome, changes, stored } = await renewalAcrossASwitch(grant);
+
+    expect(namedProfile(fetches.to("/token")[0])).toBe(OTHER);
+    expect("res" in outcome && outcome.res.status).toBe(200);
+    // The retry goes out as the profile the request was made as.
+    expect(bearerSub(fetches.api()[1])).toBe(OTHER);
+    expect(changes).toEqual([]);
+    expect(stored()?.activeProfileId).toBe(THIRD);
+  });
+
+  it("F37b: a renewal for a gone profile, resolving after a switch, resets nothing", async () => {
+    const { fetches, outcome, changes, stored } = await renewalAcrossASwitch((call) =>
+      grant(call, { sub: DEFAULT }),
+    );
+
+    expect("err" in outcome && tagOf(outcome.err)).toBe("ActiveProfileResetError");
+    expect(fetches.api()).toHaveLength(1);
+    expect(changes).toEqual([]);
+    expect(stored()?.activeProfileId).toBe(THIRD);
   });
 
   it("F7: concurrent calls with an expired token share one grant", async () => {

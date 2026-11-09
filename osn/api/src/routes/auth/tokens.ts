@@ -69,7 +69,12 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
         {
           body: t.Object({
             grant_type: t.String(),
-            profile_id: t.Optional(t.String({ pattern: "^usr_[a-f0-9]{12}$" })),
+            // Every profile id osn-api issues: `genId`'s twelve hex digits and
+            // the dev principal's fixed id (`dev-login.ts`). Ownership is the
+            // service's check. The client reads any 4xx here as a refused
+            // grant and signs the page out, so an issued id must never fail
+            // this pattern.
+            profile_id: t.Optional(t.String({ pattern: "^usr_[a-z0-9_]{1,64}$" })),
           }),
           response: {
             200: tokenResponse,

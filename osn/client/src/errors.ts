@@ -47,11 +47,12 @@ export class AuthExpiredError extends Data.TaggedError("AuthExpiredError")<{
 }> {}
 
 /**
- * Renewing the active profile's access token made the account's default
- * profile active instead: the issuer would not mint for the profile the page
- * was using, because the account no longer owns it. The request that needed
- * the token was not sent, so nothing ran as the wrong profile; the session
- * itself is alive.
+ * Renewing the token of the profile a request was made as did not produce
+ * it: the issuer would not mint for that profile, because the account no
+ * longer owns it. The request was not sent, so nothing ran as the wrong
+ * profile; the session itself is alive. The account's default profile is
+ * active now, unless the page switched to another profile while the renewal
+ * was out: that one stays active.
  */
 export class ActiveProfileResetError extends Data.TaggedError("ActiveProfileResetError")<{
   /** The profile that is active now. */
