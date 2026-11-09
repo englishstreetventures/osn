@@ -84,7 +84,7 @@ export function SearchPage() {
             }
           >
             <Show when={controller.people().length > 0}>
-              <h2 class="text-muted-foreground text-meta mb-1 px-3">People</h2>
+              <h2 class="text-foreground text-title mb-1 px-3 font-medium">People</h2>
               <ul class="mb-6 flex flex-col gap-0.5">
                 <For each={controller.people()}>
                   {(person) => (
@@ -97,7 +97,7 @@ export function SearchPage() {
             </Show>
 
             <Show when={controller.organisations().length > 0}>
-              <h2 class="text-muted-foreground text-meta mb-1 px-3">Organisations</h2>
+              <h2 class="text-foreground text-title mb-1 px-3 font-medium">Organisations</h2>
               <ul class="flex flex-col gap-0.5">
                 <For each={controller.organisations()}>
                   {(organisation) => (

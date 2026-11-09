@@ -164,9 +164,13 @@ not name it (§Borders).
   panel), Settings' profile card, and `/authorize`'s account screen, profile
   picker and consent screen. The handle under it is `text-meta` in
   `text-muted-foreground`. A heading that opens a section inside a page
-  ("Members", "Signed in as") takes the same step and weight. A page's `h1`
-  is `text-display` (§Layout); the rail's account trigger is shell chrome and
-  keeps its own size.
+  ("Members", "Signed in as", `/search`'s "People" and "Organisations") takes
+  the same step and weight, in `text-foreground`. A shell page's `h1` is
+  `text-display` (§Layout). `/authorize`, which has no shell, titles each
+  screen at `text-title` and 500 — the client's name on its client card, or
+  the screen's ask ("Choose a profile") — so the name a screen is about reads
+  as a name. The rail's account trigger is shell chrome and keeps its own
+  size.
 - **Consent marks** — `/authorize`'s "Verified by Musubi" and its "Third-party
   app" chip (§Chips) are `text-meta` at 500, so neither reads quieter than the
   other.
@@ -203,8 +207,7 @@ Where the app does not follow this yet — known breaks include:
 - `@shared/ui`'s `DialogTitle` and `CardTitle`: 16px (`--ui-text-md`) at
   weight 600 (#2040).
 - `@shared/ui`'s `AvatarFallback`: weight 600. `OtpInput`'s digits: 16px
-  (`--ui-text-md`). `Badge` sets 600 too (#2041), but no Musubi screen draws
-  one: a role is a `Chip` (§Chips).
+  (`--ui-text-md`).
 - Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
   and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`).
@@ -212,8 +215,8 @@ Where the app does not follow this yet — known breaks include:
 
 ## Radii — two families + pill
 
-- **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows,
-  dropdown triggers, small controls; text fields (`@shared/ui`'s `Input`,
+- **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows
+  (`/authorize`'s bordered profile rows among them), dropdown triggers, small controls; text fields (`@shared/ui`'s `Input`,
   `Textarea` and `Select`, through the contract's `--ui-radius-field`, which
   Musubi maps to `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s
   Popover and menu panels and `OtpInput`'s boxes; and the rail search's
@@ -221,9 +224,11 @@ Where the app does not follow this yet — known breaks include:
   `rounded-md`, `bg-popover`, `shadow-md`.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
   (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions, the
-  organisations list's rows, `/authorize`'s dead-end and error boxes),
-  bordered rows, dialogs, empty states. A card that is not itself a control
-  takes no hover wash; a row that is a link or a button does.
+  organisations list's rows, `/authorize`'s scope rows and its dead-end and
+  error boxes), bordered rows (Settings' connected apps), dialogs, empty
+  states. No card takes a hover wash: one that is a link says so with its
+  chevron (below). A row that is a link or a button, and not a `Card`, does
+  take one.
 - **A card that is a link** — the organisations list — is a `Card`
   (`padding="sm"`) inside its `<A>`. `Card` owns its fill and padding (the
   `shadcn(no-restyle)` lint refuses a colour or padding class on it), so it
@@ -255,13 +260,17 @@ A word that names a role or a kind is `@shared/ui`'s `Chip`,
 secondary ink, 12px (`--ui-text-xs`, which Musubi maps to `text-meta`), set as
 written in sentence case, on the pill corner. Uses today: the roster's role
 ("Admin", "Member", from `ROLE_LABEL` in `OrgDetailPage.tsx`, never the API's
-raw value) and `/authorize`'s "Third-party app".
+raw value), "Member" on an organisation the searcher belongs to (`/search`
+and the rail's results panel, `SearchResultRows.tsx`), and `/authorize`'s
+"Third-party app".
 
 - **Not filled.** The filled neutral chip paints `--ui-surface` at 60%, which
   Musubi maps to `--card`: white on a white page, so its shape vanishes in
   light.
 - **Not small caps.** The rail's "Social" tag is the only small-caps label,
   and a chip's word reads as written.
+- **Never `@shared/ui`'s `Badge`.** It sets its word at 600, a weight Musubi
+  does not use.
 - **Weight.** A chip's word is 400, except "Third-party app": a trust mark
   beside a name the app chose for itself, it keeps 500, the weight of the
   consent screen's other mark (§Typography, Consent marks). The weight comes

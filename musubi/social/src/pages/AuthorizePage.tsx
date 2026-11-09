@@ -559,11 +559,13 @@ export function AuthorizePage() {
           <ul class="mt-6 flex flex-col gap-3">
             <For each={ctx()?.scopes ?? []}>
               {(scope) => (
-                <li class="border-border rounded-card border p-3">
-                  <p class="text-foreground text-body font-medium">{scopeLabel(scope)}</p>
-                  <Show when={scopeDetail(scope)}>
-                    {(detail) => <p class="text-muted-foreground text-meta mt-1">{detail()}</p>}
-                  </Show>
+                <li>
+                  <Card padding="sm">
+                    <p class="text-foreground text-body font-medium">{scopeLabel(scope)}</p>
+                    <Show when={scopeDetail(scope)}>
+                      {(detail) => <p class="text-muted-foreground text-meta mt-1">{detail()}</p>}
+                    </Show>
+                  </Card>
                 </li>
               )}
             </For>

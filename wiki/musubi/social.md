@@ -59,7 +59,9 @@ profile-switcher dialogs are mounted once above the shell switch
 (`ShellDialogs.tsx`, which loads all three as one lazy chunk,
 `ShellDialogSet.tsx`), and the shell waits for that chunk too, so no Sign in
 button shows before its dialog can open; a later load that succeeds mounts
-them. Every app dialog gives focus back to the control that opened it
+them. A signed-out page's own Sign in (`SignedOutNote`) reads
+`useShellDialogs().ready()` and stays `invisible` until the dialogs have
+mounted, so it holds its place and offers no dialog that cannot open. Every app dialog gives focus back to the control that opened it
 (`ResponsiveDialogContent`). Each page in the shell (every route but
 `/authorize`) names the browser tab after its `h1` through `usePageTitle`
 (`src/lib/page-title.ts`).

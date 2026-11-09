@@ -122,7 +122,7 @@ export function SettingsPage() {
                 <p class="text-foreground text-title font-medium">
                   {activeProfile()?.displayName || `@${claims().handle}`}
                 </p>
-                <p class="text-muted-foreground text-body">@{claims().handle}</p>
+                <p class="text-muted-foreground text-meta">@{claims().handle}</p>
               </div>
             </div>
 

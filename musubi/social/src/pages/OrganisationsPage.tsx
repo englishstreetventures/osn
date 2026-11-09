@@ -79,7 +79,7 @@ export function OrganisationsPage() {
           fallback={
             <div class="flex flex-col gap-2">
               {Array.from({ length: 2 }, () => (
-                <div class="bg-muted/50 rounded-card h-20 animate-pulse" />
+                <div class="bg-muted/50 rounded-card h-18.5 animate-pulse" />
               ))}
             </div>
           }
@@ -117,8 +117,8 @@ export function OrganisationsPage() {
                         <AvatarFallback>{org.name.slice(0, 2).toUpperCase()}</AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-title font-medium">{org.name}</p>
-                        <p class="text-muted-foreground text-meta">@{org.handle}</p>
+                        <p class="text-foreground text-title truncate font-medium">{org.name}</p>
+                        <p class="text-muted-foreground text-meta truncate">@{org.handle}</p>
                       </div>
                       <Show when={org.description}>
                         <p class="text-muted-foreground text-meta hidden max-w-48 truncate md:block">
@@ -158,14 +158,15 @@ export function OrganisationsPage() {
                 <Label for="org-handle">Handle</Label>
                 <Input
                   id="org-handle"
-                  placeholder="my-org"
+                  aria-describedby="org-handle-hint"
+                  placeholder="my_org"
                   value={handle()}
                   onInput={(e) =>
                     setHandle(e.currentTarget.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))
                   }
                   required
                 />
-                <p class="text-muted-foreground text-meta">
+                <p id="org-handle-hint" class="text-muted-foreground text-meta">
                   Lowercase letters, numbers, and underscores only.
                 </p>
               </div>
