@@ -564,7 +564,13 @@ describe("the accent variant", () => {
     await open();
     const moving = getComputedStyle(screen.getByRole("menu"));
     expect(moving.animationName).toBe("ui-enter");
-    expect(moving.getPropertyValue("--ui-enter-scale").trim()).toBe("0.96");
+    // Pins the default only: the token is 0.96 as well, so a panel that wrote
+    // its own 0.96 back in would pass here. The wiring is held by
+    // overlay-motion.browser.test.tsx, "DropdownMenu, accent: enters from
+    // --ui-scale-enter", which sets the token to a value no panel would choose.
+    expect(moving.getPropertyValue("--ui-enter-scale").trim()).toBe(
+      getComputedStyle(document.documentElement).getPropertyValue("--ui-scale-enter").trim(),
+    );
     await userEvent.keyboard("{Escape}");
     await settle();
     await emulateMedia({ reducedMotion: "reduce" });

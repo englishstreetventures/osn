@@ -41,6 +41,34 @@ function mount(props: { dismissable?: boolean; frame?: boolean } = {}) {
   return { ...result, open, setOpen, dialog: () => el };
 }
 
+/**
+ * The transitions running on a dialog and its `::backdrop`. A CSS transition's
+ * keyframes are its two computed end states, so they say where it is going
+ * without reading an interpolated value mid-run.
+ */
+function transitions(dialog: HTMLDialogElement): CSSTransition[] {
+  return dialog
+    .getAnimations({ subtree: true })
+    .filter((a): a is CSSTransition => a instanceof CSSTransition);
+}
+
+const onBackdrop = (t: CSSTransition) =>
+  (t.effect as KeyframeEffect).pseudoElement === "::backdrop";
+const ofPanel = (t: CSSTransition, property: string) =>
+  !onBackdrop(t) && t.transitionProperty === property;
+const duration = (t: CSSTransition) => Number(t.effect!.getTiming().duration);
+const keyframes = (t: CSSTransition) => (t.effect as KeyframeEffect).getKeyframes();
+
+/** A `transform` value as the matrix the engine resolves it to, tokens included. */
+function matrix(transform: string): DOMMatrix {
+  const probe = document.createElement("div");
+  probe.style.transform = transform;
+  document.body.append(probe);
+  const resolved = getComputedStyle(probe).transform;
+  probe.remove();
+  return new DOMMatrix(resolved);
+}
+
 describe("Modal", () => {
   it("frame: the panel is not a scroll container, so nothing inside can slide it", async () => {
     // `overflow: hidden` refuses the USER a scrollbar and grants everything
@@ -336,6 +364,81 @@ describe("Modal — the exit", () => {
     expect(entering.length).toBeGreaterThan(0);
   });
 
+  it("exits sooner than it enters", async () => {
+    // The order, not a number: `--ui-modal-exit` and `--ui-modal-enter` have no
+    // root declaration to read back, and an app may retime both.
+    const { setOpen, dialog } = mount();
+    const entry = transitions(dialog());
+    expect(entry.length).toBeGreaterThan(0);
+    await Promise.all(entry.map((t) => t.finished));
+    setOpen(false);
+    const exit = transitions(dialog());
+    expect(exit.length).toBeGreaterThan(0);
+    expect(Math.max(...exit.map(duration))).toBeLessThan(Math.min(...entry.map(duration)));
+    await waitForClosed(dialog());
+  });
+
+  it("sinks to the exit tokens, a shorter way than it rose", async () => {
+    const { setOpen, dialog } = mount();
+    const rise = transitions(dialog()).find((t) => ofPanel(t, "transform"));
+    expect(rise).toBeDefined();
+    const from = matrix(String(keyframes(rise!)[0]!.transform));
+    await Promise.all(transitions(dialog()).map((t) => t.finished));
+    setOpen(false);
+    const sink = transitions(dialog()).find((t) => ofPanel(t, "transform"));
+    expect(sink).toBeDefined();
+    const to = matrix(String(keyframes(sink!).at(-1)!.transform));
+    const tokens = matrix("translateY(var(--ui-distance-exit)) scale(var(--ui-scale-exit))");
+    expect(to.a).toBeCloseTo(tokens.a, 5);
+    expect(to.d).toBeCloseTo(tokens.d, 5);
+    expect(to.f).toBeCloseTo(tokens.f, 5);
+    // Softer than the entry: it travels less of the way.
+    expect(to.f).toBeGreaterThan(0);
+    expect(to.f).toBeLessThan(from.f);
+    await waitForClosed(dialog());
+  });
+
+  it("moves by the distance and scale tokens, not numbers of its own", async () => {
+    // Values no stylesheet would choose, so a literal written back into
+    // `MODAL_STYLE` in place of a token cannot match them. The defaults alone
+    // cannot tell the two apart, since a literal of the same value passes.
+    const root = document.documentElement.style;
+    root.setProperty("--ui-distance-enter", "40px");
+    root.setProperty("--ui-distance-exit", "3px");
+    root.setProperty("--ui-scale-exit", "0.7");
+    try {
+      const { setOpen, dialog } = mount();
+      const rise = transitions(dialog()).find((t) => ofPanel(t, "transform"));
+      expect(rise).toBeDefined();
+      expect(matrix(String(keyframes(rise!)[0]!.transform)).f).toBeCloseTo(40, 5);
+      await Promise.all(transitions(dialog()).map((t) => t.finished));
+      setOpen(false);
+      const sink = transitions(dialog()).find((t) => ofPanel(t, "transform"));
+      expect(sink).toBeDefined();
+      const to = matrix(String(keyframes(sink!).at(-1)!.transform));
+      expect(to.f).toBeCloseTo(3, 5);
+      expect(to.a).toBeCloseTo(0.7, 5);
+      expect(to.d).toBeCloseTo(0.7, 5);
+      await waitForClosed(dialog());
+    } finally {
+      root.removeProperty("--ui-distance-enter");
+      root.removeProperty("--ui-distance-exit");
+      root.removeProperty("--ui-scale-exit");
+    }
+  });
+
+  it("fades its backdrop out with the panel", async () => {
+    const { setOpen, dialog } = mount();
+    await Promise.all(transitions(dialog()).map((t) => t.finished));
+    setOpen(false);
+    const backdrop = transitions(dialog()).find(onBackdrop);
+    const panel = transitions(dialog()).find((t) => ofPanel(t, "opacity"));
+    expect(backdrop, "the backdrop does not fade").toBeDefined();
+    expect(Number(keyframes(backdrop!).at(-1)!.opacity)).toBe(0);
+    expect(duration(backdrop!)).toBe(duration(panel!));
+    await waitForClosed(dialog());
+  });
+
   it("waits out an animation this component did not start", async () => {
     // The claim that makes the hook animation-library-agnostic. An app driving
     // the panel with Motion One or the Web Animations API gets waited out the
@@ -479,6 +582,21 @@ describe("Modal under prefers-reduced-motion", () => {
     const { dialog } = mount();
 
     expect(getComputedStyle(dialog()).transitionDuration).toBe("0.001s");
+  });
+
+  it("fades its backdrop out in 1ms too", async () => {
+    // The backdrop's exit is a rule of its own, which outranks the plain
+    // `::backdrop` one. The reduced-motion block has to reach it anyway, or the
+    // backdrop runs its full exit and the close waits for it.
+    await emulate({ reducedMotion: "reduce" });
+    const { dialog, setOpen } = mount();
+    // Let the 1ms entry land, so the backdrop has an opacity to leave from.
+    await Promise.all(transitions(dialog()).map((t) => t.finished));
+    setOpen(false);
+    const backdrop = transitions(dialog()).find(onBackdrop);
+    expect(backdrop).toBeDefined();
+    expect(duration(backdrop!)).toBe(1);
+    await vi.waitFor(() => expect(dialog().open).toBe(false));
   });
 
   it("still closes, and still tells the caller", async () => {

@@ -263,16 +263,36 @@
  * spells. They still need fallbacks, which is what this block is for — and
  * unlike a `:root` colour block, a value an app has already set wins here,
  * because these are only ever read through `var()` with the same fallback.
+ *
+ * Each motion token is named for its job, and the comment beside it says
+ * which. Choose one by its job, never by the nearest number: a hover timed on
+ * `--ui-dur-exit` because 80ms looked right would change pace the day exits
+ * do. The table is in wiki/shared/design-tokens.md §Motion.
  */
 @layer base {
   :where(:root) {
     --ui-focus-width: 2px;
     --ui-focus-offset: 2px;
+    /* A hover, a press, a small panel arriving. */
     --ui-dur-fast: 120ms;
+    /* A panel swap, a pill sliding. */
     --ui-dur-base: 200ms;
+    /* Something crossing the screen. */
     --ui-dur-slow: 320ms;
+    /* A Kobalte overlay closing: a menu, a popover, `Dialog`. `Modal` exits on `--ui-modal-exit`. */
+    --ui-dur-exit: 80ms;
+    /* Something arriving; a Kobalte overlay leaving runs on it too. `Modal`'s exit runs `ease-in`. */
     --ui-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    /* Something moving between two places. */
     --ui-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    /* How small a floating panel starts as it arrives: a menu, a popover, a tooltip, `Dialog`. */
+    --ui-scale-enter: 0.96;
+    /* How small an overlay ends as it leaves, `Modal` included. Nearer 1 than the entry. */
+    --ui-scale-exit: 0.98;
+    /* How far `Modal` rises into place. */
+    --ui-distance-enter: 24px;
+    /* How far `Modal` sinks as it leaves. Shorter than the rise. */
+    --ui-distance-exit: 8px;
     --ui-elev-1: 0 1px 2px rgb(0 0 0 / 0.06);
     --ui-elev-2: 0 8px 24px rgb(0 0 0 / 0.12);
   }
@@ -281,18 +301,33 @@
 /*
  * Enter/exit utilities for the Kobalte-backed overlays.
  *
- * `Dialog`, `DropdownMenu` and `Popover` spell their transitions the way
- * shadcn/ui does — `data-[expanded]:animate-in`, `fade-out-0`, `zoom-in-95`.
- * Those class names come from the `tailwindcss-animate` plugin, which this
- * repository does not install, so until now they generated no CSS at all and
- * the three overlays did not animate. They are defined here instead: one
- * mechanism, built on the motion tokens above, with no dependency and nothing
- * for an app to install.
+ * `Dialog`, `DropdownMenu`, `Popover` and `Tooltip` spell their transitions
+ * the way shadcn/ui does — `data-[expanded]:animate-in`, `fade-out-0` — with
+ * class names from the `tailwindcss-animate` plugin, which this repository
+ * does not install. They are defined here instead: one mechanism, built on the
+ * motion tokens above, with no dependency and nothing for an app to install.
  *
- * The shape is the plugin's, because the class names are: each modifier
- * contributes a custom property and `animate-in`/`animate-out` run the single
- * keyframe that reads them. That is what lets `fade-in-0` and `zoom-in-95`
- * compose on one element instead of fighting over `animation-name`.
+ * The shape is the plugin's: each modifier contributes a custom property and
+ * `animate-in`/`animate-out` run the single keyframe that reads them. That is
+ * what lets `fade-in-0` and `zoom-in` compose on one element instead of
+ * fighting over `animation-name`. The zoom utilities are ours, not the
+ * plugin's `zoom-in-95`: they read the scale tokens, so a panel's scale has one
+ * home. Tailwind's own `zoom-*` takes only a number (`zoom-95` is
+ * `zoom: 95%`), so `zoom-in` and `zoom-out` do not collide with it.
+ *
+ * Two pairs of names sit close. `--ui-scale-enter` / `--ui-scale-exit` are the
+ * tokens an app may set; `--ui-enter-scale` / `--ui-exit-scale` are what the
+ * zoom utilities set on one element for the keyframes to read.
+ *
+ * An entry runs `--ui-dur-fast`; an exit runs `--ui-dur-exit`, shorter, and
+ * ends nearer full size than the entry starts. A panel leaving has nothing
+ * more to tell the reader, so it gets out of the way.
+ *
+ * Reduced motion has one home: the block after the utilities switches
+ * `--ui-enter-animation` and `--ui-exit-animation` to `none`, which the two
+ * `animation-name`s read. Every overlay drawn with these utilities stops
+ * moving with nothing written on its own class string. Kobalte then reads
+ * `animation-name: none` on close and unmounts the panel at once.
  *
  * `Modal` does NOT use these. It is the platform `<dialog>` and animates
  * through `@starting-style` and the top layer — see
@@ -313,15 +348,15 @@
 }
 
 @utility animate-in {
-  animation-name: ui-enter;
+  animation-name: var(--ui-enter-animation, ui-enter);
   animation-duration: var(--ui-dur-fast, 120ms);
   animation-timing-function: var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
   animation-fill-mode: both;
 }
 
 @utility animate-out {
-  animation-name: ui-exit;
-  animation-duration: var(--ui-dur-fast, 120ms);
+  animation-name: var(--ui-exit-animation, ui-exit);
+  animation-duration: var(--ui-dur-exit, 80ms);
   animation-timing-function: var(--ui-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
   animation-fill-mode: both;
 }
@@ -334,23 +369,27 @@
   --ui-exit-opacity: 0;
 }
 
-@utility zoom-in-95 {
-  --ui-enter-scale: 0.95;
+@utility zoom-in {
+  --ui-enter-scale: var(--ui-scale-enter, 0.96);
 }
 
-@utility zoom-out-95 {
-  --ui-exit-scale: 0.95;
+@utility zoom-out {
+  --ui-exit-scale: var(--ui-scale-exit, 0.98);
 }
 
 /*
  * A reader who has turned motion down gets the state change without the
- * movement. `animation: none` rather than a 1ms duration, because these are
- * discrete enter/exit animations with `fill-mode: both` — cancelling the
- * animation leaves the element at its natural state, which is what is wanted.
+ * movement. `none` rather than a 1ms duration, because these are discrete
+ * enter/exit animations with `fill-mode: both`: no animation leaves the
+ * element at its natural state, which is what is wanted.
+ *
+ * On the root, so a panel portalled to `<body>` inherits it. Flat rather than
+ * nested in each `@utility`: Tailwind emits a nested `@media` as CSS nesting,
+ * which the oldest browsers these apps support cannot read.
  */
 @media (prefers-reduced-motion: reduce) {
-  .animate-in,
-  .animate-out {
-    animation: none;
+  :where(:root) {
+    --ui-enter-animation: none;
+    --ui-exit-animation: none;
   }
 }
