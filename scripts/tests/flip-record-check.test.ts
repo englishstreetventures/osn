@@ -46,11 +46,15 @@ async function run(env: Record<string, string | undefined>, world: World) {
     const failure = world.fail?.[`${method} ${path.split("?")[0]}`];
     if (failure !== undefined) return failure;
     const query = new URLSearchParams(path.split("?")[1] ?? "");
+    const zones = world.zones ?? [
+      { id: "zone-cire", name: "cireweddings.com", account: { id: ACCOUNT } },
+    ];
     if (method === "GET" && path.startsWith("/zones?")) {
-      const zones = world.zones ?? [
-        { id: "zone-cire", name: "cireweddings.com", account: { id: ACCOUNT } },
-      ];
       return ok(zones.filter((zone) => zone.name === query.get("name")));
+    }
+    const byId = /^\/zones\/([^/?]+)$/.exec(path);
+    if (method === "GET" && byId !== null) {
+      return ok(zones.find((zone) => zone.id === byId[1]) ?? null);
     }
     if (method === "GET" && /^\/zones\/[^/]+\/dns_records\?/.test(path)) {
       return ok(world.records[query.get("name") ?? ""] ?? []);
@@ -110,6 +114,7 @@ describe("flip-record-check.ts", () => {
     expect(result.code).toBe(0);
     expect(result.calls.map((call) => `${call.method} ${call.path}`)).toEqual([
       "GET /zones?name=cireweddings.com",
+      "GET /zones/zone-cire",
       "GET /zones/zone-cire/dns_records?name=vendor.cireweddings.com",
     ]);
     expect(result.calls.every((call) => call.auth === `Bearer ${TOKEN}`)).toBe(true);
@@ -172,6 +177,14 @@ describe("flip-record-check.ts", () => {
         },
         "listing vendor.cireweddings.com's DNS records: Cloudflare answered 403 (codes 10000)",
       ],
+      [
+        "a refused read of the zone by its id, which the deploy makes",
+        {
+          records: {},
+          fail: { "GET /zones/zone-cire": failed(403, 9109, `no ${ACCOUNT}`) },
+        },
+        "reading the cireweddings.com zone by its id: Cloudflare answered 403 (codes 9109)",
+      ],
     ];
     for (const [what, world, message] of worlds) {
       const result = await run({ REPLACE_CNAME: VENDOR }, world);
@@ -183,5 +196,8 @@ describe("flip-record-check.ts", () => {
       expect(result.output).not.toContain(TOKEN);
       expect(result.output).not.toContain(ACCOUNT);
     }
+    // A zone read the deploy token gets no answer to stops the check before the host's records.
+    const byId = await run({ REPLACE_CNAME: VENDOR }, worlds[3]![1]);
+    expect(byId.calls.some((call) => call.path.includes("/dns_records"))).toBe(false);
   });
 });

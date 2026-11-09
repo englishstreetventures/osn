@@ -97,6 +97,7 @@ import {
 import {
   ApiError,
   attachHost,
+  confirmDetached,
   decides,
   detachHost,
   type DnsRecord,
@@ -666,8 +667,9 @@ class Recorder {
     if (this.fragment.events[name] === undefined) this.event(name);
   }
 
+  /** Rewrites the whole fragment, on one line: a watch rewrites it on every sample. */
   flush(): void {
-    this.#write(this.#path, `${JSON.stringify(this.fragment, null, 2)}\n`);
+    this.#write(this.#path, `${JSON.stringify(this.fragment)}\n`);
   }
 }
 
@@ -1113,24 +1115,22 @@ async function waitWatch(ctx: Context): Promise<StepResult> {
 }
 
 /**
- * detachHost on the moved host, then a second read, which must find it
+ * detachHost on the moved host, then `confirmDetached`, the release's own
+ * read-back of the run's project and the host's records, which must find it
  * `detached`: off the project, its CNAME to it kept as the one record that
  * routes it, as the flip's deploy needs it.
  */
 async function detachStep(ctx: Context, project: string): Promise<StepResult> {
-  const { located } = await readHost(ctx, ctx.hosts.host, project);
+  const { projects, located } = await readHost(ctx, ctx.hosts.host, project);
   const moved = await detachHost(ctx.api, located, project);
   if (!moved.ok) return moved;
   ctx.record.event("detachedAt");
-  const { located: after } = await readHost(ctx, ctx.hosts.host, project);
-  ctx.record.fragment.state = asJson(after.state);
+  const confirmed = await confirmDetached(ctx.api, located, projects, project, ctx.input.sleep);
+  ctx.record.fragment.state = asJson(confirmed.after.state);
   ctx.record.flush();
-  return after.state.kind === "detached"
+  return confirmed.ok
     ? moved
-    : {
-        ok: false,
-        message: `${ctx.hosts.host} reads ${after.state.kind} after the detach, not detached with its CNAME to ${project}.pages.dev; the flip's deploy could not replace it. The fragment holds the records.`,
-      };
+    : { ok: false, message: `${confirmed.message} The fragment holds the records.` };
 }
 
 const DEPLOY_FAILED =

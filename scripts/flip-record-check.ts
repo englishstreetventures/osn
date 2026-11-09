@@ -17,7 +17,11 @@
  * the approver of the detach.
  *
  * The zone is looked up by name (`GET /zones?name=<zone>`) and must be in
- * the account CLOUDFLARE_ACCOUNT_ID names. The deploy token reaches more
+ * the account CLOUDFLARE_ACCOUNT_ID names; it is then read by its id
+ * (`GET /zones/<id>`), the call the deploy's check makes for the zone's
+ * name, so the token is seen to answer it before the detach. This takes the
+ * zone from the host's last two labels, as every production host's zone is
+ * named, and refuses a zone it cannot find. The deploy token reaches more
  * than pages-domain.ts's reach check allows, and the job's token step has
  * already checked it reaches only the production account.
  *
@@ -107,6 +111,20 @@ export async function runFlipRecordCheck(input: FlipRecordCheckInput): Promise<n
     if (zone === undefined) {
       error(
         `the deploy token finds no ${zoneName} zone in the account CLOUDFLARE_ACCOUNT_ID names, which ${host} is in.`,
+      );
+      return 1;
+    }
+    // The deploy reads the zone by its id for the zone's name, after the
+    // detach; read it here first, so a token that gets no answer to that
+    // call stops the release before anything moves.
+    const byId = await api.call(
+      "GET",
+      `/zones/${encodeURIComponent(String(zone.id))}`,
+      `reading the ${zoneName} zone by its id`,
+    );
+    if ((byId.result as { name?: unknown } | null | undefined)?.name !== zoneName) {
+      error(
+        `reading the ${zoneName} zone by its id answered another zone's name; the deploy's check would refuse ${host}. The release stops here, before the detach; nothing moved.`,
       );
       return 1;
     }

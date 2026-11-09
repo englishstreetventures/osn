@@ -86,6 +86,10 @@ function fakeCloudflare(world: World) {
   const flaky = Object.fromEntries(
     Object.entries(world.flaky ?? {}).map(([key, answers]) => [key, [...answers]]),
   );
+  // The projects as this run changes them: a domain delete takes the host off its project.
+  const projects = Object.fromEntries(
+    Object.entries(world.projects).map(([name, domains]) => [name, [...domains]]),
+  );
   const fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     const method = init?.method ?? "GET";
@@ -118,7 +122,7 @@ function fakeCloudflare(world: World) {
     if (method === "GET" && listPage !== null) {
       const page = world.ignorePage === true ? 1 : Number(listPage[1]);
       const perPage = world.perPage ?? 25;
-      const names = Object.keys(world.projects);
+      const names = Object.keys(projects);
       const total = Math.ceil(names.length / perPage);
       const info =
         world.pageInfo === "omit-total"
@@ -131,9 +135,14 @@ function fakeCloudflare(world: World) {
     }
     const domains = new RegExp(`^${projectsPath}/([^/]+)/domains$`).exec(path);
     if (method === "GET" && domains !== null) {
-      return ok((world.projects[domains[1] ?? ""] ?? []).map((name) => ({ name })));
+      return ok((projects[domains[1] ?? ""] ?? []).map((name) => ({ name })));
     }
-    if (method === "DELETE" && path.startsWith(`${projectsPath}/`)) return ok(null);
+    const domain = new RegExp(`^${projectsPath}/([^/]+)/domains/([^/]+)$`).exec(path);
+    if (method === "DELETE" && domain !== null) {
+      const [, project = "", host = ""] = domain;
+      projects[project] = (projects[project] ?? []).filter((name) => name !== host);
+      return ok(null);
+    }
     if (method === "POST" && domains !== null) return ok({ name: (body as { name: string }).name });
     const records = /^\/zones\/[^/]+\/dns_records\?name=(.+)$/.exec(path);
     if (method === "GET" && records !== null) {
@@ -616,6 +625,7 @@ describe("detach and attach", () => {
       result.calls.filter((call) => call.method !== "GET" && call.method !== "DELETE"),
     ).toEqual([]);
     expect(result.output).toContain("kept its CNAME to cire-vendor.pages.dev");
+    expect(result.output).toContain("vendor.cireweddings.com reads detached cire-vendor.pages.dev");
     // The flip's precheck passes once the mode says worker and the host is on Pages.
     const precheck = await run(
       ["precheck"],
@@ -631,6 +641,53 @@ describe("detach and attach", () => {
     calls
       .filter((call) => call.method !== "GET")
       .map((call) => `${call.method} ${call.url.slice(API.length)}`);
+
+  test("PD6: detach reads the host back after its write and fails, naming what it read, unless it reads detached", async () => {
+    const domains = `/accounts/${ACCOUNT}/pages/projects/cire-vendor/domains`;
+    const listed = () =>
+      ok([{ name: "cire-vendor.pages.dev" }, { name: "vendor.cireweddings.com" }]);
+    // The CNAME gone by the time the host is read back.
+    const gone = await run(
+      ["detach", "cire_vendor"],
+      {
+        ...TODAY,
+        flaky: { "GET /zones/zone-cire/dns_records": [ok([CNAME("cire-vendor")]), ok([])] },
+      },
+      {},
+      vendorFlipped,
+    );
+    expect(gone.code).toBe(1);
+    expect(gone.output).toContain(
+      "vendor.cireweddings.com reads free after the detach, not detached with its CNAME to cire-vendor.pages.dev",
+    );
+    expect(nonGets(gone.calls)).toEqual([`DELETE ${domains}/vendor.cireweddings.com`]);
+    // Still on the project at every read: three reads, 2 s apart, then the job fails.
+    const stuck = await run(
+      ["detach", "cire_vendor"],
+      { ...TODAY, flaky: { [`GET ${domains}`]: [listed(), listed(), listed(), listed()] } },
+      {},
+      vendorFlipped,
+    );
+    expect(stuck.code).toBe(1);
+    expect(stuck.output).toContain(
+      "vendor.cireweddings.com reads pages cire-vendor after the detach, not detached",
+    );
+    expect(stuck.sleeps).toEqual([2_000, 2_000]);
+    expect(
+      stuck.calls.filter((call) => call.method === "GET" && call.url.endsWith(domains)),
+    ).toHaveLength(4);
+    expect(nonGets(stuck.calls)).toHaveLength(1);
+    // Listed once more, then gone: the listing lagged the delete, and the detach passes.
+    const late = await run(
+      ["detach", "cire_vendor"],
+      { ...TODAY, flaky: { [`GET ${domains}`]: [listed(), listed()] } },
+      {},
+      vendorFlipped,
+    );
+    expect(late.code).toBe(0);
+    expect(late.sleeps).toEqual([2_000]);
+    expect(late.output).toContain("vendor.cireweddings.com reads detached cire-vendor.pages.dev");
+  });
 
   test("PD6: detach refuses, writing nothing, a host whose one routing record is not its own CNAME", async () => {
     for (const records of [

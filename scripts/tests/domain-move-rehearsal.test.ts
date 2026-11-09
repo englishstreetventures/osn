@@ -665,6 +665,23 @@ describe("domain-move-rehearsal.ts", () => {
     expect(events(result).detachedAt).toBeString();
     expect(result.fragment.state).toEqual({ kind: "detached", target: `${PROJECT}.pages.dev` });
     expect(probes).toBe(0);
+    // The read after the detach asks for the run's project and the host's
+    // records alone: the token's reach and the project list are read once.
+    const gets = (part: string) =>
+      result.calls.filter((call) => call.method === "GET" && call.url.includes(part));
+    expect(gets("/accounts?per_page=").length).toBe(1);
+    expect(gets("/pages/projects?page=").length).toBe(1);
+    expect(gets(`/pages/projects/${PROJECT}/domains`).length).toBe(2);
+  });
+
+  test("a step's fragment is written on one line, so each rewrite during a long watch carries no indentation", async () => {
+    const result = await run(["detach", ...OUT], onPages(), PAGES_ENV);
+    const written = Object.entries(result.files).find(([path]) => path.endsWith("/detach.json"));
+    expect(written).toBeDefined();
+    const text = written?.[1] ?? "";
+    expect(text.endsWith("}\n")).toBe(true);
+    expect(text.trimEnd()).not.toContain("\n");
+    expect(JSON.parse(text)).toEqual(result.fragment);
   });
 
   test("R9b: a host that does not read detached after the detach fails the step", async () => {

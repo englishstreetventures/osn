@@ -33,7 +33,9 @@
  *     the deploy's Worker custom domain replaces that CNAME in one request
  *     (OSN_WORKER_DOMAIN_REPLACE_CNAME). Refused, writing nothing, unless the
  *     site is `worker`, the host reads `pages` on the site's own project, and
- *     `replaceRefusal` passes it.
+ *     `replaceRefusal` passes it. After its write it reads the host back and
+ *     fails, naming what it read, unless the host reads `detached`
+ *     (`confirmDetached`).
  *   bun run scripts/pages-domain.ts attach <surface>
  *     The rollback: puts the CNAME back and adds the host to the Pages
  *     project, making only what is missing, so it also puts back a host a
@@ -148,7 +150,9 @@ export function ownCnameOnly(host: string, records: readonly DnsRecord[], target
  * Worker's custom domain, or null when it could: the CNAME must be the one
  * record that routes the host, and a zone's apex must hold no record beside
  * it. The provider patch's check (OSN_WORKER_DOMAIN_REPLACE_CNAME) refuses
- * the same hosts, so a flip is refused here before anything moves.
+ * the same hosts, so a flip is refused here before anything moves. This
+ * takes a host's zone from its last two labels, as every production host's
+ * zone is named; the patch takes it from the zone Cloudflare resolved.
  */
 export function replaceRefusal(
   host: string,
@@ -339,6 +343,16 @@ export function pagesDnsApi(input: PagesDnsApiInput) {
     return attemptFrom(0);
   };
   const accountPath = `/accounts/${encodeURIComponent(account)}`;
+  /** The domains the Pages project `name` lists. */
+  const projectDomains = async (name: string): Promise<string[]> => {
+    const listed = await call(
+      "GET",
+      `${accountPath}/pages/projects/${encodeURIComponent(name)}/domains`,
+      `listing ${name}'s domains`,
+    );
+    const result = Array.isArray(listed.result) ? (listed.result as { name?: unknown }[]) : [];
+    return result.flatMap((domain) => (typeof domain.name === "string" ? [domain.name] : []));
+  };
   return {
     call,
     /**
@@ -423,24 +437,10 @@ export function pagesDnsApi(input: PagesDnsApiInput) {
       };
       const names = [...new Set(await readFrom(1))];
       return Promise.all(
-        names.map(async (name) => {
-          const listed = await call(
-            "GET",
-            `${accountPath}/pages/projects/${encodeURIComponent(name)}/domains`,
-            `listing ${name}'s domains`,
-          );
-          const result = Array.isArray(listed.result)
-            ? (listed.result as { name?: unknown }[])
-            : [];
-          return {
-            name,
-            domains: result.flatMap((domain) =>
-              typeof domain.name === "string" ? [domain.name] : [],
-            ),
-          };
-        }),
+        names.map(async (name) => ({ name, domains: await projectDomains(name) })),
       );
     },
+    projectDomains,
     async records(zone: string, host: string): Promise<DnsRecord[]> {
       const listed = await call(
         "GET",
@@ -560,6 +560,53 @@ export async function detachHost(
   };
 }
 
+/** How long a read-back waits before reading again a host its project still lists. */
+export const DETACH_SETTLE_MS = 2_000;
+/** How many times a read-back reads a host its project still lists before it fails. */
+const DETACH_READS = 3;
+
+/**
+ * Reads `located.host` again after `detachHost` took it off `project`: that
+ * project's domains and the host's records, every other project as
+ * `projects` holds it. Ok only when the host reads `detached` with its CNAME
+ * to `<project>.pages.dev`, the state the flip's deploy replaces; the result
+ * carries the host as read. A host the project still lists is read again
+ * `DETACH_SETTLE_MS` later, up to `DETACH_READS` reads, since the listing may
+ * lag the delete.
+ */
+export async function confirmDetached(
+  api: PagesDnsApi,
+  located: Located,
+  projects: readonly PagesProject[],
+  project: string,
+  sleep: (ms: number) => Promise<void>,
+): Promise<MoveOutcome & { readonly after: Located }> {
+  const { host, zone } = located;
+  const target = pagesTarget(project);
+  // Each read after the last, and only while the project still lists the host.
+  const readFrom = async (read: number): Promise<MoveOutcome & { readonly after: Located }> => {
+    const [domains, records] = await Promise.all([
+      api.projectDomains(project),
+      api.records(zone, host),
+    ]);
+    const now = projects.map((held) => (held.name === project ? { name: project, domains } : held));
+    const after: Located = { host, zone, records, state: classify(host, now, records, target) };
+    if (after.state.kind === "detached") {
+      return { ok: true, message: `${host} reads detached ${target}.`, after };
+    }
+    if (after.state.kind === "pages" && after.state.project === project && read < DETACH_READS) {
+      await sleep(DETACH_SETTLE_MS);
+      return readFrom(read + 1);
+    }
+    return {
+      ok: false,
+      message: `${host} reads ${stateWords(after.state)}${after.state.kind === "unclear" ? ` (${after.state.reason})` : ""} after the detach, not detached with its CNAME to ${target}; the flip's deploy could not replace it.`,
+      after,
+    };
+  };
+  return readFrom(1);
+}
+
 /**
  * Puts `located.host` back on `project`: makes the CNAME to
  * `<project>.pages.dev` and adds the domain, each only when missing, so it
@@ -656,11 +703,13 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
     return usage("set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_DNS_TOKEN");
   }
 
+  const sleep =
+    input.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const api = pagesDnsApi({
     account: env.CLOUDFLARE_ACCOUNT_ID ?? "",
     token: env.CLOUDFLARE_PAGES_DNS_TOKEN ?? "",
     fetch: input.fetch,
-    sleep: input.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    sleep,
   });
   /** The zones of the production hosts of every site that is not off: all the token may see. */
   const zoneNames = [
@@ -788,6 +837,15 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
       return 1;
     }
     out(`${moved.message}\n`);
+    if (command === "detach") {
+      // The deploy replaces the CNAME only on a host that reads detached.
+      const confirmed = await confirmDetached(api, located, projects, project, sleep);
+      if (!confirmed.ok) {
+        error(confirmed.message);
+        return 1;
+      }
+      out(`${confirmed.message}\n`);
+    }
     return 0;
   } catch (failure) {
     if (failure instanceof ApiError) {
