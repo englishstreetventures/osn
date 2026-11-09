@@ -134,7 +134,9 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
   return (
     <>
       <Show when={visibleEvents().length > 0}>
-        <div class="border-ui-warn/40 bg-ui-warn/10 flex flex-col gap-2 rounded-md border p-3">
+        {/* The error sits on the page ground, never on the warn wash: danger ink
+            on the wash falls under the 4.5:1 text floor in light. */}
+        <div class="flex flex-col gap-2">
           <Show when={error()}>
             {(msg) => (
               <Notice tone="danger" size="inline" alert>
@@ -142,30 +144,32 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
               </Notice>
             )}
           </Show>
-          <For each={visibleEvents()}>
-            {(event: SecurityEventSummary) => (
-              <div class="flex flex-col gap-0.5">
-                <span class="font-medium">{headlineFor(event.kind, props.productName)}</span>
-                <span class="text-muted-foreground text-xs">
-                  {formatTs(event.createdAt)}
-                  <Show when={event.uaLabel}> · {event.uaLabel}</Show>
-                </span>
-              </div>
-            )}
-          </For>
-          <span class="text-muted-foreground text-xs">
-            If you don't recognise this, review your active sessions and rotate your credentials.
-            Acknowledging requires a fresh passkey or OTP check.
-          </span>
-          <div class="flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setStepUpOpen(true)}
-              disabled={busy()}
-            >
-              Acknowledge
-            </Button>
+          <div class="border-ui-warn/40 bg-ui-warn/10 flex flex-col gap-2 rounded-md border p-3">
+            <For each={visibleEvents()}>
+              {(event: SecurityEventSummary) => (
+                <div class="flex flex-col gap-0.5">
+                  <span class="font-medium">{headlineFor(event.kind, props.productName)}</span>
+                  <span class="text-muted-foreground text-xs">
+                    {formatTs(event.createdAt)}
+                    <Show when={event.uaLabel}> · {event.uaLabel}</Show>
+                  </span>
+                </div>
+              )}
+            </For>
+            <span class="text-muted-foreground text-xs">
+              If you don't recognise this, review your active sessions and rotate your credentials.
+              Acknowledging requires a fresh passkey or OTP check.
+            </span>
+            <div class="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStepUpOpen(true)}
+                disabled={busy()}
+              >
+                Acknowledge
+              </Button>
+            </div>
           </div>
         </div>
       </Show>

@@ -118,7 +118,7 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
                   <button
                     type="button"
                     class={clsx(
-                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors",
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-ui-colors",
                       isActive()
                         ? "bg-accent text-accent-foreground"
                         : "hover:bg-muted text-foreground",

@@ -6,6 +6,7 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { createResource, createSignal, createUniqueId, onMount, Show } from "solid-js";
@@ -347,19 +348,19 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "otp"}>
         <div class="flex flex-col gap-2">
-          <label for={codeId} class="text-sm">
-            Code
-          </label>
-          <input
-            id={codeId}
-            class="bg-background rounded-md border px-3 py-2 font-mono tracking-widest"
-            inputmode="numeric"
-            maxLength={6}
-            value={code()}
-            onInput={(e) => setCode(e.currentTarget.value)}
-            {...tie()}
-          />
-          {errorLine()}
+          <div class="flex flex-col gap-1">
+            <Label for={codeId}>Code</Label>
+            <input
+              id={codeId}
+              class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
+              inputmode="numeric"
+              maxLength={6}
+              value={code()}
+              onInput={(e) => setCode(e.currentTarget.value)}
+              {...tie()}
+            />
+            {errorLine()}
+          </div>
           <Button onClick={completeOtp} disabled={busy()}>
             Confirm
           </Button>
@@ -370,20 +371,20 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "totp"}>
         <div class="flex flex-col gap-2">
-          <label for={codeId} class="text-sm">
-            Code from your authenticator app
-          </label>
-          <input
-            id={codeId}
-            class="bg-background rounded-md border px-3 py-2 font-mono tracking-widest"
-            inputmode="numeric"
-            autocomplete="one-time-code"
-            maxLength={6}
-            value={code()}
-            onInput={(e) => setCode(e.currentTarget.value)}
-            {...tie()}
-          />
-          {errorLine()}
+          <div class="flex flex-col gap-1">
+            <Label for={codeId}>Code from your authenticator app</Label>
+            <input
+              id={codeId}
+              class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxLength={6}
+              value={code()}
+              onInput={(e) => setCode(e.currentTarget.value)}
+              {...tie()}
+            />
+            {errorLine()}
+          </div>
           <Button onClick={completeTotp} disabled={busy()}>
             Confirm
           </Button>

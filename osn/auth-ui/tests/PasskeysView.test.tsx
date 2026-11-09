@@ -1,5 +1,10 @@
 // @vitest-environment happy-dom
-import type { PasskeysClient, StepUpClient, StepUpToken } from "@osn/client";
+import {
+  AuthExpiredError,
+  type PasskeysClient,
+  type StepUpClient,
+  type StepUpToken,
+} from "@osn/client";
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -329,11 +334,16 @@ describe("PasskeysView", () => {
       expect(alert.textContent).toContain(WAIT);
     });
 
-    it("offers no Try again once the session has ended", async () => {
-      pk.list.mockRejectedValue(apiError("PLANTED-list-401", 401, "unauthorized"));
+    // A 401 from the server, or the client's own word that renewal failed.
+    it.each([
+      ["a 401", apiError("PLANTED-list-401", 401, "unauthorized")],
+      ["an AuthExpiredError", new AuthExpiredError({ cause: new Error("PLANTED-expired") })],
+    ])("offers no Try again once the session has ended (%s)", async (_, error) => {
+      pk.list.mockRejectedValue(error);
       render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toContain("Your session has ended. Sign in again.");
+      expect(alertsText()).not.toContain("PLANTED");
       expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     });
   });

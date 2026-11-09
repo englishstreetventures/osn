@@ -10,7 +10,7 @@ export function InlineAction(props: { onClick: () => void; children: JSX.Element
   return (
     <button
       type="button"
-      class="cursor-pointer font-medium underline underline-offset-4"
+      class="focus-visible:ring-ui-focus cursor-pointer font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-hidden"
       onClick={() => props.onClick()}
     >
       {props.children}

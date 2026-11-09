@@ -29,6 +29,9 @@ export const RECOVERY =
   "That didn't work. Check your handle or email and the code, then try again. If it keeps failing, wait a while first.";
 /** The map's sentence for a refused form of details. */
 export const DETAILS = "Check the details you entered and try again.";
+/** The map's sentence for a failed verification check (`turnstile_failed`). */
+export const CHECK_FAILED =
+  "The verification check didn't pass. Complete it once more and try again.";
 /** The map's sentence for a 5xx. */
 export const SERVER = "Something went wrong on our side. Try again.";
 /** `describePasskeyError`'s sentence for a closed prompt when signing in. */

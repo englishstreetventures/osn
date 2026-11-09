@@ -176,8 +176,10 @@ export function Register(props: RegisterProps) {
       toast.success("Verification code sent");
       setResendError(null);
       setCodeError(null);
-      setStep("verify");
+      // The cooldown first: the code step mounts its widget only once a
+      // resend is possible.
       startResendCooldown();
+      setStep("verify");
     } catch (err) {
       // The server answers a taken email or handle the same as a free one, so
       // this never says which; a 422 is the age gate, a 429 says to wait.
@@ -265,15 +267,20 @@ export function Register(props: RegisterProps) {
   }
 
   /**
-   * Runs a call that spends the Turnstile token, then asks the widget for a
-   * fresh one whether the call succeeded or not: the server checks the token
-   * before it answers, so a refusal has spent it too.
+   * Runs a call that spends the Turnstile token. The server checks the token
+   * before it answers, so a refusal has spent it too: on a failure the widget
+   * stays on screen and is asked for a fresh token. On a success the widget
+   * goes away (the step moves on, or the resend cooldown starts), so the
+   * spent token is dropped instead of running a challenge nobody will use.
    */
   async function spendingToken<T>(call: () => Promise<T>): Promise<T> {
     try {
-      return await call();
-    } finally {
+      const result = await call();
+      setTurnstileToken(null);
+      return result;
+    } catch (err) {
       if (turnstileOn()) resetTurnstile?.();
+      throw err;
     }
   }
 
@@ -473,12 +480,16 @@ export function Register(props: RegisterProps) {
               {busy() ? "Verifying…" : "Verify email"}
             </Button>
             {/* A resend spends a token like the first send, and the details
-                step's widget went with that step. */}
-            <TurnstileWidget
-              siteKey={props.turnstileSiteKey}
-              onToken={setTurnstileToken}
-              onReady={(c) => (resetTurnstile = c.reset)}
-            />
+                step's widget went with that step. Mounted only once a resend
+                is possible, so a sign-up that never resends runs one
+                challenge. */}
+            <Show when={resendCooldown() === 0}>
+              <TurnstileWidget
+                siteKey={props.turnstileSiteKey}
+                onToken={setTurnstileToken}
+                onReady={(c) => (resetTurnstile = c.reset)}
+              />
+            </Show>
             <button
               type="button"
               onClick={resendCode}

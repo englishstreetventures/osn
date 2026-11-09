@@ -36,6 +36,7 @@ import type { RecoveryClient, RegistrationClient } from "@osn/client";
 
 import { RecoveryLoginForm } from "../src/RecoveryLoginForm";
 import {
+  CHECK_FAILED,
   CODE,
   DETAILS,
   PASSKEY_NOT_ADDED,
@@ -283,18 +284,30 @@ describe("RecoveryLoginForm — error lines", () => {
     },
   );
 
-  it("a refused send reads as the map's sentence, tied to the address", async () => {
-    stub.emailRecoveryBegin.mockRejectedValue(apiError("PLANTED-recovery-email"));
-    mountFull();
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
-    const field = fill(/Email address on the account/i, "alice@example.com");
-    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+  it.each([
+    ["a 400", apiError("PLANTED-recovery-email"), DETAILS, "true"],
+    [
+      "a failed verification check",
+      apiError("PLANTED-recovery-turnstile", 400, "turnstile_failed"),
+      CHECK_FAILED,
+      null,
+    ],
+  ])(
+    "a refused send reads %s as the map's sentence, tied to the address",
+    async (_, error, sentence, invalid) => {
+      stub.emailRecoveryBegin.mockRejectedValue(error);
+      mountFull();
+      fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+      const field = fill(/Email address on the account/i, "alice@example.com");
+      fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(DETAILS);
-    expect(alertsText()).not.toContain("PLANTED");
-    expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
-  });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      expect(field.getAttribute("aria-invalid")).toBe(invalid);
+    },
+  );
 
   it("a refused emailed code reads as the code sentence", async () => {
     stub.emailRecoveryBegin.mockResolvedValue(undefined);

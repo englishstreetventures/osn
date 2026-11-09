@@ -32,7 +32,14 @@ import type { LoginClient, RecoveryClient } from "@osn/client";
 import { toast } from "@shared/toast";
 
 import { SignIn } from "../src/SignIn";
-import { WAIT, PASSKEY_NOT_USED, alertsText, apiError, ceremonyError } from "./helpers/errors";
+import {
+  CHECK_FAILED,
+  WAIT,
+  PASSKEY_NOT_USED,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
 
 interface LoginStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
@@ -187,12 +194,24 @@ describe("SignIn component", () => {
       expect(field.getAttribute("aria-invalid")).toBe("true");
     });
 
-    it("does not mark the field invalid when nothing typed was wrong", async () => {
-      await submitAndFail(apiError("PLANTED-signin-429", 429, "rate_limited"));
-      const field = screen.getByLabelText(/Email or @handle/);
-      expect(field.getAttribute("aria-describedby")).toBeTruthy();
-      expect(field.getAttribute("aria-invalid")).toBeNull();
-    });
+    it.each([
+      ["a 429", apiError("PLANTED-signin-429", 429, "rate_limited"), WAIT],
+      [
+        "a failed verification check",
+        apiError("PLANTED-signin-turnstile", 400, "turnstile_failed"),
+        CHECK_FAILED,
+      ],
+    ])(
+      "does not mark the field invalid for %s, where nothing typed was wrong",
+      async (_, error, sentence) => {
+        const alert = await submitAndFail(error);
+        expect(alert.textContent).toContain(sentence);
+        expect(alertsText()).not.toContain("PLANTED");
+        const field = screen.getByLabelText(/Email or @handle/);
+        expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+        expect(field.getAttribute("aria-invalid")).toBeNull();
+      },
+    );
 
     it("raises no error toast", async () => {
       vi.mocked(toast.error).mockClear();

@@ -162,7 +162,7 @@ besides the default:
 | `RecoveryCodesView` | Button, Dialog, Notice | `outline`, `ghost` |
 | `SessionsView` | Button, Notice | `outline` |
 | `SecurityEventsBanner` | Button, Notice | `outline` |
-| `ChangeEmailForm` | Button, Notice | — |
+| `ChangeEmailForm` | Button, Label, Notice | — |
 | `CreateProfileForm` | Button, Input, Label, Notice, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
 | `ProfileSwitcher` | Avatar, Button, Dialog, Notice, Popover | `ghost`, `destructive` |
@@ -173,11 +173,13 @@ themselves:
 
 - Raw `<input>`s: the new email and the code in `ChangeEmailForm`, and the
   emailed code and the authenticator code in `StepUpDialog`, each
-  `bg-background rounded-md border px-3 py-2` named by a `<label for>` above
-  it, so the error line sits under the field, outside the label. The `border`
-  names no colour; in Musubi a bare-bordered field keeps its ink edge
+  `bg-background rounded-md border px-3 py-2`. Each sits in a
+  `flex flex-col gap-1` group under a `@shared/ui` `Label`, with its error
+  line under it, as `Register` groups its fields. The `border` names no
+  colour at rest; in Musubi a bare-bordered field keeps its ink edge
   (`currentColor`), since `--input`, the edge `@shared/ui`'s `Input` draws,
-  sits under 3:1 (`musubi/social/DESIGN.md` §Borders).
+  sits under 3:1 (`musubi/social/DESIGN.md` §Borders). A refused value turns
+  it red (`aria-[invalid=true]:border-ui-danger`), as `Input` does.
 - A raw checkbox, "I've saved these codes somewhere safe.", in
   `RecoveryCodesView`.
 - Text `<button>`s: "Lost your passkey?" in `SignIn` and "Resend code" in
@@ -186,8 +188,9 @@ themselves:
 - `InlineAction` (`src/InlineAction.tsx`, internal): the button that ends an
   error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
   in a failed load. It keeps the line's ink and is underlined, so the action
-  never relies on colour alone. `LoadFailed` (`src/LoadFailed.tsx`, internal)
-  is the failed-load line built on it (§7).
+  never relies on colour alone, and takes Button's focus ring (§9).
+  `LoadFailed` (`src/LoadFailed.tsx`, internal) is the failed-load line built
+  on it (§7).
 - A `<details>` disclosure, "Signing in somewhere new?", under the list in
   `PasskeysView`.
 
@@ -347,8 +350,10 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   "Resend code"; `ProfileSwitcher`'s lines sit inside the popover and the
   delete dialog.
 - **Under the heading** in `PasskeysView` (add, delete) and `TotpView` (start,
-  remove), and in `SessionsView`; at the top of the `SecurityEventsBanner`
-  box.
+  remove), and in `SessionsView`; above the `SecurityEventsBanner` box, on
+  the page's ground. Never on the warn wash: danger ink there measures 4.16:1
+  in light, under the 4.5:1 text floor (`musubi/social/DESIGN.md` §Status
+  colours).
 - **Under the code boxes** for a refused code in `Register`,
   `RecoveryLoginForm` and `TotpView`: announced, but not yet tied — `OtpInput`
   takes no `aria-describedby` until englishstreetventures/osn#2041.
@@ -357,6 +362,13 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
 signing-in sentence names no cause, and recovery is the way in without one.
 The standalone link below Continue stays. Switching to the recovery form
 leaves the sign-in error behind.
+
+The handle field's own lines in `Register` and `CreateProfileForm` ("@x is
+taken", the format rule, "Couldn't check availability") come from
+`@shared/ui`'s `UsernameInput`, which draws them as plain `ui-danger` text
+with no mark. They differ from the `Notice` lines beside them in that one
+respect; `UsernameInput` is shared with `cire/host`, so it keeps its own
+look.
 
 **A failed load.** A list or status a settings view reads — `PasskeysView`,
 `TotpView`, `SessionsView` — that fails to load shows `LoadFailed` in its
@@ -373,11 +385,14 @@ toast.
 
 **The verification challenge.** Every call that spends a Turnstile token —
 `SignIn`'s Continue, `Register`'s send and resend, `RecoveryLoginForm`'s
-emailed-code send — resets the widget whether the call succeeded or not: the
+emailed-code send — asks the widget for a fresh token when it fails: the
 server checks the token before it answers, so a refusal has spent it too. The
-submit stays disabled until the widget hands over a fresh one. `Register`'s
-code step mounts a widget of its own for "Resend code", since the details
-step's went with that step.
+submit stays disabled until the widget hands over a fresh one. `SignIn` and
+`RecoveryLoginForm` reset after a success as well. `Register` drops the spent
+token after a success instead, since its widget goes with it: the details
+step's when the code step opens, the code step's while "Resend code" counts
+down. The code step mounts its own widget only once the countdown ends, so a
+sign-up that never resends runs one challenge.
 
 A recovery session that runs out is its own state in `RecoveryLoginForm`
 ("That recovery session timed out"), not an error line.
@@ -422,11 +437,13 @@ a control the package draws itself takes the same treatment as `@shared/ui`'s
 Button, `focus-visible:ring-2 focus-visible:ring-ui-focus`. A focus indicator
 appears at once, never animated.
 
-**As it stands.** No class in `osn/auth-ui/src` draws a focus ring. The
-`@shared/ui` parts draw their own. Every control the views draw by hand (§5)
-takes whatever outline its host's stylesheet gives `:focus-visible`: in Musubi,
-the only host, a 2px `--ui-focus` outline 2px off (`musubi/social/DESIGN.md`
-§Focus), which is not the ring the rule above asks for:
+**As it stands.** The `@shared/ui` parts draw their own ring, and
+`InlineAction` draws Button's (`focus-visible:ring-2
+focus-visible:ring-ui-focus focus-visible:outline-hidden`). Every other
+control the views draw by hand (§5) takes whatever outline its host's
+stylesheet gives `:focus-visible`: in Musubi, the only host, a 2px
+`--ui-focus` outline 2px off (`musubi/social/DESIGN.md` §Focus), which is not
+the ring the rule above asks for:
 
 - the raw code and email `<input>`s in `ChangeEmailForm` and `StepUpDialog`
   (#2041; `ChangeEmailForm`'s code field in #2056);
@@ -434,11 +451,10 @@ the only host, a 2px `--ui-focus` outline 2px off (`musubi/social/DESIGN.md`
 - the raw checkbox in `RecoveryCodesView`, the profile rows and delete
   controls in `ProfileSwitcher`, and the "Signing in somewhere new?" summary in
   `PasskeysView` (#2045).
-- `InlineAction`, the button that ends an error line ("Lost your passkey?",
-  "Try again").
 
-`ProfileSwitcher`'s rows also carry `transition-colors`, whose property list
-includes `outline-color`, so their outline fades in.
+`ProfileSwitcher`'s rows fade their colours with `transition-ui-colors`, the
+host's utility (`musubi/social/src/App.css`), which leaves the outline out, so
+their focus mark lands at once.
 
 ## 10. Words
 

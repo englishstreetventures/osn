@@ -749,6 +749,24 @@ describe("Register component", () => {
         await waitFor(() => expect(submit().disabled).toBe(false));
       });
 
+      // A sign-up that never resends runs one challenge: the sent token is
+      // dropped with its widget, and the code step's widget waits for the
+      // resend cooldown.
+      it("runs no second challenge until a resend is possible", async () => {
+        const challenges = (
+          globalThis as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }
+        ).turnstile.render;
+        await reachVerify("0x4AAAAAADnA2piUnbgG_kVw");
+        expect(challenges).toHaveBeenCalledTimes(1);
+        expect(reset).not.toHaveBeenCalled();
+        const resend = () =>
+          screen.getByRole("button", { name: /Resend code/ }) as HTMLButtonElement;
+        expect(resend().disabled).toBe(true);
+        await vi.advanceTimersByTimeAsync(31_000);
+        await waitFor(() => expect(challenges).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(resend().disabled).toBe(false));
+      });
+
       // The details step's widget is gone once the code is sent, and a
       // resend spends a token like the first send.
       it("holds Resend for a token of its own on the code step", async () => {
