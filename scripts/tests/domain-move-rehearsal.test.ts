@@ -1433,6 +1433,13 @@ describe("domain-move-rehearsal.ts", () => {
       gap: 4_000,
     },
     {
+      what: "a gap still open at the Worker's first answer",
+      zone: zoneView((second) => (second >= 120 ? "g" : "r")),
+      flip: {},
+      says: "answered no record for",
+      gap: 10_000,
+    },
+    {
       what: "a stretch of more than 12 s with no read",
       zone: zoneView((second) => (second > 20 && second < 40 ? null : "r")),
       flip: {},
@@ -1499,6 +1506,62 @@ describe("domain-move-rehearsal.ts", () => {
     expect(report.intervals.zoneRecordGapMs).toBe(gap);
     expect(result.files["/tmp/summary.md"]).toContain(says);
     expect(result.output).toContain(says);
+  });
+
+  /** The verdict's two thresholds, each side of its edge. The window runs 10 s to `end`. */
+  test.each([
+    {
+      what: "12 s exactly between answered reads",
+      zone: zoneView((second) => (second > 40 && second < 52 ? null : "r")),
+      end: 130,
+      pass: true,
+    },
+    {
+      what: "14 s between answered reads",
+      zone: zoneView((second) => (second > 40 && second < 54 ? null : "r")),
+      end: 130,
+      pass: false,
+    },
+    {
+      what: "6 of 60 reads failed, exactly 10 %",
+      zone: zoneView((second) => (second >= 20 && second <= 70 && second % 10 === 0 ? "f" : "r")),
+      end: 128,
+      pass: false,
+    },
+    {
+      what: "5 of 60 reads failed, under 10 %",
+      zone: zoneView((second) => (second >= 20 && second <= 60 && second % 10 === 0 ? "f" : "r")),
+      end: 128,
+      pass: true,
+    },
+  ])("the verdict on $what", async ({ zone, end, pass }) => {
+    const fragments = {
+      "detach.json": JSON.stringify({
+        step: "detach",
+        exitCode: 0,
+        events: { detachedAt: at(10) },
+      }),
+      "flip.json": JSON.stringify({
+        step: "flip",
+        exitCode: 0,
+        events: { firstWorkerAnswerAt: at(end), hostRecordReads: 9 },
+      }),
+      "watch.json": JSON.stringify({ step: "watch", exitCode: 0, timeline: [], zone }),
+    };
+    const result = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN, GITHUB_STEP_SUMMARY: "/tmp/summary.md" },
+      { readDir: () => fragments },
+    );
+    const report = JSON.parse(
+      result.files["/tmp/rehearsal/domain-move-rehearsal.json"] ?? "{}",
+    ) as { verdict: { pass: boolean; failures: string[] } };
+    expect({ failures: report.verdict.failures, code: result.code }).toEqual({
+      failures: pass ? [] : report.verdict.failures,
+      code: pass ? 0 : 1,
+    });
+    expect(report.verdict.pass).toBe(pass);
   });
 
   test("R20c: report fails when the window from the detach to the Worker's first answer is unknown", async () => {

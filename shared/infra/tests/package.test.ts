@@ -322,6 +322,13 @@ describe("the repo project's cache", () => {
     expect(SOURCES.length).toBeGreaterThan(0);
     for (const source of SOURCES) expect(inputs).toContain(`$TURBO_ROOT$/${source}`);
   });
+
+  // The routing-rule parity test in worker-domain-replace.test.ts loads this
+  // file by path; without the input, turbo replays it after `decides` changes.
+  test("scripts/pages-domain.ts is a test:repo input", () => {
+    const inputs = packageTurbo().tasks["test:repo"]?.inputs ?? [];
+    expect(inputs).toContain("$TURBO_ROOT$/scripts/pages-domain.ts");
+  });
 });
 
 describe("the alchemy project's cache", () => {

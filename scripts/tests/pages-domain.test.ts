@@ -506,6 +506,24 @@ describe("precheck", () => {
     }
   });
 
+  test("a flip site on Pages that has no Pages project is refused for having none, changing nothing", async () => {
+    const landingWorker = { ...PRODUCTION_SITE_MODES, musubi_landing: "worker" } as const;
+    const world: World = {
+      ...TODAY,
+      projects: { ...TODAY.projects, "musubi-landing": ["www.musubi.social"] },
+    };
+    const result = await run(
+      ["precheck"],
+      world,
+      { STACKS: "musubi", FLIP: "musubi_landing" },
+      landingWorker,
+    );
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("which it has none of");
+    expect(result.output).toContain("FLIP names musubi_landing");
+    expect(result.calls.filter((call) => call.method !== "GET")).toEqual([]);
+  });
+
   test("PD17: a worker site left detached is refused, flip or not, naming the way back", async () => {
     const vendorWorker = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
     const detachedWorld: World = {

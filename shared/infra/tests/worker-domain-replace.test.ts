@@ -177,6 +177,8 @@ async function run(
     readonly env?: Readonly<Record<string, string>>;
     readonly desired?: readonly string[];
     readonly previewsEnabled?: boolean;
+    /** The zone the attach hook is handed, when it is not the one the check read. */
+    readonly attachZoneId?: string;
   } = {},
 ): Promise<Run> {
   const sent: Sent[] = [];
@@ -248,7 +250,7 @@ async function run(
         accountId: ACCOUNT,
         scriptName: SCRIPT,
         hostname: host,
-        zoneId: ZONE,
+        zoneId: options.attachZoneId ?? ZONE,
         ...(options.previewsEnabled === undefined
           ? {}
           : { previewsEnabled: options.previewsEnabled }),
@@ -457,6 +459,38 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     expect(writes(lost)).toHaveLength(1);
   });
 
+  test("an attach zone that differs from the zone the check read stops before any write", async () => {
+    const r = await run(
+      await load(path),
+      { before: [cname(TARGET)] },
+      { env: flipEnv(), attachZoneId: "zone-other" },
+    );
+    expect(failure(r)).toContain("two different zones");
+    expect(writes(r)).toEqual([]);
+  });
+
+  test("a failed re-read after the replacement names the host, sends one write and leaks nothing", async () => {
+    const leak = `account ${ACCOUNT} token ${TOKEN}`;
+    const r = await run(
+      await load(path),
+      {
+        before: [cname(TARGET), TXT],
+        reads: [ok([cname(TARGET), TXT]), refused(500, 0, leak)],
+      },
+      { env: flipEnv() },
+    );
+    const message = failure(r);
+    expect(message).toContain("check its other records by hand");
+    expect(message).toContain(HOST);
+    expect(writes(r)).toHaveLength(1);
+    expect(message).not.toContain(ACCOUNT);
+    expect(message).not.toContain(TOKEN);
+    expect(message).not.toContain(leak);
+    expect(message).not.toContain("refused");
+    expect(r.logs.join("\n")).not.toContain(ACCOUNT);
+    expect(r.logs.join("\n")).not.toContain(TOKEN);
+  });
+
   test("M2: an apex holding any other record beside its CNAME stops before the PUT unless the apex is allowed", async () => {
     const env = flipEnv(APEX, APEX_TARGET);
     const records = [cname(APEX_TARGET), TXT, MX];
@@ -644,6 +678,16 @@ describe("the provider's custom-domain reconcile, both copies", () => {
       expect(hook).toBeGreaterThan(-1);
       expect(hook).toBeLessThan(attach.indexOf(".putDomain("));
       expect(attach.split("replacingAttach(").length).toBe(2);
+      // The hook gets the check's result, and a replacement ends the attach.
+      const flat = (text: string): string => text.replace(/\s+/g, " ");
+      expect(flat(reconcile)).toContain("const replacement = yield* checkReplaceCname({");
+      const wired = flat(attach);
+      const call = wired.indexOf("const replaced = yield* replacingAttach(replacement, {");
+      expect(call).toBeGreaterThan(-1);
+      const early = wired.indexOf("if (replaced !== undefined) return replaced;");
+      expect(early).toBeGreaterThan(call);
+      expect(early).toBeLessThan(wired.indexOf(".putDomain("));
+      expect(wired.split("if (replaced !== undefined) return replaced;").length).toBe(2);
     },
   );
 });
