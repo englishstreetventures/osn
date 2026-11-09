@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-09
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1580,32 +1580,45 @@ approvals, one per job, in this order:
    asked for, so one that dev has not run at this content, or that production runs
    newer, holds the stack and the flip; the release summary names each with its status.
 2. `stack-<stack>-verify` — plans the stack again with the same force, and refuses unless
-   the guard still allows the plan and it equals the plan approved in step 1. It deploys
-   nothing and holds no Pages token. A refusal here ends the release with nothing moved.
+   the guard still allows the plan and it equals the plan approved in step 1. It also
+   reads the flip host's DNS records with the deploy token (`scripts/flip-record-check.ts`)
+   and refuses unless the host's CNAME to its own `<project>.pages.dev` is the one record
+   that routes it and, at a zone's apex, the only record there: what step 4's deploy can
+   replace. The job summary names that CNAME. Step 1's precheck refuses the same hosts. It
+   deploys nothing and holds no Pages token. A refusal here ends the release with nothing
+   moved.
 3. `flip-detach-<stack>` — on a fresh runner with nothing installed, one of the two jobs
    holding `CLOUDFLARE_PAGES_DNS_TOKEN` with the attach job (`alchemy-plan`'s precheck
    reads with it too, before its install): `pages-domain.ts detach` checks the token's
    reach, reads and prints where the host is, refuses unless it is on the site's own
-   Pages project, then takes the host off the project and deletes its CNAME. **The site
-   is down from here** until step 4's
-   deploy attaches the domain, so approve step 4 at once: the outage is your wait plus
-   step 4's install, state store check, snapshot and plan, a few minutes. The approved
-   plan from step 1 is kept 7 days; step 4 refuses without it.
+   Pages project with its CNAME to it as the one record that routes it, then takes the
+   host off the project and keeps the CNAME. The zone holds a record for the host
+   throughout, so no resolver caches it as missing. **Treat the site as down from here**
+   until step 4's deploy attaches the domain: the host resolves, but its Pages project no
+   longer lists it. Approve step 4 at once: the outage is your wait plus step 4's
+   install, state store check, snapshot and plan, a few minutes. The approved plan from
+   step 1 is kept 7 days; step 4 refuses without it.
 4. `stack-<stack>-production` — installs, checks the state store, plans the stack once
-   more and runs the guard as in step 2, then deploys (which attaches the domain to the
-   Worker, and updates the stack's other site Workers), and smoke-checks every site of
+   more and runs the guard as in step 2, then deploys, and smoke-checks every site of
    the stack, the flip site on its production host, rolling each back on failure. The
-   other sites' uploads may lengthen the outage; that is not measured. The site's
+   deploy step passes the hosts step's `replace_cname`, `<host>=<project>.pages.dev`, as
+   `OSN_WORKER_DOMAIN_REPLACE_CNAME`, so the Worker's custom-domain attach replaces the
+   kept CNAME in one request ([[infrastructure-as-code#Dependency review]]); it refuses,
+   writing nothing, a host that holds anything else. The deploy also updates the stack's
+   other site Workers, whose uploads may lengthen the outage; that is not measured. The site's
    record job, which the pull request turning it to `worker` adds
    (`record-<site>`, [[infrastructure-as-code#Production sites]]), then records it in
-   `production-records`. A guard refusal here
-   stops before the deploy and leaves the host on neither Pages nor the Worker: roll
-   back with an attach release (step 2 below; there is no Worker domain to remove).
+   `production-records`. A guard refusal here, or the deploy's refusal of the host's
+   records, stops before the attach and leaves the host `detached`: on no Pages project,
+   its CNAME kept. Roll back with an attach release (step 2 below; there is no Worker
+   domain to remove).
 
-**If `flip-detach-<stack>` fails**, its Pages domain delete or its CNAME delete failed,
-and the job names which. Dispatch an attach release (step 2 below): it makes only what
-is missing, so it puts the host back on Pages from either half. Then dispatch the flip
-again.
+**If `flip-detach-<stack>` fails**, either it refused, having written nothing, or its
+Pages domain delete failed; the job names which. `pages-domain.ts check <site>` then
+reads the host `pages` or `detached`. For `detached`, dispatch an attach release (step 2
+below): it makes only what is missing, here the Pages domain alone. Then dispatch the
+flip again. While a site's host reads `detached`, the precheck refuses every release
+that ships its stack, flip or not.
 
 **Never re-run a failed step 4.** Once its deploy has run, the Worker may hold the domain
 already, so the flip guard refuses the re-plan: a Worker that holds its production host
@@ -1636,7 +1649,8 @@ header and `content-type: text/html`; Pages sends `access-control-allow-origin: 
    refuses while another Pages project lists the host or the zone holds any record that
    could route it but its CNAME to `<project>.pages.dev` (TXT, MX and CAA records stay
    and do not count), then puts back whichever of that CNAME and the Pages project's
-   domain is missing. Pages re-validates and issues the certificate, which takes minutes.
+   domain is missing: after a detach, the domain alone. Pages re-validates and issues the
+   certificate, which takes minutes.
 3. Revert the flip pull request, if step 1 did not, so the mode is `staged` again and no
    release tries to attach the domain. Until it merges, every release that ships the
    site's stack fails `alchemy-plan`'s precheck (the host is on Pages while the mode says
@@ -1667,42 +1681,59 @@ the current build to Pages before the attach job puts the host back.
 #### Rehearse the move on dev first
 
 What a flip depends on, only Cloudflare can answer: what `scripts/pages-domain.ts`'s
-reach check reads, what Cloudflare does when a Worker custom domain is attached right
-after the host's Pages domain and CNAME go, how long the host is unreachable, and
-whether `attach` brings the Pages site back and how long that takes. **Domain move
+reach check reads, what Cloudflare does when a Worker custom domain replaces the CNAME
+the detach kept, whether the zone holds a record for the host throughout, how long the
+host is unreachable, and whether `attach` brings the Pages site back and how long that
+takes. **Domain move
 rehearsal** answers them on the dev account, with the same code and job shape a flip
 release uses ([[infrastructure-as-code#The domain move rehearsal]]):
 
 1. Make sure the dev deploy token, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, holds
    `Cloudflare Pages: Edit` on the dev account; the rehearsal makes every Cloudflare call
    with it ([[dev-environment#Two accounts, two Environments]]).
-2. From the Actions tab, dispatch **Domain move rehearsal** on `main`. It asks no approval: the
-   `dev` Environment has no reviewer. Each wait for Cloudflare gives up after 15 minutes
-   (a Worker) or 20 (a Pages domain), and the watch job after two hours.
+2. From the Actions tab, dispatch **Domain move rehearsal** on `main`, with `hold_minutes`
+   (0 to 15, default 10): how long the host stays detached before the flip's deploy, in
+   place of step 4's approval wait. It asks no approval: the `dev` Environment has no
+   reviewer. Each wait for Cloudflare gives up after 15 minutes (a Worker) or 20 (a Pages
+   domain), and the watch job after 150 minutes.
 3. Read the run summary, then the `domain-move-rehearsal-attempt-1` artifact
-   (`domain-move-rehearsal.json`). Its `intervals` hold the numbers; each step's
-   fragment holds every Cloudflare answer it got, the DNS records and Worker custom
-   domains at the two hosts whole.
+   (`domain-move-rehearsal.json`). Its `verdict` says whether the zone held a record for
+   the host at every read, and the report job fails when it did not; its `intervals`
+   hold the numbers; each step's fragment holds every Cloudflare answer it got, the DNS
+   records and Worker custom domains at the two hosts whole.
 
 | Question | Where the artifact answers it |
 |---|---|
 | What the reach check reads | `fragments.preflight.calls`: `GET /accounts` and `GET /zones`, for the dev deploy token. That token holds more grants than `CLOUDFLARE_PAGES_DNS_TOKEN`, so this shows how an account API token scoped to one zone answers both listings, not the production token's own answer |
-| What Cloudflare does when the Worker takes the host | `fragments.flip`: the Worker's custom domains and both hosts' records, read every 6 s while Alchemy deploys; `workerDomainListedMs`. Alchemy retries a `HostnameAlreadyInUse` conflict for 16 s without logging it, so a conflict it got past shows only as that time |
+| What Cloudflare does when the Worker takes the host | `fragments.flip`: the Worker's custom domains and both hosts' records, read every 6 s while Alchemy deploys; `workerDomainListedMs`; from the moved host's reads, `hostRecordReads` (how many answered), `cnameReplacedAt` (the first showing the Worker's record and no CNAME) and `hostRecordlessAt` (the first showing no record that routes it, which fails the run). Alchemy's `putDomain`, and the patch's replacing PUT, each retry a 100116 conflict for 16 s without logging it, so a conflict they got past shows only as that time |
+| Whether the zone held a record for the host | `zoneRecordGapMs` (null on a pass), `zoneMaxSpacingMs`, `zoneSamples` and `zoneFailedReads`, over the detach to the flip's first Worker answer, from `fragments.watch.zone`: the dev zone's own name servers asked for the host's A and AAAA every 2 s, one entry per sample |
 | How the precheck reads a flipped host | `fragments.check.state`, which must be `free`, and the records it read |
-| How long the host is unreachable | `edgeGapMs` (at Cloudflare's edge) and `clientDnsGapMs` (as the runner's resolver sees it: a visitor who looks the host up during the gap can keep the negative answer longer) |
+| How long the host is unreachable | `edgeGapMs` (at Cloudflare's edge) and `clientDnsGapMs` (as the runner's resolver sees it, which can answer from its cache, so a null here does not show the zone held a record) |
 | Whether `attach` restores Pages, and how long it takes | `rollbackMs`, `pagesServingMs` and `pagesDomainActiveMs` |
+
+The report fails the run unless the watch found the zone's name servers; the window from
+the detach to the flip's first Worker answer holds a sample; no sample in it was a gap
+(both answers NXDOMAIN or NODATA); no 12 s in it passed without a read that answered;
+fewer than a tenth of its reads failed; and the flip's API reads of the host's records
+answered at least once and never showed it bare. One runner asks along one anycast path
+every 2 s, so a pass shows no gap of 2 s or more, and cannot prove the swap atomic.
 
 The rehearsal moves `domain-move.<DEV_DOMAIN>`, a host one label under its zone, as
 cire vendor and cire host are. It does not rehearse an apex (cire landing,
-`musubi.social`), and its gap leaves out the approval wait before step 4. A failed step
-fails the run, and its cleanup jobs still remove what it made; a re-run attempt refuses,
-so dispatch a new run. A rerun reproduces the artifact's shape, verdicts and exit codes;
-the timings differ.
+`musubi.social`). The provider patch refuses an apex that holds any record beside its
+CNAME unless `OSN_WORKER_DOMAIN_REPLACE_ALLOW_APEX=1`, which nothing sets, and the
+precheck and the verify job refuse the same apex, so those two flips wait for a rehearsal
+on `DEV_DOMAIN`'s apex. A failed step fails the run, and its cleanup jobs still remove
+what it made; a re-run attempt refuses, so dispatch a new run. A rerun reproduces the
+artifact's shape, verdicts and exit codes; the timings differ.
 
 ##### What the first run measured
 
 [Run 42190767065](https://github.com/englishstreetventures/osn/actions/runs/42190767065), on
-`main` at `a28e0175b`, every job green. Times are UTC, 2026-11-06.
+`main` at `a28e0175b`, every job green. Times are UTC, 2026-11-06. That run's detach
+deleted the host's CNAME, and its watch asked no name server of the zone; the detach now
+keeps the CNAME, so the flip and gap rows below are not what a flip does now. A run with
+the zone view replaces them.
 
 | Step | Ran | What Cloudflare answered |
 |---|---|---|
@@ -1722,8 +1753,9 @@ The move, as the watch job saw the edge every 2 s:
 - From 08:57:30 it served the Worker on every request until the unflip.
 - `edgeGapMs` is 21,196: the last steady Pages answer to the first Worker answer. `gapMs`
   is 29,486: the detach to the flip's first Worker answer.
-- The runner's resolver answered the host throughout (`clientDnsGapMs` is null), so the
-  gap was at Cloudflare's edge, not in DNS.
+- The runner's resolver answered the host throughout (`clientDnsGapMs` is null), but
+  that shows nothing about the zone: the resolver can answer from its cache, and the run
+  did not ask the zone's own name servers, which the zone view now does.
 
 The rollback:
 
@@ -1750,7 +1782,8 @@ What it means for the first move, `vendor.cireweddings.com`:
 
 - Pages keeps serving for some seconds after step 3's detach, then the host serves no site
   until step 4's deploy attaches the Worker. So the approval of step 4 and that job's
-  install, state check and plan are downtime, which the rehearsal does not include.
+  install, state check and plan are downtime, for which the rehearsal's hold job stands
+  in. The host keeps its CNAME through that wait, so it resolves throughout.
   Once the deploy runs, expect about 30 s of mixed answers (the Pages site, the Worker,
   and Cloudflare's 530 and 522 pages) before the Worker serves every request.
 - A rollback is the slow path: about 4 minutes from the unflip's deploy to the Pages site,
