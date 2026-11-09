@@ -111,7 +111,17 @@ Organisations are independent entities that are **composed of profiles, not acco
 | `id` | `text PK` | `orgm_` prefix |
 | `organisationId` | `text FK → organisations.id` | |
 | `profileId` | `text FK → users.id` | The member's profile |
-| `role` | `admin \| member` | |
+| `role` | `admin \| member` | The database refuses any other value: see below |
+
+**The role at the database.** Two triggers, `organisation_members_role_known` (insert) and `organisation_members_role_known_update` (update of `role`), refuse any role but `admin` or `member` with the message `organisation member role is not admin or member`, whoever writes it. Migration [`20261107024712_organisation_member_role_check.sql`](../../osn/db/drizzle/20261107024712_organisation_member_role_check.sql) creates them. Drizzle cannot declare a trigger, so [`osn/db/src/triggers.ts`](../../osn/db/src/triggers.ts) copies them into every test database (`applySchema`) and into the local file `db:push` builds; see [[testing-patterns#Schema-derived test databases]].
+
+The migration ends by stopping if a stored row already holds another role; it rewrites nothing, since mapping or deleting such a row changes who can act for an organisation. If it stops, a later migration cannot fix it: wrangler and Alchemy apply files in name order and stop at the first that fails, so every release that applies osn migrations stops at "Apply osn D1 migrations (remote prod)" before the Worker deploys (the running Worker keeps serving), and on dev every musubi stack deploy fails. Recover in this order:
+
+1. The owner counts the rows on the database that stopped, under their own Cloudflare login; an agent never runs it. It reads counts only, never rows. On production: `cd osn/api && bunx wrangler d1 execute osn-db-prod --remote --env production --command "SELECT count(*) FROM organisation_members WHERE role NOT IN ('admin', 'member')"`.
+2. The owner decides whether each such row becomes `member` or `admin`, or is deleted. It is a permission decision.
+3. The owner writes that change on the same database with `wrangler d1 execute`, and the next release applies the file unchanged. Each row changed or deleted is an admin action on user data: record it per [[access-control#Internal admin actions on user data]] (row count, the decision, who made it and when).
+
+Never rewrite the file to recover. By then `osn-db-dev` has almost always applied it, since a merge deploys dev at once, and Alchemy refuses an applied file whose bytes changed ([[infrastructure-as-code#Migrations]]).
 
 **Key invariants:**
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.

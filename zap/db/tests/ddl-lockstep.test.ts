@@ -237,7 +237,7 @@ describe("Zap DDL lockstep", () => {
     expect(emitted[table]?.foreignKeys).toEqual(migrated[table].foreignKeys);
   });
 
-  // osn has no CHECK constraints, triggers or views today. Pinned as empty so
+  // zap has no CHECK constraints, triggers or views today. Pinned as empty so
   // the migration that introduces the first one can't skip the emitter.
   it("has no CHECK constraints, triggers or views on either surface", () => {
     const nonTableObjects = (db: Database): string[] =>
