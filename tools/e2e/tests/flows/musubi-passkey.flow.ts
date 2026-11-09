@@ -37,8 +37,9 @@ const ada = PEOPLE.musubi;
 /** Where `@osn/client` keeps the stored account: never a token. */
 const ACCOUNT_KEY = "@osn/client:account_session";
 
-/** The stored account: whether a session is held and the profile the page is on, nothing else. */
-const STORED_ACCOUNT = /^\{"hasSession":true,"activeProfileId":"usr_[a-z0-9_]+"\}$/;
+/** The stored account: whether a session is held, the profile the page is on and the sign-in's id, nothing else. */
+const STORED_ACCOUNT =
+  /^\{"hasSession":true,"activeProfileId":"usr_[a-z0-9_]+","signInId":"[0-9a-f-]{36}"\}$/;
 
 /** A JSON Web Token, as any access or ID token osn-api issues is written. */
 const JWT = /eyJ[\w-]+\.[\w-]+\./;
@@ -293,7 +294,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     false,
     (await storedValues()).some((v) => JWT.test(v)),
   );
-  flow.check("still the stored account's two fields", true, STORED_ACCOUNT.test(signedInAccount));
+  flow.check("still the stored account's three fields", true, STORED_ACCOUNT.test(signedInAccount));
 
   const refusedGrantsBefore = flow.count("POST osn-api /token 400");
   const sentBefore = sum(securityGets());

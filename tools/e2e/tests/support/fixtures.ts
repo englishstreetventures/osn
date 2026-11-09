@@ -84,6 +84,32 @@ async function standInForCireHub(ctx: BrowserContext, seen: HubStandInLog): Prom
   });
 }
 
+/**
+ * Hands each `securitypolicyviolation` event to `__e2eCspViolation`, with the
+ * document it happened in. The event is the browser's own record of a
+ * refusal, whichever script caused it, so a refusal a cross-origin script
+ * meets on a Musubi page is filed under the Musubi page.
+ */
+const CSP_VIOLATION_REPORTER = `document.addEventListener("securitypolicyviolation", function (e) {
+  if (typeof window.__e2eCspViolation !== "function") return;
+  window.__e2eCspViolation({
+    documentURI: e.documentURI,
+    directive: e.effectiveDirective,
+    blockedURI: e.blockedURI,
+    sourceFile: e.sourceFile,
+    disposition: e.disposition,
+  });
+});`;
+
+/** One `securitypolicyviolation` event, as the reporter hands it over. */
+interface CspViolation {
+  readonly documentURI: string;
+  readonly directive: string;
+  readonly blockedURI: string;
+  readonly sourceFile: string;
+  readonly disposition: string;
+}
+
 /** Where the Turnstile stand-in's widget frame loads from: Turnstile's own host. */
 const TURNSTILE_FRAME = `${TURNSTILE_ORIGIN}/e2e-stand-in/frame`;
 
@@ -167,9 +193,10 @@ export interface Flow {
   /** How many times the Turnstile stand-in has served its script and its frame. */
   turnstileServed(): { readonly script: number; readonly frame: number };
   /**
-   * Every message a page whose address starts with `origin` has logged about
-   * its Content-Security-Policy so far — a blocked script, frame or
-   * connection, enforced or report-only — as `<page path>: <message>`.
+   * Every Content-Security-Policy refusal so far in a document whose address
+   * starts with `origin` — a blocked script, frame or connection, enforced or
+   * report-only, whatever script caused it — as `<page path>: <message>`,
+   * from the browser's violation event and from its console line.
    */
   cspMessages(origin: string): readonly string[];
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
@@ -214,12 +241,20 @@ export const test = base.extend<{ flow: Flow; envelope: boolean; turnstile: bool
         const line = requestLine(request.method(), request.url(), response.status(), API_LABELS);
         if (line) lines.push(line);
       });
-      // The browser logs every policy refusal to the console, whatever the
-      // page's own code does with it.
+      // Every refusal twice over: the browser's own violation event, filed
+      // under the document it happened in, and the console line the browser
+      // logs, filed under the page that logged it.
+      await ctx.exposeBinding("__e2eCspViolation", (_source, report: CspViolation) => {
+        csp.push({
+          url: report.documentURI,
+          text: `${report.disposition} ${report.directive} refused ${report.blockedURI || "inline"} (from ${report.sourceFile || "the document"})`,
+        });
+      });
+      await ctx.addInitScript(CSP_VIOLATION_REPORTER);
       ctx.on("console", (message) => {
         const text = message.text();
         if (!/Content[- ]Security[- ]Policy/i.test(text)) return;
-        csp.push({ url: message.location().url || (message.page()?.url() ?? ""), text });
+        csp.push({ url: message.page()?.url() || message.location().url, text });
       });
       await standInForCireHub(ctx, hub);
       if (standIn) await standInForTurnstile(ctx, turnstile);
