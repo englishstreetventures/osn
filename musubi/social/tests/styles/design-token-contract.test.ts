@@ -58,6 +58,30 @@ describe("design-token contract", () => {
     expect(failures.map((f) => `[${f.scope}] ${f.fg} on ${f.bg} — ${f.reason}`)).toEqual([]);
   });
 
+  it("holds danger ink to 4.5:1 on the grounds an error line sits on", () => {
+    // The contract measures `--ui-danger` only as a fill, but every error line
+    // and the shell's failed-load lines paint it as text. On the page, a card
+    // and a popover it clears the floor in both themes. On `--muted` and
+    // `--secondary` it does not in light (4.34:1), so no error line sits on
+    // them, nor on the warn wash.
+    const grounds = [
+      "--ui-ground",
+      "--ui-surface",
+      "--ui-surface-raised",
+      "--ui-ground-deep",
+      "--ui-surface-sunk",
+    ];
+    const failures = checkContractConformance({
+      css: CSS,
+      scopes: SCOPES,
+      pairs: grounds.map((bg) => ({ fg: "--ui-danger", bg, min: 4.5 })),
+    });
+    expect(failures.map((f) => `[${f.scope}] ${f.fg} on ${f.bg}`)).toEqual([
+      "[light] --ui-danger on --ui-ground-deep",
+      "[light] --ui-danger on --ui-surface-sunk",
+    ]);
+  });
+
   it("imports the contract stylesheet, or none of the above is loaded at all", () => {
     // Without the import the mapping below is a block of custom properties no
     // utility reads, and this file would assert happily about a contract the

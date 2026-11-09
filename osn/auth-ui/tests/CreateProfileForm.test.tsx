@@ -21,6 +21,7 @@ vi.mock("@shared/toast", () => ({
 import { toast } from "@shared/toast";
 
 import { CreateProfileForm } from "../src/CreateProfileForm";
+import { DETAILS, WAIT, alertsText, apiError } from "./helpers/errors";
 
 describe("CreateProfileForm", () => {
   beforeEach(() => {
@@ -189,17 +190,30 @@ describe("CreateProfileForm", () => {
     expect(toast.success).toHaveBeenCalledWith("Profile @alice created");
   });
 
-  it("shows error toast on createProfile failure", async () => {
-    hoisted.createProfile.mockRejectedValue(new Error("Handle taken"));
+  it.each([
+    ["a refusal", apiError("PLANTED Handle taken"), DETAILS, "true"],
+    ["a 429", apiError("PLANTED-429", 429, "rate_limited"), WAIT, null],
+  ])(
+    "shows %s inline, tied to the handle, and raises no error toast",
+    async (_, error, sentence, invalid) => {
+      hoisted.createProfile.mockRejectedValue(error);
 
-    render(() => <CreateProfileForm />);
-    fireEvent.input(screen.getByLabelText(/Handle/), { target: { value: "taken" } });
-    fireEvent.click(screen.getByRole("button", { name: /Create profile/i }));
+      render(() => <CreateProfileForm />);
+      fireEvent.input(screen.getByLabelText(/Handle/), { target: { value: "taken" } });
+      fireEvent.click(screen.getByRole("button", { name: /Create profile/i }));
 
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Handle taken");
-    });
-  });
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(sentence));
+      const alert = screen.getByRole("alert");
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(toast.error).not.toHaveBeenCalled();
+      const field = screen.getByLabelText(/Handle/);
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      expect(field.getAttribute("aria-invalid")).toBe(invalid);
+      // Above the submit, so it is read before the button again.
+      const submit = screen.getByRole("button", { name: /Create profile/i });
+      expect(alert.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    },
+  );
 
   it("calls onCancel when cancel button is clicked", () => {
     const onCancel = vi.fn();

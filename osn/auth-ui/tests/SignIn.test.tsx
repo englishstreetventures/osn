@@ -29,8 +29,17 @@ vi.mock("@shared/toast", () => ({
 }));
 
 import type { LoginClient, RecoveryClient } from "@osn/client";
+import { toast } from "@shared/toast";
 
 import { SignIn } from "../src/SignIn";
+import {
+  CHECK_FAILED,
+  WAIT,
+  PASSKEY_NOT_USED,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
 
 interface LoginStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
@@ -121,10 +130,10 @@ describe("SignIn component", () => {
       });
     });
 
-    it("surfaces errors from passkeyComplete and doesn't adopt a session", async () => {
+    it("shows the map's sentence for a refused passkey, never the error's text, and adopts nothing", async () => {
       login.passkeyBegin.mockResolvedValue({ options: {} });
       hoisted.startAuthentication.mockResolvedValue({ id: "cred" });
-      login.passkeyComplete.mockRejectedValue(new Error("Passkey verification failed"));
+      login.passkeyComplete.mockRejectedValue(apiError("PLANTED-signin-complete"));
 
       render(() => (
         <SignIn
@@ -136,10 +145,106 @@ describe("SignIn component", () => {
       fillIdentifier("alice");
       fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
 
-      await waitFor(() => {
-        expect(screen.getByText(/Passkey verification failed/)).toBeTruthy();
-      });
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("We couldn't verify that passkey. Try again.");
+      expect(document.body.textContent).not.toContain("PLANTED");
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("error line", () => {
+    function mount() {
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
+    }
+
+    async function submitAndFail(error: Error) {
+      login.passkeyBegin.mockRejectedValue(error);
+      mount();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+      return screen.findByRole("alert");
+    }
+
+    it.each([
+      ["a 400", apiError("PLANTED-signin-400"), "We couldn't verify that passkey. Try again."],
+      ["a 429", apiError("PLANTED-signin-429", 429, "rate_limited"), WAIT],
+      [
+        "a 503",
+        apiError("PLANTED-signin-503", 503, "temporarily_unavailable"),
+        "Something went wrong on our side. Try again.",
+      ],
+    ])("reads %s as the map's sentence, never its text", async (_, error, sentence) => {
+      const alert = await submitAndFail(error);
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+    });
+
+    it("ties the line to the identifier field", async () => {
+      const alert = await submitAndFail(apiError("PLANTED-signin-tie"));
+      const field = screen.getByLabelText(/Email or @handle/);
+      expect(alert.id).not.toBe("");
+      expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+      // A 400 refused what was typed.
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+    });
+
+    it.each([
+      ["a 429", apiError("PLANTED-signin-429", 429, "rate_limited"), WAIT],
+      [
+        "a failed verification check",
+        apiError("PLANTED-signin-turnstile", 400, "turnstile_failed"),
+        CHECK_FAILED,
+      ],
+    ])(
+      "does not mark the field invalid for %s, where nothing typed was wrong",
+      async (_, error, sentence) => {
+        const alert = await submitAndFail(error);
+        expect(alert.textContent).toContain(sentence);
+        expect(alertsText()).not.toContain("PLANTED");
+        const field = screen.getByLabelText(/Email or @handle/);
+        expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+        expect(field.getAttribute("aria-invalid")).toBeNull();
+      },
+    );
+
+    it("raises no error toast", async () => {
+      vi.mocked(toast.error).mockClear();
+      await submitAndFail(apiError("PLANTED-signin-toast"));
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("keeps a way out beside a refused passkey", async () => {
+      login.passkeyBegin.mockResolvedValue({ options: {} });
+      hoisted.startAuthentication.mockRejectedValue(
+        ceremonyError("NotAllowedError", "PLANTED https://www.w3.org/TR/webauthn-2/"),
+      );
+      mount();
+      fillIdentifier("alice");
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(PASSKEY_NOT_USED);
+      expect(alert.textContent).not.toContain("PLANTED");
+      const way = alert.querySelector("button");
+      expect(way?.textContent).toBe("Lost your passkey?");
+      expect(way?.getAttribute("type")).toBe("button");
+      fireEvent.click(way!);
+      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
+    });
+
+    it("leaves no sign-in error under the recovery form", async () => {
+      await submitAndFail(apiError("PLANTED-signin-switch"));
+      // The standalone link below Continue.
+      const links = screen.getAllByRole("button", { name: /Lost your passkey/i });
+      fireEvent.click(links[links.length - 1]!);
+      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
+      expect(screen.queryByRole("alert")).toBeNull();
     });
   });
 
@@ -271,6 +376,43 @@ describe("SignIn component", () => {
       const secondToken = login.passkeyBegin.mock.calls[1]![1] as string;
       expect(secondToken).not.toBe("tok-1");
       await waitFor(() => expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession));
+    });
+
+    // The server checks the token before it answers, so a refused begin has
+    // spent it too. Retrying with it would earn `turnstile_failed`.
+    it("asks for a fresh token when begin itself is refused, and waits for it", async () => {
+      let cb: ((token: string) => void) | undefined;
+      const reset = vi.fn();
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+        render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+          cb = opts.callback;
+          cb?.("tok-1");
+          return "widget-1";
+        }),
+        reset,
+        remove: vi.fn(),
+      };
+      login.passkeyBegin.mockRejectedValueOnce(apiError("PLANTED-begin", 400, "invalid_request"));
+
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
+          productName="Musubi"
+        />
+      ));
+      fillIdentifier("alice");
+      const button = () => screen.getByRole("button", { name: /^Continue$/ }) as HTMLButtonElement;
+      await waitFor(() => expect(button().disabled).toBe(false));
+
+      fireEvent.click(button());
+      await screen.findByRole("alert");
+      expect(reset).toHaveBeenCalledWith("widget-1");
+      expect(button().disabled).toBe(true);
+
+      cb?.("tok-2");
+      await waitFor(() => expect(button().disabled).toBe(false));
     });
   });
 

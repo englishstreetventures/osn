@@ -1,6 +1,9 @@
-import type { SessionsClient, SessionSummary } from "@osn/client";
+import { describeAuthError, type SessionsClient, type SessionSummary } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, For, Show } from "solid-js";
+
+import { LoadFailed } from "./LoadFailed";
 
 /**
  * Settings-panel surface for listing and revoking the caller's active
@@ -46,7 +49,7 @@ export function SessionsView(props: SessionsViewProps) {
       await props.client.revoke({ id });
       setReloadKey((k) => k + 1);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to revoke session");
+      setError(describeAuthError(e));
     } finally {
       setBusy(false);
     }
@@ -62,7 +65,7 @@ export function SessionsView(props: SessionsViewProps) {
       await props.client.revokeAllOther();
       setReloadKey((k) => k + 1);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to revoke other sessions");
+      setError(describeAuthError(e));
     } finally {
       setBusy(false);
     }
@@ -76,11 +79,27 @@ export function SessionsView(props: SessionsViewProps) {
           Sign out everywhere else
         </Button>
       </div>
-      <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
+      <Show when={error()}>
+        {(msg) => (
+          <Notice tone="danger" size="inline" alert>
+            {msg()}
+          </Notice>
+        )}
+      </Show>
       <Show when={sessions.loading}>
         <p class="text-muted-foreground text-sm">Loading…</p>
       </Show>
-      <Show when={sessions()}>
+      {/* Read before the list: a failed resource throws when read. */}
+      <Show when={!sessions.loading && sessions.error}>
+        {(err) => (
+          <LoadFailed
+            lead="Your sessions didn't load."
+            error={err()}
+            onRetry={() => setReloadKey((k) => k + 1)}
+          />
+        )}
+      </Show>
+      <Show when={!sessions.error && sessions()}>
         {(list) => (
           <ul class="flex flex-col gap-2">
             <For each={list()}>

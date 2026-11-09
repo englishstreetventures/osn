@@ -1,10 +1,12 @@
-import type {
-  SecurityEventsClient,
-  SecurityEventSummary,
-  StepUpClient,
-  TotpClient,
+import {
+  describeAuthError,
+  type SecurityEventsClient,
+  type SecurityEventSummary,
+  type StepUpClient,
+  type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
@@ -123,7 +125,7 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
       });
       setLocalRemovedAll(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to acknowledge events");
+      setError(describeAuthError(e));
     } finally {
       setBusy(false);
     }
@@ -132,32 +134,42 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
   return (
     <>
       <Show when={visibleEvents().length > 0}>
-        <div class="border-ui-warn/40 bg-ui-warn/10 flex flex-col gap-2 rounded-md border p-3">
-          <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
-          <For each={visibleEvents()}>
-            {(event: SecurityEventSummary) => (
-              <div class="flex flex-col gap-0.5">
-                <span class="font-medium">{headlineFor(event.kind, props.productName)}</span>
-                <span class="text-muted-foreground text-xs">
-                  {formatTs(event.createdAt)}
-                  <Show when={event.uaLabel}> · {event.uaLabel}</Show>
-                </span>
-              </div>
+        {/* The error sits on the page ground, never on the warn wash: danger ink
+            on the wash falls under the 4.5:1 text floor in light. */}
+        <div class="flex flex-col gap-2">
+          <Show when={error()}>
+            {(msg) => (
+              <Notice tone="danger" size="inline" alert>
+                {msg()}
+              </Notice>
             )}
-          </For>
-          <span class="text-muted-foreground text-xs">
-            If you don't recognise this, review your active sessions and rotate your credentials.
-            Acknowledging requires a fresh passkey or OTP check.
-          </span>
-          <div class="flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setStepUpOpen(true)}
-              disabled={busy()}
-            >
-              Acknowledge
-            </Button>
+          </Show>
+          <div class="border-ui-warn/40 bg-ui-warn/10 flex flex-col gap-2 rounded-md border p-3">
+            <For each={visibleEvents()}>
+              {(event: SecurityEventSummary) => (
+                <div class="flex flex-col gap-0.5">
+                  <span class="font-medium">{headlineFor(event.kind, props.productName)}</span>
+                  <span class="text-muted-foreground text-xs">
+                    {formatTs(event.createdAt)}
+                    <Show when={event.uaLabel}> · {event.uaLabel}</Show>
+                  </span>
+                </div>
+              )}
+            </For>
+            <span class="text-muted-foreground text-xs">
+              If you don't recognise this, review your active sessions and rotate your credentials.
+              Acknowledging requires a fresh passkey or OTP check.
+            </span>
+            <div class="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStepUpOpen(true)}
+                disabled={busy()}
+              >
+                Acknowledge
+              </Button>
+            </div>
           </div>
         </div>
       </Show>

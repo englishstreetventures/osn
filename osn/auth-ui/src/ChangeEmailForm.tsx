@@ -1,7 +1,15 @@
-import type { AccountClient, StepUpClient, StepUpToken } from "@osn/client";
+import {
+  describeAuthError,
+  type AccountClient,
+  type StepUpClient,
+  type StepUpToken,
+} from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
-import { createSignal, Show } from "solid-js";
+import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
+import { createSignal, createUniqueId, Show } from "solid-js";
 
+import { fieldError, type FieldError } from "./error-lines";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
@@ -32,7 +40,11 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
   const [code, setCode] = createSignal("");
   const [stepUp, setStepUp] = createSignal<StepUpToken | null>(null);
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  // Each phase's line sits under its one field, tied to it.
+  const [error, setError] = createSignal<FieldError | null>(null);
+  const emailId = createUniqueId();
+  const codeId = createUniqueId();
+  const errorId = createUniqueId();
 
   async function begin() {
     setBusy(true);
@@ -43,7 +55,7 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
       });
       setPhase("enter_code");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start email change");
+      setError(fieldError(describeAuthError(e, "details"), e));
     } finally {
       setBusy(false);
     }
@@ -64,27 +76,45 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
       setPhase("done");
       props.onChanged?.(result.email);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not complete email change");
+      setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
       setBusy(false);
     }
   }
 
+  /** The phase's error line, under its field. */
+  const errorLine = () => (
+    <Show when={error()}>
+      {(line) => (
+        <Notice tone="danger" size="inline" alert id={errorId}>
+          {line().text}
+        </Notice>
+      )}
+    </Show>
+  );
+  /** For the phase's field: names the line, and marks a refused input. */
+  const tie = () => ({
+    "aria-describedby": error() ? errorId : undefined,
+    "aria-invalid": error()?.invalid || undefined,
+  });
+
   return (
     <div class="flex flex-col gap-3">
       <h2 class="text-lg font-semibold">Change email</h2>
-      <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
 
       <Show when={phase() === "enter_email"}>
-        <label class="flex flex-col gap-1 text-sm">
-          New email
+        <div class="flex flex-col gap-1">
+          <Label for={emailId}>New email</Label>
           <input
+            id={emailId}
             type="email"
-            class="bg-background rounded-md border px-3 py-2"
+            class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2"
             value={newEmail()}
             onInput={(e) => setNewEmail(e.currentTarget.value)}
+            {...tie()}
           />
-        </label>
+          {errorLine()}
+        </div>
         <Button onClick={begin} disabled={busy() || !newEmail()}>
           Send verification code
         </Button>
@@ -94,16 +124,19 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
         <p class="text-muted-foreground text-sm">
           We sent a 6-digit code to {newEmail()}. Enter it below to continue.
         </p>
-        <label class="flex flex-col gap-1 text-sm">
-          Code
+        <div class="flex flex-col gap-1">
+          <Label for={codeId}>Code</Label>
           <input
+            id={codeId}
             inputmode="numeric"
             maxLength={6}
-            class="bg-background rounded-md border px-3 py-2 font-mono tracking-widest"
+            class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
             value={code()}
             onInput={(e) => setCode(e.currentTarget.value)}
+            {...tie()}
           />
-        </label>
+          {errorLine()}
+        </div>
         <Button onClick={complete} disabled={busy() || code().length !== 6}>
           Confirm identity &amp; change email
         </Button>

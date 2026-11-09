@@ -100,6 +100,18 @@ describe("checkContractConformance", () => {
     expect(hit?.ratio).toBeLessThan(4.5);
   });
 
+  it("measures the pairs it is given in place of the contract's", () => {
+    // Body ink too light everywhere: the contract's pairs would report it, a
+    // caller's own pair list does not name it.
+    const css = stylesheet({ "--body": "oklch(85% 0 0)", "--bad": "oklch(80% 0.18 25)" });
+    const failures = checkContractConformance({
+      css,
+      scopes: ONE_SCOPE,
+      pairs: [{ fg: "--ui-danger", bg: "--ui-ground", min: 4.5 }],
+    });
+    expect(failures.map((f) => `${f.fg} on ${f.bg}`)).toEqual(["--ui-danger on --ui-ground"]);
+  });
+
   it("measures ink against EVERY ground, not just the page", () => {
     // Legible on white, illegible on the sunk well. The naive version of this
     // check — ink against one ground — reports clean.

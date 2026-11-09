@@ -1,4 +1,4 @@
-import { OrgClientError } from "@osn/client";
+import { describeAuthError, OrgClientError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
@@ -7,6 +7,7 @@ import { Button } from "@shared/ui/ui/button";
 import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
@@ -25,9 +26,9 @@ function statusOf(error: unknown): number | undefined {
 /** A load that failed for a reason other than the ones the page names. */
 function LoadFailure(props: { message: string }) {
   return (
-    <p class="text-destructive text-meta" role="alert">
+    <Notice tone="danger" size="inline" alert>
       {props.message} Reload and try again.
-    </p>
+    </Notice>
   );
 }
 
@@ -94,7 +95,7 @@ export function OrgDetailPage() {
       setShowEdit(false);
       setOrg(organisation);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update");
+      toast.error(`Couldn't save the organisation. ${describeAuthError(err)}`);
     } finally {
       setSaving(false);
     }
@@ -107,7 +108,7 @@ export function OrgDetailPage() {
       toast.success("Organisation deleted");
       navigate("/organisations");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete");
+      toast.error(`Couldn't delete the organisation. ${describeAuthError(err)}`);
     }
   }
 
@@ -120,7 +121,7 @@ export function OrgDetailPage() {
           roster && { members: roster.members.filter((member) => member.handle !== profileHandle) },
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to remove member");
+      toast.error(`Couldn't remove @${profileHandle}. ${describeAuthError(err)}`);
     }
   }
 

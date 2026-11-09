@@ -1,10 +1,14 @@
+import { describeAuthError } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { UsernameInput } from "@shared/ui/ui/username-input";
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, createUniqueId, onCleanup, Show } from "solid-js";
+
+import { fieldError, type FieldError } from "./error-lines";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 
@@ -27,6 +31,9 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
   const [handle, setHandle] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+  // Above the submit, tied to the handle: the only field the server judges.
+  const [error, setError] = createSignal<FieldError | null>(null);
+  const errorId = createUniqueId();
   const [handleStatus, setHandleStatus] = createSignal<
     "idle" | "checking" | "available" | "taken" | "invalid" | "error"
   >("idle");
@@ -80,12 +87,13 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
     e.preventDefault();
     if (!canSubmit()) return;
     setBusy(true);
+    setError(null);
     try {
       const profile = await createProfile(handle(), displayName().trim() || undefined);
       toast.success(`Profile @${profile.handle} created`);
       props.onSuccess?.(profile);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create profile");
+      setError(fieldError(describeAuthError(err, "details"), err));
     } finally {
       setBusy(false);
     }
@@ -103,6 +111,8 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
           status={handleStatus()}
           placeholder="lowercase, numbers, _"
           invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
+          aria-describedby={error() ? errorId : undefined}
+          aria-invalid={error()?.invalid || undefined}
         />
       </div>
 
@@ -115,6 +125,14 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
           onInput={(e) => setDisplayName(e.currentTarget.value)}
         />
       </div>
+
+      <Show when={error()}>
+        {(line) => (
+          <Notice tone="danger" size="inline" alert id={errorId}>
+            {line().text}
+          </Notice>
+        )}
+      </Show>
 
       <div class="flex gap-2">
         <Button type="submit" disabled={!canSubmit()} class="flex-1">

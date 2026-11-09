@@ -1,7 +1,18 @@
-import type { StepUpClient, StepUpPurpose, StepUpToken, TotpClient } from "@osn/client";
+import {
+  describeAuthError,
+  type StepUpClient,
+  type StepUpPurpose,
+  type StepUpToken,
+  type TotpClient,
+} from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
-import { createResource, createSignal, onMount, Show } from "solid-js";
+import { createResource, createSignal, createUniqueId, onMount, Show } from "solid-js";
+
+import { fieldError, inputError, plainError, type FieldError } from "./error-lines";
+import { describePasskeyError } from "./passkey-errors";
 
 /**
  * Runs the browser-side WebAuthn assertion and resolves with the signed
@@ -139,7 +150,12 @@ export function StepUpDialog(props: StepUpDialogProps) {
   const [mode, setMode] = createSignal<Mode>(props.passkeyOnly ? "passkey" : "choose");
   const [code, setCode] = createSignal("");
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  // On the two code steps the line sits under the code field and is tied to
+  // it; on the others, above the factor buttons.
+  const [error, setError] = createSignal<FieldError | null>(null);
+  const errorId = createUniqueId();
+  const codeId = createUniqueId();
+  const onCodeStep = () => mode() === "otp" || mode() === "totp";
 
   // An unbound ceremony names no purpose, so there is no allow-list to look
   // up and the dialog offers what it always has.
@@ -171,7 +187,8 @@ export function StepUpDialog(props: StepUpDialogProps) {
 
   async function startPasskey() {
     if (!props.runPasskeyCeremony) {
-      setError("Passkey ceremony not available in this context");
+      // Retrying cannot help here, so the line offers no retry.
+      setError(plainError("A passkey can't be used here."));
       return;
     }
     setBusy(true);
@@ -185,7 +202,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
       });
       props.onToken(token);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Step-up failed");
+      setError(plainError(describePasskeyError(e, "authentication")));
     } finally {
       setBusy(false);
     }
@@ -198,7 +215,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
       await props.client.otpBegin();
       setMode("otp");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send code");
+      setError(plainError(describeAuthError(e)));
     } finally {
       setBusy(false);
     }
@@ -206,7 +223,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
 
   async function completeOtp() {
     if (code().length !== 6) {
-      setError("Enter the 6-digit code");
+      setError(inputError("Enter the 6-digit code."));
       return;
     }
     setBusy(true);
@@ -218,7 +235,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
       });
       props.onToken(token);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Invalid or expired code");
+      setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
       setBusy(false);
     }
@@ -235,7 +252,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
 
   async function completeTotp() {
     if (code().length !== 6) {
-      setError("Enter the 6-digit code");
+      setError(inputError("Enter the 6-digit code."));
       return;
     }
     setBusy(true);
@@ -247,11 +264,27 @@ export function StepUpDialog(props: StepUpDialogProps) {
       });
       props.onToken(token);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Invalid or expired code");
+      setError(fieldError(describeAuthError(e, "code"), e));
     } finally {
       setBusy(false);
     }
   }
+
+  /** The error line, wherever the step on screen draws it. */
+  const errorLine = () => (
+    <Show when={error()}>
+      {(line) => (
+        <Notice tone="danger" size="inline" alert id={errorId}>
+          {line().text}
+        </Notice>
+      )}
+    </Show>
+  );
+  /** For the code field: names the line, and marks a refused code. */
+  const tie = () => ({
+    "aria-describedby": error() ? errorId : undefined,
+    "aria-invalid": error()?.invalid || undefined,
+  });
 
   return (
     <div class="flex flex-col gap-3 p-4">
@@ -268,13 +301,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       {/* A step-up failure is the reason the user cannot proceed, so it is
           announced rather than left for them to notice. */}
-      <Show when={error()}>
-        {(msg) => (
-          <p class="text-destructive text-sm" role="alert">
-            {msg()}
-          </p>
-        )}
-      </Show>
+      <Show when={!onCodeStep()}>{errorLine()}</Show>
       <Show when={!props.passkeyOnly && mode() === "choose"}>
         <div class="flex flex-col gap-2">
           <Button onClick={startPasskey} disabled={busy()}>
@@ -303,7 +330,9 @@ export function StepUpDialog(props: StepUpDialogProps) {
             </p>
           </Show>
           <Show when={!busy()}>
-            <Button onClick={startPasskey}>{error() ? "Try again" : "Use passkey"}</Button>
+            <Button onClick={startPasskey}>
+              {error() && props.runPasskeyCeremony ? "Try again" : "Use passkey"}
+            </Button>
           </Show>
           {/* An authenticator code needs no delivery, so it survives the
               no-mail mode this dialog was put in. */}
@@ -319,16 +348,19 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "otp"}>
         <div class="flex flex-col gap-2">
-          <label class="flex flex-col gap-1 text-sm">
-            Code
+          <div class="flex flex-col gap-1">
+            <Label for={codeId}>Code</Label>
             <input
-              class="bg-background rounded-md border px-3 py-2 font-mono tracking-widest"
+              id={codeId}
+              class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
               inputmode="numeric"
               maxLength={6}
               value={code()}
               onInput={(e) => setCode(e.currentTarget.value)}
+              {...tie()}
             />
-          </label>
+            {errorLine()}
+          </div>
           <Button onClick={completeOtp} disabled={busy()}>
             Confirm
           </Button>
@@ -339,17 +371,20 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "totp"}>
         <div class="flex flex-col gap-2">
-          <label class="flex flex-col gap-1 text-sm">
-            Code from your authenticator app
+          <div class="flex flex-col gap-1">
+            <Label for={codeId}>Code from your authenticator app</Label>
             <input
-              class="bg-background rounded-md border px-3 py-2 font-mono tracking-widest"
+              id={codeId}
+              class="bg-background aria-[invalid=true]:border-ui-danger rounded-md border px-3 py-2 font-mono tracking-widest"
               inputmode="numeric"
               autocomplete="one-time-code"
               maxLength={6}
               value={code()}
               onInput={(e) => setCode(e.currentTarget.value)}
+              {...tie()}
             />
-          </label>
+            {errorLine()}
+          </div>
           <Button onClick={completeTotp} disabled={busy()}>
             Confirm
           </Button>

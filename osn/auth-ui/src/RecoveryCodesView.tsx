@@ -1,4 +1,10 @@
-import type { RecoveryClient, StepUpClient, StepUpToken, TotpClient } from "@osn/client";
+import {
+  describeAuthError,
+  type RecoveryClient,
+  type StepUpClient,
+  type StepUpToken,
+  type TotpClient,
+} from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import {
   Dialog,
@@ -7,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@shared/ui/ui/dialog";
+import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
@@ -217,7 +224,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
       // No status refetch here: the codes list has replaced the status line,
       // and `acknowledge()` refetches once the user leaves it.
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate recovery codes");
+      setError(describeAuthError(e));
     } finally {
       setBusy(false);
     }
@@ -305,6 +312,13 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                 )}
               </Show>
             </Show>
+            <Show when={error()}>
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              )}
+            </Show>
             <Button onClick={requestGenerate} disabled={locked()}>
               {busy()
                 ? "Generating…"
@@ -316,7 +330,6 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
                     ? "Generate new codes"
                     : "Generate recovery codes"}
             </Button>
-            <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
           </div>
         }
       >

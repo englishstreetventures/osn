@@ -5,6 +5,14 @@ import { render, cleanup, screen, fireEvent, waitFor, within } from "@solidjs/te
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { StepUpDialog } from "../src/StepUpDialog";
+import {
+  CODE,
+  PASSKEY_NOT_USED,
+  WAIT,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
 
 interface ClientStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
@@ -90,9 +98,9 @@ describe("StepUpDialog", () => {
     await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJpk", expiresIn: 300 }));
   });
 
-  it("OTP complete failure surfaces the error message", async () => {
+  it("OTP complete failure shows the code sentence under the code, tied to it", async () => {
     stub.otpBegin.mockResolvedValue({ sent: true });
-    stub.otpComplete.mockRejectedValue(new Error("Invalid or expired code"));
+    stub.otpComplete.mockRejectedValue(apiError("PLANTED Invalid or expired code"));
 
     render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
 
@@ -100,7 +108,76 @@ describe("StepUpDialog", () => {
     const input = await screen.findByRole("textbox");
     fireEvent.input(input, { target: { value: "000000" } });
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-    await waitFor(() => expect(screen.getByText(/Invalid or expired code/)).toBeTruthy());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(CODE);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    // Not inside the label, which may not hold a block.
+    expect(alert.closest("label")).toBeNull();
+  });
+
+  it("a short code is tied to the code field", async () => {
+    stub.otpBegin.mockResolvedValue({ sent: true });
+    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
+    const input = await screen.findByRole("textbox");
+    fireEvent.input(input, { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Enter the 6-digit code");
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+  });
+
+  it("an authenticator code failure shows the code sentence, tied to its field", async () => {
+    stub.totpComplete.mockRejectedValue(apiError("PLANTED-totp", 429, "rate_limited"));
+    render(() => (
+      <StepUpDialog
+        client={asClient(stub)}
+        onToken={() => {}}
+        onCancel={() => {}}
+        totpClient={
+          { status: vi.fn().mockResolvedValue({ enrolled: true }) } as unknown as TotpClient
+        }
+      />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: /Use your authenticator app/ }));
+    const input = await screen.findByRole("textbox");
+    fireEvent.input(input, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+    // Waiting is not a wrong code.
+    expect(input.getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("a passkey failure reads as the signing-in sentence, never the browser's text", async () => {
+    stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
+    const runPasskey = vi
+      .fn()
+      .mockRejectedValue(ceremonyError("NotAllowedError", "PLANTED-stepup"));
+    render(() => (
+      <StepUpDialog
+        client={asClient(stub)}
+        onToken={() => {}}
+        onCancel={() => {}}
+        runPasskeyCeremony={runPasskey}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: /Use passkey/ }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(PASSKEY_NOT_USED);
+    expect(alertsText()).not.toContain("PLANTED");
+  });
+
+  it("with no ceremony runner, says a passkey can't be used here and offers no retry", async () => {
+    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Use passkey/ }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("A passkey can't be used here.");
+    expect(alert.textContent).not.toMatch(/try again/i);
   });
 
   // passkeyOnly: the "Email me a code" OTP factor is hidden entirely. Used by
@@ -133,7 +210,9 @@ describe("StepUpDialog", () => {
 
   it("passkeyOnly: surfaces a retry affordance when the ceremony fails", async () => {
     stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
-    const runPasskey = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    const runPasskey = vi
+      .fn()
+      .mockRejectedValue(ceremonyError("NotAllowedError", "PLANTED-passkey-only"));
 
     render(() => (
       <StepUpDialog
@@ -145,13 +224,14 @@ describe("StepUpDialog", () => {
       />
     ));
 
-    await waitFor(() => expect(screen.getByText(/NotAllowedError/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(PASSKEY_NOT_USED));
+    expect(alertsText()).not.toContain("PLANTED");
     // A retry button is available (passkey factor, not the choose menu).
     expect(screen.getByRole("button", { name: /Try again|Use passkey/i })).toBeTruthy();
   });
 
   it("announces the failure rather than leaving it to be noticed", async () => {
-    stub.otpBegin.mockRejectedValue(new Error("Could not send code"));
+    stub.otpBegin.mockRejectedValue(apiError("PLANTED Could not send code", 429, "rate_limited"));
 
     render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
 
@@ -159,7 +239,8 @@ describe("StepUpDialog", () => {
     // A step-up failure is why the user cannot proceed. Rendering it in a
     // coloured paragraph tells a sighted user only.
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/Could not send code/);
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
   });
 });
 

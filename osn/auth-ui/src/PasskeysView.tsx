@@ -1,14 +1,19 @@
-import type {
-  PasskeysClient,
-  PasskeySummary,
-  StepUpClient,
-  StepUpToken,
-  TotpClient,
+import {
+  describeAuthError,
+  type PasskeysClient,
+  type PasskeySummary,
+  type StepUpClient,
+  type StepUpToken,
+  type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Input } from "@shared/ui/ui/input";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { Notice } from "@shared/ui/ui/notice";
+import { createResource, createSignal, createUniqueId, For, Show } from "solid-js";
 
+import { fieldError, plainError, type FieldError } from "./error-lines";
+import { LoadFailed } from "./LoadFailed";
+import { describePasskeyError } from "./passkey-errors";
 import { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } from "./StepUpDialog";
 
 /**
@@ -86,13 +91,18 @@ export function PasskeysView(props: PasskeysViewProps) {
     const res = await props.client.list();
     return res.passkeys;
   });
-  const [error, setError] = createSignal<string | null>(null);
+  // A refused rename sits under the rename field, tied to it; any other
+  // failure sits under the heading.
+  const [error, setError] = createSignal<(FieldError & { rename: boolean }) | null>(null);
+  const errorId = createUniqueId();
+  const renameError = () => (error()?.rename ? error() : null);
   const [busy, setBusy] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [draftLabel, setDraftLabel] = createSignal("");
   const [pending, setPending] = createSignal<PendingAction | null>(null);
 
   function startEdit(p: PasskeySummary) {
+    setError(null);
     setEditingId(p.id);
     setDraftLabel(p.label ?? "");
   }
@@ -166,13 +176,14 @@ export function PasskeysView(props: PasskeysViewProps) {
       }
       setReloadKey((k) => k + 1);
     } catch (e) {
-      const fallback =
-        action.kind === "rename"
-          ? "Couldn't rename passkey"
-          : action.kind === "delete"
-            ? "Couldn't delete passkey"
-            : "Couldn't add passkey";
-      setError(e instanceof Error ? e.message : fallback);
+      if (action.kind === "rename") {
+        setError({ ...fieldError(describeAuthError(e), e), rename: true });
+      } else if (action.kind === "delete") {
+        setError({ ...plainError(describeAuthError(e)), rename: false });
+      } else {
+        // Adding runs the browser's ceremony between two server calls.
+        setError({ ...plainError(describePasskeyError(e, "registration")), rename: false });
+      }
     } finally {
       setBusy(false);
       setPending(null);
@@ -193,11 +204,27 @@ export function PasskeysView(props: PasskeysViewProps) {
           </Button>
         </Show>
       </div>
-      <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
+      <Show when={!error()?.rename && error()}>
+        {(line) => (
+          <Notice tone="danger" size="inline" alert>
+            {line().text}
+          </Notice>
+        )}
+      </Show>
       <Show when={passkeys.loading}>
         <p class="text-muted-foreground text-sm">Loading…</p>
       </Show>
-      <Show when={passkeys()}>
+      {/* Read before the list: a failed resource throws when read. */}
+      <Show when={!passkeys.loading && passkeys.error}>
+        {(err) => (
+          <LoadFailed
+            lead="Your passkeys didn't load."
+            error={err()}
+            onRetry={() => setReloadKey((k) => k + 1)}
+          />
+        )}
+      </Show>
+      <Show when={!passkeys.error && passkeys()}>
         {(list) => (
           <ul class="flex flex-col gap-2">
             <For each={list()}>
@@ -221,6 +248,9 @@ export function PasskeysView(props: PasskeysViewProps) {
                           value={draftLabel()}
                           maxLength={64}
                           onInput={(e) => setDraftLabel(e.currentTarget.value)}
+                          aria-label="Passkey name"
+                          aria-describedby={renameError() ? errorId : undefined}
+                          aria-invalid={renameError()?.invalid || undefined}
                         />
                         <Button
                           variant="outline"
@@ -234,6 +264,13 @@ export function PasskeysView(props: PasskeysViewProps) {
                           Cancel
                         </Button>
                       </div>
+                      <Show when={renameError()}>
+                        {(line) => (
+                          <Notice tone="danger" size="inline" alert id={errorId}>
+                            {line().text}
+                          </Notice>
+                        )}
+                      </Show>
                     </Show>
                     <span class="text-muted-foreground text-xs">
                       Added {formatTs(Math.floor(p.createdAt))} · Last used {formatTs(p.lastUsedAt)}

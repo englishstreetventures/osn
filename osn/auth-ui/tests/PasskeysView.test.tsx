@@ -1,9 +1,23 @@
 // @vitest-environment happy-dom
-import type { PasskeysClient, StepUpClient, StepUpToken } from "@osn/client";
+import {
+  AuthExpiredError,
+  type PasskeysClient,
+  type StepUpClient,
+  type StepUpToken,
+} from "@osn/client";
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { PasskeysView } from "../src/PasskeysView";
+import {
+  INPUT,
+  PASSKEY_NOT_ADDED,
+  SERVER,
+  WAIT,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
 
 /**
  * Settings → Passkeys view. Covers the orchestration logic that
@@ -241,9 +255,9 @@ describe("PasskeysView", () => {
     expect(pk.delete).not.toHaveBeenCalled();
   });
 
-  it("surfaces rename errors in a destructive banner", async () => {
+  it("shows a refused rename under the rename field, tied to it, never the error's text", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    pk.rename.mockRejectedValue(new Error("Passkey not found"));
+    pk.rename.mockRejectedValue(apiError("PLANTED Passkey not found"));
     armPasskeyStepUp(su);
 
     render(() => (
@@ -262,7 +276,76 @@ describe("PasskeysView", () => {
     // Drive the step-up to actually fire the rename call.
     await useThePasskeyFactor();
 
-    await waitFor(() => expect(screen.getByText(/Passkey not found/)).toBeTruthy());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(INPUT);
+    expect(alertsText()).not.toContain("PLANTED");
+    const field = screen.getByDisplayValue("New label");
+    expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("reads a refused delete as the map's sentence", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    pk.delete.mockRejectedValue(apiError("PLANTED-delete", 429, "rate_limited"));
+    armPasskeyStepUp(su);
+    window.confirm = () => true;
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        runPasskeyCeremony={runPasskeyCeremony}
+      />
+    ));
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await useThePasskeyFactor();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
+  });
+
+  describe("a list that fails to load", () => {
+    it("says so with a Try again that reloads it, and keeps the view", async () => {
+      pk.list
+        .mockRejectedValueOnce(apiError("PLANTED-list", 500, "internal_error"))
+        .mockResolvedValueOnce({ passkeys: passkeyRows });
+      render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Your passkeys didn't load.");
+      // The map's 5xx sentence would only repeat the lead beside a Try again.
+      expect(alert.textContent).not.toContain(SERVER);
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(screen.getByRole("heading", { name: "Passkeys" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
+      expect(pk.list).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("names the wait on a 429", async () => {
+      pk.list.mockRejectedValue(apiError("PLANTED-list-429", 429, "rate_limited"));
+      render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(WAIT);
+    });
+
+    // A 401 from the server, or the client's own word that renewal failed.
+    it.each([
+      ["a 401", apiError("PLANTED-list-401", 401, "unauthorized")],
+      ["an AuthExpiredError", new AuthExpiredError({ cause: new Error("PLANTED-expired") })],
+    ])("offers no Try again once the session has ended (%s)", async (_, error) => {
+      pk.list.mockRejectedValue(error);
+      render(() => <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} />);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Your session has ended. Sign in again.");
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    });
   });
 
   it("hides the Add-passkey button when profileId / runPasskeyRegistration are missing", async () => {
@@ -330,9 +413,9 @@ describe("PasskeysView", () => {
     await waitFor(() => expect(pk.list).toHaveBeenCalledTimes(2));
   });
 
-  it("surfaces add-passkey errors in a destructive banner", async () => {
+  it("reads a refused add as the adding sentence, never the error's text", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
-    pk.registerBegin.mockRejectedValue(new Error("Attestation rejected"));
+    pk.registerBegin.mockRejectedValue(apiError("PLANTED Attestation rejected"));
     su.otpBegin.mockResolvedValue({ sent: true });
     su.otpComplete.mockResolvedValue(stepUpToken);
 
@@ -353,7 +436,9 @@ describe("PasskeysView", () => {
     fireEvent.input(codeInput, { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
-    await waitFor(() => expect(screen.getByText(/Attestation rejected/)).toBeTruthy());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("We couldn't add that passkey. Try again.");
+    expect(alertsText()).not.toContain("PLANTED");
     expect(pk.registerComplete).not.toHaveBeenCalled();
   });
 
@@ -366,7 +451,9 @@ describe("PasskeysView", () => {
     pk.registerBegin.mockResolvedValue({ challenge: "chal" });
     su.otpBegin.mockResolvedValue({ sent: true });
     su.otpComplete.mockResolvedValue(stepUpToken);
-    const runRegistration = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    const runRegistration = vi
+      .fn()
+      .mockRejectedValue(ceremonyError("NotAllowedError", "PLANTED-add-ceremony"));
 
     render(() => (
       <PasskeysView
@@ -385,7 +472,10 @@ describe("PasskeysView", () => {
     fireEvent.input(codeInput, { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
-    await waitFor(() => expect(screen.getByText(/NotAllowedError/)).toBeTruthy());
+    // The adding ceremony's sentence, not the signing-in one.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(PASSKEY_NOT_ADDED);
+    expect(alertsText()).not.toContain("PLANTED");
     expect(pk.registerComplete).not.toHaveBeenCalled();
     // finally-block cleanup: the Add button must be clickable again.
     const addButton = screen.getByRole("button", {

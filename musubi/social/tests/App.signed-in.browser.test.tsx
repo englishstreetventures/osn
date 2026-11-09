@@ -44,6 +44,8 @@ vi.mock("@osn/client/solid", async () => {
     switchProfile: () => new Promise(() => {}),
     createProfile: () => Promise.reject(new Error("not in this test")),
     deleteProfile: () => Promise.resolve(),
+    profilesError: () => undefined,
+    refetchProfiles: () => Promise.resolve(),
   };
   return {
     ...actual,
