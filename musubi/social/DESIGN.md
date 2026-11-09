@@ -218,8 +218,9 @@ Where the app does not follow this yet — known breaks include:
 
 - `@shared/ui`'s `DialogTitle` and `CardTitle`: 16px (`--ui-text-md`) at
   weight 600 (#2040).
-- `@shared/ui`'s `AvatarFallback`: weight 600. `OtpInput`'s digits: 16px
-  (`--ui-text-md`).
+- `@shared/ui`'s `Badge`: weight 600, the fallback of `--ui-weight-title`,
+  which Musubi does not map yet (#2041). `AvatarFallback`: weight 600.
+  `OtpInput`'s digits: 16px (`--ui-text-md`).
 - Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
   and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`).

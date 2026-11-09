@@ -174,10 +174,12 @@ spreads its rest props onto an element therefore type-checks
 `<Td innerHTML={vendorName} />`, which reads at the call site like ordinary
 prop passing and is a script tag. `shared/ui/src/ui/props.ts` omits the three,
 so the mistake is a compile error. Anything that genuinely needs to write markup
-reaches for a bare element and says why. The menu's parts and `PopoverContent`
-are typed with it; `Notice` and `Chip` go further and take an allow-list of
-props. `shared/ui/tests/ui/markup-props.test.tsx` fails the type check if any
-of them takes markup again.
+reaches for a bare element and says why. `Badge`, `Checkbox`, `Input`, the
+menu's parts, `PopoverContent`, `RadioGroup`, `Select`, `Switch`, the table's
+parts, `Textarea` and `Tooltip` are typed with it; `Notice` and `Chip` go
+further and take an allow-list of props. `shared/ui/tests/ui/markup-props.test.tsx`
+fails the type check if the menu's parts, `PopoverContent`, `Chip` or `Badge`
+takes markup again, and `tests/ui/notice.test.tsx` does the same for `Notice`.
 
 ### `InfoPopover` — the form-field explainer
 
@@ -1114,6 +1116,8 @@ import { buttonVariants } from "@shared/ui/ui/button";
 
 Every size, the link inside a sentence, the `busy` wait and keyboard focus
 are in [[#Button — a link inside a sentence, and a wait]].
+
+**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse, musubi and the lab draw ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
 
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 

@@ -86,7 +86,10 @@ token or identifier takes.
 |           | `--ui-focus-width`, `--ui-focus-offset`                      | —                                               |
 | Radius    | `--ui-radius-hair\|sm\|md\|lg\|pill`                         | —                                               |
 |           | `--ui-radius-control`                                        | a role, not a size — defaults to `md`           |
+|           | `--ui-radius-field`                                          | a role — defaults to `control`, then `md`       |
+|           | `--ui-radius-sheet`                                          | a role — defaults to `lg`                       |
 | Type      | `--ui-font-body\|display\|mono`                              | —                                               |
+|           | `--ui-weight-title`                                          | a role, not a step — defaults to 600            |
 | Motion    | `--ui-dur-fast\|base\|slow\|exit`, `--ui-ease-out\|in-out`   | by job, never by the nearest number             |
 |           | `--ui-scale-enter\|exit`, `--ui-distance-enter\|exit`        | by job, never by the nearest number             |
 | Elevation | `--ui-elev-1\|2`                                             | —                                               |

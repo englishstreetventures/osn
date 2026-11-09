@@ -26,7 +26,7 @@ view. For a component's full range of variants and states, open its own group:
 | ----------------- | ------------------------------------------------------------------------------- |
 | `shared/ui`          | Everything, one state each                                                      |
 | `shared/ui/Button`   | All variants, all sizes; Inline (a link inside a sentence); Busy (every variant busy, and a timed wait); live playground |
-| `shared/ui/display`  | Badge, Avatar, Card                                                             |
+| `shared/ui/display`  | Badge (`Badges`, `BadgeWeights`), Avatar, Card                                  |
 | `shared/ui/forms`    | Input, Label, Textarea, Select (every size, the ink fill, the chevron), Field (both label treatments: `PlainLabels`, `FieldPlayground`), Fieldset, Checkbox and RadioGroup (each state, drawn and native), UsernameInput, OtpInput (`Otp`, `OtpStates`, `OtpNarrow`) |
 | `shared/ui/feedback` | Notice, Chip, EmptyState, Stat, Skeleton (`Skeletons`, `SkeletonGrounds`, `SkeletonInPlace`, `SkeletonPlayground`) |
 | `shared/ui/data`     | Table, Meter                                                                    |
