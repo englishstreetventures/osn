@@ -1,5 +1,14 @@
 # @osn/osn
 
+## 3.32.1
+
+### Patch Changes
+
+- 73043c4: The identity database refuses an organisation member role other than `admin` or `member`. A migration adds two triggers, one on insert and one on update, and stops without changing anything if a stored row already holds another role; its header gives the recovery. `@osn/db/testing` adds the same triggers to every test database, and `db:push` adds them to the local database after `drizzle-kit push`. `@osn/api` gains a Miniflare D1 test of the refusals over the real migration chain. The pulse and zap lockstep tests name their own package in a comment.
+- Updated dependencies [73043c4]
+  - @osn/db@0.25.5
+  - @shared/crypto@0.14.24
+
 ## 3.32.0
 
 ### Minor Changes
