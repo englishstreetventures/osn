@@ -45,7 +45,18 @@ export function ShellNotices() {
           <Notice tone="info" size="sm" alert>
             <div class="flex flex-wrap items-center justify-between gap-2">
               <span>You've been signed out.</span>
-              <Button variant="secondary" size="sm" onClick={() => dialogs.open("sign-in")}>
+              {/* Opens once the dialogs' chunk is in, fetching it again if
+                  it failed: a click never opens a dialog later, unasked. */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  void dialogs.load().then(
+                    () => dialogs.open("sign-in"),
+                    () => {},
+                  )
+                }
+              >
                 Sign in
               </Button>
             </div>
