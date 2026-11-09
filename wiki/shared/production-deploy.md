@@ -1159,7 +1159,7 @@ build env lives in the `sites` job. `cire/vendor` is `worker` in
 `shared/infra/src/production-sites.ts`: the cire stack deploys its build to the
 `cire-vendor` Worker, which holds `vendor.cireweddings.com` once the flip release has
 moved it (§5.7), and no job deploys the `cire-vendor` Pages project, which stays for a
-rollback until `musubi.social` has moved and soaked.
+rollback until `musubi.social` has moved and soaked; §5.7 says when it may be deleted.
 
 Make sure the published guest, organiser and vendor origins are exactly the ones listed in
 cire-api's `WEB_ORIGIN` allowlist (§3.2) and in osn-api's `OSN_CORS_ORIGIN` /
@@ -1592,7 +1592,9 @@ approvals, one per job, in this order:
    reads with it too, before its install): `pages-domain.ts detach` checks the token's
    reach, reads and prints where the host is, refuses unless it is on the site's own
    Pages project with its CNAME to it as the one record that routes it, then takes the
-   host off the project and keeps the CNAME. The zone holds a record for the host
+   host off the project and keeps the CNAME. It then reads the host back and fails unless
+   it reads `detached`, reading again up to twice, 2 s apart, while the project still
+   lists it. The zone holds a record for the host
    throughout, so no resolver caches it as missing. **Treat the site as down from here**
    until step 4's deploy attaches the domain: the host resolves, but its Pages project no
    longer lists it. Approve step 4 at once: the outage is your wait plus step 4's
@@ -1603,20 +1605,35 @@ approvals, one per job, in this order:
    the stack, the flip site on its production host, rolling each back on failure. The
    deploy step passes the hosts step's `replace_cname`, `<host>=<project>.pages.dev`, as
    `OSN_WORKER_DOMAIN_REPLACE_CNAME`, so the Worker's custom-domain attach replaces the
-   kept CNAME in one request ([[infrastructure-as-code#Dependency review]]); it refuses,
-   writing nothing, a host that holds anything else. The deploy also updates the stack's
-   other site Workers, whose uploads may lengthen the outage; that is not measured. The site's
+   kept CNAME in one request ([[infrastructure-as-code#Dependency review]]). The deploy
+   uploads the stack's Workers first, then checks the host's records before any custom
+   domain or DNS record changes, and reads them again before each try of that request:
+   a host holding anything but that CNAME stops the deploy, and one holding no record
+   that routes it is attached the usual way, with a warning on the job. The deploy also
+   updates the stack's other site Workers, whose uploads may lengthen the outage; that is
+   not measured. The site's
    record job, which the pull request turning it to `worker` adds
    (`record-<site>`, [[infrastructure-as-code#Production sites]]), then records it in
    `production-records`. A guard refusal here, or the deploy's refusal of the host's
-   records, stops before the attach and leaves the host `detached`: on no Pages project,
-   its CNAME kept. Roll back with an attach release (step 2 below; there is no Worker
-   domain to remove).
+   records, stops before the attach, with the stack's new Worker versions already
+   uploaded, and the job fails. The smoke checks still run, each rolling back a Worker
+   whose check fails; the flip site's check probes a production host its Worker does not
+   hold, so expect it to fail and roll that Worker back.
+   If `Find what the deploy changed` failed, no check had a version to return to: compare
+   each of the stack's Workers' deployments in the dashboard with the release's commit
+   and roll back by hand any that should not stand. Then read the host with
+   `pages-domain.ts check <site>`. `detached` (on no Pages project, its CNAME kept): roll
+   back with an attach release (step 2 below; there is no Worker domain to remove).
+   `unclear`: a record other than the CNAME routes the host; delete it by hand in the
+   zone's DNS, then dispatch the attach release.
 
 **If `flip-detach-<stack>` fails**, either it refused, having written nothing, or its
-Pages domain delete failed; the job names which. `pages-domain.ts check <site>` then
-reads the host `pages` or `detached`. For `detached`, dispatch an attach release (step 2
-below): it makes only what is missing, here the Pages domain alone. Then dispatch the
+Pages domain delete failed, or its read-back found the host other than `detached`; the
+job names which, and what it read. `pages-domain.ts check <site>` then reads the host
+`pages`, `detached` or `free`. For `detached`, dispatch an attach release (step 2
+below): it makes only what is missing, here the Pages domain alone. For `free`, the
+CNAME went too and the zone holds no record for the host: dispatch the attach release
+at once; it makes the CNAME and adds the domain. Then dispatch the
 flip again. While a site's host reads `detached`, the precheck refuses every release
 that ships its stack, flip or not.
 
@@ -1662,7 +1679,11 @@ custom domain** with the host, then in the zone's **DNS**, a proxied CNAME from 
 to `<project>.pages.dev` if Pages did not make one.
 
 Each Pages project stays until `musubi.social` has moved and soaked, so a rollback has a
-Pages site to return to (decided by the owner). A site's Pages job goes with the pull
+Pages site to return to (decided by the owner). Delete a Pages project only after
+`bun run scripts/pages-domain.ts check <site>` reads its site's host `free` and the
+zone holds no CNAME to `<project>.pages.dev` (search the zone's DNS records for that
+name in the dashboard): a record that points at a `pages.dev` name the account no
+longer holds routes the host to a name outside the account's control. A site's Pages job goes with the pull
 request that turns it to `worker`, since the release runs a Pages job only for a staged
 site, so after that merge the project keeps the last build deployed before it. The
 dashboard and `attach` rollback serves that build. An unflip pull request reverts the

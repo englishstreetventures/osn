@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-09
 ---
 
 # Dev environment (cire + OSN identity)
@@ -298,9 +298,18 @@ so its zone grant stays on the dev zone alone: the rehearsal's Pages and DNS
 steps run `scripts/pages-domain.ts`'s reach check, which refuses the token
 unless `GET /accounts` lists exactly the dev account and `GET /zones` exactly
 the `DEV_DOMAIN` zone. Production keeps a separate Pages and DNS token
-(`CLOUDFLARE_PAGES_DNS_TOKEN`) that never reaches installed code; on dev the
-deploy token already holds `DNS: Edit` beside the whole installed tree in every
-stack job, so a second token there would add no protection.
+(`CLOUDFLARE_PAGES_DNS_TOKEN`) that only `scripts/pages-domain.ts` reads, in
+jobs that install nothing or before their install: it keeps the Pages domain
+moves (a flip's detach, and the attach that undoes it) and the precheck away
+from installed code. It does not narrow what installed code can reach there.
+The production deploy token (`CLOUDFLARE_API_TOKEN`) holds `Zone: Read`,
+`DNS: Edit` and `Workers Routes: Edit` on `cireweddings.com` and
+`musubi.social` beside the installed Alchemy tree in each stack job, and a
+flip's deploy uses it to replace the flip host's CNAME with the Worker's
+custom domain; it also holds `Cloudflare Pages: Edit`, which the Wrangler Pages
+deploys use after their install. On dev the deploy token already holds
+`DNS: Edit` beside the whole installed tree in every stack job, so a second
+token there would add no protection.
 
 Every production CI token — `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_PAGES_DNS_TOKEN`
 and `CLOUDFLARE_API_TOKEN_READONLY` — is an account API token, made under
