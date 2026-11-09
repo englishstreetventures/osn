@@ -26,6 +26,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../src/ui/dropdown-menu";
 import { MENU_TOUCH } from "../src/ui/menu-touch-classes";
@@ -593,6 +594,24 @@ describe("the accent variant", () => {
       root.removeProperty("--dur-fast");
       root.removeProperty("--ease-out");
     }
+  });
+
+  it("draws its separator as the hairline fill, inset, with no border", async () => {
+    render(() => (
+      <DropdownMenu>
+        <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
+        <DropdownMenuContent variant="accent">
+          <DropdownMenuItem>Rename</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem>Delete</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ));
+    await openByKeyboard();
+    const rule = getComputedStyle(screen.getByRole("separator"));
+    expect([rule.borderTopWidth, rule.height, rule.marginLeft]).toEqual(["0px", "1px", "4px"]);
+    // `--ui-hairline` in the test palette.
+    expect(rule.backgroundColor).toBe("rgb(220, 220, 228)");
   });
 
   it("rings a row reached by the keyboard, and never fades the ring in", async () => {

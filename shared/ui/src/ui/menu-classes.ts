@@ -17,6 +17,7 @@
  *   made for cire. A focused row is marked by its sunk fill; a contrast theme
  *   drops the fill, so the row's outline is hidden only while it has focus,
  *   and the theme paints it. Hidden at rest as well, it would ring every row.
+ *   The separator, a fill too, draws a top border in a contrast theme alone.
  * - `accent` — cire's portal look: the raised panel at the 10px corner with
  *   the floating shadow, 6px rows in full ink, the highlighted row a 10%
  *   accent wash with readable accent ink. It opens with a short pop from the
@@ -94,8 +95,17 @@ const EYEBROW = {
     "base:px-3 base:pt-2 base:pb-1 base:font-ui-body base:text-ui-xs base:tracking-ui-widest base:uppercase base:font-normal base:text-ui-ink-secondary",
 } satisfies Readonly<Record<MenuVariant, string>>;
 
+/**
+ * The line is the 1px hairline fill, so both looks set `border-0`: the
+ * separator is an `<hr>`, which keeps preflight's 1px top border in the
+ * panel's ink, and that border covers the fill wherever an app's base styles
+ * leave its colour alone. A contrast theme replaces the fill with the page
+ * colour, so the default look draws the top border back there for the theme
+ * to paint.
+ */
 const SEPARATOR = {
-  default: "base:bg-ui-hairline base:-mx-1 base:my-1 base:h-px",
+  default:
+    "base:bg-ui-hairline base:-mx-1 base:my-1 base:h-px base:border-0 base:forced-colors:border-t",
   accent: "base:bg-ui-hairline base:mx-1 base:my-1 base:h-px base:border-0",
 } satisfies Readonly<Record<MenuVariant, string>>;
 

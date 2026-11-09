@@ -737,6 +737,16 @@ row, label and separator inside it, so one menu cannot mix two looks:
   then falls to `<body>` instead of going back to the trigger. The colour fade
   names its properties, so the ring never fades in.
 
+`DropdownMenuSeparator` draws its line as the 1px `--ui-hairline` fill in both
+looks, across the whole panel in the default one and inset in the accent one,
+with `border-0`. It renders as an `<hr>`, which keeps preflight's 1px top
+border in the panel's ink, and without `border-0` that border covers the fill
+in an app whose base styles leave border colour alone, as pulse's do
+([[frontend-patterns]] §An `<hr>` keeps preflight's border). A contrast theme
+replaces the fill with the page colour, so the default separator draws its top
+border there instead, for the theme to paint. The accent separator draws the
+fill alone, so a contrast theme does not show it.
+
 The rows:
 
 - `DropdownMenuItem` — one choice. With `as="a"` it is a real anchor taking

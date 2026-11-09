@@ -607,6 +607,26 @@ script animation with no CSS twin — a spring — has nothing to read back: che
 The fast tier cannot see either: jsdom computes no animation, so the value is
 empty and no tween runs.
 
+### An `<hr>` keeps preflight's border, which paints over its fill
+
+Tailwind's preflight gives every `<hr>` `height: 0`, `color: inherit` and
+`border-top-width: 1px`, and its `*` rule sets `border: 0 solid`, so the
+border's colour is `currentColor`. With `box-sizing: border-box`, an `<hr>`
+drawn as a 1px fill (`h-px` and a background) is all border: the line paints
+in its parent's ink, not the fill's colour. `@shared/ui`'s menu separator drew
+pulse's menu dividers in full ink this way. An app whose base layer sets
+`border-color` on `*`, as Musubi's `App.css` does, hides the fault, because the
+border then paints the hairline too.
+
+Put `border-0` on any `<hr>` drawn as a fill. A contrast theme (forced
+colours) replaces a fill with the page colour, so a fill-only line does not
+show there; add `forced-colors:border-t` where the line must stay, as the
+menu's default separator does ([[component-library]] §`DropdownMenu`).
+
+The fast tier cannot see it: read `getComputedStyle(hr).borderTopWidth` in the
+browser tier, with and without `emulateMedia({ forcedColors: "active" })`
+(`shared/ui` `tests/dropdown-menu-default.browser.test.tsx`).
+
 ## Motion follows the input
 
 How long a motion takes depends on what the reader is holding, not on how wide
