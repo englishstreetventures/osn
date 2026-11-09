@@ -1,5 +1,12 @@
 # @osn/pulse
 
+## 0.24.60
+
+### Patch Changes
+
+- Updated dependencies [c687234]
+  - @pulse/api@0.28.13
+
 ## 0.24.59
 
 ### Patch Changes
