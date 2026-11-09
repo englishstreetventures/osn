@@ -36,21 +36,10 @@ function jwt(claims: object): string {
   return `${enc({ alg: "none" })}.${enc(claims)}.sig`;
 }
 
+/** A page whose stored account names `SUB` and which holds no token yet, so its first call renews. */
 function seeded(): Layer.Layer<Storage> {
   const storage = createEphemeralStorage();
-  const now = Math.floor(Date.now() / 1000);
-  const account = {
-    hasSession: true,
-    activeProfileId: SUB,
-    profileTokens: {
-      [SUB]: {
-        accessToken: jwt({ sub: SUB, iat: now - 301, exp: now - 1 }),
-        expiresAt: Date.now() - 1_000,
-      },
-    },
-    scopes: [],
-    idToken: null,
-  };
+  const account = { hasSession: true, activeProfileId: SUB };
   Effect.runSync(
     Effect.flatMap(Storage, (s) => s.set(KEY, JSON.stringify(account))).pipe(
       Effect.provide(storage),

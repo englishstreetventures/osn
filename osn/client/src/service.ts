@@ -13,15 +13,22 @@ import type { SessionChange } from "./runtime";
 import { sessionFetch } from "./session-fetch";
 import { Storage } from "./storage";
 import {
-  decodeAccountSession,
   decodeCreateProfileResponse,
   decodeListProfilesResponse,
+  decodeStoredAccount,
   decodeSwitchProfileResponse,
   extractJwtLifetimeMs,
   extractJwtSub,
   parseTokenResponse,
 } from "./tokens";
-import type { AccountSession, HeldSession, ProfileToken, PublicProfile, Session } from "./tokens";
+import type {
+  AccountSession,
+  HeldSession,
+  ProfileToken,
+  PublicProfile,
+  Session,
+  StoredAccount,
+} from "./tokens";
 
 const ACCOUNT_SESSION_KEY = "@osn/client:account_session";
 
@@ -160,7 +167,16 @@ function onIssuerOrigin(input: string, issuerUrl: string): boolean {
   }
 }
 
-/** Remove expired profile tokens from an AccountSession, except the active profile, so storage holds no dead tokens. */
+/** The stored value for `account`: never a token. */
+function storedValue(account: AccountSession): string {
+  const stored: StoredAccount = {
+    hasSession: account.hasSession,
+    activeProfileId: account.activeProfileId,
+  };
+  return JSON.stringify(stored);
+}
+
+/** Remove expired profile tokens from an AccountSession, except the active profile, so memory holds no dead tokens. */
 function pruneExpiredTokens(account: AccountSession): void {
   const now = Date.now();
   for (const id of Object.keys(account.profileTokens)) {
@@ -310,14 +326,9 @@ export function createOsnAuthLive(
     Effect.gen(function* () {
       const storage = yield* Storage;
 
-      // In-memory cache to avoid redundant storage reads + JSON.parse
+      // The session this page holds: the only place its tokens live.
       // undefined = not loaded, null = no session, AccountSession = loaded
       let cache: AccountSession | null | undefined;
-
-      // The stored value this service last read or wrote. `syncFromStorage`
-      // compares the stored string against it, so a call that finds storage
-      // unchanged costs one read and no parse.
-      let lastRaw: string | null = null;
 
       const notify = (change: SessionChange) => options?.onSessionChange?.(change);
 
@@ -325,37 +336,51 @@ export function createOsnAuthLive(
       // Internal helpers for the multi-key account session model
       // ---------------------------------------------------------------------------
 
+      // Keeps the session in memory and writes its stored cut: storage never
+      // holds a token (`StoredAccount`).
       const saveAccountSession = (account: AccountSession) => {
         pruneExpiredTokens(account);
         cache = account;
-        lastRaw = JSON.stringify(account);
-        return storage.set(ACCOUNT_SESSION_KEY, lastRaw);
+        return storage.set(ACCOUNT_SESSION_KEY, storedValue(account));
       };
 
+      /**
+       * The session this page holds, or, before the first call, the stored
+       * account with no token in hand: the first request renews, and
+       * `loadSession` rebuilds from the cookie. A stored value with fields
+       * past `StoredAccount`'s, an older client's tokens among them, is
+       * rewritten without them; nothing is taken from it but the two fields.
+       */
       const getAccountSession = () =>
         Effect.gen(function* () {
-          // Return cached value if available
           if (cache !== undefined) return cache;
 
           const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
-          lastRaw = raw;
-          if (raw) {
-            // Validate storage data against schema before consuming: any
-            // script on the origin can write to it.
-            try {
-              const account = decodeAccountSession(JSON.parse(raw)) as AccountSession;
-              cache = account;
-              return account;
-            } catch {
-              yield* storage.remove(ACCOUNT_SESSION_KEY);
-              cache = null;
-              lastRaw = null;
-              return null;
-            }
+          if (!raw) {
+            cache = null;
+            return null;
           }
-
-          cache = null;
-          return null;
+          // Validate storage data against schema before consuming: any
+          // script on the origin can write to it.
+          let stored: StoredAccount;
+          try {
+            stored = decodeStoredAccount(JSON.parse(raw));
+          } catch {
+            yield* storage.remove(ACCOUNT_SESSION_KEY);
+            cache = null;
+            return null;
+          }
+          const account: AccountSession = {
+            hasSession: stored.hasSession,
+            activeProfileId: stored.activeProfileId,
+            profileTokens: {},
+            scopes: [],
+            idToken: null,
+          };
+          cache = account;
+          const clean = storedValue(account);
+          if (clean !== raw) yield* storage.set(ACCOUNT_SESSION_KEY, clean);
+          return account;
         });
 
       /**
@@ -368,21 +393,18 @@ export function createOsnAuthLive(
         Effect.gen(function* () {
           const held = cache !== null && cache !== undefined;
           cache = null;
-          lastRaw = null;
           yield* storage.remove(ACCOUNT_SESSION_KEY).pipe(Effect.catch(() => Effect.void));
           if (held) notify({ kind: "ended" });
         });
 
       /**
-       * The account, brought up to date with what other tabs stored.
+       * The account, checked against what other tabs stored.
        *
-       * Tabs share the stored account but each keeps its own active profile:
-       * the profile a tab acts as is the one its screen shows, so it is never
-       * taken from storage. What is taken is a token for that same profile
-       * that expires later than ours — another tab renewed it, and using it
-       * spares a grant. A stored account that has gone means another tab
-       * signed out or saw the session end, so it ends here too, with no
-       * request.
+       * Tabs share the stored account but nothing else: each holds its own
+       * tokens in memory and acts as the profile its own screen shows, so
+       * neither is taken from storage. A stored account that has gone means
+       * another tab signed out or saw the session end, so it ends here too,
+       * with no request.
        */
       const syncFromStorage = () =>
         Effect.gen(function* () {
@@ -391,22 +413,9 @@ export function createOsnAuthLive(
           if (!loaded || !account) return account;
 
           const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
-          if (raw === lastRaw) return account;
           if (raw === null) {
             yield* endSession();
             return null;
-          }
-          lastRaw = raw;
-          let stored: AccountSession;
-          try {
-            stored = decodeAccountSession(JSON.parse(raw)) as AccountSession;
-          } catch {
-            return account;
-          }
-          const theirs = stored.profileTokens[account.activeProfileId];
-          const ours = account.profileTokens[account.activeProfileId];
-          if (theirs && (!ours || theirs.expiresAt > ours.expiresAt)) {
-            account.profileTokens[account.activeProfileId] = theirs;
           }
           return account;
         });
@@ -867,9 +876,12 @@ export function createOsnAuthLive(
       // -----------------------------------------------------------------------
       let inFlightBootstrap: Promise<RefreshResult> | null = null;
 
-      const doBootstrap = () =>
+      // `wanted` is the profile the page was on before the reload; the
+      // issuer mints for it while the account owns it, and for the default
+      // profile otherwise.
+      const doBootstrap = (wanted: string | undefined) =>
         Effect.gen(function* () {
-          const next = yield* sharedTokenGrant();
+          const next = yield* sharedTokenGrant(wanted);
 
           // The access token's `sub` is the active profile id.
           const profileId = extractJwtSub(next.accessToken) ?? "default";
@@ -889,11 +901,11 @@ export function createOsnAuthLive(
           return next;
         });
 
-      const bootstrapFromCookie = () =>
+      const bootstrapFromCookie = (wanted?: string) =>
         Effect.gen(function* () {
           if (!inFlightBootstrap) {
             const promise = Effect.runPromise(
-              Effect.result(doBootstrap()),
+              Effect.result(doBootstrap(wanted)),
             ) as Promise<RefreshResult>;
             inFlightBootstrap = promise;
             void promise.finally(() => {
@@ -908,12 +920,18 @@ export function createOsnAuthLive(
           const result = yield* Effect.tryPromise({
             try: () => inFlightBootstrap!,
             catch: (cause) => new TokenRefreshError({ cause }),
-          }).pipe(
-            Effect.map((r): Session | null => (r._tag === "Failure" ? null : r.success)),
-            Effect.orElseSucceed((): Session | null => null),
-          );
+          }).pipe(Effect.orElseSucceed((): RefreshResult | null => null));
+          if (result?._tag === "Success") return result.success;
 
-          return result;
+          // A refused grant means the cookie is gone: forget the stored
+          // account, so the next load does not spend a grant on it. A failure
+          // that says nothing about the cookie keeps it for the next load.
+          const failure = result?.failure;
+          if (failure instanceof TokenRefreshError && failure.refused) {
+            cache = null;
+            yield* storage.remove(ACCOUNT_SESSION_KEY).pipe(Effect.catch(() => Effect.void));
+          }
+          return null;
         });
 
       // loadSession — the session-load entry point the SolidJS resource calls
@@ -921,18 +939,15 @@ export function createOsnAuthLive(
       //
       //   1. No stored account → cold-start bootstrap from the HttpOnly cookie
       //      (post-login full-page navigation).
-      //   2. Stored account WITH a still-valid cached access token → return it
-      //      directly (the fast path; no /token roundtrip).
-      //   3. Stored account whose cached access token has EXPIRED but which
-      //      still believes it `hasSession` → rehydrate from the cookie. This
-      //      is the common reload case: access tokens live only in memory with
-      //      a 5-minute TTL, so the persisted copy in localStorage is almost
-      //      always stale on reload. Without this branch, `toSession` returns
-      //      null for an expired token and the user is bounced to sign-in even
-      //      though the 30-day refresh cookie is alive — the production
-      //      "logged out on every reload" bug. We reuse the same cookie grant
-      //      as the cold-start path (single-flighted, retry/backoff on
-      //      transient errors, fail-safe to null on a terminal invalid_grant).
+      //   2. A session this page already holds, with a still-valid access
+      //      token → return it directly (no /token roundtrip).
+      //   3. A stored account that believes it `hasSession`, but no valid
+      //      token in hand → rehydrate from the cookie. This is every reload:
+      //      access tokens live only in memory, so a reloaded page has none.
+      //      The grant names the profile the page was on. We reuse the same
+      //      cookie grant as the cold-start path (single-flighted,
+      //      retry/backoff on transient errors, fail-safe to null on a
+      //      terminal invalid_grant, which also forgets the stored account).
       const loadSession = (): Effect.Effect<Session | null, StorageError> =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
@@ -950,9 +965,12 @@ export function createOsnAuthLive(
           const live = toSession(account);
           if (live) return live;
 
-          // Cached access token is expired (or absent). If the account still
-          // holds a server session, the refresh cookie should rehydrate it.
-          if (account.hasSession) return yield* bootstrapFromCookie();
+          // No valid token in hand. If the account still holds a server
+          // session, the refresh cookie should rehydrate it, as the profile
+          // the page was on.
+          if (account.hasSession) {
+            return yield* bootstrapFromCookie(account.activeProfileId || undefined);
+          }
           return null;
         });
 
@@ -970,7 +988,6 @@ export function createOsnAuthLive(
             catch: () => new StorageError({ cause: "Logout request failed" }),
           }).pipe(Effect.catch(() => Effect.void));
           cache = null;
-          lastRaw = null;
           yield* storage.remove(ACCOUNT_SESSION_KEY);
         });
 

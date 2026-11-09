@@ -72,11 +72,10 @@ export interface ProfileToken {
 }
 
 /**
- * Persisted per-device session state. After Copenhagen Book C3 the refresh
- * token is cookie-only, so the client keeps nothing sensitive on disk — just
- * the access-token cache (short TTL) and a `hasSession` flag so we know
- * whether to attempt silent refresh. Setting `hasSession = false` is how the
- * client signals "cookie was cleared server-side or expired".
+ * The session a page holds, in memory only. Its tokens are credentials, and
+ * page script can read anything in storage, so none of them is ever written
+ * there: storage gets the {@link StoredAccount} cut of it. A reload gets its
+ * token from the HttpOnly session cookie.
  */
 export interface AccountSession {
   hasSession: boolean;
@@ -86,24 +85,30 @@ export interface AccountSession {
   idToken: string | null;
 }
 
+/**
+ * What a reload needs that is not a credential: whether this device holds a
+ * session, and the profile the page was on, which the reload's grant names.
+ * The only auth state the client writes to storage.
+ */
+export interface StoredAccount {
+  hasSession: boolean;
+  activeProfileId: string;
+}
+
 // ---------------------------------------------------------------------------
 // Schema validation
 // ---------------------------------------------------------------------------
 
-const ProfileTokenSchema = Schema.Struct({
-  accessToken: Schema.String,
-  expiresAt: Schema.Number,
-});
-
-const AccountSessionSchema = Schema.Struct({
+/**
+ * Reads exactly the two fields; anything else in the stored value, the tokens
+ * an older client wrote included, is dropped.
+ */
+const StoredAccountSchema = Schema.Struct({
   hasSession: Schema.Boolean,
   activeProfileId: Schema.String,
-  profileTokens: Schema.Record(Schema.String, ProfileTokenSchema),
-  scopes: Schema.Array(Schema.String),
-  idToken: Schema.NullOr(Schema.String),
 });
 
-export const decodeAccountSession = Schema.decodeUnknownSync(AccountSessionSchema);
+export const decodeStoredAccount = Schema.decodeUnknownSync(StoredAccountSchema);
 
 const PublicProfileSchema = Schema.Struct({
   id: Schema.String,

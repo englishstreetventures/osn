@@ -5,12 +5,13 @@ import { isAuthExpiredError } from "../src/errors";
 import { createOsnAuthRuntime, type OsnAuthRuntime, type SessionChange } from "../src/runtime";
 import { OsnAuth } from "../src/service";
 import { Storage, createEphemeralStorage } from "../src/storage";
-import { extractJwtSub, type AccountSession } from "../src/tokens";
+import { extractJwtSub, type ProfileToken } from "../src/tokens";
 
 /**
  * The page's one auth runtime: every authenticated client sends through its
  * `authFetch`. One test per way the renewal can fail that the E2E flow cannot
- * reach (NEW-FEAT.md F1–F37b; F19's provider half is in `solid/context.test.tsx`).
+ * reach (NEW-FEAT.md F1–F43; F19's provider half is in `solid/context.test.tsx`,
+ * and what the stored account holds is in `token-storage.test.ts`).
  */
 
 const ISSUER = "https://osn.example.com";
@@ -40,20 +41,26 @@ function jwt(claims: { sub: string; iat?: number; exp?: number; n?: number }): s
   return `${enc({ alg: "none" })}.${enc(claims)}.sig`;
 }
 
-/** A stored token for `sub` that expires in `ms`, with a 300 s lifetime in its claims. */
-function token(sub: string, ms: number, n = 0) {
+/** A held token for `sub` that expires in `ms`, with a 300 s lifetime in its claims. */
+function token(sub: string, ms: number, n = 0): ProfileToken {
   const exp = nowSec() + Math.round(ms / 1000);
   return { accessToken: jwt({ sub, iat: exp - 300, exp, n }), expiresAt: Date.now() + ms };
 }
 
-function account(active: string, tokens: AccountSession["profileTokens"]): AccountSession {
-  return {
-    hasSession: true,
-    activeProfileId: active,
-    profileTokens: tokens,
-    scopes: [],
-    idToken: null,
-  };
+/**
+ * The page before the test: the profile it is on, from the stored account, and
+ * the token it holds in memory for that profile, if any. With no token, the
+ * first call renews, as after a reload or once the token has expired.
+ */
+interface Seed {
+  readonly active: string;
+  readonly token?: ProfileToken;
+}
+
+/** What storage holds for a signed-in page: never a token. */
+interface StoredAccount {
+  readonly hasSession: boolean;
+  readonly activeProfileId: string;
 }
 
 function json(status: number, body: unknown = {}): Response {
@@ -124,33 +131,47 @@ const bearerSub = (call: Call | undefined) =>
 interface Harness {
   runtime: OsnAuthRuntime;
   changes: SessionChange[];
-  stored: () => AccountSession | null;
+  stored: () => StoredAccount | null;
 }
 
-function harness(
-  seed?: AccountSession,
+/** A page on `storage`. A seed token reaches the runtime the way a sign-in hands it one. */
+async function harness(
+  seed?: Seed,
   storage = createEphemeralStorage(),
   before?: (runtime: OsnAuthRuntime) => void,
-): Harness {
-  if (seed) write(storage, seed);
+): Promise<Harness> {
+  if (seed) write(storage, { hasSession: true, activeProfileId: seed.active });
   const runtime = createOsnAuthRuntime({ issuerUrl: ISSUER }, { storage });
+  const held = seed?.token;
+  if (held) {
+    await runtime.run(
+      Effect.flatMap(OsnAuth, (auth) =>
+        auth.setSession({
+          accessToken: held.accessToken,
+          idToken: null,
+          expiresAt: held.expiresAt,
+          scopes: [],
+        }),
+      ),
+    );
+  }
   before?.(runtime);
   const changes: SessionChange[] = [];
   runtime.onSessionChange((change) => changes.push(change));
   return { runtime, changes, stored: () => read(storage) };
 }
 
-function write(storage: Layer.Layer<Storage>, value: AccountSession) {
+function write(storage: Layer.Layer<Storage>, value: StoredAccount) {
   Effect.runSync(
     Effect.flatMap(Storage, (s) => s.set(KEY, JSON.stringify(value))).pipe(Effect.provide(storage)),
   );
 }
 
-function read(storage: Layer.Layer<Storage>): AccountSession | null {
+function read(storage: Layer.Layer<Storage>): StoredAccount | null {
   const raw = Effect.runSync(
     Effect.flatMap(Storage, (s) => s.get(KEY)).pipe(Effect.provide(storage)),
   );
-  return raw ? (JSON.parse(raw) as AccountSession) : null;
+  return raw ? (JSON.parse(raw) as StoredAccount) : null;
 }
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
@@ -167,9 +188,10 @@ const tagOf = (err: unknown) => (err as { _tag?: string })._tag;
 describe("authFetch on the page's runtime", () => {
   it("F1: a retry that is refused again ends the session and tells the listeners", async () => {
     const fetches = stubFetch({ api: () => json(401) });
-    const { runtime, changes, stored } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, 120_000) }),
-    );
+    const { runtime, changes, stored } = await harness({
+      active: DEFAULT,
+      token: token(DEFAULT, 120_000),
+    });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -182,9 +204,10 @@ describe("authFetch on the page's runtime", () => {
 
   it("F2: a 403 step-up refusal is returned as-is, with no refresh and the session kept", async () => {
     const fetches = stubFetch({ api: () => json(403, { error: "step_up_required" }) });
-    const { runtime, changes, stored } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, 120_000) }),
-    );
+    const { runtime, changes, stored } = await harness({
+      active: DEFAULT,
+      token: token(DEFAULT, 120_000),
+    });
 
     const res = await runtime.authFetch(API, { method: "POST" });
 
@@ -197,7 +220,7 @@ describe("authFetch on the page's runtime", () => {
   it("F3: a caller-supplied Authorization header is replaced by the account's token", async () => {
     const fetches = stubFetch({});
     const live = token(DEFAULT, 120_000);
-    const { runtime } = harness(account(DEFAULT, { [DEFAULT]: live }));
+    const { runtime } = await harness({ active: DEFAULT, token: live });
 
     await runtime.authFetch(API, {
       headers: { Authorization: "Bearer someone-elses", "X-Step-Up-Token": "su" },
@@ -210,7 +233,7 @@ describe("authFetch on the page's runtime", () => {
 
   it("F4: renewing a non-default profile names it in the grant and sends one request", async () => {
     const fetches = stubFetch({});
-    const { runtime, changes, stored } = harness(account(OTHER, { [OTHER]: token(OTHER, -1_000) }));
+    const { runtime, changes, stored } = await harness({ active: OTHER });
 
     const res = await runtime.authFetch(API);
 
@@ -228,7 +251,7 @@ describe("authFetch on the page's runtime", () => {
     // osn-api mints for the default profile when the account no longer owns
     // the one named.
     const fetches = stubFetch({ token: (call) => grant(call, { sub: DEFAULT }) });
-    const { runtime, changes, stored } = harness(account(OTHER, { [OTHER]: token(OTHER, -1_000) }));
+    const { runtime, changes, stored } = await harness({ active: OTHER });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -272,7 +295,7 @@ describe("authFetch on the page's runtime", () => {
         return apiCalls === 1 ? json(401) : json(200, { ok: true });
       },
     });
-    const h = harness(account(OTHER, { [OTHER]: token(OTHER, 120_000) }));
+    const h = await harness({ active: OTHER, token: token(OTHER, 120_000) });
 
     const pending = h.runtime.authFetch(API).then(
       (res) => ({ res }),
@@ -310,7 +333,7 @@ describe("authFetch on the page's runtime", () => {
     const fetches = stubFetch({
       token: () => new Promise((resolve) => setTimeout(() => resolve(grant()), 10)),
     });
-    const { runtime } = harness(account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }));
+    const { runtime } = await harness({ active: DEFAULT });
 
     const results = await Promise.all([
       runtime.authFetch(API),
@@ -324,17 +347,17 @@ describe("authFetch on the page's runtime", () => {
   });
 
   it("F7b: a grant for another profile is not joined; it waits for the one in flight", async () => {
-    // A reload's bootstrap grants with no profile while a renewal wants OTHER.
-    // Joining the bootstrap's grant would hand the renewal the default
-    // profile's token; sending both at once would race the cookie's rotation.
+    // A held session's grant names no profile while a renewal wants OTHER.
+    // Joining that grant would hand the renewal the default profile's token;
+    // sending both at once would race the cookie's rotation.
     const fetches = stubFetch({
       token: (call) => new Promise((resolve) => setTimeout(() => resolve(grant(call)), 10)),
     });
-    const { runtime, changes } = harness(account(OTHER, { [OTHER]: token(OTHER, -1_000) }));
+    const { runtime, changes } = await harness({ active: OTHER });
 
-    const bootstrap = runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.loadSession()));
+    const held = runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.refreshHeldSession()));
     const res = await runtime.authFetch(API);
-    await bootstrap;
+    await held;
 
     expect(res.status).toBe(200);
     expect(fetches.to("/token").map(namedProfile)).toEqual([null, OTHER]);
@@ -358,9 +381,7 @@ describe("authFetch on the page's runtime", () => {
             ? json(400, { error: "invalid_grant", message: c.message })
             : grant(call),
       });
-      const { runtime, changes, stored } = harness(
-        account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }),
-      );
+      const { runtime, changes, stored } = await harness({ active: DEFAULT });
 
       const res = await runtime.authFetch(API);
 
@@ -379,9 +400,7 @@ describe("authFetch on the page's runtime", () => {
           message: "AuthError: Session rotated by a concurrent grant",
         }),
     });
-    const { runtime, changes, stored } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }),
-    );
+    const { runtime, changes, stored } = await harness({ active: DEFAULT });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -400,9 +419,7 @@ describe("authFetch on the page's runtime", () => {
     const fetches = stubFetch({
       token: () => json(400, { error: "invalid_grant", message: "AuthError: something else" }),
     });
-    const { runtime, changes, stored } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }),
-    );
+    const { runtime, changes, stored } = await harness({ active: DEFAULT });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -424,9 +441,7 @@ describe("authFetch on the page's runtime", () => {
         });
       },
     });
-    const { runtime, changes, stored } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }),
-    );
+    const { runtime, changes, stored } = await harness({ active: DEFAULT });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -439,9 +454,7 @@ describe("authFetch on the page's runtime", () => {
 
   it("F10: a grant that keeps answering 503 fails the call and keeps the session", async () => {
     const fetches = stubFetch({ token: () => json(503, { error: "upstream" }) });
-    const { runtime, changes, stored } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }),
-    );
+    const { runtime, changes, stored } = await harness({ active: DEFAULT });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -459,9 +472,7 @@ describe("authFetch on the page's runtime", () => {
         throw new TypeError("Failed to fetch");
       },
     });
-    const { runtime, changes, stored } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }),
-    );
+    const { runtime, changes, stored } = await harness({ active: DEFAULT });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -477,9 +488,10 @@ describe("authFetch on the page's runtime", () => {
         throw failure;
       },
     });
-    const { runtime, changes, stored } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, 120_000) }),
-    );
+    const { runtime, changes, stored } = await harness({
+      active: DEFAULT,
+      token: token(DEFAULT, 120_000),
+    });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -495,33 +507,34 @@ describe("authFetch on the page's runtime", () => {
         throw abort;
       },
     });
-    const { runtime } = harness(account(DEFAULT, { [DEFAULT]: token(DEFAULT, 120_000) }));
+    const { runtime } = await harness({ active: DEFAULT, token: token(DEFAULT, 120_000) });
 
     const err = await rejection(runtime.authFetch(API, { signal: AbortSignal.abort() }));
 
     expect(err).toBe(abort);
   });
 
-  it("F15: a second runtime on the same storage adopts the token the first renewed", async () => {
+  it("F43: a second runtime on the same storage never sends the first one's token", async () => {
+    // Tokens stay in each page's memory, so another tab renews for itself.
     const fetches = stubFetch({});
     const storage = createEphemeralStorage();
-    const first = harness(account(DEFAULT, { [DEFAULT]: token(DEFAULT, 10_000) }), storage);
-    const second = harness(undefined, storage);
-    // Both tabs have read the account before either renews.
-    await second.runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getSession()));
+    const first = await harness({ active: DEFAULT, token: token(DEFAULT, 10_000) }, storage);
+    const second = await harness(undefined, storage);
 
     await first.runtime.authFetch(API);
     await second.runtime.authFetch(API);
 
-    expect(fetches.to("/token")).toHaveLength(1);
-    expect(bearer(fetches.api()[1])).toBe(bearer(fetches.api()[0]));
+    expect(fetches.to("/token")).toHaveLength(2);
+    expect(bearerSub(fetches.api()[1])).toBe(DEFAULT);
+    expect(bearer(fetches.api()[1])).not.toBe(bearer(fetches.api()[0]));
+    expect(second.stored()).toEqual({ hasSession: true, activeProfileId: DEFAULT });
   });
 
   it("F16: the stored account removed by another runtime ends this one's session with no request", async () => {
     const fetches = stubFetch({});
     const storage = createEphemeralStorage();
-    const { runtime, changes } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, 120_000) }),
+    const { runtime, changes } = await harness(
+      { active: DEFAULT, token: token(DEFAULT, 120_000) },
       storage,
     );
     await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getSession()));
@@ -541,7 +554,7 @@ describe("authFetch on the page's runtime", () => {
       accessToken: jwt({ sub: DEFAULT, iat: exp - 20, exp }),
       expiresAt: Date.now() + 12_000,
     };
-    const { runtime } = harness(account(DEFAULT, { [DEFAULT]: short }));
+    const { runtime } = await harness({ active: DEFAULT, token: short });
 
     await runtime.authFetch(API);
 
@@ -551,7 +564,7 @@ describe("authFetch on the page's runtime", () => {
 
   it("F18: no token for the active profile renews and makes the grant's profile active", async () => {
     const fetches = stubFetch({});
-    const { runtime, stored } = harness(account("", {}));
+    const { runtime, stored } = await harness({ active: "" });
 
     const res = await runtime.authFetch(API);
 
@@ -563,7 +576,7 @@ describe("authFetch on the page's runtime", () => {
 
   it("F19: a listener that unsubscribed is not called", async () => {
     stubFetch({ api: () => json(401) });
-    const { runtime, changes } = harness(account(DEFAULT, { [DEFAULT]: token(DEFAULT, 120_000) }));
+    const { runtime, changes } = await harness({ active: DEFAULT, token: token(DEFAULT, 120_000) });
     const gone: SessionChange[] = [];
     const unsubscribe = runtime.onSessionChange((change) => gone.push(change));
     unsubscribe();
@@ -576,8 +589,7 @@ describe("authFetch on the page's runtime", () => {
 
   it("F24: a granted token that names no profile fails the call and is not stored", async () => {
     const fetches = stubFetch({ token: (call) => grant(call, {}) });
-    const seed = account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) });
-    const { runtime, changes, stored } = harness(seed);
+    const { runtime, changes, stored } = await harness({ active: DEFAULT });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -585,7 +597,7 @@ describe("authFetch on the page's runtime", () => {
     expect(isAuthExpiredError(err)).toBe(false);
     expect(fetches.api()).toHaveLength(0);
     expect(changes).toEqual([]);
-    expect(stored()).toEqual(seed);
+    expect(stored()).toEqual({ hasSession: true, activeProfileId: DEFAULT });
   });
 
   it.each([
@@ -594,7 +606,7 @@ describe("authFetch on the page's runtime", () => {
     ["a relative URL", "/thing"],
   ])("F25: a URL on %s is refused with a TypeError and nothing is sent", async (_n, url) => {
     const fetches = stubFetch({});
-    const { runtime, changes } = harness(account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }));
+    const { runtime, changes } = await harness({ active: DEFAULT });
 
     const err = await rejection(runtime.authFetch(url));
 
@@ -608,7 +620,7 @@ describe("authFetch on the page's runtime", () => {
     const fetches = stubFetch({
       token: (call) => (answer === "limited" ? json(429, { error: "rate_limited" }) : grant(call)),
     });
-    const { runtime, changes } = harness(account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }));
+    const { runtime, changes } = await harness({ active: DEFAULT });
 
     expect(tagOf(await rejection(runtime.authFetch(API)))).toBe("TokenRefreshError");
     expect(fetches.to("/token")).toHaveLength(1);
@@ -640,7 +652,7 @@ describe("authFetch on the page's runtime", () => {
           headers: { "content-type": "application/json", "retry-after": "7" },
         }),
     });
-    const { runtime } = harness(account(DEFAULT, { [DEFAULT]: token(DEFAULT, -1_000) }));
+    const { runtime } = await harness({ active: DEFAULT });
 
     const err = await rejection(runtime.authFetch(API));
 
@@ -658,7 +670,7 @@ describe("authFetch on the page's runtime", () => {
     const fetches = stubFetch({ token: () => json(429, { error: "rate_limited" }) });
     // Inside its 30 s lead, 10 s from expiry.
     const live = token(DEFAULT, 10_000);
-    const { runtime, changes } = harness(account(DEFAULT, { [DEFAULT]: live }));
+    const { runtime, changes } = await harness({ active: DEFAULT, token: live });
 
     const res = await runtime.authFetch(API);
 
@@ -690,7 +702,7 @@ describe("authFetch on the page's runtime", () => {
   ])("F29: $name is renewed before it is sent", async (c) => {
     const fetches = stubFetch({});
     const held = c.stored();
-    const { runtime } = harness(account(DEFAULT, { [DEFAULT]: held }));
+    const { runtime } = await harness({ active: DEFAULT, token: held });
 
     await runtime.authFetch(API);
 
@@ -703,30 +715,17 @@ describe("authFetch on the page's runtime", () => {
     const fetches = stubFetch({});
     const storage = createEphemeralStorage();
     const ours = token(DEFAULT, 120_000);
-    const { runtime } = harness(account(DEFAULT, { [DEFAULT]: ours }), storage);
+    const { runtime } = await harness({ active: DEFAULT, token: ours }, storage);
     await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getSession()));
 
-    // Another tab switched to OTHER and stored its token.
-    write(storage, account(OTHER, { [DEFAULT]: ours, [OTHER]: token(OTHER, 240_000) }));
+    // Another tab switched to OTHER.
+    write(storage, { hasSession: true, activeProfileId: OTHER });
     await runtime.authFetch(API);
 
     expect(bearerSub(fetches.api()[0])).toBe(DEFAULT);
     expect(bearer(fetches.api()[0])).toBe(`Bearer ${ours.accessToken}`);
     expect(fetches.to("/token")).toHaveLength(0);
     expect(fetches.to("/profiles/switch")).toHaveLength(0);
-  });
-
-  it("F30b: a sync keeps this tab's token when the stored one expires sooner", async () => {
-    const fetches = stubFetch({});
-    const storage = createEphemeralStorage();
-    const ours = token(DEFAULT, 200_000);
-    const { runtime } = harness(account(DEFAULT, { [DEFAULT]: ours }), storage);
-    await runtime.run(Effect.flatMap(OsnAuth, (auth) => auth.getSession()));
-
-    write(storage, account(DEFAULT, { [DEFAULT]: token(DEFAULT, 100_000, 9) }));
-    await runtime.authFetch(API);
-
-    expect(bearer(fetches.api()[0])).toBe(`Bearer ${ours.accessToken}`);
   });
 
   it("F31: concurrent refusals end the session once, and a throwing listener stops no other", async () => {
@@ -746,8 +745,8 @@ describe("authFetch on the page's runtime", () => {
       token: () => json(400, { error: "invalid_grant", message: "AuthError: Invalid session" }),
     });
     const fault = new Error("listener fault");
-    const { runtime, changes } = harness(
-      account(DEFAULT, { [DEFAULT]: token(DEFAULT, 120_000) }),
+    const { runtime, changes } = await harness(
+      { active: DEFAULT, token: token(DEFAULT, 120_000) },
       undefined,
       (rt) =>
         rt.onSessionChange(() => {
