@@ -216,9 +216,10 @@ Where the app does not follow this yet — known breaks include:
 ## Radii — two families + pill
 
 - **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows
-  (`/authorize`'s bordered profile rows among them), dropdown triggers, small controls; text fields (`@shared/ui`'s `Input`,
-  `Textarea` and `Select`, through the contract's `--ui-radius-field`, which
-  Musubi maps to `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s
+  (`/authorize`'s bordered profile rows among them), dropdown triggers, small
+  controls; text fields (`@shared/ui`'s `Input`, `Textarea` and `Select`,
+  through the contract's `--ui-radius-field`, which Musubi maps to
+  `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s
   Popover and menu panels and `OtpInput`'s boxes; and the rail search's
   results panel (`GlobalSearch`), a floating panel drawn as the menus are:
   `rounded-md`, `bg-popover`, `shadow-md`.
