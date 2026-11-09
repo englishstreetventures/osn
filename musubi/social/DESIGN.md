@@ -98,11 +98,12 @@ Three hues, each held to its uses:
   fill, at rest) and `ghostDanger` (red on hover only, for a Remove repeated
   down a list).
 
-Red text also renders today in the failed-load line (§Empty states and failed
-loads), in the error lines on `/authorize`, and in the error lines the shell
-and the auth views draw with `@shared/ui`'s `Notice` (`tone="danger"`, which
-paints `--ui-danger` through the contract; §Empty states and failed loads,
-§Auth surfaces).
+Red text also renders as the error line: `@shared/ui`'s `Notice`
+(`tone="danger"`, which paints `--ui-danger` through the contract) in the
+failed-load lines, on `/authorize`, in the shell's notices and in the auth
+views (§Empty states and failed loads, §Auth surfaces). It sits on the page,
+a card or a popover, never on `--muted`, `--secondary` or the warn wash,
+where light danger ink falls under 4.5:1 (the table below).
 
 Success as ink, on each of the contract's five grounds, and ink on the warn
 wash:
@@ -110,24 +111,29 @@ wash:
 | | Light: `--background`, `--card`, `--popover` | Light: `--muted`, `--secondary` | Dark: `--background` | Dark: `--card`, `--popover` | Dark: `--muted`, `--secondary` |
 | --- | --- | --- | --- | --- | --- |
 | Success ink | 6.16:1 | 5.60:1 | 8.95:1 | 8.15:1 | 7.44:1 |
+| Danger ink (`--destructive`) | 4.77:1 | **4.34:1** | 5.90:1 | 5.37:1 | 4.90:1 |
 
 | On the warn wash (`warn/10` over `--background`) | Light | Dark |
 | --- | --- | --- |
 | `--foreground` | 12.69:1 | 12.50:1 |
 | `--muted-foreground` | 5.75:1 | 5.55:1 |
+| `--destructive` | **4.16:1** | 4.85:1 |
 
-*Measured 2026-11-06 — `contrastRatio` from `@shared/color` over the `App.css`
-values above; the wash is composited first, each sRGB channel
-`0.1 × warn + 0.9 × --background`. `tests/styles/design-token-contract.test.ts`
-re-checks the 4.5:1 floor for success and warn on all five grounds in both
-themes.*
+*Measured 2026-11-06 (danger 2026-11-09) — `contrastRatio` from
+`@shared/color` over the `App.css` values above; the wash is composited first,
+each sRGB channel `0.1 × warn + 0.9 × --background`.
+`tests/styles/design-token-contract.test.ts` re-checks the 4.5:1 floor for
+success and warn on all five grounds in both themes, and for danger ink on
+the five grounds, expecting it to fall short only on light `--muted` and
+`--secondary`.*
 
 ### The contrast contract
 
 `tests/styles/design-token-contract.test.ts` parses `App.css` and checks every
 role in the `@shared/design-tokens` contract in both themes: body ink, success
 and warn at 4.5:1 on every ground and surface, the focus ring at 3:1, and ink
-on a fill against that fill. One role carries a waiver, with its reason in the
+on a fill against that fill. It also checks danger ink, which the contract
+holds only as a fill, at 4.5:1 on the grounds an error line sits on. One role carries a waiver, with its reason in the
 test: `--ui-hairline-strong`, which takes `--input` (1.30:1 on the page in
 light, against a 3:1 floor). No base rule draws it on an element that does
 not name it (§Borders).
@@ -416,15 +422,20 @@ Where the app does not follow this yet:
   `rounded-card` block, `size="page"` (`py-16`) for a page's whole content,
   `size="section"` (`py-12`) for one list. It is an `<output>`, so a state
   that replaces a skeleton is read out. Never draw the block by hand.
-- **A load that failed** for any reason the screen does not name is a
-  `text-destructive text-meta` line with `role="alert"` that ends "Reload and
-  try again." — never the empty-state block, which means "nothing here". A
-  screen whose head comes from what failed to load keeps its section's head
-  above the line (`OrgDetailPage` falls back to "Organisations"). A shell that
-  failed to load shows the line inside its frame (§Layout).
-- **A failed load with a retry** is the same line drawn by `Notice`
-  (`tone="danger"`, `size="inline"`, `alert`): a lead that names what did not
-  load, then an underlined "Try again" that loads it again in place. The
+- **A load that failed** for any reason the screen does not name is one
+  line, `@shared/ui`'s `Notice` (`tone="danger"`, `size="inline"`, `alert`):
+  the danger mark and the sentence at the body size, announced as it appears.
+  Never the empty-state block, which means "nothing here". Where the screen
+  offers no retry it ends "Reload and try again." (`ConnectedAppsSection`,
+  `OrgDetailPage`). A screen whose head comes from what failed to load keeps
+  its section's head above the line (`OrgDetailPage` falls back to
+  "Organisations"). A shell that failed to load says so inside its frame
+  (§Layout), the one failed-load line not drawn by `Notice`: a
+  `text-destructive text-meta` line with `role="alert"` (`ShellFrame.tsx`),
+  sized so the phone top bar's 48px row holds it at 320px.
+- **A failed load with a retry** is the same line with a lead that names what
+  did not load, then an underlined "Try again" that loads it again in place;
+  the button is gone while the retry is out, so clicks never stack. The
   copy map's sentence (`describeAuthError`) follows the lead only when it
   adds something — a `429` says to wait, a lost connection to check it —
   never a "something went wrong, try again" beside the button. Uses: the

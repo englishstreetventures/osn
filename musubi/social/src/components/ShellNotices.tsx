@@ -23,7 +23,7 @@ import { useShellDialogs } from "./ShellDialogs";
  * again.
  */
 export function ShellNotices() {
-  const { session, profilesError, refetchProfiles } = useAuth();
+  const { session, profiles, profilesError, refetchProfiles } = useAuth();
   const dialogs = useShellDialogs();
   const [signedOut, setSignedOut] = createSignal(false);
 
@@ -54,13 +54,17 @@ export function ShellNotices() {
         <Show when={listFailed() !== undefined}>
           <Notice tone="danger" size="inline" alert>
             {["Your profiles didn't load.", failureDetail(listFailed())].filter(Boolean).join(" ")}{" "}
-            <button
-              type="button"
-              class="cursor-pointer font-medium underline underline-offset-4"
-              onClick={() => void refetchProfiles()}
-            >
-              Try again
-            </button>
+            {/* Gone while a retry is out, so clicks never stack up requests
+                against the rate limit the line may be naming. */}
+            <Show when={!profiles.loading}>
+              <button
+                type="button"
+                class="focus-visible:ring-ui-focus cursor-pointer font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-hidden"
+                onClick={() => void refetchProfiles()}
+              >
+                Try again
+              </button>
+            </Show>
           </Notice>
         </Show>
       </div>

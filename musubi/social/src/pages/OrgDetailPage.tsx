@@ -7,6 +7,7 @@ import { Button } from "@shared/ui/ui/button";
 import { Dialog, DialogHeader, DialogTitle } from "@shared/ui/ui/dialog";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
@@ -25,9 +26,9 @@ function statusOf(error: unknown): number | undefined {
 /** A load that failed for a reason other than the ones the page names. */
 function LoadFailure(props: { message: string }) {
   return (
-    <p class="text-destructive text-meta" role="alert">
+    <Notice tone="danger" size="inline" alert>
       {props.message} Reload and try again.
-    </p>
+    </Notice>
   );
 }
 

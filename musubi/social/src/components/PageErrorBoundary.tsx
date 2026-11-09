@@ -9,8 +9,11 @@ import { createEffect, ErrorBoundary, on, type JSX } from "solid-js";
  * Try again, and resets by itself when the path changes, so the navigation
  * still leads somewhere.
  *
- * Kept small and free of `@osn/client`: it is in the entry chunk, which the
- * cold `/authorize` landing downloads too.
+ * Free of `@osn/client`: it is in the entry chunk, which the cold
+ * `/authorize` landing downloads too. The fallback is drawn from that chunk
+ * alone, never loaded on demand: a page most often fails because its own
+ * chunk did not arrive, and a fallback that needed a fetch would fail the
+ * same way and blank the app.
  */
 export function PageErrorBoundary(props: { children?: JSX.Element }) {
   const location = useLocation();
@@ -31,7 +34,7 @@ export function PageErrorBoundary(props: { children?: JSX.Element }) {
               This page didn't load.{" "}
               <button
                 type="button"
-                class="cursor-pointer font-medium underline underline-offset-4"
+                class="focus-visible:ring-ui-focus cursor-pointer font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-hidden"
                 onClick={() => reset()}
               >
                 Try again

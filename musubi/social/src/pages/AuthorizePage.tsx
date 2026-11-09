@@ -2,6 +2,7 @@ import type { AuthorizeContext, PublicProfile } from "@osn/client";
 import { AuthorizeError, describeAuthError } from "@osn/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { useSearchParams } from "@solidjs/router";
 import {
   createMemo,
@@ -495,9 +496,9 @@ export function AuthorizePage() {
           </div>
           <Show when={notice()}>
             {(message) => (
-              <p class="text-destructive text-body mt-4" role="alert">
+              <Notice tone="danger" size="inline" alert class="mt-4">
                 {message()}
-              </p>
+              </Notice>
             )}
           </Show>
         </Match>
@@ -587,9 +588,9 @@ export function AuthorizePage() {
 
           <Show when={notice()}>
             {(message) => (
-              <p class="text-destructive text-body mt-4" role="alert">
+              <Notice tone="danger" size="inline" alert class="mt-4">
                 {message()}
-              </p>
+              </Notice>
             )}
           </Show>
 

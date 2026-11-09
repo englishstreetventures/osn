@@ -1,4 +1,5 @@
 import { Button } from "@shared/ui/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { PRODUCT_NAME } from "../lib/auth";
@@ -43,15 +44,15 @@ export function ConnectedAppsSection() {
       </p>
 
       <Show when={error()}>
-        <p class="text-destructive text-meta" role="alert">
+        <Notice tone="danger" size="inline" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
 
       <Show when={connections.error}>
-        <p class="text-destructive text-meta" role="alert">
+        <Notice tone="danger" size="inline" alert>
           Couldn't load your connected apps. Reload and try again.
-        </p>
+        </Notice>
       </Show>
 
       <Show

@@ -530,9 +530,10 @@ describe("<AuthorizePage />", () => {
       renderPage(SELECT);
       fireEvent.click(await screen.findByText("Cancel"));
 
-      // The copy map's sentence, never the error's own text.
+      // The copy map's sentence, never the error's own text, in the danger
+      // Notice (whose hidden "Error:" a screen reader reads first).
       expect((await screen.findByRole("alert")).textContent).toBe(
-        "Something went wrong. Try again.",
+        "Error: Something went wrong. Try again.",
       );
       expect(screen.getByText("Use another account")).toBeDefined();
     });
