@@ -4,16 +4,22 @@ name: Domain move rehearsal
 # first flip release moves a production site's host (wiki/shared/production-deploy.md
 # §5.7). A host of the dev zone, domain-move.<DEV_DOMAIN>, goes on a
 # throwaway Pages project, then moves to a Worker and back through the code a
-# flip release runs: scripts/pages-domain.ts's reach check, detach and attach,
-# and an Alchemy deploy that moves the Worker's custom domain from its spare
-# host, next.domain-move.<DEV_DOMAIN>, to the moved host and back. Then
-# everything the run made is removed. Each job records what Cloudflare
-# answered and when (scripts/domain-move-rehearsal.ts); the report job merges
-# the records into the `domain-move-rehearsal-attempt-<n>` artifact and the
-# run summary.
+# flip release runs: scripts/pages-domain.ts's reach check, detach (which
+# keeps the host's CNAME) and attach, and an Alchemy deploy that moves the
+# Worker's custom domain from its spare host, next.domain-move.<DEV_DOMAIN>,
+# to the moved host, replacing that CNAME in one request as a flip release's
+# deploy does (OSN_WORKER_DOMAIN_REPLACE_CNAME), and back. The hold job
+# keeps the host detached for `hold_minutes`, as a release's approval wait
+# would. Then everything the run made is removed. Each job records what
+# Cloudflare answered and when (scripts/domain-move-rehearsal.ts); the watch
+# job also asks the zone's own name servers for the moved host every 2 s;
+# the report job merges the records into the
+# `domain-move-rehearsal-attempt-<n>` artifact and the run summary, and fails
+# unless the zone held a record for the host at every read from the detach
+# to the Worker's first answer.
 #
-#   setup-pages ─┬─> pages-on ─┬─> watch ─────────────────────────────────────────┐
-#                └─> worker-staged ─┴─> detach ─> flip ─> check ─> unflip ─> attach ─> destroy ─> cleanup ─> report
+#   setup-pages ─┬─> pages-on ─┬─> watch ───────────────────────────────────────────────┐
+#                └─> worker-staged ─┴─> detach ─> hold ─> flip ─> check ─> unflip ─> attach ─> destroy ─> cleanup ─> report
 #
 # Credentials: the `dev` Environment's CLOUDFLARE_DEV_ACCOUNT_ID and
 # CLOUDFLARE_DEV_ACCOUNT_API_TOKEN, the dev deploy token deploy.yml's stack
@@ -36,6 +42,12 @@ name: Domain move rehearsal
 # scripts/tests/domain-move-rehearsal-workflow.test.ts holds all of this.
 on:
   workflow_dispatch:
+    inputs:
+      hold_minutes:
+        description: "Minutes the moved host stays detached, its CNAME kept, before the flip's deploy, as a release's approval wait would hold it: 0 to 15."
+        type: number
+        required: false
+        default: 10
 
 permissions:
   contents: read
@@ -177,14 +189,16 @@ jobs:
           retention-days: 90
 
   # Probes both hosts every 2 s from before the detach until the attach job
-  # completes: the timeline the gap and the rollback are read from. Holds no
-  # Cloudflare credential; the dev Environment gives it DEV_DOMAIN.
+  # completes, and asks the zone's own name servers for the moved host every
+  # 2 s in a loop of its own: the timeline the gap and the rollback are read
+  # from. Holds no Cloudflare credential; the dev Environment gives it
+  # DEV_DOMAIN.
   watch:
     name: Watch the moved host
     needs: [pages-on]
     runs-on: ubuntu-latest
     environment: dev
-    timeout-minutes: 125
+    timeout-minutes: 155
     permissions:
       contents: read
       actions: read
@@ -215,7 +229,8 @@ jobs:
 
   # pages-domain.ts's detach on a fresh runner with nothing installed, as a
   # flip release's flip-detach job runs it, once the watch job is watching.
-  # The host is on neither side from here until the flip's deploy.
+  # The host keeps its CNAME to the run's project from here until the flip's
+  # deploy replaces it, so the zone holds a record for it throughout.
   detach:
     name: Take the moved host off Pages
     needs: [worker-staged, pages-on]
@@ -242,7 +257,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1"
 
-      - name: Take the moved host and its CNAME off the Pages project
+      - name: Take the moved host off the Pages project, keeping its CNAME
         id: detach
         run: bun run scripts/domain-move-rehearsal.ts detach --out "$RUNNER_TEMP/rehearsal"
         env:
@@ -259,12 +274,49 @@ jobs:
           path: ${{ runner.temp }}/rehearsal/
           retention-days: 90
 
+  # The detached host held as a release's approval wait would hold it, then
+  # read again: its CNAME must still be there for the flip's deploy to
+  # replace. Nothing installed.
+  hold:
+    name: Hold the detached host
+    needs: [detach]
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Hold the detached host, then read it again
+        id: hold
+        run: bun run scripts/domain-move-rehearsal.ts hold --out "$RUNNER_TEMP/rehearsal"
+        env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          HOLD_MINUTES: ${{ inputs.hold_minutes }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1"
+
+      - name: Keep the job's record
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rehearsal-hold-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rehearsal/
+          retention-days: 90
+
   # The flip's deploy: install, check the token, then Alchemy moves the
-  # Worker's custom domain from the spare host to the moved host, as a flip
-  # release's stack job does after its detach job.
+  # Worker's custom domain from the spare host to the moved host, replacing
+  # the CNAME the detach kept, as a flip release's stack job does after its
+  # detach job.
   flip:
     name: Move the host to the Worker
-    needs: [detach]
+    needs: [hold]
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 30
@@ -506,7 +558,7 @@ jobs:
   # no credential; the dev Environment gives it DEV_DOMAIN.
   report:
     name: Report the rehearsal
-    needs: [setup-pages, worker-staged, pages-on, watch, detach, flip, check, unflip, attach, destroy, cleanup]
+    needs: [setup-pages, worker-staged, pages-on, watch, detach, hold, flip, check, unflip, attach, destroy, cleanup]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     environment: dev

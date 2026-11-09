@@ -21,9 +21,16 @@
  *   worker-staged  Alchemy deploy, REHEARSAL_MODE=staged; waits for the
  *                  Worker marker on the spare host
  *   wait-watch     waits until the watch job has been watching 45 s
- *   detach         detachHost: the moved host off the project, its CNAME gone
- *   flip           Alchemy deploy, REHEARSAL_MODE=worker; waits for the
- *                  Worker marker on the moved host
+ *   detach         detachHost: the moved host off the project, its CNAME to
+ *                  it kept; reads the host again, which must read `detached`
+ *   hold           waits HOLD_MINUTES (0 to 15, 10 unset), as a release's
+ *                  approval wait holds a detached host, then reads the host
+ *                  again, which must still read `detached`
+ *   flip           Alchemy deploy, REHEARSAL_MODE=worker, with
+ *                  OSN_WORKER_DOMAIN_REPLACE_CNAME naming the moved host's
+ *                  CNAME, as a flip release's deploy runs; reads the moved
+ *                  host's records while it runs (at least one read must
+ *                  succeed), and waits for the Worker marker on the moved host
  *   check          classify: the moved host must read `free`, as a release's
  *                  precheck needs of a flipped host
  *   unflip         Alchemy deploy, REHEARSAL_MODE=staged; waits until the
@@ -34,8 +41,12 @@
  *                  Worker it left, then destroys again
  *   cleanup        removes every rehearsal Pages project and its CNAMEs at
  *                  the two hosts, nothing else
- *   watch          probes both hosts every 2 s until the attach job completes
- *   report         merges the fragments and works out the intervals
+ *   watch          probes both hosts every 2 s until the attach job completes,
+ *                  and, in a loop of its own, asks the dev zone's own name
+ *                  servers for the moved host's A and AAAA every 2 s
+ *   report         merges the fragments, works out the intervals, and fails
+ *                  unless the zone view found a record at every read from the
+ *                  detach to the Worker's first answer (`verdict`)
  *
  * A step that waits pins one Cloudflare address of the dev zone, asked of the
  * zone's own name servers so no resolver cache sits between a write and the
@@ -54,6 +65,8 @@
  *                          Pages and DNS steps check its reach first, as
  *                          pages-domain.ts does: exactly the dev account and
  *                          the DEV_DOMAIN zone.
+ *   HOLD_MINUTES           hold: the workflow's `hold_minutes`, a whole number
+ *                          from 0 to 15; 10 when unset
  *   GITHUB_TOKEN           wait-watch, watch: the job token
  *   GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_REPOSITORY  set by Actions
  * No token, account id or 32-hex id reaches a fragment or a message.
@@ -86,6 +99,8 @@ import {
   attachHost,
   decides,
   detachHost,
+  type DnsRecord,
+  isWorkerRecord,
   locateHost,
   type ObservedAttempt,
   type PagesDnsApi,
@@ -103,12 +118,20 @@ export const WORKER_WAIT_MS = 15 * 60_000;
 export const PAGES_WAIT_MS = 20 * 60_000;
 /** Three reads every 6 s: 150 every 5 minutes, an eighth of the API's 1,200 a token. */
 export const ALCHEMY_POLL_MS = 6_000;
-export const WATCH_CAP_MS = 120 * 60_000;
+export const WATCH_CAP_MS = 150 * 60_000;
 export const WATCH_JOBS_EVERY_MS = 20_000;
 export const WAIT_WATCH_MARGIN_MS = 45_000;
 export const WAIT_WATCH_CAP_MS = 5 * 60_000;
 export const WAIT_WATCH_POLL_MS = 5_000;
 export const PROBE_TIMEOUT_MS = 5_000;
+/** The hold step's wait, in minutes: HOLD_MINUTES, 0 to the most, the default when unset. */
+export const HOLD_DEFAULT_MINUTES = 10;
+export const HOLD_MAX_MINUTES = 15;
+export const HOLD_MAX_MS = HOLD_MAX_MINUTES * 60_000;
+/** The longest the zone view may go between reads that answered, from the detach to the Worker's first answer. */
+export const ZONE_MAX_SPACING_MS = 12_000;
+/** The share of the zone view's reads in that window that may fail. */
+export const ZONE_FAILED_SHARE = 0.1;
 const PROBE_MAX_BYTES = 64 * 1024;
 const ALCHEMY_LOG_LINES = 40;
 /** How many probe rounds pass between reads of the Pages domain's status. */
@@ -120,6 +143,7 @@ const STEPS = [
   "worker-staged",
   "wait-watch",
   "detach",
+  "hold",
   "flip",
   "check",
   "unflip",
@@ -143,6 +167,7 @@ const TOKEN_OF = {
   "worker-staged": "CLOUDFLARE_API_TOKEN",
   "wait-watch": "GITHUB_TOKEN",
   detach: "CLOUDFLARE_API_TOKEN",
+  hold: "CLOUDFLARE_API_TOKEN",
   flip: "CLOUDFLARE_API_TOKEN",
   check: "CLOUDFLARE_API_TOKEN",
   unflip: "CLOUDFLARE_API_TOKEN",
@@ -159,8 +184,15 @@ const TOKEN_NAMES = ["CLOUDFLARE_API_TOKEN", "GITHUB_TOKEN"] as const;
 /** Steps that may run on a re-run attempt: each finishes or reads what an earlier attempt left. */
 const ANY_ATTEMPT: ReadonlySet<Step> = new Set(["destroy", "cleanup", "report"]);
 
-/** Steps that act on the run's own Pages project. */
-const PROJECT_STEPS: ReadonlySet<Step> = new Set(["preflight", "pages-on", "detach", "attach"]);
+/** Steps that act on, or read the moved host against, the run's own Pages project. */
+const PROJECT_STEPS: ReadonlySet<Step> = new Set([
+  "preflight",
+  "pages-on",
+  "detach",
+  "hold",
+  "flip",
+  "attach",
+]);
 
 export type ProbeOutcome = "pages" | "worker" | "other" | "error";
 
@@ -194,8 +226,10 @@ export interface RehearsalDns {
   resolveNs(zone: string): Promise<readonly string[]>;
   /** One IPv4 address of `name`, through the system resolver. */
   lookup4(name: string): Promise<string>;
-  /** The IPv4 addresses `servers` answer for `name`, asked directly. */
+  /** The IPv4 addresses `servers` answer for `name`, asked directly; throws with node:dns's code. */
   resolveAt(servers: readonly string[], name: string): Promise<readonly string[]>;
+  /** The IPv6 addresses `servers` answer for `name`, asked directly; throws with node:dns's code. */
+  resolve6At(servers: readonly string[], name: string): Promise<readonly string[]>;
   /** `resolves`, or the error code, as the system resolver answers `name` now. */
   lookupSystem(name: string): Promise<string>;
 }
@@ -474,6 +508,21 @@ interface TimelineEntry {
   count: number;
 }
 
+/**
+ * The watch's zone view: what the dev zone's own name servers answered for
+ * the moved host's A and AAAA, one entry per sample, each at its own time:
+ * `at[i]` ms after `startedAt`, `outcomes[i]` `r` (a record), `g` (both
+ * answers said the name or its data is missing: a gap) or `f` (a read that
+ * failed), and `codes[i]` the two answers' codes for any sample but `r`.
+ */
+interface ZoneView {
+  readonly servers: number;
+  readonly startedAt: string;
+  readonly at: number[];
+  outcomes: string;
+  readonly codes: Record<string, string>;
+}
+
 interface FragmentBody {
   readonly step: Step;
   readonly attempt: string;
@@ -488,6 +537,7 @@ interface FragmentBody {
   readonly events: Record<string, string | number>;
   state?: Json;
   alchemyLogTail?: string;
+  zone?: ZoneView;
 }
 
 class Recorder {
@@ -831,13 +881,19 @@ async function workerDomainsAt(ctx: Context, host: string): Promise<readonly Jso
   return listed === null ? null : Array.isArray(result) ? (result as readonly Json[]) : [];
 }
 
-/** Reads the Worker custom domains and DNS records at both hosts; a failure is recorded and passed over. */
+/**
+ * Reads the Worker custom domains and DNS records at both hosts; a failure
+ * is recorded and passed over. On the flip (`worker`), each read of the
+ * moved host's records that answers counts in `hostRecordReads`; the first
+ * that holds no record routing it sets `hostRecordlessAt`, and the first
+ * that holds the Worker's record and no CNAME sets `cnameReplacedAt`.
+ */
 async function pollWorker(ctx: Context, zone: string | null, mode: RehearsalMode): Promise<void> {
   const target = mode === "worker" ? ctx.hosts.host : ctx.hosts.spare;
   // Three reads a round, each sent once: a poll that meets a 429 waits for
   // its next round rather than adding retries to a limit already met.
   const once = { retry: false } as const;
-  const [listed] = await Promise.all([
+  const [listed, hostRecords] = await Promise.all([
     readOrNull(() =>
       ctx.api.call(
         "GET",
@@ -868,19 +924,43 @@ async function pollWorker(ctx: Context, zone: string | null, mode: RehearsalMode
   ) {
     ctx.record.once("workerDomainListedAt");
   }
+  if (mode === "worker" && hostRecords !== null && hostRecords !== undefined) {
+    const records = Array.isArray(hostRecords.result) ? (hostRecords.result as DnsRecord[]) : [];
+    const reads = ctx.record.fragment.events.hostRecordReads;
+    ctx.record.event("hostRecordReads", (typeof reads === "number" ? reads : 0) + 1);
+    const routing = records.filter((record) => decides(ctx.hosts.host, record));
+    if (routing.length === 0) ctx.record.once("hostRecordlessAt");
+    if (
+      routing.some((record) => isWorkerRecord(record)) &&
+      !routing.some((record) => record.type === "CNAME")
+    ) {
+      ctx.record.once("cnameReplacedAt");
+    }
+  }
 }
 
-/** Runs one Alchemy script, polling what Cloudflare shows while a deploy runs. */
-async function alchemy(ctx: Context, script: AlchemyScript, mode: RehearsalMode): Promise<number> {
+/**
+ * Runs one Alchemy script, polling what Cloudflare shows while a deploy
+ * runs, with `options.env` added to its environment. A deploy reads the dev
+ * zone's id unless `options.zone` gives it.
+ */
+async function alchemy(
+  ctx: Context,
+  script: AlchemyScript,
+  mode: RehearsalMode,
+  options: { readonly env?: Readonly<Record<string, string>>; readonly zone?: string } = {},
+): Promise<number> {
   const deploying = script === "rehearsal:deploy";
-  const zone = deploying ? await zoneId(ctx) : null;
+  const zone = deploying ? (options.zone ?? (await zoneId(ctx))) : null;
   ctx.record.event(deploying ? "alchemyStartedAt" : "destroyStartedAt");
   let finished: AlchemyRun | undefined;
-  const running = ctx.input.runAlchemy(script, { ...ctx.env, REHEARSAL_MODE: mode }).then((run) => {
-    finished = run;
-    if (deploying) ctx.record.event("alchemyEndedAt");
-    return run;
-  });
+  const running = ctx.input
+    .runAlchemy(script, { ...ctx.env, ...options.env, REHEARSAL_MODE: mode })
+    .then((run) => {
+      finished = run;
+      if (deploying) ctx.record.event("alchemyEndedAt");
+      return run;
+    });
   await until(
     ctx,
     ALCHEMY_POLL_MS,
@@ -1064,18 +1144,74 @@ const DEPLOY_FAILED =
 const deployMovedNothing = (ctx: Context, exit: number): boolean =>
   exit !== 0 && ctx.record.fragment.events.workerDomainListedAt === undefined;
 
-async function flip(ctx: Context): Promise<StepResult> {
+/**
+ * The flip's deploy, given OSN_WORKER_DOMAIN_REPLACE_CNAME naming the moved
+ * host's CNAME to the run's project, as a flip release's deploy is: its
+ * Worker custom domain replaces that CNAME in one request. Refused,
+ * deploying nothing, when the dev zone's id cannot be read, since the
+ * host's records could not be watched; failed when no read of them
+ * succeeded while the deploy ran.
+ */
+async function flip(ctx: Context, project: string): Promise<StepResult> {
   const address = await pin(ctx, [ctx.hosts.spare, ctx.hosts.host]);
   await probeAt(ctx, address, ctx.hosts.host);
-  const exit = await alchemy(ctx, "rehearsal:deploy", "worker");
+  const zone = await zoneId(ctx);
+  if (zone === null) {
+    return {
+      ok: false,
+      message: `The dev zone's id could not be read, so ${ctx.hosts.host}'s records could not be watched through the deploy; nothing was deployed.`,
+    };
+  }
+  const exit = await alchemy(ctx, "rehearsal:deploy", "worker", {
+    env: { OSN_WORKER_DOMAIN_REPLACE_CNAME: `${ctx.hosts.host}=${project}.pages.dev` },
+    zone,
+  });
   if (deployMovedNothing(ctx, exit)) return { ok: false, message: DEPLOY_FAILED };
   const served = await waitForWorker(ctx, address, (host) => host.outcome === "worker");
   if (exit !== 0) return { ok: false, message: "Alchemy's deploy failed." };
+  if (ctx.record.fragment.events.hostRecordReads === undefined) {
+    return {
+      ok: false,
+      message: `There was no read of ${ctx.hosts.host}'s DNS records that answered while the deploy ran, so nothing shows the zone held a record for it.`,
+    };
+  }
   return served
     ? { ok: true, message: `The Worker serves ${ctx.hosts.host}.` }
     : {
         ok: false,
         message: `${ctx.hosts.host} did not serve the Worker marker within ${WORKER_WAIT_MS / 60_000} minutes.`,
+      };
+}
+
+/** HOLD_MINUTES as a whole number of minutes, 0 to HOLD_MAX_MINUTES; the default when unset; null otherwise. */
+function holdMinutes(value: string | undefined): number | null {
+  const text = (value ?? "").trim();
+  if (text === "") return HOLD_DEFAULT_MINUTES;
+  if (!/^[0-9]+$/.test(text)) return null;
+  const minutes = Number(text);
+  return minutes <= HOLD_MAX_MINUTES ? minutes : null;
+}
+
+/**
+ * Holds the detached host as a release's approval wait would, then reads it
+ * again: its CNAME to the run's project must still be its one routing
+ * record, or the flip's deploy would have nothing to replace.
+ */
+async function hold(ctx: Context, project: string, minutes: number): Promise<StepResult> {
+  ctx.record.event("holdStartedAt");
+  await ctx.input.sleep(minutes * 60_000);
+  ctx.record.event("holdEndedAt");
+  const { located } = await readHost(ctx, ctx.hosts.host, project);
+  ctx.record.fragment.state = asJson(located.state);
+  ctx.record.flush();
+  return located.state.kind === "detached"
+    ? {
+        ok: true,
+        message: `${ctx.hosts.host} still reads detached after ${minutes} minutes, its CNAME to ${project}.pages.dev kept.`,
+      }
+    : {
+        ok: false,
+        message: `${ctx.hosts.host} reads ${located.state.kind} after ${minutes} minutes, not detached with its CNAME to ${project}.pages.dev. The fragment holds the records.`,
       };
 }
 
@@ -1280,8 +1416,66 @@ async function cleanup(ctx: Context): Promise<StepResult> {
   };
 }
 
+/** Node's DNS codes that say a name, or its data, is missing: an answer that the zone holds no record. */
+const GAP_CODES: ReadonlySet<string> = new Set(["ENOTFOUND", "ENODATA"]);
+
+/** One zone-view sample: the moved host's A and AAAA, asked of the zone's own name servers at once. */
+async function askZone(
+  ctx: Context,
+  servers: readonly string[],
+): Promise<{ readonly outcome: "r" | "g" | "f"; readonly codes: string }> {
+  const { dns } = ctx.input;
+  const ask = async (
+    resolve: (servers: readonly string[], name: string) => Promise<readonly string[]>,
+  ): Promise<string> => {
+    try {
+      return (await resolve(servers, ctx.hosts.host)).length > 0 ? "records" : "ENODATA";
+    } catch (failure) {
+      const code = (failure as { readonly code?: unknown } | null)?.code;
+      return typeof code === "string" ? code : "ERROR";
+    }
+  };
+  const [a, aaaa] = await Promise.all([ask(dns.resolveAt), ask(dns.resolve6At)]);
+  if (a === "records" || aaaa === "records") return { outcome: "r", codes: "" };
+  return { outcome: GAP_CODES.has(a) && GAP_CODES.has(aaaa) ? "g" : "f", codes: `${a} ${aaaa}` };
+}
+
+/**
+ * Samples the zone view every PROBE_INTERVAL_MS until `watching` turns
+ * false, each sample its own entry. It runs beside the edge probes, so a
+ * probe that waits out its timeout never stretches the time between samples.
+ */
+async function zoneLoop(ctx: Context, watching: () => boolean): Promise<void> {
+  const servers = await nameServers(ctx);
+  const started = ctx.input.now();
+  const view: ZoneView = {
+    servers: servers.length,
+    startedAt: ctx.record.iso(started),
+    at: [],
+    outcomes: "",
+    codes: {},
+  };
+  ctx.record.fragment.zone = view;
+  ctx.record.flush();
+  if (servers.length > 0) {
+    await until(ctx, PROBE_INTERVAL_MS, Number.POSITIVE_INFINITY, async () => {
+      if (!watching()) return true;
+      const sampledAt = ctx.input.now();
+      const { outcome, codes } = await askZone(ctx, servers);
+      if (codes !== "") view.codes[String(view.at.length)] = codes;
+      view.at.push(sampledAt - started);
+      view.outcomes += outcome;
+      if (outcome !== "r") ctx.record.flush();
+      return watching() ? undefined : true;
+    });
+  }
+  ctx.record.flush();
+}
+
 async function watchStep(ctx: Context): Promise<StepResult> {
   const address = await pin(ctx, [ctx.hosts.host, ctx.hosts.spare]);
+  let watching = true;
+  const zoneView = zoneLoop(ctx, () => watching);
   let nextJobs = ctx.input.now() + WATCH_JOBS_EVERY_MS;
   const ended = await until(ctx, PROBE_INTERVAL_MS, ctx.input.now() + WATCH_CAP_MS, async () => {
     await Promise.all(
@@ -1295,6 +1489,8 @@ async function watchStep(ctx: Context): Promise<StepResult> {
     const attachJob = (await runJobs(ctx))?.find((job) => job.name === ATTACH_JOB_NAME);
     return attachJob?.status === "completed" ? true : undefined;
   });
+  watching = false;
+  await zoneView;
   return {
     ok: true,
     message:
@@ -1313,6 +1509,7 @@ interface Fragment {
   readonly startedAt?: string;
   readonly events?: Readonly<Record<string, string | number>>;
   readonly timeline?: readonly TimelineEntry[];
+  readonly zone?: ZoneView;
 }
 
 const msBetween = (from: unknown, to: unknown): number | null =>
@@ -1327,6 +1524,113 @@ export interface Intervals {
   readonly rollbackMs: number | null;
   readonly pagesServingMs: number | null;
   readonly pagesDomainActiveMs: number | null;
+  /** The longest run of zone-view gaps from the detach to the Worker's first answer, to the next record; null for none. */
+  readonly zoneRecordGapMs: number | null;
+  /** The longest time in that window with no zone-view read that answered; null with no window or no sample. */
+  readonly zoneMaxSpacingMs: number | null;
+  readonly zoneSamples: number;
+  readonly zoneFailedReads: number;
+}
+
+/** The zone view's samples from `from` to `to` (epoch ms), each at its own time. */
+function zoneWindow(
+  view: ZoneView | undefined,
+  from: number,
+  to: number,
+): { readonly at: number; readonly outcome: string }[] {
+  if (view === undefined) return [];
+  const start = Date.parse(view.startedAt);
+  return view.at
+    .map((offset, index) => ({ at: start + offset, outcome: view.outcomes[index] ?? "f" }))
+    .filter((sample) => sample.at >= from && sample.at <= to);
+}
+
+/** The zone view's intervals over the window from the detach to the Worker's first answer. */
+function zoneIntervals(
+  fragments: Readonly<Record<string, Fragment>>,
+): Pick<Intervals, "zoneRecordGapMs" | "zoneMaxSpacingMs" | "zoneSamples" | "zoneFailedReads"> {
+  const from = Date.parse(String(fragments.detach?.events?.detachedAt ?? ""));
+  const to = Date.parse(String(fragments.flip?.events?.firstWorkerAnswerAt ?? ""));
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) {
+    return { zoneRecordGapMs: null, zoneMaxSpacingMs: null, zoneSamples: 0, zoneFailedReads: 0 };
+  }
+  const samples = zoneWindow(fragments.watch?.zone, from, to);
+  let longestGap: number | null = null;
+  let gapStart: number | null = null;
+  for (const sample of samples) {
+    if (sample.outcome === "g") gapStart ??= sample.at;
+    else if (sample.outcome === "r" && gapStart !== null) {
+      longestGap = Math.max(longestGap ?? 0, sample.at - gapStart);
+      gapStart = null;
+    }
+  }
+  if (gapStart !== null) longestGap = Math.max(longestGap ?? 0, to - gapStart);
+  const answered = samples.filter((sample) => sample.outcome !== "f").map((sample) => sample.at);
+  const marks = [from, ...answered, to];
+  const spacing = marks.slice(1).map((mark, index) => mark - (marks[index] ?? mark));
+  return {
+    zoneRecordGapMs: longestGap,
+    zoneMaxSpacingMs: samples.length === 0 ? null : Math.max(...spacing),
+    zoneSamples: samples.length,
+    zoneFailedReads: samples.filter((sample) => sample.outcome === "f").length,
+  };
+}
+
+/**
+ * Why the run does not show the zone held a record for the moved host from
+ * the detach to the Worker's first answer; empty when it does. One runner,
+ * one anycast path, a read every 2 s: a pass shows no gap of 2 s or more,
+ * and cannot prove the swap atomic.
+ */
+export function verdict(
+  fragments: Readonly<Record<string, Fragment>>,
+  measured: Intervals,
+  host: string,
+): string[] {
+  const failures: string[] = [];
+  const view = fragments.watch?.zone;
+  const flipped = fragments.flip?.events ?? {};
+  const seconds = (ms: number) => `${Math.round(ms / 100) / 10} s`;
+  if (view === undefined || view.servers === 0) {
+    failures.push("the watch found no name servers for the dev zone, so it asked none of them");
+  }
+  if (
+    fragments.detach?.events?.detachedAt === undefined ||
+    flipped.firstWorkerAnswerAt === undefined
+  ) {
+    failures.push(
+      "the window from the detach to the Worker's first answer is unknown: a fragment holds no detach time or no first Worker answer",
+    );
+  } else if (measured.zoneSamples === 0) {
+    failures.push("the zone view took no sample from the detach to the Worker's first answer");
+  }
+  if (measured.zoneRecordGapMs !== null) {
+    failures.push(
+      `the zone's name servers answered no record for ${host} for ${seconds(measured.zoneRecordGapMs)}`,
+    );
+  }
+  if (measured.zoneMaxSpacingMs !== null && measured.zoneMaxSpacingMs > ZONE_MAX_SPACING_MS) {
+    failures.push(
+      `the zone view went ${seconds(measured.zoneMaxSpacingMs)} with no read that answered, past ${seconds(ZONE_MAX_SPACING_MS)}`,
+    );
+  }
+  if (
+    measured.zoneSamples > 0 &&
+    measured.zoneFailedReads / measured.zoneSamples >= ZONE_FAILED_SHARE
+  ) {
+    failures.push(
+      `${measured.zoneFailedReads} of ${measured.zoneSamples} of the zone view's reads failed, ${Math.round(ZONE_FAILED_SHARE * 100)} % or more`,
+    );
+  }
+  if (flipped.hostRecordlessAt !== undefined) {
+    failures.push(
+      `the API listed no record that routes ${host} at ${String(flipped.hostRecordlessAt)}, during the flip`,
+    );
+  }
+  if (typeof flipped.hostRecordReads !== "number" || flipped.hostRecordReads === 0) {
+    failures.push(`there was no read of ${host}'s records that answered during the flip`);
+  }
+  return failures;
 }
 
 /** Every interval the report gives, from the fragments it found. */
@@ -1358,6 +1662,7 @@ export function intervals(fragments: Readonly<Record<string, Fragment>>, host: s
     rollbackMs: msBetween(fragments.unflip?.startedAt, attached.firstPagesAnswerAt),
     pagesServingMs: msBetween(attached.attachedAt, attached.firstPagesAnswerAt),
     pagesDomainActiveMs: msBetween(attached.attachedAt, attached.pagesDomainActiveAt),
+    ...zoneIntervals(fragments),
   };
 }
 
@@ -1396,9 +1701,11 @@ function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): numb
   }
   const expected = STEPS.filter((step) => step !== "report");
   const measured = intervals(fragments, hosts.host);
+  const failures = verdict(fragments, measured, hosts.host);
   const result = {
     hosts,
     intervals: measured,
+    verdict: { pass: failures.length === 0, failures },
     steps: Object.fromEntries(
       expected.flatMap((step) => {
         const fragment = fragments[step];
@@ -1409,7 +1716,7 @@ function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): numb
     ),
     missing: expected.filter((step) => fragments[step] === undefined),
     fragments,
-    note: "Edge probes go to one pinned address of the dev zone with SNI and Host the probed host, so no resolver cache decides them; the dns view is the runner's own resolver, as a visitor's would be. A rerun reproduces the shape, the verdicts and the exit codes; the timings differ.",
+    note: "Edge probes go to one pinned address of the dev zone with SNI and Host the probed host, so no resolver cache decides them; the dns view is the runner's own resolver, as a visitor's would be. The zone view asks the dev zone's own name servers for the moved host's A and AAAA every 2 s, from one runner along one anycast path: a pass shows no gap of 2 s or more, and cannot prove the swap atomic. A rerun reproduces the shape, the verdicts and the exit codes; the timings differ.",
   };
   input.writeFile(join(out, REPORT_FILE), `${JSON.stringify(result, null, 2)}\n`);
   const seconds = (value: number | null) =>
@@ -1426,6 +1733,14 @@ function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): numb
     `| Unflip start to Pages answering (rollbackMs) | ${seconds(measured.rollbackMs)} |`,
     `| Attach to Pages answering (pagesServingMs) | ${seconds(measured.pagesServingMs)} |`,
     `| Attach to the Pages domain active (pagesDomainActiveMs) | ${seconds(measured.pagesDomainActiveMs)} |`,
+    `| No record at the zone's name servers (zoneRecordGapMs) | ${seconds(measured.zoneRecordGapMs)} |`,
+    `| Longest time with no zone read answered (zoneMaxSpacingMs) | ${seconds(measured.zoneMaxSpacingMs)} |`,
+    `| Zone reads, detach to the Worker's first answer (zoneSamples) | ${measured.zoneSamples} |`,
+    `| Zone reads that failed (zoneFailedReads) | ${measured.zoneFailedReads} |`,
+    "",
+    failures.length === 0
+      ? "**Verdict: pass.** The zone held a record for the moved host at every read."
+      : `**Verdict: fail.** ${failures.join("; ")}.`,
     "",
     "| Step | Exit |",
     "|---|---|",
@@ -1435,7 +1750,8 @@ function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): numb
   const summaryFile = input.env.GITHUB_STEP_SUMMARY ?? "";
   if (summaryFile === "") input.out(`${summary}\n`);
   else input.writeFile(summaryFile, `${summary}\n`);
-  return 0;
+  for (const failure of failures) input.out(`::error::domain-move-rehearsal: ${failure}.\n`);
+  return failures.length === 0 ? 0 : 1;
 }
 
 // ── Running a step ────────────────────────────────────────────────────────
@@ -1444,6 +1760,7 @@ function runStep(
   ctx: Context,
   step: Exclude<Step, "report">,
   project: string,
+  minutes: number,
 ): Promise<StepResult> {
   switch (step) {
     case "preflight":
@@ -1456,8 +1773,10 @@ function runStep(
       return waitWatch(ctx);
     case "detach":
       return detachStep(ctx, project);
+    case "hold":
+      return hold(ctx, project, minutes);
     case "flip":
-      return flip(ctx);
+      return flip(ctx, project);
     case "check":
       return check(ctx);
     case "unflip":
@@ -1508,6 +1827,12 @@ export async function runRehearsal(input: RehearsalInput): Promise<number> {
   if (token === "" || (!github && account === "")) {
     return usage(`${step} needs ${github ? "" : "CLOUDFLARE_ACCOUNT_ID and "}${tokenName}`);
   }
+  const minutes = step === "hold" ? holdMinutes(env.HOLD_MINUTES) : 0;
+  if (minutes === null) {
+    return usage(
+      `HOLD_MINUTES is '${env.HOLD_MINUTES ?? ""}'; set it to a whole number of minutes from 0 to ${HOLD_MAX_MINUTES}.`,
+    );
+  }
   let project = "";
   if (PROJECT_STEPS.has(step)) {
     try {
@@ -1552,7 +1877,7 @@ export async function runRehearsal(input: RehearsalInput): Promise<number> {
     return code;
   };
   try {
-    const result = await runStep(ctx, step, project);
+    const result = await runStep(ctx, step, project, minutes);
     return finish(result.ok ? 0 : 1, result.message);
   } catch (failure) {
     if (failure instanceof ApiError || failure instanceof Refusal) {
@@ -1571,6 +1896,11 @@ const realDns: RehearsalDns = {
     const resolver = new Resolver({ timeout: 3_000, tries: 1 });
     resolver.setServers([...servers]);
     return resolver.resolve4(name);
+  },
+  resolve6At: (servers, name) => {
+    const resolver = new Resolver({ timeout: 3_000, tries: 1 });
+    resolver.setServers([...servers]);
+    return resolver.resolve6(name);
   },
   lookupSystem: async (name) => {
     try {

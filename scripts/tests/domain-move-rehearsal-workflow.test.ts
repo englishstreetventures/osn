@@ -13,6 +13,8 @@ import { join } from "node:path";
 
 import {
   ATTACH_JOB_NAME,
+  HOLD_DEFAULT_MINUTES,
+  HOLD_MAX_MS,
   PAGES_WAIT_MS,
   PIN_TIMEOUT_MS,
   WAIT_WATCH_CAP_MS,
@@ -83,7 +85,7 @@ const DEV_DOMAIN = "${{ vars.DEV_DOMAIN }}";
 const SCRIPT_STEPS: readonly {
   readonly job: string;
   readonly step: string;
-  readonly token: "pages" | "alchemy" | "github";
+  readonly token: "pages" | "hold" | "alchemy" | "github";
 }[] = [
   { job: "setup-pages", step: "preflight", token: "pages" },
   { job: "pages-on", step: "pages-on", token: "pages" },
@@ -91,6 +93,7 @@ const SCRIPT_STEPS: readonly {
   { job: "watch", step: "watch", token: "github" },
   { job: "detach", step: "wait-watch", token: "github" },
   { job: "detach", step: "detach", token: "pages" },
+  { job: "hold", step: "hold", token: "hold" },
   { job: "flip", step: "flip", token: "alchemy" },
   { job: "check", step: "check", token: "pages" },
   { job: "unflip", step: "unflip", token: "alchemy" },
@@ -107,6 +110,13 @@ const scriptStep = (job: string, step: string) =>
 const ENV_OF = {
   pages: {
     DEV_DOMAIN,
+    CLOUDFLARE_ACCOUNT_ID: DEV_ACCOUNT,
+    CLOUDFLARE_API_TOKEN: DEPLOY_TOKEN,
+    BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1",
+  },
+  hold: {
+    DEV_DOMAIN,
+    HOLD_MINUTES: "${{ inputs.hold_minutes }}",
     CLOUDFLARE_ACCOUNT_ID: DEV_ACCOUNT,
     CLOUDFLARE_API_TOKEN: DEPLOY_TOKEN,
     BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS: "1",
@@ -168,9 +178,19 @@ function runStep(step: Step | undefined, bunExit = 0) {
 }
 
 describe("domain-move-rehearsal.yml", () => {
-  test("W1: runs by hand alone, with no input, reading the repository; only watch and detach may read Actions runs", () => {
+  test("W1: runs by hand alone, with one input, the hold's minutes, which the script bounds, reading the repository; only watch and detach may read Actions runs", () => {
     expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
-    expect(workflow.on.workflow_dispatch ?? null).toBeNull();
+    const inputs = (workflow.on.workflow_dispatch as { inputs?: Record<string, unknown> } | null)
+      ?.inputs;
+    expect(Object.keys(inputs ?? {})).toEqual(["hold_minutes"]);
+    expect(inputs?.hold_minutes).toMatchObject({
+      type: "number",
+      required: false,
+      default: HOLD_DEFAULT_MINUTES,
+    });
+    expect((inputs?.hold_minutes as { description?: string } | undefined)?.description).toContain(
+      `0 to ${HOLD_MAX_MS / 60_000}`,
+    );
     expect(workflow.permissions).toEqual({ contents: "read" });
     for (const [id, job] of Object.entries(jobs)) {
       expect({ id, permissions: job.permissions }).toEqual({
@@ -241,6 +261,7 @@ describe("domain-move-rehearsal.yml", () => {
     expect(holding("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN").toSorted()).toEqual(
       [
         ...byToken("pages"),
+        ...byToken("hold"),
         ...byToken("alchemy"),
         ...["worker-staged", "flip", "unflip", "destroy"].map((id) => `${id} token`),
         "setup-pages upload",
@@ -256,7 +277,16 @@ describe("domain-move-rehearsal.yml", () => {
   });
 
   test("W5: the rehearsed Pages and DNS steps run with nothing installed; setup-pages checks the token's reach before the install that precedes Wrangler", () => {
-    for (const id of ["pages-on", "detach", "check", "attach", "cleanup", "watch", "report"]) {
+    for (const id of [
+      "pages-on",
+      "detach",
+      "hold",
+      "check",
+      "attach",
+      "cleanup",
+      "watch",
+      "report",
+    ]) {
       const steps = stepsOf(id);
       expect({ id, installs: steps.filter(isInstall) }).toEqual({ id, installs: [] });
       expect({
@@ -350,7 +380,9 @@ describe("domain-move-rehearsal.yml", () => {
       );
     }
     expect(needsOf(jobs.detach).toSorted()).toEqual(["pages-on", "worker-staged"]);
-    expect(needsOf(jobs.flip)).toEqual(["detach"]);
+    // The host stays detached for the hold before the flip's deploy.
+    expect(needsOf(jobs.hold)).toEqual(["detach"]);
+    expect(needsOf(jobs.flip)).toEqual(["hold"]);
     expect(needsOf(jobs.check)).toEqual(["flip"]);
     expect(needsOf(jobs.watch)).toEqual(["pages-on"]);
   });
@@ -421,7 +453,7 @@ describe("domain-move-rehearsal.yml", () => {
 
   test("W11: the move itself runs only on success; the detach waits for the watch first; each job outlasts the waits its step can make", () => {
     // The detach, flip and check run only once everything before them passed.
-    for (const id of ["detach", "flip", "check"]) {
+    for (const id of ["detach", "hold", "flip", "check"]) {
       expect({ id, if: jobs[id]?.if }).toEqual({ id, if: undefined });
     }
     const detach = stepsOf("detach");
@@ -438,6 +470,7 @@ describe("domain-move-rehearsal.yml", () => {
       unflip: minutes(PIN_TIMEOUT_MS + WORKER_WAIT_MS),
       watch: minutes(PIN_TIMEOUT_MS + WATCH_CAP_MS),
       detach: minutes(WAIT_WATCH_CAP_MS),
+      hold: minutes(HOLD_MAX_MS) + 1,
     };
     for (const [id, wait] of Object.entries(longest)) {
       const timeout = jobs[id]?.["timeout-minutes"] ?? 0;

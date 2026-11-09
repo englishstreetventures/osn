@@ -18,8 +18,10 @@ import {
   ATTACH_JOB_NAME,
   edgeProbe,
   type EdgeSocket,
+  HOLD_DEFAULT_MINUTES,
   PAGES_WAIT_MS,
   type ProbeResult,
+  type RehearsalDns,
   type RehearsalInput,
   runRehearsal,
   WAIT_WATCH_MARGIN_MS,
@@ -53,6 +55,8 @@ const BASE_ENV: Record<string, string> = {
 const PAGES_ENV = { ...BASE_ENV, CLOUDFLARE_API_TOKEN: API_TOKEN };
 const DEPLOY_ENV = { ...BASE_ENV, CLOUDFLARE_API_TOKEN: API_TOKEN, OSN_DEPLOY_TIER: "dev" };
 const GH_ENV = { ...BASE_ENV, GITHUB_TOKEN: GH_TOKEN };
+/** What the flip's deploy is given: the moved host's CNAME to the run's project, to replace. */
+const REPLACE = `${HOST}=${PROJECT}.pages.dev`;
 
 const ok = (result: unknown, info?: unknown) =>
   new Response(JSON.stringify({ success: true, errors: [], result, result_info: info }), {
@@ -289,19 +293,29 @@ const edgeFromWorld =
     return pages && pointed ? { outcome: "pages", status: 200 } : { outcome: "other", status: 530 };
   };
 
+/** An error as node:dns throws one, with its code. */
+const dnsError = (code: string) => Object.assign(new Error(`queryA ${code}`), { code });
+
 /**
- * A name exists at the zone's servers while the zone holds a record for it.
- * The system resolver answers the name servers' names, and nothing else
- * (as a runner holding a cached negative answer for the hosts would).
+ * A name exists at the zone's servers while the zone holds a record for it,
+ * and is NXDOMAIN there otherwise, for A and AAAA alike. The system resolver
+ * answers the name servers' names, and nothing else (as a runner holding a
+ * cached negative answer for the hosts would).
  */
-const dnsFromWorld = (w: World) => ({
+const dnsFromWorld = (w: World): RehearsalDns => ({
   resolveNs: async () => ["ada.ns.cloudflare.com"],
   lookup4: async (name: string) => {
     if (name !== "ada.ns.cloudflare.com") throw new Error(`ENOTFOUND ${name}`);
     return "192.0.2.53";
   },
-  resolveAt: async (_servers: readonly string[], name: string) =>
-    (w.records[name] ?? []).length > 0 ? [EDGE] : [],
+  resolveAt: async (_servers: readonly string[], name: string) => {
+    if ((w.records[name] ?? []).length === 0) throw dnsError("ENOTFOUND");
+    return [EDGE];
+  },
+  resolve6At: async (_servers: readonly string[], name: string) => {
+    if ((w.records[name] ?? []).length === 0) throw dnsError("ENOTFOUND");
+    return ["2606:4700::1"];
+  },
   lookupSystem: async (name: string) =>
     (w.records[name] ?? []).length > 0 ? "resolves" : "ENOTFOUND",
 });
@@ -312,7 +326,7 @@ interface Run {
   calls: Call[];
   files: Record<string, string>;
   fragment: Record<string, unknown>;
-  alchemy: { script: string; mode: string | undefined }[];
+  alchemy: { script: string; mode: string | undefined; replace?: string }[];
 }
 
 async function run(
@@ -664,11 +678,26 @@ describe("domain-move-rehearsal.ts", () => {
     expect(events(result).detachedAt).toBeString();
   });
 
-  /** The fake Alchemy: moves the Worker's domain as the mode says, as Alchemy does. */
+  /**
+   * The fake Alchemy: moves the Worker's domain as the mode says, as Alchemy
+   * does. A host still holding a CNAME takes the Worker's domain only when
+   * the deploy names it for replacement, which then replaces the CNAME;
+   * otherwise Cloudflare refuses the attach, as it does.
+   */
   const alchemyMoving =
-    (w: World, log: { script: string; mode: string | undefined }[], exitCode = 0) =>
+    (
+      w: World,
+      log: { script: string; mode: string | undefined; replace?: string }[],
+      exitCode = 0,
+    ) =>
     async (script: string, env: Record<string, string | undefined>) => {
-      log.push({ script, mode: env.REHEARSAL_MODE });
+      log.push({
+        script,
+        mode: env.REHEARSAL_MODE,
+        ...(env.OSN_WORKER_DOMAIN_REPLACE_CNAME === undefined
+          ? {}
+          : { replace: env.OSN_WORKER_DOMAIN_REPLACE_CNAME }),
+      });
       if (script === "rehearsal:destroy") {
         w.workerDomains = [];
         w.worker = false;
@@ -678,32 +707,44 @@ describe("domain-move-rehearsal.ts", () => {
       }
       const target = env.REHEARSAL_MODE === "worker" ? HOST : SPARE;
       const other = target === HOST ? SPARE : HOST;
+      const held = (w.records[target] ?? []).some((r) => r.type === "CNAME");
+      if (held && env.OSN_WORKER_DOMAIN_REPLACE_CNAME !== `${target}=${PROJECT}.pages.dev`) {
+        return { exitCode: 1, log: `code 100117: ${target} already has a DNS record` };
+      }
       w.workerDomains = [{ id: `wd-${target}`, hostname: target, service: REHEARSAL_WORKER }];
       w.records[other] = (w.records[other] ?? []).filter((r) => r.type !== "AAAA");
-      w.records[target] = [...(w.records[target] ?? []), workerRecord(target)];
+      w.records[target] = [
+        ...(w.records[target] ?? []).filter((r) => r.type !== "CNAME"),
+        workerRecord(target),
+      ];
       w.worker = true;
       return { exitCode, log: `deployed with ${API_TOKEN} in ${ACCOUNT}` };
     };
 
-  /** The dev account after detach: the host is on neither side. */
+  /** The dev account after detach: the host off the project, its CNAME to it kept. */
   const detached = (): World => {
     const w = onPages();
     if (w.projects[PROJECT] !== undefined) w.projects[PROJECT].domains = [`${PROJECT}.pages.dev`];
-    w.records[HOST] = [];
     return w;
   };
 
+  /** The deploy that flips a detached world, as the flip step runs it. */
+  const FLIP_ENV = { REHEARSAL_MODE: "worker", OSN_WORKER_DOMAIN_REPLACE_CNAME: REPLACE };
+
   test("R10: flip runs Alchemy with REHEARSAL_MODE=worker, records when the domain first lists, and waits for the Worker marker", async () => {
     const w = detached();
-    const log: { script: string; mode: string | undefined }[] = [];
+    const log: { script: string; mode: string | undefined; replace?: string }[] = [];
     const result = await run(["flip", ...OUT], w, DEPLOY_ENV, {
       runAlchemy: alchemyMoving(w, log),
     });
     expect(result.code).toBe(0);
-    expect(log).toEqual([{ script: "rehearsal:deploy", mode: "worker" }]);
+    expect(log).toEqual([{ script: "rehearsal:deploy", mode: "worker", replace: REPLACE }]);
     expect(events(result).workerDomainListedAt).toBeString();
     expect(events(result).firstWorkerAnswerAt).toBeString();
     expect(events(result).alchemyExitCode).toBe(0);
+    expect(events(result).cnameReplacedAt).toBeString();
+    expect(events(result).hostRecordlessAt).toBeUndefined();
+    expect(Number(events(result).hostRecordReads)).toBeGreaterThan(0);
     expect(result.calls.every((call) => call.auth === `Bearer ${API_TOKEN}`)).toBe(true);
     // An Alchemy failure fails the step, keeping the domains read and the log's tail, redacted.
     const w2 = detached();
@@ -728,6 +769,70 @@ describe("domain-move-rehearsal.ts", () => {
       probe: async () => ({ outcome: "other", status: 522 }),
     });
     expect(silent.code).toBe(1);
+  });
+
+  test("R10b: only the flip's deploy names the CNAME to replace; without it the moved host's kept CNAME refuses the attach", async () => {
+    const w = world({ projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`] } } });
+    const log: { script: string; mode: string | undefined; replace?: string }[] = [];
+    await run(["worker-staged", ...OUT], w, DEPLOY_ENV, { runAlchemy: alchemyMoving(w, log) });
+    const flipped = detached();
+    await alchemyMoving(flipped, [])("rehearsal:deploy", FLIP_ENV);
+    await run(["unflip", ...OUT], flipped, DEPLOY_ENV, { runAlchemy: alchemyMoving(flipped, log) });
+    expect(log).toEqual([
+      { script: "rehearsal:deploy", mode: "staged" },
+      { script: "rehearsal:deploy", mode: "staged" },
+    ]);
+    // A deploy given no replacement meets the kept CNAME as Cloudflare would.
+    const refused = await alchemyMoving(detached(), [])("rehearsal:deploy", {
+      REHEARSAL_MODE: "worker",
+    });
+    expect(refused.exitCode).toBe(1);
+  });
+
+  test("R10c: flip fails, deploying nothing, when the dev zone's id cannot be read", async () => {
+    const w = detached();
+    w.zones = [];
+    const log: { script: string; mode: string | undefined; replace?: string }[] = [];
+    const result = await run(["flip", ...OUT], w, DEPLOY_ENV, {
+      runAlchemy: alchemyMoving(w, log),
+    });
+    expect(result.code).toBe(1);
+    expect(log).toEqual([]);
+    expect(result.output).toContain("zone");
+  });
+
+  test("R10d: flip fails when no read of the moved host's records succeeded while the deploy ran", async () => {
+    const w = detached();
+    w.flaky[`GET /zones/${ZONE_ID}/dns_records`] = Array.from({ length: 400 }, () =>
+      failed(500, 0),
+    );
+    const result = await run(["flip", ...OUT], w, DEPLOY_ENV, { runAlchemy: alchemyMoving(w, []) });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("no read of");
+    expect(events(result).hostRecordReads ?? 0).toBe(0);
+  });
+
+  test("R10e: a read that finds no record routing the moved host during the flip is recorded", async () => {
+    const w = detached();
+    const result = await run(["flip", ...OUT], w, DEPLOY_ENV, {
+      // Cloudflare deletes the CNAME, the poll reads the host bare, then the Worker's record lands.
+      runAlchemy: async () => {
+        w.records[HOST] = [];
+        await new Promise<void>((resolve) => {
+          let reads = 0;
+          w.onRequest = (method, path) => {
+            if (method === "GET" && path.endsWith("/dns_records") && ++reads >= 4) resolve();
+          };
+        });
+        w.onRequest = undefined;
+        w.workerDomains = [{ id: `wd-${HOST}`, hostname: HOST, service: REHEARSAL_WORKER }];
+        w.records[HOST] = [workerRecord(HOST)];
+        w.worker = true;
+        return { exitCode: 0, log: "" };
+      },
+    });
+    expect(result.code).toBe(0);
+    expect(events(result).hostRecordlessAt).toBeString();
   });
 
   test("R11: a wait is decided by the pinned edge alone; with no address at the zone's servers the step fails naming both hosts", async () => {
@@ -766,15 +871,15 @@ describe("domain-move-rehearsal.ts", () => {
 
   test("R13: unflip passes only once the host stops answering the Worker and the spare answers it", async () => {
     const w = detached();
-    await alchemyMoving(w, [])("rehearsal:deploy", { REHEARSAL_MODE: "worker" });
-    const log: { script: string; mode: string | undefined }[] = [];
+    await alchemyMoving(w, [])("rehearsal:deploy", FLIP_ENV);
+    const log: { script: string; mode: string | undefined; replace?: string }[] = [];
     const result = await run(["unflip", ...OUT], w, DEPLOY_ENV, {
       runAlchemy: alchemyMoving(w, log),
     });
     expect(result.code).toBe(0);
     expect(log).toEqual([{ script: "rehearsal:deploy", mode: "staged" }]);
     const stuck = detached();
-    await alchemyMoving(stuck, [])("rehearsal:deploy", { REHEARSAL_MODE: "worker" });
+    await alchemyMoving(stuck, [])("rehearsal:deploy", FLIP_ENV);
     const stays = await run(["unflip", ...OUT], stuck, DEPLOY_ENV, {
       runAlchemy: async () => ({ exitCode: 0, log: "" }),
     });
@@ -803,7 +908,7 @@ describe("domain-move-rehearsal.ts", () => {
       hostname: "api.cire.example.dev",
       service: REHEARSAL_WORKER,
     });
-    const log: { script: string; mode: string | undefined }[] = [];
+    const log: { script: string; mode: string | undefined; replace?: string }[] = [];
     const result = await run(["destroy", ...OUT], w, DEPLOY_ENV, {
       runAlchemy: async (script, env) => {
         log.push({ script, mode: env.REHEARSAL_MODE });
@@ -1016,6 +1121,130 @@ describe("domain-move-rehearsal.ts", () => {
     expect(String(capped.fragment.message)).toContain("cap");
   });
 
+  test("R22: hold waits the minutes asked, then reads the host again and passes it detached; a CNAME gone fails it", async () => {
+    const held = await run(["hold", ...OUT], detached(), { ...PAGES_ENV, HOLD_MINUTES: "3" });
+    expect(held.code).toBe(0);
+    expect(
+      Date.parse(String(events(held).holdEndedAt)) - Date.parse(String(events(held).holdStartedAt)),
+    ).toBeGreaterThanOrEqual(3 * 60_000);
+    expect(held.fragment.state).toEqual({ kind: "detached", target: `${PROJECT}.pages.dev` });
+    expect(writes(held.calls)).toEqual([]);
+    const gone = detached();
+    gone.records[HOST] = [];
+    const vanished = await run(["hold", ...OUT], gone, { ...PAGES_ENV, HOLD_MINUTES: "0" });
+    expect(vanished.code).toBe(1);
+    expect(vanished.output).toContain("not detached");
+    // Unset, it holds the default.
+    const byDefault = await run(["hold", ...OUT], detached(), PAGES_ENV);
+    expect(byDefault.code).toBe(0);
+    expect(
+      Date.parse(String(events(byDefault).holdEndedAt)) -
+        Date.parse(String(events(byDefault).holdStartedAt)),
+    ).toBeGreaterThanOrEqual(HOLD_DEFAULT_MINUTES * 60_000);
+  });
+
+  test.each(["16", "-1", "2.5", "ten"])(
+    "R22a: HOLD_MINUTES %s exits 2 before any request",
+    async (minutes) => {
+      const result = await run(["hold", ...OUT], detached(), {
+        ...PAGES_ENV,
+        HOLD_MINUTES: minutes,
+      });
+      expect(result.code).toBe(2);
+      expect(result.calls).toEqual([]);
+    },
+  );
+
+  /** The watch's zone view as the fragment keeps it. */
+  interface ZoneView {
+    servers: number;
+    startedAt: string;
+    at: number[];
+    outcomes: string;
+    codes: Record<string, string>;
+  }
+
+  test("R23: the watch asks the zone's own name servers for the moved host's A and AAAA every 2 s, in a loop of its own, one entry per sample", async () => {
+    const w = onPages();
+    let asked = 0;
+    let rounds = 0;
+    const dns = dnsFromWorld(w);
+    const result = await run(["watch", ...OUT], w, GH_ENV, {
+      dns: {
+        ...dns,
+        resolve6At: async (servers, name) => {
+          if (name === HOST) asked += 1;
+          return dns.resolve6At(servers, name);
+        },
+      },
+      probe: async () => {
+        rounds += 1;
+        if (rounds > 30) w.jobs = [{ name: ATTACH_JOB_NAME, status: "completed" }];
+        return { outcome: "pages" };
+      },
+    });
+    expect(result.code).toBe(0);
+    const zone = result.fragment.zone as ZoneView;
+    expect(zone.servers).toBe(1);
+    expect(zone.outcomes.length).toBe(zone.at.length);
+    expect(zone.outcomes).toMatch(/^r+$/);
+    expect(zone.at.length).toBeGreaterThan(5);
+    expect(asked).toBe(zone.at.length);
+    // Each sample its own timestamp, at least 2 s after the one before.
+    const spacing = zone.at.slice(1).map((at, index) => at - (zone.at[index] ?? 0));
+    expect(spacing.every((gap) => gap >= 2_000)).toBe(true);
+  });
+
+  test("R23a: a sample both of whose answers say the name or its data is missing is a gap; a timeout or a refusal is a failed read; with no name servers the watch fails", async () => {
+    const w = onPages();
+    let rounds = 0;
+    const later = async (): Promise<ProbeResult> => {
+      rounds += 1;
+      if (rounds > 30) w.jobs = [{ name: ATTACH_JOB_NAME, status: "completed" }];
+      return { outcome: "pages" };
+    };
+    const answers: [string, string][] = [
+      ["ENOTFOUND", "ENOTFOUND"],
+      ["ENODATA", "ENOTFOUND"],
+      ["ETIMEOUT", "ENOTFOUND"],
+      ["ESERVFAIL", "ESERVFAIL"],
+      ["EREFUSED", "ECONNREFUSED"],
+    ];
+    let index = 0;
+    const result = await run(["watch", ...OUT], w, GH_ENV, {
+      dns: {
+        ...dnsFromWorld(w),
+        resolveAt: async (_servers, name) => {
+          if (name !== HOST) return [EDGE];
+          const code = answers[index]?.[0];
+          if (code === undefined) return [EDGE];
+          throw dnsError(code);
+        },
+        resolve6At: async (_servers, name) => {
+          if (name !== HOST) return ["2606:4700::1"];
+          const code = answers[index++]?.[1];
+          if (code === undefined) return ["2606:4700::1"];
+          throw dnsError(code);
+        },
+      },
+      probe: later,
+    });
+    expect(result.code).toBe(0);
+    const zone = result.fragment.zone as ZoneView;
+    expect(zone.outcomes.slice(0, 5)).toBe("ggfff");
+    expect(zone.codes["0"]).toBe("ENOTFOUND ENOTFOUND");
+    expect(zone.codes["2"]).toBe("ETIMEOUT ENOTFOUND");
+    w.jobs = [{ name: ATTACH_JOB_NAME, status: "completed" }];
+    const none = await run(["watch", ...OUT], w, GH_ENV, {
+      dns: { ...dnsFromWorld(w), resolveNs: async () => [] },
+      probe: async () => ({ outcome: "pages" }),
+    });
+    // With none, there is no edge to pin either: the watch fails, keeping no zone view, and
+    // the report then fails naming the missing name servers (R20b).
+    expect(none.code).toBe(1);
+    expect(none.fragment.zone).toBeUndefined();
+  });
+
   test("R19a: wait-watch returns once the watch job is 45 s into its run, and gives up at its cap without failing", async () => {
     const started = new Date(Date.parse("2026-11-06T00:00:00Z") - 10_000).toISOString();
     const w = world({
@@ -1046,9 +1275,26 @@ describe("domain-move-rehearsal.ts", () => {
     expect(JSON.stringify(result.fragment.calls)).toContain("429");
   });
 
+  const at = (seconds: number) =>
+    new Date(Date.parse("2026-11-06T00:00:00Z") + seconds * 1000).toISOString();
+  /** The zone view of a watch that began at 0 s: a sample every 2 s to 300 s, each `r` unless `outcome` says otherwise. */
+  const zoneView = (
+    outcome: (seconds: number) => string | null = () => "r",
+    servers = 1,
+  ): ZoneView => {
+    const seconds = Array.from({ length: 151 }, (_, index) => index * 2).filter(
+      (second) => outcome(second) !== null,
+    );
+    return {
+      servers,
+      startedAt: at(0),
+      at: seconds.map((second) => second * 1000),
+      outcomes: seconds.map((second) => outcome(second) ?? "").join(""),
+      codes: {},
+    };
+  };
+
   test("R20: report computes each interval from the fragments, falls back to the detach for the gap's start, and lists what is missing", async () => {
-    const at = (seconds: number) =>
-      new Date(Date.parse("2026-11-06T00:00:00Z") + seconds * 1000).toISOString();
     const fragments = {
       "detach.json": JSON.stringify({
         step: "detach",
@@ -1064,6 +1310,8 @@ describe("domain-move-rehearsal.ts", () => {
           alchemyStartedAt: at(70),
           workerDomainListedAt: at(95),
           firstWorkerAnswerAt: at(130),
+          cnameReplacedAt: at(96),
+          hostRecordReads: 9,
         },
       }),
       "unflip.json": JSON.stringify({
@@ -1095,6 +1343,7 @@ describe("domain-move-rehearsal.ts", () => {
             count: 900,
           },
         ],
+        zone: zoneView(),
       }),
     };
     const result = await run(
@@ -1122,6 +1371,15 @@ describe("domain-move-rehearsal.ts", () => {
       rollbackMs: 170_000,
       pagesServingMs: 60_000,
       pagesDomainActiveMs: 90_000,
+      // Samples at 10 s, 12 s ... 130 s: the detach to the Worker's first answer.
+      zoneRecordGapMs: null,
+      zoneMaxSpacingMs: 2_000,
+      zoneSamples: 61,
+      zoneFailedReads: 0,
+    });
+    expect((report as unknown as { verdict: unknown }).verdict).toEqual({
+      pass: true,
+      failures: [],
     });
     expect(report.missing).toContain("preflight");
     expect(report.steps.flip?.exitCode).toBe(0);
@@ -1166,9 +1424,101 @@ describe("domain-move-rehearsal.ts", () => {
     expect(lateReport.intervals.edgeGapMs).toBe(112_000);
   });
 
+  test.each([
+    {
+      what: "a gap at the zone's name servers",
+      zone: zoneView((second) => (second === 50 || second === 52 ? "g" : "r")),
+      flip: {},
+      says: "answered no record for",
+      gap: 4_000,
+    },
+    {
+      what: "a stretch of more than 12 s with no read",
+      zone: zoneView((second) => (second > 20 && second < 40 ? null : "r")),
+      flip: {},
+      says: "went 20 s with no read",
+      gap: null,
+    },
+    {
+      what: "a tenth of the reads failed",
+      zone: zoneView((second) => (second >= 10 && second % 12 === 0 ? "f" : "r")),
+      flip: {},
+      says: "of the zone view's reads failed",
+      gap: null,
+    },
+    {
+      what: "no name servers",
+      zone: zoneView(() => "r", 0),
+      flip: {},
+      says: "no name servers",
+      gap: null,
+    },
+    {
+      what: "the API showing the host bare",
+      zone: zoneView(),
+      flip: { hostRecordlessAt: at(97) },
+      says: "listed no record that routes",
+      gap: null,
+    },
+    {
+      what: "no successful API read",
+      zone: zoneView(),
+      flip: { hostRecordReads: 0 },
+      says: "no read of",
+      gap: null,
+    },
+  ])("R20b: report fails, naming it, on $what", async ({ zone, flip, says, gap }) => {
+    const fragments = {
+      "detach.json": JSON.stringify({
+        step: "detach",
+        exitCode: 0,
+        events: { detachedAt: at(10) },
+      }),
+      "flip.json": JSON.stringify({
+        step: "flip",
+        exitCode: 0,
+        events: { firstWorkerAnswerAt: at(130), hostRecordReads: 9, ...flip },
+      }),
+      "watch.json": JSON.stringify({ step: "watch", exitCode: 0, timeline: [], zone }),
+    };
+    const result = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN, GITHUB_STEP_SUMMARY: "/tmp/summary.md" },
+      { readDir: () => fragments },
+    );
+    expect(result.code).toBe(1);
+    const report = JSON.parse(
+      result.files["/tmp/rehearsal/domain-move-rehearsal.json"] ?? "{}",
+    ) as {
+      intervals: { zoneRecordGapMs: number | null };
+      verdict: { pass: boolean; failures: string[] };
+    };
+    expect(report.verdict.pass).toBe(false);
+    expect(report.verdict.failures.join(" ")).toContain(says);
+    expect(report.intervals.zoneRecordGapMs).toBe(gap);
+    expect(result.files["/tmp/summary.md"]).toContain(says);
+    expect(result.output).toContain(says);
+  });
+
+  test("R20c: report fails when the window from the detach to the Worker's first answer is unknown", async () => {
+    const result = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN },
+      {
+        readDir: () => ({
+          "watch.json": JSON.stringify({ step: "watch", timeline: [], zone: zoneView() }),
+        }),
+      },
+    );
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("window");
+  });
+
   test("R10a: worker-staged deploys with REHEARSAL_MODE=staged, then waits for the Worker on the spare host; a failed deploy waits for nothing", async () => {
     const w = world({ projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`] } } });
-    const log: { script: string; mode: string | undefined }[] = [];
+    const log: { script: string; mode: string | undefined; replace?: string }[] = [];
     const staged = await run(["worker-staged", ...OUT], w, DEPLOY_ENV, {
       runAlchemy: alchemyMoving(w, log),
     });
@@ -1200,7 +1550,7 @@ describe("domain-move-rehearsal.ts", () => {
   test("R13a: unflip fails when the spare never answers the Worker, when the host keeps answering it, and when Alchemy fails though the domains moved", async () => {
     const flipped = async () => {
       const w = detached();
-      await alchemyMoving(w, [])("rehearsal:deploy", { REHEARSAL_MODE: "worker" });
+      await alchemyMoving(w, [])("rehearsal:deploy", FLIP_ENV);
       return w;
     };
     const w1 = await flipped();
@@ -1257,7 +1607,7 @@ describe("domain-move-rehearsal.ts", () => {
     expect(rerun.code).toBe(0);
     // Alchemy's destroy succeeds but leaves the Worker and its domain: the API removes both.
     const w3 = onPages();
-    const log: { script: string; mode: string | undefined }[] = [];
+    const log: { script: string; mode: string | undefined; replace?: string }[] = [];
     const fellBack = await run(["destroy", ...OUT], w3, DEPLOY_ENV, {
       runAlchemy: async (script, env) => {
         log.push({ script, mode: env.REHEARSAL_MODE });
@@ -1300,9 +1650,9 @@ describe("domain-move-rehearsal.ts", () => {
     });
     const result = await run(["pages-on", ...OUT], w, PAGES_ENV);
     expect(result.code).toBe(0);
-    const at = events(result);
-    expect(Date.parse(String(at.pagesDomainActiveAt))).toBeGreaterThan(
-      Date.parse(String(at.firstPagesAnswerAt)),
+    const seen = events(result);
+    expect(Date.parse(String(seen.pagesDomainActiveAt))).toBeGreaterThan(
+      Date.parse(String(seen.firstPagesAnswerAt)),
     );
     const never = world({
       projects: { [PROJECT]: { domains: [`${PROJECT}.pages.dev`], status: "pending" } },
@@ -1336,8 +1686,6 @@ describe("domain-move-rehearsal.ts", () => {
   });
 
   test("R20a: report writes the run summary, keeps an unreadable fragment as such, gives no edge gap when no Worker answered, takes the longest DNS gap, and fails on a directory it cannot read", async () => {
-    const at = (seconds: number) =>
-      new Date(Date.parse("2026-11-06T00:00:00Z") + seconds * 1000).toISOString();
     const fragments = {
       "flip.json": "{ not json",
       "watch.json": JSON.stringify({
@@ -1364,8 +1712,10 @@ describe("domain-move-rehearsal.ts", () => {
       { DEV_DOMAIN: DOMAIN, GITHUB_STEP_SUMMARY: "/tmp/summary.md" },
       { readDir: () => fragments },
     );
-    expect(result.code).toBe(0);
+    // No zone view: the verdict fails, and the report is written all the same.
+    expect(result.code).toBe(1);
     expect(result.files["/tmp/summary.md"]).toContain("## Domain move rehearsal");
+    expect(result.files["/tmp/summary.md"]).toContain("no name servers");
     const report = JSON.parse(
       result.files["/tmp/rehearsal/domain-move-rehearsal.json"] ?? "{}",
     ) as {
@@ -1478,7 +1828,7 @@ describe("domain-move-rehearsal.ts", () => {
     expect(probes).toBe(1);
     probes = 0;
     const w2 = detached();
-    await alchemyMoving(w2, [])("rehearsal:deploy", { REHEARSAL_MODE: "worker" });
+    await alchemyMoving(w2, [])("rehearsal:deploy", FLIP_ENV);
     const unflipFailed = await run(["unflip", ...OUT], w2, DEPLOY_ENV, {
       runAlchemy: async () => ({ exitCode: 1, log: "Error: refused" }),
       probe: counting(w2),
