@@ -12,7 +12,8 @@
  * deploy, and its `lib/` copy, over a scripted Cloudflare API, one test per
  * way the replacement can go wrong. The routing rule is held to
  * scripts/pages-domain.ts's `decides`, which reads the same records before
- * the detach.
+ * the detach, for hosts in a zone named by their last two labels, as every
+ * production host's zone is; the patch takes the zone's name from Cloudflare.
  */
 
 import { readFileSync } from "node:fs";
@@ -38,7 +39,7 @@ interface Replacement {
   readonly host: string;
   readonly target: string;
   readonly zoneId: string;
-  readonly kept: readonly DnsRecord[];
+  readonly zone: string;
 }
 
 interface Attached {
@@ -54,7 +55,7 @@ interface ReplaceModule {
   readonly parseReplaceCname: (
     value: string | undefined,
   ) => { readonly host: string; readonly target: string } | undefined;
-  readonly routesHost: (host: string, record: DnsRecord) => boolean;
+  readonly routesHost: (host: string, zone: string, record: DnsRecord) => boolean;
   readonly checkReplaceCname: (input: {
     readonly accountId: string;
     readonly scriptName: string;
@@ -95,6 +96,12 @@ const APEX = "cireweddings.com";
 const APEX_TARGET = "cire-landing.pages.dev";
 const ENV = "OSN_WORKER_DOMAIN_REPLACE_CNAME";
 const ALLOW_APEX = "OSN_WORKER_DOMAIN_REPLACE_ALLOW_APEX";
+/** How a refusal before any domain moved ends. */
+const UNCHANGED = "no custom domain or DNS record was changed";
+/** How a refusal in the attach, after the reconcile removed the Worker's other domains, ends. */
+const NOT_REPLACED = "its CNAME was not replaced";
+/** The line a deploy logs when the named host holds no record that routes it. */
+const GONE = "was already gone, so it attaches as usual";
 
 const cname = (content: string, id = "rec-cname"): DnsRecord => ({
   id,
@@ -111,6 +118,7 @@ const WORKER_RECORD: DnsRecord = {
 const TXT: DnsRecord = { id: "rec-txt", type: "TXT", content: "v=spf1 ~all" };
 const MX: DnsRecord = { id: "rec-mx", type: "MX", content: "mx.example.net" };
 const CAA: DnsRecord = { id: "rec-caa", type: "CAA", content: '0 issue "letsencrypt.org"' };
+const A: DnsRecord = { id: "rec-a", type: "A", content: "192.0.2.1" };
 
 interface Reply {
   readonly status: number;
@@ -129,12 +137,16 @@ interface World {
   before: DnsRecord[];
   /** The host's records after it; the CNAME replaced by the Worker's record unless set. */
   after?: DnsRecord[];
+  /** The name of the zone `ZONE` is; the apex `cireweddings.com` unless set. */
+  zone?: string;
+  /** Answers to the zone read, in turn; "down" is a network failure. */
+  zoneReads?: (Reply | "down")[];
   /** Answers to the DNS read, in turn; "down" is a network failure. */
   reads?: (Reply | "down")[];
   /** Answers to the override PUT, in turn; "down" is a network failure. */
   puts?: (Reply | "down")[];
-  /** Answers to the custom-domain listing, in turn. */
-  lists?: Reply[];
+  /** Answers to the custom-domain listing, in turn; "down" is a network failure. */
+  lists?: (Reply | "down")[];
 }
 
 interface Sent {
@@ -148,6 +160,7 @@ interface Run {
   readonly exit: Exit.Exit<{ replacement?: Replacement; attached?: Attached }, unknown>;
   readonly sent: readonly Sent[];
   readonly sleeps: readonly number[];
+  /** Each log line as `<level> <message>`. */
   readonly logs: readonly string[];
   readonly zoneLookups: readonly string[];
 }
@@ -165,6 +178,11 @@ const recordingClock = (live: Clock.Clock, sleeps: number[]): Clock.Clock => ({
       sleeps.push(Duration.toMillis(duration));
     }),
 });
+
+const ZONE_READ = `GET /zones/${ZONE}`;
+const RECORDS_READ = `GET /zones/${ZONE}/dns_records?name.exact=`;
+const PUT = `PUT /accounts/${ACCOUNT}/workers/scripts/${SCRIPT}/domains/records`;
+const LISTING = `GET /accounts/${ACCOUNT}/workers/domains?`;
 
 /**
  * Runs the check, then the attach hook for the Worker's first desired host,
@@ -186,6 +204,7 @@ async function run(
   const logs: string[] = [];
   const zoneLookups: string[] = [];
   const desired = options.desired ?? [HOST];
+  const zoneReads = [...(w.zoneReads ?? [])];
   const reads = [...(w.reads ?? [])];
   const puts = [...(w.puts ?? [])];
   const lists = [...(w.lists ?? [])];
@@ -207,7 +226,11 @@ async function run(
       const { status, body } = reply ?? fallback();
       return new Response(body, { status, headers: { "content-type": "application/json" } });
     };
-    if (request.method === "GET" && path.startsWith(`/zones/${ZONE}/dns_records?`)) {
+    const call = `${request.method} ${path}`;
+    if (call === ZONE_READ) {
+      return answer(zoneReads.shift(), () => ok({ id: ZONE, name: w.zone ?? APEX }));
+    }
+    if (call.startsWith(RECORDS_READ)) {
       return answer(reads.shift(), () =>
         ok(
           replaced
@@ -216,15 +239,12 @@ async function run(
         ),
       );
     }
-    if (
-      request.method === "PUT" &&
-      path === `/accounts/${ACCOUNT}/workers/scripts/${SCRIPT}/domains/records`
-    ) {
+    if (call === PUT) {
       const next = puts.shift();
       if (next === undefined || (next !== "down" && next.status === 200)) replaced = true;
       return answer(next, () => ok([{ hostname: host, zone_id: ZONE }]));
     }
-    if (request.method === "GET" && path.startsWith(`/accounts/${ACCOUNT}/workers/domains?`)) {
+    if (call.startsWith(LISTING)) {
       return answer(lists.shift(), () =>
         ok([{ id: "wd-1", hostname: host, service: SCRIPT, zone_id: ZONE }]),
       );
@@ -272,7 +292,11 @@ async function run(
         ConfigProvider.fromEnv({ env: { ...options.env } }),
       ),
       Effect.provideService(Clock.Clock, recordingClock(live, sleeps)),
-      Effect.provide(Logger.layer([Logger.make((log) => logs.push(JSON.stringify(log.message)))])),
+      Effect.provide(
+        Logger.layer([
+          Logger.make((log) => logs.push(`${log.logLevel} ${JSON.stringify(log.message)}`)),
+        ]),
+      ),
     ),
   ) as Effect.Effect<{ replacement?: Replacement; attached?: Attached }, unknown, never>;
 
@@ -296,7 +320,10 @@ function success(r: Run): { replacement?: Replacement; attached?: Attached } {
 }
 
 const writes = (r: Run) => r.sent.filter((sent) => sent.method !== "GET");
+const calls = (r: Run, prefix: string) =>
+  r.sent.filter((sent) => `${sent.method} ${sent.path}`.startsWith(prefix));
 const flipEnv = (host = HOST, target = TARGET) => ({ [ENV]: `${host}=${target}` });
+const CHECKED: Replacement = { host: HOST, target: TARGET, zoneId: ZONE, zone: APEX };
 
 describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
   test("R1: with the variable unset or empty, nothing is read and the attach goes on as before", async () => {
@@ -345,6 +372,7 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     for (const desired of [[HOST], ["host.cireweddings.com"], []]) {
       const r = await run(module, { before: [cname(TARGET)] }, { env: { [ENV]: value }, desired });
       expect(failure(r)).toContain(ENV);
+      expect(failure(r)).toContain(UNCHANGED);
       expect({ desired, sent: r.sent, zones: r.zoneLookups }).toEqual({
         desired,
         sent: [],
@@ -360,20 +388,23 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
       { env: flipEnv(), desired: [HOST, "www.cireweddings.com"] },
     );
     expect(failure(r)).toContain("one custom domain");
+    expect(failure(r)).toContain(UNCHANGED);
     expect(r.sent).toEqual([]);
   });
 
-  test("R4: a host holding exactly its CNAME to the target is replaced in one PUT of Wrangler's fields, then read back for its id and zone", async () => {
+  test("R4: a host holding exactly its CNAME to the target is read in its zone, read again, replaced in one PUT of Wrangler's fields, then read back for its id and zone", async () => {
     const r = await run(await load(path), { before: [cname(TARGET)] }, { env: flipEnv() });
     expect(success(r)).toEqual({
-      replacement: { host: HOST, target: TARGET, zoneId: ZONE, kept: [] },
+      replacement: CHECKED,
       attached: { hostname: HOST, id: "wd-1", zoneId: ZONE },
     });
     expect(r.sent.map((sent) => `${sent.method} ${sent.path}`)).toEqual([
-      `GET /zones/${ZONE}/dns_records?name.exact=${HOST}&per_page=100`,
-      `PUT /accounts/${ACCOUNT}/workers/scripts/${SCRIPT}/domains/records`,
-      `GET /zones/${ZONE}/dns_records?name.exact=${HOST}&per_page=100`,
-      `GET /accounts/${ACCOUNT}/workers/domains?hostname=${HOST}&service=${SCRIPT}`,
+      ZONE_READ,
+      `${RECORDS_READ}${HOST}&per_page=100`,
+      `${RECORDS_READ}${HOST}&per_page=100`,
+      PUT,
+      `${RECORDS_READ}${HOST}&per_page=100`,
+      `${LISTING}hostname=${HOST}&service=${SCRIPT}`,
     ]);
     expect(writes(r).map((sent) => sent.body)).toEqual([
       {
@@ -385,6 +416,7 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     ]);
     expect(r.sent.every((sent) => sent.auth === `Bearer ${TOKEN}`)).toBe(true);
     expect(r.zoneLookups).toEqual([HOST]);
+    expect(r.sleeps).toEqual([]);
     expect(r.logs.join("\n")).toContain(
       `replaced ${HOST}'s CNAME to ${TARGET} with ${SCRIPT}'s custom domain`,
     );
@@ -423,23 +455,31 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     { name: "another project's pages.dev name", records: [cname("cire-host.pages.dev")] },
     { name: "a name outside pages.dev", records: [cname("elsewhere.example.net")] },
     { name: "the target, twice", records: [cname(TARGET), cname(TARGET, "rec-2")] },
-  ])("R5: a CNAME to $name stops the attach, writing nothing", async ({ records }) => {
+  ])("R5: a CNAME to $name stops the attach, with no domain or DNS write", async ({ records }) => {
     const r = await run(await load(path), { before: records }, { env: flipEnv() });
     expect(failure(r)).toContain(`${HOST} holds`);
+    expect(failure(r)).toContain(UNCHANGED);
     expect(writes(r)).toEqual([]);
   });
 
   test.each([
-    { type: "A", record: { id: "a", type: "A", content: "192.0.2.1" } },
+    { type: "A", record: A },
     { type: "AAAA", record: { id: "aaaa", type: "AAAA", content: "2001:db8::1" } },
     { type: "HTTPS", record: { id: "https", type: "HTTPS", content: '1 . alpn="h2"' } },
     { type: "a Worker's AAAA", record: WORKER_RECORD },
     { type: "NS", record: { id: "ns", type: "NS", content: "ns1.example.net" } },
-  ])("R6: the CNAME beside $type stops the attach, writing nothing", async ({ record }) => {
-    const r = await run(await load(path), { before: [cname(TARGET), record] }, { env: flipEnv() });
-    expect(failure(r)).toContain(`${HOST} holds`);
-    expect(writes(r)).toEqual([]);
-  });
+  ])(
+    "R6: the CNAME beside $type stops the attach, with no domain or DNS write",
+    async ({ record }) => {
+      const r = await run(
+        await load(path),
+        { before: [cname(TARGET), record] },
+        { env: flipEnv() },
+      );
+      expect(failure(r)).toContain(`${HOST} holds`);
+      expect(writes(r)).toEqual([]);
+    },
+  );
 
   test("R7: a host below its zone holding TXT, MX and CAA beside the CNAME is replaced; a TXT gone after it stops the deploy", async () => {
     const kept = await run(
@@ -459,6 +499,80 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     expect(writes(lost)).toHaveLength(1);
   });
 
+  test.each([
+    { name: "a record that routes the host is added", second: [cname(TARGET), A] },
+    { name: "the CNAME is pointed elsewhere", second: [cname("cire-host.pages.dev")] },
+    { name: "a second CNAME appears", second: [cname(TARGET), cname(TARGET, "rec-2")] },
+  ])(
+    "when $name between the check and the attach, the attach stops before its PUT",
+    async ({ second }) => {
+      const r = await run(
+        await load(path),
+        { before: [cname(TARGET)], reads: [ok([cname(TARGET)]), ok(second)] },
+        { env: flipEnv() },
+      );
+      const message = failure(r);
+      expect(message).toContain(`${HOST} holds`);
+      expect(message).toContain(NOT_REPLACED);
+      expect(writes(r)).toEqual([]);
+      expect(calls(r, RECORDS_READ)).toHaveLength(2);
+    },
+  );
+
+  test("an apex that gains a record beside its CNAME between the check and the attach stops before the PUT", async () => {
+    const r = await run(
+      await load(path),
+      {
+        before: [cname(APEX_TARGET)],
+        reads: [ok([cname(APEX_TARGET)]), ok([cname(APEX_TARGET), TXT])],
+      },
+      { env: flipEnv(APEX, APEX_TARGET), desired: [APEX] },
+    );
+    expect(failure(r)).toContain(ALLOW_APEX);
+    expect(failure(r)).toContain(NOT_REPLACED);
+    expect(writes(r)).toEqual([]);
+  });
+
+  test("a CNAME gone between the check and the attach leaves the host to the provider's own attach, with a warning", async () => {
+    const r = await run(
+      await load(path),
+      { before: [cname(TARGET)], reads: [ok([cname(TARGET)]), ok([TXT])] },
+      { env: flipEnv() },
+    );
+    expect(success(r)).toEqual({ replacement: CHECKED, attached: undefined });
+    expect(writes(r)).toEqual([]);
+    const line = r.logs.find((log) => log.includes(GONE));
+    expect(line).toBeDefined();
+    expect(line?.startsWith("Warn ")).toBe(true);
+  });
+
+  test("a record that routes the host, written while a refused PUT waits to be sent again, stops the attach before the next PUT", async () => {
+    const r = await run(
+      await load(path),
+      {
+        before: [cname(TARGET)],
+        puts: [refused(409, 100116)],
+        reads: [ok([cname(TARGET)]), ok([cname(TARGET)]), ok([cname(TARGET), A])],
+      },
+      { env: flipEnv() },
+    );
+    expect(failure(r)).toContain(`${HOST} holds`);
+    expect(writes(r)).toHaveLength(1);
+    expect(r.sleeps).toEqual([2_000]);
+  });
+
+  test("a record beside the CNAME at the attach's read, gone after the PUT, stops the deploy naming it", async () => {
+    const r = await run(
+      await load(path),
+      { before: [cname(TARGET)], reads: [ok([cname(TARGET)]), ok([cname(TARGET), TXT])] },
+      { env: flipEnv() },
+    );
+    const message = failure(r);
+    expect(message).toContain(`${HOST}'s TXT record is gone after its CNAME was replaced`);
+    expect(message).not.toContain("v=spf1");
+    expect(writes(r)).toHaveLength(1);
+  });
+
   test("an attach zone that differs from the zone the check read stops before any write", async () => {
     const r = await run(
       await load(path),
@@ -475,7 +589,7 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
       await load(path),
       {
         before: [cname(TARGET), TXT],
-        reads: [ok([cname(TARGET), TXT]), refused(500, 0, leak)],
+        reads: [ok([cname(TARGET), TXT]), ok([cname(TARGET), TXT]), refused(403, 9109, leak)],
       },
       { env: flipEnv() },
     );
@@ -496,6 +610,7 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     const records = [cname(APEX_TARGET), TXT, MX];
     const held = await run(await load(path), { before: records }, { env, desired: [APEX] });
     expect(failure(held)).toContain(ALLOW_APEX);
+    expect(failure(held)).toContain(UNCHANGED);
     expect(writes(held)).toEqual([]);
     const allowed = await run(
       await load(path),
@@ -513,18 +628,73 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     expect(Exit.isSuccess(bare.exit)).toBe(true);
   });
 
-  test("R8: a host holding no record that routes it attaches as before, saying its CNAME was already gone", async () => {
+  test("the apex is the zone Cloudflare names: a three-label zone's apex holding a TXT beside its CNAME stops, a host below it goes ahead", async () => {
+    const zone = "example.co.uk";
+    const target = "example.pages.dev";
+    const apex = await run(
+      await load(path),
+      { zone, before: [cname(target), TXT] },
+      { env: flipEnv(zone, target), desired: [zone] },
+    );
+    expect(failure(apex)).toContain(`${zone} is its zone's apex`);
+    expect(failure(apex)).toContain(ALLOW_APEX);
+    expect(writes(apex)).toEqual([]);
+    const below = await run(
+      await load(path),
+      { zone, before: [cname(target), TXT] },
+      { env: flipEnv(`a.${zone}`, target), desired: [`a.${zone}`] },
+    );
+    expect(success(below).replacement).toEqual({
+      host: `a.${zone}`,
+      target,
+      zoneId: ZONE,
+      zone,
+    });
+    expect(writes(below)).toHaveLength(1);
+  });
+
+  test("a zone whose name does not hold the host stops before its records are read", async () => {
+    const r = await run(
+      await load(path),
+      { zone: "musubi.social", before: [cname(TARGET)] },
+      { env: flipEnv() },
+    );
+    expect(failure(r)).toContain(`${HOST} is not in the musubi.social zone`);
+    expect(failure(r)).toContain(UNCHANGED);
+    expect(calls(r, RECORDS_READ)).toEqual([]);
+    expect(writes(r)).toEqual([]);
+  });
+
+  test.each([
+    { name: "a 403", zoneReads: [refused(403, 9109)] },
+    { name: "a result with no name", zoneReads: [ok({ id: ZONE })] },
+    { name: "three 5xx", zoneReads: [refused(500, 0), refused(502, 0), refused(503, 0)] },
+  ])("a zone read answered with $name stops before the records are read", async ({ zoneReads }) => {
+    const r = await run(
+      await load(path),
+      { before: [cname(TARGET)], zoneReads },
+      { env: flipEnv() },
+    );
+    expect(failure(r)).toContain(`reading ${HOST}'s zone`);
+    expect(failure(r)).toContain(UNCHANGED);
+    expect(calls(r, RECORDS_READ)).toEqual([]);
+    expect(writes(r)).toEqual([]);
+  });
+
+  test("R8: a host holding no record that routes it attaches as before, warning that its CNAME was already gone", async () => {
     for (const before of [[], [TXT]]) {
       const r = await run(await load(path), { before }, { env: flipEnv() });
       expect(success(r)).toEqual({ replacement: undefined, attached: undefined });
       expect(writes(r)).toEqual([]);
-      expect(r.logs.join("\n")).toContain(`its CNAME to ${TARGET} was already gone`);
+      const line = r.logs.find((log) => log.includes(`its CNAME to ${TARGET} ${GONE}`));
+      expect(line?.startsWith("Warn ")).toBe(true);
     }
   });
 
   test.each([
     { name: "a 403", reply: refused(403, 10000, "Authentication error") },
     { name: "code 100117", reply: refused(409, 100117, "Hostname already has a DNS record") },
+    { name: "a 500", reply: refused(500, 0) },
     { name: "no answer", reply: "down" as const },
   ])(
     "R9: an override PUT answered with $name stops the deploy naming the call, sent once",
@@ -542,7 +712,7 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     },
   );
 
-  test("R9a: an override PUT answered 100116 or 10007 is sent again on its schedule", async () => {
+  test("R9a: an override PUT answered 100116 or 10007 is sent again on its schedule, each try after a fresh read", async () => {
     const conflict = await run(
       await load(path),
       { before: [cname(TARGET)], puts: [refused(409, 100116), refused(409, 100116)] },
@@ -551,6 +721,8 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     expect(success(conflict).attached?.id).toBe("wd-1");
     expect(writes(conflict)).toHaveLength(3);
     expect(conflict.sleeps).toEqual([2_000, 2_000]);
+    // The check's read, one before each of the three tries, one after.
+    expect(calls(conflict, RECORDS_READ)).toHaveLength(5);
     const notYet = await run(
       await load(path),
       {
@@ -574,13 +746,56 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
 
   test.each([
     { name: "a 403", reads: [refused(403, 9109)] },
-    { name: "a 500", reads: [refused(500, 0)] },
-    { name: "no answer", reads: ["down" as const] },
+    { name: "a 404", reads: [refused(404, 7003)] },
     { name: "a result that is no list", reads: [ok({ id: "x" })] },
     { name: "a second page", reads: [ok([cname(TARGET)], { total_count: 101 })] },
-  ])("R10: a DNS read answered with $name stops the attach, writing nothing", async ({ reads }) => {
-    const r = await run(await load(path), { before: [cname(TARGET)], reads }, { env: flipEnv() });
+  ])(
+    "R10: a DNS read answered with $name stops the attach at once, with no domain or DNS write",
+    async ({ reads }) => {
+      const r = await run(await load(path), { before: [cname(TARGET)], reads }, { env: flipEnv() });
+      expect(failure(r)).toContain(`reading ${HOST}'s DNS records`);
+      expect(failure(r)).toContain(UNCHANGED);
+      expect(writes(r)).toEqual([]);
+      expect(calls(r, RECORDS_READ)).toHaveLength(1);
+      expect(r.sleeps).toEqual([]);
+    },
+  );
+
+  test.each([
+    { name: "a 500", reply: refused(500, 0) },
+    { name: "a 429", reply: refused(429, 971) },
+    { name: "no answer", reply: "down" as const },
+  ])(
+    "R10: a DNS read answered with $name is sent again 1 s then 2 s later, and stops after the third",
+    async ({ reply }) => {
+      const once = await run(
+        await load(path),
+        { before: [cname(TARGET)], reads: [reply] },
+        { env: flipEnv() },
+      );
+      expect(success(once).attached?.id).toBe("wd-1");
+      expect(once.sleeps).toEqual([1_000]);
+      expect(writes(once)).toHaveLength(1);
+      const always = await run(
+        await load(path),
+        { before: [cname(TARGET)], reads: [reply, reply, reply] },
+        { env: flipEnv() },
+      );
+      expect(failure(always)).toContain(`reading ${HOST}'s DNS records`);
+      expect(always.sleeps).toEqual([1_000, 2_000]);
+      expect(calls(always, RECORDS_READ)).toHaveLength(3);
+      expect(writes(always)).toEqual([]);
+    },
+  );
+
+  test("R10: the attach's read failing stops it before the PUT", async () => {
+    const r = await run(
+      await load(path),
+      { before: [cname(TARGET)], reads: [ok([cname(TARGET)]), refused(403, 9109)] },
+      { env: flipEnv() },
+    );
     expect(failure(r)).toContain(`reading ${HOST}'s DNS records`);
+    expect(failure(r)).toContain(NOT_REPLACED);
     expect(writes(r)).toEqual([]);
   });
 
@@ -599,6 +814,27 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
     );
     expect(failure(never)).toContain(`listing ${SCRIPT}'s custom domain for ${HOST}`);
     expect(writes(never)).toHaveLength(1);
+    expect(calls(never, LISTING)).toHaveLength(9);
+  });
+
+  test("L4: the custom-domain read refused with a 4xx other than 429 stops the deploy at once", async () => {
+    for (const reply of [refused(403, 10000), refused(400, 10001), refused(404, 10007)]) {
+      const r = await run(
+        await load(path),
+        { before: [cname(TARGET)], lists: [reply] },
+        { env: flipEnv() },
+      );
+      expect(failure(r)).toContain(`listing ${SCRIPT}'s custom domain for ${HOST}`);
+      expect(calls(r, LISTING)).toHaveLength(1);
+      expect(r.sleeps).toEqual([]);
+    }
+    const throttled = await run(
+      await load(path),
+      { before: [cname(TARGET)], lists: [refused(429, 971), "down"] },
+      { env: flipEnv() },
+    );
+    expect(success(throttled).attached?.id).toBe("wd-1");
+    expect(throttled.sleeps).toEqual([2_000, 2_000]);
   });
 
   test("R11: no message carries the token, the account id or the text of a reply", async () => {
@@ -622,6 +858,16 @@ describe.each(COPIES)("the replacing attach, $copy copy", ({ path }) => {
       await run(
         await load(path),
         { before: [cname(TARGET)], lists: Array.from({ length: 12 }, () => refused(500, 7, leak)) },
+        { env: flipEnv() },
+      ),
+      await run(
+        await load(path),
+        { before: [cname(TARGET)], zoneReads: [refused(403, 9109, leak)] },
+        { env: flipEnv() },
+      ),
+      await run(
+        await load(path),
+        { before: [cname(TARGET)], reads: [ok([cname(TARGET)]), refused(403, 9109, leak)] },
         { env: flipEnv() },
       ),
     ];
@@ -690,6 +936,24 @@ describe("the provider's custom-domain reconcile, both copies", () => {
       expect(wired.split("if (replaced !== undefined) return replaced;").length).toBe(2);
     },
   );
+
+  test.each(COPIES)(
+    "$copy resolves the checked host's zone once: the check fills the cache the attach reads",
+    ({ provider }) => {
+      const source = readFileSync(join(CLOUDFLARE_DIR, provider), "utf8");
+      const reconcile = body(source, /const reconcileDomains = /).replace(/\s+/g, " ");
+      const declared = [
+        ...reconcile.matchAll(/const zoneCache = new Map(?:<string, string>)?\(\);/g),
+      ];
+      expect(declared).toHaveLength(1);
+      const check = reconcile.indexOf("checkReplaceCname(");
+      expect(declared[0]!.index).toBeLessThan(check);
+      expect(reconcile).toContain(
+        "zoneIdOf: (hostname) => inferZoneIdForHostname(hostname, zoneCache, zone),",
+      );
+      expect(reconcile).not.toContain("new Map(), zone)");
+    },
+  );
 });
 
 describe("the routing rule", () => {
@@ -700,7 +964,7 @@ describe("the routing rule", () => {
     { id: "w2", type: "A", content: "192.0.2.1", meta: { origin_worker_id: "w" } },
     { id: "ro", type: "AAAA", content: "100::", meta: { read_only: true } },
     { id: "aaaa", type: "AAAA", content: "100::" },
-    { id: "a", type: "A", content: "192.0.2.1" },
+    A,
     { id: "https", type: "HTTPS", content: '1 . alpn="h2"' },
     { id: "svcb", type: "SVCB", content: "1 . port=443" },
     { id: "ns", type: "NS", content: "ns1.example.net" },
@@ -711,7 +975,7 @@ describe("the routing rule", () => {
   ];
 
   test.each(COPIES)(
-    "matches scripts/pages-domain.ts's decides on every record, at an apex and below it ($copy)",
+    "matches scripts/pages-domain.ts's decides on every record, at an apex and below it, in two-label zones ($copy)",
     async ({ path }) => {
       const { routesHost } = await load(path);
       const { decides } = (await import(
@@ -719,15 +983,30 @@ describe("the routing rule", () => {
           new URL("../../../scripts/pages-domain.ts", import.meta.url),
         )
       )) as { decides: (host: string, record: DnsRecord) => boolean };
-      for (const host of [HOST, APEX, "musubi.social", "www.musubi.social"]) {
+      for (const [host, zone] of [
+        [HOST, APEX],
+        [APEX, APEX],
+        ["musubi.social", "musubi.social"],
+        ["www.musubi.social", "musubi.social"],
+      ] as const) {
         for (const record of RECORDS) {
-          expect({ host, record: record.id, routes: routesHost(host, record) }).toEqual({
+          expect({ host, record: record.id, routes: routesHost(host, zone, record) }).toEqual({
             host,
             record: record.id,
             routes: decides(host, record),
           });
         }
       }
+    },
+  );
+
+  test.each(COPIES)(
+    "takes the apex from the zone's name: a three-label zone's own NS routes nothing at its apex, and delegates below it ($copy)",
+    async ({ path }) => {
+      const { routesHost } = await load(path);
+      const ns: DnsRecord = { id: "ns", type: "NS", content: "ns1.example.net" };
+      expect(routesHost("example.co.uk", "example.co.uk", ns)).toBe(false);
+      expect(routesHost("a.example.co.uk", "example.co.uk", ns)).toBe(true);
     },
   );
 });
