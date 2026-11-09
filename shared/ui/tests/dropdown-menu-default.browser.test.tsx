@@ -21,7 +21,7 @@
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 
 import {
@@ -46,8 +46,6 @@ const emulateMedia = (options: { forcedColors: "active" | "none" }) =>
 afterEach(async () => {
   await emulateMedia({ forcedColors: "none" });
   cleanup();
-  // Vitest's own default, so no case depends on the width an earlier one set.
-  await page.viewport(414, 896);
 });
 
 /** Long enough for the opening animation to settle. */
@@ -55,14 +53,6 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
 
 /** Gitignored; a rerun of this file draws them again. */
 const shot = (name: string) => `__screenshots__/dropdown-menu-default.browser.test.tsx/${name}.png`;
-
-/** Resize the page, and wait until the document has taken the new width. */
-async function widen(width: number) {
-  await page.viewport(width, 800);
-  await vi.waitFor(() => {
-    if (innerWidth !== width) throw new Error("viewport not resized yet");
-  });
-}
 
 function AccountMenu() {
   return (
@@ -118,13 +108,9 @@ describe("the default menu", () => {
     render(() => <AccountMenu />);
     await openByKeyboard();
     // Drawn before anything is asserted, so a failing run leaves its picture.
-    for (const width of [390, 1440]) {
-      await widen(width);
-      await page.screenshot({
-        path: shot(`separator-${width}`),
-        element: screen.getByRole("menu"),
-      });
-    }
+    // One shot: the panel is a fixed-width portal, so the page's width does
+    // not change it.
+    await page.screenshot({ path: shot("separator"), element: screen.getByRole("menu") });
     const panel = getComputedStyle(screen.getByRole("menu"));
     expect(panel.paddingTop).toBe("4px");
     expect(panel.borderTopWidth).toBe("1px");
