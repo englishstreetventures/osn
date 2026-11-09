@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-09
 ---
 
 # Social
@@ -191,7 +191,8 @@ future `*.musubi.social` surface with a single credential.
   in the deploy job). Unset, the bundle dials `http://localhost:4000` and the
   deployed app calls the visitor's own machine.
 - `public/_redirects` rewrites every path to `index.html` (200) so client-side
-  routes deep-link; `public/_headers` ships the framing denial.
+  routes deep-link; `public/_headers` ships the framing denial, and the build
+  adds the script and connection rules to it ([[#Response headers]]).
 - The custom domain is attached in the Cloudflare dashboard, not by wrangler —
   see [[production-deploy]] §5.4.
 - **No feature-branch preview.** `deploy-osn-social-preview.yml` (project
@@ -209,7 +210,7 @@ The move from `id.cireweddings.com` happened 2026-07-27 — see
 
 ## Auth
 
-Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. `src/lib/auth.ts` builds the page's one auth runtime, `osnAuth`; both providers (the shell's and the consent screen's sign-in island) take it, and every authenticated client in `src/lib/authClients.ts` and `src/lib/api.ts` is built with its `authFetch`, so no component holds or sends a token. Access tokens live in `localStorage` (the only auth secret there after Copenhagen Book C3); the refresh token lives in an HttpOnly cookie. `authFetch` renews the token before it expires and on a 401, and a refused renewal signs the page out — see [[sessions#Renewal in the browser]]. Resources key on the `session()` object, which a renewal does not replace, so a renewal refetches nothing. A "Lost your passkey?" link routes to the recovery-code login form.
+Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. `src/lib/auth.ts` builds the page's one auth runtime, `osnAuth`; both providers (the shell's and the consent screen's sign-in island) take it, and every authenticated client in `src/lib/authClients.ts` and `src/lib/api.ts` is built with its `authFetch`, so no component holds or sends a token. Access tokens live only in the page's memory, and storage holds no token at all ([[identity-model#Client Storage Model]]); the refresh token lives in an HttpOnly cookie, and a reload gets its token from it. `authFetch` renews the token before it expires and on a 401, and a refused renewal signs the page out — see [[sessions#Renewal in the browser]]. Resources key on the `session()` object, which a renewal does not replace, so a renewal refetches nothing. A "Lost your passkey?" link routes to the recovery-code login form.
 
 ### Where the WebAuthn runtime ships
 
@@ -244,9 +245,29 @@ set.
 
 ## Response headers
 
-`musubi/social/public/_headers` is served by Pages on every path: `frame-ancestors 'none'`
-plus `X-Frame-Options: DENY` (a consent screen must never be framed),
+`musubi/social/public/_headers` is served on every path, by Pages and by the
+musubi stack's Worker alike: `frame-ancestors 'none'` plus
+`X-Frame-Options: DENY` (a consent screen must never be framed),
 `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin`.
+
+The build appends two directives to the Content-Security-Policy in `dist/_headers`
+(`contentSecurityPolicy` in `musubi/social/vite.config.ts`), because both depend on
+the build:
+
+| Directive | Sources |
+|---|---|
+| `script-src` | `'self'`; a `sha256-` hash of each inline script in the built `index.html` (the `pages.dev` redirect and the theme script); `https://challenges.cloudflare.com` when the build carries `VITE_TURNSTILE_SITEKEY` |
+| `connect-src` | `'self'` and the issuer origin from `VITE_OSN_ISSUER_URL` (`http://localhost:4000` when unset, as `src/lib/auth.ts` reads it) |
+
+No `'unsafe-inline'`, no `'unsafe-eval'` and no `default-src`, so styles, images
+and frames are as before. An edit to either inline script changes its hash with
+it. The build fails on an issuer URL that is not http(s), whose host is not a
+plain DNS name, or that is plain http off this machine; on a bundle with no
+script that calls the issuer the policy names; and on a committed `_headers`
+that already sets `script-src` or `connect-src`. `tests/csp.test.ts` builds the
+committed files for production and checks the whole policy; the E2E stack
+serves the build with its headers, and every Musubi flow checks that no page
+logged a refusal ([[testing-patterns#What one run does]]).
 
 ## Rate limits
 

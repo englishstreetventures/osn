@@ -12,7 +12,7 @@ related:
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
   - "[[tracing]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-09
 ---
 
 # Testing Patterns
@@ -48,7 +48,7 @@ A script test that needs no install but waits out seconds is named out of `bun t
 2. Clears `e2e-artifacts/`, so nothing from an earlier run survives.
 3. Checks that the shared clock reaches a Bun child and a Node child: `Date.now()`, `new Date()` and `Date()` each.
 4. Builds fresh SQLite files from each package's `applySchema` and seeds fixed rows: Pulse and the cire organiser portal are registered with osn-api as first-party OIDC clients, and osn-api gets one profile with no passkey (`e2e_member`) and an organisation it owns (`e2e_other_org`), for `musubi-org-detail` (`MUSUBI_ORG` in `config.ts`). cire-api seeds its own file at boot (`CIRE_LOCAL_DB_PATH`).
-5. Starts a stand-in for the Resend API (port 4590), then every app at once except pulse-api. pulse-api registers its service key with osn-api at boot, so it starts once osn-api answers, and counts as ready once its key is in osn-api's database.
+5. Starts a stand-in for the Resend API (port 4590), then every app at once except pulse-api. pulse-api registers its service key with osn-api at boot, so it starts once osn-api answers, and counts as ready once its key is in osn-api's database. An app with a build step (Musubi) runs it to the end first, into its own log; a build that fails stops the run.
 6. Runs Playwright, serially and with no retries.
 7. Stops every process group, the Playwright runner's included, whether the run passed, failed or was interrupted. A `SIGINT` or `SIGTERM` sent to the launcher alone stops them too.
 
@@ -57,13 +57,15 @@ A script test that needs no install but waits out seconds is named out of `bun t
 | osn-api | 4000 | `bun --no-env-file --preload src/clock.mjs src/local.ts` |
 | pulse-api | 3001 | same |
 | cire-api | 8787 | same |
-| Musubi | 1422 | `bun run dev:app` |
+| Musubi | 1422 | `bun run build`, then `wrangler dev --config tools/e2e/musubi-social.wrangler.jsonc` |
 | Pulse web | 1420 | `bun run dev:app` |
 | cire invites | 4321 | `bun run dev:app --ignore-lock` |
 | cire host (the organiser portal) | 4322 | `bun run dev:app --ignore-lock` |
 | cire landing | 4323 | `bun run dev:app --ignore-lock` |
 
 cire landing and cire host reach the internet as they start: their Astro font pipelines fetch Google Fonts (`fonts` in each package's `astro.config.mjs`) and cache them under the package's `.astro/`. With no network each logs `No data found for font family …` and serves pages in fallback faces, so the stack still boots. The portal runs under `astro dev`, which serves no Content Security Policy (the build writes it into `dist/_headers`), so the browser tier keeps the CSP checks.
+
+**Musubi runs as it deploys.** Its build writes the Content-Security-Policy into `dist/_headers` ([[social#Response headers]]), and only a server that reads that file sends it, so the stack builds Musubi and serves the build through Wrangler's local asset server, which applies `_headers` and answers deep links with the single-page fallback as the deployed Worker does (`musubi-social.wrangler.jsonc`). The build carries Cloudflare's always-pass Turnstile test sitekey (`TURNSTILE_TEST_SITEKEY` in `config.ts`), so its sign-in and registration forms load the widget, and osn-api, holding no secret, checks no token, as on the dev tier. The `flow` fixture answers for Turnstile at its real script and frame URLs (`standInForTurnstile` in `tests/support/fixtures.ts`), so the page loads both through the policy, and counts what it served. The fixture also collects every Content-Security-Policy message a page logs to the console; each Musubi flow checks that no Musubi page logged one, and `musubi-passkey` checks the policy it is served. A change to Musubi needs no dev server restart between runs: each run builds afresh.
 
 *Measured 2026-10-20 — `astro dev` for `@cire/landing` with `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9`: `/privacy` answered 200 after 4.2 s.*
 

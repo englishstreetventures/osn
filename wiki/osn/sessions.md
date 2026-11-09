@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-09
 ---
 
 # Session introspection + revocation
@@ -238,7 +238,7 @@ Every authenticated request a Musubi page makes goes through one `authFetch`, th
 What `authFetch` does with each request (`osn/client/src/service.ts`):
 
 1. **Checks the URL.** The token goes only to the issuer's origin. Any other URL, a relative one included, is refused with a `TypeError` before anything is read or sent.
-2. **Reads what other tabs stored.** If another tab stored a later-expiring token for this tab's active profile, it is adopted, and no grant is made unless that token is itself inside the renew lead (step 3). If the stored account is gone (another tab signed out, or saw the session end), the session ends here too, with no request. The active profile is never taken from storage: each tab acts as the profile its own screen shows.
+2. **Checks the stored account.** If it is gone (another tab signed out, or saw the session end), the session ends here too, with no request. Nothing else is taken from storage: tokens live only in each page's memory, so each tab renews for itself, and each acts as the profile its own screen shows ([[identity-model#Client Storage Model]]).
 3. **Renews before sending.** A token within `min(30 s, half its lifetime)` of expiry (lifetime from its own `iat`/`exp`; 30 s when it has neither) is renewed first, so an expired token never leaves the page. The grant names the active profile (`profile_id` on `POST /token`), and the issuer mints for it while the cookie session's account owns it, bound to the rotated session — one request, no `/profiles/switch`. A renewal joins a grant already in flight and keeps its token when that grant minted for the same profile; otherwise it sends its own once that one settles, so two grants of one cookie never overlap. A profile switch that lands while a renewal is out stays: the renewal's token is stored for the profile it named, and the request that needed it goes out as that profile, the one it was made as.
 4. **Sets `Authorization` itself**, whatever the caller passed, and sends.
 5. **On a 401, renews once and retries.** A second 401 ends the session.

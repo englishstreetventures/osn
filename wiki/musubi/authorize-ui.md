@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-09
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -255,7 +255,11 @@ screen shows even when consent is on record (pinned in
   and nowhere else.
 - `musubi/social/public/_headers` carries `frame-ancestors 'none'`,
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
-  `Referrer-Policy: strict-origin-when-cross-origin`.
+  `Referrer-Policy: strict-origin-when-cross-origin`, and the build adds a
+  `script-src` and a `connect-src` that admit only the app, its inline
+  scripts by hash, Turnstile and the issuer, so a script injected here can
+  neither load more code from elsewhere nor send what it reads to another
+  host ([[social#Response headers]]).
 - **The READ has a deadline; the WRITE deliberately does not** (2026-07-30). `getContext` runs under a default 10 s ceiling
   (`DEFAULT_AUTHORIZE_TIMEOUT_MS`, overridable via `timeoutMs`, `0` to opt
   out) and carries the page's abort signal, which fires on unmount. That is
