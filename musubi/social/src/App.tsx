@@ -5,6 +5,7 @@ import { Route, Router, useLocation } from "@solidjs/router";
 import { createSignal, lazy, onCleanup, onMount, Show, type Component, type JSX } from "solid-js";
 
 import { AccountBanners } from "./components/AccountBanners";
+import { PageErrorBoundary } from "./components/PageErrorBoundary";
 import { ShellDialogsProvider, useShellDialogs } from "./components/ShellDialogs";
 import { RailFrame, TopBarFrame } from "./components/ShellFrame";
 import { osnAuth } from "./lib/auth";
@@ -16,6 +17,10 @@ import "./App.css";
 const Sidebar = lazy(() => import("./components/Sidebar").then((m) => ({ default: m.Sidebar })));
 const MobileChrome = lazy(() =>
   import("./components/MobileChrome").then((m) => ({ default: m.MobileChrome })),
+);
+// Shell-only too: the signed-out and failed-profiles notices.
+const ShellNotices = lazy(() =>
+  import("./components/ShellNotices").then((m) => ({ default: m.ShellNotices })),
 );
 
 const ConnectionsPage = lazy(() =>
@@ -75,7 +80,9 @@ export function Layout(props: { children?: JSX.Element }) {
           </AuthProvider>
         }
       >
-        <Content>{props.children}</Content>
+        <Content>
+          <PageErrorBoundary>{props.children}</PageErrorBoundary>
+        </Content>
       </Show>
       <Toaster
         position={isMobile() ? "top-center" : "bottom-right"}
@@ -102,11 +109,14 @@ function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
       </Show>
       {/* Inside the scroll column, above the page: the layout is a row on
           desktop, so a sibling of `Content` would land beside the rail
-          rather than over the page. Renders nothing until a session
-          exists, and nothing at all on a bare route. */}
+          rather than over the page. `ShellNotices` renders only once the
+          runtime has ended a session or the profile list has failed;
+          `AccountBanners` renders nothing until a session exists. Neither
+          renders on a bare route. */}
       <Content padForMobileNav>
+        <ShellNotices />
         <AccountBanners />
-        {props.children}
+        <PageErrorBoundary>{props.children}</PageErrorBoundary>
       </Content>
     </ShellDialogsProvider>
   );

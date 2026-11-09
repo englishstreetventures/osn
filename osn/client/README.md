@@ -70,6 +70,11 @@ A client that sends through `authFetch` lets a rejection about the session
 - `<AuthProvider auth={runtime}>` + `useAuth()` — `session`, `logout`,
   `adoptSession`, `authFetch`, and the profile management methods. It
   signs itself out when the runtime ends the session.
+- `profiles` never throws when read. A list that fails to load keeps the
+  last list it had (null before the first) and sets `profilesError`, which
+  goes to `describeAuthError`; `refetchProfiles()` tries again. Signing out,
+  or a session that ends while a list is loading, leaves neither the old
+  list nor an error behind.
 
 ## Consumed by
 

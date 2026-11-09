@@ -41,11 +41,11 @@ import { AuthorizePage } from "../../src/pages/AuthorizePage";
 const REQUEST_ID = "oar_0123456789ab";
 
 /**
- * AZ-P-I2: the context READ carries the page's abort signal, so a read left in
+ * The context READ carries the page's abort signal, so a read left in
  * flight past unmount is cancelled rather than resolving into a component that
  * no longer exists. Asserted rather than loosened away, so dropping the signal
  * fails here instead of leaking quietly. The decision POST deliberately gets no
- * signal — see the unmount tests below (S-M1).
+ * signal — see the unmount tests below.
  */
 const withAbortSignal = expect.objectContaining({ signal: expect.any(AbortSignal) });
 
@@ -137,7 +137,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
-  // S-L2. The inherited-scope test below restores this in its own `finally`,
+  // The inherited-scope test below restores this in its own `finally`,
   // which does not run if the test body is abandoned on a vitest timeout. This
   // runs on every exit path, so one hang cannot pollute the rest of the file.
   delete (Object.prototype as Record<string, unknown>).inheritedScope;
@@ -257,7 +257,7 @@ describe("<AuthorizePage />", () => {
     );
   });
 
-  // T-U1 / A-L1. Three separate decisions are load-bearing and all invisible to
+  // Three separate decisions are load-bearing and all invisible to
   // the other tests: the region must stay MOUNTED (a live region added in the
   // same tick as its text is not reliably announced), `error` maps to null so
   // it doesn't talk over that screen's own role="alert", and `redirecting` is
@@ -285,19 +285,19 @@ describe("<AuthorizePage />", () => {
     });
 
     it("stays silent on the error screen, which carries its own role=alert", async () => {
-      mocks.getContext.mockRejectedValue(
-        new AuthorizeError("rate_limited", 429, "Too many attempts."),
-      );
+      mocks.getContext.mockRejectedValue(new AuthorizeError("rate_limited", 429, "PLANTED-429"));
 
       renderPage();
       await screen.findByText("Could not load this request");
 
       expect(screen.getByRole("status").textContent).toBe("");
-      expect(screen.getByRole("alert").textContent).toContain("Too many attempts.");
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Too many attempts. Wait a while, then try again.",
+      );
     });
   });
 
-  // T-U2 / S-M1. The client honours a caller signal; only the page decides when
+  // The client honours a caller signal; only the page decides when
   // to fire it. Deleting the `onCleanup` line leaves every other test green.
   describe("in-flight requests on unmount", () => {
     it("aborts the context read", async () => {
@@ -525,12 +525,15 @@ describe("<AuthorizePage />", () => {
 
     it("shows a failed Cancel on the account screen itself", async () => {
       mocks.getContext.mockResolvedValue(context());
-      mocks.submitDecision.mockRejectedValue(new Error("Network down."));
+      mocks.submitDecision.mockRejectedValue(new Error("PLANTED Network down."));
 
       renderPage(SELECT);
       fireEvent.click(await screen.findByText("Cancel"));
 
-      expect((await screen.findByRole("alert")).textContent).toBe("Network down.");
+      // The copy map's sentence, never the error's own text.
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        "Something went wrong. Try again.",
+      );
       expect(screen.getByText("Use another account")).toBeDefined();
     });
 
@@ -580,7 +583,7 @@ describe("<AuthorizePage />", () => {
   });
 
   /**
-   * T-S1. The rule is "`create` leads with sign-up until a ceremony happens
+   * The rule is "`create` leads with sign-up until a ceremony happens
    * *here*", not "until a session exists" — the two predicates differ exactly
    * on this case, and only this case tells them apart. `prompt=create` parks
    * with `requireAuthAfter = now` server-side, so an existing session does not
@@ -663,14 +666,15 @@ describe("<AuthorizePage />", () => {
 
   it("offers a retry when the context read is rate limited", async () => {
     mocks.getContext.mockRejectedValueOnce(
-      new AuthorizeError("rate_limited", 429, "Too many attempts. Try again in a minute."),
+      new AuthorizeError("rate_limited", 429, "PLANTED Try again in a minute."),
     );
     mocks.getContext.mockResolvedValue(context());
 
     renderPage();
 
     expect(await screen.findByText("Could not load this request")).toBeDefined();
-    expect(screen.getByText("Too many attempts. Try again in a minute.")).toBeDefined();
+    expect(screen.getByText("Too many attempts. Wait a while, then try again.")).toBeDefined();
+    expect(document.body.textContent).not.toContain("PLANTED");
 
     fireEvent.click(screen.getByText("Try again"));
 

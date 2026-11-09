@@ -1,5 +1,5 @@
 import type { AuthorizeContext, PublicProfile } from "@osn/client";
-import { AuthorizeError } from "@osn/client";
+import { AuthorizeError, describeAuthError } from "@osn/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button } from "@shared/ui/ui/button";
 import { useSearchParams } from "@solidjs/router";
@@ -214,12 +214,13 @@ export function AuthorizePage() {
   /**
    * A context failure the request survives — rate limiting, or the network.
    * Retryable, so it gets a message and a button rather than the spinner it
-   * would otherwise sit behind for ever.
+   * would otherwise sit behind for ever. The copy map's sentence, never the
+   * error's own text.
    */
   const loadError = createMemo(() => {
     const err = context.error;
     if (!err || (err instanceof AuthorizeError && err.terminal)) return null;
-    return err instanceof Error && err.message ? err.message : "Something went wrong.";
+    return describeAuthError(err);
   });
 
   // `<Switch>` asks each `Match` in turn, so this is the one tracked value the
@@ -290,7 +291,7 @@ export function AuthorizePage() {
           return;
         }
       }
-      softFail(err instanceof Error ? err.message : "Something went wrong. Try again.");
+      softFail(describeAuthError(err));
     }
   }
 
