@@ -90,6 +90,7 @@ describe("<DiscoverPage />", () => {
     });
     renderDiscover();
     expect(await screen.findByText("3 mutual connections")).toBeDefined();
+    expect(document.title).toBe("Discover · Musubi");
   });
 
   it("singularises a lone mutual connection", async () => {

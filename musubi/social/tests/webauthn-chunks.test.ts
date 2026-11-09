@@ -123,13 +123,32 @@ describe("webauthn chunk split", () => {
     const staticSpecifiers = [...gate.matchAll(/^import\s[^;]*?from\s*"([^"]+)";$/gm)].map(
       (m) => m[1],
     );
-    expect(staticSpecifiers.sort()).toEqual(["@osn/client/solid", "solid-js"]);
+    expect(staticSpecifiers.toSorted()).toEqual(["@osn/client/solid", "solid-js"]);
     expect(gate).toMatch(/lazy\(\s*\(\)\s*=>\s*import\(\s*"\.\/AccountBannerStack"\s*\)\s*\)/);
   });
 
+  it("keeps the entry chunk off the sign-in and switcher dialogs", () => {
+    // `ShellDialogs` is imported statically by `App.tsx`, so it is in the
+    // entry chunk. The dialogs it mounts reach `@osn/auth-ui`'s `SignIn` and
+    // `Register`, which `/authorize` must not pay for before it paints, so it
+    // may name them only in a dynamic import. An allowlist, for the reason the
+    // banner case above gives.
+    const provider = readSource("../src/components/ShellDialogs.tsx");
+    const staticSpecifiers = [...provider.matchAll(/^import\s[^;]*?from\s*"([^"]+)";$/gm)].map(
+      (m) => m[1],
+    );
+    expect(staticSpecifiers.toSorted()).toEqual(["solid-js"]);
+    // One dynamic import for all three dialogs: one per dialog makes the
+    // bundler split the entry chunk and keep client code it otherwise drops.
+    expect([...provider.matchAll(/\bimport\(/g)]).toHaveLength(1);
+    expect(provider).toMatch(
+      /lazy\(\s*\(\)\s*=>\s*import\(\s*"\.\/ShellDialogSet"\s*\)\.then\(\s*\(m\)\s*=>\s*\(\{\s*default:\s*m\.ShellDialogSet,?\s*\}\)\s*,?\s*\)\s*,?\s*\)/,
+    );
+  });
+
   it("keeps the sign-in dialog off a static registration import", () => {
-    // `AuthDialogs` is mounted by the desktop rail and the mobile top bar, so
-    // it is shell every anonymous visitor loads. Its recovery path can end in
+    // `AuthDialogs` is loaded by `ShellDialogs` with the shell, so it is code
+    // every anonymous visitor loads. Its recovery path can end in
     // passkey enrolment, and naming the ceremony statically would put
     // `startRegistration` in that shell — paid by everyone, used by the few
     // who lose a passkey. The deferring module is what keeps it out, and it

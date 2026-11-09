@@ -76,8 +76,10 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     const response = await page.goto(ORIGINS.musubi);
     servedPolicy = (await response?.headerValue("content-security-policy")) ?? "";
     await expect(page.getByRole("button", { name: "Create account" }).first()).toBeVisible();
+    // The page names the tab once it has rendered; the shell can land first.
+    await expect(page.getByRole("heading", { level: 1, name: "Connections" })).toBeVisible();
   });
-  flow.check("tab title", "Musubi", await page.title());
+  flow.check("tab title", "Connections · Musubi", await page.title());
   flow.check(
     "Musubi is served the policy its build wrote",
     MUSUBI_POLICY,

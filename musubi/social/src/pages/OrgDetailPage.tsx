@@ -14,6 +14,7 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
+import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
 
 /** The HTTP status a failed request carried, when it got as far as a response. */
@@ -63,6 +64,9 @@ export function OrgDetailPage() {
   // organisation is public, its member list is not.
   const orgReady = () => (org.state === "ready" ? org() : undefined);
   const memberRows = () => (members.state === "ready" ? members()?.members : undefined);
+  // The page's `h1`: the organisation's name, or the section's while it loads
+  // or when it could not be loaded.
+  usePageTitle(() => orgReady()?.name ?? "Organisations");
 
   const [showEdit, setShowEdit] = createSignal(false);
   const [editName, setEditName] = createSignal("");
@@ -254,7 +258,7 @@ export function OrgDetailPage() {
 
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>
-        <ResponsiveDialogContent class="max-w-sm">
+        <ResponsiveDialogContent>
           <DialogHeader>
             <DialogTitle>Edit organisation</DialogTitle>
           </DialogHeader>

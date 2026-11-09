@@ -2,7 +2,7 @@
 import { AuthContext } from "@osn/client/solid";
 import { MemoryRouter, Route } from "@solidjs/router";
 import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Regression guard for the musubi.social login break.
@@ -84,6 +84,7 @@ vi.mock("../../src/lib/authClients", () => ({
 }));
 
 import { AuthorizeSignIn } from "../../src/components/AuthorizeSignIn";
+import { loadShellDialogs, ShellDialogsProvider } from "../../src/components/ShellDialogs";
 import { Sidebar } from "../../src/components/Sidebar";
 
 /** A signed-out AuthContext — the state in which the auth dialogs render. */
@@ -112,6 +113,13 @@ function signedOutAuth() {
   } as any;
 }
 
+// The shell's dialogs are a lazy chunk. Load it now, as the app does at boot:
+// the sitekey test below resets the module registry, and a dialog loaded after
+// that would bind to the blank-sitekey copy of `src/lib/auth.ts` it leaves.
+beforeAll(async () => {
+  await loadShellDialogs();
+});
+
 beforeEach(() => {
   captured.signIn.length = 0;
   captured.register.length = 0;
@@ -134,7 +142,8 @@ describe("TURNSTILE_SITEKEY", () => {
     // blank case must collapse to `undefined` rather than reach the widget as a
     // truthy-looking empty string. Re-imported in isolation: this is the only
     // test that needs a different build-time env, and `src/lib/auth.ts` pulls in
-    // no Solid context, so a private registry copy is harmless here.
+    // no Solid context, so a private registry copy is harmless here once every
+    // module that reads it has loaded (`beforeAll`).
     vi.resetModules();
     vi.stubEnv("VITE_TURNSTILE_SITEKEY", blank);
     const fresh = await import("../../src/lib/auth");
@@ -157,11 +166,18 @@ describe("Turnstile sitekey and product name reach every ceremony call site", ()
     expect(captured.register).toEqual([{ turnstileSiteKey: SITEKEY, productName: PRODUCT_NAME }]);
   });
 
-  it("passes both to the sidebar's <SignIn /> and <Register /> dialogs", async () => {
+  it("passes both to the shell's <SignIn /> and <Register /> dialogs", async () => {
     const result = render(() => (
       <AuthContext.Provider value={signedOutAuth()}>
         <MemoryRouter>
-          <Route path="*" component={Sidebar} />
+          <Route
+            path="*"
+            component={() => (
+              <ShellDialogsProvider>
+                <Sidebar />
+              </ShellDialogsProvider>
+            )}
+          />
         </MemoryRouter>
       </AuthContext.Provider>
     ));

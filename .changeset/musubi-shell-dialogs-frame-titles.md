@@ -1,0 +1,5 @@
+---
+"@musubi/social": patch
+---
+
+The app shell holds still and keeps its dialogs across the 768px switch. While the rail's or the top bar's chunk loads, a frame of the same box holds its place, so the page no longer jumps 240px sideways (or 49px down on a phone) on a cold load; if the chunk fails to load, the frame stays and says to reload. The sign-in, create-account and profile-switcher dialogs are mounted once, above the shell switch, so one open while the window crosses 768px stays open with what was typed, and closing one gives focus back to the control that opened it. On a phone a dialog's sheet is as wide as the screen; `ResponsiveDialogContent` takes a `width` prop for its desktop cap and no longer takes `class`. A pointer click on a rail search result now opens or connects it. Discover's two columns and the organisation list's description start at 768px, the app's one breakpoint, and a test fails on any other breakpoint in `src/`. Each page names the browser tab after its heading ("Discover · Musubi").

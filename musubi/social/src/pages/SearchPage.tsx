@@ -4,6 +4,7 @@ import { For, onMount, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { OrganisationLink, PersonRow, useSearchActions } from "../components/SearchResultRows";
+import { usePageTitle } from "../lib/page-title";
 import { createSearchController } from "../lib/search";
 
 /**
@@ -18,6 +19,7 @@ import { createSearchController } from "../lib/search";
  */
 export function SearchPage() {
   const { session } = useAuth();
+  usePageTitle(() => "Search");
 
   const controller = createSearchController(() => Boolean(session()), {
     limit: 15,

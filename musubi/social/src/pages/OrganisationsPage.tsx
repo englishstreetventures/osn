@@ -12,10 +12,12 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
+import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
 
 export function OrganisationsPage() {
   const { session } = useAuth();
+  usePageTitle(() => "Organisations");
 
   // Keyed on the session object: a new session refetches, a token renewal does not.
   const [orgs, { refetch }] = createResource(
@@ -110,7 +112,7 @@ export function OrganisationsPage() {
                       <p class="text-muted-foreground text-meta">@{org.handle}</p>
                     </div>
                     <Show when={org.description}>
-                      <p class="text-muted-foreground text-meta hidden max-w-48 truncate sm:block">
+                      <p class="text-muted-foreground text-meta hidden max-w-48 truncate md:block">
                         {org.description}
                       </p>
                     </Show>
@@ -135,7 +137,7 @@ export function OrganisationsPage() {
 
       {/* Create org dialog */}
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
-        <ResponsiveDialogContent class="max-w-sm">
+        <ResponsiveDialogContent>
           <DialogHeader>
             <DialogTitle>Create organisation</DialogTitle>
           </DialogHeader>

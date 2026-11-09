@@ -20,7 +20,11 @@ import { playwright } from "@vitest/browser-playwright";
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
-import { emulateMedia } from "./tests/test-support/browser-commands.ts";
+import {
+  emulateMedia,
+  failRequests,
+  restoreRequests,
+} from "./tests/test-support/browser-commands.ts";
 
 /** Shared by both projects — same compiler, and the Tailwind build the app
  *  ships. The browser tier needs it: `App.css` is `@import "tailwindcss"`, and
@@ -73,8 +77,9 @@ export default defineConfig({
             // does not take effect (vitest-dev/vitest#7661).
             headless: true,
             instances: [{ browser: "chromium" }],
-            // Lets a test switch on a contrast theme (forced colours) for itself.
-            commands: { emulateMedia },
+            // Lets a test switch on a contrast theme (forced colours) for
+            // itself, or fail a module's request as a dropped network would.
+            commands: { emulateMedia, failRequests, restoreRequests },
           },
         },
       },

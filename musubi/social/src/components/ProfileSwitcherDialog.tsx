@@ -10,12 +10,15 @@ import { profileInitials, safeAvatarUrl } from "../lib/utils";
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";
 
 /**
- * The profile-switcher dialog, shared by the desktop rail and the mobile top
- * bar. Owns the switch mutation; the caller only controls visibility.
+ * The profile-switcher dialog, mounted once through `ShellDialogSet` above
+ * the desktop/phone shell switch. Owns the switch mutation; the caller only
+ * controls visibility.
  */
 export function ProfileSwitcherDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Where focus goes as the dialog closes; see `ResponsiveDialogContent`. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const { profiles, activeProfileId, switchProfile } = useAuth();
   const [switching, setSwitching] = createSignal(false);
@@ -36,7 +39,7 @@ export function ProfileSwitcherDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <ResponsiveDialogContent class="max-w-xs">
+      <ResponsiveDialogContent width="xs" onCloseAutoFocus={props.onCloseAutoFocus}>
         <div class="flex flex-col gap-1 py-2">
           <p class="text-foreground text-title mb-2 px-3 font-medium">Switch profile</p>
           <For each={profiles() ?? []}>
