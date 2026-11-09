@@ -14,6 +14,7 @@
  * string-level assertion still passes.
  */
 
+import { Badge } from "@shared/ui/ui/badge";
 import { Button } from "@shared/ui/ui/button";
 import { render } from "@solidjs/testing-library";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -150,6 +151,35 @@ describe("the contract reaches the pixel", () => {
     const dark = getComputedStyle(probe).color;
 
     expect(dark).not.toBe(light);
+  });
+});
+
+describe("the badge's weight", () => {
+  it("sets pulse's three badges at 600, because pulse maps no title weight", () => {
+    // `Badge` reads `--ui-weight-title` and falls back to 600. Pulse maps no
+    // weight token and redefines no weight key, so its category pills and its
+    // outline badges draw at the weight they always have. A mapping added here,
+    // or a `--font-weight-*` key the badge's class could read, would move every
+    // event card's pill and fail this. Weight does not follow `.dark`, so the
+    // light theme is enough.
+    const { getAllByTestId } = render(() => (
+      <div>
+        <Badge variant="secondary" treatment="eyebrow" data-testid="badge">
+          Music
+        </Badge>
+        <Badge variant="outline" data-testid="badge">
+          Free
+        </Badge>
+        <Badge variant="outline" treatment="eyebrow" data-testid="badge">
+          Modified
+        </Badge>
+      </div>
+    ));
+    expect(getAllByTestId("badge").map((badge) => getComputedStyle(badge).fontWeight)).toEqual([
+      "600",
+      "600",
+      "600",
+    ]);
   });
 });
 
