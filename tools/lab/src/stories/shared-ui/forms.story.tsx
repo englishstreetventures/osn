@@ -2,6 +2,7 @@ import { Checkbox, type ChoiceBox } from "@shared/ui/ui/checkbox";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { OtpInput, type OtpStatus } from "@shared/ui/ui/otp-input";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Select } from "@shared/ui/ui/select";
@@ -112,27 +113,106 @@ export const Username: Story<UsernameArgs> = {
 interface OtpArgs extends StoryArgs {
   status: OtpStatus;
   disabled: boolean;
+  labelled: boolean;
+  autofocus: boolean;
+  column: string;
 }
 
 /**
  * The six-box verification code. `verifying` and `accepted` disable the boxes
- * on their own; `error` re-focuses the first one so a retry can just be typed.
+ * on their own; `error` marks every box invalid and refocuses the first one so
+ * a retry can just be typed. The boxes share the column's width up to 48px
+ * each: pick a column to watch them shrink. `labelled` names the group from
+ * the label above it and each box "Code from your email Digit N"; `autofocus`
+ * takes effect when the story mounts.
  */
 export const Otp: Story<OtpArgs> = {
-  args: { status: "idle", disabled: false },
+  args: { status: "idle", disabled: false, labelled: true, autofocus: false, column: "400px" },
   controls: {
     status: { kind: "select", options: ["idle", "error", "verifying", "accepted"] },
+    column: { kind: "select", options: ["212px", "300px", "400px", "100%"] },
   },
   render: (args) => {
     const [code, setCode] = createSignal("12");
     return (
-      <div class="flex flex-col gap-3">
-        <OtpInput value={code()} onChange={setCode} status={args.status} disabled={args.disabled} />
+      <div class="flex flex-col gap-3" style={{ width: args.column }}>
+        <Label id="lab-otp-label">Code from your email</Label>
+        <OtpInput
+          value={code()}
+          onChange={setCode}
+          status={args.status}
+          disabled={args.disabled}
+          autofocus={args.autofocus}
+          aria-labelledby={args.labelled ? "lab-otp-label" : undefined}
+        />
         <p class="text-meta text-subtle">value: {code() || "(empty)"}</p>
       </div>
     );
   },
 };
+
+/**
+ * Every state at once, each named by the label above it. The error line is an
+ * inline `Notice` with `alert`, so it is read when it appears, and its id goes
+ * to every box through `aria-describedby`, so it is read again when focus
+ * lands on one.
+ */
+export const OtpStates = () => {
+  const states: { label: string; value: string; status?: OtpStatus; disabled?: boolean }[] = [
+    { label: "Empty", value: "" },
+    { label: "Partly typed", value: "123" },
+    { label: "Error", value: "123456", status: "error" },
+    { label: "Verifying", value: "123456", status: "verifying" },
+    { label: "Accepted", value: "123456", status: "accepted" },
+    { label: "Disabled", value: "", disabled: true },
+  ];
+  return (
+    <div class="flex max-w-sm flex-col gap-6">
+      {states.map((state, n) => {
+        const [code, setCode] = createSignal(state.value);
+        const labelId = `lab-otp-state-${n}`;
+        const errorId = `lab-otp-state-${n}-error`;
+        return (
+          <div class="flex flex-col gap-2">
+            <Label id={labelId}>{state.label}</Label>
+            <OtpInput
+              value={code()}
+              onChange={setCode}
+              status={state.status}
+              disabled={state.disabled}
+              aria-labelledby={labelId}
+              aria-describedby={state.status === "error" ? errorId : undefined}
+            />
+            {state.status === "error" && (
+              <Notice size="inline" tone="danger" alert id={errorId}>
+                Incorrect code. Try again.
+              </Notice>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/**
+ * The row in the columns it has to fit: 212px (an authenticator enrolment box
+ * in Settings on a 320px phone), 300px (`/authorize` at 390px) and 400px, where
+ * the boxes reach their 48px and stop growing.
+ */
+export const OtpNarrow = () => (
+  <div class="flex flex-wrap items-start gap-8">
+    {["212px", "300px", "400px"].map((width) => {
+      const [code, setCode] = createSignal("1234");
+      return (
+        <div class="flex flex-col gap-2" style={{ width }}>
+          <p class="text-meta text-subtle">{width}</p>
+          <OtpInput value={code()} onChange={setCode} />
+        </div>
+      );
+    })}
+  </div>
+);
 
 /**
  * `Field` is the label-hint-error scaffolding, and the thing to notice is what

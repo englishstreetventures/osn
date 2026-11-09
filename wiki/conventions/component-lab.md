@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-09
 ---
 
 # Component Lab
@@ -41,7 +41,7 @@ carry the variants and states, and all eight story files live together in
 | `shared/ui` | `overview.story.tsx` | Everything, one state each |
 | `shared/ui/Button` | `button.story.tsx` | `Variants`; `Inline` (a link inside a sentence at two type sizes, beside a standalone link, and a narrow paragraph whose `<a>` wraps, to Tab onto); `Busy` (every labelled variant and size busy, and a button that starts a two-second wait when pressed: from the keyboard it stays at full strength, ring and all, while it waits); `Playground` (label, variant, size, disabled, busy — busy only at a size that takes it) |
 | `shared/ui/display` | `display.story.tsx` | Badge, Avatar, Card |
-| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field (`Fields` in the default label; `PlainLabels`, the sign-up form in the plain label beside the default; `FieldPlayground`, every combination of treatment, hint, errors and hidden label), Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput |
+| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select (every size, the ink fill on three guest palettes, the chevron), Field (`Fields` in the default label; `PlainLabels`, the sign-up form in the plain label beside the default; `FieldPlayground`, every combination of treatment, hint, errors and hidden label), Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput (`Otp` with a column, label and autofocus to set; `OtpStates`, each state named by its label, the error described by an inline alert; `OtpNarrow`, 212, 300 and 400px columns) |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
 | `shared/ui/Orb` | `orb.story.tsx` | `States` (the nine states at 64 and 20px on the page's ground, ink in the text colour, so it follows the light · dark toggle), `InButtons` (the 20px orb inside a `Button` of each variant at full strength, to judge its ink, and the nine states in the default one; a busy `Button` draws it dimmed, in `shared/ui/Button` → `Busy`), `Playground` (state, size) |

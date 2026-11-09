@@ -1201,6 +1201,85 @@ import { Input } from "@shared/ui/ui/input";
 </Card>;
 ```
 
+### `OtpInput` — six boxes, one value with no gaps
+
+`<OtpInput value onChange status disabled autofocus aria-labelledby aria-describedby>`
+takes a six-digit code, one digit per box, in
+[otp-input.tsx](../../shared/ui/src/ui/otp-input.tsx). `@osn/auth-ui` is its
+only caller: sign-up (`Register`), recovery sign-in (`RecoveryLoginForm`) and
+authenticator enrolment (`TotpView`).
+
+| Prop | What it does |
+|---|---|
+| `value`, `onChange` | Controlled: a digit string of up to six, with no gaps. The caller's value follows `onChange` in the same tick |
+| `status` | `idle` (default), `error`, `verifying`, `accepted`. `verifying` and `accepted` disable the boxes. `error` paints every border `--ui-danger`, sets `aria-invalid` on every box and refocuses box 1; `accepted` paints `--ui-success`; otherwise `--ui-hairline` |
+| `disabled` | Disables every box |
+| `autofocus` | Focuses box 1 once it is mounted and enabled (below) |
+| `aria-labelledby` | `id` of the visible label. The group is named by it and box N is `<label> Digit N`. Without it the group is "Verification code" and box N "Digit N" |
+| `aria-describedby` | `id`s of the lines that describe the code (its error, a hint), set on every box |
+
+**Geometry.** The group is a `<fieldset>` with its browser box cleared; it fills its column and the boxes share it: each grows to
+48px and no further, 8px apart, 48px tall at every width. From a 328px column
+up the row is six 48px squares from the left edge; in the narrowest host, a
+212px column on a 320px phone, the boxes are about 28px wide. Height stays
+48px rather than following the width (`aspect-square`), which would make those
+boxes 28px tall, under a touch target's floor. The digit is `text-ui-md`,
+16px, the size under which iOS zooms a field on focus.
+
+**The value has no gaps.** The boxes show the value from box 1, with no state
+of their own:
+
+- Focus that lands past the first empty box (a click, an arrow key, a script)
+  moves to it, and the boxes past it carry `tabindex="-1"`, so Tab leaves the
+  group rather than bouncing back.
+- Typing into a box that holds a digit replaces it and moves on; typing into
+  the first empty box appends.
+- Backspace, Delete, a cut or a phone keyboard's delete on a box that holds a
+  digit removes it, and the later digits move one box left, as in a text
+  field. Backspace on the empty box removes the digit before it and moves
+  there.
+- A paste, or an insert of more than one digit (a one-time-code autofill, a
+  keyboard's suggestion, a password manager setting the value), becomes the
+  whole value from its first six digits, and focus goes to the box after the
+  last. No box has `maxlength`, which would cut such a fill to one digit.
+
+**Focus.** `autofocus`, and `status` turning to `error`, focus box 1 one task
+later (`setTimeout(0)`), and only if box 1 is connected and enabled then. Every
+caller sets the state that disables the boxes and the state that asks for focus
+in one synchronous run and clears its busy flag in a `finally`, so a focus
+call in `onMount` or in the effect lands on a disabled box and does nothing.
+Inside a Kobalte `Dialog` the focus scope queues its own first-focus as a 0ms
+timer before the boxes mount, so the boxes' timer runs after it and wins. If
+box 1 is still disabled when the timer runs, focus does not move.
+
+The focus mark is the text field's ring (`GROUND_TAIL` in `control.ts`): 2px of
+`--ui-focus` 2px off a `--ui-ground` offset, at once, since only colours fade.
+`focus-visible:outline-hidden` adds a transparent 2px outline that only a
+Windows contrast theme paints, on the focused box only, because the theme drops
+the ring's box shadow.
+
+**Errors.** `OtpInput` renders no text. The caller's error line takes an `id`
+the boxes name in `aria-describedby` — an inline `Notice` with `alert`, or any
+line with an id. Make it a live region (`role="alert"`, as `Notice alert` and
+`Field`'s error are): otherwise a screen reader hears the error only when the
+refocus lands on box 1 and reads the description.
+
+**What a call site sets.** `Field` cannot host it: its `<label for>` names one
+control, and a group needs the label's `id`. Put a `Label` (or a `<span>`)
+with an `id` above the boxes and pass that id as `aria-labelledby`.
+testing-library's `getByLabelText("Digit 1")` still finds a labelled box (it
+also matches `aria-label`); Playwright's `getByLabel("Digit 1")` does not,
+since it reads only the `aria-labelledby` text, so an E2E flow finds a
+labelled box with `getByRole("textbox", { name: /Digit 1$/ })`.
+
+`tests/otp-input.browser.test.tsx` holds the geometry, the names and error as
+Chrome exposes them, each focus case (a disabled mount, a Kobalte dialog, a
+`Modal`, a step switch inside an open dialog, the error refocus), the input
+rules and the focus mark in and out of a contrast theme;
+`tests/ui/otp-input.test.tsx` holds the attributes and the unlabelled names. The
+lab draws it in `shared/ui/forms` as `Otp`, `OtpStates` and `OtpNarrow`
+([[component-lab]]).
+
 ### Overlays: `Modal`, and why its exit is deferred
 
 `@shared/ui`'s `Modal` is the platform's `<dialog>` with `showModal()`. The focus

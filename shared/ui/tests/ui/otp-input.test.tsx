@@ -38,10 +38,13 @@ describe("OtpInput", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("Backspace on filled cell clears it in place", () => {
+  // The value has no gaps, so removing a digit moves every later one a box
+  // left, as deleting a character does in a text field.
+  it("Backspace on a filled box removes its digit and moves the later digits one box left", () => {
     const { onChange } = renderOtp("12");
     fireEvent.keyDown(digit(1), { key: "Backspace" });
     expect(onChange).toHaveBeenCalledWith("2");
+    expect([digit(1).value, digit(2).value]).toEqual(["2", ""]);
   });
 
   it("Backspace on empty cell moves focus left and clears previous", () => {
@@ -103,6 +106,54 @@ describe("OtpInput", () => {
     renderOtp("", "idle");
     for (let i = 1; i <= 6; i++) {
       expect(digit(i).disabled).toBe(false);
+    }
+  });
+
+  it("marks every box invalid while the status is error, and no box otherwise", () => {
+    const [status, setStatus] = createSignal<"idle" | "error" | "verifying" | "accepted">("error");
+    render(() => <OtpInput value="123456" onChange={() => {}} status={status()} />);
+    const invalid = () => [1, 2, 3, 4, 5, 6].map((n) => digit(n).getAttribute("aria-invalid"));
+    expect(invalid()).toEqual(Array(6).fill("true"));
+    for (const next of ["idle", "verifying", "accepted"] as const) {
+      setStatus(next);
+      expect([next, invalid()]).toEqual([next, Array(6).fill(null)]);
+    }
+  });
+
+  it("hands the caller's description ids to every box", () => {
+    render(() => <OtpInput value="" onChange={() => {}} aria-describedby="code-error code-hint" />);
+    for (let i = 1; i <= 6; i++) {
+      expect(digit(i).getAttribute("aria-describedby")).toBe("code-error code-hint");
+    }
+  });
+
+  // Every caller's own tests, and the sign-up E2E flows, find the boxes by these
+  // names, so a caller that passes no label has to get exactly today's.
+  it("keeps the fixed names when no label is passed", () => {
+    render(() => <OtpInput value="" onChange={() => {}} />);
+    const group = screen.getByRole("group");
+    expect(group.getAttribute("aria-label")).toBe("Verification code");
+    const named = [group, ...group.querySelectorAll("input")];
+    expect(named.filter((el) => el.hasAttribute("aria-labelledby"))).toEqual([]);
+    for (let i = 1; i <= 6; i++) {
+      expect(digit(i).getAttribute("aria-label")).toBe(`Digit ${i}`);
+    }
+  });
+
+  // A call site that names the boxes from its own label keeps every test that
+  // finds them by digit: testing-library matches the `aria-label` attribute as
+  // well as the `aria-labelledby` text.
+  it("still finds each box by its digit name when a label is passed", () => {
+    render(() => (
+      <div>
+        <span id="code-label">Email code</span>
+        <OtpInput value="" onChange={() => {}} aria-labelledby="code-label" />
+      </div>
+    ));
+    const byPattern = screen.getAllByLabelText(/^Digit \d$/);
+    expect(byPattern).toHaveLength(6);
+    for (let i = 1; i <= 6; i++) {
+      expect(digit(i)).toBe(byPattern[i - 1]);
     }
   });
 });
