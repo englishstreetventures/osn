@@ -1,8 +1,10 @@
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
 import { Chip, type ChipTone, type ChipTreatment, type ChipVariant } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Input } from "@shared/ui/ui/input";
 import { Notice, type NoticeSize, type NoticeTone } from "@shared/ui/ui/notice";
+import { Skeleton, type SkeletonStandIn } from "@shared/ui/ui/skeleton";
 import { Stat } from "@shared/ui/ui/stat";
 import { For } from "solid-js";
 
@@ -402,6 +404,142 @@ export const NoticePlayground: Story<NoticeArgs> = {
       <Notice tone={args.tone} size={args.size} alert={args.alert}>
         {args.body}
       </Notice>
+    </div>
+  ),
+};
+
+const STAND_INS = ["line", "row", "card", "pill"] as const satisfies readonly SkeletonStandIn[];
+
+/**
+ * Each stand-in at the sizes it takes, one group each: `line` for text,
+ * `row` for a list row or a field, `card` for a card, `pill` for a chip, a
+ * button and, square, an avatar. Every one fills with the sunk well and pulses
+ * on Tailwind's `--animate-pulse`. To see the still state, emulate
+ * `prefers-reduced-motion: reduce` (DevTools, Rendering): each block stands at
+ * full strength.
+ */
+export const Skeletons = () => (
+  <div class="flex max-w-xl flex-col gap-8">
+    <section class="flex flex-col gap-2">
+      <h3 class="text-meta text-subtle">line</h3>
+      <Skeleton standsFor="line" width={48} height={8} />
+      <Skeleton standsFor="line" width={64} height={5} />
+      <Skeleton standsFor="line" width={56} height={5} />
+    </section>
+    <section class="flex flex-col gap-2">
+      <h3 class="text-meta text-subtle">row</h3>
+      <Skeleton height={14} />
+      <Skeleton height={12} />
+      <Skeleton width={40} height={10} />
+    </section>
+    <section class="flex flex-col gap-2">
+      <h3 class="text-meta text-subtle">card</h3>
+      <Skeleton standsFor="card" height={28} />
+      <Skeleton standsFor="card" height={20} />
+    </section>
+    <section class="flex flex-col gap-2">
+      <h3 class="text-meta text-subtle">pill</h3>
+      <div class="flex flex-wrap items-center gap-2">
+        <Skeleton standsFor="pill" width={16} height={6} />
+        <Skeleton standsFor="pill" width={24} height={9} />
+        <Skeleton standsFor="pill" width={10} height={10} />
+        <Skeleton standsFor="pill" width={8} height={8} />
+      </div>
+    </section>
+  </div>
+);
+
+/** One of each stand-in, a line's width for `line` and the column's for the rest. Not exported. */
+function EveryStandIn() {
+  return (
+    <For each={STAND_INS}>
+      {(standIn) => (
+        <Skeleton
+          standsFor={standIn}
+          width={standIn === "line" ? 48 : "full"}
+          height={standIn === "line" ? 5 : 12}
+        />
+      )}
+    </For>
+  );
+}
+
+/**
+ * Each stand-in on the page ground and inside a `Card`, to judge the fill against
+ * both. Toggle **light · dark**: under Musubi's dark mapping the sunk well
+ * (`--muted`) sits close to the card (`--card`), and at the pulse's low point
+ * closer still.
+ */
+export const SkeletonGrounds = () => (
+  <div class="grid max-w-3xl gap-6 sm:grid-cols-2">
+    <section class="flex flex-col gap-3">
+      <h3 class="text-meta text-subtle">On the page</h3>
+      <EveryStandIn />
+    </section>
+    <Card padding="md" class="flex flex-col gap-3">
+      <h3 class="text-meta text-subtle">In a card</h3>
+      <EveryStandIn />
+    </Card>
+  </div>
+);
+
+/**
+ * Musubi's placeholders as they would read on `Skeleton`: the connections
+ * list's rows, Discover's card grid, an organisation's name and handle, its
+ * members' rows, and a person's avatar beside two lines. Each region carries
+ * `aria-busy`, which is the caller's to set. At a phone width the fixed lines
+ * stop at the column's edge.
+ */
+export const SkeletonInPlace = () => (
+  <div class="flex max-w-2xl flex-col gap-10">
+    <section aria-busy="true" aria-label="Connections" class="flex flex-col gap-2">
+      <For each={[0, 1, 2]}>{() => <Skeleton height={14} />}</For>
+    </section>
+    <section aria-busy="true" aria-label="Discover" class="grid gap-3 sm:grid-cols-2">
+      <For each={[0, 1, 2, 3]}>{() => <Skeleton standsFor="card" height={28} />}</For>
+    </section>
+    <section aria-busy="true" aria-label="Organisation" class="flex flex-col gap-3">
+      <Skeleton standsFor="line" width={48} height={8} />
+      <Skeleton standsFor="line" width={64} height={5} />
+      <div class="mt-3 flex flex-col gap-2">
+        <For each={[0, 1]}>{() => <Skeleton height={12} />}</For>
+      </div>
+    </section>
+    <section aria-busy="true" aria-label="Person" class="flex items-center gap-3">
+      <Skeleton standsFor="pill" width={10} height={10} />
+      <div class="flex min-w-0 flex-1 flex-col gap-2">
+        <Skeleton standsFor="line" width={40} height={4} />
+        <Skeleton standsFor="line" width={24} height={3} />
+      </div>
+    </section>
+  </div>
+);
+
+interface SkeletonArgs extends StoryArgs {
+  standsFor: SkeletonStandIn;
+  full: boolean;
+  width: number;
+  height: number;
+}
+
+/**
+ * `width` and `height` are spacing steps (`48` is 12rem). Tick `full` to fill
+ * the container instead of `width`.
+ */
+export const SkeletonPlayground: Story<SkeletonArgs> = {
+  args: { standsFor: "row", full: false, width: 48, height: 14 },
+  controls: {
+    standsFor: { kind: "select", options: STAND_INS },
+    width: { kind: "range", min: 0, max: 160, step: 1 },
+    height: { kind: "range", min: 0, max: 64, step: 1 },
+  },
+  render: (args) => (
+    <div class="w-full max-w-xl">
+      <Skeleton
+        standsFor={args.standsFor}
+        width={args.full ? "full" : args.width}
+        height={args.height}
+      />
     </div>
   ),
 };
