@@ -612,6 +612,10 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.getByRole("button", { name: "Continue with musubi" }).click();
     await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
     await page.getByRole("button", { name: "Continue" }).click();
+    // The sign-in screen draws the client card too, mark and all; Allow is
+    // what says the consent screen has replaced it, so nothing read below is
+    // swapped out mid-read.
+    await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
     await expect(page.getByText("Verified by Musubi")).toBeVisible();
     await authorizeVerifiedSurfaces(flow, page, ada.name);
     await page.getByRole("button", { name: "Allow" }).click();
@@ -648,6 +652,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     });
     await page.goto(`${ORIGINS.osnApi}/authorize?${request}`);
     await expect(page).toHaveURL(new RegExp(`^${ORIGINS.musubi}/authorize\\?`));
+    await expect(page.getByRole("button", { name: "Allow" })).toBeVisible();
     await expect(page.getByText("Third-party app", { exact: true })).toBeVisible();
   });
   await authorizeThirdPartySurfaces(flow, page);

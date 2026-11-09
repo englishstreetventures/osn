@@ -112,9 +112,12 @@ function probed(target: Locator, classes: string, property: string): Promise<str
   );
 }
 
-/** Font size and weight, in one string: "14px 500". */
-async function type(target: Locator): Promise<string> {
-  return `${await computed(target, "font-size")} ${await computed(target, "font-weight")}`;
+/** Font size and weight, in one string: "14px 500", read from one element in one pass. */
+function type(target: Locator): Promise<string> {
+  return target.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return `${style.fontSize} ${style.fontWeight}`;
+  });
 }
 
 /** Font size and weight a probe wearing `classes` takes beside `target`. */
