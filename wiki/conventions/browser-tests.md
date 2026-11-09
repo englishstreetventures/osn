@@ -12,7 +12,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-09
 ---
 
 # Browser Tests
@@ -197,6 +197,15 @@ an `afterEach` when one test sets it, or set it in a `beforeAll` and restore it
 in an `afterAll` when every test in the file wants it. A second
 `browser.instances` entry with `contextOptions.reducedMotion` would also work,
 but runs the _entire_ suite twice to serve the few tests that care.
+
+`(pointer: coarse)` comes from CDP touch emulation instead,
+`cdp().send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 })`,
+switched off again in a `finally`. Switching it off does not bring the fine
+pointer back in CI's Linux Chromium: the next test in the file finds
+`(pointer: fine)` false, though on macOS it matches again. So a file reads
+everything it needs with the fine pointer first and turns touch emulation on
+once, in its last test, as `@cire/host`'s `tests/styles/pace.browser.test.tsx`
+does.
 
 The `@shared/ui`, `@cire/ui`, `@musubi/social` and `@pulse/web` copies also take
 `forcedColors`: `"active"` emulates a Windows contrast theme, which repaints
