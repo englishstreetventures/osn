@@ -101,9 +101,11 @@ Three hues, each held to its uses:
 Red text also renders as the error line: `@shared/ui`'s `Notice`
 (`tone="danger"`, which paints `--ui-danger` through the contract) in the
 failed-load lines, on `/authorize`, in the shell's notices and in the auth
-views (§Empty states and failed loads, §Auth surfaces). It sits on the page,
-a card or a popover, never on `--muted`, `--secondary` or the warn wash,
-where light danger ink falls under 4.5:1 (the table below).
+views (§Empty states and failed loads, §Auth surfaces); and as the shell
+frame's failed-load line, a `text-destructive text-meta` line
+(`ShellFrame.tsx`, §Layout). It sits on the page, a card or a popover, never
+on `--muted`, `--secondary` or the warn wash, where light danger ink falls
+under 4.5:1 (the table below).
 
 Success as ink, on each of the contract's five grounds, and ink on the warn
 wash:
@@ -490,9 +492,8 @@ cleared by the next session. A log out in this tab and a cold load with no
 session show none: the runtime reports no end for either. So a person who
 logs out in one tab sees the notice in every other open tab, which is true.
 
-**One dialog store.** Which auth dialog is open lives in
-`src/lib/auth-dialogs.ts`, not in each shell, so the shell's own buttons and
-the signed-out notice's Sign in open the same dialog.
+The notice's Sign in opens the shell's sign-in dialog through
+`useShellDialogs()`, as the shells' own buttons do (§Responsive layout).
 
 **What Musubi supplies:**
 
