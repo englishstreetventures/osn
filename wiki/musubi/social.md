@@ -125,7 +125,7 @@ entry chunk `/authorize` downloads too.
 Above the banners, `ShellNotices` (`src/components/ShellNotices.tsx`, loaded
 with the shell, never on `/authorize`) says two things about the session
 itself: "You've been signed out." with Sign in when the session ends (see
-§Auth), and "Your profiles didn't load." with Try again when the account's
+[[#Auth]]), and "Your profiles didn't load." with Try again when the account's
 profile list fails. `AuthProvider` keeps the last list it had when a list
 fails, so the shell drawn from it stays drawn, and exposes the failure as
 `profilesError` and the retry as `refetchProfiles` (`osn/client/README.md`).

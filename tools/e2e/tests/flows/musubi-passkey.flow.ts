@@ -310,6 +310,25 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     (await profilesNotice.textContent()) ?? "",
   );
   await musubiNotice(flow, page, "profiles-failed", profilesNotice, "--ui-danger");
+  let rateLimitedList = "";
+  await flow.step("a rate-limited retry of the profile list says to wait", async () => {
+    const handler = refuse("GET", 429, "rate_limited");
+    await page.route(profilesList, handler);
+    try {
+      await profilesNotice.getByRole("button", { name: "Try again" }).click();
+      await expect(profilesNotice).toContainText(WAIT);
+      // Try again is back once the retry has settled.
+      await expect(profilesNotice.getByRole("button", { name: "Try again" })).toBeVisible();
+      rateLimitedList = (await profilesNotice.textContent()) ?? "";
+    } finally {
+      await page.unroute(profilesList, handler);
+    }
+  });
+  flow.check(
+    "a rate-limited list names the wait",
+    `Error: Your profiles didn't load. ${WAIT} Try again`,
+    rateLimitedList,
+  );
   const listsBeforeRetry = flow.count("GET osn-api /profiles/list 200");
   await flow.step("the profile list's Try again lists again", async () => {
     await profilesNotice.getByRole("button", { name: "Try again" }).click();
@@ -482,12 +501,6 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   );
   flow.check("the signed-out notice is announced", 1, await signedOutNotice.count());
   await musubiNotice(flow, page, "signed-out", signedOutNotice, "--ui-ink-secondary");
-  await flow.step("the signed-out notice's Sign in opens sign-in", async () => {
-    await signedOutNotice.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("heading", { name: "Sign in to Musubi" })).toBeVisible();
-    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-  });
   flow.check(
     "the refused grant was sent once",
     1,
@@ -495,6 +508,50 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   );
   flow.check("no Security GET sent after the refusal", 0, sum(securityGets()) - sentBefore);
   flow.check("the stored account is gone", "", await storedAccount());
+
+  // A phone mounts the top bar in place of the rail; both open their dialogs
+  // from one store, which the notice opens too.
+  const signInHeading = page.getByRole("heading", { name: "Sign in to Musubi" });
+  const registerHeading = page.getByRole("heading", { name: "Create your Musubi account" });
+  let phoneSignIn = false;
+  let phoneRegister = "";
+  await flow.step("on a phone, the notice and the top bar open their dialogs", async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    try {
+      await signedOutNotice.getByRole("button", { name: "Sign in" }).click();
+      await expect(signInHeading).toBeVisible();
+      phoneSignIn = true;
+      await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Create account" }).filter({ visible: true }).click();
+      await expect(registerHeading).toBeVisible();
+      phoneRegister = `${await registerHeading.count()} register, ${await signInHeading.count()} sign-in`;
+      await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    } finally {
+      if (viewport) await page.setViewportSize(viewport);
+    }
+  });
+  flow.check("on a phone, the notice's Sign in opens sign-in", true, phoneSignIn);
+  flow.check(
+    "on a phone, the top bar's Create account opens only the register dialog",
+    "1 register, 0 sign-in",
+    phoneRegister,
+  );
+
+  await flow.step("signing in from the notice clears it", async () => {
+    await signedOutNotice.getByRole("button", { name: "Sign in" }).click();
+    await expect(signInHeading).toBeVisible();
+    await identifierField.fill(`@${ada.handle}`);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
+  });
+  flow.check(
+    "signed in again, the page no longer says it was signed out",
+    0,
+    await page.getByText("You've been signed out.", { exact: true }).count(),
+  );
 
   const refusedBeforeReload = flow.count("POST osn-api /token 400");
   await flow.step(

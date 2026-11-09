@@ -246,7 +246,8 @@ screen shows even when consent is on record (pinned in
 - A failed context read that is not terminal — a 429, a dropped connection —
   gets its own screen with the copy map's sentence and a retry, not an
   endless spinner. A decision that fails without ending the request shows
-  the same map's sentence on the screen it came from.
+  the same map's sentence on the screen it came from, as `@shared/ui`'s
+  danger `Notice` (`size="inline"`, `alert`).
 - The page runs **outside `AuthProvider`**. Mounting it calls `POST /token`,
   which *rotates* the refresh session, and then lists profiles the page never
   reads: `GET /authorize/context` already carries the session state and the
