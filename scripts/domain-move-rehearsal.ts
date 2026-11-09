@@ -670,11 +670,23 @@ async function until<T>(
   return until(ctx, intervalMs, deadline, tick, wake);
 }
 
-/** The token's reach (exactly the dev account and zone), its projects, and where `host` is. */
-async function readHost(ctx: Context, host: string) {
+/**
+ * The token's reach (exactly the dev account and zone), its projects, and
+ * where `host` is; with `project`, a host left with its CNAME to it reads
+ * `detached`.
+ */
+async function readHost(ctx: Context, host: string, project?: string) {
   const zones = await ctx.api.reach([ctx.hosts.zone]);
   const projects = await ctx.api.projects();
-  const located = await locateHost(ctx.api, zones, ctx.hosts.zone, host, projects);
+  const located = await locateHost(
+    ctx.api,
+    zones,
+    ctx.hosts.zone,
+    host,
+    projects,
+    host,
+    project === undefined ? undefined : `${project}.pages.dev`,
+  );
   return { zones, projects, located };
 }
 
@@ -1020,11 +1032,25 @@ async function waitWatch(ctx: Context): Promise<StepResult> {
   };
 }
 
+/**
+ * detachHost on the moved host, then a second read, which must find it
+ * `detached`: off the project, its CNAME to it kept as the one record that
+ * routes it, as the flip's deploy needs it.
+ */
 async function detachStep(ctx: Context, project: string): Promise<StepResult> {
-  const { located } = await readHost(ctx, ctx.hosts.host);
+  const { located } = await readHost(ctx, ctx.hosts.host, project);
   const moved = await detachHost(ctx.api, located, project);
-  if (moved.ok) ctx.record.event("detachedAt");
-  return moved;
+  if (!moved.ok) return moved;
+  ctx.record.event("detachedAt");
+  const { located: after } = await readHost(ctx, ctx.hosts.host, project);
+  ctx.record.fragment.state = asJson(after.state);
+  ctx.record.flush();
+  return after.state.kind === "detached"
+    ? moved
+    : {
+        ok: false,
+        message: `${ctx.hosts.host} reads ${after.state.kind} after the detach, not detached with its CNAME to ${project}.pages.dev; the flip's deploy could not replace it. The fragment holds the records.`,
+      };
 }
 
 const DEPLOY_FAILED =

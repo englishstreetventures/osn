@@ -13,6 +13,8 @@
  *     Prints, per site, where its production host is: `pages <project>`
  *     when exactly one Pages project lists it; `free` when none does and the
  *     zone holds no record for it that could route it but a Worker's;
+ *     `detached <project>.pages.dev` when none does and its one routing
+ *     record is its CNAME to its own project, as a detach leaves it;
  *     anything else, or any API error, fails. Exit 0 when every host reads
  *     `pages` or `free`. TXT, MX and CAA records, and NS records at the zone
  *     apex, route nothing, so they never decide where a host is: an apex
@@ -20,19 +22,26 @@
  *   bun run scripts/pages-domain.ts precheck
  *     The release's check before any plan (FLIP, STACKS from the plan job):
  *     every `worker` site of a shipping stack must read `free`, except the
- *     flip's own, which must read `pages`. A cron release therefore never
- *     moves a domain, and a flip names a domain that is on Pages.
+ *     flip's own, which must read `pages` on its own project with its CNAME
+ *     to it the one record that routes it, and, at an apex, no other record
+ *     beside it: what the deploy's attach can replace (`replaceRefusal`). A
+ *     cron release therefore never moves a domain, and a flip names a domain
+ *     the deploy can move. A host left `detached` is refused, flip or not.
  *   bun run scripts/pages-domain.ts detach <surface>
- *     Takes the host off its Pages project and deletes the zone's CNAME to
- *     `<project>.pages.dev`, and only that record. Refused unless the host
- *     reads `pages` on the site's own project and the site is `worker`.
+ *     Takes the host off its Pages project and keeps its CNAME to
+ *     `<project>.pages.dev`, so the zone holds a record for the host until
+ *     the deploy's Worker custom domain replaces that CNAME in one request
+ *     (OSN_WORKER_DOMAIN_REPLACE_CNAME). Refused, writing nothing, unless the
+ *     site is `worker`, the host reads `pages` on the site's own project, and
+ *     `replaceRefusal` passes it.
  *   bun run scripts/pages-domain.ts attach <surface>
  *     The rollback: puts the CNAME back and adds the host to the Pages
- *     project, making only what is missing, so it also finishes a detach or
- *     an attach that stopped part-way. Refused while another Pages project
- *     lists the host or the zone holds any routing record for it but that
- *     CNAME (remove the Worker's custom domain first). The release workflow
- *     runs it in its `attach-pages-domain` job, dispatched with `attach`.
+ *     project, making only what is missing, so it also puts back a host a
+ *     detach left `detached`, or finishes an attach that stopped part-way.
+ *     Refused while another Pages project lists the host or the zone holds
+ *     any routing record for it but that CNAME (remove the Worker's custom
+ *     domain first). The release workflow runs it in its
+ *     `attach-pages-domain` job, dispatched with `attach`.
  *
  * Before its first other request, every command that calls the API checks
  * what the token reaches: `GET /accounts` must list exactly the account
@@ -91,6 +100,7 @@ export interface DnsRecord {
   readonly id: string;
   readonly type: string;
   readonly content: string;
+  readonly proxied?: boolean;
   readonly meta?: { readonly origin_worker_id?: unknown; readonly read_only?: unknown };
 }
 
@@ -102,6 +112,7 @@ export interface PagesProject {
 export type DomainState =
   | { readonly kind: "pages"; readonly project: string }
   | { readonly kind: "free" }
+  | { readonly kind: "detached"; readonly target: string }
   | { readonly kind: "unclear"; readonly reason: string };
 
 /** A record a Worker custom domain made. */
@@ -126,11 +137,45 @@ export function decides(host: string, record: DnsRecord): boolean {
   return !(record.type === "NS" && host === zoneOf(host));
 }
 
-/** Where `host` is, from every Pages project's domains and the zone's records for it. */
+/** Whether the records that decide where `host` is are exactly one CNAME, to `target`. */
+export function ownCnameOnly(host: string, records: readonly DnsRecord[], target: string): boolean {
+  const deciding = records.filter((record) => decides(host, record));
+  return deciding.length === 1 && deciding[0]?.type === "CNAME" && deciding[0].content === target;
+}
+
+/**
+ * Why a flip's deploy could not replace `host`'s CNAME to `target` with its
+ * Worker's custom domain, or null when it could: the CNAME must be the one
+ * record that routes the host, and a zone's apex must hold no record beside
+ * it. The provider patch's check (OSN_WORKER_DOMAIN_REPLACE_CNAME) refuses
+ * the same hosts, so a flip is refused here before anything moves.
+ */
+export function replaceRefusal(
+  host: string,
+  records: readonly DnsRecord[],
+  target: string,
+): string | null {
+  if (!ownCnameOnly(host, records, target)) {
+    const routing = records.filter((record) => decides(host, record)).map((record) => record.type);
+    return `${host} holds ${routing.length === 0 ? "no record that routes it" : routing.join(", ")}, not exactly its CNAME to ${target}, so the deploy could not replace it`;
+  }
+  const beside = records.filter((record) => !decides(host, record)).map((record) => record.type);
+  if (host === zoneOf(host) && beside.length > 0) {
+    return `${host} is its zone's apex and holds ${beside.join(", ")} beside its CNAME; replacing an apex that holds other records waits for the apex rehearsal`;
+  }
+  return null;
+}
+
+/**
+ * Where `host` is, from every Pages project's domains and the zone's records
+ * for it. `ownTarget`, the site's own `<project>.pages.dev`, lets a host no
+ * project lists read `detached` when that CNAME is its one routing record.
+ */
 export function classify(
   host: string,
   projects: readonly PagesProject[],
   records: readonly DnsRecord[],
+  ownTarget?: string,
 ): DomainState {
   const holders = projects.filter((project) => project.domains.includes(host));
   if (holders.length === 1) return { kind: "pages", project: holders[0]?.name ?? "" };
@@ -142,6 +187,9 @@ export function classify(
   }
   const deciding = records.filter((record) => decides(host, record));
   if (deciding.every(isWorkerRecord)) return { kind: "free" };
+  if (ownTarget !== undefined && ownCnameOnly(host, records, ownTarget)) {
+    return { kind: "detached", target: ownTarget };
+  }
   return {
     kind: "unclear",
     reason: `no Pages project lists it, and the zone holds a ${deciding
@@ -444,7 +492,8 @@ export interface Located {
 
 /**
  * Where `host`, in the zone named `zoneName`, is, after the Pages projects
- * were read. `label` names the host in a refusal. Throws ApiError when the
+ * were read. `label` names the host in a refusal; `ownTarget`, the site's own
+ * `<project>.pages.dev`, lets it read `detached`. Throws ApiError when the
  * token sees no such zone.
  */
 export async function locateHost(
@@ -454,14 +503,27 @@ export async function locateHost(
   host: string,
   projects: readonly PagesProject[],
   label: string = host,
+  ownTarget?: string,
 ): Promise<Located> {
   const zone = zones.get(zoneName);
   if (zone === undefined) {
     throw new ApiError(`the token sees no ${zoneName} zone, which ${label} is in`);
   }
   const records = await api.records(zone, host);
-  return { host, zone, records, state: classify(host, projects, records) };
+  return { host, zone, records, state: classify(host, projects, records, ownTarget) };
 }
+
+/** What a state prints after the site and host. */
+const stateWords = (state: DomainState): string =>
+  state.kind === "pages"
+    ? `pages ${state.project}`
+    : state.kind === "detached"
+      ? `detached ${state.target}`
+      : state.kind;
+
+/** Why a host left `detached` blocks a release, and the way back. */
+const DETACHED_HINT =
+  "a flip stopped after its detach: the host is on no Pages project, and its CNAME to that project still routes it; dispatch attach, then the flip again";
 
 /** What a move did, or why it did nothing. */
 export interface MoveOutcome {
@@ -470,37 +532,39 @@ export interface MoveOutcome {
 }
 
 /**
- * Takes `located.host` off `project` and deletes the zone's CNAME to
- * `<project>.pages.dev`, and only that record. Refused, writing nothing,
- * unless the host reads `pages` on `project`.
+ * Takes `located.host` off `project` and keeps its CNAME to
+ * `<project>.pages.dev`, writing nothing else: the zone keeps a record for
+ * the host until the flip's deploy replaces that CNAME with its Worker's
+ * custom domain. Refused, writing nothing, unless the host reads `pages` on
+ * `project` and `replaceRefusal` passes it, so a detach never leaves a host
+ * the deploy would refuse to take.
  */
 export async function detachHost(
   api: PagesDnsApi,
   located: Located,
   project: string,
 ): Promise<MoveOutcome> {
-  const { host, zone, records, state } = located;
+  const { host, records, state } = located;
   if (state.kind !== "pages" || state.project !== project) {
     return {
       ok: false,
-      message: `${host} is not on the ${project} Pages project (${state.kind === "pages" ? `it is on ${state.project}` : state.kind}); nothing is detached.`,
+      message: `${host} is not on the ${project} Pages project (${state.kind === "pages" ? `it is on ${state.project}` : stateWords(state)}); nothing is detached.`,
     };
   }
+  const refusal = replaceRefusal(host, records, pagesTarget(project));
+  if (refusal !== null) return { ok: false, message: `${refusal}; nothing is detached.` };
   await api.removeDomain(project, host);
-  const cnames = records.filter(
-    (record) => record.type === "CNAME" && record.content === pagesTarget(project),
-  );
-  await Promise.all(cnames.map((record) => api.deleteRecord(zone, record.id, host)));
   return {
     ok: true,
-    message: `Took ${host} off ${project} and deleted ${cnames.length} CNAME record${cnames.length === 1 ? "" : "s"} to ${pagesTarget(project)}.`,
+    message: `Took ${host} off ${project} and kept its CNAME to ${pagesTarget(project)}, which the deploy's Worker custom domain replaces.`,
   };
 }
 
 /**
  * Puts `located.host` back on `project`: makes the CNAME to
  * `<project>.pages.dev` and adds the domain, each only when missing, so it
- * also finishes a detach or an attach that stopped part-way. Refused,
+ * also puts back a host a detach left with its CNAME (adding the domain
+ * alone), or finishes an attach that stopped part-way. Refused,
  * writing nothing, while another Pages project lists the host or the zone
  * holds a record that could route it but that CNAME.
  */
@@ -613,7 +677,16 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
     projects: readonly PagesProject[],
   ): Promise<SiteLocated> => {
     const host = productionHost(site);
-    const located = await locateHost(api, zones, zoneOf(host), host, projects, `${site}'s host`);
+    const project = PAGES_PROJECTS[site];
+    const located = await locateHost(
+      api,
+      zones,
+      zoneOf(host),
+      host,
+      projects,
+      `${site}'s host`,
+      project === undefined ? undefined : pagesTarget(project),
+    );
     return { ...located, site };
   };
   try {
@@ -635,22 +708,37 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
       const projects = await api.projects();
       const read = await Promise.all(wanted.map((site) => locate(site, projects)));
       let refused = false;
-      for (const { site, host, state } of read) {
-        out(`${site} ${host} ${state.kind}${state.kind === "pages" ? ` ${state.project}` : ""}\n`);
-        if (state.kind === "unclear") {
-          error(`${site}: ${host}: ${state.reason}.`);
+      for (const { site, host, records, state } of read) {
+        out(`${site} ${host} ${stateWords(state)}\n`);
+        const refuse = (message: string) => {
+          error(message);
           refused = true;
+        };
+        if (state.kind === "unclear") {
+          refuse(`${site}: ${host}: ${state.reason}.`);
+        } else if (state.kind === "detached") {
+          refuse(`${site}: ${host} reads detached: ${DETACHED_HINT}.`);
         } else if (state.kind === "pages" && site !== flip) {
           const owner: StackKey = surface(site).stack;
-          error(
+          refuse(
             `${site} serves from its Worker in this commit, but ${host} is still on the ${state.project} Pages project. Move it with a release dispatched with flip: ${site} and surfaces: ${site}, at low traffic; until then, dispatch releases whose surfaces leave out the ${owner} stack's sites.`,
           );
-          refused = true;
+        } else if (state.kind === "pages") {
+          const project = PAGES_PROJECTS[site];
+          if (project === undefined || state.project !== project) {
+            refuse(
+              `FLIP names ${site}, but ${host} is on the ${state.project} Pages project, not its own, ${project ?? "which it has none of"}: a detach would refuse it.`,
+            );
+          } else {
+            const refusal = replaceRefusal(host, records, pagesTarget(project));
+            if (refusal !== null) refuse(`FLIP names ${site}, but ${refusal}.`);
+          }
         } else if (state.kind === "free" && site === flip) {
-          error(
+          refuse(
             `FLIP names ${site}, but ${host} is on no Pages project: there is nothing to move.`,
           );
-          refused = true;
+        } else if (state.kind !== "free") {
+          refuse(`${site}: ${host} reads a state this check does not know; nothing moves.`);
         }
       }
       return refused ? 1 : 0;
@@ -660,14 +748,18 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
     const projects = await api.projects();
     const read = await Promise.all(sites.map((site) => locate(site, projects)));
     for (const { site, host, state } of read) {
-      out(`${site} ${host} ${state.kind}${state.kind === "pages" ? ` ${state.project}` : ""}\n`);
+      out(`${site} ${host} ${stateWords(state)}\n`);
     }
     if (command === "check") {
-      const unclear = read.flatMap(({ site, host, state }) =>
-        state.kind === "unclear" ? [`${site}: ${host}: ${state.reason}.`] : [],
+      const failing = read.flatMap(({ site, host, state }) =>
+        state.kind === "unclear"
+          ? [`${site}: ${host}: ${state.reason}.`]
+          : state.kind === "detached"
+            ? [`${site}: ${host} reads detached: ${DETACHED_HINT}.`]
+            : [],
       );
-      for (const message of unclear) error(message);
-      return unclear.length > 0 ? 1 : 0;
+      for (const message of failing) error(message);
+      return failing.length > 0 ? 1 : 0;
     }
     // detach and attach name one site.
     const [located] = read as [SiteLocated];

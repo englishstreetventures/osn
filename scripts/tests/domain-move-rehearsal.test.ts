@@ -622,7 +622,7 @@ describe("domain-move-rehearsal.ts", () => {
     expect(events(never).firstPagesAnswerAt).toBeUndefined();
   });
 
-  test("R9: detach refuses, writing nothing, unless the host is on the run's project; it deletes only that CNAME and waits for nothing", async () => {
+  test("R9: detach refuses, writing nothing, unless the host is on the run's project; it takes the domain off, keeps the CNAME, reads the host detached, and waits for nothing", async () => {
     for (const w of [
       world({ records: { [HOST]: [cname("r", HOST, PROJECT)] } }),
       world({
@@ -646,11 +646,22 @@ describe("domain-move-rehearsal.ts", () => {
     expect(result.code).toBe(0);
     expect(writes(result.calls).map((call) => [call.method, call.url.slice(API.length)])).toEqual([
       ["DELETE", `/accounts/${ACCOUNT}/pages/projects/${PROJECT}/domains/${HOST}`],
-      ["DELETE", `/zones/${ZONE_ID}/dns_records/rec-cname`],
     ]);
-    expect(w.records[HOST]?.map((record) => record.type)).toEqual(["TXT"]);
+    expect(w.records[HOST]?.map((record) => record.type)).toEqual(["CNAME", "TXT"]);
     expect(events(result).detachedAt).toBeString();
+    expect(result.fragment.state).toEqual({ kind: "detached", target: `${PROJECT}.pages.dev` });
     expect(probes).toBe(0);
+  });
+
+  test("R9b: a host that does not read detached after the detach fails the step", async () => {
+    const w = onPages();
+    w.onRequest = (method, path) => {
+      if (method === "DELETE" && path.endsWith(`/domains/${HOST}`)) w.records[HOST] = [];
+    };
+    const result = await run(["detach", ...OUT], w, PAGES_ENV);
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("not detached");
+    expect(events(result).detachedAt).toBeString();
   });
 
   /** The fake Alchemy: moves the Worker's domain as the mode says, as Alchemy does. */

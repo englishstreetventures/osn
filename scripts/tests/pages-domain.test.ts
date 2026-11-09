@@ -16,7 +16,9 @@ import {
   classify,
   type DnsRecord,
   type ObservedAttempt,
+  ownCnameOnly,
   pagesDnsApi,
+  replaceRefusal,
   runPagesDomain,
 } from "../pages-domain";
 
@@ -40,6 +42,7 @@ const CNAME = (project: string): DnsRecord => ({
   id: `rec-${project}`,
   type: "CNAME",
   content: `${project}.pages.dev`,
+  proxied: true,
 });
 const WORKER: DnsRecord = {
   id: "rec-worker",
@@ -236,6 +239,62 @@ describe("classify", () => {
       });
     }
   });
+
+  test("PD17: a host no project lists, whose one routing record is its CNAME to its own project, is detached", () => {
+    const own = "cire-vendor.pages.dev";
+    const host = "vendor.cireweddings.com";
+    expect(classify(host, [], [CNAME("cire-vendor")], own)).toEqual({
+      kind: "detached",
+      target: own,
+    });
+    // A record that routes nothing beside it changes nothing.
+    expect(
+      classify(host, [], [CNAME("cire-vendor"), { id: "t", type: "TXT", content: "v" }], own).kind,
+    ).toBe("detached");
+    // Another project's pages.dev name, no own project to compare with, or an
+    // address record beside the CNAME is unclear.
+    for (const [records, target] of [
+      [[CNAME("cire-host")], own],
+      [[CNAME("cire-vendor")], undefined],
+      [[CNAME("cire-vendor"), { id: "a", type: "A", content: "192.0.2.1" }], own],
+      [[CNAME("cire-vendor"), CNAME("cire-vendor")], own],
+    ] as const) {
+      expect({ records, kind: classify(host, [], records, target).kind }).toEqual({
+        records,
+        kind: "unclear",
+      });
+    }
+    // A project listing it still decides first.
+    expect(
+      classify(host, [{ name: "cire-vendor", domains: [host] }], [CNAME("cire-vendor")], own),
+    ).toEqual({ kind: "pages", project: "cire-vendor" });
+  });
+
+  test("PD18: a flip may replace only a host whose one routing record is its own CNAME, and an apex holding nothing beside it", () => {
+    const own = "cire-vendor.pages.dev";
+    const txt: DnsRecord = { id: "t", type: "TXT", content: "v=spf1 ~all" };
+    expect(ownCnameOnly("vendor.cireweddings.com", [CNAME("cire-vendor"), txt], own)).toBe(true);
+    expect(replaceRefusal("vendor.cireweddings.com", [CNAME("cire-vendor"), txt], own)).toBeNull();
+    for (const records of [
+      [],
+      [CNAME("cire-host")],
+      [CNAME("cire-vendor"), { id: "aaaa", type: "AAAA", content: "2001:db8::1" }],
+      [CNAME("cire-vendor"), WORKER],
+    ]) {
+      expect(ownCnameOnly("vendor.cireweddings.com", records, own)).toBe(false);
+      expect(replaceRefusal("vendor.cireweddings.com", records, own)).toContain(
+        "vendor.cireweddings.com",
+      );
+    }
+    // An apex: its CNAME alone, or nothing beside it but the zone's own NS.
+    const apex = "cireweddings.com";
+    const landing = "cire-landing.pages.dev";
+    const ns: DnsRecord = { id: "ns", type: "NS", content: "ns1.example.net" };
+    expect(replaceRefusal(apex, [CNAME("cire-landing")], landing)).toBeNull();
+    for (const beside of [txt, ns, { id: "mx", type: "MX", content: "mx.example.net" }]) {
+      expect(replaceRefusal(apex, [CNAME("cire-landing"), beside], landing)).toContain("apex");
+    }
+  });
 });
 
 describe("check", () => {
@@ -247,6 +306,18 @@ describe("check", () => {
     );
     expect(result.calls.every((call) => call.auth === `Bearer ${TOKEN}`)).toBe(true);
     expect(result.calls.every((call) => call.method === "GET")).toBe(true);
+  });
+
+  test("PD17: a host left detached prints its CNAME's target and fails", async () => {
+    const result = await run(["check", "cire_vendor"], {
+      ...TODAY,
+      projects: { ...TODAY.projects, "cire-vendor": ["cire-vendor.pages.dev"] },
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(
+      "cire_vendor vendor.cireweddings.com detached cire-vendor.pages.dev\n",
+    );
+    expect(result.output).toContain("dispatch attach");
   });
 
   test("PD4: any API error fails, naming the call, and no output carries the token or the account id (PD8)", async () => {
@@ -370,15 +441,90 @@ describe("precheck", () => {
   });
 
   test("PD5: a worker site still on Pages is refused without a flip naming it", async () => {
-    const onPages: World = {
-      ...TODAY,
-      projects: { ...TODAY.projects, "musubi-landing": ["www.musubi.social"] },
-    };
-    const refused = await run(["precheck"], onPages, { STACKS: "musubi", FLIP: "" });
+    const hostWorker = { ...PRODUCTION_SITE_MODES, cire_host: "worker" } as const;
+    const env = { STACKS: "cire" };
+    const refused = await run(["precheck"], TODAY, { ...env, FLIP: "cire_vendor" }, hostWorker);
     expect(refused.code).toBe(1);
-    expect(refused.output).toContain("flip: musubi_landing");
-    const flipped = await run(["precheck"], onPages, { STACKS: "musubi", FLIP: "musubi_landing" });
+    expect(refused.output).toContain("flip: cire_host");
+    const flipped = await run(
+      ["precheck"],
+      {
+        ...TODAY,
+        projects: { ...TODAY.projects, "cire-vendor": [] },
+        records: { ...TODAY.records, "vendor.cireweddings.com": [] },
+      },
+      { ...env, FLIP: "cire_host" },
+      hostWorker,
+    );
     expect(flipped.code).toBe(0);
+  });
+
+  test("PD5: a flip site on Pages is refused, changing nothing, unless it is on its own project and its one routing record is its own CNAME", async () => {
+    const vendorWorker = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
+    const env = { STACKS: "cire", FLIP: "cire_vendor" };
+    const cases: [string, World, string][] = [
+      [
+        "another project",
+        {
+          ...TODAY,
+          projects: {
+            ...TODAY.projects,
+            "cire-vendor": [],
+            "cire-old": ["vendor.cireweddings.com"],
+          },
+        },
+        "is on the cire-old Pages project, not its own, cire-vendor",
+      ],
+      [
+        "an AAAA beside its CNAME",
+        {
+          ...TODAY,
+          records: {
+            ...TODAY.records,
+            "vendor.cireweddings.com": [
+              CNAME("cire-vendor"),
+              { id: "aaaa", type: "AAAA", content: "2001:db8::1" },
+            ],
+          },
+        },
+        "not exactly its CNAME to cire-vendor.pages.dev",
+      ],
+      [
+        "no CNAME",
+        { ...TODAY, records: { ...TODAY.records, "vendor.cireweddings.com": [] } },
+        "not exactly its CNAME to cire-vendor.pages.dev",
+      ],
+    ];
+    for (const [what, world, message] of cases) {
+      const result = await run(["precheck"], world, env, vendorWorker);
+      expect({ what, code: result.code, said: result.output.includes(message) }).toEqual({
+        what,
+        code: 1,
+        said: true,
+      });
+      expect(result.calls.filter((call) => call.method !== "GET")).toEqual([]);
+    }
+  });
+
+  test("PD17: a worker site left detached is refused, flip or not, naming the way back", async () => {
+    const vendorWorker = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
+    const detachedWorld: World = {
+      ...TODAY,
+      projects: { ...TODAY.projects, "cire-vendor": ["cire-vendor.pages.dev"] },
+    };
+    for (const flip of ["cire_vendor", ""]) {
+      const result = await run(
+        ["precheck"],
+        detachedWorld,
+        { STACKS: "cire", FLIP: flip },
+        vendorWorker,
+      );
+      expect({ flip, code: result.code }).toEqual({ flip, code: 1 });
+      expect(result.output).toContain(
+        "cire_vendor vendor.cireweddings.com detached cire-vendor.pages.dev",
+      );
+      expect(result.output).toContain("dispatch attach, then the flip again");
+    }
   });
 
   test("PD5: a worker site whose host is unclear is refused, flip or not, changing nothing", async () => {
@@ -430,7 +576,7 @@ describe("detach and attach", () => {
     expect(result.calls.filter((call) => call.method !== "GET")).toEqual([]);
   });
 
-  test("PD6: detach, for a worker site on its own project, takes the domain off it and deletes only the CNAME to it", async () => {
+  test("PD6: detach, for a worker site on its own project, takes the domain off it and keeps its CNAME", async () => {
     const flipped = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
     const world: World = {
       ...TODAY,
@@ -447,10 +593,11 @@ describe("detach and attach", () => {
       result.calls
         .filter((call) => call.method === "DELETE")
         .map((call) => call.url.slice(API.length)),
-    ).toEqual([
-      `/accounts/${ACCOUNT}/pages/projects/cire-vendor/domains/vendor.cireweddings.com`,
-      "/zones/zone-cire/dns_records/rec-cire-vendor",
-    ]);
+    ).toEqual([`/accounts/${ACCOUNT}/pages/projects/cire-vendor/domains/vendor.cireweddings.com`]);
+    expect(
+      result.calls.filter((call) => call.method !== "GET" && call.method !== "DELETE"),
+    ).toEqual([]);
+    expect(result.output).toContain("kept its CNAME to cire-vendor.pages.dev");
     // The flip's precheck passes once the mode says worker and the host is on Pages.
     const precheck = await run(
       ["precheck"],
@@ -467,41 +614,58 @@ describe("detach and attach", () => {
       .filter((call) => call.method !== "GET")
       .map((call) => `${call.method} ${call.url.slice(API.length)}`);
 
-  test("PD6: detach deletes no record but a CNAME to the project: a CNAME pointing elsewhere stays", async () => {
-    const world: World = {
-      ...TODAY,
-      records: {
-        "vendor.cireweddings.com": [
-          { id: "rec-other", type: "CNAME", content: "elsewhere.example.net" },
-        ],
-      },
-    };
-    const result = await run(["detach", "cire_vendor"], world, {}, vendorFlipped);
-    expect(result.code).toBe(0);
-    expect(nonGets(result.calls)).toEqual([
-      `DELETE /accounts/${ACCOUNT}/pages/projects/cire-vendor/domains/vendor.cireweddings.com`,
-    ]);
-    expect(result.output).toContain("deleted 0 CNAME records");
+  test("PD6: detach refuses, writing nothing, a host whose one routing record is not its own CNAME", async () => {
+    for (const records of [
+      [{ id: "rec-other", type: "CNAME", content: "elsewhere.example.net" }],
+      [CNAME("cire-vendor"), { id: "aaaa", type: "AAAA", content: "2001:db8::1" }],
+      [],
+    ]) {
+      const result = await run(
+        ["detach", "cire_vendor"],
+        { ...TODAY, records: { "vendor.cireweddings.com": records } },
+        {},
+        vendorFlipped,
+      );
+      expect({ records, code: result.code }).toEqual({ records, code: 1 });
+      expect(nonGets(result.calls)).toEqual([]);
+      expect(result.output).toContain("nothing is detached");
+    }
   });
 
-  test("PD4/PD8: a detach whose CNAME delete fails exits 1 naming the call, and attach then finishes the way back", async () => {
+  test("PD6: detach refuses a host already detached, writing nothing", async () => {
+    const result = await run(
+      ["detach", "cire_vendor"],
+      { ...TODAY, projects: { ...TODAY.projects, "cire-vendor": ["cire-vendor.pages.dev"] } },
+      {},
+      vendorFlipped,
+    );
+    expect(result.code).toBe(1);
+    expect(nonGets(result.calls)).toEqual([]);
+    expect(result.output).toContain("detached");
+  });
+
+  test("PD4/PD8: a detach whose Pages domain delete fails exits 1 naming the call, and attach finishes the way back from a detached host", async () => {
     const failing = await run(
       ["detach", "cire_vendor"],
       {
         ...TODAY,
-        fail: { "DELETE /zones/zone-cire/dns_records/rec-cire-vendor": failed(403, 9109) },
+        fail: {
+          [`DELETE /accounts/${ACCOUNT}/pages/projects/cire-vendor/domains/vendor.cireweddings.com`]:
+            failed(403, 8000007),
+        },
       },
       {},
       vendorFlipped,
     );
     expect(failing.code).toBe(1);
     expect(failing.output).toContain(
-      "deleting vendor.cireweddings.com's CNAME: Cloudflare answered 403 (codes 9109)",
+      "taking vendor.cireweddings.com off cire-vendor: Cloudflare answered 403 (codes 8000007)",
     );
     expect(failing.output).not.toContain(TOKEN);
     expect(failing.output).not.toContain(ACCOUNT);
-    // Where that leaves the host: off its project, its CNAME still there. The
-    // same state an attach that stopped after its CNAME leaves.
+    expect(nonGets(failing.calls)).toHaveLength(1);
+    // Where a detach leaves the host: off its project, its CNAME still there.
+    // The same state an attach that stopped after its CNAME leaves.
     const halfway: World = {
       ...TODAY,
       projects: { ...TODAY.projects, "cire-vendor": ["cire-vendor.pages.dev"] },
@@ -820,6 +984,33 @@ describe("records that route nothing", () => {
     // An address record still decides.
     const address: DnsRecord = { id: "a", type: "A", content: "192.0.2.1" };
     expect(classify("musubi.social", [], [...apexRecords, address]).kind).toBe("unclear");
+  });
+
+  test("PD10: a flip of an apex holding TXT, MX or CAA beside its CNAME is refused at precheck and at detach, changing nothing", async () => {
+    const socialWorker = { ...PRODUCTION_SITE_MODES, osn_social: "worker" } as const;
+    const world: World = {
+      ...TODAY,
+      records: { "musubi.social": [...apexRecords, CNAME("osn-social")] },
+    };
+    const precheck = await run(
+      ["precheck"],
+      world,
+      { STACKS: "musubi", FLIP: "osn_social" },
+      socialWorker,
+    );
+    expect(precheck.code).toBe(1);
+    expect(precheck.output).toContain("apex");
+    const detach = await run(["detach", "osn_social"], world, {}, socialWorker);
+    expect(detach.code).toBe(1);
+    expect(detach.calls.filter((call) => call.method !== "GET")).toEqual([]);
+    // Its CNAME alone, the apex moves.
+    const bare = await run(
+      ["precheck"],
+      { ...TODAY, records: { "musubi.social": [CNAME("osn-social")] } },
+      { STACKS: "musubi", FLIP: "osn_social" },
+      socialWorker,
+    );
+    expect(bare.code).toBe(0);
   });
 
   test("PD10: an NS below the apex delegates the name, and HTTPS or SVCB may route it: each reads unclear", () => {
