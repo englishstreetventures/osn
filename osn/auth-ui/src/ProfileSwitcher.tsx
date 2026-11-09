@@ -1,4 +1,4 @@
-import type { PublicProfile } from "@osn/client";
+import { describeAuthError, type PublicProfile } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { clsx } from "@shared/ui/lib/utils";
@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@shared/ui/ui/dialog";
+import { Notice } from "@shared/ui/ui/notice";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { createSignal, For, Show } from "solid-js";
 
@@ -34,19 +35,24 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
   const [showCreate, setShowCreate] = createSignal(false);
   const [confirmDelete, setConfirmDelete] = createSignal<PublicProfile | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // Each failure stays where its action is: a switch in the popover, a
+  // delete in its dialog. Errors are lines, never toasts.
+  const [switchError, setSwitchError] = createSignal<string | null>(null);
+  const [deleteError, setDeleteError] = createSignal<string | null>(null);
 
   const activeProfile = () => profiles()?.find((p) => p.id === activeProfileId()) ?? null;
 
   async function handleSwitch(profile: PublicProfile) {
     if (busy() || profile.id === activeProfileId()) return;
     setBusy(true);
+    setSwitchError(null);
     try {
       const result = await switchProfile(profile.id);
       setOpen(false);
       toast.success(`Switched to @${result.profile.handle}`);
       props.onSwitch?.(result.profile);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to switch profile");
+      setSwitchError(describeAuthError(err));
     } finally {
       setBusy(false);
     }
@@ -56,12 +62,13 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
     const profile = confirmDelete();
     if (!profile || busy()) return;
     setBusy(true);
+    setDeleteError(null);
     try {
       await deleteProfile(profile.id);
       setConfirmDelete(null);
       toast.success(`Profile @${profile.handle} deleted`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete profile");
+      setDeleteError(describeAuthError(err));
     } finally {
       setBusy(false);
     }
@@ -74,7 +81,13 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 
   return (
     <>
-      <Popover open={open()} onOpenChange={setOpen}>
+      <Popover
+        open={open()}
+        onOpenChange={(next) => {
+          setSwitchError(null);
+          setOpen(next);
+        }}
+      >
         <PopoverTrigger as={Button} variant="ghost" size="sm" class="flex items-center gap-1.5">
           <Avatar class="h-5 w-5">
             <Show when={activeProfile()?.avatarUrl}>
@@ -88,6 +101,15 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
           <div class="border-border border-b px-3 py-2">
             <p class="text-foreground text-xs font-semibold">Profiles</p>
           </div>
+          <Show when={switchError()}>
+            {(msg) => (
+              <div class="px-3 pt-2">
+                <Notice tone="danger" size="inline" alert>
+                  {msg()}
+                </Notice>
+              </div>
+            )}
+          </Show>
           <div class="flex flex-col py-1">
             <For each={profiles() ?? []}>
               {(profile) => {
@@ -173,7 +195,14 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
       </Dialog>
 
       {/* Delete confirmation dialog */}
-      <Dialog open={confirmDelete() !== null} onOpenChange={(v) => !v && setConfirmDelete(null)}>
+      <Dialog
+        open={confirmDelete() !== null}
+        onOpenChange={(v) => {
+          if (v) return;
+          setConfirmDelete(null);
+          setDeleteError(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete profile</DialogTitle>
@@ -182,12 +211,22 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
             <p class="text-muted-foreground text-sm">
               Permanently delete <strong>@{confirmDelete()?.handle}</strong>? This cannot be undone.
             </p>
+            <Show when={deleteError()}>
+              {(msg) => (
+                <Notice tone="danger" size="inline" alert class="mt-3">
+                  {msg()}
+                </Notice>
+              )}
+            </Show>
           </div>
           <DialogFooter>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setConfirmDelete(null)}
+              onClick={() => {
+                setConfirmDelete(null);
+                setDeleteError(null);
+              }}
               disabled={busy()}
             >
               Cancel

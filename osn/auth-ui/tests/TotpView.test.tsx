@@ -7,7 +7,10 @@ vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+import { toast } from "@shared/toast";
+
 import { TotpView } from "../src/TotpView";
+import { CODE, WAIT, alertsText, apiError } from "./helpers/errors";
 
 /**
  * Settings → Authenticator app. The orchestration is what is covered here:
@@ -182,7 +185,8 @@ describe("TotpView", () => {
   it("keeps the panel on a wrong code so the user can retype it", async () => {
     totp.status.mockResolvedValue(notEnrolled);
     totp.enrollBegin.mockResolvedValue({ otpauthUri: URI, totpSecret: SECRET });
-    totp.enrollComplete.mockRejectedValue(new Error("That code didn't work"));
+    totp.enrollComplete.mockRejectedValue(apiError("PLANTED-totp-confirm"));
+    vi.mocked(toast.error).mockClear();
     mount();
 
     fireEvent.click(await screen.findByRole("button", { name: /Add an authenticator app/i }));
@@ -192,9 +196,54 @@ describe("TotpView", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/i }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/didn't work/);
+    expect(alert.textContent).toContain(CODE);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(toast.error).not.toHaveBeenCalled();
     // The user has already scanned; taking the QR away would force a restart.
     expect(screen.getByText(SECRET)).toBeTruthy();
+  });
+
+  it("reads a refused start as the map's sentence, with no error toast", async () => {
+    totp.status.mockResolvedValue(notEnrolled);
+    totp.enrollBegin.mockRejectedValue(apiError("PLANTED-totp-begin", 429, "rate_limited"));
+    vi.mocked(toast.error).mockClear();
+    mount();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Add an authenticator app/i }));
+    await passStepUp();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  describe("a status that fails to load", () => {
+    it("says so with a Try again that reloads it", async () => {
+      totp.status
+        .mockRejectedValueOnce(apiError("PLANTED-status", 503, "temporarily_unavailable"))
+        .mockResolvedValueOnce(notEnrolled);
+      mount();
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Your authenticator app didn't load.");
+      expect(alertsText()).not.toContain("PLANTED");
+      expect(screen.getByRole("heading", { name: "Authenticator app" })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await screen.findByRole("button", { name: /Add an authenticator app/i });
+      expect(totp.status).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("says to check the connection when the request never arrived", async () => {
+      totp.status.mockRejectedValue(apiError("PLANTED-status-0", 0, "network"));
+      mount();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(
+        "We couldn't connect. Check your connection and try again.",
+      );
+    });
   });
 
   it("drops the secret when the user cancels enrolment", async () => {

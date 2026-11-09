@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, cleanup, waitFor } from "@solidjs/testing-library";
+import { render, cleanup, screen, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { TurnstileWidget, turnstileEnabled } from "../src/TurnstileWidget";
@@ -66,5 +66,30 @@ describe("TurnstileWidget — single-use reset (onReady)", () => {
     expect(onToken).toHaveBeenCalledWith(null);
     // and the underlying Cloudflare widget is reset to mint a fresh challenge.
     expect(reset).toHaveBeenCalledWith("wid-1");
+  });
+});
+
+describe("TurnstileWidget — a challenge that fails to load", () => {
+  afterEach(() => {
+    delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
+  });
+
+  it("says to reload, in an alert", async () => {
+    (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+      render: vi.fn((_el: HTMLElement, opts: { "error-callback"?: () => void }) => {
+        opts["error-callback"]?.();
+        return "wid-err";
+      }),
+      reset: vi.fn(),
+      remove: vi.fn(),
+    };
+    const onToken = vi.fn();
+    render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Couldn't load the verification challenge. Reload and try again.",
+    );
+    expect(onToken).toHaveBeenCalledWith(null);
   });
 });

@@ -1,10 +1,12 @@
-import type {
-  SecurityEventsClient,
-  SecurityEventSummary,
-  StepUpClient,
-  TotpClient,
+import {
+  describeAuthError,
+  type SecurityEventsClient,
+  type SecurityEventSummary,
+  type StepUpClient,
+  type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
@@ -123,7 +125,7 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
       });
       setLocalRemovedAll(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to acknowledge events");
+      setError(describeAuthError(e));
     } finally {
       setBusy(false);
     }
@@ -133,7 +135,13 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
     <>
       <Show when={visibleEvents().length > 0}>
         <div class="border-ui-warn/40 bg-ui-warn/10 flex flex-col gap-2 rounded-md border p-3">
-          <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
+          <Show when={error()}>
+            {(msg) => (
+              <Notice tone="danger" size="inline" alert>
+                {msg()}
+              </Notice>
+            )}
+          </Show>
           <For each={visibleEvents()}>
             {(event: SecurityEventSummary) => (
               <div class="flex flex-col gap-0.5">

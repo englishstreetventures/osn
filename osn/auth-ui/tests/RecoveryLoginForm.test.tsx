@@ -35,6 +35,16 @@ vi.mock("@simplewebauthn/browser", () => ({
 import type { RecoveryClient, RegistrationClient } from "@osn/client";
 
 import { RecoveryLoginForm } from "../src/RecoveryLoginForm";
+import {
+  CODE,
+  DETAILS,
+  PASSKEY_NOT_ADDED,
+  RECOVERY,
+  WAIT,
+  alertsText,
+  apiError,
+  ceremonyError,
+} from "./helpers/errors";
 
 interface ClientStub {
   generateRecoveryCodes: ReturnType<typeof vi.fn>;
@@ -114,12 +124,22 @@ function typeCode(value: string) {
 }
 
 /** Mounts with everything the restricted paths need. */
-function mountFull(overrides: { onSuccess?: () => void; onCancel?: () => void } = {}) {
+function mountFull(
+  overrides: {
+    onSuccess?: () => void;
+    onCancel?: () => void;
+    runPasskeyRegistration?: () => Promise<never>;
+    turnstileSiteKey?: string;
+  } = {},
+) {
   render(() => (
     <RecoveryLoginForm
       client={asClient(stub)}
       registrationClient={asRegistration(registration)}
-      runPasskeyRegistration={async () => attestation as never}
+      runPasskeyRegistration={
+        overrides.runPasskeyRegistration ?? (async () => attestation as never)
+      }
+      turnstileSiteKey={overrides.turnstileSiteKey}
       onSuccess={overrides.onSuccess}
       onCancel={overrides.onCancel}
     />
@@ -208,7 +228,7 @@ describe("RecoveryLoginForm — recovery code", () => {
     // Deliberately pass a verbose server message — the UI must NOT render it
     // verbatim, to preserve the no-enumeration posture of the server response.
     stub.loginWithRecoveryCode.mockRejectedValue(
-      new Error("User does not exist: nobody@example.com"),
+      apiError("User does not exist: nobody@example.com"),
     );
     mountFull();
     openRecoveryCode();
@@ -218,7 +238,7 @@ describe("RecoveryLoginForm — recovery code", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/That recovery code didn't work/i)).toBeTruthy();
+      expect(screen.getByRole("alert").textContent).toContain(RECOVERY);
     });
     expect(screen.queryByText(/User does not exist/)).toBeNull();
     expect(hoisted.adoptSession).not.toHaveBeenCalled();
@@ -234,6 +254,111 @@ describe("RecoveryLoginForm — recovery code", () => {
     mountFull({ onCancel });
     fireEvent.click(screen.getByRole("button", { name: /Back to sign in/i }));
     expect(onCancel).toHaveBeenCalled();
+  });
+});
+
+describe("RecoveryLoginForm — error lines", () => {
+  it.each([
+    ["a 400", apiError("PLANTED-recovery-400"), RECOVERY, "true"],
+    ["a 429", apiError("PLANTED-recovery-429", 429, "rate_limited"), WAIT, null],
+  ])(
+    "a refused recovery code reads %s as the map's sentence, tied to both fields",
+    async (_, error, sentence, invalid) => {
+      stub.loginWithRecoveryCode.mockRejectedValue(error);
+      mountFull();
+      openRecoveryCode();
+      const identifier = fill(/Handle or email/i, "alice");
+      const code = fill(/Recovery code/i, "abcd-1234-5678-ef00");
+      fireEvent.click(screen.getByRole("button", { name: /Sign in with recovery code/i }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      for (const field of [identifier, code]) {
+        expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+        expect(field.getAttribute("aria-invalid")).toBe(invalid);
+      }
+      const submit = screen.getByRole("button", { name: /Sign in with recovery code/i });
+      expect(alert.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    },
+  );
+
+  it("a refused send reads as the map's sentence, tied to the address", async () => {
+    stub.emailRecoveryBegin.mockRejectedValue(apiError("PLANTED-recovery-email"));
+    mountFull();
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    const field = fill(/Email address on the account/i, "alice@example.com");
+    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(DETAILS);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+  });
+
+  it("a refused emailed code reads as the code sentence", async () => {
+    stub.emailRecoveryBegin.mockResolvedValue(undefined);
+    stub.emailRecoveryComplete.mockRejectedValue(apiError("PLANTED-recovery-email-code"));
+    mountFull();
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    fill(/Email address on the account/i, "alice@example.com");
+    fireEvent.click(screen.getByRole("button", { name: /Send the code/i }));
+    await waitFor(() => screen.getByLabelText("Digit 1"));
+    typeCode("123456");
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(CODE);
+    expect(alertsText()).not.toContain("PLANTED");
+  });
+
+  it("a refused authenticator code reads as the recovery sentence, tied to the identifier", async () => {
+    stub.totpRecoveryComplete.mockRejectedValue(apiError("PLANTED-recovery-totp"));
+    mountFull();
+    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+    const field = fill(/Handle or email/i, "alice");
+    typeCode("654321");
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(RECOVERY);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(field.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  describe("with the verification check on", () => {
+    afterEach(() => {
+      delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
+    });
+
+    it("asks for a fresh token when the send is refused, and waits for it", async () => {
+      let deliver: ((token: string) => void) | undefined;
+      const reset = vi.fn();
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+        render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+          deliver = opts.callback;
+          deliver?.("tok-1");
+          return "widget-1";
+        }),
+        reset,
+        remove: vi.fn(),
+      };
+      stub.emailRecoveryBegin.mockRejectedValueOnce(apiError("PLANTED-recovery-begin"));
+      mountFull({ turnstileSiteKey: "0x4AAAAAADnA2piUnbgG_kVw" });
+      fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+      fill(/Email address on the account/i, "alice@example.com");
+      const send = () =>
+        screen.getByRole("button", { name: /Send the code/i }) as HTMLButtonElement;
+      await waitFor(() => expect(send().disabled).toBe(false));
+
+      fireEvent.click(send());
+      await screen.findByRole("alert");
+      expect(reset).toHaveBeenCalledWith("widget-1");
+      expect(send().disabled).toBe(true);
+      deliver?.("tok-2");
+      await waitFor(() => expect(send().disabled).toBe(false));
+    });
   });
 });
 
@@ -437,13 +562,18 @@ describe("RecoveryLoginForm — the restricted session", () => {
   });
 
   it("offers a retry and a way out when the ceremony fails", async () => {
-    registration.passkeyRegisterBegin.mockRejectedValue(new Error("NotAllowedError"));
-    mountFull();
+    mountFull({
+      runPasskeyRegistration: async () => {
+        throw ceremonyError("NotAllowedError", "PLANTED-recovery-ceremony");
+      },
+    });
     await reachEnrolment();
     fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/NotAllowedError/);
+    // A passkey being added: the registration sentence, never the browser's.
+    expect(alert.textContent).toContain(PASSKEY_NOT_ADDED);
+    expect(alert.textContent).not.toContain("PLANTED");
     expect(screen.getByRole("button", { name: /Try again/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Start again/i })).toBeTruthy();
   });

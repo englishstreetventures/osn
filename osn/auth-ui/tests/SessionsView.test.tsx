@@ -4,6 +4,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SessionsView } from "../src/SessionsView";
+import { SERVER, WAIT, alertsText, apiError } from "./helpers/errors";
 
 /**
  * Settings → Sessions view. Tests cover:
@@ -99,5 +100,42 @@ describe("SessionsView", () => {
     await waitFor(() => screen.getByRole("button", { name: /Sign out everywhere else/ }));
     fireEvent.click(screen.getByRole("button", { name: /Sign out everywhere else/ }));
     await waitFor(() => expect(stub.revokeAllOther).toHaveBeenCalledTimes(1));
+  });
+
+  it.each([
+    ["revoke", apiError("PLANTED-revoke", 503, "temporarily_unavailable"), SERVER],
+    ["sign out everywhere else", apiError("PLANTED-revoke-all", 429, "rate_limited"), WAIT],
+  ])("reads a failed %s as the map's sentence, never its text", async (action, error, sentence) => {
+    stub.list.mockResolvedValue({ sessions });
+    stub.revoke.mockRejectedValue(error);
+    stub.revokeAllOther.mockRejectedValue(error);
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Revoke$/ }));
+    if (action === "revoke") {
+      fireEvent.click(screen.getAllByRole("button", { name: /^Revoke$/ })[1]!);
+    } else {
+      fireEvent.click(screen.getByRole("button", { name: /Sign out everywhere else/ }));
+    }
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(sentence);
+    expect(alertsText()).not.toContain("PLANTED");
+  });
+
+  it("says a list that failed to load didn't, with a Try again that reloads it", async () => {
+    stub.list
+      .mockRejectedValueOnce(apiError("PLANTED-list", 500, "internal_error"))
+      .mockResolvedValueOnce({ sessions });
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Your sessions didn't load.");
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(screen.getByRole("heading", { name: "Active sessions" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => screen.getByText(/Firefox on macOS/));
+    expect(stub.list).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

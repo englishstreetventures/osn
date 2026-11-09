@@ -37,6 +37,7 @@ vi.mock("@shared/toast", () => ({
 import { toast } from "@shared/toast";
 
 import { ProfileSwitcher } from "../src/ProfileSwitcher";
+import { SERVER, WAIT, alertsText, apiError } from "./helpers/errors";
 
 describe("ProfileSwitcher", () => {
   beforeEach(() => {
@@ -97,8 +98,9 @@ describe("ProfileSwitcher", () => {
     });
   });
 
-  it("shows error toast when switch fails", async () => {
-    hoisted.switchProfile.mockRejectedValue(new Error("Switch failed"));
+  it("shows a failed switch inside the popover, with no error toast", async () => {
+    vi.mocked(toast.error).mockClear();
+    hoisted.switchProfile.mockRejectedValue(apiError("PLANTED Switch failed", 429, "rate_limited"));
     render(() => <ProfileSwitcher />);
 
     fireEvent.click(screen.getByRole("button", { name: /@alice/ }));
@@ -107,9 +109,33 @@ describe("ProfileSwitcher", () => {
     const bobButton = screen.getByText("@bob").closest("button") as HTMLButtonElement;
     fireEvent.click(bobButton);
 
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Switch failed");
-    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(WAIT);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(toast.error).not.toHaveBeenCalled();
+    // Still beside the list it is about.
+    expect(screen.getByText("@bob")).toBeTruthy();
+  });
+
+  it("shows a failed delete inside its dialog, with no error toast", async () => {
+    vi.mocked(toast.error).mockClear();
+    hoisted.deleteProfile.mockRejectedValue(apiError("PLANTED-delete", 500, "internal_error"));
+    render(() => <ProfileSwitcher />);
+
+    fireEvent.click(screen.getByRole("button", { name: /@alice/ }));
+    await waitFor(() => screen.getByText("@bob"));
+    fireEvent.click(screen.getByLabelText("Delete profile @bob"));
+    await waitFor(() => screen.getByText(/Permanently delete/));
+    const confirmBtn = Array.from(document.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.trim() === "Delete" && btn.className.includes("ui-danger"),
+    ) as HTMLButtonElement;
+    fireEvent.click(confirmBtn);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(SERVER);
+    expect(alertsText()).not.toContain("PLANTED");
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByText(/Permanently delete/)).toBeTruthy();
   });
 
   it("opens delete confirmation and calls deleteProfile on confirm", async () => {
