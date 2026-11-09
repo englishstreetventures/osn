@@ -612,9 +612,9 @@ empty and no tween runs.
 Tailwind's preflight gives every `<hr>` `height: 0`, `color: inherit` and
 `border-top-width: 1px`, and its `*` rule sets `border: 0 solid`, so the
 border's colour is `currentColor`. With `box-sizing: border-box`, an `<hr>`
-drawn as a 1px fill (`h-px` and a background) is all border: the line paints
-in its parent's ink, not the fill's colour. `@shared/ui`'s menu separator drew
-pulse's menu dividers in full ink this way. An app whose base layer sets
+drawn as a 1px fill (`h-px` and a background) is all border. In an app whose
+base styles leave `border-color` alone, as pulse's do, the line paints in its
+parent's full ink, not the fill's colour. An app whose base layer sets
 `border-color` on `*`, as Musubi's `App.css` does, hides the fault, because the
 border then paints the hairline too.
 
@@ -625,7 +625,7 @@ menu's default separator does ([[component-library]] §`DropdownMenu`).
 
 The fast tier cannot see it: read `getComputedStyle(hr).borderTopWidth` in the
 browser tier, with and without `emulateMedia({ forcedColors: "active" })`
-(`shared/ui` `tests/dropdown-menu-default.browser.test.tsx`).
+(`shared/ui/tests/dropdown-menu-default.browser.test.tsx`).
 
 ## Motion follows the input
 
