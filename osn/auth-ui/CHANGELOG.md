@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 4.0.1
+
+### Patch Changes
+
+- Updated dependencies [d3fe597]
+  - @shared/ui@0.11.0
+
 ## 4.0.0
 
 ### Major Changes
