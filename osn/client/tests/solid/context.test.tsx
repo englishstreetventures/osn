@@ -206,7 +206,11 @@ function listingRuntime(
       return () => listeners.delete(listener);
     },
   };
-  return { runtime, emit, listProfiles };
+  /** The session goes away with no `ended`: the next load finds none. */
+  const dropSessionQuietly = () => {
+    signedIn = false;
+  };
+  return { runtime, emit, listProfiles, dropSessionQuietly };
 }
 
 const serverFailure = () =>
@@ -403,6 +407,37 @@ it("adopting a first session lists the profiles once", async () => {
 
   expect(listProfiles.mock.calls.length - before).toBe(1);
   expect(auth().profiles()).toEqual([alice]);
+  dispose();
+});
+
+it("a list held when the session goes away by another path never shows in the next account", async () => {
+  const { runtime, emit, dropSessionQuietly } = listingRuntime([
+    () => Effect.succeed([alice, bob]),
+    () => Effect.fail(serverFailure()),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  expect(auth().profiles()).toEqual([alice, bob]);
+
+  // A session reload that finds none, with no `ended` from the runtime.
+  dropSessionQuietly();
+  emit({ kind: "profile-reset", profileId: alice.id });
+  await settle();
+  expect(auth().session()).toBeNull();
+  expect(auth().profiles()).toBeNull();
+
+  // Another account signs in, and its first list fails.
+  await auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+
+  expect(auth().session()).not.toBeNull();
+  expect(auth().profiles()).toBeNull();
+  expect(auth().profilesError()).toBeInstanceOf(ProfileManagementError);
   dispose();
 });
 

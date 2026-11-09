@@ -1,9 +1,12 @@
 import { Effect } from "effect";
 import {
+  createComputed,
   createContext,
   createEffect,
+  createMemo,
   createResource,
   createSignal,
+  on,
   onCleanup,
   useContext,
   type Accessor,
@@ -102,32 +105,30 @@ export function AuthProvider(props: AuthProviderProps) {
   // would rethrow its error here, outside any boundary.
   //
   // A failed list keeps the one it had, so a shell drawn from it stays drawn,
-  // and says why in `profilesError`. Ending the session or logging out moves
+  // and says why in `profilesError`. Losing the session, however it goes, moves
   // `profilesEpoch` on, and a list call that settles after that counts for
   // nothing: the runtime tells this provider a renewal was refused *before*
   // the call that asked for it rejects, so without the epoch the old account's
   // list, or an error about it, would land after the session was cleared.
   const [profilesError, setProfilesError] = createSignal<unknown>(undefined);
   let profilesEpoch = 0;
+  const hasSession = createMemo(() => (!session.error && session() ? true : null));
   const [profiles, { mutate: mutateProfiles, refetch: refetchProfileList }] = createResource<
     PublicProfile[] | null,
     true
-  >(
-    () => (!session.error && session() ? true : null),
-    async (_, info) => {
-      const epoch = profilesEpoch;
-      try {
-        const list = await run(Effect.flatMap(OsnAuth, (auth) => auth.listProfiles()));
-        if (epoch !== profilesEpoch) return null;
-        setProfilesError(undefined);
-        return list;
-      } catch (err) {
-        if (epoch !== profilesEpoch || isAuthExpiredError(err)) return null;
-        setProfilesError(err);
-        return info.value ?? null;
-      }
-    },
-  );
+  >(hasSession, async (_, info) => {
+    const epoch = profilesEpoch;
+    try {
+      const list = await run(Effect.flatMap(OsnAuth, (auth) => auth.listProfiles()));
+      if (epoch !== profilesEpoch) return null;
+      setProfilesError(undefined);
+      return list;
+    } catch (err) {
+      if (epoch !== profilesEpoch || isAuthExpiredError(err)) return null;
+      setProfilesError(err);
+      return info.value ?? null;
+    }
+  });
 
   /** Signed out: no list, no error, and nothing in flight may set either. */
   const clearProfiles = () => {
@@ -135,6 +136,20 @@ export function AuthProvider(props: AuthProviderProps) {
     mutateProfiles(null);
     setProfilesError(undefined);
   };
+
+  // A list belongs to the session it was listed for. Whatever takes the
+  // session away — `ended`, a log out, a session reload that finds none or
+  // fails — takes the list and its error too, so the next account's first
+  // list, if it fails, has no earlier list to keep.
+  createComputed(
+    on(
+      hasSession,
+      (has, had) => {
+        if (!has && had) clearProfiles();
+      },
+      { defer: true },
+    ),
+  );
 
   const refetchProfiles = async () => {
     await refetchProfileList();

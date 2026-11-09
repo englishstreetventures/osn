@@ -72,9 +72,10 @@ A client that sends through `authFetch` lets a rejection about the session
   signs itself out when the runtime ends the session.
 - `profiles` never throws when read. A list that fails to load keeps the
   last list it had (null before the first) and sets `profilesError`, which
-  goes to `describeAuthError`; `refetchProfiles()` tries again. Signing out,
-  a session that ends while a list is loading, or adopting another account's
-  session leaves neither the old list nor an error behind.
+  goes to `describeAuthError`; `refetchProfiles()` tries again. Losing the
+  session in any way (signing out, an ended session, a reload that finds
+  none) or adopting another account's session leaves neither the old list
+  nor an error behind, even from a list still loading.
 
 ## Consumed by
 
