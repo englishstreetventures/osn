@@ -32,6 +32,7 @@ function unmappedStyle(): JSX.CSSProperties {
     ...ALL_COLOR_TOKENS,
     ...CONTRACT_SCALAR_TOKENS.radius,
     ...CONTRACT_SCALAR_TOKENS.fontFamily,
+    ...CONTRACT_SCALAR_TOKENS.fontWeight,
     ...Object.keys(CONTRACT_SCALES.text).map((s) => `--ui-text-${s}`),
     ...Object.keys(CONTRACT_SCALES.tracking).map((s) => `--ui-tracking-${s}`),
     ...Object.keys(CONTRACT_SCALES.leading).map((s) => `--ui-leading-${s}`),
