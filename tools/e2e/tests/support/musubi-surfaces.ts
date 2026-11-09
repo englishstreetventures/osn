@@ -835,6 +835,7 @@ export async function signedOutSurfaces(flow: Flow, page: Page, message: string)
     await expect(dialog).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
+    await expect(signIn).toBeFocused();
   });
   flow.check(
     "signed out: closing the dialog gives focus back to the note's Sign in",

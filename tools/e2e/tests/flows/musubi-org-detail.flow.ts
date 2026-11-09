@@ -75,6 +75,9 @@ test("musubi-org-detail", async ({ page, flow }) => {
   const createDialog = page.getByRole("dialog", { name: "Create organisation" });
   await flow.step("fill the create dialog", async () => {
     await page.getByRole("button", { name: "Create", exact: true }).click();
+    // The dialog moves focus to its first field as it opens. Typed before
+    // then, the next field's text can land in that one.
+    await expect(createDialog.getByLabel("Handle", { exact: true })).toBeFocused();
     await createDialog.getByLabel("Handle", { exact: true }).fill(org.handle);
     await createDialog.getByLabel("Name", { exact: true }).fill(org.name);
   });
@@ -132,6 +135,7 @@ test("musubi-org-detail", async ({ page, flow }) => {
   const editDialog = page.getByRole("dialog", { name: "Edit organisation" });
   await flow.step("fill the edit dialog", async () => {
     await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(editDialog.getByLabel("Name", { exact: true })).toBeFocused();
     await editDialog.getByLabel("Name", { exact: true }).fill(org.renamed);
   });
   await orgEditDialogSurfaces(flow, page);
