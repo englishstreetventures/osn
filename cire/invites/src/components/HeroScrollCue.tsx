@@ -45,8 +45,10 @@ export function HeroScrollCue(props: HeroScrollCueProps) {
       data-scroll-cue={scrolled() ? "hidden" : "shown"}
       // The hide lives here and the entry animation on the glyph: while the
       // entry applies (its delay included) it outranks a class, so on one
-      // element a scroll in its first 1.6s could not fade it.
-      class={`pointer-events-none absolute bottom-4 flex ${Z_CLASS.HERO_CUE} transition-opacity duration-500 ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
+      // element a scroll in its first 1.6s could not fade it. The fade is
+      // part of the hero's choreography, slower than `--dur-slow`, so it keeps
+      // its own time, scaled like every cire duration.
+      class={`pointer-events-none absolute bottom-4 flex ${Z_CLASS.HERO_CUE} transition-opacity duration-[calc(500ms*var(--motion-scale))] ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
     >
       <svg
         viewBox="0 0 28 14"

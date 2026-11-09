@@ -138,10 +138,12 @@
   font-family: var(--toast-font, inherit);
   font-size: var(--toast-font-size, 0.85rem);
   line-height: 1.45;
+  /* motion-literal: the toast's arrival curve; toasts keep their own --toast-* vocabulary, which names no curve */
   animation: ui-toast-in var(--toast-enter-duration, 160ms) ease-out both;
 }
 
 .ui-toast--leaving {
+  /* motion-literal: the toast's leaving curve; toasts keep their own --toast-* vocabulary, which names no curve */
   animation: ui-toast-out var(--toast-exit-duration, 160ms) ease-in both;
 }
 
@@ -175,6 +177,7 @@
 }
 
 .ui-toast--loading .ui-toast__glyph {
+  /* motion-literal: a spinner's period, turning at an even speed; not a transition any token times */
   animation: ui-toast-spin 900ms linear infinite;
 }
 

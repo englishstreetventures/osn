@@ -851,6 +851,15 @@ jobs:
       - name: Check Worker configs redact query strings
         run: bun run scripts/check-trace-redaction.ts
 
+      # The motion-literal guard's tests run in "Test the scripts"; this runs
+      # it against the committed stylesheets and Astro files, which oxlint
+      # never parses, so house/no-literal-motion cannot see them. It reports a
+      # written duration, delay or easing where a motion token belongs, using
+      # the rule's own matcher (scripts/lib/motion-literals.ts). No install:
+      # the script reads files with Bun built-ins.
+      - name: Check stylesheets and Astro files for literal motion
+        run: bun run scripts/check-motion-literals.ts
+
   openapi-freshness:
     name: OpenAPI Freshness
     runs-on: ubuntu-latest

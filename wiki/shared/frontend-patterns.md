@@ -19,6 +19,7 @@ related:
   - "[[browser-tests]]"
   - "[[cire-development]]"
   - "[[cire-invite-designs]]"
+  - "[[house-lint-rules]]"
 packages:
   - "@cire/host"
   - "@pulse/web"
@@ -574,7 +575,10 @@ the screen is.
 trackpad gets the desk pace. Switch the duration tokens under the query rather
 than writing a second set of utilities: every motion that already reads a
 `--dur-*` token follows the input for free, and one written as a literal or as
-Tailwind's bare `transition` (150ms) does not. All four cire apps — the two
+Tailwind's bare `transition` (150ms) does not. A written literal fails
+`house/no-literal-motion` in `bun run lint`, and
+`scripts/check-motion-literals.ts` in CI for stylesheets and Astro files; the
+bare `transition` passes both ([[house-lint-rules]] §Literal motion). All four cire apps — the two
 portals, the guest site and the marketing site — carry the same ladder and the
 same `pointer: fine` block, and `cire/vendor/tests/styles/tokens.test.ts` fails
 if any copy differs.
@@ -615,13 +619,16 @@ second. The reduced-motion clamp in a stylesheet does not reach it: check
 `display` is discrete, so a transition on a box that goes to `display: none`
 normally has nothing left to paint. `transition-behavior: allow-discrete` on
 `display` holds the old value until the other transitions have run, and
-`@starting-style` gives the opening a from-state:
+`@starting-style` gives the opening a from-state. The times come from a motion
+token ([[design-tokens]] §Motion; cire's `--dur-*` in a cire app):
 
 ```css
 .menu {
   display: none;
   opacity: 0;
-  transition: opacity 150ms, display 150ms allow-discrete;
+  transition:
+    opacity var(--ui-dur-fast),
+    display var(--ui-dur-fast) allow-discrete;
 }
 .menu[data-open] {
   display: grid;

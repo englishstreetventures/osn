@@ -9,7 +9,8 @@ related:
   - "[[testing-patterns]]"
   - "[[backend-patterns]]"
   - "[[d1-limits]]"
-last-reviewed: 2026-11-03
+  - "[[design-tokens]]"
+last-reviewed: 2026-11-07
 ---
 
 # House lint rules
@@ -29,6 +30,7 @@ Each rule's own source file holds the full reasoning and the bug that prompted i
 | `no-unbounded-in-array`           | error                                                 | An `inArray` or `notInArray` list whose length the source does not fix — one D1 parameter per element                                                                             |
 | `no-sequential-independent-await` | error, `**/src/**` only                               | Two adjacent awaited reads (`get*`, `find*`, `list*`, `load*` ...) where the second does not use the first's result — start both and wait once with `Promise.all` or `Effect.all` |
 | `no-serial-effect-concurrency`    | error, `**/src/**` only                               | `{ concurrency: 1 }` on an Effect batch — items run one at a time; suppress with the reason when the order is the point                                                           |
+| `no-literal-motion`               | error, product `src/**` only                          | A written duration, delay or easing where a motion token belongs, and `transition: all` — see §Literal motion below; `.css` and `.astro` files are checked by a script |
 
 ## Suppressing a house rule
 
@@ -81,3 +83,33 @@ The rule reports the list argument of any `inArray` or `notInArray` imported fro
 The rule follows a name through at most four `const` bindings or helpers. Everything else is reported: a parameter, a `let`, `body.ids`, `[...set]`, `[...map.keys()]`, any other call. Convert the list with `jsonEachIn`. Suppress instead only when a cap the code enforces keeps the whole statement under 100 parameters, and name that cap in the reason — a `safeLimit` slice, a clamped page size, a closed set of constants such as the paid tiers. A list bound twice in one statement, as in an `or` over both columns of an edge, counts twice.
 
 The rule cannot see a list built in another module, an array interpolated into a `sql` template by name, or a namespace import (`drizzle.inArray`). It does not cover the multi-row `.values(rows)` insert, which reaches the cap at one parameter per column per row; that rule waits on englishstreetventures/osn#1450.
+
+## Literal motion
+
+A motion takes its duration, delay and curve from a token chosen by its job: the shared `--ui-dur-*` and `--ui-ease-*` ([[design-tokens]] §Motion), or an app's own, as cire's `--dur-*` and `--ease-*`. A number written where it is used follows none of them. Cire's ladder shortens at a desk, and a written `200ms` keeps the touch pace there ([[frontend-patterns]] §Motion follows the input).
+
+It runs in two halves that share one matcher, [scripts/lib/motion-literals.ts](../../scripts/lib/motion-literals.ts), so they cannot disagree:
+
+| Half | Reads | Runs in |
+| ---- | ----- | ------- |
+| `house/no-literal-motion` | `.ts`, `.tsx`, `.js` under `osn/*/src`, `musubi/*/src`, `pulse/*/src`, `cire/*/src`, `shared/*/src`, `zap/*/src`: class strings, style objects, `x.style.transition = …`, injected stylesheets in strings | `bun run lint`, locally and in CI |
+| [scripts/check-motion-literals.ts](../../scripts/check-motion-literals.ts) | `.css` files, and `.astro` `<style>` blocks, markup classes, quoted `style` attributes, and classes in the frontmatter and `<script>`, under the same trees | `bun run scripts/check-motion-literals.ts` locally; CI's `script-tests` job, and its tests in `bun run test:scripts` |
+
+oxlint never parses `.css`, and `oxlintrc.json` ignores `*.astro` (oxlint would read only an Astro file's frontmatter and `<script>`), which is why the second half exists. `bun run lint` does not run the script, so a literal in a stylesheet passes it and fails CI; run the script before you push a style change.
+
+**What it reports.** In a `transition`, `animation` or one of their duration, delay, timing-function or property longhands, matched without regard to case or a vendor prefix (`-webkit-transition`), once every `var(…)` is set aside: a non-zero time, a written easing (`ease`, `ease-out`, `linear`, `cubic-bezier(…)`, `steps(…)`, `linear(…)`), and `all` in `transition` or `transition-property`. Among Tailwind classes: `duration-<n>` and `delay-<n>`, `ease-linear`, `transition-all`, an arbitrary value with a literal inside (`duration-[300ms]`, `animate-[spin_1s_linear_infinite]`, `[transition:opacity_200ms]`), and a named easing that reads Tailwind's stock curve (below).
+
+**Tailwind's named easings.** `ease-in`, `ease-out` and `ease-in-out` read the theme's `--ease-in`, `--ease-out` and `--ease-in-out`. Every cire app sets `--ease-out` and `--ease-in-out` to cire's curves, so under `cire/*/src` those two pass. No other app sets any of them, and no app sets `--ease-in`, so everywhere else they compile to Tailwind's stock curves (`ease-out` is `cubic-bezier(0, 0, 0.2, 1)`, not `--ui-ease-out`) and are reported; write `ease-(--ui-ease-out)` or `ease-(--ui-ease-in-out)`. The file's path decides which.
+
+**What passes.** A token's fallback (`var(--ui-dur-fast, 120ms)`); cire's scaled form, `calc(2.6s * var(--motion-scale))`; anything inside `@media (prefers-reduced-motion: reduce)` or behind `motion-reduce:`; a zero time; a custom property, which is a token's definition; and every named `animate-*`, which reads the theme's `--animate-*`. A query that negates or lists, such as `not (prefers-reduced-motion: reduce)` or `(prefers-reduced-motion: reduce), (min-width: 0)`, can match where motion is on, so nothing inside it passes; nor does anything under `motion-safe:` or `(prefers-reduced-motion: no-preference)`.
+
+**Keeping a literal.** Replace a literal with the token of its job, even when the value moves: a hover takes `--ui-dur-fast` whether it was written 150ms or 160ms. Keep one only where no token's job fits it: a loop, a stagger, choreography slower than the ladder's longest step, or a time shared with script. A number is never the reason. A kept literal stays with its reason, in the form its file takes:
+
+| Where | Form |
+| ----- | ---- |
+| A declaration in a stylesheet, an Astro `<style>` or a quoted `style` attribute | `/* motion-literal: <reason> */` inside the declaration, on the line above it, or after its `;` on the same line. It keeps that declaration and no other |
+| Anything in `.ts`, `.tsx` or `.js`: a class string, a style object, a CSS string | `// oxlint-disable-next-line house/no-literal-motion -- <reason>` on the line above. It keeps every report on that line, so in a CSS string with several motion declarations, put `/* motion-literal: <reason> */` in the one declaration instead |
+| A class in Astro markup | `{/* motion-literal: <reason> */}` straight before the tag. Astro drops the comment from the page |
+| A class string in an Astro file's frontmatter or `<script>` | `// motion-literal: <reason>` (or `/* … */`) on the line directly above the line that holds the class |
+
+A marker with no reason keeps nothing. In a string that ships to the page, such as `Modal`'s injected stylesheet, keep the in-string reason to a short tag and write the full reason in a code comment beside it. The rule does not read JavaScript animation options (`motion`'s `{ duration: 0.35 }`, `element.animate()`), Tailwind's bare `transition` and `transition-colors`, which run its default 150ms, or a `style={…}` expression in Astro markup, where only a quoted `style` attribute is read — englishstreetventures/osn#2104 covers the first two.

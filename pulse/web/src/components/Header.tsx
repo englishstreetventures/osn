@@ -55,7 +55,7 @@ export function Header() {
           <button
             type="button"
             onClick={() => setShowCreateForm((v) => !v)}
-            class="group bg-foreground text-background flex h-9 cursor-pointer items-center overflow-hidden rounded-full transition-[max-width,padding] duration-300 ease-out"
+            class="group bg-foreground text-background flex h-9 cursor-pointer items-center overflow-hidden rounded-full transition-[max-width,padding] duration-(--ui-dur-base) ease-(--ui-ease-out)"
             style={{
               "max-width": createHovered() ? "200px" : "36px",
               "padding-left": createHovered() ? "12px" : "10px",
@@ -76,7 +76,7 @@ export function Header() {
               <line x1="8" y1="3" x2="8" y2="13" />
               <line x1="3" y1="8" x2="13" y2="8" />
             </svg>
-            <span class="ml-2 text-sm font-medium whitespace-nowrap opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            <span class="ml-2 text-sm font-medium whitespace-nowrap opacity-0 transition-opacity duration-(--ui-dur-base) ease-(--ui-ease-out) group-hover:opacity-100">
               Create new event
             </span>
           </button>
