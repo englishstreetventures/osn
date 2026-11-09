@@ -116,23 +116,34 @@ const TURNSTILE_FRAME = `${TURNSTILE_ORIGIN}/e2e-stand-in/frame`;
 /**
  * Turnstile's `api.js`, standing in: `render` puts a frame from Turnstile's
  * host into the widget's element and hands back the token Cloudflare's test
- * sitekeys return. Served at the real script URL, so the page loads it, and
+ * sitekeys return, and `reset` hands back a fresh one, as Cloudflare's does
+ * once a form has spent the last. Served at the real script URL, so the page loads it, and
  * the frame, through the same Content-Security-Policy the real one meets: a
  * policy that refused either would refuse it before the request left, and
  * this stand-in would never be asked.
  */
-const TURNSTILE_STAND_IN = `window.turnstile = {
-  render: function (el, opts) {
-    var frame = document.createElement("iframe");
-    frame.src = ${JSON.stringify(TURNSTILE_FRAME)};
-    frame.title = "Turnstile";
-    el.appendChild(frame);
+const TURNSTILE_STAND_IN = `(function () {
+  var widgets = {};
+  var next = 0;
+  function issue(opts) {
     Promise.resolve().then(function () { if (opts.callback) opts.callback("XXXX.DUMMY.TOKEN.XXXX"); });
-    return "e2e-turnstile";
-  },
-  remove: function () {},
-  reset: function () {},
-};`;
+  }
+  window.turnstile = {
+    render: function (el, opts) {
+      var frame = document.createElement("iframe");
+      frame.src = ${JSON.stringify(TURNSTILE_FRAME)};
+      frame.title = "Turnstile";
+      el.appendChild(frame);
+      next += 1;
+      var id = "e2e-turnstile-" + next;
+      widgets[id] = opts;
+      issue(opts);
+      return id;
+    },
+    remove: function (id) { delete widgets[id]; },
+    reset: function (id) { if (widgets[id]) issue(widgets[id]); },
+  };
+})();`;
 
 /**
  * Answers for Cloudflare Turnstile in `ctx`, which the stack cannot reach

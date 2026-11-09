@@ -99,8 +99,10 @@ Three hues, each held to its uses:
   down a list).
 
 Red text also renders today in the failed-load line (§Empty states and failed
-loads), in the error lines on `/authorize`, and in the auth views' error lines
-(§Auth surfaces).
+loads), in the error lines on `/authorize`, and in the error lines the shell
+and the auth views draw with `@shared/ui`'s `Notice` (`tone="danger"`, which
+paints `--ui-danger` through the contract; §Empty states and failed loads,
+§Auth surfaces).
 
 Success as ink, on each of the contract's five grounds, and ink on the warn
 wash:
@@ -420,6 +422,19 @@ Where the app does not follow this yet:
   screen whose head comes from what failed to load keeps its section's head
   above the line (`OrgDetailPage` falls back to "Organisations"). A shell that
   failed to load shows the line inside its frame (§Layout).
+- **A failed load with a retry** is the same line drawn by `Notice`
+  (`tone="danger"`, `size="inline"`, `alert`): a lead that names what did not
+  load, then an underlined "Try again" that loads it again in place. The
+  copy map's sentence (`describeAuthError`) follows the lead only when it
+  adds something — a `429` says to wait, a lost connection to check it —
+  never a "something went wrong, try again" beside the button. Uses: the
+  profile list ("Your profiles didn't load.", `ShellNotices`), and the
+  Security views' lists (§Auth surfaces).
+- **A page that throws while it renders** shows "This page didn't load." with
+  "Try again" in the content column, inside the shell: `PageErrorBoundary`
+  wraps each route, so the rail, the tab bar and the account banners stay
+  drawn and lead elsewhere. It resets on its own when the path changes, and
+  never shows the error's text.
 
 ## Auth surfaces
 
@@ -454,6 +469,19 @@ draw by hand shows the base focus outline (§Borders, §Focus).
 | `SecurityEventsBanner` | The account banner stack, above every signed-in page | `components/SecurityEventsBannerMount.tsx`, via `AccountBannerStack.tsx` |
 | `ProfileOnboarding` | Settings, above the tabs, dismissible; its dialog holds `CreateProfileForm` | `pages/SettingsPage.tsx` |
 | `StepUpDialog` | Inside `PasskeysView`, `TotpView`, `RecoveryCodesView` and `SecurityEventsBanner`, when an action needs it | — |
+
+**When the session ends.** The runtime ends a session when the issuer refuses
+to renew it, and when another tab signs out or signs in to another account.
+The shell then shows "You've been signed out." with a Sign in button, above
+the account banners: `Notice`, `tone="info"`, `size="sm"`, `alert`, at the
+banners' width (`ShellNotices`). One notice however many requests failed,
+cleared by the next session. A log out in this tab and a cold load with no
+session show none: the runtime reports no end for either. So a person who
+logs out in one tab sees the notice in every other open tab, which is true.
+
+**One dialog store.** Which auth dialog is open lives in
+`src/lib/auth-dialogs.ts`, not in each shell, so the shell's own buttons and
+the signed-out notice's Sign in open the same dialog.
 
 **What Musubi supplies:**
 

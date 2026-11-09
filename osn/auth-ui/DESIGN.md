@@ -81,7 +81,8 @@ weights (`text-xs`, `text-sm`, `text-lg`, `text-2xl`, `font-semibold`,
 render as intended only in a host that defines that vocabulary. The `ui-*`
 utilities the views write themselves today: `text-ui-success` (`Register`),
 `border-ui-warn/40 bg-ui-warn/10` (`SecurityEventsBanner`), `text-ui-xs`
-(`ProfileSwitcher`).
+(`ProfileSwitcher`). Every error line is a `@shared/ui` `Notice`, so it
+paints `ui-danger` through the contract (§7).
 
 **Status roles in use.**
 
@@ -89,9 +90,9 @@ utilities the views write themselves today: `text-ui-success` (`Register`),
   email code in `Register`, and the shared parts' own success states
   (`UsernameInput`, `OtpInput`).
 - `ui-warn` — a border and a wash: the `SecurityEventsBanner` box.
-- `ui-danger` — red, written today as `text-destructive`: every view's error
-  line, the field-level refusals in `Register`, and `RecoveryCodesView`'s
-  warning when an account has no recovery codes.
+- `ui-danger` — ink for a failure: every view's error line, drawn by
+  `Notice` (`tone="danger"`). `RecoveryCodesView`'s warning when an account
+  has no recovery codes still writes `text-destructive`.
 
 ## 3. Type
 
@@ -152,27 +153,28 @@ besides the default:
 
 | View | Parts | Button variants |
 | --- | --- | --- |
-| `SignIn` | Button, Input, Label | `ghost`, `secondary` |
-| `Register` | Button, InfoPopover, Input, Label, OtpInput, UsernameInput | `ghost` |
-| `RecoveryLoginForm` | Button, Input, Label, OtpInput | `outline`, `ghost` |
-| `StepUpDialog` | Button | `outline`, `ghost` |
-| `PasskeysView` | Button, Input | `outline`, `ghost` |
-| `TotpView` | Button, Input, Label, OtpInput, QrCode | `outline`, `ghost` |
-| `RecoveryCodesView` | Button, Dialog | `outline`, `ghost` |
-| `SessionsView` | Button | `outline` |
-| `SecurityEventsBanner` | Button | `outline` |
-| `ChangeEmailForm` | Button | — |
-| `CreateProfileForm` | Button, Input, Label, UsernameInput | `ghost` |
+| `SignIn` | Button, Input, Label, Notice | `ghost`, `secondary` |
+| `Register` | Button, InfoPopover, Input, Label, Notice, OtpInput, UsernameInput | `ghost` |
+| `RecoveryLoginForm` | Button, Input, Label, Notice, OtpInput | `outline`, `ghost` |
+| `StepUpDialog` | Button, Notice | `outline`, `ghost` |
+| `PasskeysView` | Button, Input, Notice | `outline`, `ghost` |
+| `TotpView` | Button, Input, Label, Notice, OtpInput, QrCode | `outline`, `ghost` |
+| `RecoveryCodesView` | Button, Dialog, Notice | `outline`, `ghost` |
+| `SessionsView` | Button, Notice | `outline` |
+| `SecurityEventsBanner` | Button, Notice | `outline` |
+| `ChangeEmailForm` | Button, Notice | — |
+| `CreateProfileForm` | Button, Input, Label, Notice, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
-| `ProfileSwitcher` | Avatar, Button, Dialog, Popover | `ghost`, `destructive` |
-| `TurnstileWidget` | — | — |
+| `ProfileSwitcher` | Avatar, Button, Dialog, Notice, Popover | `ghost`, `destructive` |
+| `TurnstileWidget` | Notice | — |
 
 **Drawn by hand.** Besides those parts, the views draw these controls
 themselves:
 
 - Raw `<input>`s: the new email and the code in `ChangeEmailForm`, and the
   emailed code and the authenticator code in `StepUpDialog`, each
-  `bg-background rounded-md border px-3 py-2` inside a `<label>`. The `border`
+  `bg-background rounded-md border px-3 py-2` named by a `<label for>` above
+  it, so the error line sits under the field, outside the label. The `border`
   names no colour; in Musubi a bare-bordered field keeps its ink edge
   (`currentColor`), since `--input`, the edge `@shared/ui`'s `Input` draws,
   sits under 3:1 (`musubi/social/DESIGN.md` §Borders).
@@ -181,6 +183,11 @@ themselves:
 - Text `<button>`s: "Lost your passkey?" in `SignIn` and "Resend code" in
   `Register`, `text-primary text-sm font-medium` with an underline on hover;
   each profile row and its delete control in `ProfileSwitcher`.
+- `InlineAction` (`src/InlineAction.tsx`, internal): the button that ends an
+  error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
+  in a failed load. It keeps the line's ink and is underlined, so the action
+  never relies on colour alone. `LoadFailed` (`src/LoadFailed.tsx`, internal)
+  is the failed-load line built on it (§7).
 - A `<details>` disclosure, "Signing in somewhere new?", under the list in
   `PasskeysView`.
 
@@ -207,8 +214,8 @@ own.
 | State | What shows |
 | --- | --- |
 | No WebAuthn | "Creating an account on {productName} needs a passkey or security key — something this browser doesn't support. …" |
-| Details | Email (with an "i" popover, "What this address is used for"), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with "You must be 13 or older to use {productName}" (or "{productName} is for users 13 and older"), Display name (optional), the Turnstile challenge, "Send verification code" ("Sending…") |
-| Verify | "We sent a 6-digit code to {email}. Enter it below to verify.", the code boxes, then "Verifying your code…", "Accepted" or "Incorrect code. Please try again"; "Verify email" ("Verifying…"); "Resend code" (with a countdown while it waits); "← Use a different email" |
+| Details | Email (with an "i" popover, "What this address is used for"; "Please enter a valid email address" once the field is left with an address that is not one), Handle (`UsernameInput`: checking, available, taken, invalid), Date of birth with the hint "You must be 13 or older to create an account." (or "{productName} is for users 13 and older" once a date under 13 is in), Display name (optional), the Turnstile challenge, "Send verification code" ("Sending…") |
+| Verify | "We sent a 6-digit code to {email}. Enter it below to verify.", the code boxes, then "Verifying your code…", "Accepted" or the code's error line; "Verify email" ("Verifying…"); the Turnstile challenge again, for a resend; "Resend code" (with a countdown while it waits, and held until the challenge hands it a token); "← Use a different email" |
 | Passkey | "Enroll a passkey or security key so you can sign back in. This is required to finish creating your account."; "Enroll credential" ("Setting up…") |
 | Done | "You're all set. Loading {productName}…" |
 
@@ -228,14 +235,15 @@ own.
 **`StepUpDialog`** — §8.
 
 **`PasskeysView`** — heading "Passkeys" with "Add passkey". States: loading
-("Loading…"); the list, each row the passkey's name ("Synced passkey" or
+("Loading…"); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
 "Device passkey" when unnamed, "(synced)" when backed up), "Added … · Last
 used …", Rename and Delete; a row being renamed (a field, Save, Cancel); a
 step-up in progress, which disables every row's actions. Under the list, a
 "Signing in somewhere new?" disclosure.
 
 **`TotpView`** — heading "Authenticator app", then "A six-digit code from an
-app on your phone. …". States: loading; none set up ("Add an authenticator
+app on your phone. …". States: loading; failed to load ("Your authenticator
+app didn't load.", §7); none set up ("Add an authenticator
 app" in the header); set up (the app's name, "Added … · Last used …",
 Remove); setting up ("Scan this with your authenticator app", the QR code,
 "Or enter this setup key by hand", "Name this device (optional)", "Code from
@@ -259,7 +267,8 @@ event (by kind, with a general line for a kind it does not know) and its time
 and device, a footer line, Acknowledge, then a step-up.
 
 **`SessionsView`** — heading "Active sessions" with "Sign out everywhere else".
-States: loading; the list, each row the device ("Unknown device" when
+States: loading; failed to load ("Your sessions didn't load.", §7); the list,
+each row the device ("Unknown device" when
 unnamed, "(this device)" on the current one), "Created … · Last used …",
 Revoke (disabled on the current one).
 
@@ -280,52 +289,98 @@ a dismiss control when `dismissible`.
 one marked, a create dialog and a delete dialog.
 
 **`TurnstileWidget`** — renders nothing without a site key; with one, the
-challenge, and "Couldn't load the verification challenge. Refresh and try
+challenge, and "Couldn't load the verification challenge. Reload and try
 again. …" when it fails to load.
 
 ## 7. Errors
 
-As built:
+**The sentence.** Every error a view shows comes from one of two helpers, and
+never from the error itself: no `message`, no code, none of the browser's own
+text (which in Chrome carries a URL).
 
-- **Where.** Each view shows one error line at a fixed place: under the form
-  in `SignIn`; at the top of `RecoveryLoginForm`; under the heading lines in
-  `StepUpDialog`, `PasskeysView`, `TotpView`, `SessionsView` and
-  `ChangeEmailForm`; under the button in `RecoveryCodesView`; at the top of
-  the banner box in `SecurityEventsBanner`; inside the verify and passkey
-  steps in `Register`, whose details step reports a failed send by toast
-  alone. `Register` also shows field-level lines under the email and the date
-  of birth. All are `text-destructive`, at `text-sm`, except `SignIn`'s,
-  `TurnstileWidget`'s and `Register`'s two field-level lines, at `text-xs`.
-- **Toasts.** `SignIn`, `Register`, `TotpView`, `CreateProfileForm` and
-  `ProfileSwitcher` also raise an error toast, and a success toast when an
-  action completes ("Signed in", "Verification code sent", "Email verified",
-  "Authenticator app added", …). The other views use the line alone.
-- **Text.** The line shows the thrown error's `message` where it has one, and
-  otherwise a fixed line per action ("Sign-in failed", "Step-up failed",
-  "Invalid or expired code", "Couldn't add a passkey", …) (#2044). Fixed
-  sentences the views write themselves: "Please complete the verification
-  challenge below." when the Turnstile challenge is not done; "That recovery
-  code didn't work. Double-check the code and identifier."; "Enter the 6-digit
-  code" in `StepUpDialog`; and `SignIn`'s line when the browser refuses a
-  passkey, which points to "Lost your passkey?".
-- **The sentence helpers.** `describePasskeyError` (this package) gives one
-  fixed sentence for each way a passkey ceremony fails, read from the error's
-  `name` and the ceremony the caller names, `authentication` or
-  `registration`. A prompt the person closed, or one that timed out, reads
-  "That passkey didn't work. Try again." when signing in and "The passkey
-  wasn't added. Try again." when adding one. The signing-in sentence names no
-  cause, so a view with another way in shows that way beside it, as `SignIn`
-  does with "Lost your passkey?". "This device already has a passkey for this
-  account." appears only when adding one. `describeAuthError` (`@osn/client`)
-  gives one for each server answer or an expired session, read from the
-  error's `status` and `code` and the form the person submitted (`code`,
-  `recovery`, `passkey`, `new-passkey` or `details`). `describePasskeyError`
-  hands a server error to it, as `passkey` when signing in and `new-passkey`
-  when adding one. Neither shows an error's message, a code or the browser's
-  own text, and neither tells apart two failures the server answers the same
-  way. The views do not call them yet: each shows `message` as above (#2044).
-- A recovery session that runs out is its own state in `RecoveryLoginForm`
-  ("That recovery session timed out"), not an error line.
+- `describeAuthError(err, context?)` (`@osn/client`) — one sentence for a
+  server answer or an ended session, read from the error's `status` and
+  `code` and the form the person submitted: `code` (an emailed or app code),
+  `recovery`, `details` (email, handle, date of birth), `passkey` or
+  `new-passkey`. A `429` names the wait without a time ("Too many attempts.
+  Wait a while, then try again."). Two failures the server answers alike read
+  alike, so no line says whether an account exists or which of two inputs was
+  wrong: `Register`'s send never says an email or handle is taken, and
+  `RecoveryLoginForm` names the handle or email and the code together.
+- `describePasskeyError(err, ceremony)` (this package) — one sentence for each
+  way a WebAuthn ceremony fails, read from the error's `name` and the
+  ceremony, `authentication` or `registration`; a server error in the same
+  flow goes on to `describeAuthError` as `passkey` or `new-passkey`. A closed
+  or timed-out prompt reads "That passkey didn't work. Try again." signing in
+  and "The passkey wasn't added. Try again." adding one. `SignIn` and
+  `StepUpDialog` pass `authentication`; `PasskeysView`, `Register` and
+  `RecoveryLoginForm` (whose last step adds a passkey) pass `registration`.
+
+The views add only sentences about their own checks: "Please complete the
+verification challenge below.", "Please enter a valid email address",
+"{productName} is for users 13 and older", "Enter the 6-digit code." in
+`StepUpDialog`, and "A passkey can't be used here." when `StepUpDialog` has no
+ceremony runner — which offers no retry, since none can work.
+
+**The line.** Each error is a `@shared/ui` `Notice`, `tone="danger"`,
+`size="inline"`, `alert`, so it is announced the moment it appears. Each
+action clears its line before it runs, so a second failure mounts it again
+and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
+`<div>`.
+
+- **Under the field it is about**, tied to it: the line has an id and the
+  field names it in `aria-describedby`, whatever the cause, so the field reads
+  the same words for every one. The field is `aria-invalid` only when the
+  input was the problem — a check this side ran, or a `400` or `422` refusal
+  other than the verification check — never for a rate limit, an outage, a
+  closed passkey prompt or an unfinished challenge (`src/error-lines.ts`). A
+  field with a hint names both (`Register`'s date of birth: the hint, then the
+  under-13 line). Fields tied this way: `SignIn`'s identifier; `Register`'s
+  email and date of birth; `RecoveryLoginForm`'s handle or email and recovery
+  code, its email address, and its authenticator step's handle or email;
+  `StepUpDialog`'s two code fields; `PasskeysView`'s rename field; both of
+  `ChangeEmailForm`'s fields; `CreateProfileForm`'s handle.
+- **Above the action it follows** when no field owns it: `Register`'s send and
+  enrolment, `RecoveryLoginForm`'s recovery-code, send and enrolment steps,
+  `RecoveryCodesView`'s generate, `CreateProfileForm`'s submit, and the
+  factor buttons in `StepUpDialog`. `Register`'s resend line sits under
+  "Resend code"; `ProfileSwitcher`'s lines sit inside the popover and the
+  delete dialog.
+- **Under the heading** in `PasskeysView` (add, delete) and `TotpView` (start,
+  remove), and in `SessionsView`; at the top of the `SecurityEventsBanner`
+  box.
+- **Under the code boxes** for a refused code in `Register`,
+  `RecoveryLoginForm` and `TotpView`: announced, but not yet tied — `OtpInput`
+  takes no `aria-describedby` until englishstreetventures/osn#2041.
+
+`SignIn`'s passkey error ends with a "Lost your passkey?" button: the
+signing-in sentence names no cause, and recovery is the way in without one.
+The standalone link below Continue stays. Switching to the recovery form
+leaves the sign-in error behind.
+
+**A failed load.** A list or status a settings view reads — `PasskeysView`,
+`TotpView`, `SessionsView` — that fails to load shows `LoadFailed` in its
+place instead of throwing: a lead in the view's words ("Your passkeys didn't
+load."), the map's sentence only when it adds something (a `429` says to
+wait, status `0` to check the connection, an ended session to sign in), and a
+"Try again" that loads it again, left out once the session has ended. The
+heading stays. `RecoveryCodesView` and `SecurityEventsBanner` already fail
+soft (§6).
+
+**Toasts are for success only** ("Signed in", "Verification code sent",
+"Email verified", "Authenticator app added", …). No view raises an error
+toast.
+
+**The verification challenge.** Every call that spends a Turnstile token —
+`SignIn`'s Continue, `Register`'s send and resend, `RecoveryLoginForm`'s
+emailed-code send — resets the widget whether the call succeeded or not: the
+server checks the token before it answers, so a refusal has spent it too. The
+submit stays disabled until the widget hands over a fresh one. `Register`'s
+code step mounts a widget of its own for "Resend code", since the details
+step's went with that step.
+
+A recovery session that runs out is its own state in `RecoveryLoginForm`
+("That recovery session timed out"), not an error line.
 
 ## 8. Step-up
 
@@ -379,6 +434,8 @@ the only host, a 2px `--ui-focus` outline 2px off (`musubi/social/DESIGN.md`
 - the raw checkbox in `RecoveryCodesView`, the profile rows and delete
   controls in `ProfileSwitcher`, and the "Signing in somewhere new?" summary in
   `PasskeysView` (#2045).
+- `InlineAction`, the button that ends an error line ("Lost your passkey?",
+  "Try again").
 
 `ProfileSwitcher`'s rows also carry `transition-colors`, whose property list
 includes `outline-color`, so their outline fades in.
@@ -392,8 +449,8 @@ no product.
 **As it stands:**
 
 - `SignIn`, `Register`, `RecoveryCodesView` and `SecurityEventsBanner` take
-  `productName`. `SignIn`'s line for a refused passkey names `musubi.social`
-  in its own text (#2044).
+  `productName`. No error line names a product: each is a sentence from §7's
+  helpers or a view's own check.
 - The identifier: "Email or @handle" in `SignIn`; "Handle or email" in
   `RecoveryLoginForm`; "Email address on the account" on its emailed-code
   step; "Email" in `Register`.
@@ -425,4 +482,12 @@ As built:
   (`vi.mock("@osn/auth-ui/…")`) and check how the app wires them. The suites
   that run the real views are the end-to-end flows
   `tools/e2e/tests/flows/musubi-passkey.flow.ts` and
-  `tools/e2e/tests/flows/musubi-register-retry.flow.ts`.
+  `tools/e2e/tests/flows/musubi-register-retry.flow.ts`. `musubi-passkey`
+  checks the error lines in Chromium: a wrong emailed code at sign-up reads
+  the code sentence; a rate-limited sign-in reads the wait sentence, with
+  "Lost your passkey?" inside the line, as the identifier field's accessible
+  description, and with no toast.
+- **Error lines in the package tests.** Each view's tests plant text in a
+  thrown error's `message` and check it never reaches the screen, check a
+  `429` reads the wait sentence, and check the line is an alert, tied to its
+  field where it has one, with no error toast (`tests/helpers/errors.ts`).

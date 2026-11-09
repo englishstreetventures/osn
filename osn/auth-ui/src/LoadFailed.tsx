@@ -13,7 +13,7 @@ import { InlineAction } from "./InlineAction";
 export function LoadFailed(props: { lead: string; error: unknown; onRetry: () => void }) {
   return (
     <Notice tone="danger" size="inline" alert>
-      {props.lead} {loadFailureDetail(props.error)}{" "}
+      {[props.lead, loadFailureDetail(props.error)].filter(Boolean).join(" ")}{" "}
       <Show when={canRetryLoad(props.error)}>
         <InlineAction onClick={props.onRetry}>Try again</InlineAction>
       </Show>

@@ -301,3 +301,53 @@ it("an expired session while listing leaves no error to show", async () => {
   expect(auth().profilesError()).toBeUndefined();
   dispose();
 });
+
+// A first session turns the list's source on, which lists by itself; listing
+// again from `adoptSession` would send the same request twice on every
+// sign-in, against a rate-limited route.
+it("adopting a first session lists the profiles once", async () => {
+  const { runtime, emit, listProfiles } = listingRuntime([
+    () => Effect.succeed([alice]),
+    () => Effect.succeed([alice]),
+    () => Effect.succeed([alice]),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  emit({ kind: "ended" });
+  await settle();
+  const before = listProfiles.mock.calls.length;
+
+  await auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+
+  expect(listProfiles.mock.calls.length - before).toBe(1);
+  expect(auth().profiles()).toEqual([alice]);
+  dispose();
+});
+
+it("adopting a session over another lists the profiles again", async () => {
+  const { runtime, listProfiles } = listingRuntime([
+    () => Effect.succeed([alice]),
+    () => Effect.succeed([alice, bob]),
+  ]);
+  const { auth, dispose } = mount(runtime);
+  await settle();
+  const before = listProfiles.mock.calls.length;
+
+  await auth().adoptSession({
+    accessToken: "token-2",
+    idToken: null,
+    expiresAt: Date.now() + 60_000,
+    scopes: [],
+  } as never);
+  await settle();
+
+  expect(listProfiles.mock.calls.length - before).toBe(1);
+  expect(auth().profiles()).toEqual([alice, bob]);
+  dispose();
+});

@@ -4,7 +4,8 @@
  * colour fade that leaves the focus ring out, the house focus outline (inset
  * where a box would clip it), the 8px corner a text field's edge sits on, the
  * theme menu's radio rows, the bar that marks the current bottom-bar tab, and
- * the legal pages' head and prose. Each rule lives in
+ * the legal pages' head and prose, and (`musubiNotice`) the notices the shell
+ * draws. Each rule lives in
  * `musubi/social/src/App.css` or one shared shell part and reaches many
  * screens at once, so a lost rule shows here before it shows on any one of
  * them.
@@ -464,6 +465,41 @@ async function legal(flow: Flow, page: Page): Promise<void> {
       shoot(page, view, () => expect(heading).toBeVisible(), { whole: true }),
     );
   }
+}
+
+/**
+ * One notice the shell draws — the signed-out note, a failed list, a page that
+ * did not load — measured and pictured at both widths in both schemes: its
+ * ink against a probe painted with `token`, the contract colour its tone
+ * names, so a tone that resolves elsewhere fails here. Shot into
+ * `screenshots/musubi-surfaces/<view>-<width>-<scheme>.png`. Leaves the
+ * viewport and scheme as it found them.
+ */
+export async function musubiNotice(
+  flow: Flow,
+  page: Page,
+  view: string,
+  notice: Locator,
+  token: string,
+): Promise<void> {
+  const viewport = page.viewportSize();
+  for (const size of WIDTHS) {
+    for (const colorScheme of SCHEMES) {
+      await at(page, size, colorScheme);
+      await expect(notice).toBeVisible();
+      await settled(notice);
+      flow.check(
+        `${view} (${size.width}px, ${colorScheme}): the notice's ink is ${token}`,
+        await painted(notice, `var(${token})`),
+        await computed(notice, "color"),
+      );
+    }
+  }
+  await flow.step(`surfaces: shoot ${view}`, () =>
+    shoot(page, view, () => expect(notice).toBeVisible()),
+  );
+  if (viewport) await page.setViewportSize(viewport);
+  await page.emulateMedia({ colorScheme: null });
 }
 
 /**

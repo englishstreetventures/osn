@@ -1,11 +1,19 @@
 /**
- * Musubi: create an account with a passkey, sign out, sign back in with the
- * passkey, keep the session across a reload, add and remove an authenticator
- * app behind passkey step-ups, keep the session past its access token's
- * expiry, list the connected apps, sign the page out when the issuer refuses
- * to renew it, sign out a reload that has no cookie, and sign in to Pulse
- * through Musubi's `/authorize`. Signed in, before the authenticator steps, it
- * measures and shoots Musubi's base styles (`musubi-surfaces.ts`).
+ * Musubi: create an account with a passkey (a wrong code first), sign out,
+ * sign back in with the passkey (a rate-limited try first), keep the session
+ * across a reload, keep the shell when the profile list or a page fails to
+ * load, add and remove an authenticator app behind passkey step-ups, keep the
+ * session past its access token's expiry, list the connected apps, sign the
+ * page out — and say so — when the issuer refuses to renew it, sign out a
+ * reload that has no cookie, and sign in to Pulse through Musubi's
+ * `/authorize`. Signed in, before the authenticator steps, it measures and
+ * shoots Musubi's base styles and the notices the shell draws
+ * (`musubi-surfaces.ts`).
+ *
+ * The failures are made by answering one osn-api route in the page
+ * (`refuse`), so no limiter or session on the stack is spent on them. Every
+ * error line reads a sentence from `describeAuthError`, never the error's own
+ * text.
  *
  * Musubi is served as it deploys, its Content-Security-Policy included
  * (`appSpecs` in `src/stack.ts`): the flow checks the policy it is served and
@@ -18,7 +26,7 @@
  * rides on later calls — when those fetches pass `credentials: "include"`.
  */
 
-import type { Request, Response } from "@playwright/test";
+import type { Request, Response, Route } from "@playwright/test";
 
 import { ORIGINS, PEOPLE, TURNSTILE_ORIGIN } from "../../src/config";
 import {
@@ -30,7 +38,7 @@ import {
   test,
   totpCode,
 } from "../support/fixtures";
-import { musubiSurfaces } from "../support/musubi-surfaces";
+import { musubiNotice, musubiSurfaces } from "../support/musubi-surfaces";
 
 const ada = PEOPLE.musubi;
 
@@ -57,6 +65,37 @@ const ACCESS_TOKEN_TTL_MS = 300_000;
  * Turnstile; connections to Musubi itself and osn-api.
  */
 const MUSUBI_POLICY = `frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'sha256-…' 'sha256-…' ${TURNSTILE_ORIGIN}; connect-src 'self' ${ORIGINS.osnApi}`;
+
+/** `describeAuthError`'s sentences the flow reads (`osn/client/src/error-copy.ts`). */
+const WAIT = "Too many attempts. Wait a while, then try again.";
+const WRONG_CODE =
+  "That code didn't work. Check it or get a new one, then try again. If it keeps failing, wait a while first.";
+
+/**
+ * A route handler that answers an osn-api request with `status` and the
+ * error `code` osn-api would send, as a cross-origin answer the page can read
+ * (a preflight included), so the page meets the refusal and not a network
+ * failure. Only `method` is refused; anything else goes on to osn-api.
+ */
+function refuse(method: string, status: number, code: string) {
+  const cors = {
+    "access-control-allow-origin": ORIGINS.musubi,
+    "access-control-allow-credentials": "true",
+    "access-control-allow-headers": "authorization, content-type",
+    "access-control-allow-methods": method,
+  };
+  return (route: Route) => {
+    const sent = route.request().method();
+    if (sent === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
+    if (sent !== method) return route.fallback();
+    return route.fulfill({
+      status,
+      headers: cors,
+      contentType: "application/json",
+      body: JSON.stringify({ error: code }),
+    });
+  };
+}
 
 // Musubi's forms load Turnstile, which the fixtures stand in for.
 test.use({ turnstile: true });
@@ -116,9 +155,30 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.getByRole("button", { name: "Send verification code" }).click();
   });
 
+  // A real refusal from osn-api: the code differs from the emailed one in
+  // every digit. It spends no sign-up begin (`flows.test.ts` counts those).
+  const dialogAlert = page.getByRole("dialog").getByRole("alert");
+  let wrongCodeLine = "";
+  await flow.step("register: a wrong code is refused in words", async () => {
+    const code = await otpFor(ada.email);
+    const wrong = [...code].map((digit) => String((Number(digit) + 1) % 10)).join("");
+    await page.getByLabel("Digit 1").pressSequentially(wrong);
+    await page.getByRole("button", { name: "Verify email" }).click();
+    await expect(dialogAlert).toContainText(WRONG_CODE);
+    wrongCodeLine = (await dialogAlert.textContent()) ?? "";
+  });
+  flow.check("a wrong code reads the code sentence", `Error: ${WRONG_CODE}`, wrongCodeLine);
+  flow.check(
+    "osn-api refused the wrong code",
+    true,
+    flow.saw("POST osn-api /register/complete 400"),
+  );
+
   await flow.step("register: verify email", async () => {
     const code = await otpFor(ada.email);
-    await page.getByLabel("Digit 1").pressSequentially(code);
+    for (const [i, digit] of [...code].entries()) {
+      await page.getByLabel(`Digit ${i + 1}`).fill(digit);
+    }
     await page.getByRole("button", { name: "Verify email" }).click();
   });
   const [verification] = await mailFor(ada.email);
@@ -151,9 +211,49 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     (await cookieNamed(context, ORIGINS.osnApi, "osn_session")) !== undefined,
   );
 
+  const passkeyBegin = `${ORIGINS.osnApi}/login/passkey/begin`;
+  const identifierField = page.getByLabel("Email or @handle");
+  let rateLimitedLine = "";
+  let describedByLine = false;
+  await flow.step("sign in: a rate-limited try says to wait", async () => {
+    const handler = refuse("POST", 429, "rate_limited");
+    await page.route(passkeyBegin, handler);
+    try {
+      await page.getByRole("button", { name: "Sign in" }).first().click();
+      await identifierField.fill(`@${ada.handle}`);
+      await page.getByRole("button", { name: "Continue" }).click();
+      await expect(dialogAlert).toContainText(WAIT);
+      // Read with the field, not only announced when it appears.
+      await expect(identifierField).toHaveAccessibleDescription(
+        `Error: ${WAIT} Lost your passkey?`,
+      );
+      rateLimitedLine = (await dialogAlert.textContent()) ?? "";
+      const lineId = (await dialogAlert.getAttribute("id")) ?? "";
+      describedByLine =
+        lineId !== "" &&
+        ((await identifierField.getAttribute("aria-describedby")) ?? "")
+          .split(" ")
+          .includes(lineId);
+    } finally {
+      await page.unroute(passkeyBegin, handler);
+    }
+  });
+  flow.check(
+    "a rate-limited sign-in reads the wait sentence, beside the way out",
+    `Error: ${WAIT} Lost your passkey?`,
+    rateLimitedLine,
+  );
+  flow.check("the line is the field's description", true, describedByLine);
+  flow.check(
+    "the way out is a button inside the line",
+    1,
+    await dialogAlert.getByRole("button", { name: "Lost your passkey?" }).count(),
+  );
+  flow.check("no toast repeats the error", 0, await page.locator("[data-sonner-toast]").count());
+
   await flow.step("sign in with passkey", async () => {
-    await page.getByRole("button", { name: "Sign in" }).first().click();
-    await page.getByLabel("Email or @handle").fill(`@${ada.handle}`);
+    // The refused try spent the verification token; the widget hands the
+    // form a fresh one before Continue works again.
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
   });
@@ -189,6 +289,69 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   // Signed in, after the check above has read the request log: the surfaces
   // reload the page for the legal routes, and each reload posts to /token.
   await musubiSurfaces(flow, page);
+
+  const nav = page.getByRole("link", { name: "Settings" }).first();
+  const profilesList = `${ORIGINS.osnApi}/profiles/list`;
+  const profilesNotice = page.getByRole("alert").filter({ hasText: "Your profiles didn't load." });
+  await flow.step("a failed profile list keeps the shell", async () => {
+    const handler = refuse("GET", 500, "internal_error");
+    await page.route(profilesList, handler);
+    try {
+      await page.reload();
+      await expect(profilesNotice).toBeVisible();
+      await expect(nav).toBeVisible();
+    } finally {
+      await page.unroute(profilesList, handler);
+    }
+  });
+  flow.check(
+    "the failed list says so, and nothing more for a 500",
+    "Error: Your profiles didn't load. Try again",
+    (await profilesNotice.textContent()) ?? "",
+  );
+  await musubiNotice(flow, page, "profiles-failed", profilesNotice, "--ui-danger");
+  const listsBeforeRetry = flow.count("GET osn-api /profiles/list 200");
+  await flow.step("the profile list's Try again lists again", async () => {
+    await profilesNotice.getByRole("button", { name: "Try again" }).click();
+    await expect(profilesNotice).toHaveCount(0);
+  });
+  flow.check(
+    "Try again sent one list",
+    1,
+    flow.count("GET osn-api /profiles/list 200") - listsBeforeRetry,
+  );
+
+  // `ConnectionsPage` reads its list without catching, so a failed list
+  // throws while the page renders: the case the shell's boundary is for.
+  const connectionsList = `${ORIGINS.osnApi}/graph/connections`;
+  const pageNotice = page.getByRole("alert").filter({ hasText: "This page didn't load." });
+  const connectionsLink = page.getByRole("link", { name: "Connections" }).first();
+  let pageLine = "";
+  await flow.step("a failed page keeps the shell, and the nav leaves it", async () => {
+    const handler = refuse("GET", 500, "internal_error");
+    await page.route(connectionsList, handler);
+    try {
+      await connectionsLink.click();
+      await expect(pageNotice).toBeVisible();
+      await expect(nav).toBeVisible();
+      pageLine = (await pageNotice.textContent()) ?? "";
+      await musubiNotice(flow, page, "page-failed", pageNotice, "--ui-danger");
+      await nav.click();
+      await expect(page.getByText("Handles cannot be changed.", { exact: true })).toBeVisible();
+      await connectionsLink.click();
+      await expect(pageNotice).toBeVisible();
+    } finally {
+      await page.unroute(connectionsList, handler);
+    }
+    await pageNotice.getByRole("button", { name: "Try again" }).click();
+    await expect(pageNotice).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "Connection filters" })).toBeVisible();
+  });
+  flow.check(
+    "the failed page says so in its own words, with Try again",
+    "Error: This page didn't load. Try again",
+    pageLine,
+  );
 
   const settingsTab = (name: string) =>
     page
@@ -300,6 +463,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
 
   const refusedGrantsBefore = flow.count("POST osn-api /token 400");
   const sentBefore = sum(securityGets());
+  const signedOutNotice = page.getByRole("alert").filter({ hasText: "You've been signed out." });
   await flow.step("a refused refresh signs the page out", async () => {
     // The issuer no longer holds a session for this browser; the page still
     // holds the account and its stale token.
@@ -309,6 +473,20 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await settingsTab("Security").click();
     await expect(page.getByText("Sign in to manage your settings.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+    await expect(signedOutNotice).toBeVisible();
+  });
+  flow.check(
+    "the page says it was signed out, once",
+    1,
+    await page.getByText("You've been signed out.", { exact: true }).count(),
+  );
+  flow.check("the signed-out notice is announced", 1, await signedOutNotice.count());
+  await musubiNotice(flow, page, "signed-out", signedOutNotice, "--ui-ink-secondary");
+  await flow.step("the signed-out notice's Sign in opens sign-in", async () => {
+    await signedOutNotice.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByRole("heading", { name: "Sign in to Musubi" })).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
   flow.check(
     "the refused grant was sent once",
@@ -336,6 +514,11 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     "signed out with no cookie",
     false,
     await page.getByRole("button", { name: `@${ada.handle}` }).isVisible(),
+  );
+  flow.check(
+    "a cold load with no session says nothing about signing out",
+    0,
+    await page.getByText("You've been signed out.", { exact: true }).count(),
   );
   flow.check(
     "the reload's grant was refused once",
@@ -379,5 +562,13 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     "no Content-Security-Policy message on a Musubi page",
     "",
     flow.cspMessages(ORIGINS.musubi).join("\n"),
+  );
+  // osn-api allows 10 profile lists a minute per client address
+  // (`profileList`, osn/api/src/routes/auth/limiters.ts), in memory and shared
+  // by the whole run. Two short of it leaves room for musubi-org-detail's one.
+  flow.check(
+    "the flow lists profiles no more than eight times",
+    true,
+    flow.count("GET osn-api /profiles/list 200") <= 8,
   );
 });

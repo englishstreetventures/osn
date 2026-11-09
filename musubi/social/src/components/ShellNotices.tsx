@@ -53,7 +53,7 @@ export function ShellNotices() {
         </Show>
         <Show when={listFailed() !== undefined}>
           <Notice tone="danger" size="inline" alert>
-            Your profiles didn't load. {failureDetail(listFailed())}{" "}
+            {["Your profiles didn't load.", failureDetail(listFailed())].filter(Boolean).join(" ")}{" "}
             <button
               type="button"
               class="cursor-pointer font-medium underline underline-offset-4"

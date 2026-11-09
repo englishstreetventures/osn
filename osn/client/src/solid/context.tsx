@@ -181,9 +181,13 @@ export function AuthProvider(props: AuthProviderProps) {
   };
 
   const adoptSession = async (next: Session) => {
+    // A first session turns the list's source on, so the list loads by
+    // itself; listing here as well would send the same request twice. A
+    // session that replaces another leaves the source on, so list again.
+    const replacing = !session.error && session.latest != null;
     await run(Effect.flatMap(OsnAuth, (auth) => auth.setSession(next)));
     await refetchSession();
-    await refetchProfiles();
+    if (replacing) await refetchProfiles();
   };
 
   // No `refetchSession`, deliberately: adopting is the caller's decision and

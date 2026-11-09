@@ -92,8 +92,9 @@ along. If the user opens the link in a *different* browser, every call
 1. **Loading** — "Checking this request…" while the context loads. 404 ⇒
    *Ended* state.
 2. **Load error** — a context read that fails without ending the request (a
-   429, a dropped connection): "Could not load this request", the error's
-   message, and **Try again**, which reads the context again.
+   429, a dropped connection): "Could not load this request", the copy map's
+   sentence for the failure (`describeAuthError` — never the error's own
+   text), and **Try again**, which reads the context again.
 3. **Signed out** (`signedIn: false`, or arrived with `reason=login` or
    `reason=create`) —
    render the client card (name + logo + "wants to use your Musubi
@@ -243,7 +244,9 @@ screen shows even when consent is on record (pinned in
   Whether to call `POST /logout` before the switch is open:
   englishstreetventures/osn#1344.
 - A failed context read that is not terminal — a 429, a dropped connection —
-  gets its own screen with the message and a retry, not an endless spinner.
+  gets its own screen with the copy map's sentence and a retry, not an
+  endless spinner. A decision that fails without ending the request shows
+  the same map's sentence on the screen it came from.
 - The page runs **outside `AuthProvider`**. Mounting it calls `POST /token`,
   which *rotates* the refresh session, and then lists profiles the page never
   reads: `GET /authorize/context` already carries the session state and the
