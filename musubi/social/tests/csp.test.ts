@@ -63,46 +63,27 @@ async function buildWith(env: Record<string, string | undefined>): Promise<strin
   return readFile(join(outDir, "_headers"), "utf8");
 }
 
+// A whole `vite build` takes about a second here and up to ten on a loaded CI
+// runner, so the one test that runs it has a minute.
 describe("the built policy", () => {
-  it("C7: the committed files build to the production policy, and nothing looser", async () => {
-    const headers = await buildWith({
-      VITE_OSN_ISSUER_URL: "https://id.musubi.social",
-      VITE_TURNSTILE_SITEKEY: "0x4AAAAAAA-production-sitekey",
-    });
-    const hashes = inlineScriptHashes(await readFile(resolve(ROOT, "index.html"), "utf8"));
+  it(
+    "C7: the committed files build to the production policy, and nothing looser",
+    { timeout: 60_000 },
+    async () => {
+      const headers = await buildWith({
+        VITE_OSN_ISSUER_URL: "https://id.musubi.social",
+        VITE_TURNSTILE_SITEKEY: "0x4AAAAAAA-production-sitekey",
+      });
+      const hashes = inlineScriptHashes(await readFile(resolve(ROOT, "index.html"), "utf8"));
 
-    // The theme script and the pages.dev redirect.
-    expect(hashes).toHaveLength(2);
-    expect(policyOf(headers)).toBe(
-      `${COMMITTED}; script-src 'self' ${hashes.join(" ")} ${TURNSTILE_ORIGIN}; connect-src 'self' https://id.musubi.social`,
-    );
-    expect(headers).not.toMatch(/unsafe-inline|unsafe-eval|default-src/);
-  });
-
-  it("C1: names the issuer the build calls, and only that one", async () => {
-    const policy = policyOf(await buildWith({ VITE_OSN_ISSUER_URL: `${ISSUER}/` }));
-
-    expect(policy).toMatch(new RegExp(`; connect-src 'self' ${ISSUER}$`));
-    expect(policy).not.toContain("id.musubi.social");
-  });
-
-  it("C1: names the local issuer the app falls back to when none is set", async () => {
-    const policy = policyOf(await buildWith({ VITE_OSN_ISSUER_URL: undefined }));
-
-    expect(policy).toMatch(/; connect-src 'self' http:\/\/localhost:4000$/);
-  });
-
-  it.each([
-    ["unset", undefined],
-    ["blank", "  "],
-  ])("C3: leaves Turnstile out when the sitekey is %s", async (_name, sitekey) => {
-    const policy = policyOf(
-      await buildWith({ VITE_OSN_ISSUER_URL: ISSUER, VITE_TURNSTILE_SITEKEY: sitekey }),
-    );
-
-    expect(policy).not.toContain(TURNSTILE_ORIGIN);
-    expect(policy).toMatch(/script-src 'self' 'sha256-[^']+' 'sha256-[^']+'; connect-src/);
-  });
+      // The theme script and the pages.dev redirect.
+      expect(hashes).toHaveLength(2);
+      expect(policyOf(headers)).toBe(
+        `${COMMITTED}; script-src 'self' ${hashes.join(" ")} ${TURNSTILE_ORIGIN}; connect-src 'self' https://id.musubi.social`,
+      );
+      expect(headers).not.toMatch(/unsafe-inline|unsafe-eval|default-src/);
+    },
+  );
 });
 
 describe("the policy's parts", () => {
@@ -176,8 +157,14 @@ describe("the policy's parts", () => {
 });
 
 describe("the plugin's own checks", () => {
-  /** Runs the plugin's two hooks over `bundle`, writing into a temporary dist; the `_headers` it leaves. */
-  async function writeBundle(bundle: Record<string, unknown>): Promise<string> {
+  /**
+   * Runs the plugin's two hooks over `bundle` with Vite's resolved `env`,
+   * writing into a temporary dist; the `_headers` it leaves.
+   */
+  async function writeBundle(
+    bundle: Record<string, unknown>,
+    env: Record<string, string | undefined> = { VITE_OSN_ISSUER_URL: ISSUER },
+  ): Promise<string> {
     const outDir = await mkdtemp(join(tmpdir(), "musubi-csp-hooks-"));
     outDirs.push(outDir);
     await writeFile(join(outDir, "_headers"), `/*\n  Content-Security-Policy: ${COMMITTED}\n`);
@@ -187,7 +174,7 @@ describe("the plugin's own checks", () => {
       writeBundle: (options: object, bundle: Record<string, unknown>) => Promise<void>;
     };
     hooks.configResolved({
-      env: { VITE_OSN_ISSUER_URL: ISSUER },
+      env,
       root: outDir,
       build: { outDir: "." },
     });
@@ -196,6 +183,51 @@ describe("the plugin's own checks", () => {
   }
 
   const page = { type: "asset", fileName: "index.html", source: "<script>x</script>" };
+  const callsIssuer = (origin: string) => ({
+    "index.html": page,
+    "assets/a.js": { type: "chunk", fileName: "assets/a.js", code: `fetch("${origin}/token")` },
+  });
+
+  it("C1: names the issuer the build calls, and only that one", async () => {
+    const policy = policyOf(
+      await writeBundle(callsIssuer(ISSUER), { VITE_OSN_ISSUER_URL: `${ISSUER}/` }),
+    );
+
+    expect(policy).toMatch(new RegExp(`; connect-src 'self' ${ISSUER}$`));
+    expect(policy).not.toContain("id.musubi.social");
+  });
+
+  it("C1: names the local issuer the app falls back to when none is set", async () => {
+    const policy = policyOf(await writeBundle(callsIssuer("http://localhost:4000"), {}));
+
+    expect(policy).toMatch(/; connect-src 'self' http:\/\/localhost:4000$/);
+  });
+
+  it.each([
+    ["unset", undefined],
+    ["blank", "  "],
+  ])("C3: leaves Turnstile out when the sitekey is %s", async (_name, sitekey) => {
+    const policy = policyOf(
+      await writeBundle(callsIssuer(ISSUER), {
+        VITE_OSN_ISSUER_URL: ISSUER,
+        VITE_TURNSTILE_SITEKEY: sitekey,
+      }),
+    );
+
+    expect(policy).not.toContain(TURNSTILE_ORIGIN);
+    expect(policy).toMatch(/script-src 'self' 'sha256-[^']+'; connect-src/);
+  });
+
+  it("C3: adds Turnstile's host when the build carries a sitekey", async () => {
+    const policy = policyOf(
+      await writeBundle(callsIssuer(ISSUER), {
+        VITE_OSN_ISSUER_URL: ISSUER,
+        VITE_TURNSTILE_SITEKEY: "0x4AAAAAAA-sitekey",
+      }),
+    );
+
+    expect(policy).toContain(`script-src 'self' ${sha256("x")} ${TURNSTILE_ORIGIN};`);
+  });
 
   it("C6: refuses a bundle whose scripts do not call the issuer the policy names", async () => {
     await expect(
