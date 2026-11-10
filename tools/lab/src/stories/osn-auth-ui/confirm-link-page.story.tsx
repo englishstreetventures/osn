@@ -54,12 +54,16 @@ function never(): Promise<ConfirmOutcome> {
   return new Promise(() => {});
 }
 
-/** The first call fails at once, as a dropped connection would; the next confirms. */
-function failOnceThenConfirm(): () => Promise<ConfirmOutcome> {
+/**
+ * The first call fails at once, as a dropped connection would; after that a
+ * number confirms and a decline declines.
+ */
+function failOnceThenConfirm(): (pick: string | null) => Promise<ConfirmOutcome> {
   let calls = 0;
-  return () => {
+  return (pick) => {
     calls += 1;
-    return calls === 1 ? Promise.reject(new Error("story stub")) : answerAfter("confirmed");
+    if (calls === 1) return Promise.reject(new Error("story stub"));
+    return answerAfter(pick === null ? "declined" : "confirmed");
   };
 }
 
@@ -186,12 +190,28 @@ export const Expired = state(
   ),
 );
 
+export const ExpiredStepUp = state(
+  "expired, step-up",
+  <>
+    Step-up's expired page keeps its warning: an unasked step-up means someone else may be signed
+    in, so it says to sign out the other sessions. The other flows show the body alone.
+  </>,
+  () => (
+    <ConfirmLinkPage
+      purpose="step-up"
+      initialOutcome="expired"
+      onConfirm={() => Promise.resolve<ConfirmOutcome>("expired")}
+    />
+  ),
+);
+
 export const ErrorRetry = state(
   "error, try again",
   <>
     The confirm call threw. The numbers stay, disabled, with the one picked; a fixed line in a
     danger <Mono>Notice</Mono>, never the error's own text; and Try again, which sends the same
-    number. Press it: this time it confirms after 600 ms.
+    number. Press it: this time it confirms after 600 ms. "I didn't ask for this" stays open, and
+    sends no number as a new attempt: press it instead for "Cancelled".
   </>,
   () => {
     const onConfirm = failOnceThenConfirm();
@@ -278,10 +298,10 @@ function TypedIn(props: { value: string; children: JSX.Element }) {
 export const TypedNumber = state(
   "type the number",
   <>
-    Recovery asks for the number to be typed, not picked (the host passes <Mono>typeNumber</Mono>):
-    one field for up to six digits, Confirm once it holds one, and "I didn't ask for this". A
-    letter, a space or a seventh digit does nothing. Type a number and press Confirm or Enter: "You
-    typed … Confirming…", then "Confirmed" after 600 ms.
+    Recovery and step-up ask for the number to be typed, not picked (the host passes{" "}
+    <Mono>typeNumber</Mono>): one field for up to six digits, Confirm once it holds one, and "I
+    didn't ask for this". A letter, a space or a seventh digit does nothing. Type a number and press
+    Confirm or Enter: "You typed … Confirming…", then "Confirmed" after 600 ms.
   </>,
   () => (
     <ConfirmLinkPage
@@ -310,7 +330,8 @@ export const TypedNumberErrorRetry = state(
   "type the number, error, try again",
   <>
     The call threw. The field keeps "4821", disabled; "You typed 4821."; the danger notice; Try
-    again, which sends "4821" again and this time confirms after 600 ms.
+    again, which sends "4821" again and this time confirms after 600 ms; and "I didn't ask for
+    this", still open, which sends no number instead.
   </>,
   () => {
     const onConfirm = failOnceThenConfirm();
