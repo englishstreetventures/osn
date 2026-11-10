@@ -153,6 +153,7 @@ export function createAuthService(config: AuthConfig) {
     prepareAuthorization: oidc.prepareAuthorization,
     loadAuthorizeRequest: oidc.loadAuthorizeRequest,
     completeAuthorization: oidc.completeAuthorization,
+    declineAuthorization: oidc.declineAuthorization,
     buildOidcCodeRedirect: oidc.buildCodeRedirect,
     buildOidcErrorRedirect: oidc.buildErrorRedirect,
     exchangeAuthorizationCode: oidc.exchangeAuthorizationCode,
