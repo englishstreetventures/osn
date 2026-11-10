@@ -332,11 +332,14 @@ its own tiers, where this report writes `U-` findings. For a gesture, also read
 `.claude/skills/gestures/SKILL.md`; for a claim that an animation drops frames,
 `.claude/skills/animation-performance/SKILL.md`.
 
-- **The document wins.** A duration, easing, transform origin or reduced-motion
-  rule in the `DESIGN.md` or its stylesheet outranks `STANDARDS.md`: a miss
-  against the document is High, as any broken document rule is. Say in
-  `## Coverage` which value you held the animation to, and that the skill's
-  number gave way.
+- **The document is what ships, and the owner chooses.** Hold the animation to
+  the duration, easing, transform origin or reduced-motion rule in the
+  `DESIGN.md` or its stylesheet: a miss against the document is High, as any
+  broken document rule is, unless the branch records the owner's choice of
+  another value there. Where `STANDARDS.md` asks for something different, do not
+  drop it: write a finding for the owner's call, as the paragraph below on a look
+  the documents do not settle says, with both values, the document's file and
+  line, and the skill's. Say in `## Coverage` which value you held the animation to.
 - **A miss no document rules on is Medium**, or Low where it is polish no one
   sees at a glance. A motion on a keyboard action or a high-frequency control is
   Medium; so is an animation of `width`, `height`, `top` or `left` where
