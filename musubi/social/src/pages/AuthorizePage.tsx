@@ -361,9 +361,9 @@ export function AuthorizePage() {
         </Match>
 
         <Match when={screen() === "dead"}>
-          <Card padding="lg" class="text-center">
+          <Card padding="lg" class="flex flex-col gap-2">
             <h1 class="text-foreground text-title font-medium">{deadMessage()}</h1>
-            <p class="text-muted-foreground text-body mt-2">
+            <p class="text-muted-foreground text-body">
               <Show when={clientName()} fallback="Go back to the app you came from and try again.">
                 {(name) => <>Go back to {name()} and start again.</>}
               </Show>
@@ -372,12 +372,14 @@ export function AuthorizePage() {
         </Match>
 
         <Match when={screen() === "error"}>
-          <Card padding="lg" class="text-center">
-            <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
-            <p class="text-muted-foreground text-body mt-2" role="alert">
-              {loadError()}
-            </p>
-            <Button class="mt-4" onClick={() => void refetch()}>
+          <Card padding="lg" class="flex flex-col gap-6">
+            <div class="flex flex-col gap-2">
+              <h1 class="text-foreground text-title font-medium">Could not load this request</h1>
+              <Notice tone="danger" size="inline" alert>
+                {loadError()}
+              </Notice>
+            </div>
+            <Button size="lg" class="w-full max-md:h-11" onClick={() => void refetch()}>
               Try again
             </Button>
           </Card>
