@@ -16,16 +16,19 @@
  * On the way it measures and shoots the surfaces these pages draw from shared
  * parts (`musubi-surfaces.ts`): the create and edit dialogs' padded bodies and
  * footers, the list's rows on `Card`, the roster's names and role `Chip`, a
- * search result's name. Last, it loads `/authorize` with no request, which
- * runs outside the session provider, and reads its dead-end box on `Card`.
+ * search result's name. It holds the create's POST and the rename's PATCH long
+ * enough to read each dialog's busy button ("Creating…", "Saving…"). Last, it
+ * loads `/authorize` with no request, which runs outside the session provider,
+ * and reads its dead-end box on `Card`.
  */
 
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 
 import { DB_FILES, MUSUBI_ORG, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, signInToMusubiAsDev, test } from "../support/fixtures";
 import {
   authorizeDeadSurfaces,
+  busyButtonHeld,
   orgCreateDialogSurfaces,
   orgEditDialogSurfaces,
   orgListSurfaces,
@@ -56,6 +59,26 @@ async function hold(page: Page, url: string): Promise<() => void> {
   return release;
 }
 
+/**
+ * Holds the browser's `method` requests to exactly `url` until `release` runs;
+ * the preflight and every other method go on. Undo it with `page.unroute(url,
+ * handler)` once released.
+ */
+function holdMethod(method: string): {
+  handler: (route: Route) => Promise<void>;
+  release: () => void;
+} {
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const handler = async (route: Route) => {
+    if (route.request().method() === method) await released;
+    await route.fallback();
+  };
+  return { handler, release };
+}
+
 /** Members `org` has, read from osn-api's database. */
 function memberRows(): number {
   const row = queryOne<{ n: number }>(
@@ -83,8 +106,27 @@ test("musubi-org-detail", async ({ page, flow }) => {
   });
   await orgCreateDialogSurfaces(flow, page);
   const orgLink = page.getByRole("link", { name: new RegExp(org.name) });
+  // The create is held until its busy button has been read: the button must
+  // keep focus through the wait, which `disabled` would drop.
+  const orgsUrl = `${ORIGINS.osnApi}/organisations`;
+  const createHeld = holdMethod("POST");
+  await page.route(orgsUrl, createHeld.handler);
+  try {
+    await flow.step("create the organisation: Create waits on the POST", async () => {
+      await createDialog.getByRole("button", { name: "Create", exact: true }).click();
+      await expect(createDialog.getByRole("button", { name: "Creating…" })).toBeVisible();
+    });
+    await busyButtonHeld(
+      flow,
+      createDialog.getByRole("button", { name: "Creating…" }),
+      "Creating…",
+      "create busy",
+    );
+  } finally {
+    createHeld.release();
+    await page.unroute(orgsUrl, createHeld.handler);
+  }
   await flow.step("create the organisation", async () => {
-    await createDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(page.getByText(`Created ${org.name}`)).toBeVisible();
     await expect(orgLink).toBeVisible();
   });
@@ -139,8 +181,25 @@ test("musubi-org-detail", async ({ page, flow }) => {
     await editDialog.getByLabel("Name", { exact: true }).fill(org.renamed);
   });
   await orgEditDialogSurfaces(flow, page);
+  const orgUrl = `${ORIGINS.osnApi}/organisations/${org.handle}`;
+  const saveHeld = holdMethod("PATCH");
+  await page.route(orgUrl, saveHeld.handler);
+  try {
+    await flow.step("rename the organisation: Save waits on the PATCH", async () => {
+      await editDialog.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(editDialog.getByRole("button", { name: "Saving…" })).toBeVisible();
+    });
+    await busyButtonHeld(
+      flow,
+      editDialog.getByRole("button", { name: "Saving…" }),
+      "Saving…",
+      "save busy",
+    );
+  } finally {
+    saveHeld.release();
+    await page.unroute(orgUrl, saveHeld.handler);
+  }
   await flow.step("rename the organisation", async () => {
-    await editDialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: org.renamed })).toBeVisible();
   });
   const saved = queryOne<{ name: string; created_at: number }>(

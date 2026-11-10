@@ -1092,10 +1092,48 @@ export async function signInLinkSurfaces(flow: Flow, page: Page): Promise<void> 
 }
 
 /**
- * A busy `Button`, pressed with the pointer and waiting: its label the wait's
- * own, announced busy and unavailable but not `disabled`, still holding focus,
- * dimmed, with the 20px orb before its label. Shot under reduced motion, so
- * the orb is one still frame.
+ * A call site's busy `Button` while its wait is held: it reads the wait's own
+ * label, is announced busy and unavailable but is not `disabled`, and still
+ * holds focus. `what` starts each check's name, so two buttons' reads stay
+ * apart. A call site that puts `disabled` back for the wait fails here.
+ */
+export async function busyButtonHeld(
+  flow: Flow,
+  button: Locator,
+  label: string,
+  what: string,
+): Promise<void> {
+  flow.check(
+    `${what}: the button reads "${label}"`,
+    label,
+    ((await button.textContent()) ?? "").trim(),
+  );
+  flow.check(
+    `${what}: the button is aria-busy`,
+    "true",
+    (await button.getAttribute("aria-busy")) ?? "",
+  );
+  flow.check(
+    `${what}: the button is aria-disabled`,
+    "true",
+    (await button.getAttribute("aria-disabled")) ?? "",
+  );
+  flow.check(
+    `${what}: the button is not disabled`,
+    false,
+    await button.evaluate((el) => (el as HTMLButtonElement).disabled),
+  );
+  flow.check(
+    `${what}: the button keeps focus`,
+    true,
+    await button.evaluate((el) => el === document.activeElement),
+  );
+}
+
+/**
+ * A busy `Button`, pressed with the pointer and waiting: what
+ * `busyButtonHeld` reads, plus dimmed, with the 20px orb before its label.
+ * Shot under reduced motion, so the orb is one still frame.
  */
 export async function busyButtonSurfaces(
   flow: Flow,
@@ -1106,31 +1144,7 @@ export async function busyButtonSurfaces(
   // The orb's module loads on demand; until it lands a box holds its room.
   const orb = button.locator('canvas[aria-hidden="true"]');
   await expect(orb).toHaveCount(1);
-  flow.check(
-    `busy: the button reads "${label}"`,
-    label,
-    ((await button.textContent()) ?? "").trim(),
-  );
-  flow.check(
-    "busy: the button is aria-busy",
-    "true",
-    (await button.getAttribute("aria-busy")) ?? "",
-  );
-  flow.check(
-    "busy: the button is aria-disabled",
-    "true",
-    (await button.getAttribute("aria-disabled")) ?? "",
-  );
-  flow.check(
-    "busy: the button is not disabled",
-    false,
-    await button.evaluate((el) => (el as HTMLButtonElement).disabled),
-  );
-  flow.check(
-    "busy: the button keeps focus",
-    true,
-    await button.evaluate((el) => el === document.activeElement),
-  );
+  await busyButtonHeld(flow, button, label, "busy");
   flow.check(
     "busy: a pointer-pressed busy button is dimmed",
     "0.5",
