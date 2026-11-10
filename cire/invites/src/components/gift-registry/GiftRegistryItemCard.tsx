@@ -74,6 +74,8 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
   const [open, setOpen] = createSignal(false);
   /** The card's row of actions: Reserve or Change, and Release. */
   let actions!: HTMLDivElement;
+  /** The reserve form, while it is in the document. */
+  let form: HTMLFormElement | undefined;
   /**
    * The box's TEXT, not a number — so it can be empty while the guest retypes it.
    *
@@ -159,13 +161,15 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
   /**
    * Closes the form at once. When the focused control goes with it — Cancel,
    * Confirm once the reservation lands, a field when the last one is taken —
-   * the browser drops focus to the page; it goes to the card's first action
-   * that can be pressed instead. Focus the guest moved elsewhere stays put.
+   * the browser would drop focus to the page; it goes to the card's first
+   * action that can be pressed instead. Focus anywhere else stays put, and a
+   * form that is not open moves nothing.
    */
   function closeForm() {
+    const held = form?.isConnected === true && form.contains(document.activeElement);
     setOpen(false);
+    if (!held) return;
     queueMicrotask(() => {
-      if (document.activeElement !== document.body) return;
       actions.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     });
   }
@@ -354,7 +358,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
             own `pt-4` puts the gap and its 4px back once it opens. */}
         <div class="-mt-3">
           <Reveal pace="slow" when={open() && props.canClaim}>
-            <form class="flex flex-col gap-3 pt-4" onSubmit={submit}>
+            <form ref={form} class="flex flex-col gap-3 pt-4" onSubmit={submit}>
               <div class="flex flex-col gap-1">
                 <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
                   {/* The small caps are the words' alone: a field inherits a
