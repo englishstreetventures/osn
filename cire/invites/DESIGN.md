@@ -237,7 +237,8 @@ lands.
   cire duration, and the tick and the cue run CSS's `ease-out` and
   `ease-in-out` where every easing must be a token
   (`src/components/EventCard.tsx`; `--animate-tick-draw` and
-  `--animate-scroll-cue` in `src/styles/global.css`). No issue yet.
+  `--animate-scroll-cue` in `src/styles/global.css`).
+  englishstreetventures/osn#2197 puts each on a token and the scale.
 - **The unlock reveal runs on the `motion` library**, where motion is CSS
   only; its gala arrivals run on `cubic-bezier(0.16, 1, 0.3, 1)`, which is no
   token; and it fades the code form out over 350ms (300ms in gala), where a
@@ -246,12 +247,13 @@ lands.
 - **The swipe's settle spring runs on the `motion` library**, where motion is
   CSS only (`SETTLE_SPRING` in `src/components/sheet-swipe.ts`, started in
   `src/components/EventSheet.tsx`). It starts at the finger's speed, which a
-  fixed-length ease cannot, so whether it moves to CSS is the owner's call.
-  No issue yet.
+  fixed-length ease cannot, so whether it moves to CSS is the owner's call,
+  under englishstreetventures/osn#2197.
 - **`Modal`'s exit moves a box that holds live controls**, where such a box
   closes at once: `--dur-base` at a desk, 150ms on touch. The dialog stays
-  modal through the exit, so focus cannot leave it while it moves. No issue
-  yet.
+  modal through the exit, so focus cannot leave it while it moves. Whether the
+  exit stays or the rule names it is the owner's call, under
+  englishstreetventures/osn#2197.
 
 ### Reduced motion
 
