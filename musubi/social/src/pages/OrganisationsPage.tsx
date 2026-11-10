@@ -202,6 +202,7 @@ export function OrganisationsPage() {
                 size="sm"
                 class="max-md:h-10"
                 onClick={() => setShowCreate(false)}
+                disabled={creating()}
               >
                 Cancel
               </Button>

@@ -601,9 +601,11 @@ unavailable (`aria-busy`, `aria-disabled`), refuses a press and the Enter that
 would submit its form, dims to 50% except under keyboard focus, and draws the
 orb (§The orb).
 
-- **Only the button that started the wait.** Another action in the same form
-  is `disabled` while it runs: `@osn/auth-ui`'s "Verify email" while "Resend
-  code" sends, and the reverse.
+- **Only the button that started the wait.** Every other action in the same
+  form or dialog is `disabled` while it runs, its Cancel, Back and links among
+  them, so nothing leaves it mid-call: the organisation dialogs' Cancel while
+  Create or Save runs, `@osn/auth-ui`'s "Verify email" while "Resend code"
+  sends, and the reverse. A row's action leaves the other rows alone.
 - **The other reasons stay in `disabled`, and apply only while idle**
   (`disabled={!busy() && …}`). `disabled` wins over `busy` and drops focus to
   the page, so a reason that turns true mid-wait — the verification challenge
@@ -612,8 +614,9 @@ orb (§The orb).
   so no second request goes out whatever reaches it.
 - **Not for a wait the button did not start.** Settings → Security's
   "Checking…", while the recovery-code status first loads, stays `disabled`.
-  Buttons that show no working label (`StepUpDialog`'s factors,
-  `ChangeEmailForm`'s, `/authorize`'s Allow and Cancel) take none.
+- **As it stands.** `/authorize`'s Allow and Cancel are still `disabled` for
+  their wait, with no working label, until its consent screens are finished
+  (#2048).
 
 Uses in the app: the create-organisation dialog's Create ("Creating…"), the
 edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected

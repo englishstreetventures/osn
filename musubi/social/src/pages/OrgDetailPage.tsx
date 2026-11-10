@@ -303,6 +303,7 @@ export function OrgDetailPage() {
                 size="sm"
                 class="max-md:h-10"
                 onClick={() => setShowEdit(false)}
+                disabled={saving()}
               >
                 Cancel
               </Button>
