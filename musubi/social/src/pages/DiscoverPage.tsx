@@ -4,11 +4,11 @@ import { toast } from "@shared/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@shared/ui/ui/avatar";
 import { Button, buttonVariants } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
-import { Skeleton } from "@shared/ui/ui/skeleton";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { graphClient, recommendationClient } from "../lib/api";
 import { usePageTitle } from "../lib/page-title";
@@ -74,7 +74,9 @@ export function DiscoverPage() {
             fallback={
               <div class="grid gap-3 md:grid-cols-2">
                 {Array.from({ length: 4 }, () => (
-                  <Skeleton standsFor="card" height={28} />
+                  // A card is 114px, and 126px below `md`, where Connect
+                  // takes the touch height.
+                  <ResponsiveSkeleton standsFor="card" height={28.5} phoneHeight={31.5} />
                 ))}
               </div>
             }

@@ -15,6 +15,7 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { orgClient } from "../lib/api";
 import { usePageTitle } from "../lib/page-title";
 import { safeAvatarUrl } from "../lib/utils";
@@ -222,9 +223,12 @@ export function OrgDetailPage() {
                     <Show
                       when={members.state === "ready"}
                       fallback={
-                        <div class="flex flex-col gap-2">
+                        // A member row with Remove: 56px, and 60px below `md`,
+                        // where the button takes the touch height. An admin's
+                        // row has no Remove, and is 56px at both widths.
+                        <div class="flex flex-col gap-1">
                           {Array.from({ length: 2 }, () => (
-                            <Skeleton height={12} />
+                            <ResponsiveSkeleton height={14} phoneHeight={15} />
                           ))}
                         </div>
                       }

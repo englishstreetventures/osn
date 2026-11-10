@@ -15,11 +15,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@shared/ui/ui/dialog";
-import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SectionTabs } from "../components/SectionTabs";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { graphClient } from "../lib/api";
@@ -400,12 +400,15 @@ export function ConnectionsPage() {
   );
 }
 
-/** `count` rows' placeholders. */
+/**
+ * `count` rows' placeholders, spaced as the list is. A row is 56px, and 60px
+ * below `md`, where its buttons take the touch height.
+ */
 function LoadingSkeleton(props: { count: number }) {
   return (
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-1">
       {Array.from({ length: props.count }, () => (
-        <Skeleton height={14} />
+        <ResponsiveSkeleton height={14} phoneHeight={15} />
       ))}
     </div>
   );

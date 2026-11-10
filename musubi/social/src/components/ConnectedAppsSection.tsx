@@ -1,12 +1,13 @@
 import { describeAuthError } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
-import { Skeleton } from "@shared/ui/ui/skeleton";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { connectionsClient } from "../lib/authClients";
 import { safeAvatarUrl } from "../lib/utils";
+import { AppRowsLoading } from "./AppRowsLoading";
+import { EmptyNote } from "./EmptyNote";
 
 /**
  * Settings → Connected apps. Lists the relying parties this account has
@@ -14,7 +15,8 @@ import { safeAvatarUrl } from "../lib/utils";
  *
  * This is the user-facing half of the `/oidc/connections` API and the control
  * GDPR Art. 7(3) requires — "revoking must be as easy as granting". It replaced
- * a hardcoded, non-functional Pulse/Zap list.
+ * a hardcoded, non-functional Pulse/Zap list. Its lead paragraph is the
+ * page's (`SettingsPage`), so its words show while this section's code loads.
  */
 export function ConnectedAppsSection() {
   const [connections, { refetch }] = createResource(() =>
@@ -51,11 +53,6 @@ export function ConnectedAppsSection() {
 
   return (
     <div class="flex flex-col gap-4">
-      <p class="text-muted-foreground text-body">
-        Apps you have signed in to with your {PRODUCT_NAME} account. Revoking removes an app's
-        access; it will ask for your consent again the next time you sign in there.
-      </p>
-
       <Show when={error()}>
         <Notice tone="danger" size="inline" alert>
           {error()}
@@ -71,16 +68,16 @@ export function ConnectedAppsSection() {
           </Notice>
         </Show>
         <Show when={connections.loading && list() === undefined}>
-          <Skeleton standsFor="card" height={15.5} />
+          <AppRowsLoading />
         </Show>
         <Show when={list()}>
           {(apps) => (
             <Show
               when={apps().length > 0}
               fallback={
-                <p class="text-muted-foreground text-meta">
+                <EmptyNote size="section">
                   You haven't connected any apps to your {PRODUCT_NAME} account yet.
-                </p>
+                </EmptyNote>
               }
             >
               <div class="flex flex-col gap-2">

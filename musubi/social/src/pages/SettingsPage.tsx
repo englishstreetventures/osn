@@ -9,6 +9,7 @@ import { Skeleton } from "@shared/ui/ui/skeleton";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, lazy, Show, Suspense } from "solid-js";
 
+import { AppRowsLoading } from "../components/AppRowsLoading";
 import { SectionTabs } from "../components/SectionTabs";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { PRODUCT_NAME } from "../lib/auth";
@@ -199,6 +200,11 @@ export function SettingsPage() {
         {/* Connected apps section */}
         <Show when={section() === "apps"}>
           <Card padding="md" class="flex flex-col gap-4">
+            {/* Static words, so they show while the section's code loads. */}
+            <p class="text-muted-foreground text-body">
+              Apps you have signed in to with your {PRODUCT_NAME} account. Revoking removes an app's
+              access; it will ask for your consent again the next time you sign in there.
+            </p>
             <Suspense fallback={<ConnectedAppsLoading />}>
               <ConnectedAppsSection />
             </Suspense>
@@ -224,12 +230,11 @@ function SecurityLoading() {
   );
 }
 
-/** The connected apps' place while their code loads: the lead line and one app. */
+/** The connected apps' list's place while their code loads: one app's row. */
 function ConnectedAppsLoading() {
   return (
-    <div aria-busy="true" class="flex flex-col gap-4">
-      <Skeleton standsFor="line" height={5} />
-      <Skeleton standsFor="card" height={15.5} />
+    <div aria-busy="true">
+      <AppRowsLoading />
     </div>
   );
 }

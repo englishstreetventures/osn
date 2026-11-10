@@ -703,28 +703,61 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
 
 /**
  * The sign-in panel's place while its code loads, in the shape of the half
- * that leads: the heading, then sign-in's one labelled field, or sign-up's
- * four (the date of birth with its hint), then the button. A Suspense fallback
- * goes when the panel lands, and nothing holds both, so this wrapper carries
- * `aria-busy`.
+ * that leads: sign-in's heading, its one labelled field, Continue and "Lost
+ * your passkey?", then the "Create one" line under the panel; or sign-up's
+ * heading beside Cancel, its four labelled fields and the button. Words that
+ * wrap stay words, so they wrap where the panel's do: the heading, and the date
+ * of birth's hint. Labels, fields and buttons, which never wrap, are blocks,
+ * each the height the panel draws it (a 14px label; the email's is 16px, the
+ * height of the button beside it). A Suspense fallback goes when the panel
+ * lands, and nothing holds both, so this wrapper carries `aria-busy`.
  */
 function SignInLoading(props: { mode: "register" | "signIn" }) {
-  const fields = () => (props.mode === "register" ? [false, false, true, false] : [false]);
+  const register = () => props.mode === "register";
+  const fields = () =>
+    register()
+      ? [
+          { label: 4, hint: false },
+          { label: 3.5, hint: false },
+          { label: 3.5, hint: true },
+          { label: 3.5, hint: false },
+        ]
+      : [{ label: 3.5, hint: false }];
   return (
-    <div aria-busy="true" class="flex flex-col gap-4 px-4 py-8">
-      <Skeleton standsFor="line" width={48} height={8} class="mb-2" />
-      <For each={fields()}>
-        {(hint) => (
-          <div class="flex flex-col gap-1.5">
-            <Skeleton standsFor="line" width={28} height={4} />
-            <Skeleton standsFor="field" height={9} />
-            <Show when={hint}>
-              <Skeleton standsFor="line" width={64} height={4} />
-            </Show>
-          </div>
-        )}
-      </For>
-      <Skeleton standsFor="control" height={9} />
+    <div aria-busy="true">
+      <div class="mx-auto flex w-full max-w-sm flex-col gap-4 px-4 py-8">
+        <div class="mb-2 flex items-center justify-between">
+          <h2 class="text-foreground text-2xl font-bold">
+            {register() ? `Create your ${PRODUCT_NAME} account` : `Sign in to ${PRODUCT_NAME}`}
+          </h2>
+          <Show when={register()}>
+            {/* Cancel, as wide as the button, so the heading wraps as it does. */}
+            <Skeleton standsFor="control" width={16.4} height={8} />
+          </Show>
+        </div>
+        <For each={fields()}>
+          {(field) => (
+            <div class="flex flex-col gap-1.5">
+              <Skeleton standsFor="line" width={28} height={field.label} />
+              <Skeleton standsFor="field" height={9} />
+              <Show when={field.hint}>
+                <p class="font-ui-body text-ui-ink-secondary text-ui-xs leading-ui-snug">
+                  You must be 13 or older to create an account.
+                </p>
+              </Show>
+            </div>
+          )}
+        </For>
+        <Skeleton standsFor="control" height={9} />
+        <Show when={!register()}>
+          <Skeleton standsFor="control" width={35} height={8} class="self-center" />
+        </Show>
+      </div>
+      <Show when={!register()}>
+        <div class="px-4 pb-4">
+          <Skeleton standsFor="line" width={40} height={4.5} class="mx-auto" />
+        </div>
+      </Show>
     </div>
   );
 }
