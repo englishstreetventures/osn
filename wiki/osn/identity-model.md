@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-11
 ---
 # Identity Model
 
@@ -218,6 +218,8 @@ interface StoredAccount {
 | present, `hasSession === true` | none, or expired | **Rehydrate from the cookie** via the same `/token` grant, naming the stored active profile, so a reload keeps the profile it was on. Every reload takes this path. A refused grant also removes the stored account, so the next load spends no grant on a dead cookie; a transient failure keeps it. |
 
 `toSession` yields `null` without a valid token, so a `loadSession` that trusted the stored account alone would report every reloaded user as signed out while the cookie is alive; the third case is what stops that.
+
+A session set or ended while the bootstrap grant is out wins: a sign-in adopted, a log out, or another tab storing another sign-in or none. The load then resolves to the session the page holds, or `null`, and the grant's answer is neither saved nor, if refused, allowed to forget the stored account ([[sessions#Renewal in the browser]]).
 
 **Single-flight + retry/backoff.** Both cold-start and rehydrate go through one shared, single-flighted cookie grant (`fetchTokenGrant`), so concurrent mounts fire **exactly one** `/token` — replaying a rotated cookie a second time would trip C2 reuse detection and revoke the family. The grant classifies failures:
 
