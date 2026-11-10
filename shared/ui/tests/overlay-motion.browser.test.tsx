@@ -20,7 +20,7 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "../src/ui/dialog";
 import {
@@ -64,6 +64,8 @@ interface Overlay {
   panel: () => HTMLElement | null;
   /** Close it, and wait until it has gone and the next open would start cold. */
   close: () => Promise<void>;
+  /** The viewport width it runs at, where its shape depends on one. */
+  width?: number;
 }
 
 const away = () => screen.getByRole("button", { name: "Away" });
@@ -192,6 +194,26 @@ async function cycle(overlay: Overlay): Promise<{ enter?: Started; exit?: Starte
   return { enter: on("ui-enter"), exit: on("ui-exit") };
 }
 
+/**
+ * `Dialog` as the bottom sheet pulse's share dialog and most of Musubi's
+ * dialogs take, at a phone width so its `max-md:` classes apply. Only the fade
+ * cases run it: a slide added to those classes leaves every centred case green.
+ */
+const DIALOG_SHEET: Overlay = {
+  ...OVERLAYS.dialog,
+  name: "Dialog, sheet",
+  width: 390,
+  view: frame(() => (
+    <Dialog>
+      <DialogTrigger>Open dialog</DialogTrigger>
+      <DialogContent presentation="sheet">
+        <DialogTitle>A dialog</DialogTitle>
+        <p>Its body.</p>
+      </DialogContent>
+    </Dialog>
+  )),
+};
+
 const EXITING = [OVERLAYS.dialog, OVERLAYS.popover, OVERLAYS.menu];
 
 describe("an overlay's exit", () => {
@@ -258,6 +280,20 @@ describe("a fade with no scale", () => {
     document.documentElement.style.setProperty("--ui-scale-exit", "1");
   }
 
+  /** The width every other case runs at, put back after a case that narrows it. */
+  const home = { width: innerWidth, height: innerHeight };
+
+  async function atWidth(width: number, height = 800) {
+    await page.viewport(width, height);
+    await vi.waitFor(() => {
+      if (innerWidth !== width) throw new Error("viewport not resized yet");
+    });
+  }
+
+  afterEach(async () => {
+    if (innerWidth !== home.width) await atWidth(home.width, home.height);
+  });
+
   interface Held {
     transform: string;
     opacity: number;
@@ -293,6 +329,7 @@ describe("a fade with no scale", () => {
 
   /** Open and close `overlay`, holding its `name` run at `at` of the way through. */
   async function heldFrame(overlay: Overlay, name: "ui-enter" | "ui-exit", at: number) {
+    if (overlay.width) await atWidth(overlay.width);
     render(overlay.view);
     const hold = holdAt(overlay, name, at);
     await openPanel(overlay);
@@ -310,7 +347,7 @@ describe("a fade with no scale", () => {
   // scaled frame, so an identity after it is the tokens' doing and not a
   // missed frame.
 
-  for (const overlay of Object.values(OVERLAYS)) {
+  for (const overlay of [...Object.values(OVERLAYS), DIALOG_SHEET]) {
     it(`${overlay.name}: fades in with no transform when both scale tokens are 1`, async () => {
       const scaled = await heldFrame(overlay, "ui-enter", 0);
       expect(identity(scaled.transform), `control entry held at ${scaled.transform}`).toBe(false);
@@ -322,7 +359,7 @@ describe("a fade with no scale", () => {
     });
   }
 
-  for (const overlay of EXITING) {
+  for (const overlay of [...EXITING, DIALOG_SHEET]) {
     it(`${overlay.name}: fades out with no transform when both scale tokens are 1`, async () => {
       const scaled = await heldFrame(overlay, "ui-exit", 0.5);
       expect(identity(scaled.transform), `control exit held at ${scaled.transform}`).toBe(false);
