@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Use when running the retrospective on a piece of work that has just finished — the retro, normally the step straight after `prep-pr` opens the pull request — to write and commit the session-metrics card for the branch, read what the session actually cost against the difficulty declared before it started, and turn that into concrete changes to the skills, `AGENTS.md`, the wiki, the tests or the brief. Also the owner of the card — nothing else writes one carrying the pull request's identity.
+description: Use when running the retrospective on a piece of work that has just finished — the retro, normally run by `prep-pr` just before its first push — to write and commit the session-metrics card for the branch, read what the session actually cost against the difficulty declared before it started, and turn that into concrete changes to the skills, `AGENTS.md`, the wiki, the tests or the brief. Also the owner of the card: the `SessionEnd` hook and `backfill` only fill gaps in it.
 ---
 
 Run the retrospective for the branch named in `$ARGUMENTS`, or the current
@@ -12,8 +12,9 @@ Two things, always, whatever else fails:
 
 1. **The card.** `.claude/metrics/<branch-slug>.json` — or
    `<branch-slug>-<pr>.json` on a branch name an earlier pull request used —
-   carrying this branch's pull request number, issue number and issue labels — committed, pushed, and
-   rendered onto the pull-request body as a `<details>` block. This skill owns
+   carrying this branch's issue number and issue labels, and its pull request
+   number once one exists — committed, and its `<details>` block put on the
+   pull-request body. This skill owns
    that file. Step 1 is not optional and is not the part to drop when the run
    gets long.
 2. **`RETRO.md`** at the repo root: the findings, each one naming the evidence
@@ -30,12 +31,15 @@ do.
 
 ## Where this sits
 
-`new-feat`, implement, `prep-pr`, then this. Under `orchestrate`, once per task,
-after that task's pull request is open and before the shepherd watches it.
+`new-feat`, implement, `prep-pr` up to its push, then this, then `prep-pr`
+pushes and opens the pull request (its Step 9). Under `orchestrate`, once per
+task, the same way.
 
-After `prep-pr` and not inside it, because `prep-pr` dispatches up to five
-review agents: a card written before they finish measures building the change
-rather than shipping it.
+After `prep-pr`'s reviews and fixes, because a card written before they finish
+measures building the change rather than shipping it. Before its push, because
+a card committed once the pull request is open is a second push, and the pull
+request runs CI twice. Any wiki fix this run makes goes in before that push for
+the same reason.
 
 ## Before Step 1 — what can actually run
 
@@ -74,16 +78,74 @@ record, and it is written first so a run that ends early still leaves it behind.
 
 ```bash
 BRANCH=$(git branch --show-current)
-PR=$(gh pr view --json number --jq .number)
-```
+SLUG=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//')
+PR=$(gh pr view --json number --jq .number 2>/dev/null)   # empty until the pull request opens
+BLOCK="${TMPDIR:-/tmp}/card-$SLUG.md"
 
-Then the two runs, which do different jobs:
-
-```bash
 # The diff is measured against `--base`, which defaults to origin/main. On a
 # stacked branch that counts the parent's whole diff as this one's.
 BASE="origin/$(git config --get "branch.$BRANCH.gh-merge-base" || echo main)"
+```
 
+### Before the pull request opens
+
+The usual case: `prep-pr` Step 9 runs this before its first push, so the card
+goes out in that push and the pull request runs CI once. `--resolve-issue`
+finds nothing yet — `resolveIdentity` in `tools/pr-metrics/index.ts` returns as
+soon as `gh pr list --head` lists no pull request, before it reads
+`NEW-FEAT.md` — so name the issue and pass its labels. Only this
+repository's issue: the `card` run takes any number it is given, and a tracker
+number on a card is a disclosure. The `grep` below matches a bare `#N` and
+nothing else, so a tracker reference (`englishstreetventures/osn-tracker#N`)
+leaves `FLAGS` empty:
+
+```bash
+ISSUE=$(grep -m1 -oE '^Issues?: #[0-9]+' NEW-FEAT.md | grep -oE '[0-9]+$')
+FLAGS=()
+[ -n "$ISSUE" ] && FLAGS=(--issue "$ISSUE" --issue-labels \
+  "$(gh issue view "$ISSUE" --repo englishstreetventures/osn --json labels --jq '[.labels[].name] | join(",")')")
+
+# 1. The committed card.
+bun run --cwd tools/pr-metrics card -- "${FLAGS[@]}" --base "$BASE"
+
+# 2. The `<details>` block for the pull-request body, warnings excluded.
+bun run --cwd tools/pr-metrics card -- "${FLAGS[@]}" --base "$BASE" --format markdown > "$BLOCK"
+```
+
+The card names the issue, carries its labels and declares its rating; its
+`pr.number` stays null, since the number does not exist until the pull request
+opens and opening it starts CI. Nothing reads that gap wrongly. The
+`SessionEnd` hook's `--if-absent` leaves a card naming this branch alone; a
+later `card -- --resolve-issue` run writes the number over it, since a card
+that names no pull request is there to be replaced (`otherPullRequest`); and
+`backfill` fills it in after the merge, keeping the card's review counts and
+rating.
+
+- **A tracker issue passes neither flag**, as above: its number and labels
+  never reach a public card. The card names no issue and records no rating
+  until `backfill` reads the tracker's rating after the merge.
+- **Several issues here:** name the branch's own and pass its labels. The card
+  declares that one rating until `backfill` sums every issue the merge closed.
+- **A branch name an earlier pull request used** — `new-feat` Step 1's check
+  names one: write the card once the pull request is open, below. Before then
+  `card` cannot keep the two apart; it refuses, with exit 1, only when the
+  earlier card is on disk.
+
+Commit the card and stop: no push and no body edit. The caller appends
+`$BLOCK` to its body file and pushes.
+
+```bash
+CARD=".claude/metrics/$SLUG.json"
+git add "$CARD"
+git commit -m "chore: session-metrics card for $BRANCH"
+```
+
+### Once the pull request is open
+
+An adopted branch, or a card written again. `--resolve-issue` now finds the
+pull request:
+
+```bash
 # 1. The committed card. `--resolve-issue` finds the pull request, names the
 #    issue the branch was cut for and sums the `complexity:` ratings of every
 #    issue in this repository the pull request closes, or, when it links none
@@ -91,7 +153,7 @@ BASE="origin/$(git config --get "branch.$BRANCH.gh-merge-base" || echo main)"
 bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE"
 
 # 2. The `<details>` block for the pull-request body, on stdout, warnings excluded.
-bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE" --format markdown > /tmp/card.md
+bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE" --format markdown > "$BLOCK"
 ```
 
 Five rules about that pair:
@@ -124,8 +186,8 @@ Five rules about that pair:
 - **Pass explicit flags only where you know better than `gh` does.** `--pr`,
   `--issue-labels` and `--complexity` win over the lookup; `--issue-labels`
   turns the rating lookup off and declares that one issue's rating; pass this
-  repository's issue's labels only, never a tracker issue's. The usual
-  reason is a branch whose pull request is not open yet.
+  repository's issue's labels only, never a tracker issue's. Before the pull
+  request opens they are the only source, as above.
 - **Commit the JSON with the branch.** `~/.claude/projects` is local,
   unversioned and dies with a remote container. The committed file is the
   record; an uncommitted one is nothing. Stage the one card, never the
@@ -142,15 +204,21 @@ gh api repos/englishstreetventures/osn/pulls/"$PR" --jq '{state, merged}'
 On `merged: true` or `state: closed`, stop before the push and the body edit. Do not push to the branch, and do not edit the body: a merged pull request's body is the record of what merged. Cut a new branch from `origin/main`, commit the card there, and open a follow-up pull request as `write-pr` Step 6 says.
 
 ```bash
-SLUG=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//')
 CARD=".claude/metrics/$SLUG.json"
 [ -f ".claude/metrics/$SLUG-$PR.json" ] && CARD=".claude/metrics/$SLUG-$PR.json"
 git add "$CARD"
 git commit -m "chore: session-metrics card for $BRANCH"
-git push
+```
 
+When a caller is about to push the branch — `review-pr` Step 7 — stop here and
+leave `$BLOCK` to it. Otherwise push and append the block to the live body.
+That push starts another CI run, which is why `prep-pr` runs this step before
+its own push:
+
+```bash
+git push
 gh pr view "$PR" --json body --jq .body > /tmp/body.md
-cat /tmp/card.md >> /tmp/body.md
+cat "$BLOCK" >> /tmp/body.md
 gh pr edit "$PR" --body-file /tmp/body.md
 ```
 
@@ -186,9 +254,10 @@ network: commit the card locally; it pushes with the next push.
 `card -- --if-absent --resolve-issue`, so it writes a card for a branch that has
 none and never touches one this skill committed.
 
-A card with `pr.number: null` is one the hook wrote before a pull request
-existed. **Its spend and interaction numbers are as good as any other card's** —
-only its identity is missing, and Step 1 fills that in where it can run. Where
+A card with `pr.number: null` was written before its pull request opened:
+by Step 1, which names the issue and its rating, or by the hook, which names
+neither. **Its spend and interaction numbers are as good as any other card's** —
+only the hook's card misses its identity, and Step 1 fills that in where it can run. Where
 it cannot, say the identity is missing and go on to read the rest: an incomplete
 card is still the measurement, and the comparison in Step 2 is the reason this
 skill exists.
@@ -338,7 +407,7 @@ rest, and say how many you cut. A list of nine is a list nobody reads.
 
 | Kind | Where | Labels |
 |---|---|---|
-| A wiki page change | **Make it on this branch** while the pull request is open — a plain wiki edit needs no fresh review | — |
+| A wiki page change | **Make it on this branch**, before the push when the pull request is not open yet, so it rides the same CI run — a plain wiki edit needs no fresh review | — |
 | An `AGENTS.md`, skill or agent-definition change | **Make it on the follow-up pull request** (`prep-pr` Step 6), which gets its own reviews; never on this branch after its reviews have run | — |
 | A missing test, house rule or CI gate | **Make it** on the follow-up pull request when it fits in one package; an issue in `englishstreetventures/osn` only when it is a project of its own | `area:ops` or `area:schema` as it fits, `--type Task` |
 | Anything about the brief | **No issue.** It goes in `RETRO.md` and is said plainly in the reply | — |

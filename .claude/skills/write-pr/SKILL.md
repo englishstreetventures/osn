@@ -10,7 +10,7 @@ A pull request has three readers. The owner reads it today to decide whether to 
 This skill owns the **title and the body**. `prep-pr` owns the gates that feed them — base branch, changeset, builds, reviews, findings filed — and hands over at its Step 8. Two things this skill does not own:
 
 - **An issue**, including a finding filed during the work: `write-issue`.
-- **The session-metrics block.** `retro` appends its `<details>` block after the pull request opens. Leave no placeholder for it, and put nothing after it.
+- **The session-metrics block.** `retro` renders its `<details>` block, and `prep-pr` Step 9 appends it to the body file before the pull request opens. Leave no placeholder for it, and put nothing after it.
 
 A worked body, before and after, is in `references/examples.md`.
 

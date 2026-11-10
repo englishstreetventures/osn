@@ -93,6 +93,7 @@ An unrated item goes through `rate-complexity`, with the owner if they are here 
 
 - **Capacity.** About three code-writing agents at once, one per pull request however many issues it closes, counting In Review fixes and tasks already running. Five or six at once have stopped every agent on usage limits. Start fewer when pull requests are already waiting on the owner's review, and write in the block how many are waiting and why you chose the number. The rest becomes the Queue, in order.
 - **Files.** Name the files each item touches. Two items that edit the same file go in one PR or run one after the other, never in parallel.
+- **CI flakes first.** An item that fixes a check failing for reasons no change causes, one that ejects merge-queue groups, heads the batch, ahead of feature work.
 - **One PR for several items** only when they are one unit of work: the same files, one read for the reviewer.
 - **Tracker items** (`osn-tracker`) take `new-feat`'s tracker path for the branch name, and the PR body carries only a bare `Closes englishstreetventures/osn-tracker#<n>` line (`write-pr`).
 - `pick-agent` chooses each agent.

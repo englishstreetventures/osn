@@ -135,10 +135,11 @@ rejected in writing only when you can name the fact it got wrong, or escalated
 to the owner when its facts stand and the choice is theirs. Implementation starts
 when none is open and every escalation has an answer.
 
-It decides for itself whether the plan is worth attacking — a rename or a flag on
-a value already traced to its reader is skipped, anything touching auth, schema, a
-Worker binding, a build config, more than one package, or a whole class of defect
-is not. Do not pre-empt that call; invoke it and let it skip.
+It decides for itself whether the plan is worth attacking — from the issue's
+complexity first (3 or less is skipped unless it touches tokens, sessions, rate
+limits, step-up, recovery or OpenID Connect; above 3 never is), and for an
+unrated issue from what the plan touches. Do not pre-empt that call; invoke it
+and let it skip.
 
 This is the one gate with no downstream equivalent. `prep-pr`'s reviews check the
 code against the plan; nothing else checks the plan against the repo.
