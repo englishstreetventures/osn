@@ -10,6 +10,7 @@ import { Button } from "@shared/ui/ui/button";
 import { InfoPopover } from "@shared/ui/ui/info-popover";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
+import { Notice } from "@shared/ui/ui/notice";
 import { UsernameInput } from "@shared/ui/ui/username-input";
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
 import { createSignal, Show, onCleanup, onMount } from "solid-js";
@@ -39,6 +40,8 @@ const LIMIT_LINE =
   "We've sent all the links we can for this sign-up. Use the newest one, or go back and start again.";
 const RESEND_FAILED_LINE = "We couldn't send a new link just now. Try again in a moment.";
 const CONFLICT_LINE = "That handle was taken while you waited. Choose another.";
+/** The handle-taken line's id, which the handle field names while the line shows. */
+const CONFLICT_LINE_ID = "reg-handle-conflict";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -136,6 +139,9 @@ export function Register(props: RegisterProps) {
 
   function onHandleInput(value: string) {
     const next = value.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    // The details step's one line is about the handle that was taken; a new
+    // handle answers it, and the field's own check takes over.
+    if (next !== handle()) setDetailsError(null);
     setHandle(next);
     if (handleTimer) clearTimeout(handleTimer);
     if (!next) {
@@ -550,6 +556,7 @@ export function Register(props: RegisterProps) {
                 required
                 value={handle()}
                 onInput={onHandleInput}
+                aria-describedby={detailsError() ? CONFLICT_LINE_ID : undefined}
                 status={handleStatus()}
                 placeholder="lowercase, numbers, _"
                 invalidMessage="1–30 chars: lowercase letters, numbers, underscores"
@@ -597,9 +604,9 @@ export function Register(props: RegisterProps) {
 
             <Show when={detailsError()}>
               {(line) => (
-                <p role="alert" class="text-destructive text-sm">
+                <Notice tone="danger" size="inline" alert id={CONFLICT_LINE_ID}>
                   {line()}
-                </p>
+                </Notice>
               )}
             </Show>
 

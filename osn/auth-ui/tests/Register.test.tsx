@@ -741,6 +741,30 @@ describe("Register component", () => {
       expect(screen.getByRole("alert").textContent).toMatch(/taken while you waited/i);
       expect(document.activeElement).toBe(screen.getByLabelText("Handle"));
     });
+
+    it("ties the reason to the handle field, so it is read with the field that took focus", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      const alert = screen.getByRole("alert");
+      expect(alert.id).not.toBe("");
+      expect(screen.getByLabelText("Handle").getAttribute("aria-describedby")).toBe(alert.id);
+    });
+
+    it("drops the reason once the person changes the handle, and with it the field's description", async () => {
+      stub.beginRegistration.mockResolvedValue(begun());
+      stub.registrationStatus.mockResolvedValue({ status: "conflict" });
+      renderRegister();
+      await submitDetailsAs();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => screen.getByRole("button", { name: /Send verification link/i }));
+      const field = fillHandle("alice_2");
+      expect(screen.queryByText(/taken while you waited/i)).toBeNull();
+      expect(field.hasAttribute("aria-describedby")).toBe(false);
+    });
   });
 
   describe("passkey step (mandatory)", () => {
