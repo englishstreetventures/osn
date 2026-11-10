@@ -739,7 +739,7 @@ A test that watches the chunk arrive cannot warm it: the warm-up loads the
 module before the first frame the test measures. Import every chunk the
 component waits for inside the test instead, after that measurement and before
 the `waitFor`. Musubi's rail draws once its own chunk and the shell dialogs'
-have both loaded, so its test imports the pair:
+have both loaded, so in the plain form its test imports the pair:
 
 ```ts
 const before = main(); // the first frame, the chunks still loading
@@ -754,11 +754,13 @@ The specifiers resolve to the URLs the app imports, so the imports join the
 load the app started and the page holds one copy of each module. The test's
 own budget, 15 seconds in the browser tier, covers the transform, and
 `waitFor` waits only for the render. A chunk left out of the list loads inside
-`waitFor`'s one second. In musubi,
+`waitFor`'s one second, so keep one list that the component and its tests both
+read. In musubi, `src/App.tsx` exports `shells`, whose `load` for each shell
+is what `Reserved` awaits before that shell draws, and
 [`musubi/social/tests/test-support/shell-chunks.ts`](../../musubi/social/tests/test-support/shell-chunks.ts)
-holds the pairs `Reserved` in `src/App.tsx` waits on, as `railChunks()` and
-`topBarChunks()`, and every wait for a shell in that package's browser tests
-awaits one of them first.
+awaits the same `load` in `railChunks()` and `topBarChunks()`. Every wait for
+a shell in that package's browser tests awaits one of them first, so a load
+added to a shell's `load` reaches those waits with no second edit.
 
 *Measured 2026-11-10 — in `musubi/social`, a throwaway Vitest config adding a Vite plugin that delays `Sidebar.tsx`'s transform by 2.5 s and logs each request for a shell module, then `bunx --bun vitest run --config <it> --no-fsModuleCache tests/App.browser.test.tsx`: waiting with `waitFor` alone, the first rail test failed at 1110–1131 ms in 3 of 3 runs; awaiting the chunks, it passed in 2645–2702 ms in 10 of 10, with one request per shell module in each run*
 
