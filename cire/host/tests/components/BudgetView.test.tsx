@@ -985,22 +985,32 @@ describe("BudgetView — a payment's paid box", () => {
   // than falling to the page.
   it("moves focus on from a deleted payment to the next one, then to the label field", async () => {
     const balance = { ...payment, id: "p2", label: "Balance", createdAt: 3 };
-    setCachedBudget("wed_1", snap({ items: [item], payments: [payment, balance] }));
+    const final = { ...payment, id: "p3", label: "Final", createdAt: 4 };
+    setCachedBudget("wed_1", snap({ items: [item], payments: [payment, balance, final] }));
     authFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
     render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
-    fireEvent.click(await screen.findByRole("button", { name: "payments (2)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "payments (3)" }));
 
+    // A ✕ pressed with focus elsewhere, as a click in Safari leaves it, moves
+    // nothing.
+    const amount = screen.getByRole("spinbutton", { name: "Amount" });
+    amount.focus();
     let [cross] = screen.getAllByRole("button", { name: "Delete payment" });
-    cross!.focus();
     fireEvent.click(cross!);
     expect(screen.queryByRole("checkbox", { name: "Deposit paid" })).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Balance paid" }));
+    expect(document.activeElement).toBe(amount);
+
+    [cross] = screen.getAllByRole("button", { name: "Delete payment" });
+    cross!.focus();
+    fireEvent.click(cross!);
+    expect(screen.queryByRole("checkbox", { name: "Balance paid" })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Final paid" }));
 
     [cross] = screen.getAllByRole("button", { name: "Delete payment" });
     cross!.focus();
     fireEvent.click(cross!);
     expect(screen.queryByRole("button", { name: "Delete payment" })).not.toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Payment label" }));
-    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(3));
   });
 });

@@ -18,7 +18,7 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import {
@@ -84,9 +84,8 @@ export default function BudgetView(props: BudgetViewProps) {
   const [newPerHead, setNewPerHead] = createSignal(false);
   const [expanded, setExpanded] = createSignal<string | null>(null);
   const [perHeadOpen, setPerHeadOpen] = createSignal<string | null>(null);
-  /** Each line's "per head" toggle, by item id. A save rebuilds the line,
-   *  toggle and all, so focus finds the new one here, not through the old line. */
-  const perHeadToggles = new Map<string, HTMLButtonElement>();
+  /** The view's own element: where `closePerHead` finds a line's toggle. */
+  let root!: HTMLDivElement;
 
   const budgetUrl = () => apiUrl(weddingPath(props.weddingId, "/budget"));
   const currency = () => snapshot()?.currency ?? "AUD";
@@ -275,14 +274,14 @@ export default function BudgetView(props: BudgetViewProps) {
 
   /** Closes a line's per-head panel. When that takes the focused control out of
    *  the document (Cancel, Save, "Use a fixed amount", or a save rebuilding the
-   *  line), focus goes back to the line's toggle instead of falling to the page.
-   *  Focus the organiser moved elsewhere while a save was out stays put. */
+   *  line), the browser drops focus to the page; it goes back to the line's
+   *  toggle instead. A save rebuilds the line, toggle and all, so the toggle is
+   *  found by item id. Focus the organiser moved elsewhere while a save was out
+   *  stays put. */
   const closePerHead = (itemId: string) => {
     setPerHeadOpen(null);
-    const active = document.activeElement;
-    const lost = active === null || active === document.body || !active.isConnected;
-    const toggle = perHeadToggles.get(itemId);
-    if (lost && toggle?.isConnected) toggle.focus();
+    if (document.activeElement !== document.body) return;
+    root.querySelector<HTMLElement>(`[data-per-head-toggle="${CSS.escape(itemId)}"]`)?.focus();
   };
 
   const savePerHead = (item: BudgetItemRow, perHead: PerHeadChange) =>
@@ -504,7 +503,7 @@ export default function BudgetView(props: BudgetViewProps) {
   };
 
   return (
-    <div class="flex flex-col gap-6">
+    <div ref={root} class="flex flex-col gap-6">
       <Show when={error()}>
         <Notice tone="danger" alert>
           {error()}
@@ -707,11 +706,6 @@ export default function BudgetView(props: BudgetViewProps) {
                                     // Non-null: rendered inside the DragDropProvider above.
                                     const [dndState] = useDragDropContext()!;
                                     const sortableItem = reorder.item(item.id, i, count);
-                                    let perHeadToggle: HTMLButtonElement | undefined;
-                                    onCleanup(() => {
-                                      if (perHeadToggles.get(item.id) === perHeadToggle)
-                                        perHeadToggles.delete(item.id);
-                                    });
                                     return (
                                       <li
                                         ref={sortable.ref}
@@ -788,10 +782,7 @@ export default function BudgetView(props: BudgetViewProps) {
                                           </Button>
                                           <Show when={props.canEdit && perHeadSupported()}>
                                             <Button
-                                              ref={(el: HTMLButtonElement) => {
-                                                perHeadToggle = el;
-                                                perHeadToggles.set(item.id, el);
-                                              }}
+                                              data-per-head-toggle={item.id}
                                               variant="bare"
                                               type="button"
                                               aria-expanded={perHeadOpen() === item.id}
