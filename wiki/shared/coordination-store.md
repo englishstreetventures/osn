@@ -179,7 +179,7 @@ mints is a wrong token, answered with that route's uniform 202.
   link's confirm ([[email-links]]) reads its entry and counts the guess on it in
   one `guess` before it compares the code or the link's secret, so guesses sent
   at once each take their own number and no guess can read the entry and count
-  from a number it no longer has. `begin`'s `write` starts the count at 0. A
+  from a stale number. `begin`'s `write` starts the count at 0. A
   right code claims its entry with `remove({ value })`, so of two right codes
   exactly one wins; email change claims beside its D1 preflight, before it
   commits, so one code commits one change. The guess that reaches the cap, when
