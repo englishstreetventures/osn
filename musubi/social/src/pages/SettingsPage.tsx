@@ -218,8 +218,8 @@ export function SettingsPage() {
 function SecurityLoading() {
   return (
     <div aria-busy="true" class="flex flex-col gap-3">
-      <Skeleton standsFor="line" width={24} height={7} />
-      <Skeleton height={17} />
+      <Skeleton standsFor="line" width={24} height={8} />
+      <Skeleton height={15.5} />
     </div>
   );
 }
@@ -229,7 +229,7 @@ function ConnectedAppsLoading() {
   return (
     <div aria-busy="true" class="flex flex-col gap-4">
       <Skeleton standsFor="line" height={5} />
-      <Skeleton standsFor="card" height={16} />
+      <Skeleton standsFor="card" height={15.5} />
     </div>
   );
 }

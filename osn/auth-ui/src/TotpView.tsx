@@ -214,7 +214,7 @@ export function TotpView(props: TotpViewProps) {
       >
         <div aria-busy={status.loading || undefined}>
           <Show when={status.loading}>
-            <Skeleton height={17} />
+            <Skeleton height={15.5} />
           </Show>
           <Show when={!status.loading && status.error}>
             {(err) => (

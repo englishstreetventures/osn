@@ -227,7 +227,7 @@ export function PasskeysView(props: PasskeysViewProps) {
           (every account has a passkey), the failure, or the list. */}
       <div aria-busy={passkeys.loading || undefined}>
         <Show when={passkeys.loading && list() === undefined}>
-          <Skeleton height={17} />
+          <Skeleton height={15.5} />
         </Show>
         <Show when={!passkeys.loading && passkeys.error}>
           {(err) => (

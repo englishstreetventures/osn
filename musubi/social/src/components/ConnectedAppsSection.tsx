@@ -71,7 +71,7 @@ export function ConnectedAppsSection() {
           </Notice>
         </Show>
         <Show when={connections.loading && list() === undefined}>
-          <Skeleton standsFor="card" height={16} />
+          <Skeleton standsFor="card" height={15.5} />
         </Show>
         <Show when={list()}>
           {(apps) => (

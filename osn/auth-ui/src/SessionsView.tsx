@@ -101,7 +101,7 @@ export function SessionsView(props: SessionsViewProps) {
           (this session is always on it), the failure, or the list. */}
       <div aria-busy={sessions.loading || undefined}>
         <Show when={sessions.loading && list() === undefined}>
-          <Skeleton height={17} />
+          <Skeleton height={15.5} />
         </Show>
         <Show when={!sessions.loading && sessions.error}>
           {(err) => (
