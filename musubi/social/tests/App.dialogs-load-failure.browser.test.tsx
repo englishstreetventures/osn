@@ -72,6 +72,7 @@ vi.mock("@osn/auth-ui/Register", () => ({
 
 import { Layout } from "../src/App";
 import { SignedOutNote } from "../src/components/SignedOutNote";
+import { railChunks, topBarChunks } from "./test-support/shell-chunks";
 
 beforeAll(async () => {
   await commands.failRequests("/src/components/ShellDialogSet.tsx");
@@ -115,6 +116,8 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
 
   await commands.restoreRequests();
   await page.viewport(390, 844);
+  // The top bar's first load, and the dialogs' chunk fetched again.
+  await topBarChunks();
   const signIn = await waitFor(() => {
     const button = screen
       .queryAllByRole("button", { name: "Sign in" })
@@ -135,6 +138,7 @@ it("keeps the rail's frame, with no Sign in, when the dialogs fail to load; a la
   // Back at the first width, where the rail now draws its own Sign in: the
   // note's button shows in the room it held, so the note is no taller.
   await page.viewport(1440, 900);
+  await railChunks();
   await waitFor(() => {
     const inRail = screen
       .queryAllByRole("button", { name: "Sign in" })

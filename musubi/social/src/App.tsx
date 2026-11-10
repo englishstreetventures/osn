@@ -133,6 +133,10 @@ function AppShell(props: { isMobile: boolean; children?: JSX.Element }) {
  * the session and profile resources, and a boundary above it would put the
  * frame back on every refetch.
  *
+ * The browser tests await the same loads, through
+ * `tests/test-support/shell-chunks.ts`, before they look for a shell; a load
+ * added here goes there too, or those waits fall back to a clock.
+ *
  * If either load fails (offline, or a chunk renamed by a deploy since the page
  * loaded) the frame stays and says to reload. The rejection is handled here,
  * so the page beside it keeps working.

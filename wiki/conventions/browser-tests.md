@@ -716,6 +716,13 @@ Apple-silicon Mac_
   `transitionDuration` first, so a clamped transition fails on its cause rather
   than as a confusing `scale === 1`.
 
+A wait for a lazy chunk's first arrival is the exception to the first rule's
+explicit `timeout`: it awaits the chunk's import inside the test or a hook,
+under that test's or hook's own budget (15 or 30 seconds in this tier), rather
+than under a `waitFor` timeout, since a cold transform on CI can outlast any
+`waitFor` budget picked from a local run. [[testing-patterns#A `lazy()` component's first render in a test]]
+gives both forms.
+
 ## Driving the whole app by hand
 
 This tier proves a component in isolation. The other half — opening the built

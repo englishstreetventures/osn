@@ -719,7 +719,8 @@ beforeAll(async () => {
 });
 ```
 
-The hook's ten-second budget covers the transform. The test still renders
+The hook's budget, ten seconds (thirty in the browser tier), covers the
+transform. The test still renders
 through `lazy()` and its `Suspense` boundary, so it waits only for the swap.
 Raising the first test's `waitFor` budget instead covers that test alone: run
 another with `-t` and it pays the load inside its own one-second wait. A module
@@ -733,6 +734,33 @@ its Chromium tests. [[browser-tests]] covers that tier. Without the warm-up, a
 run passed.
 
 *Measured 2026-11-05 — in `cire/invites`, a throwaway Vitest config adding a Vite plugin that delays `FaqSection.tsx`'s transform by 1.5 s, then `bunx vitest run --config <it> --no-fsModuleCache tests/designs/gala/InvitePage.test.tsx tests/designs/classic/InvitePage.test.tsx`, 10 runs each way: without the `beforeAll` both failed at 1010–1015 ms with `expected null to be truthy`; with it both passed in 11–39 ms*
+
+A test that watches the chunk arrive cannot warm it: the warm-up loads the
+module before the first frame the test measures. Import every chunk the
+component waits for inside the test instead, after that measurement and before
+the `waitFor`. Musubi's rail draws once its own chunk and the shell dialogs'
+have both loaded, so its test imports the pair:
+
+```ts
+const before = main(); // the first frame, the chunks still loading
+await Promise.all([
+  import("../src/components/Sidebar"),
+  import("../src/components/ShellDialogSet"),
+]);
+await waitFor(() => expect(railSignIn()).toBeDefined());
+```
+
+The specifiers resolve to the URLs the app imports, so the imports join the
+load the app started and the page holds one copy of each module. The test's
+own budget, 15 seconds in the browser tier, covers the transform, and
+`waitFor` waits only for the render. A chunk left out of the list loads inside
+`waitFor`'s one second. In musubi,
+[`musubi/social/tests/test-support/shell-chunks.ts`](../../musubi/social/tests/test-support/shell-chunks.ts)
+holds the pairs `Reserved` in `src/App.tsx` waits on, as `railChunks()` and
+`topBarChunks()`, and every wait for a shell in that package's browser tests
+awaits one of them first.
+
+*Measured 2026-11-10 — in `musubi/social`, a throwaway Vitest config adding a Vite plugin that delays `Sidebar.tsx`'s transform by 2.5 s and logs each request for a shell module, then `bunx --bun vitest run --config <it> --no-fsModuleCache tests/App.browser.test.tsx`: waiting with `waitFor` alone, the first rail test failed at 1110–1131 ms in 3 of 3 runs; awaiting the chunks, it passed in 2645–2702 ms in 10 of 10, with one request per shell module in each run*
 
 ## Schema-derived test databases
 
