@@ -1,33 +1,33 @@
+import { shells } from "../../src/App";
+
 /**
- * The chunks a shell waits for before it draws, for browser tests that wait
+ * The loads a shell waits for before it draws, for browser tests that wait
  * for a shell to arrive.
  *
  * `Reserved` in `src/App.tsx` draws the rail (`Sidebar`) or the phone top bar
- * (`MobileChrome`) only once that shell's chunk and the shell dialogs' chunk
- * (`ShellDialogSet`) have both loaded. These import the same pair, so a test
- * that awaits one after `render` resolves when the shell can draw, however long
- * the dev server takes to transform the modules; a `waitFor` after it covers
- * only the render that follows. Change them with `Reserved`.
+ * (`MobileChrome`) only once that shell's `load` in `shells` has resolved.
+ * These return the same `load`, so a test that awaits one after
+ * `render` resolves when the shell can draw, however long the dev server takes
+ * to transform the modules; a `waitFor` after it covers only the render that
+ * follows. A load added to a shell reaches these waits with no edit here.
  *
- * The specifiers resolve to the URLs the app imports, so the page holds one
- * copy of each module and this joins the load the app started rather than
- * fetching a second one. Call it after `render`, or a test that watches a cold
- * arrival starts the load itself. A chunk that fails to load rejects here,
- * naming its module.
+ * The shell's own chunk loads through the app's `lazy()`, so this joins the
+ * load the app started. The app loads the dialogs' chunk through
+ * `ShellDialogsProvider`, which a test cannot reach; here it is a plain
+ * import, whose specifier resolves to the URL the app imports, so the page
+ * still holds one copy of the module. Call these after `render`, or a test
+ * that watches a cold arrival starts the load itself. A chunk that fails to
+ * load rejects here, naming its module.
  */
 
-/** The rail's pair: `Sidebar` and the shell dialogs. */
-export async function railChunks(): Promise<void> {
-  await Promise.all([
-    import("../../src/components/Sidebar"),
-    import("../../src/components/ShellDialogSet"),
-  ]);
+const loadDialogs = () => import("../../src/components/ShellDialogSet").then(() => undefined);
+
+/** The rail's loads: `Sidebar` and the shell dialogs. */
+export function railChunks(): Promise<void> {
+  return shells.rail.load(loadDialogs);
 }
 
-/** The phone top bar's pair: `MobileChrome` and the shell dialogs. */
-export async function topBarChunks(): Promise<void> {
-  await Promise.all([
-    import("../../src/components/MobileChrome"),
-    import("../../src/components/ShellDialogSet"),
-  ]);
+/** The phone top bar's loads: `MobileChrome` and the shell dialogs. */
+export function topBarChunks(): Promise<void> {
+  return shells.topBar.load(loadDialogs);
 }
