@@ -330,8 +330,8 @@ export class OsnAuth extends Context.Service<OsnAuth, OsnAuthService>()("@osn/cl
 export interface OsnAuthLiveOptions {
   /**
    * Called after the service ends the session or resets the active profile
-   * itself — never for `logout`, `setSession` or `switchProfile`, whose
-   * callers already know. `createOsnAuthRuntime` fans it out to its listeners.
+   * itself — never for `logout` or `setSession`, whose callers already know,
+   * nor for the profile a `switchProfile` makes active. `createOsnAuthRuntime` fans it out to its listeners.
    */
   readonly onSessionChange?: (change: SessionChange) => void;
 }
@@ -461,7 +461,11 @@ export function createOsnAuthLive(
           const account = yield* getAccountSession();
           if (!loaded || !account) return account;
 
+          const generation = sessionGeneration;
           const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
+          // A session set or ended while storage was read is newer than what
+          // the read found.
+          if (sessionGeneration !== generation) return cache ?? null;
           if (raw === null) {
             yield* endSession();
             return null;
@@ -497,20 +501,25 @@ export function createOsnAuthLive(
 
       /**
        * Whether the answer to a request made at `mark` is for a session this
-       * page no longer holds, read just before the answer would be saved: the
-       * session was replaced or ended here, or another tab has stored another
-       * sign-in, or none, since. Another tab's change ends the session here
-       * too, as `syncFromStorage` would on its event, so its stored account is
-       * never written over.
+       * page no longer holds, read just before the answer would be saved or
+       * the session ended: the session was replaced or ended here, or another
+       * tab has stored another sign-in, or none, since. Another tab's change
+       * ends the session here too, as `syncFromStorage` would on its event, so
+       * its stored account is never written over or removed. The generation is
+       * compared after the storage read, so nothing can replace the session
+       * between this check and the write that follows it.
        */
       const superseded = (mark: Mark) =>
         Effect.gen(function* () {
-          if (sessionGeneration !== mark.generation) return true;
           const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
+          if (sessionGeneration !== mark.generation) return true;
           let signInId: string | null | undefined = null;
           if (raw !== null) {
             try {
-              signInId = decodeStoredAccount(JSON.parse(raw)).signInId;
+              // This page gives every stored account it reads a sign-in id
+              // (`getAccountSession`), so one without is another sign-in's,
+              // written by an older client: as `syncFromStorage` reads it.
+              signInId = decodeStoredAccount(JSON.parse(raw)).signInId ?? "";
             } catch {
               // Unreadable: it says nothing about which sign-in is stored.
               signInId = undefined;
@@ -682,7 +691,10 @@ export function createOsnAuthLive(
       const grantGone = () =>
         new TokenRefreshError({ cause: "the session this grant was for has gone" });
 
-      const fetchTokenGrant = (profileId: string | undefined, generation: number) =>
+      // `generation` is the session generation the grant was sent for, or
+      // `null` for a held session's, which no change of the page's session
+      // stops.
+      const fetchTokenGrant = (profileId: string | undefined, generation: number | null) =>
         Effect.gen(function* () {
           let lastError: TokenRefreshError = new TokenRefreshError({ cause: "no attempt" });
           let unknownRetried = false;
@@ -718,7 +730,9 @@ export function createOsnAuthLive(
               }
               unknownRetried = true;
               yield* Effect.sleep(`${UNKNOWN_GRANT_RETRY_DELAY_MS} millis`);
-              if (sessionGeneration !== generation) return yield* Effect.fail(grantGone());
+              if (generation !== null && sessionGeneration !== generation) {
+                return yield* Effect.fail(grantGone());
+              }
               continue;
             }
 
@@ -729,7 +743,9 @@ export function createOsnAuthLive(
             if (delay === undefined) return yield* Effect.fail(lastError);
             attempt += 1;
             yield* Effect.sleep(`${delay} millis`);
-            if (sessionGeneration !== generation) return yield* Effect.fail(grantGone());
+            if (generation !== null && sessionGeneration !== generation) {
+              return yield* Effect.fail(grantGone());
+            }
           }
         });
 
@@ -767,12 +783,15 @@ export function createOsnAuthLive(
         | { readonly _tag: "Success"; readonly success: ReturnType<typeof parseTokenResponse> };
       interface GrantInFlight {
         readonly profileId: string | undefined;
-        readonly generation: number;
+        readonly generation: number | null;
         readonly promise: Promise<GrantResult>;
       }
       let inFlightGrant: GrantInFlight | null = null;
 
-      const startGrant = (profileId: string | undefined, generation: number): GrantInFlight => {
+      const startGrant = (
+        profileId: string | undefined,
+        generation: number | null,
+      ): GrantInFlight => {
         const promise = Effect.runPromise(
           Effect.result(fetchTokenGrant(profileId, generation)),
         ) as Promise<GrantResult>;
@@ -784,17 +803,23 @@ export function createOsnAuthLive(
         return entry;
       };
 
-      // `generation` is the one the caller's request was made in.
-      const sharedTokenGrant = (profileId?: string, generation = sessionGeneration) =>
+      // `generation` is the one the caller's request was made in; `null` is a
+      // held session's, which joins any grant in flight as before.
+      const sharedTokenGrant = (
+        profileId?: string,
+        generation: number | null = sessionGeneration,
+      ) =>
         Effect.gen(function* () {
           for (;;) {
-            if (sessionGeneration !== generation) return yield* Effect.fail(grantGone());
+            if (generation !== null && sessionGeneration !== generation) {
+              return yield* Effect.fail(grantGone());
+            }
             const entry = inFlightGrant ?? startGrant(profileId, generation);
             const result = yield* Effect.tryPromise({
               try: () => entry.promise,
               catch: (cause) => new TokenRefreshError({ cause }),
             });
-            if (entry.generation !== generation) {
+            if (generation !== null && entry.generation !== generation) {
               if (inFlightGrant === entry) inFlightGrant = null;
               continue;
             }
@@ -855,9 +880,7 @@ export function createOsnAuthLive(
           return;
         }
         if (failure instanceof StorageError) return;
-        // A token came back, whatever happened after it. Or the renewal was
-        // for a session that has gone (`AuthExpiredError`), whose pause
-        // `supersede` has already cleared.
+        // A token came back, whatever happened after it.
         renewBackoffMs = 0;
         renewBlockedUntil = 0;
       };
@@ -951,12 +974,15 @@ export function createOsnAuthLive(
         });
 
       const startRefresh = () => {
+        const generation = sessionGeneration;
         // Result-wrapped so the shared promise never rejects — survives
         // FiberFailure wrapping from runPromise across Effect versions.
         const promise = (
           Effect.runPromise(Effect.result(doRefresh())) as Promise<RefreshResult>
         ).then((result) => {
-          noteRenewal(result);
+          // A renewal for a session that has gone neither sets nor clears the
+          // pause: the pause went with that session.
+          if (sessionGeneration === generation) noteRenewal(result);
           return result;
         });
         inFlightRefresh = promise;
@@ -1002,8 +1028,13 @@ export function createOsnAuthLive(
       // so `adoptSession`/`setSession` refuse it at compile time — see
       // `HeldSession` in `./tokens`.
       // -----------------------------------------------------------------------
+      // A held session is not the page's, so the page's session changing
+      // says nothing about it: its grant carries no generation.
       const refreshHeldSession = (): Effect.Effect<HeldSession, TokenRefreshError> =>
-        Effect.map(sharedTokenGrant(), (session): HeldSession => ({ held: true, session }));
+        Effect.map(sharedTokenGrant(undefined, null), (session): HeldSession => ({
+          held: true,
+          session,
+        }));
 
       // -----------------------------------------------------------------------
       // Cold-start bootstrap (production login-loop fix).
@@ -1036,6 +1067,9 @@ export function createOsnAuthLive(
       const doBootstrap = (wanted: string | undefined, signInId: string | undefined) =>
         Effect.gen(function* () {
           const mark: Mark = { generation: sessionGeneration, signInId: signInId ?? null };
+          // Another tab's sign-in is stored and this page holds none of it:
+          // the answer would be dropped, so no grant is sent.
+          if (yield* superseded(mark)) return cache ? toSession(cache) : null;
           const answer = yield* Effect.result(sharedTokenGrant(wanted, mark.generation));
 
           // The session was replaced or ended while the grant was out, here or
@@ -1252,8 +1286,7 @@ export function createOsnAuthLive(
        * A request belongs to the session it was made for. Once that session
        * is replaced or ended, the request is not renewed, not sent again and
        * ends nothing, and its answer, whatever it was, reaches the caller as
-       * `AuthExpiredError` instead: a request made as one account never goes
-       * out, or comes back, as another.
+       * `AuthExpiredError` instead.
        */
       const authFetch = (input: string, init?: RequestInit) =>
         Effect.gen(function* () {
@@ -1265,12 +1298,14 @@ export function createOsnAuthLive(
             );
           }
 
+          // Noted before the account is read: a session set while it is read
+          // makes this request one for the session before.
+          const generation = sessionGeneration;
           const account = yield* syncFromStorage();
           if (!account) {
             return yield* Effect.fail(new AuthExpiredError({ cause: "no session" }));
           }
-
-          const generation = sessionGeneration;
+          const mark: Mark = { generation, signInId: account.signInId };
           const madeFor = () =>
             sessionGeneration === generation ? Effect.void : Effect.fail(supersededError());
 
@@ -1288,6 +1323,9 @@ export function createOsnAuthLive(
           const second = yield* send(input, init, renewed.accessToken);
           yield* madeFor();
           if (second.status === 401) {
+            // Ends only this page's own sign-in: another tab's, stored while
+            // the retry was out, is left in place.
+            if (yield* superseded(mark)) return yield* Effect.fail(supersededError());
             yield* endSession();
             return yield* Effect.fail(
               new AuthExpiredError({ cause: "refresh did not repair 401" }),

@@ -11,7 +11,7 @@ import { extractJwtSub } from "../src/tokens";
  * A session set or ended while a request made for the one before it was out
  * is the newest thing the person did. The late answer to that request must not
  * replace it, end it, bring back the one it replaced, or reach the caller.
- * One test per way that can fail (NEW-FEAT.md F1–F11, T1–T12).
+ * One test per way that can fail (NEW-FEAT.md F1–F11, T1–T23).
  */
 
 const ISSUER = "https://osn.example.com";
@@ -122,6 +122,46 @@ const otherTab = (storage: Layer.Layer<Storage>) =>
   Effect.gen(function* () {
     return yield* OsnAuth;
   }).pipe(Effect.provide(createOsnAuthLive({ issuerUrl: ISSUER }).pipe(Layer.provide(storage))));
+
+/**
+ * Storage that runs a hook once, at the next read or the next write: a
+ * sign-in landing while the service reads or writes the stored account, as a
+ * platform storage layer that awaits would let one.
+ */
+function hookedStorage() {
+  const store = new Map<string, string>();
+  let onGet: (() => void) | null = null;
+  let onSet: (() => void) | null = null;
+  const storageLayer = Layer.succeed(Storage, {
+    get: (key) =>
+      Effect.sync(() => {
+        const hook = onGet;
+        onGet = null;
+        hook?.();
+        return store.get(key) ?? null;
+      }),
+    set: (key, value) =>
+      Effect.sync(() => {
+        store.set(key, value);
+        const hook = onSet;
+        onSet = null;
+        hook?.();
+      }),
+    remove: (key) =>
+      Effect.sync(() => {
+        store.delete(key);
+      }),
+  });
+  return {
+    layer: storageLayer,
+    onNextGet: (hook: () => void) => {
+      onGet = hook;
+    },
+    onNextSet: (hook: () => void) => {
+      onSet = hook;
+    },
+  };
+}
 
 const session = (sub: string, ms: number) => ({
   accessToken: jwt(sub),
@@ -406,9 +446,10 @@ it.effect("T2: a renewal minted for another profile sends no reset once a sessio
 it.effect("T3: a renewal for the new session does not take the answer of one for the old", () =>
   Effect.gen(function* () {
     const g = gate();
+    const b401 = gate();
     const net = serve({
       "/token": [after(g, refused), (named) => minted(named ?? B)],
-      "/thing": [() => json(401, {}), () => json(200, {})],
+      "/thing": [after(b401, () => json(401, {})), () => json(200, {})],
     });
     const auth = yield* OsnAuth;
     yield* auth.setSession(expiredA());
@@ -418,7 +459,12 @@ it.effect("T3: a renewal for the new session does not take the answer of one for
     yield* auth.setSession(sessionB());
     // B's request is refused once, so it renews while A's grant is still out.
     const sendingB = yield* Effect.forkChild(Effect.result(auth.authFetch(`${ISSUER}/thing`)));
+    yield* b401.reached;
+    b401.open();
     yield* settle;
+    // B has had its 401 and is renewing, and has sent no grant of its own.
+    expect(net.count("/thing")).toBe(1);
+    expect(net.count("/token")).toBe(1);
     g.open();
 
     expect(outcome(yield* Fiber.join(renewingA))).toBe("AuthExpiredError");
@@ -476,9 +522,10 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const g = gate();
+      const b401 = gate();
       const net = serve({
         "/token": [after(g, refused), (named) => minted(named ?? B)],
-        "/thing": [() => json(401, {})],
+        "/thing": [after(b401, () => json(401, {}))],
       });
       const auth = yield* OsnAuth;
       yield* auth.setSession(expiredA());
@@ -488,7 +535,11 @@ it.effect(
       yield* auth.setSession(sessionB());
       // B's request is refused, so B's renewal waits for A's grant to settle.
       const sendingB = yield* Effect.forkChild(Effect.result(auth.authFetch(`${ISSUER}/thing`)));
+      yield* b401.reached;
+      b401.open();
       yield* settle;
+      expect(net.count("/thing")).toBe(1);
+      expect(net.count("/token")).toBe(1);
       // B's session goes too before A's grant answers.
       yield* auth.logout();
       g.open();
@@ -701,4 +752,243 @@ it.effect(
       expect(yield* stored()).toMatchObject({ activeProfileId: B, signInId: theirs });
     }).pipe(Effect.provide(layer(shared)));
   },
+);
+
+// ---------------------------------------------------------------------------
+// Points no gate on the network can reach: a sign-in landing while the
+// service reads or writes the stored account.
+// ---------------------------------------------------------------------------
+
+it.effect(
+  "T13: a request made as A is not sent again once B was set while its renewal saved",
+  () => {
+    const hooked = hookedStorage();
+    return Effect.gen(function* () {
+      const net = serve({
+        "/thing": [() => json(401, {}), () => json(200, {})],
+        "/token": [(named) => minted(named ?? A)],
+      });
+      const auth = yield* OsnAuth;
+      yield* auth.setSession(liveA());
+      // The renewal's own save is the next write: B is adopted right after it.
+      hooked.onNextSet(() => Effect.runSync(auth.setSession(sessionB())));
+
+      expect(outcome(yield* Effect.result(auth.authFetch(`${ISSUER}/thing`)))).toBe(
+        "AuthExpiredError",
+      );
+      expect(net.count("/thing")).toBe(1);
+      expect(yield* auth.getActiveProfile()).toBe(B);
+    }).pipe(Effect.provide(layer(hooked.layer)));
+  },
+);
+
+it.effect(
+  "T14: a request made as A is not sent once B was set while its first renewal saved",
+  () => {
+    const hooked = hookedStorage();
+    return Effect.gen(function* () {
+      const net = serve({ "/token": [(named) => minted(named ?? A)] });
+      const auth = yield* OsnAuth;
+      yield* auth.setSession(expiredA());
+      hooked.onNextSet(() => Effect.runSync(auth.setSession(sessionB())));
+
+      expect(outcome(yield* Effect.result(auth.authFetch(`${ISSUER}/thing`)))).toBe(
+        "AuthExpiredError",
+      );
+      expect(net.count("/thing")).toBe(0);
+    }).pipe(Effect.provide(layer(hooked.layer)));
+  },
+);
+
+it.effect("T15: a sign-in landing while a renewal reads the stored account is not ended", () => {
+  const hooked = hookedStorage();
+  return Effect.gen(function* () {
+    serve({ "/token": [(named) => minted(named ?? A)] });
+    const auth = yield* OsnAuth;
+    yield* auth.setSession(expiredA());
+    const adopted = sessionB();
+    // The next read is the renewal's look at the stored account, just before
+    // it would save.
+    hooked.onNextGet(() => Effect.runSync(auth.setSession(adopted)));
+
+    expect(outcome(yield* Effect.result(auth.refreshSession()))).toBe("AuthExpiredError");
+    expect((yield* auth.getSession())?.accessToken).toBe(adopted.accessToken);
+    expect(changes).toEqual([]);
+  }).pipe(Effect.provide(layer(hooked.layer)));
+});
+
+// ---------------------------------------------------------------------------
+// The edges of the check
+// ---------------------------------------------------------------------------
+
+it.effect("T16: an unreadable stored account does not stop a renewal's answer", () =>
+  Effect.gen(function* () {
+    const g = gate();
+    serve({ "/token": [after(g, () => minted(A))] });
+    const auth = yield* OsnAuth;
+    const storage = yield* Storage;
+    yield* auth.setSession(expiredA());
+
+    const renewing = yield* Effect.forkChild(Effect.result(auth.refreshSession()));
+    yield* g.reached;
+    yield* storage.set(ACCOUNT_SESSION_KEY, "not json");
+    g.open();
+
+    expect(outcome(yield* Fiber.join(renewing))).toBe("Success");
+    expect(yield* auth.getActiveProfile()).toBe(A);
+    expect((yield* auth.getSession())?.expiresAt).toBeGreaterThan(Date.now());
+  }).pipe(Effect.provide(layer())),
+);
+
+it.effect(
+  "T17: a stored account with no sign-in id, from an older client, is not written over",
+  () =>
+    Effect.gen(function* () {
+      const g = gate();
+      serve({ "/token": [after(g, () => minted(A))] });
+      const auth = yield* OsnAuth;
+      const storage = yield* Storage;
+      yield* auth.setSession(expiredA());
+
+      const renewing = yield* Effect.forkChild(Effect.result(auth.refreshSession()));
+      yield* g.reached;
+      const theirs = JSON.stringify({ hasSession: true, activeProfileId: B });
+      yield* storage.set(ACCOUNT_SESSION_KEY, theirs);
+      g.open();
+
+      expect(outcome(yield* Fiber.join(renewing))).toBe("AuthExpiredError");
+      expect(yield* storage.get(ACCOUNT_SESSION_KEY)).toBe(theirs);
+      expect(yield* auth.getSession()).toBeNull();
+    }).pipe(Effect.provide(layer())),
+);
+
+it.effect("T18: a reload's bootstrap for the new session does not take the old one's answer", () =>
+  Effect.gen(function* () {
+    const g = gate();
+    const net = serve({ "/token": [after(g, () => minted(A)), (named) => minted(named ?? B)] });
+    const auth = yield* OsnAuth;
+    yield* auth.setSession(expiredA());
+
+    const loadingA = yield* Effect.forkChild(auth.loadSession());
+    yield* g.reached;
+    // B is adopted with no live token, so B's own load has to go to the cookie.
+    yield* auth.setSession(session(B, -1_000));
+    const loadingB = yield* Effect.forkChild(auth.loadSession());
+    yield* settle;
+    g.open();
+    yield* Fiber.join(loadingA);
+
+    const loadedB = yield* Fiber.join(loadingB);
+    expect(loadedB ? extractJwtSub(loadedB.accessToken) : null).toBe(B);
+    expect(net.count("/token")).toBe(2);
+  }).pipe(Effect.provide(layer())),
+);
+
+it.effect(
+  "T19: a load sends no grant while another tab's sign-in is stored and this page holds none",
+  () => {
+    const shared = createEphemeralStorage();
+    return Effect.gen(function* () {
+      const net = serve({ "/token": [(named) => minted(named ?? A)] });
+      const auth = yield* OsnAuth;
+      const tab2 = yield* otherTab(shared);
+      yield* auth.setSession(liveA());
+      yield* tab2.setSession(sessionB());
+      // This page hears of the other tab's sign-in and ends its own session.
+      yield* auth.checkStoredAccount();
+
+      expect(yield* auth.loadSession()).toBeNull();
+      expect(net.count("/token")).toBe(0);
+    }).pipe(Effect.provide(layer(shared)));
+  },
+);
+
+it.effect(
+  "T20: a second 401 does not remove a sign-in another tab stored while the retry was out",
+  () => {
+    const shared = createEphemeralStorage();
+    return Effect.gen(function* () {
+      const g = gate();
+      serve({
+        "/thing": [() => json(401, {}), after(g, () => json(401, {}))],
+        "/token": [(named) => minted(named ?? A)],
+      });
+      const auth = yield* OsnAuth;
+      const tab2 = yield* otherTab(shared);
+      yield* auth.setSession(liveA());
+
+      const sending = yield* Effect.forkChild(Effect.result(auth.authFetch(`${ISSUER}/thing`)));
+      yield* g.reached;
+      yield* tab2.setSession(sessionB());
+      const theirs = (yield* stored())?.signInId;
+      g.open();
+
+      expect(outcome(yield* Fiber.join(sending))).toBe("AuthExpiredError");
+      expect(yield* stored()).toMatchObject({ activeProfileId: B, signInId: theirs });
+      expect(yield* auth.getSession()).toBeNull();
+    }).pipe(Effect.provide(layer(shared)));
+  },
+);
+
+it.effect("T21: a held session's renewal is not stopped by the page's session changing", () =>
+  Effect.gen(function* () {
+    const RECOVERY = "usr_recovery0001";
+    const g = gate();
+    const net = serve({
+      "/token": [after(g, () => json(503, {})), () => minted(RECOVERY)],
+    });
+    const auth = yield* OsnAuth;
+
+    const refreshing = yield* Effect.forkChild(Effect.result(auth.refreshHeldSession()));
+    yield* g.reached;
+    yield* auth.setSession(liveA());
+    yield* auth.logout();
+    g.open();
+
+    const held = yield* Fiber.join(refreshing);
+    expect(held._tag === "Success" && extractJwtSub(held.success.session.accessToken)).toBe(
+      RECOVERY,
+    );
+    expect(net.count("/token")).toBe(2);
+  }).pipe(Effect.provide(layer())),
+);
+
+it.effect(
+  "T22: a sign-in landing while a request reads the stored account is not ended or used",
+  () => {
+    const hooked = hookedStorage();
+    return Effect.gen(function* () {
+      const net = serve({ "/thing": [() => json(200, {})] });
+      const auth = yield* OsnAuth;
+      yield* auth.setSession(liveA());
+      const adopted = sessionB();
+      // The request's first read is its check of the stored account.
+      hooked.onNextGet(() => Effect.runSync(auth.setSession(adopted)));
+
+      expect(outcome(yield* Effect.result(auth.authFetch(`${ISSUER}/thing`)))).toBe(
+        "AuthExpiredError",
+      );
+      expect(net.count("/thing")).toBe(0);
+      expect((yield* auth.getSession())?.accessToken).toBe(adopted.accessToken);
+    }).pipe(Effect.provide(layer(hooked.layer)));
+  },
+);
+
+it.effect("T23: the retry's answer does not reach the caller once B was set while it was out", () =>
+  Effect.gen(function* () {
+    const g = gate();
+    serve({
+      "/thing": [() => json(401, {}), after(g, () => json(200, { owner: A }))],
+      "/token": [(named) => minted(named ?? A)],
+    });
+    const auth = yield* OsnAuth;
+    yield* auth.setSession(liveA());
+
+    const sending = yield* Effect.forkChild(Effect.result(auth.authFetch(`${ISSUER}/thing`)));
+    yield* g.reached;
+    yield* auth.setSession(sessionB());
+    g.open();
+
+    expect(outcome(yield* Fiber.join(sending))).toBe("AuthExpiredError");
+  }).pipe(Effect.provide(layer())),
 );
