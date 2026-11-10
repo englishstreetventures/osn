@@ -114,7 +114,9 @@ export function Sidebar() {
                 {activeProfile()?.displayName || `@${claims().handle ?? "…"}`}
               </span>
               <Show when={activeProfile()?.displayName}>
-                <span class="text-muted-foreground text-meta truncate">@{claims().handle}</span>
+                <span class="text-muted-foreground text-meta truncate">
+                  @{claims().handle ?? "…"}
+                </span>
               </Show>
             </div>
           </AccountMenu>
