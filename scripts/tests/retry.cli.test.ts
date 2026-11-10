@@ -5,10 +5,18 @@
 // running holds apt's lock against the next attempt. Each command here is a
 // small bash script that counts its runs in a file of the test's own.
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Several cases run for their limits by design: up to two attempts of a
+// second's limit and a second's grace, about 4 s. Under Bun's 5 s default,
+// 1 of 50 runs of this file on a laptop failed: the run took 20.4 s against
+// about 9.4 s, and a case that had not started its first attempt after 5 s
+// was cut. 15 s leaves room for such a stall, and still fails a case whose
+// command was never cut, since each hanging command sleeps 30 s.
+setDefaultTimeout(15_000);
 
 const RETRY = join(import.meta.dir, "..", "retry.sh");
 
@@ -111,8 +119,6 @@ describe("retry.sh", () => {
       expect(output.match(/^::warning::.*cut at its 1 s limit$/gm)?.length, output).toBe(2);
       expect(output.match(/^::error::/gm)?.length, output).toBe(1);
     },
-    // Two attempts of a second's limit and a second's grace each.
-    15_000,
   );
 
   test("a process the passing attempt started that ignores SIGTERM is killed before the script exits", async () => {
