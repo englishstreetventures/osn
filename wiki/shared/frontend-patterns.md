@@ -554,6 +554,26 @@ measured and no JavaScript runs; `interpolate-size: allow-keywords` with
 `height: auto` says the same thing more directly but is not yet in every engine
 these apps are opened in.
 
+Two things about the box that clips:
+
+- **The wrapper clips, not the row.** Partway through, Chromium sizes the row
+  against the wrapper's own height, which has already grown by the same
+  fraction, so the row is the square of it: at 40% of the way the wrapper is
+  137px of a 340px block and the row 55px. A clip on the row shows the content
+  lagging the box, over an empty band.
+- **It keeps 4px of room.** The wrapper carries `p-1` inside a matching `-m-1`,
+  so a focus outline 2px wide and 2px out at the content's edge is not cut and
+  nothing moves. The row's box takes `min-w-0` as well as `min-h-0`, or a
+  scrolling track inside widens the column instead of scrolling. Closed, the
+  wrapper takes no pointer events: at opacity 0 its empty box paints over 4px
+  of each neighbour.
+
+*Measured 2026-11-11 — Chromium, `cire/invites`' RSVP sheet at 1280px, the
+dietary section's transitions paused at a tenth of their duration*
+
+`Reveal` opens on the app's `--dur-base` unless the caller passes
+`pace="slow"`, which the guest site does ([[cire-invite-designs#Corners, labels and motion]]).
+
 ### A computed timing function is a list, and `cubic-bezier()` has commas of its own
 
 Reading an animation's timing back from `getComputedStyle` — to run a Web
