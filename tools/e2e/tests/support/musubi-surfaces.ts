@@ -20,12 +20,13 @@
  * The exports after it check the call sites that draw from shared parts, from
  * the flows that already reach them: `musubi-org-detail` the organisation
  * dialogs (their plain `Field` labels among them), list rows, roster, a search
- * result and `/authorize`'s dead end; `musubi-passkey` the create-account and
- * sign-in dialogs' fields and standalone link, a busy button, the signed-out
- * note, `/authorize`'s link inside a sentence, the first-party consent
- * screen's mark and chosen profile, and the third-party consent screen's chip
- * and scope rows. Each puts back the viewport, scheme and motion preference it
- * found.
+ * result, the row actions' phone height and `/authorize`'s dead end;
+ * `musubi-passkey` the create-account and sign-in dialogs' fields and
+ * standalone link, a busy button, Discover's empty note, the authenticator
+ * setup's span labels, the signed-out note, `/authorize`'s link inside a
+ * sentence, the first-party consent screen's mark and chosen profile, and the
+ * third-party consent screen's chip and scope rows. Each puts back the
+ * viewport, scheme and motion preference it found.
  */
 
 import { mkdirSync } from "node:fs";
@@ -605,6 +606,23 @@ async function restoring(page: Page, body: () => Promise<void>): Promise<void> {
     if (viewport) await page.setViewportSize(viewport);
     await page.emulateMedia({ colorScheme: null, reducedMotion: null });
   }
+}
+
+/** Runs `body` at the phone width, then puts back what `restoring` does. */
+export async function onPhone(page: Page, body: () => Promise<void>): Promise<void> {
+  await restoring(page, async () => {
+    await page.setViewportSize(PHONE);
+    await body();
+  });
+}
+
+/**
+ * A row's action on a phone: 40px tall, as every row action is below `md`
+ * (`max-md:h-10`). Read at the width the page is at; `onPhone` sets it.
+ */
+export async function phoneTall(flow: Flow, button: Locator, what: string): Promise<void> {
+  await expect(button).toBeVisible();
+  flow.check(`${what}: 40px tall on a phone`, "40px", await computed(button, "height"));
 }
 
 /** The vertical space between the bottom of `above` and the top of `below`, in whole px. */
@@ -1231,4 +1249,44 @@ export async function authorizeSignInSurfaces(flow: Flow, page: Page): Promise<v
       shoot(page, "authorize-sign-in", () => expect(link).toBeVisible(), { bare: true }),
     );
   });
+}
+
+/**
+ * Discover with nothing to suggest: "Search for someone" a link inside the
+ * empty note's sentence, read as `/authorize`'s "Create one" is, and shot.
+ */
+export async function discoverEmptySurfaces(flow: Flow, page: Page): Promise<void> {
+  const link = page.getByRole("link", { name: "Search for someone" });
+  await expect(link).toBeVisible();
+  await restoring(page, async () => {
+    await page.mouse.move(0, 0);
+    await settled(link);
+    await inlineLink(flow, "discover: Search for someone", link);
+    await flow.step("surfaces: shoot Discover's empty note", () =>
+      shoot(page, "discover-empty", () => expect(link).toBeVisible()),
+    );
+  });
+}
+
+/**
+ * `TotpView`'s setup panel, before the code is in: the two labels `Field`
+ * cannot draw, over the setup key and over the code boxes, are spans in the
+ * plain label's look, 6px above what they name.
+ */
+export async function totpSetupSurfaces(flow: Flow, page: Page): Promise<void> {
+  const keyLabel = page.getByText("Or enter this setup key by hand", { exact: true });
+  const codeLabel = page.getByText("Code from the app", { exact: true });
+  await expect(codeLabel).toBeVisible();
+  await plainLabel(
+    flow,
+    "totp: the setup key's label",
+    keyLabel,
+    keyLabel.locator("xpath=following-sibling::*[1]"),
+  );
+  await plainLabel(
+    flow,
+    "totp: the code boxes' label",
+    codeLabel,
+    codeLabel.locator("xpath=following-sibling::*[1]"),
+  );
 }

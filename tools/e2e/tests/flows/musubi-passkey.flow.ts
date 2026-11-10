@@ -3,7 +3,8 @@
  * sign back in with the passkey (a rate-limited try first), keep the session
  * across a reload, keep the shell when the profile list or a page fails to
  * load, add and remove an authenticator app behind passkey step-ups, keep the
- * session past its access token's expiry, list the connected apps, sign the
+ * session past its access token's expiry, list the connected apps (then
+ * authorise Pulse through the API and revoke it there), sign the
  * page out — and say so — when the issuer refuses to renew it, sign out a
  * reload that has no cookie, sign in to Pulse through Musubi's `/authorize`,
  * then open a third-party client's consent screen and leave it undecided.
@@ -15,8 +16,12 @@
  * reads the shared parts the auth views draw: the create-account dialog's
  * plain field labels and the date of birth's hint, the sign-in dialog's label
  * and its standalone "Lost your passkey?" link, Continue busy while
- * `/login/passkey/begin` is held, and `/authorize`'s "Create one" link inside
- * its sentence.
+ * `/login/passkey/begin` is held, `/authorize`'s "Create one" link inside
+ * its sentence, and Discover's "Search for someone" inside its empty note. It
+ * holds the register send, verify and enrol calls, the step-up's begin, the
+ * authenticator's confirm and Pulse's revoke long enough to read each busy
+ * button and see the ways out beside it disabled, and reads the authenticator
+ * setup's two span labels.
  *
  * The failures are made by answering one osn-api route in the page
  * (`refuse`), so no limiter or session on the stack is spent on them. Every
@@ -36,11 +41,12 @@
 
 import type { Request, Response, Route } from "@playwright/test";
 
-import { ORIGINS, PEOPLE, THIRD_PARTY_OIDC, TURNSTILE_ORIGIN } from "../../src/config";
+import { ORIGINS, PEOPLE, PULSE_OIDC, THIRD_PARTY_OIDC, TURNSTILE_ORIGIN } from "../../src/config";
 import {
   addVirtualAuthenticator,
   cookieNamed,
   expect,
+  holdMethod,
   mailFor,
   otpFor,
   test,
@@ -50,12 +56,17 @@ import {
   authorizeSignInSurfaces,
   authorizeThirdPartySurfaces,
   authorizeVerifiedSurfaces,
+  busyButtonHeld,
   busyButtonSurfaces,
+  discoverEmptySurfaces,
   musubiNotice,
   musubiSurfaces,
+  onPhone,
+  phoneTall,
   registerFieldSurfaces,
   signedOutSurfaces,
   signInLinkSurfaces,
+  totpSetupSurfaces,
 } from "../support/musubi-surfaces";
 
 const ada = PEOPLE.musubi;
@@ -173,13 +184,33 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   });
   await registerFieldSurfaces(flow, page);
 
-  await flow.step("register: details", async () => {
-    await page.getByLabel("Email").fill(ada.email);
-    await page.getByLabel("Handle").fill(ada.handle);
-    await page.getByLabel("Date of birth").fill("1990-01-01");
-    await page.getByLabel("Display name (optional)").fill(ada.name);
-    await page.getByRole("button", { name: "Send verification code" }).click();
-  });
+  // Each register call below is held until its busy button has been read: the
+  // button keeps focus through the wait, and the dialog's ways out wait too.
+  const registerDialog = page.getByRole("dialog");
+  const registerCancel = registerDialog.getByRole("button", { name: "Cancel", exact: true });
+  const registerBegin = `${ORIGINS.osnApi}/register/begin`;
+  const sendHeld = holdMethod("POST");
+  await page.route(registerBegin, sendHeld.handler);
+  try {
+    await flow.step("register: details", async () => {
+      await page.getByLabel("Email").fill(ada.email);
+      await page.getByLabel("Handle").fill(ada.handle);
+      await page.getByLabel("Date of birth").fill("1990-01-01");
+      await page.getByLabel("Display name (optional)").fill(ada.name);
+      await page.getByRole("button", { name: "Send verification code" }).click();
+      await expect(registerDialog.getByRole("button", { name: "Sending…" })).toBeVisible();
+    });
+    await busyButtonHeld(
+      flow,
+      registerDialog.getByRole("button", { name: "Sending…" }),
+      "Sending…",
+      "register send busy",
+    );
+    flow.check("register send busy: Cancel waits", true, await registerCancel.isDisabled());
+  } finally {
+    sendHeld.release();
+    await page.unroute(registerBegin, sendHeld.handler);
+  }
 
   // A real refusal from osn-api: the code differs from the emailed one in
   // every digit. It spends no sign-up begin (`flows.test.ts` counts those).
@@ -200,18 +231,57 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     flow.saw("POST osn-api /register/complete 400"),
   );
 
-  await flow.step("register: verify email", async () => {
-    const code = await otpFor(ada.email);
-    for (const [i, digit] of [...code].entries()) {
-      await page.getByLabel(`Digit ${i + 1}`).fill(digit);
-    }
-    await page.getByRole("button", { name: "Verify email" }).click();
-  });
+  const registerComplete = `${ORIGINS.osnApi}/register/complete`;
+  const verifyHeld = holdMethod("POST");
+  await page.route(registerComplete, verifyHeld.handler);
+  try {
+    await flow.step("register: verify email", async () => {
+      const code = await otpFor(ada.email);
+      for (const [i, digit] of [...code].entries()) {
+        await page.getByLabel(`Digit ${i + 1}`).fill(digit);
+      }
+      await page.getByRole("button", { name: "Verify email" }).click();
+      await expect(registerDialog.getByRole("button", { name: "Verifying…" })).toBeVisible();
+    });
+    await busyButtonHeld(
+      flow,
+      registerDialog.getByRole("button", { name: "Verifying…" }),
+      "Verifying…",
+      "register verify busy",
+    );
+    flow.check("register verify busy: Cancel waits", true, await registerCancel.isDisabled());
+    flow.check(
+      "register verify busy: Use a different email waits",
+      true,
+      await registerDialog.getByRole("button", { name: "← Use a different email" }).isDisabled(),
+    );
+  } finally {
+    verifyHeld.release();
+    await page.unroute(registerComplete, verifyHeld.handler);
+  }
   const [verification] = await mailFor(ada.email);
   flow.check("registration email subject", "Verify your Musubi email", verification?.subject ?? "");
 
+  const passkeyRegisterBegin = `${ORIGINS.osnApi}/passkey/register/begin`;
+  const enrollHeld = holdMethod("POST");
+  await page.route(passkeyRegisterBegin, enrollHeld.handler);
+  try {
+    await flow.step("register: enroll passkey waits on begin", async () => {
+      await page.getByRole("button", { name: "Enroll credential" }).click();
+      await expect(registerDialog.getByRole("button", { name: "Setting up…" })).toBeVisible();
+    });
+    await busyButtonHeld(
+      flow,
+      registerDialog.getByRole("button", { name: "Setting up…" }),
+      "Setting up…",
+      "register enroll busy",
+    );
+    flow.check("register enroll busy: Cancel waits", true, await registerCancel.isDisabled());
+  } finally {
+    enrollHeld.release();
+    await page.unroute(passkeyRegisterBegin, enrollHeld.handler);
+  }
   await flow.step("register: enroll passkey", async () => {
-    await page.getByRole("button", { name: "Enroll credential" }).click();
     await expect(page.getByRole("button", { name: `@${ada.handle}` })).toBeVisible();
   });
 
@@ -422,6 +492,14 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     pageLine,
   );
 
+  // A new account shares no organisation and has no connection, so Discover
+  // has nothing to suggest and points at search.
+  await flow.step("Discover with nothing to suggest", async () => {
+    await page.getByRole("link", { name: "Discover" }).first().click();
+    await expect(page.getByText("No suggestions yet.", { exact: false })).toBeVisible();
+  });
+  await discoverEmptySurfaces(flow, page);
+
   const settingsTab = (name: string) =>
     page
       .getByRole("navigation", { name: "Settings sections" })
@@ -430,14 +508,57 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   // Each step-up below is a passkey assertion the virtual authenticator
   // answers. The code is computed from the setup key the page shows, on the
   // suite clock the servers run on.
+  // The step-up's begin and the enrolment's confirm are each held until the
+  // button that started them has been read.
+  const stepUpBegin = `${ORIGINS.osnApi}/step-up/passkey/begin`;
+  const stepUpHeld = holdMethod("POST");
+  const stepUpCancel = page.getByRole("button", { name: "Cancel", exact: true });
+  await page.route(stepUpBegin, stepUpHeld.handler);
+  try {
+    await flow.step("add an authenticator app: the step-up waits on begin", async () => {
+      await page.getByRole("link", { name: "Settings" }).first().click();
+      await settingsTab("Security").click();
+      await page.getByRole("button", { name: "Add an authenticator app" }).click();
+      await page.getByRole("button", { name: "Use passkey" }).click();
+      await expect(page.getByRole("button", { name: "Waiting for your passkey…" })).toBeVisible();
+    });
+    await busyButtonHeld(
+      flow,
+      page.getByRole("button", { name: "Waiting for your passkey…" }),
+      "Waiting for your passkey…",
+      "step-up passkey busy",
+    );
+    flow.check("step-up passkey busy: Cancel waits", true, await stepUpCancel.isDisabled());
+  } finally {
+    stepUpHeld.release();
+    await page.unroute(stepUpBegin, stepUpHeld.handler);
+  }
+  let secret = "";
+  await flow.step("add an authenticator app: the setup key", async () => {
+    secret = (await page.getByLabel("Or enter this setup key by hand").textContent()) ?? "";
+  });
+  await totpSetupSurfaces(flow, page);
+  const totpConfirm = `${ORIGINS.osnApi}/totp/enroll/complete`;
+  const confirmHeld = holdMethod("POST");
+  await page.route(totpConfirm, confirmHeld.handler);
+  try {
+    await flow.step("add an authenticator app: Confirm waits on the check", async () => {
+      await page.getByLabel("Digit 1").pressSequentially(totpCode(secret));
+      await page.getByRole("button", { name: "Confirm" }).click();
+      await expect(page.getByRole("button", { name: "Checking…" })).toBeVisible();
+    });
+    await busyButtonHeld(
+      flow,
+      page.getByRole("button", { name: "Checking…" }),
+      "Checking…",
+      "totp confirm busy",
+    );
+    flow.check("totp confirm busy: Cancel waits", true, await stepUpCancel.isDisabled());
+  } finally {
+    confirmHeld.release();
+    await page.unroute(totpConfirm, confirmHeld.handler);
+  }
   await flow.step("add an authenticator app", async () => {
-    await page.getByRole("link", { name: "Settings" }).first().click();
-    await settingsTab("Security").click();
-    await page.getByRole("button", { name: "Add an authenticator app" }).click();
-    await page.getByRole("button", { name: "Use passkey" }).click();
-    const secret = (await page.getByLabel("Or enter this setup key by hand").textContent()) ?? "";
-    await page.getByLabel("Digit 1").pressSequentially(totpCode(secret));
-    await page.getByRole("button", { name: "Confirm" }).click();
     await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
   });
   flow.check(
@@ -529,6 +650,65 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     (await storedValues()).some((v) => JWT.test(v)),
   );
   flow.check("still the stored account's three fields", true, STORED_ACCOUNT.test(signedInAccount));
+
+  // Pulse is first-party, so a signed-in `/authorize` records its consent and
+  // answers with a code, no screen shown. It is asked from the browser's cookie
+  // jar rather than the page, so no page load lists profiles again (the budget
+  // at the end), and the code is never redeemed. Connected apps then lists
+  // Pulse, and the revoke's DELETE is held until Revoke has been read busy at
+  // the phone width.
+  await flow.step("authorise Pulse through the API", async () => {
+    const request = new URLSearchParams({
+      client_id: PULSE_OIDC.clientId,
+      redirect_uri: PULSE_OIDC.redirectUri,
+      response_type: "code",
+      scope: "openid profile",
+      state: "e2e-revoke",
+      nonce: "e2e-revoke",
+      // RFC 7636's example challenge, as the third-party request below.
+      code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+      code_challenge_method: "S256",
+    });
+    const url = `${ORIGINS.osnApi}/authorize?${request}`;
+    const response = await context.request.get(url, { maxRedirects: 0 });
+    flow.recordRequest("GET", url, response.status());
+    const location = response.headers()["location"] ?? "";
+    expect(location.startsWith(`${PULSE_OIDC.redirectUri}?`), location).toBe(true);
+    expect(new URL(location).searchParams.has("code"), location).toBe(true);
+  });
+  await flow.step("Connected apps lists Pulse", async () => {
+    await settingsTab("Profile").click();
+    await settingsTab("Connected apps").click();
+    await expect(page.getByText("Pulse", { exact: true })).toBeVisible();
+  });
+  const pulseConnection = `${ORIGINS.osnApi}/oidc/connections/${PULSE_OIDC.clientId}`;
+  const revokeHeld = holdMethod("DELETE");
+  await page.route(pulseConnection, revokeHeld.handler);
+  try {
+    await onPhone(page, async () => {
+      await phoneTall(flow, page.getByRole("button", { name: "Revoke" }), "revoke");
+      await flow.step("revoke Pulse: Revoke waits on the DELETE", async () => {
+        await page.getByRole("button", { name: "Revoke" }).click();
+        await expect(page.getByRole("button", { name: "Revoking…" })).toBeVisible();
+      });
+      const revoking = page.getByRole("button", { name: "Revoking…" });
+      await busyButtonHeld(flow, revoking, "Revoking…", "revoke busy");
+      await phoneTall(flow, revoking, "revoke busy");
+    });
+  } finally {
+    revokeHeld.release();
+    await page.unroute(pulseConnection, revokeHeld.handler);
+  }
+  await flow.step("revoke Pulse", async () => {
+    await expect(
+      page.getByText("You haven't connected any apps to your Musubi account yet."),
+    ).toBeVisible();
+  });
+  flow.check(
+    "one revoke sent for Pulse",
+    1,
+    flow.count(`DELETE osn-api /oidc/connections/${PULSE_OIDC.clientId} `),
+  );
 
   const refusedGrantsBefore = flow.count("POST osn-api /token 400");
   const sentBefore = sum(securityGets());
@@ -698,6 +878,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await expect(page.getByText("Third-party app", { exact: true })).toBeVisible();
   });
   await authorizeThirdPartySurfaces(flow, page);
+
   flow.check(
     "no Content-Security-Policy message on a Musubi page",
     "",

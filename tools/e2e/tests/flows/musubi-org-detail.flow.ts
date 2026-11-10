@@ -1,6 +1,7 @@
 /**
  * Musubi: create an organisation, have a member added, open the organisation's
- * page, rename it, remove the member, open an organisation the owner does not
+ * page, rename it, ask the member to connect from Discover and again from
+ * `/search`, remove the member, open an organisation the owner does not
  * belong to from the search box, delete the first organisation, follow the
  * stale link back to it, and follow a link whose handle the API refuses.
  *
@@ -16,23 +17,34 @@
  * On the way it measures and shoots the surfaces these pages draw from shared
  * parts (`musubi-surfaces.ts`): the create and edit dialogs' padded bodies and
  * footers, the list's rows on `Card`, the roster's names and role `Chip`, a
- * search result's name. It holds the create's POST and the rename's PATCH long
- * enough to read each dialog's busy button ("Creating…", "Saving…"). Last, it
+ * search result's name. It holds the create's POST, the rename's PATCH and
+ * each connection request long enough to read the busy button ("Creating…",
+ * "Saving…", "Sending…"), and reads Discover's and `/search`'s Connect 40px
+ * tall at the phone width. Last, it
  * loads `/authorize` with no request, which runs outside the session provider,
  * and reads its dead-end box on `Card`.
  */
 
-import type { Page, Route } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { DB_FILES, MUSUBI_ORG, ORIGINS } from "../../src/config";
-import { expect, onSuiteClock, queryOne, signInToMusubiAsDev, test } from "../support/fixtures";
+import {
+  expect,
+  holdMethod,
+  onSuiteClock,
+  queryOne,
+  signInToMusubiAsDev,
+  test,
+} from "../support/fixtures";
 import {
   authorizeDeadSurfaces,
   busyButtonHeld,
+  onPhone,
   orgCreateDialogSurfaces,
   orgEditDialogSurfaces,
   orgListSurfaces,
   orgRosterSurfaces,
+  phoneTall,
   searchSurfaces,
 } from "../support/musubi-surfaces";
 
@@ -57,26 +69,6 @@ async function hold(page: Page, url: string): Promise<() => void> {
     await route.continue();
   });
   return release;
-}
-
-/**
- * Holds the browser's `method` requests to exactly `url` until `release` runs;
- * the preflight and every other method go on. Undo it with `page.unroute(url,
- * handler)` once released.
- */
-function holdMethod(method: string): {
-  handler: (route: Route) => Promise<void>;
-  release: () => void;
-} {
-  let release = () => {};
-  const released = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const handler = async (route: Route) => {
-    if (route.request().method() === method) await released;
-    await route.fallback();
-  };
-  return { handler, release };
 }
 
 /** Members `org` has, read from osn-api's database. */
@@ -210,6 +202,97 @@ test("musubi-org-detail", async ({ page, flow }) => {
   flow.check("organisation renamed in the database", org.renamed, saved?.name ?? "");
   flow.check("tab follows the rename", `${org.renamed} · Musubi`, await page.title());
   flow.check("organisation row on the suite clock", true, onSuiteClock(saved?.created_at));
+
+  // While both are in the organisation, Discover suggests the member. Each
+  // Connect below has its POST held until the button has been read busy, at
+  // the phone width; between them the API withdraws the first request, so
+  // `/search` offers Connect again.
+  const connectUrl = `${ORIGINS.osnApi}/graph/connections/${member.handle}`;
+  const sentRequests = () => flow.count(`POST osn-api /graph/connections/${member.handle} `);
+  const suggestion = page
+    .getByRole("main")
+    .getByText(`@${member.handle}`, { exact: true })
+    .locator("xpath=ancestor::div[.//button][1]");
+  await flow.step("open Discover, the member suggested", async () => {
+    await page.getByRole("link", { name: "Discover" }).first().click();
+    await expect(suggestion.getByRole("button", { name: "Connect" })).toBeVisible();
+  });
+  const discoverHeld = holdMethod("POST");
+  await page.route(connectUrl, discoverHeld.handler);
+  try {
+    await onPhone(page, async () => {
+      await phoneTall(
+        flow,
+        suggestion.getByRole("button", { name: "Connect" }),
+        "discover connect",
+      );
+      await flow.step("connect from Discover: Connect waits on the POST", async () => {
+        await suggestion.getByRole("button", { name: "Connect" }).click();
+        await expect(suggestion.getByRole("button", { name: "Sending…" })).toBeVisible();
+      });
+      const sending = suggestion.getByRole("button", { name: "Sending…" });
+      await busyButtonHeld(flow, sending, "Sending…", "discover connect busy");
+      await phoneTall(flow, sending, "discover connect busy");
+    });
+  } finally {
+    discoverHeld.release();
+    await page.unroute(connectUrl, discoverHeld.handler);
+  }
+  await flow.step("connect from Discover", async () => {
+    await expect(page.getByText(`Request sent to @${member.handle}`)).toBeVisible();
+  });
+  flow.check("Discover sent one request", 1, sentRequests());
+
+  await flow.step("withdraw the request through the API", async () => {
+    const response = await page.context().request.delete(connectUrl, {
+      headers: { Authorization: `Bearer ${token}`, Origin: ORIGINS.musubi },
+    });
+    flow.recordRequest("DELETE", connectUrl, response.status());
+    expect(response.status(), "withdraw request").toBe(200);
+  });
+
+  const searchRow = page
+    .getByRole("main")
+    .getByRole("listitem")
+    .filter({ hasText: `@${member.handle}` });
+  const searchHeld = holdMethod("POST");
+  const sentFromDiscover = sentRequests();
+  await onPhone(page, async () => {
+    await flow.step("find the member on /search", async () => {
+      await page
+        .locator('nav[aria-label="Primary"]')
+        .getByRole("link", { name: "Search", exact: true })
+        .click();
+      await page
+        .getByRole("searchbox", { name: "Search people and organisations" })
+        .fill(member.handle);
+      await expect(searchRow.getByRole("button", { name: "Connect" })).toBeVisible();
+    });
+    await phoneTall(flow, searchRow.getByRole("button", { name: "Connect" }), "search connect");
+    await page.route(connectUrl, searchHeld.handler);
+    try {
+      await flow.step("connect from /search: Connect waits on the POST", async () => {
+        await searchRow.getByRole("button", { name: "Connect" }).click();
+        await expect(searchRow.getByRole("button", { name: "Sending…" })).toBeVisible();
+      });
+      const sending = searchRow.getByRole("button", { name: "Sending…" });
+      await busyButtonHeld(flow, sending, "Sending…", "search connect busy");
+      await phoneTall(flow, sending, "search connect busy");
+    } finally {
+      searchHeld.release();
+      await page.unroute(connectUrl, searchHeld.handler);
+    }
+    await flow.step("connect from /search", async () => {
+      await expect(searchRow.getByText("Requested", { exact: true })).toBeVisible();
+    });
+  });
+  flow.check("/search sent one request", 1, sentRequests() - sentFromDiscover);
+
+  await flow.step("back to the organisation", async () => {
+    await page.getByRole("link", { name: "Organisations" }).first().click();
+    await orgLink.click();
+    await expect(page.getByRole("heading", { level: 1, name: org.renamed })).toBeVisible();
+  });
 
   await flow.step("remove the member", async () => {
     await page.getByRole("button", { name: `Remove @${member.handle}`, exact: true }).click();
