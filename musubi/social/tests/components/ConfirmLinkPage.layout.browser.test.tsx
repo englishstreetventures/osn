@@ -19,9 +19,10 @@
  * - typed, the field, Confirm and the decline fit the same column, each at
  *   least 44px tall below `md`, with 16px type so a phone does not zoom.
  *
- * The page sits where the host route will put it: `AuthorizePage`'s `<main>`
- * (`mx-auto … max-w-md px-6 py-10`), with no app shell. At a 320px viewport
- * that leaves the card 272px.
+ * The page sits in a bare route's `<main>` (`mx-auto … max-w-md px-6 py-10`),
+ * with no app shell. At a 320px viewport that leaves the card 272px. The host
+ * page itself, with its name above the card, its own failed card and its
+ * placeholder, is held by `tests/pages/VerifyEmailLinkPage.layout.browser.test.tsx`.
  *
  * Each case writes a screenshot to `__screenshots__/` beside this file
  * (gitignored).
@@ -92,8 +93,9 @@ async function mountOnRoute(answer: "confirmed" | "throws", onContinue?: () => v
   ));
   await painted();
   const heading = screen.getByRole("heading", { level: 1 });
-  // The card is the element the page draws outermost: the `Card` around it all.
-  const card = heading.closest("main")?.firstElementChild as HTMLElement;
+  // The card is the child of `<main>` that holds the heading: the `Card`
+  // around it all, never a sibling the host draws above it.
+  const card = heading.closest("main > *") as HTMLElement;
   return { card };
 }
 
@@ -290,7 +292,7 @@ async function mountTyped(answer: "confirmed" | "throws") {
   ));
   await painted();
   const heading = screen.getByRole("heading", { level: 1 });
-  const card = heading.closest("main")?.firstElementChild as HTMLElement;
+  const card = heading.closest("main > *") as HTMLElement;
   const field = screen.getByLabelText(
     "Type the number shown on the screen where you started.",
   ) as HTMLInputElement;

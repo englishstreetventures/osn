@@ -5,12 +5,18 @@ import {
 } from "@osn/auth-ui/ConfirmLinkPage";
 import { emailLinkPurpose, type EmailLinkCandidates } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
+import { Card } from "@shared/ui/ui/card";
+import { Notice } from "@shared/ui/ui/notice";
 import { useParams } from "@solidjs/router";
-import { createResource, Match, Show, Switch, type JSX } from "solid-js";
+import { createResource, createSignal, Match, Show, Switch } from "solid-js";
 
 import { PRODUCT_NAME } from "../lib/auth";
 import { emailLinkClient } from "../lib/authClients";
 import { emailLinkSecret } from "../lib/email-link";
+
+const CHECKING_LINE = "Checking this link…";
+const FAILED_HEADING = "We couldn't open this link just now";
+const FAILED_LINE = "Check your connection, then try again.";
 
 /**
  * `/verify/<request id>`: the page an emailed link opens. A bare route — no
@@ -22,11 +28,17 @@ import { emailLinkSecret } from "../lib/email-link";
  * and the confirm call. The confirm step requires the number shown on the
  * waiting screen, so the person picks it here, or says they did not ask. A
  * read that finds the request already confirmed, or refuses it, opens the
- * page on that answer instead, with nothing to pick.
+ * page on that answer instead, with nothing to pick. So does a link whose id
+ * names no flow: every dead link is `ConfirmLinkPage`'s expired card.
  *
  * Confirming never signs this browser in: the tab that began the sign-up holds
  * the claim secret and finishes there, on this device or another. So the page
  * offers no Continue; it sends the person back to where they began.
+ *
+ * Every card on the route is `@shared/ui`'s `Card`: `ConfirmLinkPage`'s, and
+ * the page's own card for a read that failed. While the read runs, a
+ * placeholder in the ready card's shape holds its place, so the name above
+ * does not move when the card arrives.
  */
 export function VerifyEmailLinkPage() {
   const params = useParams<{ requestId: string }>();
@@ -44,6 +56,19 @@ export function VerifyEmailLinkPage() {
     },
   );
 
+  // Set by Try again. The failed card's alert speaks the first failure as it
+  // appears; each later one is said through the live region instead, because
+  // the alert's text does not change between tries.
+  const [retried, setRetried] = createSignal(false);
+
+  // A failed read keeps `read.error` until the next try settles, so the
+  // failed card stays up through a retry and its button shows the wait.
+  const spoken = () => {
+    if (read.loading) return CHECKING_LINE;
+    if (read.error && retried()) return FAILED_LINE;
+    return "";
+  };
+
   // `pick` goes to the client exactly as the page gives it: a number, or
   // `null` for "I didn't ask for this".
   const confirm = async (pick: string | null): Promise<ConfirmOutcome> => {
@@ -52,27 +77,53 @@ export function VerifyEmailLinkPage() {
     return emailLinkClient.confirm(requestId(), { linkSecret: secret, pick });
   };
 
+  // Try again disables itself while the read runs, and a disabled button
+  // loses focus to the page. The card's heading takes it instead, as
+  // `ConfirmLinkPage`'s does when a tapped number disables itself.
+  let failedHeading: HTMLHeadingElement | undefined;
+
+  function retry() {
+    setRetried(true);
+    failedHeading?.focus();
+    void refetch();
+  }
+
   return (
     <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-6 py-10">
+      {/* Mounted from the start: a live region added with its text is not
+          reliably read. `<output>` is a polite status. */}
+      <output class="sr-only">{spoken()}</output>
       <p class="text-foreground text-title text-center font-medium" translate="no">
         {PRODUCT_NAME}
       </p>
       <Switch>
         <Match when={!purpose()}>
-          <DeadLink />
+          <ConfirmLinkPage purpose="sign-up" initialOutcome="expired" onConfirm={confirm} />
         </Match>
         <Match when={read.error}>
-          <Notice heading="We couldn't open this link just now">
-            <p class="text-muted-foreground text-body mt-2" role="alert">
-              Check your connection, then try again.
-            </p>
-            <Button class="mt-4" onClick={() => void refetch()}>
-              Try again
+          <Card padding="lg" class="flex flex-col gap-6">
+            <div class="flex flex-col gap-2">
+              <h1
+                ref={failedHeading}
+                tabindex="-1"
+                class="text-foreground text-title font-medium focus:outline-none"
+              >
+                {FAILED_HEADING}
+              </h1>
+              <Notice tone="danger" size="inline" alert>
+                {FAILED_LINE}
+              </Notice>
+            </div>
+            <Button size="lg" class="w-full max-md:h-11" disabled={read.loading} onClick={retry}>
+              {read.loading ? "Checking…" : "Try again"}
             </Button>
-          </Notice>
+          </Card>
         </Match>
         <Match when={read.loading || !read()}>
-          <p class="text-muted-foreground text-body text-center">Checking this link…</p>
+          {/* The ready card's height with five numbers, on a 360–430px phone
+              and from `md` up, so the name above it stays put when the card
+              replaces it (`DESIGN.md` §Motion). */}
+          <div aria-hidden="true" class="bg-muted/50 rounded-card h-138 animate-pulse md:h-130" />
         </Match>
         <Match when={read()}>
           {(answer) => (
@@ -115,26 +166,5 @@ function LinkCard(props: {
         )}
       </Match>
     </Switch>
-  );
-}
-
-/** A card in `AuthorizePage`'s dead-request style. */
-function Notice(props: { heading: string; children: JSX.Element }) {
-  return (
-    <div class="border-border rounded-card border p-6 text-center">
-      <h1 class="text-foreground text-title font-medium">{props.heading}</h1>
-      {props.children}
-    </div>
-  );
-}
-
-function DeadLink() {
-  return (
-    <Notice heading="This link no longer works">
-      <p class="text-muted-foreground text-body mt-2">
-        It has expired or was already used. Go back to where you started, and ask for a new link if
-        you need one.
-      </p>
-    </Notice>
   );
 }
