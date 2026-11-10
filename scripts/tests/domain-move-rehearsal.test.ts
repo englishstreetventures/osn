@@ -456,6 +456,53 @@ async function probeWith(options: FakeSocketOptions) {
   return { result, written: written.join(""), connected };
 }
 
+/**
+ * Alchemy's last 40 log lines from a flip whose replacing attach Cloudflare refused, as the
+ * flip step recorded them on dev, with the dev domain replaced by the test's.
+ */
+const REFUSED_FLIP_TAIL = [
+  "[04:48:21.962] INFO: Plan ready (3.9s)",
+  "[04:48:21.963] INFO: Plan: 1 to update",
+  "[04:48:21.963] INFO: [RehearsalSite] update",
+  "[04:48:21.963] INFO: ",
+  "[04:48:22.213] INFO: [RehearsalSite] Cloudflare Worker reconcile: starting osn-domain-move-rehearsal",
+  "[04:48:22.214] INFO: [RehearsalSite] Cloudflare Worker reconcile: durable objects []",
+  "[04:48:22.215] INFO: [RehearsalSite] updating",
+  "[04:48:22.433] INFO: [RehearsalSite] Cloudflare Worker reconcile: existing durable object tags []",
+  "[04:48:22.434] INFO: [RehearsalSite] Cloudflare Worker reconcile: previous durable object tags []",
+  "[04:48:22.439] INFO: [RehearsalSite] Cloudflare Worker update: preparing bundle for osn-domain-move-rehearsal",
+  "[04:48:22.445] INFO: [RehearsalSite] Cloudflare Worker update: uploading assets for osn-domain-move-rehearsal",
+  "[04:48:23.683] INFO: [RehearsalSite] Cloudflare Worker update: uploading script for osn-domain-move-rehearsal",
+  '[04:48:23.684] INFO: [RehearsalSite] Cloudflare Worker put: durable object reconciliation {"oldDoClassNameByLogicalId":{},"currentDoClassNameByLogicalId":{},"deletedClasses":[],"renamedClasses":[],"transferredClasses":[],"newSqliteClasses":[]}',
+  "[04:48:25.824] ERROR: [RehearsalSite] fail — replacing domain-move.example.dev's CNAME with osn-domain-move-rehearsal's custom domain: Cloudflare answered 409 (100117 Hostname 'domain-move.example.dev' already has externally managed DNS records (A, CNAME, etc). Delete them first or try a different hostname.) (3.6s)",
+  "[04:48:25.824] INFO: ",
+  "[04:48:25.824] INFO: Failed: 0 succeeded, 1 failed (3.9s)",
+  "[04:48:25.827] ERROR (#1): Error: replacing domain-move.example.dev's CNAME with osn-domain-move-rehearsal's custom domain: Cloudflare answered 409 (100117 Hostname 'domain-move.example.dev' already has externally managed DNS records (A, CNAME, etc). Delete them first or try a different hostname.)",
+  "    at stop (/home/runner/work/osn/osn/node_modules/.bun/@alchemy.run+cloudflare@2.0.0-beta.85+2a2207665f7439b6/node_modules/@alchemy.run/cloudflare/src/Workers/ReplaceCname.ts:290:50)",
+  "    at runLoop (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/internal/effect.js:486:88)",
+  "    at evaluate (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/internal/effect.js:425:23)",
+  "    at runInAsyncScope (node:async_hooks:207:23)",
+  "    at evaluate (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/internal/effect.js:414:29)",
+  "    at <anonymous> (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/internal/effect.js:846:17)",
+  "    at evaluate (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/internal/effect.js:446:19)",
+  "    at runInAsyncScope (node:async_hooks:207:23)",
+  "    at evaluate (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/internal/effect.js:414:29)",
+  "    at <anonymous> (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/internal/effect.js:846:17)",
+  "    at Effect.fn (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/Pipeable.js:60:27)",
+  "    at Effect.fn (definition) (/home/runner/work/osn/osn/node_modules/.bun/alchemy@2.0.0-beta.85+e5b13fd277447bc4/node_modules/alchemy/src/Apply.ts:139:11)",
+  "    at provider.update (/home/runner/work/osn/osn/node_modules/.bun/alchemy@2.0.0-beta.85+e5b13fd277447bc4/node_modules/alchemy/src/Apply.ts:166:14)",
+  "    at apply.resource (/home/runner/work/osn/osn/node_modules/.bun/alchemy@2.0.0-beta.85+e5b13fd277447bc4/node_modules/alchemy/src/Apply.ts:1546:12)",
+  "    at Effect.fn (/home/runner/work/osn/osn/node_modules/.bun/alchemy@2.0.0-beta.85+e5b13fd277447bc4/node_modules/alchemy/src/Apply.ts:357:12)",
+  "    at Effect.fn (definition) (/home/runner/work/osn/osn/node_modules/.bun/alchemy@2.0.0-beta.85+e5b13fd277447bc4/node_modules/alchemy/src/Apply.ts:448:28)",
+  "    at apply (/home/runner/work/osn/osn/node_modules/.bun/alchemy@2.0.0-beta.85+e5b13fd277447bc4/node_modules/alchemy/src/Apply.ts:433:12)",
+  "    at Alchemist.build (/home/runner/work/osn/osn/node_modules/.bun/alchemy@2.0.0-beta.85+e5b13fd277447bc4/node_modules/alchemy/src/Alchemist/Operations.ts:280:24)",
+  "    at Alchemist.build (definition) (/home/runner/work/osn/osn/node_modules/.bun/alchemy@2.0.0-beta.85+e5b13fd277447bc4/node_modules/alchemy/src/Alchemist/Operations.ts:110:34)",
+  "    at Alchemist.plan (/home/runner/work/osn/osn/node_modules/.bun/effect@4.1.2/node_modules/effect/dist/internal/effect.js:486:88)",
+  'error: "alchemy" exited with code 1',
+  'error: script "rehearsal:deploy" exited with code 1',
+  "",
+].join("\n");
+
 describe("domain-move-rehearsal.ts", () => {
   test("R1: imports only the repository's import-free files and node built-ins", () => {
     const runtimeImports = (file: string) =>
@@ -1311,6 +1358,70 @@ describe("domain-move-rehearsal.ts", () => {
     };
   };
 
+  /** Every job of a run, each with `result`, except those `results` names otherwise. */
+  const jobsJson = (results: Readonly<Record<string, string>> = {}) =>
+    JSON.stringify(
+      Object.fromEntries(
+        [
+          "setup-pages",
+          "worker-staged",
+          "pages-on",
+          "watch",
+          "detach",
+          "hold",
+          "flip",
+          "check",
+          "unflip",
+          "attach",
+          "destroy",
+          "cleanup",
+        ].map((job) => [job, { result: results[job] ?? "success", outputs: {} }]),
+      ),
+    );
+  interface ReportJson {
+    readonly intervals: Record<string, unknown>;
+    readonly verdict: { readonly pass: boolean; readonly failures: string[] };
+    readonly failedSteps: string[];
+  }
+  const reportOf = (result: { files: Record<string, string> }) =>
+    JSON.parse(result.files["/tmp/rehearsal/domain-move-rehearsal.json"] ?? "{}") as ReportJson;
+  const REFUSED_FLIP_LINE =
+    "the flip step failed (exit 1): Alchemy's deploy failed, and no poll saw Cloudflare list the Worker's custom domain where it was going, so the step waited for nothing; Alchemy's last error: replacing domain-move.example.dev's CNAME with osn-domain-move-rehearsal's custom domain: Cloudflare answered 409 (100117 Hostname 'domain-move.example.dev' already has externally managed DNS records (A, CNAME, etc). Delete them first or try a different hostname.)";
+  /** A flip whose deploy Cloudflare refused, then the rollback, as dev's first kept-CNAME run went. */
+  const refusedFlip = (edge: readonly unknown[]) => ({
+    "detach.json": JSON.stringify({
+      step: "detach",
+      exitCode: 0,
+      startedAt: at(0),
+      events: { detachedAt: at(10) },
+    }),
+    "hold.json": JSON.stringify({ step: "hold", exitCode: 0, events: {} }),
+    "flip.json": JSON.stringify({
+      step: "flip",
+      exitCode: 1,
+      message:
+        "Alchemy's deploy failed, and no poll saw Cloudflare list the Worker's custom domain where it was going, so the step waited for nothing.",
+      startedAt: at(40),
+      events: {
+        alchemyStartedAt: at(50),
+        hostRecordReads: 4,
+        alchemyEndedAt: at(58),
+        alchemyExitCode: 1,
+      },
+      alchemyLogTail: REFUSED_FLIP_TAIL,
+    }),
+    "unflip.json": JSON.stringify({ step: "unflip", exitCode: 0, startedAt: at(100), events: {} }),
+    "attach.json": JSON.stringify({
+      step: "attach",
+      exitCode: 0,
+      startedAt: at(190),
+      events: { attachedAt: at(200), firstPagesAnswerAt: at(210), pagesDomainActiveAt: at(230) },
+    }),
+    "destroy.json": JSON.stringify({ step: "destroy", exitCode: 0, events: {} }),
+    "cleanup.json": JSON.stringify({ step: "cleanup", exitCode: 0, events: {} }),
+    "watch.json": JSON.stringify({ step: "watch", exitCode: 0, timeline: edge, zone: zoneView() }),
+  });
+
   test("R20: report computes each interval from the fragments, falls back to the detach for the gap's start, and lists what is missing", async () => {
     const fragments = {
       "detach.json": JSON.stringify({
@@ -1393,11 +1504,14 @@ describe("domain-move-rehearsal.ts", () => {
       zoneMaxSpacingMs: 2_000,
       zoneSamples: 61,
       zoneFailedReads: 0,
+      windowEnd: "worker",
+      edgeGapTo: "worker",
     });
     expect((report as unknown as { verdict: unknown }).verdict).toEqual({
       pass: true,
       failures: [],
     });
+    expect((report as unknown as { failedSteps: unknown }).failedSteps).toEqual([]);
     expect(report.missing).toContain("preflight");
     expect(report.steps.flip?.exitCode).toBe(0);
     // With no watch sample before the detach, the gap runs from the detach.
@@ -1581,7 +1695,7 @@ describe("domain-move-rehearsal.ts", () => {
     expect(report.verdict.pass).toBe(pass);
   });
 
-  test("R20c: report fails when the window from the detach to the Worker's first answer is unknown", async () => {
+  test("R20c: with no window and no failed step, report names the record that is missing", async () => {
     const result = await run(
       ["report", ...OUT],
       world(),
@@ -1594,6 +1708,263 @@ describe("domain-move-rehearsal.ts", () => {
     );
     expect(result.code).toBe(1);
     expect(result.output).toContain("window");
+    expect(reportOf(result).verdict.failures).toEqual([
+      "this attempt holds no detach record, so the window from the detach to the host's next answer is unknown",
+    ]);
+  });
+
+  test("R20d: a failed flip is named with Alchemy's error, and the zone is measured from the detach to Pages answering again", async () => {
+    const edge = [
+      { view: "edge", host: HOST, outcome: "pages", first: at(0), last: at(12), count: 7 },
+      { view: "edge", host: HOST, outcome: "other", first: at(14), last: at(208), count: 98 },
+      { view: "edge", host: HOST, outcome: "pages", first: at(210), last: at(300), count: 46 },
+    ];
+    const result = await run(
+      ["report", ...OUT],
+      world(),
+      {
+        DEV_DOMAIN: DOMAIN,
+        GITHUB_STEP_SUMMARY: "/tmp/summary.md",
+        REHEARSAL_JOBS: jobsJson({ flip: "failure", check: "skipped" }),
+      },
+      { readDir: () => refusedFlip(edge) },
+    );
+    expect(result.code).toBe(1);
+    const report = reportOf(result);
+    expect(report.failedSteps).toEqual([REFUSED_FLIP_LINE]);
+    expect(report.verdict).toEqual({ pass: true, failures: [] });
+    expect(report.intervals).toMatchObject({
+      edgeGapMs: 198_000,
+      edgeGapFrom: "watch",
+      edgeGapTo: "pages",
+      gapMs: null,
+      windowEnd: "pages",
+      zoneRecordGapMs: null,
+      zoneSamples: 101,
+    });
+    expect(result.files["/tmp/summary.md"]).toContain(REFUSED_FLIP_LINE);
+    expect(result.output).toContain(`::error::domain-move-rehearsal: ${REFUSED_FLIP_LINE}.`);
+    expect(`${result.output}${result.files["/tmp/summary.md"]}`).not.toContain("is unknown");
+    // A probe that failed once before the detach does not move where the gap starts.
+    const blip = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN },
+      {
+        readDir: () =>
+          refusedFlip([
+            { view: "edge", host: HOST, outcome: "pages", first: at(0), last: at(4), count: 3 },
+            { view: "edge", host: HOST, outcome: "error", first: at(6), last: at(6), count: 1 },
+            { view: "edge", host: HOST, outcome: "pages", first: at(8), last: at(12), count: 3 },
+            ...edge.slice(1),
+          ]),
+      },
+    );
+    expect(reportOf(blip).intervals.edgeGapMs).toBe(198_000);
+  });
+
+  test("R20e: a step that failed after the window fails the report and leaves the zone verdict alone", async () => {
+    const result = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN },
+      {
+        readDir: () => ({
+          "detach.json": JSON.stringify({
+            step: "detach",
+            exitCode: 0,
+            events: { detachedAt: at(10) },
+          }),
+          "flip.json": JSON.stringify({
+            step: "flip",
+            exitCode: 0,
+            events: { firstWorkerAnswerAt: at(130), hostRecordReads: 9 },
+          }),
+          "watch.json": JSON.stringify({
+            step: "watch",
+            exitCode: 0,
+            timeline: [],
+            zone: zoneView(),
+          }),
+          "cleanup.json": JSON.stringify({
+            step: "cleanup",
+            exitCode: 1,
+            message: "A rehearsal project is still there.",
+          }),
+        }),
+      },
+    );
+    expect(result.code).toBe(1);
+    const report = reportOf(result);
+    expect(report.verdict).toEqual({ pass: true, failures: [] });
+    expect(report.failedSteps).toEqual([
+      "the cleanup step failed (exit 1): A rehearsal project is still there",
+    ]);
+  });
+
+  test("R20f: a detach that failed is named once, and the zone verdict says it was not measured", async () => {
+    const result = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN },
+      {
+        readDir: () => ({
+          "detach.json": JSON.stringify({
+            step: "detach",
+            exitCode: 1,
+            message: "The detach found the host on no project.",
+          }),
+          "watch.json": JSON.stringify({
+            step: "watch",
+            exitCode: 0,
+            timeline: [],
+            zone: zoneView(),
+          }),
+        }),
+      },
+    );
+    expect(result.code).toBe(1);
+    const report = reportOf(result);
+    expect(report.failedSteps).toEqual([
+      "the detach step failed (exit 1): The detach found the host on no project",
+    ]);
+    expect(report.verdict.failures).toEqual([
+      "the zone was not measured, since the detach job did not succeed",
+    ]);
+  });
+
+  test("R20g: a step that left no exit code is named as one that did not finish", async () => {
+    const result = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN },
+      {
+        readDir: () => ({
+          "detach.json": JSON.stringify({
+            step: "detach",
+            exitCode: 0,
+            events: { detachedAt: at(10) },
+          }),
+          "flip.json": JSON.stringify({
+            step: "flip",
+            startedAt: at(40),
+            events: { alchemyStartedAt: at(50), hostRecordReads: 2 },
+          }),
+          "watch.json": JSON.stringify({
+            step: "watch",
+            exitCode: 0,
+            timeline: [],
+            zone: zoneView(),
+          }),
+        }),
+      },
+    );
+    expect(result.code).toBe(1);
+    const report = reportOf(result);
+    expect(report.failedSteps).toEqual([
+      "the flip step left no exit code: it crashed, timed out or was cancelled; its job log holds why",
+    ]);
+    expect(report.verdict.failures).toEqual([
+      "the zone was not measured, since the flip job did not succeed",
+    ]);
+  });
+
+  test("R20h: a missing record is named, and a re-run attempt says to dispatch a new run", async () => {
+    const noFlip = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN },
+      {
+        readDir: () => ({
+          "detach.json": JSON.stringify({
+            step: "detach",
+            exitCode: 0,
+            events: { detachedAt: at(10) },
+          }),
+          "watch.json": JSON.stringify({
+            step: "watch",
+            exitCode: 0,
+            timeline: [],
+            zone: zoneView(),
+          }),
+        }),
+      },
+    );
+    expect(noFlip.code).toBe(1);
+    expect(reportOf(noFlip).failedSteps).toEqual([]);
+    expect(reportOf(noFlip).verdict.failures).toEqual([
+      "this attempt holds no flip record, so the window from the detach to the host's next answer is unknown",
+    ]);
+    const rerun = await run(
+      ["report", ...OUT],
+      world(),
+      {
+        DEV_DOMAIN: DOMAIN,
+        GITHUB_RUN_ATTEMPT: "2",
+        REHEARSAL_JOBS: jobsJson({ flip: "failure", check: "failure" }),
+      },
+      {
+        readDir: () => ({
+          "destroy.json": JSON.stringify({ step: "destroy", exitCode: 0, events: {} }),
+          "cleanup.json": JSON.stringify({ step: "cleanup", exitCode: 0, events: {} }),
+        }),
+      },
+    );
+    expect(rerun.code).toBe(1);
+    expect(reportOf(rerun).failedSteps).toEqual([
+      "the flip job refused this re-run attempt, as every step but destroy, cleanup and report does",
+      "the check job refused this re-run attempt, as every step but destroy, cleanup and report does",
+    ]);
+    expect(reportOf(rerun).verdict.failures).toEqual([
+      "the zone was not measured, since the flip job did not succeed; a re-run refuses every step but destroy, cleanup and report, so dispatch a new run",
+    ]);
+  });
+
+  test("R20i: a job that failed outside its step is named from the job's own result", async () => {
+    const fragments = {
+      "preflight.json": JSON.stringify({ step: "preflight", exitCode: 0, events: {} }),
+      "detach.json": JSON.stringify({
+        step: "detach",
+        exitCode: 0,
+        events: { detachedAt: at(10) },
+      }),
+      "unflip.json": JSON.stringify({ step: "unflip", exitCode: 0, events: {} }),
+      "attach.json": JSON.stringify({
+        step: "attach",
+        exitCode: 0,
+        events: { attachedAt: at(200), firstPagesAnswerAt: at(210) },
+      }),
+      "watch.json": JSON.stringify({ step: "watch", exitCode: 0, timeline: [], zone: zoneView() }),
+    };
+    const flipJobFailed = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN, REHEARSAL_JOBS: jobsJson({ flip: "failure", check: "skipped" }) },
+      { readDir: () => fragments },
+    );
+    expect(flipJobFailed.code).toBe(1);
+    expect(reportOf(flipJobFailed).failedSteps).toEqual([
+      "the flip job failed before its flip step wrote a record; its job log holds why",
+    ]);
+    expect(reportOf(flipJobFailed).verdict).toEqual({ pass: true, failures: [] });
+    const afterItsStep = await run(
+      ["report", ...OUT],
+      world(),
+      { DEV_DOMAIN: DOMAIN, REHEARSAL_JOBS: jobsJson({ "setup-pages": "failure" }) },
+      {
+        readDir: () => ({
+          ...fragments,
+          "flip.json": JSON.stringify({
+            step: "flip",
+            exitCode: 0,
+            events: { firstWorkerAnswerAt: at(130), hostRecordReads: 9 },
+          }),
+        }),
+      },
+    );
+    expect(reportOf(afterItsStep).failedSteps).toEqual([
+      "the setup-pages job failed after its preflight step ended with exit 0; its job log holds why",
+    ]);
   });
 
   test("R10a: worker-staged deploys with REHEARSAL_MODE=staged, then waits for the Worker on the spare host; a failed deploy waits for nothing", async () => {
@@ -1792,10 +2163,13 @@ describe("domain-move-rehearsal.ts", () => {
       { DEV_DOMAIN: DOMAIN, GITHUB_STEP_SUMMARY: "/tmp/summary.md" },
       { readDir: () => fragments },
     );
-    // No zone view: the verdict fails, and the report is written all the same.
+    // No detach record and an unreadable flip: the zone was not measured, and the report is
+    // written all the same.
     expect(result.code).toBe(1);
     expect(result.files["/tmp/summary.md"]).toContain("## Domain move rehearsal");
-    expect(result.files["/tmp/summary.md"]).toContain("no name servers");
+    expect(result.files["/tmp/summary.md"]).toContain(
+      "the zone was not measured, since the flip job did not succeed",
+    );
     const report = JSON.parse(
       result.files["/tmp/rehearsal/domain-move-rehearsal.json"] ?? "{}",
     ) as {
@@ -1904,6 +2278,8 @@ describe("domain-move-rehearsal.ts", () => {
       probe: counting(w),
     });
     expect(flipFailed.code).toBe(1);
+    expect(String(flipFailed.fragment.message)).toContain("so the step waited for nothing");
+    expect(String(flipFailed.fragment.message)).not.toContain("nothing moved");
     // The one probe before the deploy, and none after it.
     expect(probes).toBe(1);
     probes = 0;
@@ -1914,6 +2290,7 @@ describe("domain-move-rehearsal.ts", () => {
       probe: counting(w2),
     });
     expect(unflipFailed.code).toBe(1);
+    expect(String(unflipFailed.fragment.message)).toContain("so the step waited for nothing");
     expect(probes).toBe(0);
   });
 

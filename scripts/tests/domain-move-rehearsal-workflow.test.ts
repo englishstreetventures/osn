@@ -15,6 +15,7 @@ import {
   ATTACH_JOB_NAME,
   HOLD_DEFAULT_MINUTES,
   HOLD_MAX_MS,
+  JOB_STEPS,
   PAGES_WAIT_MS,
   PIN_TIMEOUT_MS,
   WAIT_WATCH_CAP_MS,
@@ -438,6 +439,28 @@ describe("domain-move-rehearsal.yml", () => {
       (job.steps ?? []).filter((step) => step.run?.includes(SCRIPT)),
     );
     expect(running).toHaveLength(all.length);
+  });
+
+  test("W9a: the report reads every job's own result, and the script maps each job to the steps it runs", () => {
+    const merge = scriptStep("report", "report");
+    expect(merge?.env).toEqual({
+      DEV_DOMAIN,
+      REHEARSAL_JOBS: "${{ toJSON(needs) }}",
+    });
+    // No job hands the report an output, so the jobs' results are all it reads.
+    expect(
+      Object.entries(jobs)
+        .filter(([, job]) => "outputs" in job)
+        .map(([id]) => id),
+    ).toEqual([]);
+    const fromWorkflow: Record<string, string[]> = {};
+    for (const { job, step } of SCRIPT_STEPS) (fromWorkflow[job] ??= []).push(step);
+    expect(JOB_STEPS as Readonly<Record<string, readonly string[]>>).toEqual(fromWorkflow);
+    expect(Object.keys(JOB_STEPS).toSorted()).toEqual(
+      Object.keys(jobs)
+        .filter((id) => id !== "report")
+        .toSorted(),
+    );
   });
 
   test("W10: Wrangler uploads the marker page to the run's own project, on its production branch", () => {

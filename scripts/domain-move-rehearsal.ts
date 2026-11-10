@@ -45,8 +45,11 @@
  *                  and, in a loop of its own, asks the dev zone's own name
  *                  servers for the moved host's A and AAAA every 2 s
  *   report         merges the fragments, works out the intervals, and fails
+ *                  when a job did not succeed (`failedSteps`, from the
+ *                  fragments and REHEARSAL_JOBS, each job's result), or
  *                  unless the zone view found a record at every read from the
- *                  detach to the Worker's first answer (`verdict`)
+ *                  detach to the host's next answer: the Worker's, or Pages'
+ *                  after the attach when the flip recorded none (`verdict`)
  *
  * A step that waits pins one Cloudflare address of the dev zone, asked of the
  * zone's own name servers so no resolver cache sits between a write and the
@@ -69,6 +72,8 @@
  *                          from 0 to 15; 10 when unset
  *   GITHUB_TOKEN           wait-watch, watch: the job token
  *   GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_REPOSITORY  set by Actions
+ *   REHEARSAL_JOBS         report: the workflow's `toJSON(needs)`, each job's
+ *                          result; unset, the fragments alone decide
  * No token, account id or 32-hex id reaches a fragment or a message.
  *
  * Imports only node built-ins and the repository's import-free files, so a
@@ -184,6 +189,25 @@ const TOKEN_NAMES = ["CLOUDFLARE_API_TOKEN", "GITHUB_TOKEN"] as const;
 
 /** Steps that may run on a re-run attempt: each finishes or reads what an earlier attempt left. */
 const ANY_ATTEMPT: ReadonlySet<Step> = new Set(["destroy", "cleanup", "report"]);
+
+/**
+ * Each job of .github/workflows/domain-move-rehearsal.yml but report, and
+ * the steps of this script it runs, in the order the workflow runs them.
+ */
+export const JOB_STEPS = {
+  "setup-pages": ["preflight"],
+  "worker-staged": ["worker-staged"],
+  "pages-on": ["pages-on"],
+  detach: ["wait-watch", "detach"],
+  hold: ["hold"],
+  flip: ["flip"],
+  check: ["check"],
+  unflip: ["unflip"],
+  attach: ["attach"],
+  destroy: ["destroy"],
+  cleanup: ["cleanup"],
+  watch: ["watch"],
+} as const satisfies Readonly<Record<string, readonly Exclude<Step, "report">[]>>;
 
 /** Steps that act on, or read the moved host against, the run's own Pages project. */
 const PROJECT_STEPS: ReadonlySet<Step> = new Set([
@@ -1134,14 +1158,15 @@ async function detachStep(ctx: Context, project: string): Promise<StepResult> {
 }
 
 const DEPLOY_FAILED =
-  "Alchemy's deploy failed before Cloudflare listed the Worker's custom domain where it was going; nothing moved, so nothing was waited for.";
+  "Alchemy's deploy failed, and no poll saw Cloudflare list the Worker's custom domain where it was going, so the step waited for nothing.";
 
 /**
- * Whether a deploy failed and Cloudflare never listed the Worker's domain
- * where the mode puts it: then the domain did not move, and a wait would
- * only hold the host dark and the runners busy for the full wait.
+ * Whether a deploy failed and no poll saw Cloudflare list the Worker's
+ * domain where the mode puts it: a wait would then only hold the host dark
+ * and the runners busy for the full wait. The provider may still have
+ * removed the Worker's other domains before its attach failed.
  */
-const deployMovedNothing = (ctx: Context, exit: number): boolean =>
+const deployNeverListed = (ctx: Context, exit: number): boolean =>
   exit !== 0 && ctx.record.fragment.events.workerDomainListedAt === undefined;
 
 /**
@@ -1166,7 +1191,7 @@ async function flip(ctx: Context, project: string): Promise<StepResult> {
     env: { OSN_WORKER_DOMAIN_REPLACE_CNAME: `${ctx.hosts.host}=${project}.pages.dev` },
     zone,
   });
-  if (deployMovedNothing(ctx, exit)) return { ok: false, message: DEPLOY_FAILED };
+  if (deployNeverListed(ctx, exit)) return { ok: false, message: DEPLOY_FAILED };
   const served = await waitForWorker(ctx, address, (host) => host.outcome === "worker");
   if (exit !== 0) return { ok: false, message: "Alchemy's deploy failed." };
   if (ctx.record.fragment.events.hostRecordReads === undefined) {
@@ -1234,7 +1259,7 @@ async function check(ctx: Context): Promise<StepResult> {
 async function unflip(ctx: Context): Promise<StepResult> {
   const address = await pin(ctx, [ctx.hosts.host, ctx.hosts.spare]);
   const exit = await alchemy(ctx, "rehearsal:deploy", "staged");
-  if (deployMovedNothing(ctx, exit)) return { ok: false, message: DEPLOY_FAILED };
+  if (deployNeverListed(ctx, exit)) return { ok: false, message: DEPLOY_FAILED };
   const left = await waitForWorker(
     ctx,
     address,
@@ -1510,23 +1535,158 @@ interface Fragment {
   readonly events?: Readonly<Record<string, string | number>>;
   readonly timeline?: readonly TimelineEntry[];
   readonly zone?: ZoneView;
+  /** Alchemy's last log lines, redacted, when its run failed. */
+  readonly alchemyLogTail?: string;
+}
+
+/** Each job's result as Actions gives it (`success`, `failure`, `cancelled`, `skipped`), by job id. */
+type JobResults = Readonly<Record<string, string>>;
+
+/**
+ * REHEARSAL_JOBS, the report step's `toJSON(needs)`, as each job's result;
+ * empty when it is unset or cannot be read, and the fragments alone decide.
+ */
+function jobResults(text: string | undefined): JobResults {
+  if (text === undefined || text.trim() === "") return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {};
+  }
+  if (parsed === null || typeof parsed !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(parsed).flatMap(([job, value]) => {
+      const result = (value as { result?: unknown } | null)?.result;
+      return typeof result === "string" ? [[job, result]] : [];
+    }),
+  );
+}
+
+/** The jobs before the window's end, whose failure leaves the zone unmeasured. */
+const MEASURING_JOBS = [
+  "setup-pages",
+  "worker-staged",
+  "pages-on",
+  "detach",
+  "hold",
+  "flip",
+  "unflip",
+  "attach",
+] as const;
+
+/** A step's message on one line, its closing full stop dropped. */
+const oneLine = (text: string): string =>
+  text
+    .replace(/\s*\n\s*/g, " ")
+    .trim()
+    .replace(/\.$/, "");
+
+/**
+ * The last error line of Alchemy's recorded log, its time, level and
+ * "Error: " dropped and cut to 300 characters; undefined when the tail holds
+ * none. Only a line Alchemy's logger wrote counts, not a process's "error:".
+ */
+function alchemyError(tail: string): string | undefined {
+  const line = tail.split("\n").findLast((candidate) => /^\[[^\]]*\] ERROR\b/.test(candidate));
+  return line === undefined
+    ? undefined
+    : cut(line.replace(/^\[[^\]]*\] ERROR(?: \(#\d+\))?: (?:Error: )?/, ""), 300);
+}
+
+/** Why one step's record shows it did not end with exit 0; undefined when it did, or left no record. */
+function stepLine(step: Step, fragment: Fragment | undefined): string | undefined {
+  if (fragment === undefined || fragment.exitCode === 0) return undefined;
+  const said =
+    fragment.exitCode === undefined
+      ? `the ${step} step left no exit code: ${oneLine(fragment.message ?? "it crashed, timed out or was cancelled; its job log holds why")}`
+      : `the ${step} step failed (exit ${fragment.exitCode}): ${oneLine(fragment.message ?? "it gave no message")}`;
+  if (fragment.alchemyLogTail === undefined) return said;
+  const error = alchemyError(fragment.alchemyLogTail);
+  return error === undefined
+    ? `${said}; the fragment holds Alchemy's last ${ALCHEMY_LOG_LINES} log lines`
+    : `${said}; Alchemy's last error: ${error}`;
+}
+
+/**
+ * Why one job did not succeed: a line for each of its steps whose record
+ * shows no exit 0, or, with none, a line from the job's own result when it
+ * failed or was cancelled. Empty when it succeeded, was skipped (an earlier
+ * job's failure has its line), or nothing says how it ended.
+ */
+function jobLines(
+  job: string,
+  steps: readonly Step[],
+  fragments: Readonly<Record<string, Fragment>>,
+  jobs: JobResults,
+  attempt: string,
+): string[] {
+  const own = steps.flatMap((step) => {
+    const line = stepLine(step, fragments[step]);
+    return line === undefined ? [] : [line];
+  });
+  const result = jobs[job];
+  if (own.length > 0 || (result !== "failure" && result !== "cancelled")) return own;
+  const how = result === "failure" ? "failed" : "was cancelled";
+  const unwritten = steps.find((step) => fragments[step] === undefined);
+  if (unwritten === undefined) {
+    return [
+      `the ${job} job ${how} after its ${steps.at(-1) ?? job} step ended with exit 0; its job log holds why`,
+    ];
+  }
+  if (attempt !== "1" && result === "failure" && !ANY_ATTEMPT.has(unwritten)) {
+    return [
+      `the ${job} job refused this re-run attempt, as every step but destroy, cleanup and report does`,
+    ];
+  }
+  return [
+    `the ${job} job ${how} before its ${unwritten} step wrote a record; its job log holds why`,
+  ];
+}
+
+/**
+ * Every job of this attempt that did not succeed, in the order the
+ * workflow runs them, each with why: its step's exit code and message, and
+ * Alchemy's last error for a deploy; or, for a job that ended outside its
+ * step, the job's own result from `jobs`.
+ */
+export function failedSteps(
+  fragments: Readonly<Record<string, Fragment>>,
+  jobs: JobResults,
+  attempt: string,
+): string[] {
+  return Object.entries(JOB_STEPS).flatMap(([job, steps]) =>
+    jobLines(job, steps, fragments, jobs, attempt),
+  );
 }
 
 const msBetween = (from: unknown, to: unknown): number | null =>
   typeof from === "string" && typeof to === "string" ? Date.parse(to) - Date.parse(from) : null;
 
 export interface Intervals {
+  /** From the last Pages answer that began by the detach (else the detach) to the host's next answer. */
   readonly edgeGapMs: number | null;
   readonly edgeGapFrom: "watch" | "detach";
+  /** What answered the host at the edge gap's end, from the watch's timeline: the Worker, or Pages after the attach. */
+  readonly edgeGapTo: "worker" | "pages" | null;
   readonly clientDnsGapMs: number | null;
+  /** The detach to the Worker's first answer; null when the Worker never answered. */
   readonly gapMs: number | null;
   readonly workerDomainListedMs: number | null;
   readonly rollbackMs: number | null;
   readonly pagesServingMs: number | null;
   readonly pagesDomainActiveMs: number | null;
-  /** The longest run of zone-view gaps from the detach to the Worker's first answer, to the next record; null for none. */
+  /**
+   * What ends the window the zone view is judged over, from the flip's and
+   * the attach's records: the Worker's first answer, or, when the flip
+   * recorded none, Pages answering after the attach. It can differ from
+   * `edgeGapTo` when a flip killed after the Worker answered recorded no
+   * answer the watch saw.
+   */
+  readonly windowEnd: "worker" | "pages" | null;
+  /** The longest run of zone-view gaps over the window, to the next record; null for none. */
   readonly zoneRecordGapMs: number | null;
-  /** The longest time in that window with no zone-view read that answered; null with no window or no sample. */
+  /** The longest time in the window with no zone-view read that answered; null with no window or no sample. */
   readonly zoneMaxSpacingMs: number | null;
   readonly zoneSamples: number;
   readonly zoneFailedReads: number;
@@ -1545,15 +1705,32 @@ function zoneWindow(
     .filter((sample) => sample.at >= from && sample.at <= to);
 }
 
-/** The zone view's intervals over the window from the detach to the Worker's first answer. */
+/**
+ * The window the zone view is judged over: from the detach to the Worker's
+ * first answer, or, when the flip recorded none, to Pages answering after
+ * the attach. Null when a record it needs is missing.
+ */
+function windowOf(
+  fragments: Readonly<Record<string, Fragment>>,
+): { readonly from: number; readonly to: number; readonly end: "worker" | "pages" } | null {
+  const worker = fragments.flip?.events?.firstWorkerAnswerAt;
+  const pages = fragments.attach?.events?.firstPagesAnswerAt;
+  const end = worker !== undefined ? "worker" : pages !== undefined ? "pages" : null;
+  const from = Date.parse(String(fragments.detach?.events?.detachedAt ?? ""));
+  const to = Date.parse(String(worker ?? pages ?? ""));
+  if (end === null || !Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+  return { from, to, end };
+}
+
+/** The zone view's intervals over the window `windowOf` gives. */
 function zoneIntervals(
   fragments: Readonly<Record<string, Fragment>>,
 ): Pick<Intervals, "zoneRecordGapMs" | "zoneMaxSpacingMs" | "zoneSamples" | "zoneFailedReads"> {
-  const from = Date.parse(String(fragments.detach?.events?.detachedAt ?? ""));
-  const to = Date.parse(String(fragments.flip?.events?.firstWorkerAnswerAt ?? ""));
-  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) {
+  const window = windowOf(fragments);
+  if (window === null) {
     return { zoneRecordGapMs: null, zoneMaxSpacingMs: null, zoneSamples: 0, zoneFailedReads: 0 };
   }
+  const { from, to } = window;
   const samples = zoneWindow(fragments.watch?.zone, from, to);
   let longestGap: number | null = null;
   let gapStart: number | null = null;
@@ -1576,59 +1753,79 @@ function zoneIntervals(
   };
 }
 
+const RERUN =
+  "; a re-run refuses every step but destroy, cleanup and report, so dispatch a new run";
+
 /**
  * Why the run does not show the zone held a record for the moved host from
- * the detach to the Worker's first answer; empty when it does. One runner,
- * one anycast path, a read every 2 s: a pass shows no gap of 2 s or more,
- * and cannot prove the swap atomic.
+ * the detach to the host's next answer (the Worker's, or Pages' after the
+ * attach when the flip recorded none); empty when it does. A job that did
+ * not succeed is `failedSteps`'s to name; here it only explains a window
+ * that was never measured. One runner, one anycast path, a read every 2 s:
+ * a pass shows no gap of 2 s or more, and cannot prove the swap atomic.
  */
 export function verdict(
   fragments: Readonly<Record<string, Fragment>>,
   measured: Intervals,
   host: string,
+  jobs: JobResults = {},
+  attempt = "1",
 ): string[] {
   const failures: string[] = [];
-  const view = fragments.watch?.zone;
   const flipped = fragments.flip?.events ?? {};
   const seconds = (ms: number) => `${Math.round(ms / 100) / 10} s`;
-  if (view === undefined || view.servers === 0) {
-    failures.push("the watch found no name servers for the dev zone, so it asked none of them");
-  }
-  if (
-    fragments.detach?.events?.detachedAt === undefined ||
-    flipped.firstWorkerAnswerAt === undefined
-  ) {
-    failures.push(
-      "the window from the detach to the Worker's first answer is unknown: a fragment holds no detach time or no first Worker answer",
+  const rerun = attempt === "1" ? "" : RERUN;
+  if (windowOf(fragments) === null) {
+    // Exit 0 implies each time the window needs, so with no job stopped,
+    // only a missing detach or flip record leaves no window.
+    const stopped = MEASURING_JOBS.find(
+      (job) => jobLines(job, JOB_STEPS[job], fragments, jobs, attempt).length > 0,
     );
-  } else if (measured.zoneSamples === 0) {
-    failures.push("the zone view took no sample from the detach to the Worker's first answer");
-  }
-  if (measured.zoneRecordGapMs !== null) {
     failures.push(
-      `the zone's name servers answered no record for ${host} for ${seconds(measured.zoneRecordGapMs)}`,
+      stopped === undefined
+        ? `this attempt holds no ${fragments.detach === undefined ? "detach" : "flip"} record, so the window from the detach to the host's next answer is unknown${rerun}`
+        : `the zone was not measured, since the ${stopped} job did not succeed${rerun}`,
     );
+  } else {
+    const view = fragments.watch?.zone;
+    if (fragments.watch === undefined) {
+      failures.push("this attempt holds no watch record, so nothing asked the zone's name servers");
+    } else {
+      if (view === undefined || view.servers === 0) {
+        failures.push("the watch found no name servers for the dev zone, so it asked none of them");
+      }
+      if (measured.zoneSamples === 0) {
+        failures.push("the zone view took no sample from the detach to the host's next answer");
+      }
+    }
+    if (measured.zoneRecordGapMs !== null) {
+      failures.push(
+        `the zone's name servers answered no record for ${host} for ${seconds(measured.zoneRecordGapMs)}`,
+      );
+    }
+    if (measured.zoneMaxSpacingMs !== null && measured.zoneMaxSpacingMs > ZONE_MAX_SPACING_MS) {
+      failures.push(
+        `the zone view went ${seconds(measured.zoneMaxSpacingMs)} with no read that answered, past ${seconds(ZONE_MAX_SPACING_MS)}`,
+      );
+    }
+    if (
+      measured.zoneSamples > 0 &&
+      measured.zoneFailedReads / measured.zoneSamples >= ZONE_FAILED_SHARE
+    ) {
+      failures.push(
+        `${measured.zoneFailedReads} of ${measured.zoneSamples} of the zone view's reads failed, ${Math.round(ZONE_FAILED_SHARE * 100)} % or more`,
+      );
+    }
   }
-  if (measured.zoneMaxSpacingMs !== null && measured.zoneMaxSpacingMs > ZONE_MAX_SPACING_MS) {
-    failures.push(
-      `the zone view went ${seconds(measured.zoneMaxSpacingMs)} with no read that answered, past ${seconds(ZONE_MAX_SPACING_MS)}`,
-    );
-  }
-  if (
-    measured.zoneSamples > 0 &&
-    measured.zoneFailedReads / measured.zoneSamples >= ZONE_FAILED_SHARE
-  ) {
-    failures.push(
-      `${measured.zoneFailedReads} of ${measured.zoneSamples} of the zone view's reads failed, ${Math.round(ZONE_FAILED_SHARE * 100)} % or more`,
-    );
-  }
-  if (flipped.hostRecordlessAt !== undefined) {
-    failures.push(
-      `the API listed no record that routes ${host} at ${String(flipped.hostRecordlessAt)}, during the flip`,
-    );
-  }
-  if (typeof flipped.hostRecordReads !== "number" || flipped.hostRecordReads === 0) {
-    failures.push(`there was no read of ${host}'s records that answered during the flip`);
+  if (fragments.flip !== undefined) {
+    if (flipped.hostRecordlessAt !== undefined) {
+      failures.push(
+        `the API listed no record that routes ${host} at ${String(flipped.hostRecordlessAt)}, during the flip`,
+      );
+    }
+    if (typeof flipped.hostRecordReads !== "number" || flipped.hostRecordReads === 0) {
+      failures.push(`there was no read of ${host}'s records that answered during the flip`);
+    }
   }
   return failures;
 }
@@ -1640,28 +1837,41 @@ export function intervals(fragments: Readonly<Record<string, Fragment>>, host: s
   const attached = fragments.attach?.events ?? {};
   const timeline = fragments.watch?.timeline ?? [];
   const edge = timeline.filter((entry) => entry.view === "edge" && entry.host === host);
-  const firstWorker = edge.findIndex((entry) => entry.outcome === "worker");
-  const beforeWorker = firstWorker === -1 ? edge : edge.slice(0, firstWorker);
-  const firstDown = beforeWorker.findIndex(
-    (entry, index) => entry.outcome !== "pages" && beforeWorker[index - 1]?.outcome === "pages",
-  );
-  const lastPages = firstDown > 0 ? beforeWorker[firstDown - 1] : undefined;
+  const detachedAt = Date.parse(String(detached.detachedAt ?? ""));
+  const attachedAt = Date.parse(String(attached.attachedAt ?? ""));
+  // The gap opens at the last Pages answer that began by the detach, so a
+  // probe that failed before the detach does not move it; it closes at the
+  // Worker's first answer after that, else at Pages answering after the attach.
+  const opening = Number.isFinite(detachedAt)
+    ? edge.findLastIndex(
+        (entry) => entry.outcome === "pages" && Date.parse(entry.first) <= detachedAt,
+      )
+    : -1;
+  const after = edge.slice(opening + 1);
+  const worker = after.find((entry) => entry.outcome === "worker");
+  const back =
+    worker ??
+    (Number.isFinite(attachedAt)
+      ? after.find((entry) => entry.outcome === "pages" && Date.parse(entry.first) >= attachedAt)
+      : undefined);
   const longestDns = timeline
     .filter((entry) => entry.view === "dns" && entry.host === host && entry.outcome !== "resolves")
     .map((entry) => msBetween(entry.first, entry.last) ?? 0)
     .reduce<number | null>((longest, length) => Math.max(longest ?? 0, length), null);
   return {
     edgeGapMs:
-      firstWorker === -1
+      !Number.isFinite(detachedAt) || back === undefined
         ? null
-        : msBetween(lastPages?.last ?? detached.detachedAt, edge[firstWorker]?.first),
-    edgeGapFrom: lastPages === undefined ? "detach" : "watch",
+        : msBetween(edge[opening]?.last ?? detached.detachedAt, back.first),
+    edgeGapFrom: opening === -1 ? "detach" : "watch",
+    edgeGapTo: back === undefined ? null : worker === undefined ? "pages" : "worker",
     clientDnsGapMs: longestDns,
     gapMs: msBetween(detached.detachedAt, flipped.firstWorkerAnswerAt),
     workerDomainListedMs: msBetween(flipped.alchemyStartedAt, flipped.workerDomainListedAt),
     rollbackMs: msBetween(fragments.unflip?.startedAt, attached.firstPagesAnswerAt),
     pagesServingMs: msBetween(attached.attachedAt, attached.firstPagesAnswerAt),
     pagesDomainActiveMs: msBetween(attached.attachedAt, attached.pagesDomainActiveAt),
+    windowEnd: windowOf(fragments)?.end ?? null,
     ...zoneIntervals(fragments),
   };
 }
@@ -1700,11 +1910,15 @@ function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): numb
     }
   }
   const expected = STEPS.filter((step) => step !== "report");
+  const jobs = jobResults(input.env.REHEARSAL_JOBS);
+  const attempt = input.env.GITHUB_RUN_ATTEMPT ?? "1";
   const measured = intervals(fragments, hosts.host);
-  const failures = verdict(fragments, measured, hosts.host);
+  const failed = failedSteps(fragments, jobs, attempt);
+  const failures = verdict(fragments, measured, hosts.host, jobs, attempt);
   const result = {
     hosts,
     intervals: measured,
+    failedSteps: failed,
     verdict: { pass: failures.length === 0, failures },
     steps: Object.fromEntries(
       expected.flatMap((step) => {
@@ -1721,12 +1935,19 @@ function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): numb
   input.writeFile(join(out, REPORT_FILE), `${JSON.stringify(result, null, 2)}\n`);
   const seconds = (value: number | null) =>
     value === null ? "—" : `${Math.round(value / 100) / 10} s`;
+  const nextAnswer =
+    measured.windowEnd === "pages"
+      ? "Pages answering after the attach"
+      : "the Worker's first answer";
   const summary = [
     "## Domain move rehearsal",
     "",
+    ...(failed.length === 0
+      ? []
+      : ["**Failed steps:**", "", ...failed.map((line) => `- ${line}.`), ""]),
     "| Interval | Measured |",
     "|---|---|",
-    `| Host unreachable at the edge (edgeGapMs, from the ${measured.edgeGapFrom}) | ${seconds(measured.edgeGapMs)} |`,
+    `| Host unreachable at the edge (edgeGapMs, from the ${measured.edgeGapFrom} to ${measured.edgeGapTo === "pages" ? "Pages after the attach" : "the Worker"}) | ${seconds(measured.edgeGapMs)} |`,
     `| Host not resolving on the runner (clientDnsGapMs) | ${seconds(measured.clientDnsGapMs)} |`,
     `| Detach to the Worker answering (gapMs) | ${seconds(measured.gapMs)} |`,
     `| Alchemy start to the domain listed (workerDomainListedMs) | ${seconds(measured.workerDomainListedMs)} |`,
@@ -1735,12 +1956,12 @@ function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): numb
     `| Attach to the Pages domain active (pagesDomainActiveMs) | ${seconds(measured.pagesDomainActiveMs)} |`,
     `| No record at the zone's name servers (zoneRecordGapMs) | ${seconds(measured.zoneRecordGapMs)} |`,
     `| Longest time with no zone read answered (zoneMaxSpacingMs) | ${seconds(measured.zoneMaxSpacingMs)} |`,
-    `| Zone reads, detach to the Worker's first answer (zoneSamples) | ${measured.zoneSamples} |`,
+    `| Zone reads, detach to ${nextAnswer} (zoneSamples) | ${measured.zoneSamples} |`,
     `| Zone reads that failed (zoneFailedReads) | ${measured.zoneFailedReads} |`,
     "",
     failures.length === 0
-      ? "**Verdict: pass.** The zone held a record for the moved host at every read."
-      : `**Verdict: fail.** ${failures.join("; ")}.`,
+      ? `**Zone verdict: pass.** The zone held a record for the moved host at every read from the detach to ${nextAnswer}.`
+      : `**Zone verdict: fail.** ${failures.join("; ")}.`,
     "",
     "| Step | Exit |",
     "|---|---|",
@@ -1750,8 +1971,10 @@ function report(input: RehearsalInput, out: string, hosts: RehearsalHosts): numb
   const summaryFile = input.env.GITHUB_STEP_SUMMARY ?? "";
   if (summaryFile === "") input.out(`${summary}\n`);
   else input.writeFile(summaryFile, `${summary}\n`);
-  for (const failure of failures) input.out(`::error::domain-move-rehearsal: ${failure}.\n`);
-  return failures.length === 0 ? 0 : 1;
+  for (const line of [...failed, ...failures]) {
+    input.out(`::error::domain-move-rehearsal: ${line}.\n`);
+  }
+  return failed.length === 0 && failures.length === 0 ? 0 : 1;
 }
 
 // ── Running a step ────────────────────────────────────────────────────────

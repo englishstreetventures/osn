@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-10
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1718,24 +1718,28 @@ release uses ([[infrastructure-as-code#The domain move rehearsal]]):
    reviewer. Each wait for Cloudflare gives up after 15 minutes (a Worker) or 20 (a Pages
    domain), and the watch job after 150 minutes.
 3. Read the run summary, then the `domain-move-rehearsal-attempt-1` artifact
-   (`domain-move-rehearsal.json`). Its `verdict` says whether the zone held a record for
-   the host at every read, and the report job fails when it did not; its `intervals`
-   hold the numbers; each step's fragment holds every Cloudflare answer it got, the DNS
-   records and Worker custom domains at the two hosts whole.
+   (`domain-move-rehearsal.json`). Its `failedSteps` names each job that did not succeed
+   and why: the step's exit code and message, with Alchemy's last error line for a deploy,
+   or the job's own result when it ended before or after its step. Its `verdict` says
+   whether the zone held a record for the host at every read. The report job fails on
+   either. Its `intervals` hold the numbers; each step's fragment holds every Cloudflare
+   answer it got, the DNS records and Worker custom domains at the two hosts whole.
 
 | Question | Where the artifact answers it |
 |---|---|
 | What the reach check reads | `fragments.preflight.calls`: `GET /accounts` and `GET /zones`, for the dev deploy token. That token holds more grants than `CLOUDFLARE_PAGES_DNS_TOKEN`, so this shows how an account API token scoped to one zone answers both listings, not the production token's own answer |
 | What Cloudflare does when the Worker takes the host | `fragments.flip`: the Worker's custom domains and both hosts' records, read every 6 s while Alchemy deploys; `workerDomainListedMs`; from the moved host's reads, `hostRecordReads` (how many answered), `cnameReplacedAt` (the first showing the Worker's record and no CNAME) and `hostRecordlessAt` (the first showing no record that routes it, which fails the run). Alchemy's `putDomain`, and the patch's replacing PUT, each retry a 100116 conflict for 16 s without logging it, so a conflict they got past shows only as that time |
-| Whether the zone held a record for the host | `zoneRecordGapMs` (null on a pass), `zoneMaxSpacingMs`, `zoneSamples` and `zoneFailedReads`, over the detach to the flip's first Worker answer, from `fragments.watch.zone`: the dev zone's own name servers asked for the host's A and AAAA every 2 s, one entry per sample |
+| Whether the zone held a record for the host | `zoneRecordGapMs` (null on a pass), `zoneMaxSpacingMs`, `zoneSamples` and `zoneFailedReads`, over the detach to the host's next answer (`windowEnd`): the flip's first Worker answer, or Pages answering after the attach when the flip recorded none, from `fragments.watch.zone`: the dev zone's own name servers asked for the host's A and AAAA every 2 s, one entry per sample |
 | How the precheck reads a flipped host | `fragments.check.state`, which must be `free`, and the records it read |
-| How long the host is unreachable | `edgeGapMs` (at Cloudflare's edge) and `clientDnsGapMs` (as the runner's resolver sees it, which can answer from its cache, so a null here does not show the zone held a record) |
+| How long the host is unreachable | `edgeGapMs` (at Cloudflare's edge, from the last Pages answer by the detach to the Worker's first answer, or to Pages answering after the attach: `edgeGapTo`) and `clientDnsGapMs` (as the runner's resolver sees it, which can answer from its cache, so a null here does not show the zone held a record) |
 | Whether `attach` restores Pages, and how long it takes | `rollbackMs`, `pagesServingMs` and `pagesDomainActiveMs` |
 
-The report fails the run unless the watch found the zone's name servers; the window from
-the detach to the flip's first Worker answer holds a sample; no sample in it was a gap
-(both answers NXDOMAIN or NODATA); no 12 s in it passed without a read that answered;
-fewer than a tenth of its reads failed; and the flip's API reads of the host's records
+The report fails the run when a job did not succeed, and names the job. It also fails
+the run unless the watch found the zone's name servers; the window from the detach to
+the host's next answer (the flip's first Worker answer, or Pages' after the attach when
+the flip recorded none) holds a sample; no sample in it was a gap (both answers NXDOMAIN
+or NODATA); no 12 s in it passed without a read that answered; fewer than a tenth of its
+reads failed; and, where the flip left a record, its API reads of the host's records
 answered at least once and never showed it bare. One runner asks along one anycast path
 every 2 s, so a pass shows no gap of 2 s or more, and cannot prove the swap atomic.
 

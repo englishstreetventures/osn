@@ -15,8 +15,9 @@ name: Domain move rehearsal
 # job also asks the zone's own name servers for the moved host every 2 s;
 # the report job merges the records into the
 # `domain-move-rehearsal-attempt-<n>` artifact and the run summary, and fails
-# unless the zone held a record for the host at every read from the detach
-# to the Worker's first answer.
+# when a job did not succeed, naming it and why, or unless the zone held a
+# record for the host at every read from the detach to the host's next
+# answer: the Worker's, or Pages' after the attach when the flip failed.
 #
 #   setup-pages ─┬─> pages-on ─┬─> watch ───────────────────────────────────────────────┐
 #                └─> worker-staged ─┴─> detach ─> hold ─> flip ─> check ─> unflip ─> attach ─> destroy ─> cleanup ─> report
@@ -584,6 +585,9 @@ jobs:
         run: bun run scripts/domain-move-rehearsal.ts report --out "$RUNNER_TEMP/rehearsal"
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          # Each job's result, which names a job that failed before its step
+          # wrote a record. No job declares outputs, so this holds results only.
+          REHEARSAL_JOBS: ${{ toJSON(needs) }}
 
       - name: Keep the rehearsal's record
         if: ${{ always() }}
