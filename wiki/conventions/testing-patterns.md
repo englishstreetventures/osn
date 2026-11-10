@@ -1066,9 +1066,24 @@ code passes a suite that covers only the pure half.
 - Run the copy with `process.execPath run`, then assert on the exit code,
   stderr and the log — including that a refused case never logged the call it
   must not make.
-- Each test builds its own tree, so `describe.concurrent` is safe. On macOS,
-  `realpathSync` the temporary root: `/var` links to `/private/var`, and the
-  stand-in reports the real path.
+- Each test builds its own tree, so `describe.concurrent` is safe, unless a
+  run hands a port from one process to another. A script that frees a
+  loopback port and passes it to a child, as `guest-route-parity.ts` does for
+  its Wrangler reference, races every other test's port-0 server for it: the
+  child fails to listen, or the run takes another test's answers for its own.
+  Such a file runs its tests one at a time, as
+  [guest-route-parity.cli.test.ts](../../scripts/tests/guest-route-parity.cli.test.ts)
+  does. A test that needs a port nothing answers holds a server that drops each
+  connection, rather than closing one and hoping no one else is given it.
+- Assert the exit code with the run's output as the message
+  (`expect(exitCode, stdout).toBe(0)`), so a failure in CI says why.
+- A test that starts Node, or any program whose first start on a fresh runner
+  is slow, pays that start in a `beforeAll` with a limit of its own, so each
+  test's limit times a warm start:
+  [node-warm-up.ts](../../scripts/tests/node-warm-up.ts) does it for the
+  guest route comparison's Node child.
+- On macOS, `realpathSync` the temporary root: `/var` links to `/private/var`,
+  and the stand-in reports the real path.
 
 Nothing in the script points it at the stand-in — no flag, no environment
 variable — so the code under test is the code CI runs.

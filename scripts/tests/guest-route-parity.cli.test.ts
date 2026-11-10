@@ -34,9 +34,10 @@ import { dirname, join } from "node:path";
 
 import { run, SEEDED_PROBES, UNKNOWN_SLUG_PROBES } from "../guest-route-parity";
 import { CI_USER_AGENT } from "../smoke-check";
+import { NODE_WARM_UP_LIMIT_MS, warmUpNode } from "./node-warm-up";
 
-// Each test starts Bun, Node and two servers; under `bun test ./scripts/`
-// they share the machine with every other script test.
+// Each test starts Bun, Node and two servers. The longest, PF16, runs to its
+// 4 s deadline; the limit is the backstop for a run that hangs.
 setDefaultTimeout(30_000);
 
 const SCRIPTS = join(import.meta.dir, "..");
@@ -102,44 +103,33 @@ let nodeWarmUpMs = 0;
 
 /** PF33's and PF16's failure message: the warm-up's time, which shows whether it took Node's slow first start. */
 const nodeWarmUp = () =>
-  `Node's first start in this file, the warm-up before any test, took ${nodeWarmUpMs} ms`;
+  `Node's first start in this run, the warm-up before any test, took ${nodeWarmUpMs} ms`;
 
 beforeAll(async () => {
   // Real path, so it matches the working directory the stand-in reports.
   root = realpathSync(mkdtempSync(join(tmpdir(), "guest-route-parity-cli-")));
   // Node's first start in a run is paid here, before any test opens a time
   // window. PF33's 1.5 s and PF16's 3 s readiness windows open when the
-  // reference child is spawned, so they time that child's start alone. On a
-  // fresh GitHub runner the Scripts job's first Node start took about 3 s,
-  // later ones 31–35 ms, and nothing earlier in that job starts Node. Once
-  // warm, the stand-in's first write came 0.05–0.2 s after the spawn on a
-  // laptop, 1.4 s at most at background priority. With no arguments the child
-  // exits 2 at its usage check, before it loads wrangler, so exit 2 shows
-  // Node ran it. Awaited, so the file's 30 s limit cuts a start that hangs.
-  const from = performance.now();
-  const warmUp = Bun.spawn(["node", join(SCRIPTS, "guest-route-parity-reference.js")], {
-    cwd: root,
-    env: { PATH: Bun.env.PATH ?? "" },
-    stdout: "ignore",
-    stderr: "pipe",
-  });
-  const [stderr, exitCode] = await Promise.all([new Response(warmUp.stderr).text(), warmUp.exited]);
-  nodeWarmUpMs = Math.round(performance.now() - from);
-  expect(
-    { exitCode, usage: stderr.includes("usage: guest-route-parity-reference.js") },
-    `the warm-up's Node start, after ${nodeWarmUpMs} ms: ${stderr}`,
-  ).toEqual({ exitCode: 2, usage: true });
-});
+  // reference child is spawned, so they time that child's start alone. Once
+  // warm, a whole PF28 case — Bun starts the script, which starts the child,
+  // which exits 3 — took 0.32–0.36 s on a laptop and 0.44–0.51 s at
+  // background priority, one test at a time; in 84 CI runs with every test
+  // at once, 0.89 s at most.
+  nodeWarmUpMs = await warmUpNode();
+}, NODE_WARM_UP_LIMIT_MS);
 
 afterAll(() => {
   for (const proc of started) proc.kill();
   rmSync(root, { recursive: true, force: true });
 });
 
-/** Serves `answers` in Bun, recording each request's path, Access client id and user agent. */
+/**
+ * Serves `answers` in Bun, recording each request's path, Access client id and
+ * user agent, and writes its port to stdout, on one line, once it listens.
+ */
 const SERVER = `
-const [answersFile, portFile, logFile] = process.argv.slice(2);
-const { appendFileSync, readFileSync, writeFileSync } = await import("node:fs");
+const [answersFile, logFile] = process.argv.slice(2);
+const { appendFileSync, readFileSync } = await import("node:fs");
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
@@ -157,7 +147,7 @@ const server = Bun.serve({
     return answer.delayMs === undefined ? respond() : Bun.sleep(answer.delayMs).then(respond);
   },
 });
-writeFileSync(portFile, String(server.port));
+process.stdout.write(server.port + "\\n");
 `;
 
 /** How the stand-in wrangler behaves once the child loads it. */
@@ -340,32 +330,53 @@ function tree(
   return { dir, state, script: join(dir, "scripts", "guest-route-parity.ts") };
 }
 
-/** Starts the stand-in dev host, answering `answers`, each answer with `extraHeaders` too. */
+/** The first line `stream` carries, or what it carried before it closed without one. */
+async function firstLine(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (!text.includes("\n")) {
+      // Read until the line ends: each read waits for the next chunk.
+      // eslint-disable-next-line no-await-in-loop
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return text.split("\n")[0] ?? "";
+}
+
+/**
+ * Starts the stand-in dev host, answering `answers`, each answer with
+ * `extraHeaders` too, and returns once it listens: its port line comes after
+ * `Bun.serve` binds, so no wait is guessed.
+ */
 async function devHost(
   t: Tree,
   answers: Answers,
   extraHeaders: Readonly<Record<string, string>> = {},
 ): Promise<{ readonly origin: string; readonly stop: () => void }> {
   writeFileSync(join(t.state, "dev.json"), JSON.stringify(answers));
-  const portFile = join(t.state, "dev.port");
   const proc = Bun.spawn(
     [
       process.execPath,
       join(t.state, "server.ts"),
       join(t.state, "dev.json"),
-      portFile,
       join(t.state, "dev.log"),
     ],
     {
-      stdout: "ignore",
+      stdout: "pipe",
       stderr: "inherit",
       env: { ...Bun.env, EXTRA_HEADERS: JSON.stringify(extraHeaders) },
     },
   );
   started.push(proc);
-  for (let i = 0; i < 200 && !existsSync(portFile); i++) await Bun.sleep(25);
-  await Bun.sleep(25);
-  return { origin: `http://127.0.0.1:${readFileSync(portFile, "utf8")}`, stop: () => proc.kill() };
+  const port = await firstLine(proc.stdout);
+  if (!/^\d+$/.test(port)) throw new Error(`the stand-in dev host wrote no port: '${port}'`);
+  return { origin: `http://127.0.0.1:${port}`, stop: () => proc.kill() };
 }
 
 /** One request the fake cire-api was sent. */
@@ -485,15 +496,22 @@ const CONTROL_PAIR = [
   { userAgent: CI_USER_AGENT, status: 200 },
 ];
 
-/** A loopback port nothing listens on. */
-function closedPort(): Promise<number> {
+/**
+ * A loopback port that answers nothing: a server the test holds, which drops
+ * each connection as it arrives, so every call gets ECONNRESET at once. Held,
+ * not closed, so no other server can be given the port while the run still
+ * calls it.
+ */
+function droppingPort(): Promise<{ readonly port: number; readonly stop: () => void }> {
   return new Promise((resolvePort, reject) => {
-    const server = createServer();
+    const server = createServer((socket) => socket.destroy());
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       const port = typeof address === "object" && address !== null ? address.port : 0;
-      server.close(() => resolvePort(port));
+      const stop = () => void server.close();
+      started.push({ kill: stop });
+      resolvePort({ port, stop });
     });
   });
 }
@@ -625,7 +643,14 @@ function listening(port: number): Promise<boolean> {
   });
 }
 
-describe.concurrent("guest-route-parity.ts", () => {
+// One test at a time. A run frees a loopback port and hands it to the
+// reference child, which binds it a moment later. With tests running at once,
+// another test's server can be given that port in between, and then the child
+// fails to listen, or the run takes that server's answers for the
+// reference's. One at a time, every other server a test starts is bound
+// before its run frees the port, and no readiness window shares the runner
+// with other tests' starts.
+describe("guest-route-parity.ts", () => {
   test("PF23: a dev host answering as Wrangler does matches; the reference child gets the build's config, its own origin, no credential, no Access token and no telemetry, and leaves nothing in the build", async () => {
     const { t, api, host, env } = await working();
     let stdout = "";
@@ -638,7 +663,7 @@ describe.concurrent("guest-route-parity.ts", () => {
       });
       stdout = result.stdout;
       expect(stdout).toContain("guest route parity: match");
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.stdout).toBe(0);
     } finally {
       host.stop();
       api.stop();
@@ -688,8 +713,8 @@ describe.concurrent("guest-route-parity.ts", () => {
   test("every probe of the dev host sends the CI user agent beside the Access headers", async () => {
     const { t, api, host, env } = await working();
     try {
-      const { exitCode } = await runParity(t, { ...env, ...ACCESS });
-      expect(exitCode).toBe(0);
+      const { exitCode, stdout } = await runParity(t, { ...env, ...ACCESS });
+      expect(exitCode, stdout).toBe(0);
     } finally {
       host.stop();
       api.stop();
@@ -711,9 +736,11 @@ describe.concurrent("guest-route-parity.ts", () => {
     let first = "";
     let second = "";
     try {
-      expect((await runParity(t, env)).exitCode).toBe(0);
+      const once = await runParity(t, env);
+      expect(once.exitCode, once.stdout).toBe(0);
       first = readFileSync(reportPath(t), "utf8");
-      expect((await runParity(t, env)).exitCode).toBe(0);
+      const again = await runParity(t, env);
+      expect(again.exitCode, again.stdout).toBe(0);
       second = readFileSync(reportPath(t), "utf8");
     } finally {
       host.stop();
@@ -756,7 +783,7 @@ describe.concurrent("guest-route-parity.ts", () => {
       const { exitCode, stdout } = await runParity(t, env);
       expect(stdout).toContain("did not render on Wrangler");
       expect(stdout).toContain("cf-mitigated: challenge");
-      expect(exitCode).toBe(1);
+      expect(exitCode, stdout).toBe(1);
     } finally {
       host.stop();
       api.stop();
@@ -777,8 +804,8 @@ describe.concurrent("guest-route-parity.ts", () => {
   });
 
   test("PF21: a cire-api nothing answers still refuses the run on the seeded wedding, naming the relay's error", async () => {
-    const port = await closedPort();
-    const apiOrigin = `http://127.0.0.1:${port}`;
+    const api = await droppingPort();
+    const apiOrigin = `http://127.0.0.1:${api.port}`;
     const t = tree({ apiOrigin });
     writeFileSync(join(t.state, "reference.json"), JSON.stringify(ANSWERS));
     const host = await devHost(t, ANSWERS);
@@ -788,19 +815,22 @@ describe.concurrent("guest-route-parity.ts", () => {
         PARITY_API_ORIGIN: apiOrigin,
       });
       expect(stdout).toContain("did not render on Wrangler");
-      expect(exitCode).toBe(1);
+      expect(exitCode, stdout).toBe(1);
     } finally {
       host.stop();
+      api.stop();
     }
     const written = report(t);
     expect(written.result).toBe("refused");
     expect(written.cireApi.relayed.length).toBeGreaterThan(0);
     for (const one of written.cireApi.relayed) {
-      expect(one.error).toBeString();
-      expect(one.status).toBeUndefined();
+      expect(one, "every relayed call records an error and no status").toMatchObject({
+        error: expect.any(String),
+      });
+      expect(one.status, JSON.stringify(one)).toBeUndefined();
     }
     for (const one of written.cireApi.control) expect(one.error).toBeString();
-    expect(JSON.stringify(written.cireApi)).not.toContain(String(port));
+    expect(JSON.stringify(written.cireApi)).not.toContain(String(api.port));
   });
 
   test("PF26: seeded probes that ran with nothing reaching the relay refuse the run", async () => {
@@ -808,7 +838,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     try {
       const { exitCode, stdout } = await runParity(t, env);
       expect(stdout).toContain("no call from the Wrangler side reached cire-api through the relay");
-      expect(exitCode).toBe(1);
+      expect(exitCode, stdout).toBe(1);
     } finally {
       host.stop();
       api.stop();
@@ -826,7 +856,7 @@ describe.concurrent("guest-route-parity.ts", () => {
         PARITY_API_ORIGIN: api.origin,
       });
       expect(stdout).toContain("does not hold PARITY_API_ORIGIN");
-      expect(exitCode).toBe(1);
+      expect(exitCode, stdout).toBe(1);
     } finally {
       api.stop();
     }
@@ -851,7 +881,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     try {
       const { exitCode, stdout } = await runParity(t, env);
       expect(stdout).toContain("/privacy/ content-security-policy-report-only: default-src *");
-      expect(exitCode).toBe(1);
+      expect(exitCode, stdout).toBe(1);
     } finally {
       host.stop();
       api.stop();
@@ -871,7 +901,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     try {
       const result = await runParity(t, { ...env, ...ACCESS });
       stdout = result.stdout;
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.stdout).toBe(0);
     } finally {
       host.stop();
       api.stop();
@@ -889,8 +919,8 @@ describe.concurrent("guest-route-parity.ts", () => {
       devAnswers: { ...ANSWERS, "/privacy/#0": { status: 503, body: "busy" } },
     });
     try {
-      const { exitCode } = await runParity(t, env);
-      expect(exitCode).toBe(0);
+      const { exitCode, stdout } = await runParity(t, env);
+      expect(exitCode, stdout).toBe(0);
     } finally {
       host.stop();
       api.stop();
@@ -913,7 +943,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     try {
       const result = await runParity(t, env);
       stdout = result.stdout;
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.stdout).toBe(0);
     } finally {
       host.stop();
       api.stop();
@@ -933,8 +963,8 @@ describe.concurrent("guest-route-parity.ts", () => {
       busy: { path: "/api/invite/cire-wedding", at: [2, 3] },
     });
     try {
-      const { exitCode } = await runParity(t, env);
-      expect(exitCode).toBe(1);
+      const { exitCode, stdout } = await runParity(t, env);
+      expect(exitCode, stdout).toBe(1);
     } finally {
       host.stop();
       api.stop();
@@ -966,9 +996,12 @@ describe.concurrent("guest-route-parity.ts", () => {
     writeFileSync(join(t.state, "reference.json"), JSON.stringify(ANSWERS));
     const host = await devHost(t, ANSWERS);
     let exitCode: number | undefined;
+    let stdout = "";
     try {
-      exitCode = (await runParity(t, { PARITY_ORIGIN: host.origin, PARITY_API_ORIGIN: api.origin }))
-        .exitCode;
+      ({ exitCode, stdout } = await runParity(t, {
+        PARITY_ORIGIN: host.origin,
+        PARITY_API_ORIGIN: api.origin,
+      }));
     } finally {
       host.stop();
       api.stop();
@@ -980,7 +1013,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     const written = report(t);
     expect(written.cireApi.control).toEqual(CONTROL_PAIR);
     expect(written.result).toBe("match");
-    expect(exitCode).toBe(0);
+    expect(exitCode, stdout).toBe(0);
   });
 
   test("PF40: an error event from the reference after it is ready is logged, and the reference keeps serving", async () => {
@@ -988,7 +1021,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     try {
       const { exitCode, stdout } = await runParity(t, env);
       expect(stdout).toContain("guest route parity: match");
-      expect(exitCode).toBe(0);
+      expect(exitCode, stdout).toBe(0);
     } finally {
       host.stop();
       api.stop();
@@ -1004,7 +1037,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     });
     expect(stdout).toContain("'*.map'");
     expect(stdout).toContain(".assetsignore");
-    expect(exitCode).toBe(1);
+    expect(exitCode, stdout).toBe(1);
     expect(existsSync(join(t.state, "call.json"))).toBe(false);
     expect(report(t).result).toBe("refused");
   });
@@ -1024,7 +1057,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     try {
       const { exitCode, stdout } = await runParity(t, env);
       expect(stdout).toContain("the seeded wedding");
-      expect(exitCode).toBe(1);
+      expect(exitCode, stdout).toBe(1);
     } finally {
       host.stop();
       api.stop();
@@ -1039,7 +1072,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     try {
       const { exitCode, stdout } = await runParity(t, env);
       expect(stdout).toContain("/terms/: answered 429");
-      expect(exitCode).toBe(1);
+      expect(exitCode, stdout).toBe(1);
     } finally {
       host.stop();
       api.stop();
@@ -1055,7 +1088,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     expect(stdout).toContain(
       "The page route /[slug]/registry is not in the build's route manifest",
     );
-    expect(exitCode).toBe(1);
+    expect(exitCode, stdout).toBe(1);
     expect(existsSync(join(t.state, "call.json"))).toBe(false);
     expect(report(t).result).toBe("refused");
   });
@@ -1137,7 +1170,7 @@ describe.concurrent("guest-route-parity.ts", () => {
         });
         expect(stdout).toContain("the reference exited (3) before it served the build");
         expect(stdout).toContain(message);
-        expect(exitCode).toBe(1);
+        expect(exitCode, stdout).toBe(1);
       } finally {
         api.stop();
       }
@@ -1152,7 +1185,7 @@ describe.concurrent("guest-route-parity.ts", () => {
       PARITY_API_ORIGIN: UNUSED_API,
     });
     expect(stdout).toContain("No probe reaches the route /brand-new/[thing]/deep");
-    expect(exitCode).toBe(1);
+    expect(exitCode, stdout).toBe(1);
     expect(existsSync(join(t.state, "call.json"))).toBe(false);
     expect(report(t).result).toBe("refused");
   });
@@ -1164,7 +1197,7 @@ describe.concurrent("guest-route-parity.ts", () => {
       PARITY_API_ORIGIN: UNUSED_API,
     });
     expect(stdout).toContain("lists no route");
-    expect(exitCode).toBe(1);
+    expect(exitCode, stdout).toBe(1);
     expect(existsSync(join(t.state, "call.json"))).toBe(false);
   });
 
@@ -1209,7 +1242,7 @@ describe.concurrent("guest-route-parity.ts", () => {
       const t = tree();
       const { exitCode, stdout } = await runParity(t, env, args);
       expect(stdout).toContain("::error::");
-      expect(exitCode).toBe(2);
+      expect(exitCode, stdout).toBe(2);
       expect(existsSync(join(t.state, "call.json"))).toBe(false);
     },
   );
@@ -1218,7 +1251,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     const t = tree({ build: false });
     const { exitCode, stdout } = await runParity(t, ORIGINS);
     expect(stdout).toContain("build cire/invites first");
-    expect(exitCode).toBe(2);
+    expect(exitCode, stdout).toBe(2);
     expect(existsSync(join(t.state, "call.json"))).toBe(false);
     expect(existsSync(dirname(reportPath(t)))).toBe(false);
   });
