@@ -23,7 +23,9 @@ import { safeAvatarUrl } from "../lib/utils";
 export function useSearchActions(controller: SearchController) {
   const [pending, setPending] = createSignal<Set<string>>(new Set());
 
+  /** Runs `run` for `handle` unless one is already running for it. */
   function withPending(handle: string, run: () => Promise<void>) {
+    if (pending().has(handle)) return;
     setPending((prev) => new Set(prev).add(handle));
     void run().finally(() =>
       setPending((prev) => {
@@ -83,9 +85,12 @@ function ResultAvatar(props: { url: string | null; label: string; size: string }
   );
 }
 
-/** The label for a person row's affordance, given the caller's state with them. */
+/**
+ * The label for a person row's affordance, given the caller's state with them.
+ * While its request runs it names the wait.
+ */
 function actionLabel(status: SearchConnectionState, busy: boolean): string {
-  if (busy) return "…";
+  if (busy) return status === "pending_received" ? "Accepting…" : "Sending…";
   switch (status) {
     case "connected":
       return "Connected";
@@ -134,8 +139,8 @@ function PersonAction(props: {
     >
       <Button
         size="sm"
-        class="h-7 shrink-0 max-md:h-9"
-        disabled={props.busy}
+        class="h-7 shrink-0 max-md:h-10"
+        busy={props.busy}
         onClick={() => (props.status === "none" ? props.onConnect() : props.onAccept())}
       >
         {label()}

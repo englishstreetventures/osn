@@ -96,7 +96,7 @@ export function ConnectedAppsSection() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    class="h-7 shrink-0"
+                    class="h-7 shrink-0 max-md:h-10"
                     busy={revoking() === conn.clientId}
                     onClick={() => void revoke(conn.clientId)}
                   >
