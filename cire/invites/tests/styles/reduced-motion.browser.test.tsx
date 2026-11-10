@@ -16,7 +16,7 @@
  */
 import Disclosure from "@cire/ui/disclosure";
 import { render } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 import { commands } from "vitest/browser";
 
 import "../../src/styles/global.css";
@@ -99,24 +99,57 @@ describe("prefers-reduced-motion", () => {
     expect(getComputedStyle(el).scale).toBe("1");
   });
 
-  it("opens an FAQ answer with no fade — the `*` clamp cannot reach `::details-content`", async () => {
-    // The FAQ's `Disclosure` gates its own fade on `no-preference`, since the
-    // clamp above selects `*` and no pseudo-element matches it.
+  it("opens an FAQ answer at once — the `*` clamp cannot reach `::details-content`", async () => {
+    // The FAQ's `Disclosure` gates its own opening on `no-preference`, since
+    // the clamp above selects `*` and no pseudo-element matches it. By default
+    // the answer grows open over frames; asked for less motion, it is at its
+    // full height on the first frame, as an answer already open is.
+    const answer = () => (
+      <>
+        <p>Yes. Children are welcome at the ceremony and the dinner.</p>
+        <p>Let us know their ages so the kitchen can plan.</p>
+      </>
+    );
     const { container } = render(() => (
-      <Disclosure tone="rule" summary="Can we bring our children?">
-        <p>Yes.</p>
-      </Disclosure>
+      <div style={{ width: "360px" }}>
+        <Disclosure tone="rule" summary="Can we bring our children?">
+          {answer()}
+        </Disclosure>
+        <Disclosure tone="rule" summary="Can we bring our children?" open>
+          {answer()}
+        </Disclosure>
+      </div>
     ));
-    const details = container.querySelector("details")!;
-    const body = () => getComputedStyle(details, "::details-content");
-    details.open = true;
-    expect(body().transitionProperty).toBe("opacity, translate");
-    expect(Number.parseFloat(body().transitionDuration)).toBeGreaterThan(0);
+    const [details, alreadyOpen] = container.querySelectorAll("details");
+    const body = () => getComputedStyle(details!, "::details-content");
+    const height = (el: Element) => el.getBoundingClientRect().height;
+    const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+    const closed = height(details!);
+    const full = height(alreadyOpen!);
 
-    details.open = false;
+    // Slowed threefold, so one late frame cannot step over the whole opening.
+    const root = document.documentElement.style;
+    root.setProperty("--motion-scale", "3");
+    onTestFinished(() => {
+      root.removeProperty("--motion-scale");
+    });
+    details!.open = true;
+    expect(body().transitionProperty).toBe("opacity, translate, height, overflow");
+    const seconds = Number.parseFloat(body().transitionDuration);
+    expect(seconds).toBeGreaterThan(0);
+    const heights: number[] = [];
+    for (const until = performance.now() + seconds * 1000; performance.now() < until;) {
+      await nextFrame();
+      heights.push(height(details!));
+    }
+    expect(heights.some((h) => h > closed + 1 && h < full - 1)).toBe(true);
+
+    details!.open = false;
     await emulate({ reducedMotion: "reduce" });
-    details.open = true;
+    details!.open = true;
     expect(body().transitionDuration).toBe("0s");
+    await nextFrame();
+    expect(height(details!)).toBe(full);
     expect(body().opacity).toBe("1");
   });
 });

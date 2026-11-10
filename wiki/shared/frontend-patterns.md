@@ -26,7 +26,7 @@ packages:
   - "@shared/ui"
   - "@musubi/social"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Frontend Patterns
@@ -657,6 +657,31 @@ pseudo-element matches it. An animation on `::details-content`, `::backdrop` or
 `::marker` keeps running for a reader who asked for none. Declare such an
 animation inside `@media (prefers-reduced-motion: no-preference)` instead of
 relying on the clamp to undo it.
+
+### A box grown to `auto` holds its clip only while it grows
+
+`interpolate-size: allow-keywords` lets `height` transition from `0` to
+`auto`, so a `<details>` body can grow open with no measuring. Two things go
+wrong if it is written the obvious way:
+
+- **The clip stays.** The growing box needs `overflow: clip`, or its content
+  spills past it until the height catches up. Left on at rest, it cuts a focus
+  ring at the box's edge and a row lifted by a drag. Let it go when the growth
+  ends: list `overflow` in the transition with a duration of `0s`, a delay
+  equal to the growth, and `transition-behavior: allow-discrete`, so the
+  closed state's `clip` holds through the delay and steps to `visible` at its
+  end.
+- **The fallback steps.** Only Chrome and Edge have `interpolate-size`. With
+  `allow-discrete` on the transition, an engine without it treats `0` to `auto`
+  as a discrete change and swaps it partway through. Put the height, the clip
+  and `interpolate-size` itself inside `@supports (interpolate-size:
+  allow-keywords)`, so elsewhere the height never changes and the box opens at
+  once.
+
+Chromium does not list a transition on `::details-content` in
+`getAnimations()`, so a test reads the opening frame by frame from layout and
+`getComputedStyle(el, "::details-content")` instead. `@cire/ui`'s `Disclosure`
+is the reference (`cire/host/DESIGN.md` §4); [[browser-tests]] lists its tests.
 
 ## Server-rendered islands
 

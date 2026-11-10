@@ -30,15 +30,27 @@ import { cardBoxClass } from "./card";
  * > marker`), so a closed one inside an open one stays closed. Its turn takes
  * the app's `--dur-fast`; each app's reduced-motion rule stops it.
  *
- * ## The fade
+ * ## The opening
  *
- * The body drops 4px and fades in as it opens, and closes at once: a fading
- * body would leave its controls focusable in a box that is going away. The
- * transition is declared only on the open state, so closing has none to run,
- * and only inside `prefers-reduced-motion: no-preference`, because the apps'
- * reduced-motion rule selects `*`, which reaches no pseudo-element. An engine
- * with no `::details-content` opens the body at once. A disclosure that is
- * open when it first paints does not fade.
+ * As it opens, the box grows from its summary row to its full height while
+ * the body drops 4px and fades in, all three on the app's `--dur-slow` and
+ * `--ease-out`, so the text is never fully in while the box is still short,
+ * nor faint in a box already full. A nested one grows the boxes round it on
+ * the same frames, since theirs are `auto`. It closes at once: a fading body
+ * would leave its controls focusable in a box that is going away.
+ *
+ * The body is clipped only while it grows, so no line spills past the box:
+ * `overflow` moves from `clip` to `visible` on a zero-length step delayed by
+ * the growth. Open and at rest, nothing inside is cut — a focus ring at the
+ * body's edge, a row lifted by a drag.
+ *
+ * The transition is declared only on the open state, so closing has none to
+ * run, and only inside `prefers-reduced-motion: no-preference`, because the
+ * apps' reduced-motion rule selects `*`, which reaches no pseudo-element. The
+ * growth needs `interpolate-size` (Chrome and Edge, not Safari or Firefox);
+ * elsewhere the box opens at once and the body fades in it. An engine with
+ * no `::details-content` opens the body at once. A disclosure that is open
+ * when it first paints runs nothing.
  *
  * ## `open` and the two handlers
  *
@@ -88,11 +100,28 @@ const TONES = {
   },
 } satisfies Readonly<Record<DisclosureTone, ToneLook>>;
 
-const FADE =
+/**
+ * The opening, on the body's slot. The fade and the 4px drop run wherever
+ * `::details-content` does; the height and the clip are set only where
+ * `interpolate-size` lets `height` move to `auto`. Without that gate the
+ * transition's `allow-discrete` would step the height from 0 to `auto`
+ * partway through; with it, such an engine never changes `height` or
+ * `overflow`, so naming them in the transition does nothing there. The four
+ * timings are in the transition's order: opacity, translate, height,
+ * overflow.
+ */
+const OPENING =
   "motion-safe:base:details-content:opacity-0 motion-safe:base:details-content:-translate-y-1 " +
   "motion-safe:base:open:details-content:opacity-100 motion-safe:base:open:details-content:translate-none " +
-  "motion-safe:base:open:details-content:transition-[opacity,translate] " +
-  "motion-safe:base:open:details-content:duration-(--dur-base,200ms) " +
+  "motion-safe:base:supports-[interpolate-size:allow-keywords]:details-content:[interpolate-size:allow-keywords] " +
+  "motion-safe:base:supports-[interpolate-size:allow-keywords]:details-content:h-0 " +
+  "motion-safe:base:supports-[interpolate-size:allow-keywords]:details-content:overflow-clip " +
+  "motion-safe:base:supports-[interpolate-size:allow-keywords]:open:details-content:h-auto " +
+  "motion-safe:base:supports-[interpolate-size:allow-keywords]:open:details-content:overflow-visible " +
+  "motion-safe:base:open:details-content:transition-[opacity,translate,height,overflow] " +
+  "motion-safe:base:open:details-content:transition-discrete " +
+  "motion-safe:base:open:details-content:duration-[var(--dur-slow,320ms),var(--dur-slow,320ms),var(--dur-slow,320ms),0s] " +
+  "motion-safe:base:open:details-content:delay-[0s,0s,0s,var(--dur-slow,320ms)] " +
   "motion-safe:base:open:details-content:ease-out";
 
 const SUMMARY_BASE =
@@ -143,7 +172,7 @@ export default function Disclosure(props: DisclosureProps): JSX.Element {
   return (
     <details
       open={props.open}
-      class={`${look().box(props.nested === true)} ${FADE}${props.class ? ` ${props.class}` : ""}`}
+      class={`${look().box(props.nested === true)} ${OPENING}${props.class ? ` ${props.class}` : ""}`}
       onToggle={(event) => props.onToggle?.(event.currentTarget.open)}
     >
       <summary class={`${SUMMARY_BASE} ${look().summary}`} onClick={() => props.onSummaryClick?.()}>
