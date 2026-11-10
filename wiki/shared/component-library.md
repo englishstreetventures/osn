@@ -743,9 +743,8 @@ with `border-0`. It renders as an `<hr>`, which keeps preflight's 1px top
 border in the panel's ink, and without `border-0` that border covers the fill
 in an app whose base styles leave border colour alone, as pulse's do
 ([[frontend-patterns]] §An `<hr>` keeps preflight's border). A contrast theme
-replaces the fill with the page colour, so the default separator draws its top
-border there instead, for the theme to paint. The accent separator draws the
-fill alone, so a contrast theme does not show it.
+replaces the fill with the page colour, so both separators draw their top
+border there instead, for the theme to paint.
 
 The rows:
 
@@ -812,7 +811,8 @@ unstyled.
 
 `shared/ui/tests/dropdown-menu.browser.test.tsx` holds the rows' keys and
 pointer, the link rules, the modal mount, the accent look's focus ring,
-motion and its contrast on cire's two ramps, the touch row and the handle.
+motion and its contrast on cire's two ramps, its separator with and without a
+contrast theme, the touch row and the handle.
 
 ### Table and its pinned cells
 

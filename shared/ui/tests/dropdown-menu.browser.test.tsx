@@ -13,7 +13,7 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { createSignal, type JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
-import { commands, userEvent } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 
 import {
   DropdownMenu,
@@ -596,22 +596,38 @@ describe("the accent variant", () => {
     }
   });
 
+  const SeparatedAccent = () => (
+    <DropdownMenu>
+      <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
+      <DropdownMenuContent variant="accent">
+        <DropdownMenuItem>Rename</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem>Delete</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   it("draws its separator as the hairline fill, inset, with no border", async () => {
-    render(() => (
-      <DropdownMenu>
-        <DropdownMenuTrigger>Open menu</DropdownMenuTrigger>
-        <DropdownMenuContent variant="accent">
-          <DropdownMenuItem>Rename</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>Delete</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ));
+    render(() => <SeparatedAccent />);
     await openByKeyboard();
     const rule = getComputedStyle(screen.getByRole("separator"));
     expect([rule.borderTopWidth, rule.height, rule.marginLeft]).toEqual(["0px", "1px", "4px"]);
     // `--ui-hairline` in the test palette.
     expect(rule.backgroundColor).toBe("rgb(220, 220, 228)");
+  });
+
+  it("draws its separator as a top border in a contrast theme, which drops the fill", async () => {
+    await emulateMedia({ forcedColors: "active" });
+    render(() => <SeparatedAccent />);
+    await openByKeyboard();
+    // Drawn before anything is asserted, so a failing run leaves its picture.
+    // Gitignored; a rerun of this file draws it again.
+    await page.screenshot({
+      path: "__screenshots__/dropdown-menu.browser.test.tsx/accent-separator-forced.png",
+      element: screen.getByRole("menu"),
+    });
+    const rule = getComputedStyle(screen.getByRole("separator"));
+    expect([rule.borderTopWidth, rule.height]).toEqual(["1px", "1px"]);
   });
 
   it("rings a row reached by the keyboard, and never fades the ring in", async () => {

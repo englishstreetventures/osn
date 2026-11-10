@@ -620,8 +620,8 @@ border then paints the hairline too.
 
 Put `border-0` on any `<hr>` drawn as a fill. A contrast theme (forced
 colours) replaces a fill with the page colour, so a fill-only line does not
-show there; add `forced-colors:border-t` where the line must stay, as the
-menu's default separator does ([[component-library]] §`DropdownMenu`).
+show there; add `forced-colors:border-t` where the line must stay, as both
+of the menu's separators do ([[component-library]] §`DropdownMenu`).
 
 The fast tier cannot see it: read `getComputedStyle(hr).borderTopWidth` in the
 browser tier, with and without `emulateMedia({ forcedColors: "active" })`
