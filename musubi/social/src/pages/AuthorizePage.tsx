@@ -5,6 +5,7 @@ import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
 import { Chip } from "@shared/ui/ui/chip";
 import { Notice } from "@shared/ui/ui/notice";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { useSearchParams } from "@solidjs/router";
 import {
   createMemo,
@@ -165,6 +166,10 @@ export function AuthorizePage() {
   // is what stops the sign-in screen looping, since the URL still says
   // `login` / `create` afterwards.
   const [signedInHere, setSignedInHere] = createSignal(false);
+  // Which half of the sign-in panel leads; its loading placeholder takes the
+  // same shape, so nothing jumps when the panel's code lands.
+  const panelMode = (): "register" | "signIn" =>
+    reason() === "create" && !signedInHere() ? "register" : "signIn";
   // `reason=select_account`: the app wants the person at the keyboard to say
   // which account this is, because the browser may be shared. The account
   // screen leads until they press Continue — or until they sign in on this
@@ -392,9 +397,7 @@ export function AuthorizePage() {
             </p>
           </Show>
           <div class="border-border rounded-card mt-4 border p-1">
-            <Suspense
-              fallback={<p class="text-muted-foreground text-body p-4 text-center">Loading…</p>}
-            >
+            <Suspense fallback={<SignInLoading mode={panelMode()} />}>
               {/* `reason` is advisory — it only picks which half of the panel
                   leads. The server re-derives every requirement at decision
                   time, so a tampered value widens nothing.
@@ -407,10 +410,7 @@ export function AuthorizePage() {
                   someone who has just made one, which reads as the flow having thrown
                   the new account away. Once a ceremony has happened on this
                   page, the way forward is signing in. */}
-              <AuthorizeSignIn
-                initialMode={reason() === "create" && !signedInHere() ? "register" : "signIn"}
-                onSuccess={() => void afterSignIn()}
-              />
+              <AuthorizeSignIn initialMode={panelMode()} onSuccess={() => void afterSignIn()} />
             </Suspense>
           </div>
           <Show when={switching()}>
@@ -696,6 +696,67 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
         }
       >
         <p class="text-meta text-success mt-3 font-medium">Verified by {PRODUCT_NAME}</p>
+      </Show>
+    </div>
+  );
+}
+
+/**
+ * The sign-in panel's place while its code loads, in the shape of the half
+ * that leads: sign-in's heading, its one labelled field, Continue and "Lost
+ * your passkey?", then the "Create one" line under the panel; or sign-up's
+ * heading beside Cancel, its four labelled fields and the button. Words that
+ * wrap stay words, so they wrap where the panel's do: the heading, and the date
+ * of birth's hint. Labels, fields and buttons, which never wrap, are blocks,
+ * each the height the panel draws it (a 14px label; the email's is 16px, the
+ * height of the button beside it). A Suspense fallback goes when the panel
+ * lands, and nothing holds both, so this wrapper carries `aria-busy`.
+ */
+function SignInLoading(props: { mode: "register" | "signIn" }) {
+  const register = () => props.mode === "register";
+  const fields = () =>
+    register()
+      ? [
+          { label: 4, hint: false },
+          { label: 3.5, hint: false },
+          { label: 3.5, hint: true },
+          { label: 3.5, hint: false },
+        ]
+      : [{ label: 3.5, hint: false }];
+  return (
+    <div aria-busy="true">
+      <div class="mx-auto flex w-full max-w-sm flex-col gap-4 px-4 py-8">
+        <div class="mb-2 flex items-center justify-between">
+          <h2 class="text-foreground text-2xl font-bold">
+            {register() ? `Create your ${PRODUCT_NAME} account` : `Sign in to ${PRODUCT_NAME}`}
+          </h2>
+          <Show when={register()}>
+            {/* Cancel, as wide as the button, so the heading wraps as it does. */}
+            <Skeleton standsFor="control" width={16.4} height={8} />
+          </Show>
+        </div>
+        <For each={fields()}>
+          {(field) => (
+            <div class="flex flex-col gap-1.5">
+              <Skeleton standsFor="line" width={28} height={field.label} />
+              <Skeleton standsFor="field" height={9} />
+              <Show when={field.hint}>
+                <p class="font-ui-body text-ui-ink-secondary text-ui-xs leading-ui-snug">
+                  You must be 13 or older to create an account.
+                </p>
+              </Show>
+            </div>
+          )}
+        </For>
+        <Skeleton standsFor="control" height={9} />
+        <Show when={!register()}>
+          <Skeleton standsFor="control" width={35} height={8} class="self-center" />
+        </Show>
+      </div>
+      <Show when={!register()}>
+        <div class="px-4 pb-4">
+          <Skeleton standsFor="line" width={40} height={4.5} class="mx-auto" />
+        </div>
       </Show>
     </div>
   );

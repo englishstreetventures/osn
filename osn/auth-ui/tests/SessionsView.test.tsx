@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import type { SessionsClient } from "@osn/client";
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
+import { Suspense } from "solid-js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SessionsView } from "../src/SessionsView";
@@ -60,6 +61,59 @@ describe("SessionsView", () => {
   });
 
   afterEach(() => cleanup());
+
+  /** The list's place, marked busy while a read is out. */
+  const busyRegion = () => document.querySelector('[aria-busy="true"]');
+
+  it("holds one row's placeholder in a busy region until the first read lands", async () => {
+    let land!: (v: { sessions: typeof sessions }) => void;
+    stub.list.mockReturnValue(new Promise((resolve) => (land = resolve)));
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    await waitFor(() => expect(stub.list).toHaveBeenCalled());
+    expect(busyRegion()?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+
+    land({ sessions });
+    await waitFor(() => screen.getByText(/Firefox on macOS/));
+    expect(busyRegion()).toBeNull();
+    expect(document.querySelector('[aria-hidden="true"]')).toBeNull();
+  });
+
+  // A read under a host's Suspense boundary would hand the whole boundary to
+  // the host's fallback; the view shows its own placeholder instead.
+  it("holds its place under a host's Suspense while the list loads", async () => {
+    stub.list.mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <SessionsView client={asClient(stub)} />
+      </Suspense>
+    ));
+    await waitFor(() => expect(stub.list).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Active sessions" })).toBeTruthy();
+    expect(busyRegion()?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+  });
+
+  // The revoked session stays on screen until the list is read again; its
+  // Revoke then would only meet a session that is gone.
+  it("locks Revoke and Sign out everywhere else while the list is read again", async () => {
+    stub.list.mockResolvedValueOnce({ sessions });
+    stub.list.mockReturnValueOnce(new Promise(() => {}));
+    stub.revoke.mockResolvedValue({ revokedSelf: false });
+    render(() => <SessionsView client={asClient(stub)} />);
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Revoke$/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Revoke$/ })[1]!);
+    await waitFor(() => expect(stub.list).toHaveBeenCalledTimes(2));
+
+    const actions = [
+      ...screen.getAllByRole("button", { name: /^Revoke$/ }),
+      screen.getByRole("button", { name: /Sign out everywhere else/ }),
+    ] as HTMLButtonElement[];
+    expect(actions).toHaveLength(3);
+    for (const b of actions) expect(b.disabled).toBe(true);
+  });
 
   it("renders all sessions with UA labels and marks the current one", async () => {
     stub.list.mockResolvedValue({ sessions });

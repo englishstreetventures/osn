@@ -4,6 +4,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { SecurityEventsBanner } from "../src/SecurityEventsBanner";
+import { enterCode } from "./helpers/code";
 import { SERVER, alertsText, apiError } from "./helpers/errors";
 
 /**
@@ -163,9 +164,7 @@ describe("SecurityEventsBanner", () => {
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
     await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    fireEvent.input(screen.getByLabelText(/Code/i), {
-      target: { value: "123456" },
-    });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     await waitFor(() =>
@@ -198,9 +197,7 @@ describe("SecurityEventsBanner", () => {
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
     await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    fireEvent.input(screen.getByLabelText(/Code/i), {
-      target: { value: "123456" },
-    });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     const alert = await screen.findByRole("alert");
@@ -296,7 +293,7 @@ describe("SecurityEventsBanner", () => {
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
     await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
-    fireEvent.input(screen.getByLabelText(/Code/i), { target: { value: "123456" } });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     await waitFor(() => expect(counts).toEqual([1, 0]));

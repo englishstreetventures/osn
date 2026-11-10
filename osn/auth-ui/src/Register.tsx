@@ -12,7 +12,7 @@ import { UsernameInput } from "@shared/ui/ui/username-input";
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
 import { createSignal, createUniqueId, Show, onCleanup } from "solid-js";
 
-import { describedBy } from "./error-lines";
+import { describedBy, fieldError, type FieldError } from "./error-lines";
 import { describePasskeyError } from "./passkey-errors";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
@@ -85,7 +85,8 @@ export function Register(props: RegisterProps) {
   // "Send verification code", a refused code under the code, a refused resend
   // under "Resend code", a failed enrolment above "Enroll credential".
   const [detailsError, setDetailsError] = createSignal<string | null>(null);
-  const [codeError, setCodeError] = createSignal<string | null>(null);
+  const [codeError, setCodeError] = createSignal<FieldError | null>(null);
+  const codeErrorId = createUniqueId();
   const [resendError, setResendError] = createSignal<string | null>(null);
   const [passkeyError, setPasskeyError] = createSignal<string | null>(null);
   // The email line waits until the field is left, so it is not announced on
@@ -223,11 +224,34 @@ export function Register(props: RegisterProps) {
       toast.success("Email verified");
       setStep("passkey");
     } catch (err) {
-      setOtpStatus("error");
-      setCodeError(describeAuthError(err, "code"));
+      const line = fieldError(describeAuthError(err, "code"), err);
+      setCodeError(line);
+      // `error` marks the boxes invalid and puts focus back in box 1; a wait
+      // or an outage says nothing about the code, so the boxes stay `idle`.
+      setOtpStatus(line.invalid ? "error" : "idle");
+      if (!line.invalid) refocusCodeIfLost();
     } finally {
       setVerifying(false);
     }
+  }
+
+  let verifyForm: HTMLFormElement | undefined;
+  /**
+   * Puts focus back in box 1 one task later, once the boxes are enabled again,
+   * if it is on the page or in the row: Enter in a box submits the form, the
+   * boxes disable while the code is checked, and Chromium drops focus to the
+   * page where WebKit can leave it on the disabled box. A click on Verify email
+   * keeps focus on that busy button, and it stays there.
+   */
+  function refocusCodeIfLost() {
+    setTimeout(() => {
+      const row = verifyForm?.querySelector("fieldset");
+      const active = document.activeElement;
+      const lost = active === null || active === document.body || row?.contains(active) === true;
+      if (!lost) return;
+      const first = row?.querySelector<HTMLInputElement>("input");
+      if (first?.isConnected && !first.disabled) first.focus();
+    }, 0);
   }
 
   function startResendCooldown() {
@@ -477,7 +501,7 @@ export function Register(props: RegisterProps) {
         </Show>
 
         <Show when={step() === "verify"}>
-          <form onSubmit={submitOtp} class="flex flex-col gap-4">
+          <form ref={verifyForm} onSubmit={submitOtp} class="flex flex-col gap-4">
             <p class="text-muted-foreground text-sm">
               We sent a 6-digit code to <strong>{email()}</strong>. Enter it below to verify.
             </p>
@@ -487,13 +511,12 @@ export function Register(props: RegisterProps) {
               status={otpStatus()}
               disabled={verifying() || resending()}
               autofocus
+              aria-describedby={describedBy(codeError() && codeErrorId)}
             />
-            {/* Announced, but not yet tied to the boxes: `OtpInput` takes no
-                `aria-describedby` until englishstreetventures/osn#2041. */}
             <Show when={codeError()}>
-              {(msg) => (
-                <Notice tone="danger" size="inline" alert>
-                  {msg()}
+              {(line) => (
+                <Notice tone="danger" size="inline" alert id={codeErrorId}>
+                  {line().text}
                 </Notice>
               )}
             </Show>

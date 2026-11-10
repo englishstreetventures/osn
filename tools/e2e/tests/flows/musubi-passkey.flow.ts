@@ -64,6 +64,7 @@ import {
   onPhone,
   phoneTall,
   registerFieldSurfaces,
+  securityLoadingSurfaces,
   signedOutSurfaces,
   signInLinkSurfaces,
   totpSetupSurfaces,
@@ -212,9 +213,57 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await page.unroute(registerBegin, sendHeld.handler);
   }
 
+  const dialogAlert = page.getByRole("dialog").getByRole("alert");
+  const registerComplete = `${ORIGINS.osnApi}/register/complete`;
+  const verifyEmail = registerDialog.getByRole("button", { name: "Verify email" });
+  const firstBox = page.getByLabel("Digit 1");
+  // A refusal that says nothing about the code, answered in the page: focus
+  // stays where the code was sent from. A click keeps it on the busy button;
+  // Enter in a box sends it from boxes that disable for the check, so box 1
+  // gets it back. The line's tie and the boxes' unmarked state are the
+  // package tests' (`Register.test.tsx`).
+  const sentFrom = () =>
+    page.evaluate(() => {
+      const active = document.activeElement;
+      return active?.getAttribute("aria-label") ?? active?.textContent?.trim() ?? "";
+    });
+  let focusAfterClick = "";
+  let focusAfterEnter = "";
+  await flow.step("register: a rate-limited code keeps focus where it was sent from", async () => {
+    const handler = refuse("POST", 429, "rate_limited");
+    await page.route(registerComplete, handler);
+    try {
+      await firstBox.pressSequentially("000000");
+      let answered = page.waitForResponse(
+        (r) => r.url() === registerComplete && r.request().method() === "POST",
+      );
+      await verifyEmail.click();
+      await answered;
+      await expect(dialogAlert).toContainText(WAIT);
+      await expect(verifyEmail).toBeFocused();
+      focusAfterClick = await sentFrom();
+
+      answered = page.waitForResponse(
+        (r) => r.url() === registerComplete && r.request().method() === "POST",
+      );
+      await page.getByLabel("Digit 6").press("Enter");
+      await answered;
+      await expect(dialogAlert).toContainText(WAIT);
+      await expect(firstBox).toBeFocused();
+      focusAfterEnter = await sentFrom();
+    } finally {
+      await page.unroute(registerComplete, handler);
+    }
+  });
+  flow.check(
+    "a rate-limited code sent by a click keeps focus on Verify email",
+    "Verify email",
+    focusAfterClick,
+  );
+  flow.check("a rate-limited code sent with Enter puts focus in box 1", "Digit 1", focusAfterEnter);
+
   // A real refusal from osn-api: the code differs from the emailed one in
   // every digit. It spends no sign-up begin (`flows.test.ts` counts those).
-  const dialogAlert = page.getByRole("dialog").getByRole("alert");
   let wrongCodeLine = "";
   await flow.step("register: a wrong code is refused in words", async () => {
     const code = await otpFor(ada.email);
@@ -231,7 +280,6 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     flow.saw("POST osn-api /register/complete 400"),
   );
 
-  const registerComplete = `${ORIGINS.osnApi}/register/complete`;
   const verifyHeld = holdMethod("POST");
   await page.route(registerComplete, verifyHeld.handler);
   try {
@@ -505,6 +553,34 @@ test("musubi-passkey", async ({ page, context, flow }) => {
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name, exact: true });
 
+  // The passkey list's read, held: the list's own placeholder is on screen in
+  // its place, not Settings' fallback for the whole tab.
+  const passkeysList = `${ORIGINS.osnApi}/passkeys`;
+  const listHeld = holdMethod("GET");
+  let placeholderHeight = "";
+  await page.route(passkeysList, listHeld.handler);
+  try {
+    await flow.step("Settings → Security while the passkey list loads", async () => {
+      await page.getByRole("link", { name: "Settings" }).first().click();
+      await settingsTab("Security").click();
+      await expect(page.getByRole("heading", { name: "Passkeys", exact: true })).toBeVisible();
+    });
+    placeholderHeight = await securityLoadingSurfaces(flow, page);
+  } finally {
+    listHeld.release();
+    await page.unroute(passkeysList, listHeld.handler);
+  }
+  let rowHeight = "";
+  await flow.step("Settings → Security once the passkey list lands", async () => {
+    await expect(page.getByRole("button", { name: "Rename" })).toBeVisible();
+    rowHeight = await page
+      .locator("li")
+      .filter({ has: page.getByRole("button", { name: "Rename" }) })
+      .evaluate((el) => getComputedStyle(el).height);
+  });
+  // Nothing below the list moves when it lands.
+  flow.check("a passkey row is as tall as its loading placeholder", placeholderHeight, rowHeight);
+
   // Each step-up below is a passkey assertion the virtual authenticator
   // answers. The code is computed from the setup key the page shows, on the
   // suite clock the servers run on.
@@ -543,7 +619,11 @@ test("musubi-passkey", async ({ page, context, flow }) => {
   await page.route(totpConfirm, confirmHeld.handler);
   try {
     await flow.step("add an authenticator app: Confirm waits on the check", async () => {
-      await page.getByLabel("Digit 1").pressSequentially(totpCode(secret));
+      // Named after the label above the boxes, so Playwright's `getByLabel`
+      // does not find it by its own "Digit 1".
+      await page
+        .getByRole("textbox", { name: "Code from the app Digit 1" })
+        .pressSequentially(totpCode(secret));
       await page.getByRole("button", { name: "Confirm" }).click();
       await expect(page.getByRole("button", { name: "Checking…" })).toBeVisible();
     });
@@ -682,8 +762,11 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await expect(page.getByText("Pulse", { exact: true })).toBeVisible();
   });
   const pulseConnection = `${ORIGINS.osnApi}/oidc/connections/${PULSE_OIDC.clientId}`;
+  const appsList = `${ORIGINS.osnApi}/oidc/connections`;
   const revokeHeld = holdMethod("DELETE");
+  const rereadHeld = holdMethod("GET");
   await page.route(pulseConnection, revokeHeld.handler);
+  await page.route(appsList, rereadHeld.handler);
   try {
     await onPhone(page, async () => {
       await phoneTall(flow, page.getByRole("button", { name: "Revoke" }), "revoke");
@@ -694,10 +777,31 @@ test("musubi-passkey", async ({ page, context, flow }) => {
       const revoking = page.getByRole("button", { name: "Revoking…" });
       await busyButtonHeld(flow, revoking, "Revoking…", "revoke busy");
       await phoneTall(flow, revoking, "revoke busy");
+      // The DELETE lands and the list is read again: the row stays, its
+      // Revoke still busy, and no placeholder takes its place.
+      await flow.step("revoke Pulse: the row stays while the list is read again", async () => {
+        const reread = page.waitForRequest(
+          (request) => request.url() === appsList && request.method() === "GET",
+        );
+        revokeHeld.release();
+        await reread;
+        await expect(revoking).toBeVisible();
+      });
+      flow.check(
+        "revoke Pulse: no placeholder while the list is read again",
+        0,
+        await page
+          .getByText(/^Apps you have signed in to/)
+          .locator("..")
+          .locator('div[aria-hidden="true"]')
+          .count(),
+      );
     });
   } finally {
     revokeHeld.release();
+    rereadHeld.release();
     await page.unroute(pulseConnection, revokeHeld.handler);
+    await page.unroute(appsList, rereadHeld.handler);
   }
   await flow.step("revoke Pulse", async () => {
     await expect(

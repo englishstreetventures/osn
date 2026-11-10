@@ -45,7 +45,7 @@ light, `.dark` for dark).
 | `--input` | `#e2e2e2` | `#3a3a3a` | control borders |
 | `--ring` | `#5d5d5d` | `#a3a3a3` | focus ring |
 
-Text a reader needs — a handle, a status, a hint, a "Loading…" line — takes
+Text a reader needs — a handle, a status, a hint, a "Searching…" line — takes
 `text-muted-foreground`, never `text-subtle`. `--subtle` is for resting icons
 and ornaments, and clears 3:1 (WCAG 1.4.11's floor for an icon) on every
 ground it rests on:
@@ -218,9 +218,8 @@ Where the app does not follow this yet — known breaks include:
 
 - `@shared/ui`'s `DialogTitle` and `CardTitle`: 16px (`--ui-text-md`) at
   weight 600 (#2040).
-- `@shared/ui`'s `Badge`: weight 600, the fallback of `--ui-weight-title`,
-  which Musubi does not map yet (#2041). `AvatarFallback`: weight 600.
-  `OtpInput`'s digits: 16px (`--ui-text-md`).
+- `@shared/ui`'s `AvatarFallback`: weight 600. `OtpInput`'s digits: 16px
+  (`--ui-text-md`).
 - Settings → Security: the "Recovery codes" heading is `text-lg font-semibold`
   and its intro `text-sm` (`SecuritySection.tsx`) (#2045).
 - `text-sm` on the recovery-codes prompt's body (`RecoveryCodesPrompt.tsx`).
@@ -370,9 +369,13 @@ own, with one exception: the orb a busy button draws (§The orb). Rows, tabs and
 (`App.css`): Tailwind's `transition-colors` with `outline-color` left out, the
 same utility each cire app defines. Never `transition-colors` or
 `transition-all` on anything that takes focus: both fade the outline, so the
-focus mark arrives late. A loading placeholder is a block drawn at the call
-site in the loaded row's shape (`bg-muted/50 animate-pulse`), which pulses in
-opacity.
+focus mark arrives late. A loading placeholder is `@shared/ui`'s `Skeleton`
+(§Empty states and failed loads), which pulses in opacity and stands still
+under reduced motion. What replaces it arrives at once, with no fade, and so
+do an error line and a step that replaces another (a sign-in step, the
+authenticator's setup, a step-up's code): a fade would only hold back what the
+reader is waiting for, and the jump in height it leaves could be bridged only
+by spatial motion.
 
 Where the app does not follow this yet: `@shared/ui`'s Dialog (as card and as
 sheet), Popover and default menu run the shared overlay motion. They fade and
@@ -510,9 +513,17 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
 - **Code boxes** = `OtpInput`'s six boxes share their column and are 40px wide
   at a 260px column, so a screen that hosts one gives the row at least 260px
   on a phone (drop an inner card's padding below `md` rather than squeeze the
-  boxes). Where the app does not follow this yet: at a 320px viewport,
-  `TotpView`'s enrolment step in Settings and `/authorize` give the row less
-  (#2041).
+  boxes). `TotpView`'s enrolment step drops its frame below `md`, and
+  `StepUpDialog` its side padding, so in Settings → Security each code row
+  takes the card's whole column. Where the app does not follow this yet, at a
+  320px viewport:
+  - Settings → Security: that column is 246px (37.7px boxes; 260px from a
+    334px viewport), after `main`'s `px-4` and the card's `p-5` and edge, for
+    `TotpView`'s enrolment and `StepUpDialog`'s code steps alike. The step-up
+    leaves the card when it becomes a sheet (#2045).
+  - `/authorize` gives `Register` 230px (35px boxes; 260px from 350px), after
+    `main`'s `px-6`, the frame's edge and `p-1`, and the view's own `px-4`
+    (#2046).
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
@@ -526,6 +537,41 @@ Where the app does not follow this yet:
 
 ## Empty states and failed loads
 
+- **Loading** = `@shared/ui`'s `Skeleton`, one block in place of each row,
+  card, line, field or button, in the loaded thing's corner (`standsFor`) and
+  height in spacing steps, so nothing jumps when the content lands: a list
+  row is `row`, a card `card`, a heading or a status line `line`. It fills
+  with the sunk well (`--muted`), pulses in opacity, and stands still under
+  reduced motion. Never a "Loading…" line and never a block drawn by hand.
+  A row whose buttons grow to the touch height below `md` (§Responsive
+  layout) is taller on a phone, so its placeholder is
+  `src/components/ResponsiveSkeleton.tsx`: one block per width, each hidden
+  at the other, since `Skeleton` takes one height. Rows: a connection or a
+  member with Remove 56px and 60px below `md`, a Discover card 114px and
+  126px, a connected app 62px and 66px; an organisation card is 74px at
+  both. A placeholder list takes the gap of the list it stands for. Words
+  that do not load stay on screen: Connected apps' lead paragraph is the
+  page's, outside the section's `Suspense`, so only its list is a
+  placeholder. The region that holds the placeholders and the content that replaces them
+  carries `aria-busy` while it loads; a `Suspense` fallback, which no element
+  outlives, carries it on its own wrapper and takes it away with it
+  (Settings' Security and Connected apps tabs, `/authorize`'s sign-in frame).
+  `/authorize`'s takes the shape of the half of the panel that leads:
+  sign-up's heading beside Cancel and its four fields for `reason=create`;
+  sign-in's heading, one field, Continue, "Lost your passkey?" and the
+  "Create one" line otherwise, at the panel's `max-w-sm`. Words that wrap
+  stay words there, so they wrap where the panel's do: the heading, and the
+  date of birth's hint; labels, fields and buttons are blocks. Two browser
+  tests hold every placeholder's height against what lands, at 320 and
+  1440px, and `/authorize`'s at 390 too
+  (`tests/components/LoadingShapes.browser.test.tsx`,
+  `tests/components/AuthorizeLoading.browser.test.tsx`). A list a person
+  acts on keeps its rows on screen while it is read again (Connected apps
+  after a revoke, the passkey list after a delete), and a row that may be gone
+  is not one anyone can act on: its action stays busy or disabled until the
+  read lands. A state whose words are the content stays
+  words: `/authorize`'s "Checking this request…" and "Taking you back…",
+  search's "Searching…", and a busy button's label (§Busy buttons).
 - **Empty states** = `EmptyNote` (`src/components/EmptyNote.tsx`): the dashed
   `rounded-card` block, 16px at the sides, `size="page"` (`py-16`) for a
   page's whole content, `size="section"` (`py-12`) for one list. Its words sit
@@ -649,8 +695,11 @@ default look (the control step, 14px, at 500, full ink, the words as written)
   label, since a label cannot hold a button (`@osn/auth-ui`'s Register Email),
   wired by hand and 6px above its control all the same; and the label of a
   label/value pair (Settings' Profile and Account cards, a muted `sm` `Label`
-  over a disabled value). The code boxes (`OtpInput`) keep a span label 6px
-  above them until they take an `aria-describedby` (#2041).
+  over a disabled value). The code boxes (`OtpInput`) take a span in the label's
+  look 6px above them, its id the boxes' `aria-labelledby`: `Field`'s
+  `<label for>` names one control, and the boxes are a group. `Register`'s
+  code step has none, since its sentence leads the step, and its group keeps
+  `OtpInput`'s own name (`osn/auth-ui/DESIGN.md` §4).
 
 Uses in the app: the create-organisation dialog (Handle, with its hint; Name;
 Description) and the edit dialog (Name, Description); in the auth views, every
@@ -754,8 +803,6 @@ own vocabulary (`bg-card`, `text-muted-foreground`) stays as written.
   | `--ui-text-xl` | `--text-display`, 24px |
   | `--ui-text-2xl` | 32px |
 
-  No `--ui-weight-title` is set, so `Badge` takes the contract's fallback,
-  600, against the house's 500 (#2041).
 - **Tracking.** `--ui-tracking-tight` and `-normal` are `-0.15px`; `-wide` is
   `0em`, which the rail's small-caps "Social" tag uses.
 - **Overrides.** Every `@shared/ui` class sits behind the `base:` variant, which

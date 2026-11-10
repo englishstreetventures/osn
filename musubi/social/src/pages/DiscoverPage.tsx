@@ -8,6 +8,7 @@ import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { graphClient, recommendationClient } from "../lib/api";
 import { usePageTitle } from "../lib/page-title";
@@ -67,80 +68,84 @@ export function DiscoverPage() {
       </div>
 
       <Show when={session()} fallback={<SignedOutNote>Sign in to discover people.</SignedOutNote>}>
-        <Show
-          when={!recommendations.loading}
-          fallback={
-            <div class="grid gap-3 md:grid-cols-2">
-              {Array.from({ length: 4 }, () => (
-                <div class="bg-muted/50 rounded-card h-28 animate-pulse" />
-              ))}
-            </div>
-          }
-        >
+        <div aria-busy={recommendations.loading || undefined}>
           <Show
-            when={(recommendations()?.suggestions.length ?? 0) > 0}
+            when={!recommendations.loading}
             fallback={
-              <EmptyNote>
-                No suggestions yet.{" "}
-                <A href="/search" class={buttonVariants({ variant: "link", size: "inline" })}>
-                  Search for someone
-                </A>
-                , or join an organisation to find people you already share one with.
-              </EmptyNote>
+              <div class="grid gap-3 md:grid-cols-2">
+                {Array.from({ length: 4 }, () => (
+                  // A card is 114px, and 126px below `md`, where Connect
+                  // takes the touch height.
+                  <ResponsiveSkeleton standsFor="card" height={28.5} phoneHeight={31.5} />
+                ))}
+              </div>
             }
           >
-            <div class="grid gap-3 md:grid-cols-2">
-              <For each={recommendations()?.suggestions}>
-                {(suggestion) => (
-                  // A card, not a row: the tile itself is not a control (its
-                  // Connect button is), so it takes no hover wash.
-                  <Card padding="sm" class="flex flex-col gap-3">
-                    <div class="flex items-center gap-3">
-                      <Avatar class="h-10 w-10">
-                        <Show when={safeAvatarUrl(suggestion.avatarUrl)}>
-                          {(url) => (
-                            <AvatarImage
-                              src={url()}
-                              alt={suggestion.handle}
-                              referrerpolicy="no-referrer"
-                              loading="lazy"
-                            />
-                          )}
-                        </Show>
-                        <AvatarFallback>
-                          {suggestion.handle.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-title truncate font-medium">
-                          {suggestion.displayName || `@${suggestion.handle}`}
-                        </p>
-                        <Show when={suggestion.displayName}>
-                          <p class="text-muted-foreground text-meta truncate">
-                            @{suggestion.handle}
+            <Show
+              when={(recommendations()?.suggestions.length ?? 0) > 0}
+              fallback={
+                <EmptyNote>
+                  No suggestions yet.{" "}
+                  <A href="/search" class={buttonVariants({ variant: "link", size: "inline" })}>
+                    Search for someone
+                  </A>
+                  , or join an organisation to find people you already share one with.
+                </EmptyNote>
+              }
+            >
+              <div class="grid gap-3 md:grid-cols-2">
+                <For each={recommendations()?.suggestions}>
+                  {(suggestion) => (
+                    // A card, not a row: the tile itself is not a control (its
+                    // Connect button is), so it takes no hover wash.
+                    <Card padding="sm" class="flex flex-col gap-3">
+                      <div class="flex items-center gap-3">
+                        <Avatar class="h-10 w-10">
+                          <Show when={safeAvatarUrl(suggestion.avatarUrl)}>
+                            {(url) => (
+                              <AvatarImage
+                                src={url()}
+                                alt={suggestion.handle}
+                                referrerpolicy="no-referrer"
+                                loading="lazy"
+                              />
+                            )}
+                          </Show>
+                          <AvatarFallback>
+                            {suggestion.handle.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-foreground text-title truncate font-medium">
+                            {suggestion.displayName || `@${suggestion.handle}`}
                           </p>
-                        </Show>
+                          <Show when={suggestion.displayName}>
+                            <p class="text-muted-foreground text-meta truncate">
+                              @{suggestion.handle}
+                            </p>
+                          </Show>
+                        </div>
                       </div>
-                    </div>
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="text-muted-foreground text-meta min-w-0 truncate">
-                        {suggestionReason(suggestion)}
-                      </span>
-                      <Button
-                        size="sm"
-                        class="h-7 max-md:h-10"
-                        busy={sending().has(suggestion.handle)}
-                        onClick={() => connect(suggestion.handle)}
-                      >
-                        {sending().has(suggestion.handle) ? "Sending…" : "Connect"}
-                      </Button>
-                    </div>
-                  </Card>
-                )}
-              </For>
-            </div>
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-muted-foreground text-meta min-w-0 truncate">
+                          {suggestionReason(suggestion)}
+                        </span>
+                        <Button
+                          size="sm"
+                          class="h-7 max-md:h-10"
+                          busy={sending().has(suggestion.handle)}
+                          onClick={() => connect(suggestion.handle)}
+                        >
+                          {sending().has(suggestion.handle) ? "Sending…" : "Connect"}
+                        </Button>
+                      </div>
+                    </Card>
+                  )}
+                </For>
+              </div>
+            </Show>
           </Show>
-        </Show>
+        </div>
       </Show>
     </main>
   );

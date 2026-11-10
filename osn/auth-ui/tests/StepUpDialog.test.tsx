@@ -2,9 +2,11 @@
 import type { StepUpClient, StepUpPurpose, StepUpToken, TotpClient } from "@osn/client";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import { render, cleanup, screen, fireEvent, waitFor, within } from "@solidjs/testing-library";
+import { Suspense } from "solid-js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { StepUpDialog } from "../src/StepUpDialog";
+import { enterCode, expectTied, findCodeBoxes } from "./helpers/code";
 import {
   CODE,
   PASSKEY_NOT_USED,
@@ -71,8 +73,7 @@ describe("StepUpDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
     await waitFor(() => expect(stub.otpBegin).toHaveBeenCalled());
 
-    const input = await screen.findByRole("textbox");
-    fireEvent.input(input, { target: { value: "123456" } });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJ123", expiresIn: 300 }));
@@ -110,7 +111,7 @@ describe("StepUpDialog", () => {
     stub.otpComplete.mockReturnValue(new Promise(() => {}));
     render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    fireEvent.input(await screen.findByRole("textbox"), { target: { value: "123456" } });
+    await enterCode("Code", "123456");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
     const checking = await screen.findByRole("button", { name: "Checking…" });
     expect(checking.getAttribute("aria-busy")).toBe("true");
@@ -143,39 +144,78 @@ describe("StepUpDialog", () => {
     await waitFor(() => expect(onToken).toHaveBeenCalledWith({ token: "eyJpk", expiresIn: 300 }));
   });
 
-  it("OTP complete failure shows the code sentence under the code, tied to it", async () => {
+  // Tied to every box whatever the cause; marked invalid only when the code
+  // itself was refused, never for a wait.
+  it.each([
+    ["a 400", apiError("PLANTED Invalid or expired code"), CODE, "true"],
+    ["a 429", apiError("PLANTED-otp-429", 429, "rate_limited"), WAIT, null],
+  ] as const)(
+    "an emailed code refused with %s reads the map's sentence under the code, tied to it",
+    async (_, error, sentence, invalid) => {
+      stub.otpBegin.mockResolvedValue({ sent: true });
+      stub.otpComplete.mockRejectedValue(error);
+
+      render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
+
+      fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
+      const boxes = await enterCode("Code", "000000");
+      fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      expectTied(boxes, alert.id, invalid);
+    },
+  );
+
+  it("a short code is tied to the boxes and marks them invalid", async () => {
     stub.otpBegin.mockResolvedValue({ sent: true });
-    stub.otpComplete.mockRejectedValue(apiError("PLANTED Invalid or expired code"));
-
-    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    const input = await screen.findByRole("textbox");
-    fireEvent.input(input, { target: { value: "000000" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(CODE);
-    expect(alertsText()).not.toContain("PLANTED");
-    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
-    expect(input.getAttribute("aria-invalid")).toBe("true");
-    // Not inside the label, which may not hold a block.
-    expect(alert.closest("label")).toBeNull();
-  });
-
-  it("a short code is tied to the code field", async () => {
-    stub.otpBegin.mockResolvedValue({ sent: true });
     render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
-    const input = await screen.findByRole("textbox");
-    fireEvent.input(input, { target: { value: "12" } });
+    const boxes = await enterCode("Code", "12");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Enter the 6-digit code");
-    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
+    expectTied(boxes, alert.id, "true");
+    expect(stub.otpComplete).not.toHaveBeenCalled();
   });
 
-  it("an authenticator code failure shows the code sentence, tied to its field", async () => {
-    stub.totpComplete.mockRejectedValue(apiError("PLANTED-totp", 429, "rate_limited"));
+  it.each([
+    ["a 400", apiError("PLANTED-totp"), CODE, "true"],
+    ["a 429", apiError("PLANTED-totp-429", 429, "rate_limited"), WAIT, null],
+  ] as const)(
+    "an authenticator code refused with %s reads the map's sentence, tied to its boxes",
+    async (_, error, sentence, invalid) => {
+      stub.totpComplete.mockRejectedValue(error);
+      render(() => (
+        <StepUpDialog
+          client={asClient(stub)}
+          onToken={() => {}}
+          onCancel={() => {}}
+          totpClient={
+            { status: vi.fn().mockResolvedValue({ enrolled: true }) } as unknown as TotpClient
+          }
+        />
+      ));
+      fireEvent.click(await screen.findByRole("button", { name: /Use your authenticator app/ }));
+      const boxes = await enterCode("Code from your authenticator app", "123456");
+      fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain(sentence);
+      expect(alertsText()).not.toContain("PLANTED");
+      expectTied(boxes, alert.id, invalid);
+    },
+  );
+
+  // Focus lands in the code, not on Cancel or the page, when a code step opens.
+  it("puts focus in box 1 when the emailed-code step opens", async () => {
+    stub.otpBegin.mockResolvedValue({ sent: true });
+    render(() => <StepUpDialog client={asClient(stub)} onToken={() => {}} onCancel={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/ }));
+    const boxes = await findCodeBoxes("Code");
+    await waitFor(() => expect(document.activeElement).toBe(boxes[0]));
+  });
+
+  it("puts focus in box 1 when the authenticator step opens", async () => {
     render(() => (
       <StepUpDialog
         client={asClient(stub)}
@@ -187,15 +227,8 @@ describe("StepUpDialog", () => {
       />
     ));
     fireEvent.click(await screen.findByRole("button", { name: /Use your authenticator app/ }));
-    const input = await screen.findByRole("textbox");
-    fireEvent.input(input, { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(WAIT);
-    expect(alertsText()).not.toContain("PLANTED");
-    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(alert.id);
-    // Waiting is not a wrong code.
-    expect(input.getAttribute("aria-invalid")).toBeNull();
+    const boxes = await findCodeBoxes("Code from your authenticator app");
+    await waitFor(() => expect(document.activeElement).toBe(boxes[0]));
   });
 
   it("a passkey failure reads as the signing-in sentence, never the browser's text", async () => {
@@ -405,6 +438,29 @@ describe("StepUpDialog — authenticator app factor", () => {
     expect(screen.queryByRole("button", { name: TOTP_BUTTON })).toBeNull();
   });
 
+  // A read under a host's Suspense boundary would hand the whole boundary to
+  // the host's fallback, step-up and all, until the status lands.
+  it("holds its place under a host's Suspense while the status loads", async () => {
+    const status = vi.fn().mockReturnValue(new Promise(() => {}));
+    render(() => (
+      <Suspense fallback={<p>HOST FALLBACK</p>}>
+        <StepUpDialog
+          client={asClient(stub)}
+          onToken={() => {}}
+          onCancel={() => {}}
+          runPasskeyCeremony={async () => assertion}
+          totpClient={asTotp({ status })}
+          purpose="recovery_generate"
+        />
+      </Suspense>
+    ));
+    await waitFor(() => expect(status).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(screen.queryByText("HOST FALLBACK")).toBeNull();
+    expect(screen.getByRole("button", { name: /Use passkey/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Email me a code/i })).toBeTruthy();
+  });
+
   it("keeps the other factors when the status read fails", async () => {
     // Whether an authenticator exists is not worth failing a ceremony over.
     const underTest = await mountBesideAnAdmittingCeremony({
@@ -422,8 +478,7 @@ describe("StepUpDialog — authenticator app factor", () => {
     mount({ totp: totpStub({ enrolled: true }), purpose: "recovery_generate", onToken });
 
     fireEvent.click(await screen.findByRole("button", { name: TOTP_BUTTON }));
-    const input = await screen.findByLabelText(/Code from your authenticator app/i);
-    fireEvent.input(input, { target: { value: "123456" } });
+    await enterCode("Code from your authenticator app", "123456");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     await waitFor(() =>
@@ -441,8 +496,7 @@ describe("StepUpDialog — authenticator app factor", () => {
     stub.totpComplete.mockReturnValue(new Promise(() => {}));
     mount({ totp: totpStub({ enrolled: true }), purpose: "recovery_generate" });
     fireEvent.click(await screen.findByRole("button", { name: TOTP_BUTTON }));
-    const input = await screen.findByLabelText(/Code from your authenticator app/i);
-    fireEvent.input(input, { target: { value: "123456" } });
+    await enterCode("Code from your authenticator app", "123456");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
     const checking = await screen.findByRole("button", { name: "Checking…" });
     expect(checking.getAttribute("aria-busy")).toBe("true");

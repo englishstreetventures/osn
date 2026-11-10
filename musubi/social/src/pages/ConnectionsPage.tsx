@@ -19,6 +19,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { EmptyNote } from "../components/EmptyNote";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
+import { ResponsiveSkeleton } from "../components/ResponsiveSkeleton";
 import { SectionTabs } from "../components/SectionTabs";
 import { SignedOutNote } from "../components/SignedOutNote";
 import { graphClient } from "../lib/api";
@@ -180,133 +181,139 @@ export function ConnectionsPage() {
 
         {/* All connections */}
         <Show when={tab() === "all"}>
-          <Show when={!payload.loading} fallback={<LoadingSkeleton count={3} />}>
-            <Show
-              when={(connections()?.connections?.length ?? 0) > 0}
-              fallback={
-                <EmptyNote size="section">
-                  No connections yet. Discover people to connect with.
-                </EmptyNote>
-              }
-            >
-              <div class="flex flex-col gap-1">
-                <For each={connections()?.connections}>
-                  {(conn: ConnectionEntry) => (
-                    <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                      <Avatar class="h-9 w-9">
-                        <AvatarFallback>{conn.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-title font-medium">
-                          {conn.displayName || `@${conn.handle}`}
-                        </p>
-                        <Show when={conn.displayName}>
-                          <p class="text-muted-foreground text-meta">@{conn.handle}</p>
-                        </Show>
+          <div aria-busy={payload.loading || undefined}>
+            <Show when={!payload.loading} fallback={<LoadingSkeleton count={3} />}>
+              <Show
+                when={(connections()?.connections?.length ?? 0) > 0}
+                fallback={
+                  <EmptyNote size="section">
+                    No connections yet. Discover people to connect with.
+                  </EmptyNote>
+                }
+              >
+                <div class="flex flex-col gap-1">
+                  <For each={connections()?.connections}>
+                    {(conn: ConnectionEntry) => (
+                      <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
+                        <Avatar class="h-9 w-9">
+                          <AvatarFallback>{conn.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-foreground text-title font-medium">
+                            {conn.displayName || `@${conn.handle}`}
+                          </p>
+                          <Show when={conn.displayName}>
+                            <p class="text-muted-foreground text-meta">@{conn.handle}</p>
+                          </Show>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                          <Button
+                            variant="ghostDanger"
+                            size="sm"
+                            class="h-7 max-md:h-10"
+                            onClick={() => requestRemove(conn)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
                       </div>
-                      <div class="flex items-center gap-1.5">
-                        <Button
-                          variant="ghostDanger"
-                          size="sm"
-                          class="h-7 max-md:h-10"
-                          onClick={() => requestRemove(conn)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </Show>
-          </Show>
+          </div>
         </Show>
 
         {/* Pending requests */}
         <Show when={tab() === "pending"}>
-          <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
-            <Show
-              when={(pending()?.pending.length ?? 0) > 0}
-              fallback={<EmptyNote size="section">No pending connection requests.</EmptyNote>}
-            >
-              <div class="flex flex-col gap-1">
-                <For each={pending()?.pending}>
-                  {(req: PendingRequestEntry) => (
-                    <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                      <Avatar class="h-9 w-9">
-                        <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-title font-medium">
-                          {req.displayName || `@${req.handle}`}
-                        </p>
-                        <p class="text-muted-foreground text-meta">
-                          Requested {new Date(req.requestedAt).toLocaleDateString()}
-                        </p>
+          <div aria-busy={payload.loading || undefined}>
+            <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
+              <Show
+                when={(pending()?.pending.length ?? 0) > 0}
+                fallback={<EmptyNote size="section">No pending connection requests.</EmptyNote>}
+              >
+                <div class="flex flex-col gap-1">
+                  <For each={pending()?.pending}>
+                    {(req: PendingRequestEntry) => (
+                      <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
+                        <Avatar class="h-9 w-9">
+                          <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-foreground text-title font-medium">
+                            {req.displayName || `@${req.handle}`}
+                          </p>
+                          <p class="text-muted-foreground text-meta">
+                            Requested {new Date(req.requestedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            class="h-7 max-md:h-10"
+                            onClick={() => acceptRequest(req.handle)}
+                          >
+                            Accept
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            class="h-7 max-md:h-10"
+                            onClick={() => rejectRequest(req.handle)}
+                          >
+                            Decline
+                          </Button>
+                        </div>
                       </div>
-                      <div class="flex items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          class="h-7 max-md:h-10"
-                          onClick={() => acceptRequest(req.handle)}
-                        >
-                          Accept
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class="h-7 max-md:h-10"
-                          onClick={() => rejectRequest(req.handle)}
-                        >
-                          Decline
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </Show>
-          </Show>
+          </div>
         </Show>
 
         {/* Sent requests */}
         <Show when={tab() === "sent"}>
-          <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
-            <Show
-              when={(sent()?.sent.length ?? 0) > 0}
-              fallback={<EmptyNote size="section">No outgoing connection requests.</EmptyNote>}
-            >
-              <div class="flex flex-col gap-1">
-                <For each={sent()?.sent}>
-                  {(req: SentRequestEntry) => (
-                    <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                      <Avatar class="h-9 w-9">
-                        <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-title font-medium">
-                          {req.displayName || `@${req.handle}`}
-                        </p>
-                        <p class="text-muted-foreground text-meta">
-                          Requested {new Date(req.requestedAt).toLocaleDateString()}
-                        </p>
+          <div aria-busy={payload.loading || undefined}>
+            <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
+              <Show
+                when={(sent()?.sent.length ?? 0) > 0}
+                fallback={<EmptyNote size="section">No outgoing connection requests.</EmptyNote>}
+              >
+                <div class="flex flex-col gap-1">
+                  <For each={sent()?.sent}>
+                    {(req: SentRequestEntry) => (
+                      <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
+                        <Avatar class="h-9 w-9">
+                          <AvatarFallback>{req.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-foreground text-title font-medium">
+                            {req.displayName || `@${req.handle}`}
+                          </p>
+                          <p class="text-muted-foreground text-meta">
+                            Requested {new Date(req.requestedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                          <Button
+                            variant="ghostDanger"
+                            size="sm"
+                            class="h-7 max-md:h-10"
+                            onClick={() => cancelSentRequest(req.handle)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
                       </div>
-                      <div class="flex items-center gap-1.5">
-                        <Button
-                          variant="ghostDanger"
-                          size="sm"
-                          class="h-7 max-md:h-10"
-                          onClick={() => cancelSentRequest(req.handle)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </Show>
-          </Show>
+          </div>
         </Show>
 
         {/* Remove-friend confirmation dialog. Rendered once at the page
@@ -354,46 +361,54 @@ export function ConnectionsPage() {
 
         {/* Blocked */}
         <Show when={tab() === "blocked"}>
-          <Show when={!payload.loading} fallback={<LoadingSkeleton count={1} />}>
-            <Show
-              when={(blocked()?.blocks.length ?? 0) > 0}
-              fallback={<EmptyNote size="section">You haven't blocked anyone.</EmptyNote>}
-            >
-              <div class="flex flex-col gap-1">
-                <For each={blocked()?.blocks}>
-                  {(profile: ProfileEntry) => (
-                    <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
-                      <Avatar class="h-9 w-9">
-                        <AvatarFallback>{profile.handle.slice(0, 2).toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-title font-medium">@{profile.handle}</p>
+          <div aria-busy={payload.loading || undefined}>
+            <Show when={!payload.loading} fallback={<LoadingSkeleton count={1} />}>
+              <Show
+                when={(blocked()?.blocks.length ?? 0) > 0}
+                fallback={<EmptyNote size="section">You haven't blocked anyone.</EmptyNote>}
+              >
+                <div class="flex flex-col gap-1">
+                  <For each={blocked()?.blocks}>
+                    {(profile: ProfileEntry) => (
+                      <div class="hover:bg-muted/50 active:bg-muted/50 transition-ui-colors flex items-center gap-3 rounded-lg px-3 py-2.5">
+                        <Avatar class="h-9 w-9">
+                          <AvatarFallback>
+                            {profile.handle.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div class="min-w-0 flex-1">
+                          <p class="text-foreground text-title font-medium">@{profile.handle}</p>
+                        </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          class="h-7 max-md:h-10"
+                          onClick={() => unblock(profile.handle)}
+                        >
+                          Unblock
+                        </Button>
                       </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        class="h-7 max-md:h-10"
-                        onClick={() => unblock(profile.handle)}
-                      >
-                        Unblock
-                      </Button>
-                    </div>
-                  )}
-                </For>
-              </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </Show>
-          </Show>
+          </div>
         </Show>
       </Show>
     </main>
   );
 }
 
+/**
+ * `count` rows' placeholders, spaced as the list is. A row is 56px, and 60px
+ * below `md`, where its buttons take the touch height.
+ */
 function LoadingSkeleton(props: { count: number }) {
   return (
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-1">
       {Array.from({ length: props.count }, () => (
-        <div class="bg-muted/50 h-14 animate-pulse rounded-lg" />
+        <ResponsiveSkeleton height={14} phoneHeight={15} />
       ))}
     </div>
   );

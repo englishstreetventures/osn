@@ -25,7 +25,8 @@ packages:
   - "@pulse/web"
   - "@shared/ui"
   - "@musubi/social"
-last-reviewed: 2026-11-09
+  - "@osn/auth-ui"
+last-reviewed: 2026-11-10
 ---
 
 # Frontend Patterns
@@ -90,6 +91,8 @@ Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded i
 On a cold desktop load of `/discover` with the rail's chunk held back 400ms, the page's layout shift goes from 0.167 to 0 (phone: 0.058 to 0).
 
 *Measured 2026-11-09 — `vite build` and `vite preview` of `@musubi/social`, Playwright Chromium at 1440×900 and 390×844, the shell chunk's request delayed 400ms by `page.route`, summing buffered `layout-shift` entries.*
+
+**A view that may sit under someone else's `Suspense` reads its resource's `state` first.** A component that calls `resource()` while the read is out, inside a render-phase tracking scope (a `Show`'s `when`, a memo, JSX; not a `createEffect`), raises the nearest `Suspense` above it, which may be the host page's: Musubi's Settings wraps its lazy Security section in one, so a list read in `@osn/auth-ui`'s `PasskeysView` swapped the whole tab for Settings' fallback, and the view's own placeholder never showed. `resource.latest` is no way out before the first read lands: until then it is the same read (solid-js 1.9, `dist/solid.js`, the `latest` getter). So such a view reads `resource.state` (and `.loading`, `.error`, which never suspend) and touches the value only once a read has landed, through `.latest`: `state === "ready" || state === "refreshing" ? resource.latest : undefined` keeps a landed list on screen through a refetch, `state === "ready"` hides it. That also never throws a failed read. `@osn/auth-ui`'s settings panels and Musubi's `ConnectedAppsSection` read this way (`osn/auth-ui/DESIGN.md` §6).
 
 **Group dialogs that load together into one dynamic import.** In `@musubi/social`, two `lazy()` dialogs imported from two modules made the bundler split the entry chunk in two and keep client code it otherwise drops. With the shell frames and the dialogs' provider added, the entry closure grew 2.0 KB gzipped that way, and 1.0 KB with both dialogs behind one module (`ShellDialogSet.tsx`).
 

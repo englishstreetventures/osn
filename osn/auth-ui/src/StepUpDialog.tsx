@@ -6,9 +6,9 @@ import {
   type TotpClient,
 } from "@osn/client";
 import { Button } from "@shared/ui/ui/button";
-import { Field, type FieldControlProps } from "@shared/ui/ui/field";
-import { Input } from "@shared/ui/ui/input";
+import { labelVariants } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
+import { OtpInput } from "@shared/ui/ui/otp-input";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { createResource, createSignal, createUniqueId, onMount, Show } from "solid-js";
 
@@ -157,6 +157,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
   // it; on the others, above the factor buttons.
   const [error, setError] = createSignal<FieldError | null>(null);
   const errorId = createUniqueId();
+  const codeLabelId = createUniqueId();
   const onCodeStep = () => mode() === "otp" || mode() === "totp";
 
   // An unbound ceremony names no purpose, so there is no allow-list to look
@@ -177,7 +178,11 @@ export function StepUpDialog(props: StepUpDialogProps) {
     },
   );
 
-  const totpOffered = () => factors().totp && totpStatus()?.enrolled === true;
+  // `state` first, never `totpStatus()`: a loading resource read in a
+  // component joins its host's Suspense boundary, and Settings would swap the
+  // whole tab, this dialog included, for its fallback until the status lands.
+  const totp = () => (totpStatus.state === "ready" ? totpStatus.latest : undefined);
+  const totpOffered = () => factors().totp && totp()?.enrolled === true;
   const otpOffered = () => factors().otp && !props.passkeyOnly;
 
   // Passkey-only contexts skip the factor picker — kick the ceremony off as
@@ -287,17 +292,31 @@ export function StepUpDialog(props: StepUpDialogProps) {
     </Show>
   );
   /**
-   * For the code field: its id, the field's own description, then the line,
-   * and a mark on a refused code.
+   * The code step's row of boxes under the span `label` names, described by
+   * the line and marked invalid (`error`) only on a refused code. Focus lands
+   * in box 1 as the step opens.
    */
-  const tie = (field: FieldControlProps) => ({
-    id: field.id,
-    "aria-describedby": describedBy(field["aria-describedby"], error() && errorId),
-    "aria-invalid": error()?.invalid || undefined,
-  });
+  const codeRow = (label: string) => (
+    <div class="flex flex-col gap-1.5">
+      <span class={labelVariants()} id={codeLabelId}>
+        {label}
+      </span>
+      <OtpInput
+        value={code()}
+        onChange={setCode}
+        status={error()?.invalid ? "error" : busy() ? "verifying" : "idle"}
+        autofocus
+        aria-labelledby={codeLabelId}
+        aria-describedby={describedBy(error() && errorId)}
+      />
+      {errorLine()}
+    </div>
+  );
 
+  // It draws no edge, so its side padding only indents it; below `md` it
+  // drops, and a code step's row takes its host's whole column.
   return (
-    <div class="flex flex-col gap-3 p-4">
+    <div class="flex flex-col gap-3 p-4 max-md:px-0">
       <h2 class="text-lg font-semibold">{props.title ?? "Confirm it's you"}</h2>
       <Show when={props.reason}>
         {(reason) => <p class="text-muted-foreground text-sm">Re-authenticate {reason()}.</p>}
@@ -367,23 +386,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "otp"}>
         <div class="flex flex-col gap-2">
-          <Field labelTreatment="plain" label="Code">
-            {(field) => (
-              <>
-                <Input
-                  face="code"
-                  inputmode="numeric"
-                  autocomplete="one-time-code"
-                  spellcheck={false}
-                  maxLength={6}
-                  value={code()}
-                  onInput={(e) => setCode(e.currentTarget.value)}
-                  {...tie(field)}
-                />
-                {errorLine()}
-              </>
-            )}
-          </Field>
+          {codeRow("Code")}
           <Button onClick={completeOtp} busy={busy()}>
             {busy() ? "Checking…" : "Confirm"}
           </Button>
@@ -394,23 +397,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
       </Show>
       <Show when={mode() === "totp"}>
         <div class="flex flex-col gap-2">
-          <Field labelTreatment="plain" label="Code from your authenticator app">
-            {(field) => (
-              <>
-                <Input
-                  face="code"
-                  inputmode="numeric"
-                  autocomplete="one-time-code"
-                  spellcheck={false}
-                  maxLength={6}
-                  value={code()}
-                  onInput={(e) => setCode(e.currentTarget.value)}
-                  {...tie(field)}
-                />
-                {errorLine()}
-              </>
-            )}
-          </Field>
+          {codeRow("Code from your authenticator app")}
           <Button onClick={completeTotp} busy={busy()}>
             {busy() ? "Checking…" : "Confirm"}
           </Button>

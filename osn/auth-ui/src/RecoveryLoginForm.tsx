@@ -139,6 +139,8 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
   // or under the code boxes on the two code steps.
   const [error, setError] = createSignal<FieldError | null>(null);
   const errorId = createUniqueId();
+  const emailCodeLabelId = createUniqueId();
+  const totpCodeLabelId = createUniqueId();
   const [held, setHeld] = createSignal<HeldRecovery | null>(null);
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
@@ -483,6 +485,19 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
     "aria-describedby": describedBy(field["aria-describedby"], error() && errorId),
     "aria-invalid": error()?.invalid || undefined,
   });
+  /**
+   * For a row of code boxes: named by the span above it, described by the
+   * line, and marked invalid (`error`) only on a refused input.
+   */
+  const codeRow = (labelId: string) => ({
+    "aria-labelledby": labelId,
+    "aria-describedby": describedBy(error() && errorId),
+    status: error()?.invalid
+      ? ("error" as const)
+      : busy()
+        ? ("verifying" as const)
+        : ("idle" as const),
+  });
 
   return (
     <div class="flex flex-col gap-4">
@@ -625,15 +640,10 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             If that address has an account, a code is on its way. Enter it below.
           </p>
           <div class="flex flex-col gap-1.5">
-            <span class={labelVariants()}>Code from your email</span>
-            <OtpInput
-              value={code()}
-              onChange={setCode}
-              status={error() ? "error" : busy() ? "verifying" : "idle"}
-              autofocus
-            />
-            {/* Announced, not yet tied: `OtpInput` takes no
-                `aria-describedby` until englishstreetventures/osn#2041. */}
+            <span class={labelVariants()} id={emailCodeLabelId}>
+              Code from your email
+            </span>
+            <OtpInput value={code()} onChange={setCode} autofocus {...codeRow(emailCodeLabelId)} />
             {errorLine()}
           </div>
           <div class="flex gap-2">
@@ -669,12 +679,10 @@ export function RecoveryLoginForm(props: RecoveryLoginFormProps) {
             )}
           </Field>
           <div class="flex flex-col gap-1.5">
-            <span class={labelVariants()}>Code from your authenticator app</span>
-            <OtpInput
-              value={code()}
-              onChange={setCode}
-              status={error() ? "error" : busy() ? "verifying" : "idle"}
-            />
+            <span class={labelVariants()} id={totpCodeLabelId}>
+              Code from your authenticator app
+            </span>
+            <OtpInput value={code()} onChange={setCode} {...codeRow(totpCodeLabelId)} />
             {errorLine()}
           </div>
           <div class="flex gap-2">
