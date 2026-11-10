@@ -2,9 +2,11 @@
  * `motion` is dead weight in the SSR Worker build. The one module that imports
  * it, `components/EventSheet.tsx`, only calls it from a touch's release, in a
  * sheet the server never renders open, so it never runs while the server
- * renders HTML. But Vite's SSR build still walks and chunks every module
- * reachable via `import()`, dynamic imports included, so the whole library
- * would ship in `dist/server` with nothing there ever calling it.
+ * renders HTML. Vite's SSR build still walks and chunks every module
+ * reachable via `import()`, dynamic imports included. Nothing the server build
+ * keeps calls `animate`, so the bundler already shakes the library out of
+ * `dist/server` with or without this plugin; the plugin keeps it out when a
+ * call lands on a path the server compiles.
  *
  * This Vite plugin stubs the library out of the SSR module graph only. The
  * client build (it only intercepts `options.ssr` resolutions) still resolves
@@ -21,11 +23,14 @@
  * reaching for any other export (`stagger`, `inView`, `scroll`, `spring`, or
  * `framer-motion`'s React components) resolves to a stub that does not have
  * it and breaks the SSR build rather than costing bytes. Add
- * the export here rather than deleting this plugin — dropping it puts
- * motion's minified cost, about 21 KB gzip, back into the Worker.
+ * the export here rather than deleting this plugin: without it, such a call
+ * puts motion's minified cost, about 20 KB gzip, into the Worker.
  *
- * *Measured 2026-09-25 — `gzip -nc dist/client/_astro/animate.*.js | wc -c`
- * after `bun run --cwd cire/invites build`: 21365 bytes.*
+ * *Measured 2026-11-11 in cire/invites — `echo 'export { animate } from "motion";'
+ * | bunx --bun esbuild --bundle --minify --format=esm --platform=browser
+ * | gzip -nc | wc -c`: 20362 bytes. Removing the plugin from `astro.config.mjs`
+ * and running `npx astro build` moved the `dist/server` gzip total by under
+ * 10 bytes.*
  */
 export const MOTION_SSR_STUB_ID = "\0cire-invites:motion-stub-ssr";
 

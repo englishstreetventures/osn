@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Cire development guide
@@ -816,9 +816,8 @@ place a re-baseline touches. See that file's own comment for the exact steps.
 
 The headroom is deliberately smaller than the mistake the guard exists to
 catch, and that is the part worth getting right. `motion` costs **21261 bytes
-gzip in the minified build** — the size of its own already-minified client
-vendor chunk, `dist/client/_astro/animate.*.js`, and the same figure you get by
-rebuilding with `stubMotionForSsr()` removed. A threshold set to "measured plus
+gzip in the minified build** ([[bundle-size-guards]] has how that was measured
+and a check you can re-run). A threshold set to "measured plus
 one motion" would put a fresh library of exactly that class *under* the line,
 which is how the first version of this number went wrong: it carried 47657
 bytes, motion's cost back when the build was unminified. The arithmetic is
