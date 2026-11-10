@@ -68,6 +68,8 @@ interface World {
   accounts?: string[];
   /** Answers given in turn to `METHOD /path` (no query) before the usual one; an Error is a network failure. */
   flaky?: Record<string, (Response | Error)[]>;
+  /** `result_info` of the DNS records listing, when set. */
+  recordsInfo?: Record<string, unknown>;
 }
 
 const ZONES = Object.entries(ZONE).map(([name, id]) => ({ id, name, account: { id: ACCOUNT } }));
@@ -134,7 +136,12 @@ function fakeCloudflare(world: World) {
     if (method === "POST" && domains !== null) return ok({ name: (body as { name: string }).name });
     const records = /^\/zones\/[^/]+\/dns_records\?name=(.+)$/.exec(path);
     if (method === "GET" && records !== null) {
-      return ok(world.records[decodeURIComponent(records[1] ?? "")] ?? []);
+      // Each record carries its name, as Cloudflare's listing does; a fixture's own wins.
+      const host = decodeURIComponent(records[1] ?? "");
+      return ok(
+        (world.records[host] ?? []).map((record) => Object.assign({ name: host }, record)),
+        world.recordsInfo,
+      );
     }
     if (/^\/zones\/[^/]+\/dns_records(\/.+)?$/.test(path)) return ok({ id: "rec-new" });
     throw new Error(`test fetched an unlisted URL: ${method} ${url}`);
@@ -184,6 +191,64 @@ const VENDOR_MOVED: World = {
   projects: { ...TODAY.projects, "cire-vendor": ["cire-vendor.pages.dev"] },
   records: { ...TODAY.records, "vendor.cireweddings.com": [WORKER] },
 };
+
+/**
+ * What both apexes hold beside their web record, as public DNS showed on
+ * 2026-11-10: Cloudflare Email Routing's three MX records and its SPF TXT.
+ */
+const MAIL: DnsRecord[] = [
+  { id: "rec-mx1", type: "MX", content: "route1.mx.cloudflare.net" },
+  { id: "rec-mx2", type: "MX", content: "route2.mx.cloudflare.net" },
+  { id: "rec-mx3", type: "MX", content: "route3.mx.cloudflare.net" },
+  { id: "rec-spf", type: "TXT", content: "v=spf1 include:_spf.mx.cloudflare.net ~all" },
+];
+
+/**
+ * Records that could route a host and are not its CNAME to its Pages project:
+ * a detach would leave each standing, and the Worker's custom domain could
+ * not attach beside it.
+ */
+const STRAYS: DnsRecord[] = [
+  { id: "rec-elsewhere", type: "CNAME", content: "elsewhere.example.net" },
+  { id: "rec-a", type: "A", content: "192.0.2.1" },
+  { id: "rec-aaaa", type: "AAAA", content: "2001:db8::1" },
+  { ...WORKER, id: "rec-other-worker" },
+  { id: "rec-https", type: "HTTPS", content: '1 . alpn="h2"' },
+  { id: "rec-svcb", type: "SVCB", content: "1 . port=8443" },
+];
+
+/**
+ * After cire host's flip: the two portals on their Workers, and each apex on
+ * its Pages project, its CNAME beside its mail records.
+ */
+const HOST_MOVED: World = {
+  projects: {
+    ...VENDOR_MOVED.projects,
+    "cire-host": ["cire-host.pages.dev"],
+  },
+  records: {
+    "host.cireweddings.com": [WORKER],
+    "vendor.cireweddings.com": [WORKER],
+    "cireweddings.com": [...MAIL, CNAME("cire-landing")],
+    "musubi.social": [...MAIL, CNAME("osn-social")],
+  },
+};
+
+/** The modes before any flip: every Pages site staged. */
+const BEFORE_FLIPS = {
+  ...PRODUCTION_SITE_MODES,
+  cire_host: "staged",
+  cire_vendor: "staged",
+  cire_landing: "staged",
+  osn_social: "staged",
+} as const;
+
+/** The modes cire host's flip ran under: both apexes still staged. */
+const APEXES_STAGED = {
+  ...PRODUCTION_SITE_MODES,
+  cire_landing: "staged",
+  osn_social: "staged",
+} as const;
 
 describe("pages-domain.ts", () => {
   test("PD1: imports nothing but the repository's own import-free files", () => {
@@ -352,32 +417,74 @@ describe("check", () => {
 
 describe("precheck", () => {
   test("PD5: a worker site whose host is free passes; with no worker site shipping it asks nothing", async () => {
-    // Every cire site staged, as before its first flip.
-    const cireStaged = {
-      ...PRODUCTION_SITE_MODES,
-      cire_host: "staged",
-      cire_vendor: "staged",
-    } as const;
-    const free = await run(["precheck"], TODAY, { STACKS: "musubi cire", FLIP: "" }, cireStaged);
+    // Every Pages site staged, as before the first flip.
+    const free = await run(["precheck"], TODAY, { STACKS: "musubi cire", FLIP: "" }, BEFORE_FLIPS);
     expect(free.code).toBe(0);
     expect(free.output).toContain("musubi_landing www.musubi.social free");
-    const none = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "" }, cireStaged);
+    const none = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "" }, BEFORE_FLIPS);
     expect(none.code).toBe(0);
     expect(none.calls).toEqual([]);
   });
 
   test("PD5: while host.cireweddings.com is on Pages, a release shipping the cire stack is refused unless it flips cire_host", async () => {
-    const refused = await run(["precheck"], VENDOR_MOVED, { STACKS: "cire", FLIP: "" });
+    // The modes cire host's flip ran under.
+    const precheck = (env: Record<string, string>) =>
+      run(["precheck"], VENDOR_MOVED, env, APEXES_STAGED);
+    const refused = await precheck({ STACKS: "cire", FLIP: "" });
     expect(refused.code).toBe(1);
     expect(refused.output).toContain("cire_host host.cireweddings.com pages cire-host");
     expect(refused.output).toContain("cire_vendor vendor.cireweddings.com free");
     expect(refused.output).toContain("flip: cire_host and surfaces: cire_host");
-    const flip = await run(["precheck"], VENDOR_MOVED, { STACKS: "cire", FLIP: "cire_host" });
+    const flip = await precheck({ STACKS: "cire", FLIP: "cire_host" });
     expect(flip.code).toBe(0);
     // A release that leaves the cire sites out asks nothing of the cire zone.
-    const musubi = await run(["precheck"], VENDOR_MOVED, { STACKS: "musubi", FLIP: "" });
+    const musubi = await precheck({ STACKS: "musubi", FLIP: "" });
     expect(musubi.code).toBe(0);
     expect(musubi.output).not.toContain("cire_host");
+  });
+
+  test("PD5: while both apexes are on Pages, each stack's release is refused unless it flips its own apex, in either order; once both have moved, each reads free", async () => {
+    // Today's modes: both apexes are worker sites, still on their Pages projects.
+    const cire = await run(["precheck"], HOST_MOVED, { STACKS: "cire", FLIP: "" });
+    expect(cire.code).toBe(1);
+    expect(cire.output).toContain("cire_landing cireweddings.com pages cire-landing");
+    expect(cire.output).toContain("cire_host host.cireweddings.com free");
+    expect(cire.output).toContain("flip: cire_landing and surfaces: cire_landing");
+    const musubi = await run(["precheck"], HOST_MOVED, { STACKS: "musubi", FLIP: "" });
+    expect(musubi.code).toBe(1);
+    expect(musubi.output).toContain("osn_social musubi.social pages osn-social");
+    expect(musubi.output).toContain("flip: osn_social and surfaces: osn_social");
+    // A daily run ships both stacks, so both apexes refuse it.
+    const daily = await run(["precheck"], HOST_MOVED, { STACKS: "musubi cire", FLIP: "" });
+    expect(daily.code).toBe(1);
+    // Each flip passes with the other apex still on Pages: its stack ships alone.
+    for (const [flip, stack] of [
+      ["cire_landing", "cire"],
+      ["osn_social", "musubi"],
+    ] as const) {
+      const result = await run(["precheck"], HOST_MOVED, { STACKS: stack, FLIP: flip });
+      expect({ flip, code: result.code }).toEqual({ flip, code: 0 });
+    }
+    // After cire landing's flip, osn_social's still runs; after both, the daily run passes.
+    const landingMoved: World = {
+      projects: { ...HOST_MOVED.projects, "cire-landing": ["cire-landing.pages.dev"] },
+      records: { ...HOST_MOVED.records, "cireweddings.com": [...MAIL, WORKER] },
+    };
+    const second = await run(["precheck"], landingMoved, { STACKS: "musubi", FLIP: "osn_social" });
+    expect(second.code).toBe(0);
+    const bothMoved: World = {
+      projects: { ...landingMoved.projects, "osn-social": ["osn-social.pages.dev"] },
+      records: { ...landingMoved.records, "musubi.social": [...MAIL, WORKER] },
+    };
+    const after = await run(["precheck"], bothMoved, { STACKS: "musubi cire", FLIP: "" });
+    expect(after.code).toBe(0);
+    for (const line of [
+      "cire_landing cireweddings.com free",
+      "osn_social musubi.social free",
+      "musubi_landing www.musubi.social free",
+    ]) {
+      expect(after.output).toContain(line);
+    }
   });
 
   test("PD5: a worker site still on Pages is refused without a flip naming it", async () => {
@@ -385,10 +492,12 @@ describe("precheck", () => {
       ...TODAY,
       projects: { ...TODAY.projects, "musubi-landing": ["www.musubi.social"] },
     };
-    const refused = await run(["precheck"], onPages, { STACKS: "musubi", FLIP: "" });
+    const precheck = (flip: string) =>
+      run(["precheck"], onPages, { STACKS: "musubi", FLIP: flip }, APEXES_STAGED);
+    const refused = await precheck("");
     expect(refused.code).toBe(1);
     expect(refused.output).toContain("flip: musubi_landing");
-    const flipped = await run(["precheck"], onPages, { STACKS: "musubi", FLIP: "musubi_landing" });
+    const flipped = await precheck("musubi_landing");
     expect(flipped.code).toBe(0);
   });
 
@@ -408,7 +517,7 @@ describe("precheck", () => {
       [foreign, "the zone holds a A record for it that is not a Worker's"],
       [twoProjects, "2 Pages projects list it: a, b"],
     ] as const) {
-      const result = await run(["precheck"], world, { STACKS: "musubi", FLIP: "" });
+      const result = await run(["precheck"], world, { STACKS: "musubi", FLIP: "" }, APEXES_STAGED);
       expect({ reason, code: result.code }).toEqual({ reason, code: 1 });
       expect(result.output).toContain("musubi_landing www.musubi.social unclear");
       expect(result.output).toContain(reason);
@@ -416,19 +525,42 @@ describe("precheck", () => {
     }
   });
 
-  test("PD5: a flip whose host is on no Pages project, or whose stack does not ship, is refused", async () => {
-    const free = await run(["precheck"], TODAY, { STACKS: "musubi", FLIP: "musubi_landing" });
+  test("PD5: a flip whose host is on no Pages project, or of a site this commit stages, or whose stack does not ship, is refused", async () => {
+    const precheck = (world: World, stack: string, flip: string) =>
+      run(["precheck"], world, { STACKS: stack, FLIP: flip }, APEXES_STAGED);
+    const free = await precheck(TODAY, "musubi", "musubi_landing");
     expect(free.code).toBe(1);
     expect(free.output).toContain("nothing to move");
-    const staged = await run(["precheck"], TODAY, { STACKS: "cire", FLIP: "cire_landing" });
+    const staged = await precheck(TODAY, "cire", "cire_landing");
     expect(staged.code).toBe(1);
     expect(staged.calls).toEqual([]);
+    // Today's modes: osn_social is a worker site, but this release ships the cire stack.
+    const elsewhere = await run(["precheck"], HOST_MOVED, { STACKS: "cire", FLIP: "osn_social" });
+    expect(elsewhere.code).toBe(1);
+    expect(elsewhere.calls).toEqual([]);
+  });
+
+  test("PD5: a flip site on its Pages project beside a record that could route it but its CNAME is refused, naming the record's type alone", async () => {
+    for (const stray of STRAYS) {
+      const world: World = {
+        ...HOST_MOVED,
+        records: {
+          ...HOST_MOVED.records,
+          "cireweddings.com": [...MAIL, CNAME("cire-landing"), stray],
+        },
+      };
+      const result = await run(["precheck"], world, { STACKS: "cire", FLIP: "cire_landing" });
+      expect({ type: stray.type, code: result.code }).toEqual({ type: stray.type, code: 1 });
+      expect(result.output).toContain("cire_landing cireweddings.com pages cire-landing");
+      expect(result.output).toContain(`a ${stray.type} record`);
+      expect(result.output).not.toContain(stray.content);
+    }
   });
 });
 
 describe("detach and attach", () => {
   test("PD6: detach refuses a site this commit still stages, before changing anything", async () => {
-    const result = await run(["detach", "cire_landing"], TODAY);
+    const result = await run(["detach", "cire_landing"], TODAY, {}, APEXES_STAGED);
     expect(result.code).toBe(1);
     expect(result.output).toContain("cire_landing is staged");
     expect(result.calls.filter((call) => call.method !== "GET")).toEqual([]);
@@ -442,7 +574,7 @@ describe("detach and attach", () => {
   });
 
   test("PD6: detach, for a worker site on its own project, takes the domain off it and deletes only the CNAME to it", async () => {
-    // Today's modes and hosts, as cire host's flip release finds them.
+    // The modes and hosts cire host's flip release found.
     const world: World = {
       ...VENDOR_MOVED,
       records: {
@@ -453,7 +585,7 @@ describe("detach and attach", () => {
         ],
       },
     };
-    const result = await run(["detach", "cire_host"], world);
+    const result = await run(["detach", "cire_host"], world, {}, APEXES_STAGED);
     expect(result.code).toBe(0);
     expect(
       result.calls
@@ -464,31 +596,112 @@ describe("detach and attach", () => {
       "/zones/zone-cire/dns_records/rec-cire-host",
     ]);
     // The flip's precheck passes once the mode says worker and the host is on Pages.
-    const precheck = await run(["precheck"], VENDOR_MOVED, { STACKS: "cire", FLIP: "cire_host" });
+    const precheck = await run(
+      ["precheck"],
+      VENDOR_MOVED,
+      { STACKS: "cire", FLIP: "cire_host" },
+      APEXES_STAGED,
+    );
     expect(precheck.code).toBe(0);
   });
 
+  test("PD6: detach at each apex takes the domain off its project and deletes its CNAME alone; the mail records, a CAA and the apex's NS stay, and the flip's precheck passes beside them", async () => {
+    // A CAA record and the zone's own NS records at the apex route nothing either.
+    const others: DnsRecord[] = [
+      { id: "rec-caa", type: "CAA", content: '0 issue "letsencrypt.org"' },
+      { id: "rec-ns", type: "NS", content: "lou.ns.cloudflare.com" },
+    ];
+    for (const [site, host, project, zone, stack] of [
+      ["cire_landing", "cireweddings.com", "cire-landing", "zone-cire", "cire"],
+      ["osn_social", "musubi.social", "osn-social", "zone-musubi", "musubi"],
+    ] as const) {
+      for (const world of [
+        HOST_MOVED,
+        {
+          ...HOST_MOVED,
+          records: { ...HOST_MOVED.records, [host]: [...MAIL, ...others, CNAME(project)] },
+        },
+      ]) {
+        const result = await run(["detach", site], world);
+        expect({ site, code: result.code }).toEqual({ site, code: 0 });
+        expect(nonGets(result.calls)).toEqual([
+          `DELETE /accounts/${ACCOUNT}/pages/projects/${project}/domains/${host}`,
+          `DELETE /zones/${zone}/dns_records/rec-${project}`,
+        ]);
+        expect(result.output).toContain(
+          `Took ${host} off ${project} and deleted 1 CNAME record to ${project}.pages.dev.`,
+        );
+        const precheck = await run(["precheck"], world, { STACKS: stack, FLIP: site });
+        expect({ site, code: precheck.code }).toEqual({ site, code: 0 });
+      }
+    }
+  });
+
   const vendorFlipped = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
-  const nonGets = (calls: { method: string; url: string }[]) =>
-    calls
+  function nonGets(calls: { method: string; url: string }[]) {
+    return calls
       .filter((call) => call.method !== "GET")
       .map((call) => `${call.method} ${call.url.slice(API.length)}`);
+  }
 
-  test("PD6: detach deletes no record but a CNAME to the project: a CNAME pointing elsewhere stays", async () => {
+  test("PD6: detach refuses, writing nothing, while the host holds a record that could route it but its CNAME to the project, naming the record's type alone", async () => {
+    for (const stray of STRAYS) {
+      for (const records of [[stray], [...MAIL, CNAME("cire-landing"), stray]]) {
+        const world: World = {
+          ...HOST_MOVED,
+          records: { ...HOST_MOVED.records, "cireweddings.com": records },
+        };
+        const result = await run(["detach", "cire_landing"], world);
+        expect({ type: stray.type, code: result.code }).toEqual({ type: stray.type, code: 1 });
+        expect(nonGets(result.calls)).toEqual([]);
+        expect(result.output).toContain(`a ${stray.type} record`);
+        expect(result.output).not.toContain(stray.content);
+      }
+    }
+  });
+
+  test("PD4: a records listing that holds a record for another name refuses before any write, naming no record", async () => {
+    // A listing wider than the host asked: the subdomain's CNAME to the same project.
+    const wide: DnsRecord = {
+      id: "rec-www",
+      type: "CNAME",
+      name: "www.cireweddings.com",
+      content: "cire-landing.pages.dev",
+    };
     const world: World = {
-      ...TODAY,
+      ...HOST_MOVED,
       records: {
-        "vendor.cireweddings.com": [
-          { id: "rec-other", type: "CNAME", content: "elsewhere.example.net" },
-        ],
+        ...HOST_MOVED.records,
+        "cireweddings.com": [...MAIL, CNAME("cire-landing"), wide],
       },
     };
-    const result = await run(["detach", "cire_vendor"], world, {}, vendorFlipped);
-    expect(result.code).toBe(0);
-    expect(nonGets(result.calls)).toEqual([
-      `DELETE /accounts/${ACCOUNT}/pages/projects/cire-vendor/domains/vendor.cireweddings.com`,
-    ]);
-    expect(result.output).toContain("deleted 0 CNAME records");
+    const detach = await run(["detach", "cire_landing"], world);
+    expect(detach.code).toBe(1);
+    expect(detach.output).toContain(
+      "listing cireweddings.com's DNS records: the listing holds a record for another name",
+    );
+    expect(detach.output).not.toContain("www.cireweddings.com");
+    expect(nonGets(detach.calls)).toEqual([]);
+    const precheck = await run(["precheck"], world, { STACKS: "cire", FLIP: "cire_landing" });
+    expect(precheck.code).toBe(1);
+  });
+
+  test("PD4: a records listing with more than it returned refuses before any write, the precheck too", async () => {
+    for (const info of [{ total_pages: 2 }, { total_count: 7 }]) {
+      const world: World = { ...HOST_MOVED, recordsInfo: info };
+      const detach = await run(["detach", "cire_landing"], world);
+      expect(detach.code).toBe(1);
+      expect(detach.output).toContain("listing cireweddings.com's DNS records");
+      expect(nonGets(detach.calls)).toEqual([]);
+      const precheck = await run(["precheck"], world, { STACKS: "cire", FLIP: "cire_landing" });
+      expect(precheck.code).toBe(1);
+    }
+    // One page that holds every record passes.
+    const whole = await run(["detach", "cire_landing"], {
+      ...HOST_MOVED,
+      recordsInfo: { page: 1, total_pages: 1, count: 5, total_count: 5 },
+    });
+    expect(whole.code).toBe(0);
   });
 
   test("PD4/PD8: a detach whose CNAME delete fails exits 1 naming the call, and attach then finishes the way back", async () => {

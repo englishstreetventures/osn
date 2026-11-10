@@ -243,7 +243,7 @@ const hanging = (_: number, init: RequestInit | undefined): Promise<Response> =>
 // ── what counts as healthy ──────────────────────────────────────────────────
 
 describe("judge: a static JSON file", () => {
-  const file = probe("https://next.musubi.social/.well-known/apple-app-site-association", {
+  const file = probe("https://musubi.social/.well-known/apple-app-site-association", {
     kind: "jsonFile",
   });
   const answer = (status: number, type: string, body: string) =>
@@ -1474,18 +1474,18 @@ describe("dev learns its host and its deployment from the stack job", () => {
 });
 
 describe("a production site the production stack deployed", () => {
-  const STAGED_SOCIAL = "https://next.musubi.social";
+  const SOCIAL_ORIGIN = "https://musubi.social";
   const siteEnv = (extra: Record<string, string | undefined> = {}) => ({
-    SMOKE_ORIGIN: STAGED_SOCIAL,
+    SMOKE_ORIGIN: SOCIAL_ORIGIN,
     SMOKE_DEPLOYMENT: DEP_THIS_JOB,
     ...extra,
   });
   const appFile = (type: string, body: string) =>
     new Response(body, { status: 200, headers: { "content-type": type } });
   const SOCIAL = (association: Response) => ({
-    [`${STAGED_SOCIAL}/`]: html(200),
-    [`${STAGED_SOCIAL}/smoke-check-deep-link`]: html(200),
-    [`${STAGED_SOCIAL}/.well-known/apple-app-site-association`]: association,
+    [`${SOCIAL_ORIGIN}/`]: html(200),
+    [`${SOCIAL_ORIGIN}/smoke-check-deep-link`]: html(200),
+    [`${SOCIAL_ORIGIN}/.well-known/apple-app-site-association`]: association,
   });
 
   test("SM1: probes the host the stack job names, the app's deep link and its app-site association, with no Access token", async () => {
@@ -1528,7 +1528,7 @@ describe("a production site the production stack deployed", () => {
   test("SM2: without an https SMOKE_ORIGIN or a SMOKE_DEPLOYMENT it exits 2, asking nothing", async () => {
     for (const env of [
       { SMOKE_DEPLOYMENT: DEP_THIS_JOB },
-      siteEnv({ SMOKE_ORIGIN: "http://next.musubi.social" }),
+      siteEnv({ SMOKE_ORIGIN: "http://musubi.social" }),
       siteEnv({ SMOKE_DEPLOYMENT: undefined }),
       siteEnv({ SMOKE_DEPLOYMENT: "latest" }),
     ]) {

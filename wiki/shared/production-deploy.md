@@ -102,10 +102,10 @@ marked **TBD** blocks the deploy.
 | cire/invites `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/invites **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://invite.cireweddings.com`** (set in `production-release.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. `invite.` is served by the `cire-invites` Worker (custom-domain route), not a Pages project — see §3.3. The apex serves the marketing landing site. |
 | cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL`, `PUBLIC_MARKETING_URL` (build-time) | cire/host static build (§5.3) | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com` / `https://cireweddings.com`** (set in `production-release.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
 | `CIRE_OIDC_CLIENT_SECRET` + the `oauth_clients` row for cire | cire-api (secret) + osn D1 | **DONE 2026-07-27** — client `cid_cire` seeded in prod D1, secret set on the production cire-api Worker (§3.2, §6.3). The row's `redirect_uris` still lists the dead `api-preview` callback; pruning it is an open prod-D1 write |
-| musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `deploy-osn-social`) |
-| musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in `deploy-osn-social`. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
-| `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex attached to the `osn-social` Pages project (§5.4) to resolve |
-| **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
+| musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social static build (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `sites`) |
+| musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social static build (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in the `sites` job. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
+| `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex to serve `@musubi/social`: the `osn-social` Pages project until its flip release, then the `osn-social` Worker (§5.7) |
+| **musubi.social zone: the apex on `osn-social` (Pages until its flip release, then the Worker), `id.` on the osn-api Worker** | Cloudflare dashboard, then the flip release | **Apex attached to Pages 2026-07-27; its flip release moves it to the Worker (§5.7).** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
 | **musubi.social on the Turnstile widget** | Cloudflare dashboard | **DONE 2026-07-27.** `id.musubi.social` is not needed — only form-rendering hostnames are. [[turnstile]] |
 
 ---
@@ -519,8 +519,9 @@ quietly accepting tokens from anywhere.
 > already the default). If a guest-site deploy fails on a config field again, check
 > the generated `dist/server/wrangler.json` against the installed wrangler's schema.
 
-`cire/host` and `cire/vendor` are **static** builds (`output: "static"`), each served by its
-site Worker once its flip release has moved its host (§5.3); cire/invites's
+`cire/host`, `cire/vendor` and `cire/landing` are **static** builds (`output: "static"`),
+each served by its site Worker, cire landing once its flip release has moved the apex
+(§5.3); cire/invites's
 `PUBLIC_*` are read both **server-side per request** and by the client islands but
 still bake in **at build time**. The prod values are wired in
 `.github/workflows/production-release.yml` (the `deploy-cire-invites` job and the `sites` job set
@@ -537,9 +538,9 @@ build outside CI, export these before `bun run --cwd <site> build`.
 | `PUBLIC_OSN_ACCOUNT_URL` | cire/host **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
 | `PUBLIC_CIRE_WEB_URL` | cire/host | Recommended | `https://invite.cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
 | `PUBLIC_MARKETING_URL` | cire/host **and** cire/invites | Recommended | `https://cireweddings.com` | The marketing site's origin. The guest site sends its bare `/` there; the organiser portal's RSVP editor links its `/privacy` (`osn.ts`). |
-| `VITE_OSN_ISSUER_URL` | musubi/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`musubi/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `production-release.yml` (`deploy-osn-social`). The musubi stack job in `deploy.yml` builds the same app for dev with the dev osn-api origin from its `dev-hosts` step, so dev never dials production identity. [[dev-environment]] |
+| `VITE_OSN_ISSUER_URL` | musubi/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`musubi/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `production-release.yml` (its `sites` job). The musubi stack job in `deploy.yml` builds the same app for dev with the dev osn-api origin from its `dev-hosts` step, so dev never dials production identity. [[dev-environment]] |
 | `PUBLIC_TURNSTILE_SITEKEY` | cire/invites | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/invites) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `deploy-cire-invites` build step (and the cire stack job's build of the guest site on dev), and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). The organiser and vendor builds do not read it: since the 2026-07-27 OIDC swap they render no OSN ceremony form. |
-| `VITE_TURNSTILE_SITEKEY` | musubi/social | **Yes — see note** | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Same widget, same repo Variable; the name differs only because Vite exposes `VITE_*` where Astro exposes `PUBLIC_*`. Feeds `turnstileSiteKey` into `SignIn` + `Register` (`@shared/ui`) at all three call sites — the sidebar dialogs and the `/authorize` sign-in island — via `musubi/social/src/lib/auth.ts`, which normalises blank to `undefined`. **Key-optional in code but required in production:** osn-api's `TURNSTILE_SECRET_KEY` is set, so a blank sitekey fails every gated call closed with `400 turnstile_failed`. Set in `production-release.yml` (`deploy-osn-social`), and again in `deploy.yml`'s musubi stack job — so the dev domain needs its own widget **Domains** entry alongside `musubi.social`, or the dev widget never renders and the gated forms never enable. [[turnstile]] [[dev-environment]] |
+| `VITE_TURNSTILE_SITEKEY` | musubi/social | **Yes — see note** | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Same widget, same repo Variable; the name differs only because Vite exposes `VITE_*` where Astro exposes `PUBLIC_*`. Feeds `turnstileSiteKey` into `SignIn` + `Register` (`@shared/ui`) at all three call sites — the sidebar dialogs and the `/authorize` sign-in island — via `musubi/social/src/lib/auth.ts`, which normalises blank to `undefined`. **Key-optional in code but required in production:** osn-api's `TURNSTILE_SECRET_KEY` is set, so a blank sitekey fails every gated call closed with `400 turnstile_failed`. Set in `production-release.yml` (its `sites` job), and again in `deploy.yml`'s musubi stack job — so the dev domain needs its own widget **Domains** entry alongside `musubi.social`, or the dev widget never renders and the gated forms never enable. [[turnstile]] [[dev-environment]] |
 
 ### 3.4 Create the Cloudflare Turnstile widget (one-time, gates Turnstile on) 🔑
 
@@ -571,7 +572,8 @@ create it in the dashboard (or with a custom API token that has the scope).
 2. Copy the **Sitekey** (public, `0x…`) and the **Secret key** (private).
 3. **Sitekey** → set as the repo **Variable** `PUBLIC_TURNSTILE_SITEKEY`. Two build
    steps read it, and the dev stack jobs' builds of the same sites: `deploy-cire-invites` (as
-   `PUBLIC_TURNSTILE_SITEKEY`) and `deploy-osn-social` (as `VITE_TURNSTILE_SITEKEY`). Both
+   `PUBLIC_TURNSTILE_SITEKEY`) and the `sites` job's musubi/social build (as
+   `VITE_TURNSTILE_SITEKEY`). Both
    bake the sitekey in at build time, so **rebuild and redeploy both** to activate a new
    widget. A Variable change matches no path, so dispatch a release with
    `surfaces: cire_invites osn_social` and `force` (§5.5) — leave `osn_social` out and
@@ -961,10 +963,10 @@ Which job owns which surface:
 | `cire_invites` | `Deploy cire/invites — production` | `— dev` | `invite.cireweddings.com` |
 | `cire_host` | `Record cire/host — production`, after the cire stack job | `— dev` | `host.cireweddings.com` |
 | `cire_vendor` | `Record cire/vendor — production`, after the cire stack job | `— dev` | `vendor.cireweddings.com` |
-| `cire_landing` | `Deploy cire/landing — production (apex)` | `— dev` | `cireweddings.com` |
+| `cire_landing` | `Record cire/landing — production`, after the cire stack job | `— dev` | `cireweddings.com` |
 | `cire_api` | `Deploy cire/api — production` | `— dev` | `api.cireweddings.com` |
 | `osn_api` | `Deploy osn/api — production` | `— dev` | `id.musubi.social` |
-| `osn_social` | `Deploy musubi/social — production` | `— dev` | `musubi.social` |
+| `osn_social` | `Record musubi/social — production`, after the musubi stack job | `— dev` | `musubi.social` |
 | `zap_api` | `Deploy zap/api — production` | `— dev` | `zap.cireweddings.com` |
 | `musubi_landing` | `Record musubi/landing — production`, after the musubi stack job | `— dev` | `www.musubi.social` |
 | `pulse_landing` | **none** | `— dev` | dev only |
@@ -1127,16 +1129,15 @@ from the adapter-generated config. The `sites` job builds the other three once e
 the cire stack deploys each build to the site's Worker
 ([[infrastructure-as-code#Production sites]]):
 
-- `cire/host` and `cire/vendor` are `worker` in `shared/infra/src/production-sites.ts`. The
-  `cire-host` and `cire-vendor` Workers hold `host.cireweddings.com` and
-  `vendor.cireweddings.com`, each once its flip release has moved it off its Pages project
-  (§5.7). No job deploys the `cire-host` or `cire-vendor` Pages project; each stays for a
-  rollback until `musubi.social` has moved and soaked. Until its flip, the `cire-host`
-  project holds `host.cireweddings.com` (*measured 2026-10-28 — dashboard, Workers &
-  Pages, the `cire-host` project, Custom domains*).
-- `cire/landing` is `staged`: its Pages job, `deploy-cire-landing`, deploys the build to
-  the `cire-landing` project, which holds the apex, and the cire stack deploys the same
-  build to its Worker on `next.cireweddings.com`.
+- `cire/host`, `cire/vendor` and `cire/landing` are `worker` in
+  `shared/infra/src/production-sites.ts`. The `cire-host` and `cire-vendor` Workers hold
+  `host.cireweddings.com` and `vendor.cireweddings.com`, their flip releases having moved
+  each off its Pages project (§5.7); the `cire-landing` Worker holds the apex
+  `cireweddings.com` once its own flip release has run, and until then the
+  `cire-landing` Pages project serves the apex with the last build its Pages job
+  deployed.
+- No job deploys the `cire-host`, `cire-vendor` or `cire-landing` Pages project; each stays
+  for a rollback until `musubi.social` has moved and soaked.
 
 Manual equivalents:
 
@@ -1189,7 +1190,9 @@ automatically once you attach them.
    record + cert; no manual DNS entry needed. The **proxied wildcard record on
    `musubi.social`** does not block this — a wildcard only answers names that have no record
    of their own, so the explicit `id` record takes precedence.
-2. **Pages custom domains (dashboard, one-time).** In each Pages project → Custom domains:
+2. **Pages custom domains (dashboard, one-time).** In each Pages project's Custom domains.
+   Every one of these sites is `worker` now, so each step below is a rollback's, never
+   while the site's Worker holds its host (§5.7):
    - `cire-landing` (marketing site) → add the apex **`cireweddings.com`**.
    - `cire-host` (organiser portal): add **`host.cireweddings.com`**, never while the
      `cire-host` Worker holds it (§5.7).
@@ -1212,9 +1215,10 @@ automatically once you attach them.
    ([[infrastructure-as-code#Production sites]]).
 3. **Site Worker custom domains (Alchemy, verify only).** The production stacks attach
    each site Worker's domain on deploy: `www.musubi.social` for musubi landing,
-   `vendor.cireweddings.com` for cire vendor, `host.cireweddings.com` for cire host once
-   its flip release has moved it (§5.7), and while a site is staged its spare host
-   (`next.cireweddings.com`, `next.musubi.social`). No dashboard step. Before a release first attaches one, confirm nothing holds it: for
+   `vendor.cireweddings.com` for cire vendor, `host.cireweddings.com` for cire host, the
+   apex `cireweddings.com` for cire landing and the apex `musubi.social` for musubi social,
+   each apex once its flip release has moved it (§5.7), and while a site is staged its
+   spare host (`next.cireweddings.com`, `next.musubi.social`). No dashboard step. Before a release first attaches one, confirm nothing holds it: for
    `www.musubi.social` run `bun run scripts/pages-domain.ts check musubi_landing` with
    `CLOUDFLARE_PAGES_DNS_TOKEN`; that command reads production hosts only, so for each
    spare host check that `dig +short <host> A`, `AAAA` and `CNAME` answer nothing and
@@ -1282,7 +1286,7 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   (§5.0 item 7).
 - **One approval, or two.** `build` runs the install, build, tests and D1 tests on the
   release commit, and beside it `sites` builds each production site a shipping stack
-  deploys or whose Pages job ships. Each job that fetches those builds and holds a
+  deploys. Each job that fetches those builds and holds a
   credential downloads them outside its checkout, and a step holding no secret
   (`scripts/production-sites-artifact.ts`) lets in only the site build directories,
   refusing the whole artifact for any other entry or a link. When a stack ships,
@@ -1291,7 +1295,7 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   domains, plans each shipping stack and runs the plan guard, writing names, kinds,
   actions, counts and each site's added and removed hosts to its summary
   ([[infrastructure-as-code#The plan guard]]). Then
-  every other shipping job — the Wrangler API jobs, the Pages jobs and the stack jobs —
+  every other shipping job — the Wrangler API jobs and the stack jobs —
   reaches the gate at the same moment, and one review releases them all (approval 2).
   When no stack ships, `alchemy-plan` is skipped and that one review is all. A release
   that moves a site's domain asks four, one per job; one that puts it back on Pages
@@ -1406,13 +1410,13 @@ releases, host first**:
    and ship api alone, which is the pairing below that breaks.
 3. Dispatch a release with `surfaces: cire_host`, approve it (the Alchemy plan first,
    then the cire stack and any job waiting beside it), and wait for it to finish. Naming `cire_host` asks for every
-   site of the cire stack, so the release also ships the vendor portal, and the
-   marketing site's Pages job when production is behind on it. The stack deploys its
+   site of the cire stack, so the release also ships the vendor portal and the
+   marketing site. The stack deploys its
    sites together, so any of the three that dev holds back, or that production runs
    newer, holds the portal too: if the plan shows the cire stack waiting, the release
    ships no portal, so get dev to deploy what it names first (§5.0 item 3), then
-   dispatch again. Until `host.cireweddings.com` has moved to its Worker (§5.7), the
-   cire stack fails `alchemy-plan`'s precheck, so this step waits for the flip.
+   dispatch again. Until the apex `cireweddings.com` has moved to its Worker (§5.7), the
+   cire stack fails `alchemy-plan`'s precheck, so this step waits for that flip.
 4. Dispatch a release with `surfaces: cire_api` and approve it. It applies the D1
    migrations, then deploys the Worker.
 
@@ -1510,7 +1514,13 @@ Before the first move, the domain move rehearsal has run clean on the dev accoun
 its numbers are recorded below ([[#Rehearse the move on dev first]]).
 
 Each Pages site moves one at a time, in the order cire vendor, cire host, cire landing,
-then `musubi.social` (englishstreetventures/osn#1787). Before each:
+then `musubi.social` (englishstreetventures/osn#1787). Cire landing and musubi social turned
+to `worker` in one pull request, and each still moves in its own release, cire landing
+first: no rehearsal covered an apex, and cire landing's is the one no sign-in passes
+through, so `musubi.social` moves only once cire landing's flip has passed the checks
+below. Dispatch the second flip only after the first's run has finished: one release runs
+at a time, and a newer trigger, the 20:17 UTC daily run included, replaces a pending one.
+Before each:
 
 - The site has run `staged` through at least one release, and the `site-parity` artifact
   of the latest release that compared it shows no difference a real path relies on.
@@ -1580,6 +1590,28 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
 No copy of `CLOUDFLARE_PAGES_DNS_TOKEN` is kept outside GitHub: the rollback below runs
 in the release workflow's own attach job.
 
+**An apex** (`cireweddings.com`, `musubi.social`) holds more at its own name than a
+portal's host: Cloudflare Email Routing's MX records and its SPF TXT record, on both.
+
+*Measured 2026-11-10 — `dig MX <apex> +short` (route1, route2 and route3 `.mx.cloudflare.net`),
+`dig TXT <apex> +short` (`v=spf1 include:_spf.mx.cloudflare.net ~all`) and
+`dig CAA <apex> +short` (none), for each apex.*
+
+`pages-domain.ts` counts those as routing nothing, so the precheck reads the apex as
+on Pages, and its detach deletes the apex's CNAME to `<project>.pages.dev` and nothing
+else: mail keeps arriving through the move. The precheck of the flip site and the detach
+refuse, writing nothing, while the host holds any other record that could route it (an
+address, a CNAME elsewhere, another Worker's record, HTTPS or SVCB), since a detach would
+leave it standing and the Worker's custom domain could not attach beside it; they name
+the record's type, never its content. Cloudflare's Worker custom domain is refused on a
+host holding a CNAME and documents the apex as a valid host
+([Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/), read 2026-11-10);
+that it attaches beside MX and TXT records is unverified until cire landing's flip. In
+the outage, the apex still answers its MX and TXT records, so a resolver that asks for
+its address gets an empty answer, which it may keep for the zone's negative-answer time
+of 1800 s (*measured 2026-11-10 — `dig SOA <apex>`: minimum 1800*), as a portal's host
+gets "no such name" for the same time.
+
 **The flip release.** At low traffic, dispatch **Production release** with
 `flip: <site>` and `surfaces: <site>`. It runs only the site's stack, and asks four
 approvals, one per job, in this order:
@@ -1643,7 +1675,18 @@ when its own check passed. Fix that site forward; do not undo the flip for it.
 too, and for about 30 s after the deploy the host gives mixed answers. Run
 `curl -sSI https://<host>/` a few times: the Worker sends no `access-control-allow-origin`
 header and `content-type: text/html`; Pages sends `access-control-allow-origin: *` and
-`text/html; charset=utf-8` (the accepted differences above).
+`text/html; charset=utf-8` (the accepted differences above). After an apex's flip, also
+run `dig MX <apex> +short` and `dig TXT <apex> +short`: both answer as before the flip.
+After `musubi.social`'s, also check what passes through it: a passkey sign-in on
+`https://musubi.social`, staying signed in after a reload; a sign-in to the organiser
+portal, whose OIDC consent screen is `https://musubi.social/authorize`; and
+`curl -sSI https://musubi.social/.well-known/apple-app-site-association`, which answers
+200 `application/json`. `curl -sSI https://musubi.social/authorize` must carry
+`x-frame-options: DENY` and a `content-security-policy` holding `frame-ancestors 'none'`:
+the consent screen must never be framed, and neither the smoke check nor `site-parity`
+reads a header once no site is staged. osn-api names the apex as an origin, never as a server
+(`OSN_RP_ID`, `OSN_ORIGIN`, `OSN_CORS_ORIGIN`, `OSN_COOKIE_DOMAIN`,
+`OSN_AUTHORIZE_UI_URL` in `osn/api/wrangler.toml`), so none of them changes.
 
 **If step 4 fails or the site misbehaves**, roll back in this order:
 
@@ -1664,7 +1707,14 @@ header and `content-type: text/html`; Pages sends `access-control-allow-origin: 
 3. Revert the flip pull request, if step 1 did not, so the mode is `staged` again and no
    release tries to attach the domain. Until it merges, every release that ships the
    site's stack fails `alchemy-plan`'s precheck (the host is on Pages while the mode says
-   `worker`); dispatch releases whose `surfaces` leave that stack's sites out.
+   `worker`); dispatch releases whose `surfaces` leave that stack's sites out. Cire
+   landing and musubi social turned to `worker` in one pull request, and a revert of it
+   stages both: once one of them has moved, the guard then refuses every release of that
+   site's stack, whose Worker would give up its production host. To roll back one of
+   them, write a pull request that sets that site alone back to `staged` and restores its
+   Pages job, `deploy-cire-landing` or `deploy-osn-social`, from the commit before that
+   pull request (`git log -S deploy-osn-social -- .github/workflows/production-release.yml`
+   finds it).
 
 When GitHub Actions is down, or the attach job refuses the token, do step 2 in the
 dashboard instead: **Workers & Pages → the Pages project → Custom domains → Set up a
@@ -1675,18 +1725,28 @@ Each Pages project stays until `musubi.social` has moved and soaked, so a rollba
 Pages site to return to (decided by the owner). A site's Pages job goes with the pull
 request that turns it to `worker`, since the release runs a Pages job only for a staged
 site, so after that merge the project keeps the last build deployed before it. The
-dashboard and `attach` rollback serves that build. An unflip pull request reverts the
-flip pull request and brings the Pages job back, so the unflip release deploys the
-current build to Pages when the site changed since.
+dashboard and `attach` rollback serves that build. An unflip pull request sets the site
+back to `staged` and brings its Pages job back — a revert of the flip pull request when
+that pull request turned this site alone, or, for cire landing or musubi social, a pull
+request for that one site (step 3 above) — so the unflip release deploys the current
+build to Pages when the site changed since.
 
 Before the dashboard and `attach` rollback, see what that build lacks. The Pages project
-serves the commit of the site's last successful Pages job, `Deploy <site> — production`,
-in the last release before the flip pull request merged. List what changed in the site
+serves the commit of the site's last successful Pages job — `Deploy cire/host —
+production`, `Deploy cire/vendor — production`, `Deploy cire/landing — production (apex)`
+or `Deploy musubi/social — production` — in the last release before the flip pull request
+merged. List what changed in the site
 since: `git log --oneline <that commit>..origin/main -- <the site's paths>`, the site's
 paths and the shared ones in `scripts/deploy-surfaces.ts` (for cire host,
-`cire/host cire/build-tools cire/dietary cire/envelope/src/index.ts cire/envelope/package.json cire/guest-email cire/invite-designs cire/theme cire/ui shared patches bun.lock package.json turbo.json tsconfig.json .browserslistrc`). If a
-security fix is among them, roll back by the revert and `unflip` instead, which deploys
-the current build to Pages before the attach job puts the host back.
+`cire/host cire/build-tools cire/dietary cire/envelope/src/index.ts cire/envelope/package.json cire/guest-email cire/invite-designs cire/theme cire/ui shared patches bun.lock package.json turbo.json tsconfig.json .browserslistrc`;
+for cire landing, `cire/landing cire/dietary cire/ui` and the same shared ones; for
+musubi social, `musubi/social osn/client shared/ui osn/auth-ui` and the same shared ones).
+If a security fix is among them, roll back by the `unflip` pull request instead, which
+deploys the current build to Pages before the attach job puts the host back. A protection
+the flip release itself first brought to production is not such a fix: the attach returns
+production to what it served before the flip. Musubi social's build-time `script-src` and
+`connect-src` are one, when its Pages build predates them; a release that ships the site's
+Pages job before its flip pull request merges puts them on Pages first.
 
 #### Rehearse the move on dev first
 
@@ -1870,11 +1930,11 @@ yourself (§5.1). A person runs the rest.
 | 8. RSVP write | A person |
 | 9. Account linking, if enabled | A person |
 
-The production Pages deploys — the cire landing site and `musubi.social` — have no
-automatic check and no automatic rollback. The site
-Workers the production stacks deploy are each checked after the stack's deploy, on the
-host their mode gives them: the spare host while staged, the production host once their
-domain has moved. On dev every surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
+No release deploys a Pages project. The site Workers the production stacks deploy are
+each checked after the stack's deploy, on the host their mode gives them: the spare host
+while staged, the production host as a worker. Until its flip release has run, an apex
+is still on its Pages project, which keeps its last build and has no check: no release
+ships its stack before then (§5.7). On dev every surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
 `musubi.social` and the organiser portal.
 
 ### The automatic check
@@ -1896,9 +1956,9 @@ from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
 | cire host | `https://host.cireweddings.com/` and `/vendors/enquiries/smoke-check` | the same paths | 200 HTML for both: the second is the path cire-api's enquiry emails link, which the single-page fallback serves. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
 | cire vendor | `https://vendor.cireweddings.com/` | `/` | 200 HTML. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
-| cire landing | the site Worker's `/`, on its spare host while staged (the Pages project has no check) | `/` | 200 HTML |
+| cire landing | `https://cireweddings.com/` | `/` | 200 HTML. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
 | musubi landing | `https://www.musubi.social/` | `/` | 200 HTML |
-| musubi social | the site Worker's `/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association`, on `next.musubi.social` while staged | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys |
+| musubi social | `https://musubi.social/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association` | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys. A Pages answer passes too, so at its flip the check cannot tell the two apart (§5.7) |
 | pulse landing | none (`off` on production) | `/` and `/api/geo` | 200 HTML; 200 with a JSON object, from the Worker's own code |
 | every dev browser host: cire-invites, cire host, cire vendor, cire landing, musubi social, musubi landing, pulse landing | none | `/` with no service token, following no redirect | a 301, 302, 303 or 307 to a `*.cloudflareaccess.com` host: Access's sign-in |
 

@@ -65,10 +65,9 @@ its value. Each run's summary prints every host under **Dev hosts**.
 | Pulse marketing | `pulse.<D>` | `pulse-landing-dev` (pulse) | none |
 
 Every dev surface is a Worker; the sites serve from Workers static assets, not
-Pages ([[infrastructure-as-code#Sites]]). On production the cire marketing and musubi
-social hosts are still Pages projects, each with a staged Worker on a spare host until
-its domain moves; musubi marketing and the vendor portal are Workers, and so is the
-organiser portal once its flip release has moved `host.cireweddings.com`
+Pages ([[infrastructure-as-code#Sites]]). On production every site is a Worker too:
+musubi marketing and the organiser and vendor portals now, and the cire marketing and
+musubi social apexes once each one's flip release has moved it off its Pages project
 ([[infrastructure-as-code#Production sites]]).
 
 Backing resources, all in the dev account:
@@ -918,8 +917,9 @@ production, and nothing here should ever grow one.
   while in production they are cross-site, so a defect that depends on them
   being cross-site does not show on dev.
 - **Unknown paths on the dev marketing sites answer 404.** cire landing, musubi
-  landing and pulse landing serve no `index.html` for an unknown path where
-  Pages did; musubi social and the cire organiser and vendor portals have a
+  landing and pulse landing serve no `index.html` for an unknown path, as the
+  production cire landing Worker does too, where its Pages project serves one until
+  the apex moves; musubi social and the cire organiser and vendor portals have a
   single-page fallback ([[infrastructure-as-code#Sites]]).
 - **A rollback restores code only.** No rollback undoes a D1 migration
   ([[production-deploy]] §4), and a half-applied migration has no scripted

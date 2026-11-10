@@ -34,12 +34,12 @@ describe("production-sites.ts", () => {
     expect(PRODUCTION_ADOPTIONS).toEqual([]);
   });
 
-  test("PS3: cire host, cire vendor and musubi landing serve their hosts, the other two Pages sites are staged, pulse landing is off", () => {
+  test("PS3: every site but pulse landing serves its host from its Worker, none is staged, pulse landing is off", () => {
     expect(PRODUCTION_SITE_MODES).toEqual({
       cire_host: "worker",
       cire_vendor: "worker",
-      cire_landing: "staged",
-      osn_social: "staged",
+      cire_landing: "worker",
+      osn_social: "worker",
       musubi_landing: "worker",
       pulse_landing: "off",
     });
@@ -89,19 +89,20 @@ describe("production-sites.ts", () => {
     expect(Object.fromEntries(productionHostOutputs())).toEqual({
       cire_host_origin: "https://host.cireweddings.com",
       cire_vendor_origin: "https://vendor.cireweddings.com",
-      cire_landing_origin: "https://next.cireweddings.com",
-      osn_social_origin: "https://next.musubi.social",
+      cire_landing_origin: "https://cireweddings.com",
+      osn_social_origin: "https://musubi.social",
       musubi_landing_origin: "https://www.musubi.social",
     });
-    expect(
-      Object.fromEntries(
-        productionHostOutputs({
-          ...PRODUCTION_SITE_MODES,
-          cire_landing: "worker",
-          osn_social: "off",
-        }),
-      ),
-    ).toMatchObject({ cire_landing_origin: "https://cireweddings.com" });
+    // A staged site's origin is its spare host; an off site has none.
+    const outputs = Object.fromEntries(
+      productionHostOutputs({
+        ...PRODUCTION_SITE_MODES,
+        cire_landing: "staged",
+        osn_social: "off",
+      }),
+    );
+    expect(outputs).toMatchObject({ cire_landing_origin: "https://next.cireweddings.com" });
+    expect(outputs.osn_social_origin).toBeUndefined();
   });
 
   test("PS6: production runs on today's production hosts and reads no DEV_DOMAIN; every other stage derives its own", () => {

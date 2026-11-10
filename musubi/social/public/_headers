@@ -20,8 +20,8 @@
 # sets either directive.
 
 # Apple requires the App Site Association file to be served as JSON, and the
-# file has no extension, so Pages would otherwise guess and send it as
-# application/octet-stream. The global `X-Content-Type-Options: nosniff` above
+# file has no extension, so the static-asset layer would otherwise guess and
+# send it as application/octet-stream. The global `X-Content-Type-Options: nosniff` above
 # turns that guess into a hard failure rather than a lucky sniff, and the only
 # symptom is that native passkeys quietly never work — the association just
 # never forms. Pin the type here.

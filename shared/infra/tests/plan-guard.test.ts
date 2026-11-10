@@ -767,11 +767,13 @@ describe("runPlanGuardCli", () => {
     cire_host: ["next.host.cireweddings.com"],
     cire_vendor: ["next.vendor.cireweddings.com"],
   };
-  /** Both sites staged, whatever production's modes are now. */
+  /** Every Pages site staged, as before the first flip, whatever production's modes are now. */
   const STAGED: Readonly<Record<SiteSurface, SiteMode>> = {
     ...PRODUCTION_SITE_MODES,
     cire_host: "staged",
     cire_vendor: "staged",
+    cire_landing: "staged",
+    osn_social: "staged",
   };
   const run = (
     argv: string[],

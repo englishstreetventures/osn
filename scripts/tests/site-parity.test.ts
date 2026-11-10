@@ -188,19 +188,23 @@ describe("runSiteParity", () => {
     return { fetch: fetch as unknown as typeof globalThis.fetch, calls, agents, accepts };
   }
 
-  /** Every cire site staged, so each comparison below has three sites to ask. */
-  const CIRE_STAGED: PerSite<SiteMode> = {
+  /**
+   * Every Pages site staged, as before the first flip, so each cire comparison
+   * below has three sites to ask and each musubi one has musubi social.
+   */
+  const STAGED: PerSite<SiteMode> = {
     ...PRODUCTION_SITE_MODES,
     cire_host: "staged",
     cire_vendor: "staged",
     cire_landing: "staged",
+    osn_social: "staged",
   };
 
   async function parity(
     args: string[],
     hosts: ReturnType<typeof fakeHosts>,
     root = build(SITES),
-    modes: PerSite<SiteMode> = CIRE_STAGED,
+    modes: PerSite<SiteMode> = STAGED,
   ) {
     const lines: string[] = [];
     const slept: number[] = [];
@@ -240,14 +244,36 @@ describe("runSiteParity", () => {
     expect(JSON.parse(report)).toMatchObject({ stack: "cire", differing: 0 });
   });
 
-  test("SP2: a site whose Worker serves its production host is not compared: today's modes leave cire host and cire vendor out", async () => {
+  test("SP2: a site whose Worker serves its production host is not compared: one cire site left staged is the only one asked", async () => {
     const hosts = fakeHosts();
-    const today = await parity(["--stack", "cire"], hosts, build(SITES), PRODUCTION_SITE_MODES);
-    expect(today.code).toBe(0);
+    const one = await parity(["--stack", "cire"], hosts, build(SITES), {
+      ...PRODUCTION_SITE_MODES,
+      cire_landing: "staged",
+    });
+    expect(one.code).toBe(0);
     const origins = [...new Set(hosts.calls.map((url) => new URL(url).origin))].toSorted();
     expect(origins).toEqual(
       ["https://next.cireweddings.com", "https://cireweddings.com"].toSorted(),
     );
+  });
+
+  test("SP2: today's modes stage no site, so each stack's comparison asks nothing, passes, and still writes its report", async () => {
+    for (const stack of ["cire", "musubi"] as const) {
+      const hosts = fakeHosts();
+      const today = await parity(["--stack", stack], hosts, build(SITES), PRODUCTION_SITE_MODES);
+      expect({ stack, code: today.code, calls: hosts.calls }).toEqual({
+        stack,
+        code: 0,
+        calls: [],
+      });
+      expect(today.output).toContain(`No ${stack} site is staged; nothing to compare.`);
+      expect(JSON.parse(readFileSync(today.out, "utf8"))).toEqual({
+        stack,
+        sites: [],
+        differing: 0,
+        refused: [],
+      });
+    }
   });
 
   test("SP3: a header that differs, or a host that does not answer, fails and is named", async () => {

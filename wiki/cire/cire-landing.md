@@ -431,18 +431,21 @@ fonts are self-hosted for the same reason (`astro.config.mjs`).
 `cireweddings.com` → this landing site; `invite.cireweddings.com` → guest site
 (`cire/invites`); `host.cireweddings.com` → organiser portal (`cire/host`, moved
 off `app.cireweddings.com`). In `.github/workflows/production-release.yml` the `sites`
-job builds it with its production values and `deploy-cire-landing` deploys that build to
-the `cire-landing` Pages project, which must exist in the account before the first run.
-The cire stack deploys the same build to the staged `cire-landing` Worker on
-`next.cireweddings.com` until the apex moves to it
-([[infrastructure-as-code#Production sites]]). On dev the cire stack
+job builds it with its production values, and the cire stack deploys that build to the
+`cire-landing` Worker, which is `worker` in `shared/infra/src/production-sites.ts` and
+serves the apex once its flip release has moved it off the `cire-landing` Pages project
+([[infrastructure-as-code#Production sites]], [[production-deploy]] §5.7). No job deploys
+that Pages project; it keeps its last build for a rollback, and serves the apex until the
+flip. The apex also holds the zone's Email Routing MX records and SPF TXT record, which
+the flip leaves in place. `record-cire-landing` records each production deploy whose
+smoke check passed. On dev the cire stack
 serves it as the `cire-landing-dev` Worker, with static assets, on `cire.<DEV_DOMAIN>`,
 a host derived from the `dev` Environment's `DEV_DOMAIN` variable
 ([[infrastructure-as-code#Dev hosts]]); `deploy.yml`'s cire stack job deploys and
 smoke-checks it, and its record job `deploy-cire-landing-dev` leaves the dev
-Deployment record. The apex job ships only in a production release, once dev has
-deployed the same content and a human has approved the `production` GitHub
-Environment. See [[dev-environment]] and [[production-deploy]].
+Deployment record. The cire stack ships the site only in a production release, once dev
+has deployed the same content and a human has approved the `production` GitHub
+Environment twice: the plan, then the deploy. See [[dev-environment]] and [[production-deploy]].
 
 **Passkey safety:** prod `OSN_RP_ID = cireweddings.com` (the registrable apex), so
 WebAuthn credentials are scoped to the whole domain — moving the organiser portal
@@ -463,7 +466,9 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
    `cire-host`. No job deploys the project now that `cire_host` is `worker`; its flip
    release moves the domain to the `cire-host` Worker ([[production-deploy]] §5.7).
 2. Attach apex `cireweddings.com` → `cire-landing` Pages (Cloudflare offers to
-   *move* it off the `cire-invites` Worker — confirm).
+   *move* it off the `cire-invites` Worker — confirm). No job deploys the project now
+   that `cire_landing` is `worker`; its flip release moves the apex to the
+   `cire-landing` Worker ([[production-deploy]] §5.7).
 3. Confirm `invite.cireweddings.com` auto-provisioned on the `cire-invites` Worker
    (custom_domain on deploy).
 4. ~~Redeploy osn-api manually~~ — osn-api is CI-deployed (`deploy-osn-api`

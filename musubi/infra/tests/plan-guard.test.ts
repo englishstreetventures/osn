@@ -31,7 +31,7 @@ const PRODUCTION_LOG = [
  * The hosts each site's Worker holds now, as the domains step reads them:
  * each at the host its mode declares, so no domain changes.
  */
-const LIVE_DOMAINS = { osn_social: ["next.musubi.social"], musubi_landing: ["www.musubi.social"] };
+const LIVE_DOMAINS = { osn_social: ["musubi.social"], musubi_landing: ["www.musubi.social"] };
 
 /** Runs the entry over `log` as the workflow's guard step does, with no step summary file. */
 function guard(log: string) {
