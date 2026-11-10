@@ -24,6 +24,12 @@ Three font families, all SIL Open Font License 1.1 (free commercial use):
 - Meta/eyebrow text: Geist Mono, 10.5–11.5px, uppercase, wide tracking
 - Date stamps: Geist, mixed weights (9–18px depending on element)
 
+Where the app does not follow this yet: a category pill drawn with `@shared/ui`'s
+`Badge treatment="eyebrow"` (Design Decisions §7) is set in Geist at weight 600,
+not Geist Mono at 400–500. 600 is the fallback of the contract's
+`--ui-weight-title`, which pulse does not map, and the badge takes the page's
+family (#2122).
+
 ### Named type tokens
 
 Each Pulse surface names its own off-scale type decisions in its own theme block.

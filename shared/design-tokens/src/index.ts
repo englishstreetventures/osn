@@ -45,7 +45,7 @@ export const CONTRACT_COLOR_TOKENS = {
 /** Every colour token in the contract, flattened. */
 export const ALL_COLOR_TOKENS: readonly string[] = Object.values(CONTRACT_COLOR_TOKENS).flat();
 
-/** Radius, type-family and motion tokens. No contrast obligation, so they are listed separately. */
+/** Radius, type-family, weight and motion tokens. No contrast obligation, so they are listed separately. */
 export const CONTRACT_SCALAR_TOKENS = {
   radius: [
     "--ui-radius-hair",
@@ -72,6 +72,10 @@ export const CONTRACT_SCALAR_TOKENS = {
     "--ui-radius-sheet",
   ],
   fontFamily: ["--ui-font-body", "--ui-font-display", "--ui-font-mono"],
+  // A role, not a step: the weight a shared part sets a short title or a tag
+  // in — `Badge`'s label — one step over body text. It falls back to 600,
+  // Tailwind's `font-semibold`.
+  fontWeight: ["--ui-weight-title"],
   focus: ["--ui-focus-width", "--ui-focus-offset"],
   motion: [
     "--ui-dur-fast",

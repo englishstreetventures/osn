@@ -12,14 +12,14 @@ related:
   - "[[toast]]"
   - "[[osn-and-musubi]]"
   - "[[house-lint-rules]]"
-last-reviewed: 2026-11-07
+last-reviewed: 2026-11-10
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
 
 One neutral vocabulary that the shared component packages write and every app
 maps onto once. Colour roles, plus type, tracking, leading, radius and measure
-scales.
+scales, and a title weight.
 
 ## The problem it solves
 
@@ -110,8 +110,9 @@ Scales, each spelled as a Tailwind utility: `text-ui-xs` … `2xl`,
 `tracking-ui-tight` … `ultra`, `leading-ui-none` … `relaxed`,
 `rounded-ui-hair` … `pill` plus the three role radii `rounded-ui-control`,
 `rounded-ui-field` and `rounded-ui-sheet`, `font-ui-body` /
-`-display` / `-mono`, and the measure scale `max-w-ui-xs` … `3xl` — declared
-as `--container-ui-*`, which is the namespace Tailwind reads a `max-w-*` from.
+`-display` / `-mono`, the weight role `font-ui-title`, and the measure scale
+`max-w-ui-xs` … `3xl` — declared as `--container-ui-*`, which is the namespace
+Tailwind reads a `max-w-*` from.
 
 Three groups sit outside `@theme` as plain custom properties, because a
 component consumes them inside its own rule rather than as a utility:
@@ -151,6 +152,20 @@ cire's sized steps are 2px `hair`, 6px `sm`, 10px `md`, 16px `lg` and 999px
 same values: `cire/vendor/tests/styles/tokens.test.ts` reads each one and fails
 if a role or a step differs. What each step paints in cire is
 `cire/host/DESIGN.md` §4.
+
+**`title` is a weight role**, not a step on a weight scale: the weight a shared
+part sets a short title or a tag in, one step over body text. An app maps
+`--ui-weight-title`; parts read it through `font-ui-title`, which `tokens.css`
+declares as `--font-weight-ui-title: var(--ui-weight-title, 600)` in its
+`@theme inline` block. Tailwind tells it apart from the `font-ui-*` families by
+the key: `--font-weight-*` builds a weight utility, `--font-*` a family. The
+fallback is 600, Tailwind's `font-semibold`, so an app that maps nothing sets
+those parts semibold. `@shared/ui`'s `Badge` reads it
+([[component-library]], §Variant components). No app maps it: pulse, musubi and
+the lab all draw a badge at 600. `shared/ui/tests/badge-default.browser.test.tsx`
+holds the unmapped badge's whole computed style, and pulse's
+`tests/styles/token-contract.browser.test.tsx` holds 600 under pulse's own
+stylesheet.
 
 `@cire/ui` also reads a few of cire's own app tokens, outside the contract,
 with a fallback at each use: the glass's `--glass-edge`, `--inner-lip` and

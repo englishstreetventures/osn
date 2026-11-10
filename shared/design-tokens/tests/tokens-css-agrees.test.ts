@@ -59,11 +59,20 @@ describe("tokens.css agrees with the exported token list", () => {
     expect(missing).toEqual([]);
   });
 
+  it("aliases every weight token the contract declares", () => {
+    // The weight roles are read through a Tailwind utility, so a name listed
+    // here and not aliased there is a token an app maps and nothing reads.
+    const aliased = aliasedTokens();
+    const missing = CONTRACT_SCALAR_TOKENS.fontWeight.filter((t) => !aliased.has(t));
+    expect(missing).toEqual([]);
+  });
+
   it("declares no colour alias the token list does not know about", () => {
     const known = new Set<string>([
       ...ALL_COLOR_TOKENS,
       ...CONTRACT_SCALAR_TOKENS.radius,
       ...CONTRACT_SCALAR_TOKENS.fontFamily,
+      ...CONTRACT_SCALAR_TOKENS.fontWeight,
       // The scale namespaces. `measure` breaks the `--ui-<key>-<step>` pattern
       // because Tailwind's namespace is `--container-*` while the role is a
       // measure; the contract is named for the role, the alias for Tailwind.
