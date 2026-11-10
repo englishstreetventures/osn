@@ -27,7 +27,8 @@ export function createEmailLinkRoutes(ctx: AuthRouteContext) {
     new Elysia()
       // -----------------------------------------------------------------------
       // The candidates the confirm page offers: the waiting screen's number
-      // among decoys, sorted, so the list says nothing about which is right.
+      // among decoys, sorted ascending. The number was drawn uniformly from
+      // them, so its place in the list says nothing about which is right.
       // Needs the link's secret; a wrong one is counted as a wrong confirm is.
       // -----------------------------------------------------------------------
       .post(

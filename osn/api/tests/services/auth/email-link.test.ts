@@ -12,6 +12,8 @@
  * reach the request ends it or frees its address meanwhile.
  *
  * And a send that cannot read the accounts table, which mails nothing.
+ *
+ * And where the waiting screen's number falls among the sorted candidates.
  */
 
 import { it, expect, describe } from "@effect/vitest";
@@ -22,7 +24,13 @@ import { afterEach, beforeAll, vi } from "vitest";
 
 import { createDurableCoordination } from "../../../src/lib/coordination/durable";
 import { createAuthService } from "../../../src/services/auth";
-import { EMAIL_LINK_CLAIM_HOLD_MS, MAX_OTP_ATTEMPTS } from "../../../src/services/auth/constants";
+import {
+  EMAIL_LINK_CLAIM_HOLD_MS,
+  EMAIL_LINK_PAIRING_CANDIDATES,
+  MAX_OTP_ATTEMPTS,
+} from "../../../src/services/auth/constants";
+import { createAuthContext } from "../../../src/services/auth/context";
+import { createEmailLinkModule } from "../../../src/services/auth/email-link";
 import { makeTestAuthConfig } from "../../helpers/auth-config";
 import { settle } from "../../helpers/background";
 import { createFakeNamespace } from "../../helpers/coordination-namespace";
@@ -988,4 +996,42 @@ describe("a claimed request whose pending entry was freed", () => {
       expect(done.status === "complete" && done.handle).toBe("claimunparked");
     }).pipe(Effect.provide(h.layer));
   });
+});
+
+/**
+ * The confirm page's candidates come sorted ascending, and the begin draws the
+ * waiting screen's number uniformly from them, so the number's place in the
+ * list is uniform and the order says nothing about which one is right. Hosts
+ * pass the list on as given. The draw reads `crypto.getRandomValues`, which
+ * takes no seed, so this counts many begins against a wide band.
+ */
+describe("the waiting screen's number among the sorted candidates", () => {
+  it.live(
+    "takes each of the five places about equally often over 2000 begins: unseeded, so each count is held to 400 ± 100, over five standard deviations",
+    () => {
+      const links = createEmailLinkModule(createAuthContext(base));
+      const begins = 2000;
+      const places = Array.from({ length: EMAIL_LINK_PAIRING_CANDIDATES }, () => 0);
+      return Effect.gen(function* () {
+        for (let i = 0; i < begins; i++) {
+          const opened = yield* links.open("registration", `place-${i}@example.com`, 600_000);
+          const read = yield* links.candidates(opened.requestId, new URL(opened.url).hash.slice(1));
+          if (read.status !== "ready") {
+            return yield* Effect.die(new Error(`the read answered ${read.status}`));
+          }
+          const list = read.pairingCandidates;
+          expect(list.toSorted((a, b) => Number(a) - Number(b))).toEqual(list);
+          const place = list.indexOf(opened.pairingCode);
+          expect(place).toBeGreaterThanOrEqual(0);
+          places[place]! += 1;
+        }
+        // Each count is binomial over 2000 tries at one in five: mean 400,
+        // standard deviation 17.9.
+        for (const count of places) {
+          expect(count).toBeGreaterThanOrEqual(300);
+          expect(count).toBeLessThanOrEqual(500);
+        }
+      });
+    },
+  );
 });

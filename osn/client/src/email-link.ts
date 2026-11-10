@@ -57,7 +57,9 @@ export type EmailLinkCandidates =
 export interface EmailLinkClient {
   /**
    * The numbers the confirm page offers, one of them the number the tab that
-   * began shows. `confirmed` when the request already is.
+   * began shows, sorted ascending as osn-api sends them. The right one is
+   * equally likely to be at any place, so pass the list on as given.
+   * `confirmed` when the request already is.
    */
   candidates(requestId: string, linkSecret: string): Promise<EmailLinkCandidates>;
   /**

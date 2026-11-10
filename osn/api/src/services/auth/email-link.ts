@@ -107,7 +107,11 @@ export interface OpenedEmailLink {
   readonly expiresAt: number;
 }
 
-/** What the confirm page learns from its read. */
+/**
+ * What the confirm page learns from its read. `pairingCandidates` comes sorted
+ * ascending; the waiting screen's number is equally likely to be at any place
+ * in it, so hosts pass it on as given.
+ */
 export type EmailLinkCandidates =
   | { readonly status: "ready"; readonly pairingCandidates: string[] }
   | { readonly status: "confirmed" }
@@ -334,6 +338,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
       const requestId = genId(EMAIL_LINK_ID_PREFIX[flow]);
       const claimSecret = newSecret();
       const linkSecret = newSecret();
+      // The candidates are sorted ascending and the number is drawn uniformly
+      // from them, so its place in the list the page shows is uniform too:
+      // the order says nothing about which one is right.
       const candidates = candidatesOf(requestId);
       const pairingCode = candidates[randomIndex(candidates.length)]!;
       const expiresAt = Date.now() + ttlMs;

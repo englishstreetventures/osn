@@ -8,7 +8,7 @@ related:
   - "[[coordination-store]]"
   - "[[email]]"
   - "[[component-library]]"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Emailed links
@@ -42,8 +42,12 @@ and how long the poll finishing it holds it ([[#Rules every flow keeps]]). A
 sign-up request also holds the sign-up it parks (address, handle, display
 name; see [[#Sign-up]]). The candidates the page offers are
 derived from the request id under the server key (`serverMac.pairingCandidates`),
-never stored. The entry carries `v: 1`; any other shape, a status no write
-gives, or a claimed entry without its claim, is refused.
+never stored, and come sorted ascending. `begin` draws the waiting screen's
+number uniformly from them, so it is equally likely to sit at any place in the
+list and the order says nothing about which is right; hosts pass the list to
+`ConfirmLinkPage` as given, and no host reorders it. The entry carries `v: 1`;
+any other shape, a status no write gives, or a claimed entry without its claim,
+is refused.
 
 ## The link: `<frontend origin>/verify/<request id>#<link secret>`
 

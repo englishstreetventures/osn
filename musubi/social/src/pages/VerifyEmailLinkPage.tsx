@@ -24,8 +24,8 @@ const FAILED_LINE = "Check your connection, then try again.";
  * person who arrived from their mail knows which site this is.
  *
  * `index.tsx` has already taken the link's secret off the address bar. This
- * page reads the candidates with it, then hands `ConfirmLinkPage` the list
- * and the confirm call. The confirm step requires the number shown on the
+ * page reads the candidates with it, then hands `ConfirmLinkPage` the list,
+ * in the ascending order osn-api sends, and the confirm call. The confirm step requires the number shown on the
  * waiting screen, so the person picks it here, or says they did not ask. A
  * read that finds the request already confirmed, or refuses it, opens the
  * page on that answer instead, with nothing to pick. So does a link whose id
