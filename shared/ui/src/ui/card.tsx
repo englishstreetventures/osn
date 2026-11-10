@@ -92,12 +92,17 @@ const CardHeader: Component<ComponentProps<"div">> = (props) => {
   );
 };
 
+/**
+ * The card's heading. Its weight is the contract's title weight,
+ * `--ui-weight-title` through `font-ui-title`, which falls back to 600, so an
+ * app that maps nothing keeps the semibold title it always had.
+ */
 const CardTitle: Component<ComponentProps<"h3">> = (props) => {
   const [local, others] = splitProps(props, ["class", "children"]);
   return (
     <h3
       class={clsx(
-        "base:text-ui-ink base:text-ui-md base:font-semibold base:leading-none base:tracking-ui-tight",
+        "base:text-ui-ink base:text-ui-md base:font-ui-title base:leading-none base:tracking-ui-tight",
         local.class,
       )}
       {...others}
