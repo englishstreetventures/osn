@@ -218,8 +218,10 @@ describe("a disclosure growing inside the panel's auto-sized frame", () => {
     // The disclosure grew over several frames, not in one jump.
     const partway = sampler.frames.filter((f) => f.box > closed + 1 && f.box < open - 1);
     expect(partway.length).toBeGreaterThan(2);
-    // On no frame does the frame cut the panel's foot.
+    // On no frame does the frame cut the panel's foot, nor take a height of
+    // its own: it follows the growth to its last step.
     expect(sampler.frames.filter((f) => f.over > 1)).toEqual([]);
+    expect(sampler.frames.filter((f) => f.inlineHeight !== "")).toEqual([]);
     expect(held(frame)).toEqual(["", "", ""]);
   });
 

@@ -82,19 +82,26 @@ export function autoSizeAnimates(from: number | null, to: number, cap = AUTO_SIZ
  * Whether a `<details>` inside `content` is growing open on a height
  * transition of its own. Its body slot, `::details-content`, is then shorter
  * than what it holds. At rest, mounted open, or opened at once, the slot is as
- * tall as its body; an engine with no `::details-content` reports no height.
- * Half a pixel of slack absorbs the rounding of a computed length.
+ * tall as its body. An engine with no `::details-content` reports no height,
+ * which parses to `NaN` and so is never shorter.
+ *
+ * The slack is a hundredth of a pixel. A slot still growing is short by at
+ * least a sixty-fourth, the smallest step layout takes, down to the last
+ * frames of an `--ease-out` tail. A computed length is written to six
+ * significant digits, off by under a thousandth below 1000px, so a slot at
+ * rest never reads as short.
  */
+const GROWING_SLACK_PX = 0.01;
+
 function detailsGrowing(content: HTMLElement): boolean {
   for (const details of content.querySelectorAll("details[open]")) {
     const shown = Number.parseFloat(getComputedStyle(details, "::details-content").height);
-    if (!Number.isFinite(shown)) continue;
     const summary = details.querySelector(":scope > summary");
     let body = 0;
     for (const child of details.children) {
       if (child !== summary) body += child.getBoundingClientRect().height;
     }
-    if (shown < body - 0.5) return true;
+    if (shown < body - GROWING_SLACK_PX) return true;
   }
   return false;
 }
