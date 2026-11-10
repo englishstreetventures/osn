@@ -382,16 +382,21 @@ export function createEmailChangeModule(
       );
       // A commit can report a failure for a change that stands — D1 can fail
       // a batch it has committed, and bun:sqlite runs the statements one at a
-      // time — so a failed commit whose change is on record still sends the
-      // notice. The caller gets the failure either way.
-      const notifyIfRecorded = Effect.tryPromise(() =>
+      // time — so a failed commit still sends the notice when this request's
+      // change is on record or the account holds the address it wrote. The
+      // caller gets the failure either way.
+      const notifyIfChanged = Effect.tryPromise(() =>
         db
-          .select({ one: sql`1` })
-          .from(emailChanges)
-          .where(eq(emailChanges.id, changeId))
+          .select({ email: accounts.email, recorded: sql<number>`${ownChangeRecorded}` })
+          .from(accounts)
+          .where(eq(accounts.id, accountId))
           .limit(1),
       ).pipe(
-        Effect.flatMap((rows) => (rows.length > 0 ? notifyPrevious : Effect.void)),
+        Effect.flatMap(([row]) =>
+          row && (row.email === pending.newEmail || Number(row.recorded) === 1)
+            ? notifyPrevious
+            : Effect.void,
+        ),
         Effect.ignore,
       );
 
@@ -425,7 +430,7 @@ export function createEmailChangeModule(
           }
         },
         catch: (cause) => new DatabaseError({ cause }),
-      }).pipe(Effect.tapError(() => notifyIfRecorded));
+      }).pipe(Effect.tapError(() => notifyIfChanged));
 
       if (!changed.ok && changed.reason === "capped") {
         return yield* Effect.fail(

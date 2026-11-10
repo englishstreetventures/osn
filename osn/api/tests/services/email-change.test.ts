@@ -359,8 +359,17 @@ describe("beginEmailChange + completeEmailChange", () => {
         settle(auth.completeEmailChange(profile.accountId, code, stepUpToken, null)),
       );
       expect(err._tag).toBe("DatabaseError");
-      // The change is not on record, so no notice goes out.
-      expect(captured.notices()).toHaveLength(0);
+      // bun:sqlite runs the statements one at a time, so the swap stands
+      // although its audit row failed. The account holds the new address, so
+      // the address it replaced still hears of it. (On D1 the batch rolls back
+      // whole; tests/d1/conditional-writes.test.ts covers that.)
+      const row = sqlite
+        .query("SELECT email FROM accounts WHERE id = ?")
+        .get(profile.accountId) as {
+        email: string;
+      };
+      expect(row.email).toBe("ec-fault-new@example.com");
+      expect(recipientsOf(captured.notices())).toEqual(["ec-fault@example.com"]);
     }).pipe(Effect.provide(layer));
   });
 
@@ -607,10 +616,13 @@ describe("the change notice", () => {
     () => {
       const { layer, captured, sqlite } = makeEmailCapture();
       return Effect.gen(function* () {
-        const { auth, profile, stepUpToken } = yield* setup("ec-ev@example.com", "ecev", captured);
+        // With a pepper configured, so the IP is stored hashed, not dropped.
+        const auth = createAuthService({ ...baseConfig, sessionIpPepper: "x".repeat(32) });
+        const profile = yield* auth.registerProfile("ec-ev@example.com", "ecev");
+        const token = yield* auth.issueStepUpToken(profile.accountId, "otp", "email_change");
         yield* auth.beginEmailChange(profile.accountId, "ec-ev-new@example.com");
         yield* settle(
-          auth.completeEmailChange(profile.accountId, captured.latest()!, stepUpToken, null, {
+          auth.completeEmailChange(profile.accountId, captured.latest()!, token, null, {
             ip: "203.0.113.7",
             uaLabel: "Firefox on macOS",
           }),
@@ -620,11 +632,12 @@ describe("the change notice", () => {
         const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
         const event = events.find((e) => e.kind === "email_changed");
         expect(event?.uaLabel).toBe("Firefox on macOS");
+        expect(event?.ipHash).toMatch(/^[a-f0-9]{64}$/);
       }).pipe(Effect.provide(layer));
     },
   );
 
-  it.effect("a completed change mails one notice, to the address it replaced", () => {
+  it.effect("a completed change mails the address it replaced, naming the new one masked", () => {
     const { layer, captured } = makeEmailCapture();
     return Effect.gen(function* () {
       const { auth, profile, stepUpToken } = yield* setup(
@@ -632,12 +645,17 @@ describe("the change notice", () => {
         "ecmail",
         captured,
       );
-      yield* auth.beginEmailChange(profile.accountId, "ec-mail-new@example.com");
+      // A first letter and a domain unlike the old address's, so the body
+      // shows which of the two it names.
+      yield* auth.beginEmailChange(profile.accountId, "zed-new@elsewhere.test");
       yield* settle(
         auth.completeEmailChange(profile.accountId, captured.latest()!, stepUpToken, null),
       );
 
-      expect(recipientsOf(captured.notices())).toEqual(["ec-mail@example.com"]);
+      const notices = captured.notices();
+      expect(recipientsOf(notices)).toEqual(["ec-mail@example.com"]);
+      expect(notices[0]!.text).toContain("z•••@elsewhere.test");
+      expect(notices[0]!.text).not.toContain("zed-new");
     }).pipe(Effect.provide(layer));
   });
 
@@ -680,6 +698,7 @@ describe("the change notice", () => {
 
   it.effect("a mailer that refuses the notice does not fail the change", () => {
     const { layer: base, sqlite, email } = createTestLayerWithSqlite();
+    let refused = 0;
     const refusingNotice = Layer.effect(
       EmailService,
       Effect.gen(function* () {
@@ -687,7 +706,13 @@ describe("the change notice", () => {
         return {
           send: (input) =>
             input.template === "email-changed"
-              ? Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 }))
+              ? Effect.sync(() => {
+                  refused++;
+                }).pipe(
+                  Effect.andThen(
+                    Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 })),
+                  ),
+                )
               : inner.send(input),
         };
       }),
@@ -707,6 +732,7 @@ describe("the change notice", () => {
       );
       expect(result.email).toBe("ec-refuse-new@example.com");
       expect(changeEventsOf(sqlite, profile.accountId)).toBe(1);
+      expect(refused).toBe(1);
     }).pipe(Effect.provide(Layer.merge(base, refusingNotice)));
   });
 
@@ -845,6 +871,44 @@ describe("the 2-per-7-days cap under concurrent completions", () => {
       // all find the cap reached, its security event included.
       expect(changeEventsOf(sqlite, profile.accountId)).toBe(1);
       expect(recipientsOf(notices())).toEqual(["ec-edge@example.com"]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  // A commit that reports a failure after its change went on record still
+  // mails the address it replaced, even once a later change has moved the
+  // account on: the account's address alone no longer shows the change stood.
+  it.live("a recorded change whose commit then failed is mailed after a later change", () => {
+    const { layer, sqlite, hold, latest, notices } = makeHeldEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* auth.registerProfile("ec-later@example.com", "eclater");
+      const [tokenA, tokenB] = yield* Effect.all(
+        [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+      );
+
+      yield* auth.beginEmailChange(profile.accountId, "ec-later-a@example.com");
+      const codeA = latest();
+      // A's change is on record; its security event waits.
+      const eventA = hold(/^insert into "security_events"/);
+      const a = yield* Effect.forkChild(
+        Effect.result(settle(auth.completeEmailChange(profile.accountId, codeA, tokenA!, null))),
+      );
+      yield* Effect.promise(() => eventA.reached);
+
+      yield* auth.beginEmailChange(profile.accountId, "ec-later-b@example.com");
+      yield* settle(auth.completeEmailChange(profile.accountId, latest(), tokenB!, null));
+
+      // A's event now fails, so A's commit reports a failure.
+      sqlite.exec(
+        `CREATE TRIGGER ec_later_fault BEFORE INSERT ON security_events
+         BEGIN SELECT RAISE(ABORT, 'simulated failure after the change is on record'); END;`,
+      );
+      eventA.release();
+      const outcome = yield* Fiber.join(a);
+      expect(outcome._tag).toBe("Failure");
+      expect(emailOf(sqlite, profile.accountId)).toBe("ec-later-b@example.com");
+      // B mailed the address it replaced; A mailed the one A replaced.
+      expect(recipientsOf(notices())).toEqual(["ec-later-a@example.com", "ec-later@example.com"]);
     }).pipe(Effect.provide(layer));
   });
 

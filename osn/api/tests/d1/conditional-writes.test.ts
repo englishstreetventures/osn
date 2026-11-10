@@ -14,7 +14,7 @@ import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
 import { createD1Db } from "@shared/db-utils";
 import { type EmailService, makeLogEmailLive } from "@shared/email";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -28,6 +28,7 @@ import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { holdQueries } from "../helpers/held-query";
 
 /**
@@ -148,6 +149,42 @@ describe("email change on D1", () => {
         ),
       );
     expect(events).toHaveLength(1);
+  });
+
+  it("rolls the change back with its security event, and mails no notice", async () => {
+    const profile = await run(auth.registerProfile("ec-d1-roll@example.com", "ecd1roll"));
+    const token = await run(auth.issueStepUpToken(profile.accountId, "otp", "email_change"));
+    await run(auth.beginEmailChange(profile.accountId, "ec-d1-roll-new@example.com"));
+    const code = latestCode();
+    await db.run(
+      sql.raw(`CREATE TRIGGER ec_d1_event_fault BEFORE INSERT ON security_events
+        BEGIN SELECT RAISE(ABORT, 'simulated failure inside the commit'); END;`),
+    );
+    try {
+      const outcome = await outcomeOf(
+        settle(auth.completeEmailChange(profile.accountId, code, token, null)),
+      );
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") expect(outcome.failure._tag).toBe("DatabaseError");
+    } finally {
+      await db.run(sql.raw("DROP TRIGGER ec_d1_event_fault"));
+    }
+
+    // One batch: the event's failure takes the swap and the audit row with it.
+    const [account] = await db
+      .select({ email: accounts.email })
+      .from(accounts)
+      .where(eq(accounts.id, profile.accountId));
+    expect(account?.email).toBe("ec-d1-roll@example.com");
+    const changes = await db
+      .select({ id: emailChanges.id })
+      .from(emailChanges)
+      .where(eq(emailChanges.accountId, profile.accountId));
+    expect(changes).toHaveLength(0);
+    const notices = mail
+      .recorded()
+      .filter((e) => e.template === "email-changed" && e.to === "ec-d1-roll@example.com");
+    expect(notices).toHaveLength(0);
   });
 });
 

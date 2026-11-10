@@ -84,13 +84,23 @@ describe("renderTemplate", () => {
   // the address the recipient reads.
   it("email-changed drops control and format characters from the new address", () => {
     const out = renderTemplate("email-changed", {
-      newEmail: "‮ab@exa​mple.com",
+      newEmail: "\u202Eab@exa\u200Bmple.com",
       instanceName: "Musubi",
     });
     for (const part of [out.subject, out.text, out.html]) {
-      expect(part).not.toMatch(/[‮​]/);
+      expect(part).not.toMatch(/[\u202E\u200B]/);
     }
     expect(out.text).toContain("a•••@example.com");
+  });
+
+  // A first character outside the Basic Multilingual Plane is two UTF-16
+  // units; the mask keeps it whole rather than half a surrogate pair.
+  it("email-changed keeps a first character outside the BMP whole", () => {
+    const out = renderTemplate("email-changed", {
+      newEmail: "\u{1F600}x@example.com",
+      instanceName: "Musubi",
+    });
+    expect(out.text).toContain("\u{1F600}•••@example.com");
   });
 
   it("HTML-escapes template data (defence in depth)", () => {

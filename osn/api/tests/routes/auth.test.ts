@@ -2332,6 +2332,23 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
+    it("POST /account/email/complete refuses a missing or invalid bearer token", async () => {
+      const attempts: Record<string, string>[] = [
+        { "Content-Type": "application/json" },
+        { "Content-Type": "application/json", Authorization: "Bearer not.a.jwt" },
+      ];
+      for (const headers of attempts) {
+        const res = await app.handle(
+          new Request("http://localhost/account/email/complete", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ code: "000000", step_up_token: "not.a.jwt" }),
+          }),
+        );
+        expect(res.status).toBe(401);
+      }
+    });
+
     it("end-to-end: begin → mint step-up → complete swaps the email", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
 
