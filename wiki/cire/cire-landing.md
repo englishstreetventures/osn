@@ -17,7 +17,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-upgrades]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-10
 ---
 
 # Cire Landing
@@ -460,7 +460,8 @@ apex-based invite links in the wild (guests use the full link).**
 Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
 [[production-deploy]]:
 1. Attach `host.cireweddings.com` custom domain → the organiser portal's Pages project,
-   `cire-host`, the one `deploy-cire-host` deploys and the project holding the domain.
+   `cire-host`. No job deploys the project now that `cire_host` is `worker`; its flip
+   release moves the domain to the `cire-host` Worker ([[production-deploy]] §5.7).
 2. Attach apex `cireweddings.com` → `cire-landing` Pages (Cloudflare offers to
    *move* it off the `cire-invites` Worker — confirm).
 3. Confirm `invite.cireweddings.com` auto-provisioned on the `cire-invites` Worker
@@ -470,8 +471,8 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
 5. Cleanup PR — **DONE 2026-07-16**: pruned the transitional apex + `app.` from
    cire-api `WEB_ORIGIN` and `app.` from osn-api `OSN_ORIGIN`/`OSN_CORS_ORIGIN`
    (`cire/invites`'s Worker route was already `invite.`-only, no apex route to drop).
-   The organiser portal's Pages project (`cire-host`) holds `host.cireweddings.com`
-   alone; `app.cireweddings.com` is not attached to it.
+   Until that flip, the organiser portal's Pages project (`cire-host`) holds
+   `host.cireweddings.com` alone; `app.cireweddings.com` is not attached to it.
 
    *Measured 2026-10-28 — dashboard, Workers & Pages → `cire-host` → Custom domains: one row, `host.cireweddings.com`, Active.*
 

@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-10
 ---
 
 # Dev environment (cire + OSN identity)
@@ -65,9 +65,10 @@ its value. Each run's summary prints every host under **Dev hosts**.
 | Pulse marketing | `pulse.<D>` | `pulse-landing-dev` (pulse) | none |
 
 Every dev surface is a Worker; the sites serve from Workers static assets, not
-Pages ([[infrastructure-as-code#Sites]]). On production the organiser, vendor, cire
-marketing and musubi social hosts are still Pages projects, each with a staged Worker
-on a spare host until its domain moves, and musubi marketing is a Worker
+Pages ([[infrastructure-as-code#Sites]]). On production the cire marketing and musubi
+social hosts are still Pages projects, each with a staged Worker on a spare host until
+its domain moves; musubi marketing and the vendor portal are Workers, and so is the
+organiser portal once its flip release has moved `host.cireweddings.com`
 ([[infrastructure-as-code#Production sites]]).
 
 Backing resources, all in the dev account:

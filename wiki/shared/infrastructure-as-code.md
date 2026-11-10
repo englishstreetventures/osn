@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-10
 ---
 
 # Infrastructure as code (Alchemy)
@@ -538,8 +538,8 @@ Step 1 of phase P3 (englishstreetventures/osn#1787) moves the four Pages sites t
 
 | Site | Mode | Worker | Host |
 |---|---|---|---|
-| cire host | `staged` | `cire-host` | `next.host.cireweddings.com` |
-| cire vendor | `worker` | `cire-vendor` | `vendor.cireweddings.com`, once its flip release has run |
+| cire host | `worker` | `cire-host` | `host.cireweddings.com`, once its flip release has run |
+| cire vendor | `worker` | `cire-vendor` | `vendor.cireweddings.com` (its flip release ran on 2026-11-07, run 42329249886) |
 | cire landing | `staged` | `cire-landing` | `next.cireweddings.com` |
 | musubi social | `staged` | `osn-social` | `next.musubi.social` |
 | musubi landing | `worker` | `musubi-landing` | `www.musubi.social` |
