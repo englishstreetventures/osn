@@ -182,7 +182,7 @@ Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the s
 
 ## Vendored trees
 
-Two directories are verbatim upstream copies, never edited:
+Two directories are verbatim upstream copies, never edited, except that the orb tree also holds one repo-authored `types.ts` (two type aliases copied from upstream's, which change only when the pin moves):
 
 | Tree | What it is | Who runs it |
 |---|---|---|

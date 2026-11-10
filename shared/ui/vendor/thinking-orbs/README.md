@@ -34,8 +34,9 @@ follows `src/ui/orb.tsx` in here.
 
 thinking-orbs is also published on npm. Vendoring takes it out of reach of any
 scanner keyed on `bun.lock`, so whoever re-vendors checks the upstream
-repository's issues and the npm package's advisories first, and the code owner
-of `shared/ui/vendor/` (`.github/CODEOWNERS`) confirms it in review.
+repository's issues and the npm package's advisories first. A change to this
+tree asks the code owner of `shared/ui/vendor/` (`.github/CODEOWNERS`) for
+review, and whoever merges it runs the check below first.
 
 ## Checking the tree against upstream
 

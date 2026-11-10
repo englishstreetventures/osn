@@ -51,7 +51,8 @@ wrangler.jsonc       @chav-aniket
 # its manifest, or a pin in `README.md` left unmoved by a change to the source —
 # but it can't say whether the new code is upstream's. That is what a human
 # owner is for: `shared/ui/vendor/thinking-orbs/README.md` has the command that
-# checks the orb engine against upstream's files at the pin.
+# checks the orb engine against upstream's files at the pin, and whoever merges
+# a change here runs that command first.
 /tools/oxlint/**     @chav-aniket
 /shared/ui/vendor/** @chav-aniket
 

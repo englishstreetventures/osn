@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[shared/observability/overview]]"
   - "[[cire]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-10
 ---
 
 # SOC 2 (Trust Services Criteria)
@@ -174,14 +174,17 @@ Tracked with `C-` IDs in `englishstreetventures/osn-tracker` under `area:complia
      advisory feed to subscribe to.
    - `shared/ui/vendor/thinking-orbs` is a verbatim copy of the drawing engine
      of [thinking-orbs](https://github.com/Jakubantalik/Libraries.dev), MIT
-     licensed (`LICENSE` beside the code), pinned to upstream commit
+     licensed (`LICENSE` beside the code), plus one repo-authored `types.ts`
+     holding two type aliases copied from upstream's, pinned to upstream commit
      `5e7afad5fc8f3661e0bf0b4cd3f87de482ffcf16` (2026-09-22, release 0.3.2).
      Upstream does publish it on npm as `thinking-orbs`, so vendoring takes a
      registry package out of the scanner's reach. Whoever re-vendors checks the
-     upstream repository's issues and the npm package's advisories first, and
-     the code owner of `shared/ui/vendor/` (`.github/CODEOWNERS`) confirms it in
-     review. The engine imports nothing
-     and reaches no browser global but the 2D canvas context it is handed.
+     upstream repository's issues and the npm package's advisories first. A
+     change to the tree asks the code owner of `shared/ui/vendor/`
+     (`.github/CODEOWNERS`) for review, and whoever merges it runs the README's
+     check against upstream first. The engine
+     imports no package, only its own modules, and reaches no browser global but
+     the 2D canvas context it is handed.
 
    Integrity is asserted in-repo instead, by three checks that each cover a
    different failure: each tree's `SHA256SUMS` plus `scripts/verify-vendored.sh`

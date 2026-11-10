@@ -53,7 +53,8 @@ a caller's **plain** utility wins by cascade — write `class="max-w-lg"`, never
 `Orb` (`@shared/ui/ui/orb`) draws with the engine of
 [thinking-orbs](https://libraries.dev/orbs), vendored into
 `vendor/thinking-orbs/` byte for byte at a pinned commit, with its MIT
-`LICENSE`. That directory's `README.md` has the pin, the re-vendor recipe and a
+`LICENSE`, plus one `types.ts` of ours holding the two aliases the engine
+imports. That directory's `README.md` has the pin, the re-vendor recipe and a
 command that checks the files against upstream; `scripts/verify-vendored.sh`
 checks the manifest in CI. Nothing in the tree is edited.
 
