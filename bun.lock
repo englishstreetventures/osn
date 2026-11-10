@@ -300,7 +300,7 @@
     },
     "musubi/infra": {
       "name": "@musubi/infra",
-      "version": "0.2.12",
+      "version": "0.2.13",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.85",
         "@effect/platform-bun": "4.1.2",
@@ -504,7 +504,7 @@
     },
     "pulse/infra": {
       "name": "@pulse/infra",
-      "version": "0.1.18",
+      "version": "0.1.19",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.85",
         "@effect/platform-bun": "4.1.2",
@@ -691,7 +691,7 @@
     },
     "shared/infra": {
       "name": "@shared/infra",
-      "version": "0.7.1",
+      "version": "0.7.2",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.85",
         "@effect/platform-bun": "4.1.2",
@@ -1012,7 +1012,7 @@
     },
     "zap/infra": {
       "name": "@zap/infra",
-      "version": "0.1.18",
+      "version": "0.1.19",
       "dependencies": {
         "@alchemy.run/cloudflare": "2.0.0-beta.85",
         "@effect/platform-bun": "4.1.2",
