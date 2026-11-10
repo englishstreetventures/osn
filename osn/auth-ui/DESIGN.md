@@ -138,7 +138,9 @@ like with like. The number picked, repeated in "You picked {n}.", is
 `font-medium tabular-nums` at the line's size. Where recovery asks for the
 number to be typed, the field takes `Input`'s `code` face, mono with wide
 tracking, as the Codes row does: the person checks a typed value character by
-character. Its label is `Label` at `sm`, muted.
+character. Its label is a plain one, as every form field's is (§4). The field
+is one `Input`, not `OtpInput`'s boxes: the boxes are a fixed six, and the
+number runs from one digit to six, a length the page is not told.
 
 ## 4. Layout
 
@@ -197,8 +199,9 @@ As built:
   (`max-md:h-11`); then the line about the number picked, the slow line and
   the error `Notice`; then Try again or Continue, full-width default `lg`
   Buttons, 44px below `md`. With `typeNumber`, the numbers give way to a
-  `Label` over one `Input` (`size="touch"`, `face="code"`, `fill="ink"`) and a
-  full-width default `lg` Confirm, 44px below `md`, above the decline.
+  `Field` with a plain label 6px above one `Input` (`size="touch"`,
+  `face="code"`, `fill="ink"`), then a full-width default `lg` Confirm, 44px
+  below `md`, above the decline.
   Left-aligned.
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
   border and wash: each event as a headline and a meta line, a footer line,
@@ -233,7 +236,7 @@ besides the default:
 | `SecurityEventsBanner` | Button, Notice | `outline` |
 | `ChangeEmailForm` | Button, Field, Input, Notice, OtpInput | — |
 | `CheckEmailView` | Button, Notice | `ghost` |
-| `ConfirmLinkPage` | Button, Card, Input, Label, Notice | `outline`, `ghost` |
+| `ConfirmLinkPage` | Button, Card, Field, Input, Notice | `outline`, `ghost` |
 | `CreateProfileForm` | Button, Field, Input, Notice, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
 | `ProfileSwitcher` | Avatar, Button, Dialog, Notice, Popover | `ghost`, `ghostDanger`, `destructive` |
@@ -408,7 +411,7 @@ that asked."
 | --- | --- |
 | Ready | "Confirm this email"; the flow's sentence; "Only confirm if you asked for this. If you didn't, choose “I didn't ask for this” below." (step-up: "If you didn't, someone else may be signed in to your account. Choose … below, then sign out your other sessions."); "Pick the number shown on the screen where you started." and the numbers; "I didn't ask for this" |
 | Ready, typed (`typeNumber`) | As Ready, but "Type the number shown on the screen where you started." labels one field for up to six digits, and Confirm, disabled until the field holds one to six digits, comes before "I didn't ask for this"; Enter in the field does what Confirm does |
-| Confirming | The same, every button disabled (typed: the field too, still holding the entry); "You picked {n}. Confirming…", "You typed {n}. Confirming…" or "Cancelling…"; after 10 seconds "This is taking longer than usual. Keep this page open." |
+| Confirming | The same; the control that started the call busy — the number tapped (its digits kept), Confirm ("Confirming…"), "I didn't ask for this" ("Cancelling…") or Try again ("Confirming…" or "Cancelling…", the same attempt again) — and every other one disabled (typed: the field too, still holding the entry); "You picked {n}. Confirming…" or "You typed {n}. Confirming…" after a number; after 10 seconds "This is taking longer than usual. Keep this page open." |
 | Error | The same, the numbers (typed: the field) disabled and Confirm gone, "I didn't ask for this" still open; "You picked {n}." or "You typed {n}." after a number; "We couldn't confirm this email just now." or "We couldn't cancel this just now."; Try again, which sends the same attempt, while the decline sends `null` as a new one |
 | Confirmed | "Confirmed"; "Go back to where you started to {finish}. You can close this page.", or "Continue to {finish}." and Continue when the host passes `onContinue` |
 | Cancelled | "Cancelled"; "Nothing was confirmed. You can close this page." (step-up: "Nothing was confirmed. Someone else may be signed in to your account, so sign out your other sessions.") |
@@ -501,8 +504,10 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   beside the view's status region. Resend is the action, and the line goes
   while it sends, so a second failure mounts it again.
 - **Directly above Try again** in `ConfirmLinkPage`: a fixed line, never the
-  thrown error's text, said through the page's own polite `<output>`. It
-  never says a number was wrong: a refused number shows the expired state.
+  thrown error's text. The page's polite `<output>`, which says its other
+  changes, leaves the line to its own alert. It never says a number was wrong:
+  a refused number shows the expired state, and the typed field is never
+  marked invalid.
 
 **How the tie meets `Field`.** Each field sits in a `Field`, which mints its id
 and draws its label and any hint; the view passes it no `errors`. The control's
@@ -620,8 +625,10 @@ wait disabling it (`tabindex="-1"`, so never by Tab); it draws no indicator
 Try again, Confirm and Continue are `@shared/ui` Buttons, which draw their own
 ring, and its typed field is `@shared/ui`'s `Input`, whose ink fill draws a 2px
 outline 2px off. Its
-`h1` takes focus the same way, on mount and on every change, so a tapped
-number that disables itself never leaves focus on `<body>`.
+`h1` takes focus the same way, on mount and on every change, except that the
+control that started a call keeps focus while it is busy; focus left on a
+choice that disables, or in the typed field after Enter, goes to the `h1`, so
+it never falls to `<body>`.
 
 **Code boxes.** Every row of code boxes that opens its step takes `OtpInput`'s
 `autofocus`, so focus is in box 1 as the step opens. `RecoveryLoginForm`'s
@@ -731,8 +738,10 @@ As built:
   nothing: `RecoveryLoginForm.test.tsx` (five, with Back disabled),
   `RecoveryCodesView.test.tsx`, `CreateProfileForm.test.tsx` (Cancel
   disabled), `ChangeEmailForm.test.tsx` (two), `StepUpDialog.test.tsx`
-  ("Email me a code" and both Confirms) and `CheckEmailView.test.tsx`
-  (Resend, with "Use a different email" disabled).
+  ("Email me a code" and both Confirms), `CheckEmailView.test.tsx`
+  (Resend, with "Use a different email" disabled) and
+  `ConfirmLinkPage.test.tsx` (a number, Confirm, the decline and Try again,
+  each with the other choices disabled).
 - **Error lines in the package tests.** Each view's tests plant text in a
   thrown error's `message` and check it never reaches the screen, check a
   `429` reads the wait sentence, and check the line is an alert, tied to its
@@ -771,7 +780,8 @@ As built:
   1280px the numbers one under another, at least 44px tall in 24px tabular
   figures, the decline and Try again at 44px below `md`, the error notice above
   Try again, and the typed field, Confirm and the decline inside the card at
-  44px or more, the field at 16px with an edge of at least 3:1.
+  44px or more, the field at 16px with an edge of at least 3:1 and a plain
+  label 6px above it.
 
 ## 12. Motion
 

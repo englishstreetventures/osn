@@ -45,12 +45,30 @@ function candidates(): HTMLButtonElement[] {
   return group ? ([...group.querySelectorAll("button")] as HTMLButtonElement[]) : [];
 }
 
+/** "I didn't ask for this", or "Cancelling…" while it is busy. */
 function decline(): HTMLButtonElement {
-  return screen.getByRole("button", { name: "I didn't ask for this" }) as HTMLButtonElement;
+  return screen.getByRole("button", {
+    name: /^(I didn't ask for this|Cancelling…)$/,
+  }) as HTMLButtonElement;
 }
 
+/** "Try again", or the wait it names while it is busy. */
 function tryAgain(): HTMLButtonElement {
-  return screen.getByRole("button", { name: "Try again" }) as HTMLButtonElement;
+  return screen.getByRole("button", {
+    name: /^(Try again|Confirming…|Cancelling…)$/,
+  }) as HTMLButtonElement;
+}
+
+/** Busy as `Button` draws it: announced busy and unavailable, still enabled, so it keeps focus. */
+function expectBusy(button: HTMLButtonElement) {
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect(button.getAttribute("aria-disabled")).toBe("true");
+  expect(button.disabled).toBe(false);
+}
+
+/** The error line: an alert of its own. */
+function errorAlert(): HTMLElement | null {
+  return screen.queryByRole("alert");
 }
 
 function heading(): HTMLElement {
@@ -169,7 +187,7 @@ describe("ConfirmLinkPage — only a tap confirms", () => {
     expect(candidates().every((b) => !b.disabled)).toBe(true);
   });
 
-  it("sends exactly the number tapped, once, and disables every number while it runs", () => {
+  it("sends exactly the number tapped, once, marks it busy and disables every other choice while it runs", () => {
     const pending = deferred<ConfirmOutcome>();
     const onConfirm = vi.fn<OnConfirm>(() => pending.promise);
     page(onConfirm);
@@ -182,7 +200,12 @@ describe("ConfirmLinkPage — only a tap confirms", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm).toHaveBeenCalledWith("0730");
     expect(candidates()).toHaveLength(3);
-    for (const button of candidates()) expect(button.disabled).toBe(true);
+    expectBusy(candidate("0730"));
+    expect(candidate("0730").textContent).toBe("0730");
+    for (const other of ["4821", "1956"]) {
+      expect(candidate(other).disabled).toBe(true);
+      expect(candidate(other).getAttribute("aria-busy")).toBeNull();
+    }
     expect(decline().disabled).toBe(true);
     fireEvent.click(decline());
     expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -224,7 +247,11 @@ describe("ConfirmLinkPage — the numbers", () => {
     expect(candidateShapes()).toHaveLength(3);
     expect(new Set(candidateShapes()).size).toBe(1);
     fireEvent.click(candidate("0730"));
-    expect(new Set(candidateShapes()).size).toBe(1);
+    // Only the one tapped differs, by the wait it shows; the others stay alike.
+    const [first, tapped, third] = candidateShapes();
+    expect(first).toBe(third);
+    expect(tapped).not.toBe(first);
+    expect(candidate("0730").getAttribute("aria-busy")).toBe("true");
   });
 
   it("puts no number, and not the number picked, in an attribute, the title or the URL", async () => {
@@ -323,7 +350,10 @@ describe("ConfirmLinkPage — what each answer shows", () => {
 
     expect(heading().textContent).toBe("Confirm this email");
     expect(shown(ERROR_LINE)).toHaveLength(1);
-    expect(announcer(container).textContent).toBe(ERROR_LINE);
+    // An alert of its own, directly above Try again, and not said twice.
+    expect(errorAlert()?.textContent).toContain(ERROR_LINE);
+    expect(errorAlert()?.parentElement?.nextElementSibling?.contains(tryAgain())).toBe(true);
+    expect(announcer(container).textContent).toBe("");
     expect(container.textContent).not.toContain("Failed to fetch");
     expect(paragraph("You picked 1956.")).not.toBeNull();
     for (const button of candidates()) expect(button.disabled).toBe(true);
@@ -333,10 +363,22 @@ describe("ConfirmLinkPage — what each answer shows", () => {
     fireEvent.click(candidate("4821"));
     expect(onConfirm).toHaveBeenCalledTimes(1);
 
+    tryAgain().focus();
     fireEvent.click(tryAgain());
     expect(onConfirm).toHaveBeenCalledTimes(2);
     expect(onConfirm).toHaveBeenLastCalledWith("1956");
     expect(shown(ERROR_LINE)).toHaveLength(0);
+    // Try again started the wait, so Try again is the busy one, and keeps focus.
+    expectBusy(tryAgain());
+    expect(tryAgain().textContent).toBe("Confirming…");
+    expect(document.activeElement).toBe(tryAgain());
+    for (const button of candidates()) {
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute("aria-busy")).toBeNull();
+    }
+    expect(decline().disabled).toBe(true);
+    fireEvent.click(tryAgain());
+    expect(onConfirm).toHaveBeenCalledTimes(2);
 
     retry.resolve("confirmed");
     await settle();
@@ -438,7 +480,7 @@ describe("ConfirmLinkPage — what each answer shows", () => {
 });
 
 describe("ConfirmLinkPage — I didn't ask for this", () => {
-  it("sends no number, once, and disables every choice while it runs", () => {
+  it("sends no number, once, marks it busy and disables every number while it runs", () => {
     const pending = deferred<ConfirmOutcome>();
     const onConfirm = vi.fn<OnConfirm>(() => pending.promise);
     const { container } = page(onConfirm);
@@ -450,9 +492,10 @@ describe("ConfirmLinkPage — I didn't ask for this", () => {
 
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm).toHaveBeenCalledWith(null);
-    expect(decline().disabled).toBe(true);
+    expectBusy(decline());
+    expect(decline().textContent).toBe("Cancelling…");
     for (const button of candidates()) expect(button.disabled).toBe(true);
-    expect(paragraph("Cancelling…")).not.toBeNull();
+    expect(shown("Cancelling…")).toHaveLength(1);
     expect(announcer(container).textContent).toBe("Cancelling…");
     expect(container.textContent).not.toContain("You picked");
   });
@@ -507,11 +550,11 @@ describe("ConfirmLinkPage — I didn't ask for this", () => {
     fireEvent.click(decline());
     fireEvent.click(decline());
     expect(onConfirm.mock.calls).toEqual([["1956"], [null]]);
-    expect(paragraph("Cancelling…")).not.toBeNull();
+    expect(decline().textContent).toBe("Cancelling…");
     expect(container.textContent).not.toContain("You picked");
-    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(Try again|Confirming…)$/ })).toBeNull();
     for (const button of candidates()) expect(button.disabled).toBe(true);
-    expect(decline().disabled).toBe(true);
+    expectBusy(decline());
 
     declined.resolve("declined");
     await settle();
@@ -530,13 +573,15 @@ describe("ConfirmLinkPage — I didn't ask for this", () => {
     await settle();
 
     expect(shown("We couldn't cancel this just now.")).toHaveLength(1);
-    expect(announcer(container).textContent).toBe("We couldn't cancel this just now.");
+    expect(errorAlert()?.textContent).toContain("We couldn't cancel this just now.");
+    expect(announcer(container).textContent).toBe("");
     expect(shown(ERROR_LINE)).toHaveLength(0);
     expect(decline().disabled).toBe(false);
 
     fireEvent.click(tryAgain());
     expect(onConfirm).toHaveBeenCalledTimes(2);
     expect(onConfirm).toHaveBeenLastCalledWith(null);
+    expect(tryAgain().textContent).toBe("Cancelling…");
 
     retry.resolve("declined");
     await settle();
@@ -627,8 +672,9 @@ describe("ConfirmLinkPage — typing the number", () => {
     return screen.getByLabelText(TYPE_LINE) as HTMLInputElement;
   }
 
+  /** Confirm, or "Confirming…" while it is busy. */
   function confirmButton(): HTMLButtonElement {
-    return screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement;
+    return screen.getByRole("button", { name: /^Confirm(ing…)?$/ }) as HTMLButtonElement;
   }
 
   function enter(value: string) {
@@ -683,13 +729,17 @@ describe("ConfirmLinkPage — typing the number", () => {
     expect(onConfirm).not.toHaveBeenCalled();
 
     enter("4821");
+    field().focus();
     fireEvent.keyDown(field(), { key: "Enter" });
     fireEvent.keyDown(field(), { key: "Enter" });
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm).toHaveBeenCalledWith("4821");
+    // The field disables for the wait, so focus goes to the heading, not the page.
+    expectBusy(confirmButton());
+    expect(document.activeElement).toBe(heading());
   });
 
-  it("sends exactly what was typed, once, and holds everything still while it runs", () => {
+  it("sends exactly what was typed, once, and holds everything still but the busy Confirm while it runs", () => {
     const onConfirm = vi.fn<OnConfirm>(() => new Promise(() => {}));
     typed(onConfirm);
 
@@ -703,10 +753,11 @@ describe("ConfirmLinkPage — typing the number", () => {
     expect(onConfirm).toHaveBeenCalledWith("0730");
     expect(field().disabled).toBe(true);
     expect(field().value).toBe("0730");
-    expect(confirmButton().disabled).toBe(true);
+    expectBusy(confirmButton());
+    expect(confirmButton().textContent).toBe("Confirming…");
     expect(decline().disabled).toBe(true);
     expect(paragraph("You typed 0730. Confirming…")).not.toBeNull();
-    expect(document.activeElement).toBe(heading());
+    expect(document.activeElement).toBe(confirmButton());
   });
 
   it("lets the person decline with nothing typed", () => {
@@ -781,12 +832,16 @@ describe("ConfirmLinkPage — typing the number", () => {
     expect(paragraph("You typed 4821.")).not.toBeNull();
     expect(field().disabled).toBe(true);
     expect(field().value).toBe("4821");
-    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Confirm(ing…)?$/ })).toBeNull();
     expect(decline().disabled).toBe(false);
 
     fireEvent.click(tryAgain());
     expect(onConfirm).toHaveBeenCalledTimes(2);
     expect(onConfirm).toHaveBeenLastCalledWith("4821");
+    // Try again is the busy one; Confirm does not come back beside it.
+    expectBusy(tryAgain());
+    expect(screen.getAllByRole("button", { name: "Confirming…" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
     retry.resolve("expired");
     await settle();
     expect(heading().textContent).toBe(EXPIRED_HEADING);
@@ -808,9 +863,9 @@ describe("ConfirmLinkPage — typing the number", () => {
 
     fireEvent.click(decline());
     expect(onConfirm.mock.calls).toEqual([["4821"], [null]]);
-    expect(paragraph("Cancelling…")).not.toBeNull();
+    expect(decline().textContent).toBe("Cancelling…");
     expect(container.textContent).not.toContain("You typed");
-    expect(decline().disabled).toBe(true);
+    expectBusy(decline());
 
     declined.resolve("declined");
     await settle();
@@ -1038,8 +1093,9 @@ describe("ConfirmLinkPage — the words for each flow", () => {
 });
 
 describe("ConfirmLinkPage — focus and what is said aloud", () => {
-  it("puts focus on its heading on mount and when the tap disables the focused number", () => {
-    page(() => new Promise(() => {}));
+  it("puts focus on its heading on mount, keeps it on a tapped number while it is busy, and brings it to the heading on the answer", async () => {
+    const pending = deferred<ConfirmOutcome>();
+    page(() => pending.promise);
 
     // A heading with no tabindex cannot take focus in a browser, though
     // happy-dom lets it: the attribute is half of the guarantee.
@@ -1049,7 +1105,23 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
     candidate("0730").focus();
     expect(document.activeElement).toBe(candidate("0730"));
     fireEvent.click(candidate("0730"));
+    expectBusy(candidate("0730"));
+    expect(document.activeElement).toBe(candidate("0730"));
+
+    // The error disables every number, so focus goes to the heading.
+    pending.reject(new Error("down"));
+    await settle();
     expect(candidate("0730").disabled).toBe(true);
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it("moves focus to the heading when the tap leaves it on nothing busy", () => {
+    page(() => new Promise(() => {}));
+    // A browser that does not focus a button on click, as Safari does not:
+    // focus stays where it was, here on a number that is about to disable.
+    candidate("4821").focus();
+    fireEvent.click(candidate("0730"));
+    expect(candidate("4821").disabled).toBe(true);
     expect(document.activeElement).toBe(heading());
   });
 
@@ -1109,7 +1181,9 @@ describe("ConfirmLinkPage — focus and what is said aloud", () => {
     first.reject(new Error("down"));
     await settle();
     expect(announcer(container)).toBe(region);
-    expect(region.textContent).toBe(ERROR_LINE);
+    // The error is its own alert, so the region does not say it again.
+    expect(region.textContent).toBe("");
+    expect(errorAlert()?.textContent).toContain(ERROR_LINE);
 
     fireEvent.click(tryAgain());
     expect(region.textContent).toBe("Confirming…");
@@ -1248,7 +1322,7 @@ describe("ConfirmLinkPage — around the page", () => {
 
     render(() => <ConfirmLinkPage purpose="recovery" typeNumber onConfirm={onConfirm} />);
     fireEvent.input(screen.getByRole("textbox"), { target: { value: "4821" } });
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm(ing…)?$/ }));
     await settle();
     fireEvent.click(decline());
     await settle();

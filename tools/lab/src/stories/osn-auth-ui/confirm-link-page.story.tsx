@@ -125,8 +125,9 @@ export const ReadyFiveNumbers = state(
 export const Confirming = state(
   "confirming",
   <>
-    A confirm that has not answered. Every number is disabled and the page says which was picked;
-    after 10 seconds a line says it is still working. Nothing cuts the call short.
+    A confirm that has not answered. The number picked is busy, the orb before its digits, the
+    others and the decline are disabled, and the page says which was picked; after 10 seconds a line
+    says it is still working. Nothing cuts the call short.
   </>,
   () => (
     <Pressed>
@@ -210,8 +211,9 @@ export const ErrorRetry = state(
   <>
     The confirm call threw. The numbers stay, disabled, with the one picked; a fixed line in a
     danger <Mono>Notice</Mono>, never the error's own text; and Try again, which sends the same
-    number. Press it: this time it confirms after 600 ms. "I didn't ask for this" stays open, and
-    sends no number as a new attempt: press it instead for "Cancelled".
+    number. Press it: it turns busy, "Confirming…", and this time confirms after 600 ms. "I didn't
+    ask for this" stays open, and sends no number as a new attempt: press it instead for
+    "Cancelled".
   </>,
   () => {
     const onConfirm = failOnceThenConfirm();
@@ -316,8 +318,8 @@ export const TypedNumber = state(
 export const TypedNumberConfirming = state(
   "type the number, confirming",
   <>
-    A typed number sent, with no answer yet: the field keeps it, disabled, beside a disabled Confirm
-    and decline; the slow line comes after 10 seconds.
+    A typed number sent, with no answer yet: the field keeps it, disabled; Confirm is busy,
+    "Confirming…", and the decline disabled; the slow line comes after 10 seconds.
   </>,
   () => (
     <TypedIn value="0730">

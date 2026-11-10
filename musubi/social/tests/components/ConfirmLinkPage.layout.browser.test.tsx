@@ -324,6 +324,17 @@ describe("ConfirmLinkPage typing the number, on a bare musubi route", () => {
     expect(field.scrollWidth).toBe(field.clientWidth);
     // 16px type below 640px, so a phone's browser does not zoom on focus.
     expect(getComputedStyle(field).fontSize).toBe("16px");
+    // A plain label, as every auth form field has: the control step at 500 in
+    // the heading's full ink, 6px above the field.
+    const label = document.querySelector<HTMLElement>(`label[for="${field.id}"]`);
+    if (!label) throw new Error("the field has no label");
+    const labelStyle = getComputedStyle(label);
+    expect(labelStyle.fontSize).toBe("14px");
+    expect(labelStyle.fontWeight).toBe("500");
+    expect(labelStyle.color).toBe(
+      getComputedStyle(screen.getByRole("heading", { level: 1 })).color,
+    );
+    expect(field.getBoundingClientRect().top - label.getBoundingClientRect().bottom).toBe(6);
     // The field's edge, on the card it sits on, clears the 3:1 a control needs.
     const cardFill = getComputedStyle(card).backgroundColor;
     expect(

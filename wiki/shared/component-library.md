@@ -2250,8 +2250,9 @@ tall, each number at `text-ui-xl` medium in tabular figures, the size the
 waiting screen draws it; under them "I didn't ask for this", a full-width
 `ghost` `sm` Button, 44px below `md` and 32px from it. Try again and Continue are
 full-width filled pills, 40px on a desktop and 44px on a phone. With
-`typeNumber`, in place of the numbers: the shared `Label` "Type the number shown
-on the screen where you started." over one shared `Input` (`size="touch"`: 46px
+`typeNumber`, in place of the numbers: a shared `Field` whose plain label, "Type
+the number shown on the screen where you started.", sits 6px over one shared
+`Input` (`size="touch"`: 46px
 with 16px type below 640px, so a phone does not zoom, 44px above; `face="code"`:
 mono with wide tracking, for a value checked character by character;
 `fill="ink"`, because it sits on the card rather than the page's ground), then a
@@ -2260,17 +2261,21 @@ full-width Confirm, 40px and 44px like Try again, then the decline.
 | State | Heading | Body | Buttons |
 | --- | --- | --- | --- |
 | ready | Confirm this email | What confirming lets the device that asked do; "Only confirm if you asked for this", and that "I didn't ask for this" is below | the numbers, or the field and Confirm (disabled until it holds one to six digits); I didn't ask for this |
-| confirming | Confirm this email | The same; "You picked {n}. Confirming…" or "You typed {n}. Confirming…" (or "Cancelling…"); after 10 seconds, "This is taking longer than usual. Keep this page open." | every one disabled, the field still holding the entry |
-| error | Confirm this email | The same, "You picked {n}." or "You typed {n}.", then a danger `Notice` — "We couldn't confirm this email just now.", or "We couldn't cancel this just now." — directly above Try again, where `CheckEmailView` puts its error too | the numbers, or the field, disabled; I didn't ask for this, still open; Try again |
+| confirming | Confirm this email | The same; "You picked {n}. Confirming…" or "You typed {n}. Confirming…" after a number; after 10 seconds, "This is taking longer than usual. Keep this page open." | the one that started the call busy — the number tapped, Confirm ("Confirming…"), I didn't ask for this ("Cancelling…") or Try again — and every other one disabled, the field still holding the entry |
+| error | Confirm this email | The same, "You picked {n}." or "You typed {n}.", then a danger `Notice` with `alert` — "We couldn't confirm this email just now.", or "We couldn't cancel this just now." — directly above Try again, the action it follows (`osn/auth-ui/DESIGN.md` §7) | the numbers, or the field, disabled; I didn't ask for this, still open; Try again |
 | confirmed | Confirmed | "Go back to where you started to …" and "You can close this page", or "Continue to …" with `onContinue` | none, or Continue |
 | declined | Cancelled | "Nothing was confirmed. You can close this page." (step-up: someone else may be signed in, so sign out the other sessions) | none |
 | expired | This link no longer works | It has expired or was used; if you confirmed it already, carry on where you started; if not, ask for a new link there. The same words for every refusal; step-up adds that if you didn't ask for this link, someone else may be signed in, so sign out the other sessions | none |
 
 - **Only a tap confirms.** Mail scanners open links before people do, so
   nothing on mount, on a prop change or on a timer calls `onConfirm`. Tapping a
-  number is the confirm, with no second button: it sends that number, and every
-  choice disables itself the moment one is pressed. No click reaches a disabled
-  button, so one tap is one call.
+  number is the confirm, with no second button: it sends that number. The
+  control pressed turns `Button`'s `busy` and every other choice disables
+  itself the moment one is pressed; neither a busy nor a disabled button takes
+  a click, so one tap is one call. A busy number keeps its digits, with the
+  orb before them, since "You picked {n}. Confirming…" under the choices names
+  the wait; Confirm, the decline and Try again read "Confirming…" or
+  "Cancelling…" (`osn/auth-ui/DESIGN.md` §6).
 - **The person picks the number the waiting screen shows.** The page does not
   know which number is right, never reorders the list, and draws each as
   written: no `Intl`, no padding, no grouping. The digits carry
@@ -2325,13 +2330,16 @@ full-width Confirm, 40px and 44px like Try again, then the decline.
 - **What is said aloud.** One `sr-only` `<output>` with `aria-live="polite"`
   and `aria-atomic="true"`, mounted from the start and empty until something
   changes, as `AuthorizePage`'s is ([[authorize-ui]]). It says "Confirming…" or
-  "Cancelling…", the slow line, the error, and each answer with its heading
-  word ("Confirmed. Go back to …"). An opening answer or a list the page cannot
+  "Cancelling…", the slow line and each answer with its heading word
+  ("Confirmed. Go back to …"). The error line is a `Notice` with `alert`, so
+  the output says nothing for it rather than say it twice. An opening answer or a list the page cannot
   offer is drawn from the start and says nothing. The heading sits outside it.
 - **Focus.** The heading (`tabindex="-1"`) takes focus on mount and on every
-  change. At a tap that moves focus off the button it just disabled, so focus
-  never falls to `<body>`. When the answer comes focus is usually already on the
-  heading, which is why the output carries the heading word.
+  answer. While a call runs, the busy control that started it keeps focus;
+  focus left anywhere else, on a choice that has just disabled or in the typed
+  field after Enter, goes to the heading, so focus never falls to `<body>`.
+  When the answer comes the busy control goes or disables, and focus moves to
+  the heading, which is why the output carries the heading word.
 - **The error text is fixed.** A thrown error's own message ("Failed to fetch",
   or whatever detail a host's error carries) never reaches the page.
 - **No deadline.** Confirming is a write. Abandoning it could offer "Try again"
@@ -2354,10 +2362,12 @@ number reached from the keyboard draws a solid 2px outline 2px off.
 *Measured 2026-11-07 — the lab's `Ready` and `Confirming` stories at 1280px, light and dark, in Playwright's Chromium (`vite preview` of the built lab), each colour composited over the painted card on a one-pixel canvas; the contrast theme through `forcedColors: "active"`*
 
 The typed field's edge measures 3.45:1 on the light card and 5.18:1 on the dark
-one, its entry 13.46:1 and 12.47:1, its label 6.58:1 and 6.15:1; focus from the
-keyboard draws a solid 2px outline 2px off, 6.58:1 and 6.15:1, and the same in a
-contrast theme. Pressing "a" leaves "4821" as it was, and typing "12-3 4567"
-key by key leaves "123456".
+one, and its entry 13.46:1 and 12.47:1; focus from the keyboard draws a solid
+2px outline 2px off, 6.58:1 and 6.15:1, and the same in a contrast theme.
+Pressing "a" leaves "4821" as it was, and typing "12-3 4567" key by key leaves
+"123456". The label was measured at 6.58:1 and 6.15:1 in the secondary ink; it
+now takes the heading's full ink, as a plain label does, and was not measured
+again.
 
 *Measured 2026-11-07 — the lab's `TypedNumber` story at 1280px and `TypedNumberPhone` at 320px, light and dark, in Playwright's Chromium (`vite preview` of the built lab), each colour composited over the painted card on a one-pixel canvas; the keystrokes through Playwright's keyboard*
 

@@ -1,12 +1,12 @@
 import { Button } from "@shared/ui/ui/button";
 import { Card } from "@shared/ui/ui/card";
+import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { Label } from "@shared/ui/ui/label";
 import { Notice } from "@shared/ui/ui/notice";
 import {
+  batch,
   createMemo,
   createSignal,
-  createUniqueId,
   For,
   type JSX,
   Match,
@@ -106,6 +106,9 @@ export type ConfirmLinkPageProps = ConfirmLinkPageCommonProps &
 
 type Status = "ready" | "confirming" | "confirmed" | "expired" | "declined" | "error";
 
+/** The control that started the call under way, which shows the wait as `Button`'s `busy`. */
+type Pressed = "pick" | "confirm" | "decline" | "retry";
+
 const SLOW_AFTER_MS = 10_000;
 
 const FEWEST_CANDIDATES = 3;
@@ -198,8 +201,9 @@ function offerable(candidates: Candidates | undefined): boolean {
  *
  * - **Only a tap confirms.** Mail scanners open links before people do, so
  *   nothing on mount, on a prop change or on a timer calls `onConfirm`.
- *   Tapping a number is the confirm: it sends that number, and every choice
- *   disables itself at once, so one tap is one call.
+ *   Tapping a number is the confirm: it sends that number, the number turns
+ *   busy and every other choice disables itself at once, so one tap is one
+ *   call.
  * - **The person picks the number the waiting screen shows.** The numbers are
  *   drawn in the order given, as written, in tabular figures and kept from
  *   page translation. The page does not know which is right, and a list it
@@ -216,11 +220,18 @@ function offerable(candidates: Candidates | undefined): boolean {
  *   decline, again. The error line is fixed: a thrown error's own text is
  *   never shown. Every refusal shows the same expired page. `initialOutcome`
  *   opens the page on an answer the host already has.
+ * - **The wait.** The control that started the call — the number tapped,
+ *   Confirm, "I didn't ask for this" or Try again — is `Button`'s `busy` while
+ *   it runs: it keeps focus and refuses a press, and the rest are disabled.
+ *   Confirm, the decline and Try again read "Confirming…" or "Cancelling…";
+ *   a number keeps its digits, and the line under the choices names the wait.
  * - **What is said aloud.** One polite `<output>`, mounted from the start and
- *   empty until something changes, says what is running, a slow call, the
- *   error and each answer, heading word included. The heading takes focus when
- *   the page appears and on every change, so focus never falls to the page when
- *   the tapped choice disables or goes.
+ *   empty until something changes, says what is running, a slow call and each
+ *   answer, heading word included. The error line is an alert of its own, so
+ *   the `<output>` does not say it again. The heading takes focus when the
+ *   page appears and on every change after it, except that a busy control
+ *   keeps the focus it has, so focus never falls to the page when a choice
+ *   disables or goes.
  * - **No deadline.** Confirming is a write; abandoning it could offer "Try
  *   again" over an approval that went through. After ten seconds the page only
  *   says it is still working.
@@ -233,9 +244,9 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
   const [slow, setSlow] = createSignal(false);
   // Boxed, because `null` (the decline) is an attempt and `undefined` is none.
   const [attempt, setAttempt] = createSignal<{ pick: string | null }>();
+  const [pressed, setPressed] = createSignal<Pressed>();
 
   const [entry, setEntry] = createSignal("");
-  const fieldId = createUniqueId();
 
   const usable = createMemo(() => offerable(props.candidates));
 
@@ -260,6 +271,14 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
 
   const declining = () => attempt()?.pick === null;
 
+  /** Whether `control` started the call under way. */
+  const busy = (control: Pressed) => view() === "confirming" && pressed() === control;
+
+  const retrying = () => busy("retry");
+
+  /** The label of a busy Confirm, decline or Try again: the wait it started. */
+  const waitLabel = () => (declining() ? "Cancelling…" : "Confirming…");
+
   function stopSlowTimer() {
     if (slowTimer === undefined) return;
     clearTimeout(slowTimer);
@@ -274,10 +293,16 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
   onMount(() => heading?.focus());
   onCleanup(stopSlowTimer);
 
-  async function send(pick: string | null) {
-    setAttempt({ pick });
-    setSlow(false);
-    show("confirming");
+  async function send(pick: string | null, from: Pressed) {
+    batch(() => {
+      setAttempt({ pick });
+      setPressed(from);
+      setSlow(false);
+      setStatus("confirming");
+    });
+    // The control that started the call is busy and keeps focus. Focus left
+    // anywhere else, on a choice that has just disabled, goes to the heading.
+    if (document.activeElement?.getAttribute("aria-busy") !== "true") heading?.focus();
     slowTimer = setTimeout(() => {
       slowTimer = undefined;
       setSlow(true);
@@ -295,7 +320,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
   }
 
   function confirmTyped() {
-    if (isPairingCode(entry())) void send(entry());
+    if (isPairingCode(entry())) void send(entry(), "confirm");
   }
 
   /**
@@ -322,7 +347,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
 
   function retry() {
     const last = attempt();
-    if (last !== undefined) void send(last.pick);
+    if (last !== undefined) void send(last.pick, "retry");
   }
 
   const address = (): JSX.Element =>
@@ -371,7 +396,8 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
         if (slow()) return SLOW_LINE;
         return declining() ? "Cancelling…" : "Confirming…";
       case "error":
-        return errorLine();
+        // The error line is an alert of its own.
+        return "";
       case "confirmed":
         return `Confirmed. ${confirmedSentence()}`;
       case "declined":
@@ -395,10 +421,11 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
       variant="ghost"
       size="sm"
       class="w-full max-md:h-11"
-      disabled={view() !== "ready" && view() !== "error"}
-      onClick={() => void send(null)}
+      busy={busy("decline")}
+      disabled={!busy("decline") && view() !== "ready" && view() !== "error"}
+      onClick={() => void send(null, "decline")}
     >
-      {DECLINE_LABEL}
+      {busy("decline") ? waitLabel() : DECLINE_LABEL}
     </Button>
   );
 
@@ -451,22 +478,28 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
                     {PICK_LINE}
                   </legend>
                   <For each={props.candidates}>
-                    {(candidate) => (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        class="h-12 w-full"
-                        disabled={view() !== "ready"}
-                        onClick={() => void send(candidate)}
-                      >
-                        <span
-                          class="text-ui-xl text-ui-ink leading-ui-tight font-medium tabular-nums"
-                          translate="no"
+                    {(candidate) => {
+                      // A number keeps its digits while busy: the line under
+                      // the choices says "You picked {n}. Confirming…".
+                      const tapped = () => busy("pick") && attempt()?.pick === candidate;
+                      return (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          class="h-12 w-full"
+                          busy={tapped()}
+                          disabled={!tapped() && view() !== "ready"}
+                          onClick={() => void send(candidate, "pick")}
                         >
-                          {candidate}
-                        </span>
-                      </Button>
-                    )}
+                          <span
+                            class="text-ui-xl text-ui-ink leading-ui-tight font-medium tabular-nums"
+                            translate="no"
+                          >
+                            {candidate}
+                          </span>
+                        </Button>
+                      );
+                    }}
                   </For>
                 </fieldset>
                 {declineButton()}
@@ -474,37 +507,40 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
             }
           >
             <div class="flex flex-col gap-4">
+              {/* A plain label, as every auth form field has. Not `OtpInput`:
+                  its six boxes are a fixed length, and the number runs from
+                  one digit to six, which the page does not know. */}
+              <Field labelTreatment="plain" label={TYPE_LINE}>
+                {(field) => (
+                  <Input
+                    {...field}
+                    size="touch"
+                    face="code"
+                    fill="ink"
+                    inputmode="numeric"
+                    autocomplete="off"
+                    spellcheck={false}
+                    maxlength="6"
+                    translate="no"
+                    value={entry()}
+                    disabled={view() !== "ready"}
+                    onBeforeInput={refuseNonDigits}
+                    onInput={(event) => setEntry(event.currentTarget.value)}
+                    onKeyDown={enterConfirms}
+                  />
+                )}
+              </Field>
               <div class="flex flex-col gap-2">
-                <Label for={fieldId} size="sm" tone="muted">
-                  <span class="leading-ui-snug block">{TYPE_LINE}</span>
-                </Label>
-                <Input
-                  id={fieldId}
-                  size="touch"
-                  face="code"
-                  fill="ink"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  spellcheck={false}
-                  maxlength="6"
-                  translate="no"
-                  value={entry()}
-                  disabled={view() !== "ready"}
-                  onBeforeInput={refuseNonDigits}
-                  onInput={(event) => setEntry(event.currentTarget.value)}
-                  onKeyDown={enterConfirms}
-                />
-              </div>
-              <div class="flex flex-col gap-2">
-                <Show when={view() !== "error"}>
+                <Show when={view() !== "error" && !retrying()}>
                   <Button
                     type="button"
                     size="lg"
                     class="w-full max-md:h-11"
-                    disabled={view() !== "ready" || !isPairingCode(entry())}
+                    busy={busy("confirm")}
+                    disabled={!busy("confirm") && (view() !== "ready" || !isPairingCode(entry()))}
                     onClick={confirmTyped}
                   >
-                    Confirm
+                    {busy("confirm") ? waitLabel() : "Confirm"}
                   </Button>
                 </Show>
                 {declineButton()}
@@ -516,14 +552,8 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
         <Show when={view() === "confirming" || view() === "error" ? attempt() : undefined}>
           {(last) => (
             <div class="flex flex-col gap-2">
-              <Show
-                when={last().pick}
-                fallback={
-                  <Show when={view() === "confirming"}>
-                    <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">Cancelling…</p>
-                  </Show>
-                }
-              >
+              {/* A decline's wait is named by the busy control's own label. */}
+              <Show when={last().pick}>
                 {(pick) => (
                   <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">
                     {typing() ? "You typed" : "You picked"}{" "}
@@ -538,7 +568,7 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
                 <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{SLOW_LINE}</p>
               </Show>
               <Show when={view() === "error"}>
-                <Notice tone="danger" size="inline">
+                <Notice tone="danger" size="inline" alert>
                   {errorLine()}
                 </Notice>
               </Show>
@@ -546,9 +576,17 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
           )}
         </Show>
 
-        <Show when={view() === "error"}>
-          <Button type="button" size="lg" class="w-full max-md:h-11" onClick={retry}>
-            Try again
+        {/* Kept while its own retry runs, so the control that started the
+            wait is the one that shows it and keeps focus. */}
+        <Show when={view() === "error" || retrying()}>
+          <Button
+            type="button"
+            size="lg"
+            class="w-full max-md:h-11"
+            busy={retrying()}
+            onClick={retry}
+          >
+            {retrying() ? waitLabel() : "Try again"}
           </Button>
         </Show>
         <Show when={view() === "confirmed" && props.onContinue}>
