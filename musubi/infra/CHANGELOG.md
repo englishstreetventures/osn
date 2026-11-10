@@ -1,5 +1,13 @@
 # @musubi/infra
 
+## 0.2.14
+
+### Patch Changes
+
+- ab6810e: The musubi stack's tests follow musubi social serving from its Worker: the production declaration puts the apex `musubi.social` on the `osn-social` Worker, and the guard tests read that Worker at the apex. The app's `_headers` comment says the static-asset layer, not Pages, would guess the Apple app-site association file's type.
+- Updated dependencies [ab6810e]
+  - @shared/infra@0.7.3
+
 ## 0.2.13
 
 ### Patch Changes
