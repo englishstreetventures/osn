@@ -240,8 +240,7 @@ test("musubi-passkey", async ({ page, context, flow }) => {
       await verifyEmail.click();
       await answered;
       await expect(dialogAlert).toContainText(WAIT);
-      // Past the task in which a lost focus would be put back.
-      await page.evaluate(() => new Promise((done) => setTimeout(done, 50)));
+      await expect(verifyEmail).toBeFocused();
       focusAfterClick = await sentFrom();
 
       answered = page.waitForResponse(
