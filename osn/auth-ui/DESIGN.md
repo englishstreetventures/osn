@@ -74,14 +74,15 @@ value.
 **As it stands.** The `@shared/ui` parts the views are built from render
 through the contract. The views' own classes do not yet (#2045). They name the
 shadcn colour vocabulary — `text-foreground`, `text-muted-foreground`,
-`text-destructive`, `text-primary`, `text-accent-foreground`, `bg-background`,
-`bg-muted`, `bg-accent`, `border-border` — Tailwind's default type steps and
+`text-destructive`, `text-primary`, `text-accent-foreground`, `bg-muted`,
+`bg-accent`, `border-border` — Tailwind's default type steps and
 weights (`text-xs`, `text-sm`, `text-lg`, `text-2xl`, `font-semibold`,
 `font-bold`) and Tailwind's own radii (`rounded-md`, `rounded`). So the views
 render as intended only in a host that defines that vocabulary. The `ui-*`
 utilities the views write themselves today: `text-ui-success` (`Register`),
 `border-ui-warn/40 bg-ui-warn/10` (`SecurityEventsBanner`), `text-ui-xs`
-(`ProfileSwitcher`). Every error line is a `@shared/ui` `Notice`, so it
+(`ProfileSwitcher`), and the plain label's `text-ui-ink text-ui-base` on the
+spans over a row of code boxes (§4). Every error line is a `@shared/ui` `Notice`, so it
 paints `ui-danger` through the contract (§7).
 
 **Status roles in use.**
@@ -109,7 +110,7 @@ paints `ui-danger` through the contract (§7).
 | Meta lines (dates, "(synced)") | `text-xs` | the list rows, the banner |
 | Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
 | Names in a row | `font-medium` | `PasskeysView`, `TotpView`, `SessionsView`, `SecurityEventsBanner` |
-| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key; with `tracking-widest`, the code fields `ChangeEmailForm` and `StepUpDialog` draw themselves (§5) |
+| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key; the code fields in `ChangeEmailForm` and `StepUpDialog` are `Input` with `face="code"`, the contract's mono face and wide tracking |
 
 The `@shared/ui` parts inside the views (Button, Field, Input, Label,
 OtpInput, Card and Dialog titles) take the contract steps.
@@ -125,7 +126,9 @@ As built:
   plain label (`labelTreatment="plain"`), 6px above the control. The two
   labels `Field` does not draw sit 6px above their controls too: `Register`'s
   Email, a bare `Label` beside its "i", and the span over a row of code boxes
-  (`RecoveryLoginForm`, `TotpView`).
+  (`RecoveryLoginForm`, `TotpView`), which takes the plain label's classes
+  (`text-ui-ink text-ui-base leading-none font-medium`) because six boxes have
+  no one id for a `<label for>` (#2041).
   The primary Button spans the column; a standalone link under it sits centred
   (§5).
 - **Settings panels** (`PasskeysView`, `TotpView`, `SessionsView`) are a
@@ -162,34 +165,25 @@ besides the default:
 | `SignIn` | Button, Field, Input, Notice | `ghost`, `secondary`, `link` |
 | `Register` | Button, Field, InfoPopover, Input, Label, Notice, OtpInput, UsernameInput | `ghost`, `link` |
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput | `outline`, `ghost` |
-| `StepUpDialog` | Button, Field, Notice | `outline`, `ghost` |
+| `StepUpDialog` | Button, Field, Input, Notice | `outline`, `ghost` |
 | `PasskeysView` | Button, Input, Notice | `outline`, `ghost` |
 | `TotpView` | Button, Field, Input, Notice, OtpInput, QrCode | `outline`, `ghost` |
-| `RecoveryCodesView` | Button, Dialog, Notice | `outline`, `ghost` |
+| `RecoveryCodesView` | Button, Checkbox, Dialog, Notice | `outline`, `ghost` |
 | `SessionsView` | Button, Notice | `outline` |
 | `SecurityEventsBanner` | Button, Notice | `outline` |
-| `ChangeEmailForm` | Button, Field, Notice | — |
+| `ChangeEmailForm` | Button, Field, Input, Notice | — |
 | `CreateProfileForm` | Button, Field, Input, Notice, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
-| `ProfileSwitcher` | Avatar, Button, Dialog, Notice, Popover | `ghost`, `destructive` |
+| `ProfileSwitcher` | Avatar, Button, Dialog, Notice, Popover | `ghost`, `ghostDanger`, `destructive` |
 | `TurnstileWidget` | Notice | — |
 
 **Drawn by hand.** Besides those parts, the views draw these controls
 themselves:
 
-- Raw `<input>`s: the new email and the code in `ChangeEmailForm`, and the
-  emailed code and the authenticator code in `StepUpDialog`, each
-  `bg-background rounded-md border px-3 py-2`. Each sits in a `Field` with a
-  plain label, its error line under it, as every other field does. The
-  `border` names no
-  colour at rest; in Musubi a bare-bordered field keeps its ink edge
-  (`currentColor`), since `--input`, the edge `@shared/ui`'s `Input` draws,
-  sits under 3:1 (`musubi/social/DESIGN.md` §Borders). A refused value turns
-  it red (`aria-[invalid=true]:border-ui-danger`), as `Input` does.
-- A raw checkbox, "I've saved these codes somewhere safe.", in
-  `RecoveryCodesView`.
-- Text `<button>`s: each profile row and its delete control in
-  `ProfileSwitcher`.
+- Text `<button>`s: each profile row in `ProfileSwitcher`, with the chosen
+  row marked by the accent wash and a ✓ (#2045). The row's delete is a
+  `ghostDanger` icon `Button` beside the row's button, never inside it: a
+  button inside a button has no reliable name or keyboard path.
 - `InlineAction` (`src/InlineAction.tsx`, internal): the button that ends an
   error line — "Lost your passkey?" in `SignIn`'s passkey error, "Try again"
   in a failed load. It keeps the line's ink and is underlined, so the action
@@ -474,13 +468,8 @@ focus-visible:ring-ui-focus focus-visible:outline-hidden`). Every other
 control the views draw by hand (§5) takes whatever outline its host's
 stylesheet gives `:focus-visible`: in Musubi, the only host, a 2px
 `--ui-focus` outline 2px off (`musubi/social/DESIGN.md` §Focus), which is not
-the ring the rule above asks for:
-
-- the raw code and email `<input>`s in `ChangeEmailForm` and `StepUpDialog`
-  (#2041; `ChangeEmailForm`'s code field in #2056);
-- the raw checkbox in `RecoveryCodesView`, the profile rows and delete
-  controls in `ProfileSwitcher`, and the "Signing in somewhere new?" summary in
-  `PasskeysView` (#2045).
+the ring the rule above asks for: the profile rows in `ProfileSwitcher` and
+the "Signing in somewhere new?" summary in `PasskeysView` (#2045).
 
 `ProfileSwitcher`'s rows fade their colours with `transition-ui-colors`, the
 host's utility (`musubi/social/src/App.css`), which leaves the outline out, so
@@ -548,8 +537,13 @@ As built:
   weight.
 - **Waits in the package tests.** `SignIn.test.tsx` holds Continue busy and
   not disabled while the passkey prompt is open, though the verification
-  challenge has dropped its spent token; `Register.test.tsx` holds "Resend
-  code" busy while it sends, with "Verify email" left as it was.
+  challenge has dropped its spent token. `Register.test.tsx` holds "Resend
+  code" busy while it sends, and "Verify email" not busy (it is `disabled`
+  while the resend runs, §6); with six digits in, a pending resend leaves
+  Verify email and the code boxes disabled and the form's submit verifies
+  nothing, and a pending verify leaves Resend disabled, not busy, and sending
+  nothing. `ProfileSwitcher.test.tsx` holds Delete busy, not disabled, while
+  the delete runs, and each row's delete beside its row button.
 - **Error lines in the package tests.** Each view's tests plant text in a
   thrown error's `message` and check it never reaches the screen, check a
   `429` reads the wait sentence, and check the line is an alert, tied to its

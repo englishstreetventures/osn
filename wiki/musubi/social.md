@@ -334,6 +334,8 @@ standalone "Lost your passkey?" link, Continue busy while
 `/login/passkey/begin` is held (focus kept, the orb drawn, shot under reduced
 motion), and `/authorize`'s "Create one" inside its sentence.
 `musubi-org-detail` reads the create-organisation dialog's plain labels and
-the handle's hint. The rules they hold are in
+the handle's hint, and holds the create's `POST` and the rename's `PATCH` long
+enough to read Create ("Creating…") and Save ("Saving…") busy, not disabled,
+with focus kept (`busyButtonHeld`). The rules they hold are in
 [DESIGN.md](../../musubi/social/DESIGN.md) §Links, §Busy buttons and §Form
 fields.

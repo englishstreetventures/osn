@@ -607,8 +607,11 @@ orb (§The orb).
   `ChangeEmailForm`'s, `/authorize`'s Allow and Cancel) take none.
 
 Uses in the app: the create-organisation dialog's Create ("Creating…"), the
-edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), and Connected
-apps' Revoke ("Revoking…"). The auth views' are in `osn/auth-ui/DESIGN.md` §6.
+edit dialog's Save ("Saving…"), Discover's Connect ("Sending…"), Connected
+apps' Revoke ("Revoking…"), and `/search`'s Connect ("Sending…") and Accept
+("Accepting…"). The rail's results panel shows the same words as text, since
+a listbox option holds no button (`SearchResultRows.tsx`). The auth views' are
+in `osn/auth-ui/DESIGN.md` §6.
 
 ## Form fields
 
@@ -650,9 +653,10 @@ four-step scale or its weights today (#2045). Their form fields, links and busy
 buttons do follow this file: §Form fields, §Links and §Busy buttons.
 
 `App.css`'s base rules reach the views too: their bare-bordered rows
-(`PasskeysView`, `TotpView`, `RecoveryCodesView`) draw the hairline, the raw
-code fields in `StepUpDialog` keep their ink edge, and every control the views
-draw by hand shows the base focus outline (§Borders, §Focus).
+(`PasskeysView`, `TotpView`, `RecoveryCodesView`) draw the hairline, and every
+control the views draw by hand shows the base focus outline (§Borders,
+§Focus). Every text field in the views is `@shared/ui`'s `Input` (or
+`UsernameInput`), so each draws `Input`'s `--input` edge.
 
 **Where each view mounts:**
 
