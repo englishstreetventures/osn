@@ -820,6 +820,41 @@ const rootScripts = (): Readonly<Record<string, string>> =>
     }
   ).scripts;
 
+describe("PR3: ci.yml repeats the scripts and browser tests on a pull request, and nowhere else", () => {
+  const ci = load(".github/workflows/ci.yml");
+  const PR_ONLY = "github.event_name == 'pull_request'";
+  const scriptSteps = stepsOf(ci.jobs["script-tests"]);
+  const browserSteps = stepsOf(ci.jobs.browser);
+
+  test("the Scripts job runs its files again, twice each in random order, on a pull request only, inside the job's limit", () => {
+    const again = scriptSteps.find(
+      (step) => step.name === "Test the scripts again, shuffled and under load",
+    );
+    expect(again?.if).toBe(PR_ONLY);
+    expect(again?.run).toContain("bun test ./scripts/ --rerun-each=2 --randomize");
+    expect(again?.["continue-on-error"]).toBeUndefined();
+    const job = ci.jobs["script-tests"]["timeout-minutes"] ?? 0;
+    expect(again?.["timeout-minutes"] ?? 0).toBeGreaterThan(0);
+    expect(job).toBeGreaterThan((again?.["timeout-minutes"] ?? 0) + 2);
+  });
+
+  test("every browser leg runs each test three times on a pull request only, and fails the job when one fails", () => {
+    const again = browserSteps.find(
+      (step) => step.name === "Browser tests again, each test three times",
+    );
+    expect(again?.if).toBe(PR_ONLY);
+    expect(again?.run).toContain("test:browser $FILTERS");
+    expect(again?.run).toContain("-- --repeats=2");
+    expect(again?.["continue-on-error"]).toBeUndefined();
+  });
+
+  test("no step that repeats runs in the merge queue or on main", () => {
+    for (const step of [...scriptSteps, ...browserSteps]) {
+      if (/--rerun-each|--repeats/.test(step.run ?? "")) expect(step.if).toBe(PR_ONLY);
+    }
+  });
+});
+
 describe("PR2: ci.yml's Build & Test job runs the guest route comparison's reference on real Wrangler, and keeps its logs", () => {
   const RUN = "bun run test:scripts:wrangler";
   const steps = stepsOf(load(".github/workflows/ci.yml").jobs["build-test"]);
@@ -1148,16 +1183,23 @@ describe("production-release.yml", () => {
     expect(production.env?.DO_NOT_TRACK).toBe("1");
   });
 
-  test("PW10: no production Alchemy run writes to the public run log: each writes a file, which the next step shows only when the run failed", () => {
-    const alchemyRuns = Object.values(production.jobs).flatMap((job) =>
-      stepsOf(job).flatMap((step, at) =>
-        /\b(plan|deploy):production\b/.test(step.run ?? "") ? [{ job, step, at }] : [],
-      ),
-    );
-    // Per stack: a plan at approval 1, a re-plan in its verify job, and a
-    // re-plan and a deploy in its stack job.
+  // Per stack: a plan at approval 1, a re-plan in its verify job, and a re-plan
+  // and a deploy in its stack job. One test per run: each spawns a shell twice,
+  // and a loop over all of them in one test spends its whole budget on a loaded
+  // runner.
+  const alchemyRuns = Object.entries(production.jobs).flatMap(([id, job]) =>
+    stepsOf(job).flatMap((step, at) =>
+      /\b(plan|deploy):production\b/.test(step.run ?? "") ? [{ id, job, step, at }] : [],
+    ),
+  );
+
+  test("PW10: every stack has its four Alchemy runs", () => {
     expect(alchemyRuns).toHaveLength(4 * PRODUCTION_STACKS.length);
-    for (const { job, step, at } of alchemyRuns) {
+  });
+
+  test.each(alchemyRuns.map((run) => [`${run.id}: ${run.step.name}`, run] as const))(
+    "PW10: no production Alchemy run writes to the public run log, each writes a file, which the next step shows only when the run failed (%s)",
+    (_name, { job, step, at }) => {
       expect(step.run).not.toMatch(/\btee\b|\|/);
       const file = /> "(\$RUNNER_TEMP\/[^"]+\.log)" 2>&1\s*$/.exec(step.run ?? "")?.[1];
       expect({ step: step.name, file: file !== undefined }).toEqual({
@@ -1175,8 +1217,8 @@ describe("production-release.yml", () => {
       const show = stepsOf(job)[at + 1];
       expect(show?.if).toBe(`\${{ failure() && steps.${step.id}.outcome == 'failure' }}`);
       expect(show?.run).toBe(`cat "${file}"`);
-    }
-  });
+    },
+  );
 
   test("one release at a time, never cancelling one in progress", () => {
     expect(production.concurrency?.group).toStartWith("production-release-");

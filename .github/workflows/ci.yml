@@ -674,6 +674,18 @@ jobs:
           # shellcheck disable=SC2086 # FILTERS holds several flags.
           bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
 
+      # On a pull request only, every test runs three times in one go: vitest's
+      # `--repeats=2` runs a test again after it passes and fails the test when
+      # any run fails. The merge queue and main run the plain step above only.
+      # A failure here is a test that depends on time: fix the test, never
+      # raise its timeout or add a retry.
+      - name: Browser tests again, each test three times
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          # shellcheck disable=SC2086 # FILTERS holds several flags.
+          bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser -- --repeats=2
+
       - name: Save turbo cache
         if: github.event_name != 'merge_group'
         uses: actions/cache/save@v4
@@ -687,10 +699,10 @@ jobs:
     # The backstop under this job's own checks. Without it the job's ceiling
     # is GitHub's six hours — and because the aggregate `ci` job `needs` it,
     # and `CI` is a required check, a wedged runner here holds the merge gate
-    # open for that long. Five minutes is generous: the job does a checkout,
-    # a shasum, `bun test ./scripts/` and the relay's 13 s idle-timeout test,
-    # with no install.
-    timeout-minutes: 5
+    # open for that long. Twelve minutes is generous: the job does a checkout,
+    # a shasum, `bun test ./scripts/` (twice more, shuffled, on a pull request)
+    # and the relay's 13 s idle-timeout test, with no install.
+    timeout-minutes: 12
     steps:
       # Two commits deep so a pull request's merge commit has its base,
       # `HEAD^1`, for the migration order check below.
@@ -814,6 +826,24 @@ jobs:
       # on the Node the runner ships, with a stand-in for wrangler.
       - name: Test the scripts
         run: bun run test:scripts
+
+      # A pull request's own run is the cheap place to find a test that holds
+      # its time only on an idle machine, because the merge queue meets it
+      # first on a busy one and drops the pull request for it. So on a pull
+      # request the same files run again, each twice, in random order, beside
+      # two processes that keep two cores busy. Bun prints the seed it
+      # shuffled with; `bun test ./scripts/ --randomize --seed=<seed>`
+      # reproduces the order. A failure here is a test that depends on time or
+      # order: fix the test, never raise its timeout or add a retry. The merge
+      # queue and main run the plain step above only, so their time does not
+      # grow.
+      - name: Test the scripts again, shuffled and under load
+        if: github.event_name == 'pull_request'
+        timeout-minutes: 6
+        run: |
+          for _ in 1 2; do yes > /dev/null & done
+          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+          bun test ./scripts/ --rerun-each=2 --randomize
 
       # scripts/tests/guest-route-parity-relay-idle.slow.ts: the guest route
       # comparison's relay still answers after a cire-api call that takes

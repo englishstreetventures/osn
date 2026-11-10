@@ -1180,6 +1180,32 @@ site serves; its `test` and `test:run` scripts name `--project unit --project
 astro`, and Stryker leaves `astro` out. `@osn/auth-ui` has one plain config and
 therefore no `test:browser` to run.
 
+### A test that holds its time only on an idle machine
+
+The merge queue tests a pull request on the commit it would land as, on a busy
+runner, and drops the pull request when a test fails there. A test that depends
+on time or order passes on the pull request's own run and fails in the queue.
+So a pull request's own CI run repeats two tiers (`.github/workflows/ci.yml`):
+
+- **Scripts**: `bun test ./scripts/ --rerun-each=2 --randomize`, beside two
+  processes that keep two cores busy. Bun prints the seed; `--randomize
+  --seed=<seed>` reproduces the order.
+- **Browser**: each leg runs again with `-- --repeats=2`, which runs every test
+  three times in one go and fails the test when any run fails.
+
+The merge queue and main run the plain steps only. A failure in a repeat is a
+test that depends on time or order: fix the test. Never raise its timeout or
+add a retry, which hides the same failure until a busier runner shows it. A
+repeat on the same runner does not make the queue's load, so it finds a
+timing dependence that shows on a second run or a shuffled order, not every one
+the queue finds.
+
+A test that spawns a shell or a process for each case in a loop takes one test
+per case (`test.each`), so each case has its own budget: one test that loops
+over every workflow step spends bun's 5000 ms default on a slow machine
+(`domain-move-rehearsal-workflow.test.ts` W9 and `deploy-workflows.test.ts`
+PW10 did).
+
 ## Related
 
 - [[backend-patterns]] -- service and route layer architecture

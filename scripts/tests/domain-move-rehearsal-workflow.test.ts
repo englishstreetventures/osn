@@ -389,9 +389,13 @@ describe("domain-move-rehearsal.yml", () => {
     ]);
   });
 
-  test("W9: each of the rehearsal's steps runs the script with its own name, and fails its job when the script fails", () => {
-    const all = [...SCRIPT_STEPS, { job: "report", step: "report", token: "none" }];
-    for (const { job, step } of all) {
+  // One test per step: each spawns a shell twice, and a loop over every step in
+  // one test spends its whole budget on a loaded runner.
+  const RUNNING_STEPS = [...SCRIPT_STEPS, { job: "report", step: "report", token: "none" }];
+
+  test.each(RUNNING_STEPS.map(({ job, step }) => ({ job, step })))(
+    "W9: the $job job's $step step runs the script with its own name, and fails its job when the script fails",
+    ({ job, step }) => {
       const found = scriptStep(job, step);
       expect({ job, step, run: found?.run }).toEqual({
         job,
@@ -400,12 +404,14 @@ describe("domain-move-rehearsal.yml", () => {
       });
       expect(runStep(found).calls).toEqual([`run ${SCRIPT} ${step} --out $RUNNER_TEMP/rehearsal`]);
       expect(runStep(found, 1).exitCode).not.toBe(0);
-    }
-    // No other step runs the script.
+    },
+  );
+
+  test("W9: no other step runs the script", () => {
     const running = Object.values(jobs).flatMap((job) =>
       (job.steps ?? []).filter((step) => step.run?.includes(SCRIPT)),
     );
-    expect(running).toHaveLength(all.length);
+    expect(running).toHaveLength(RUNNING_STEPS.length);
   });
 
   test("W10: Wrangler uploads the marker page to the run's own project, on its production branch", () => {
