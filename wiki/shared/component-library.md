@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 
 # Component Library (Zaidan)
@@ -2084,7 +2084,7 @@ it.
 | `onResend` | Called once per accepted press. A rejection is the parent's to report, through `status` |
 | `onChangeEmail` | "Use a different email". Absent, no button |
 | `resendWaitSeconds` | Seconds before Resend unlocks, after the view appears and after each press. 30 by default; anything not a positive number means no wait |
-| `pairingCode` | The number the page the link opens asks the person to pick (on recovery, to type), from the host; the view never makes one. Drawn only when it is one to six digits, 0-9 (`isPairingCode` in `osn/auth-ui/src/pairing-code.ts`); anything else draws nothing. Absent, the view is as it was without one |
+| `pairingCode` | The number the page the link opens asks the person to type (recovery, step-up) or pick (sign-up, email change), from the host; the view never makes one. Drawn only when it is one to six digits, 0-9 (`isPairingCode` in `osn/auth-ui/src/pairing-code.ts`); anything else draws nothing. Absent, the view is as it was without one |
 
 What it draws, in musubi's sizes through the contract: an `h3` at
 `text-ui-base` medium ("Check your email", or "Your link has expired"); one
@@ -2093,7 +2093,7 @@ link does, which an expired link drops; the number, when there is one, at
 `text-ui-xl` (musubi's `text-display`, 24px on a 30px line through
 `leading-ui-tight`), medium, in the body ink and tabular figures, with "Pick
 this number on the page the link opens." under it in the secondary ink ("Type
-this number…" on recovery, whose page asks the person to type it), which an
+this number…" on recovery and step-up, whose pages ask the person to type it), which an
 expired link also drops; then Resend and "Use a different email"
 as small ghost buttons, 40px tall below `md` (musubi's phone touch height,
 through `max-md:h-10` at the call site) and `Button`'s own 32px from `md` up. An
@@ -2136,9 +2136,9 @@ column never scrolls sideways.
   the region is not read out; it never says the number is new, since two
   requests can draw the same one. It stays in `error` and while a resend is
   sending: the link already sent still stands. The caption's verb follows the
-  flow (`NUMBER_CAPTION`): recovery's page has the person type the number,
-  every other flow's has them pick it from a few, so the caption says "Type"
-  or "Pick" to match.
+  flow's pairing mode (`PAIRING_MODE`): recovery's and step-up's pages have the
+  person type the number, sign-up's and email change's have them pick it from
+  a few, so the caption says "Type" or "Pick" to match.
 - **Focus.** The heading (`tabindex="-1"`) takes focus when the view appears,
   because the form that sent the link has just gone, and again when a press
   disables the focused Resend button. Focus never falls to `<body>`, which in a
@@ -2171,15 +2171,18 @@ For a host:
   opens to ask for. For sign-up and recovery, every request gets one, whether
   or not the address has an account, so a number on screen says nothing about
   the account.
-- A new link is a new request: pass its number before `onResend` resolves, and
-  before or with `status` going back to `waiting`, so the new number is on
-  screen when "Check the number again." is read out.
+- Resend on a live request sends another link for the same request, and the
+  request keeps its number, so `pairingCode` does not change. An `onResend`
+  that begins a new request instead, as after an expiry, passes the new
+  request's number before it resolves, and before or with `status` going back
+  to `waiting`, so the new number is on screen when "Check the number again."
+  is read out.
 - Show the number only on this tab. Never log it, and never put it in a URL,
   the email, storage or an attribute.
 - A value that is not one to six digits draws nothing, so a host that passes the
   wrong thing shows no number. The host's E2E reads the number off this screen
-  and picks it on the page the link opens, or types it there on recovery,
-  which catches that.
+  and picks it on the page the link opens, or types it there on recovery and
+  step-up, which catches that.
 
 `osn/auth-ui/tests/CheckEmailView.test.tsx` holds the wait, the one call per
 press, the region's words, the focus moves and the timer's end, the address's
@@ -2187,7 +2190,8 @@ press, the region's words, the focus moves and the timer's end, the address's
 label first, kept from translation, refused unless it is one to six digits
 (and then written nowhere, text or attribute), hidden while expired, kept in
 `error` and while sending, replaced when the host passes a new one, in no
-attribute, the caption's "Type" on recovery and "Pick" on every other flow,
+attribute, the caption's "Type" on recovery and step-up and "Pick" on
+sign-up and email change,
 and "Check the number again." after a resend. `@osn/auth-ui` has no
 browser tier, so
 [`CheckEmailView.layout.browser.test.tsx`](../../musubi/social/tests/components/CheckEmailView.layout.browser.test.tsx)
@@ -2198,8 +2202,8 @@ both buttons at 40px below `md` and 32px from it, and the six-digit number
 inside that column at 24px on a 30px line in tabular figures, its label a 1px
 box and the paragraph's accessible text "Your number: 123456"
 ([[browser-tests]]). The lab's `osn/auth-ui/CheckEmailView` stories show each
-state, every flow, a 320px phone, and the number at rest, on recovery, across a
-resend and on a phone ([[component-lab]]).
+state, every flow, a 320px phone, and the number at rest, on recovery and
+step-up, across a resend and on a phone ([[component-lab]]).
 
 ## Adding a new component
 
