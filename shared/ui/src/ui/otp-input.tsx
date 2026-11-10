@@ -1,72 +1,154 @@
 import { clsx } from "clsx";
-import { createEffect, createSignal, For, onMount, splitProps, type Component } from "solid-js";
+import {
+  createEffect,
+  createUniqueId,
+  For,
+  onCleanup,
+  onMount,
+  splitProps,
+  type Component,
+} from "solid-js";
 
 type OtpStatus = "idle" | "error" | "verifying" | "accepted";
 
 interface OtpInputProps {
-  /** Current value (up to 6 digits). */
+  /** Current value: up to 6 digits, with no gaps. */
   value: string;
   /** Called on every change with the new digit string. */
   onChange: (value: string) => void;
-  /** Visual status of the input group. */
+  /** Visual status of the input group. `verifying` and `accepted` disable the boxes. */
   status?: OtpStatus;
   /** Whether all inputs are disabled. */
   disabled?: boolean;
-  /** Auto-focus the first input on mount. */
+  /** Focus the first box once it is mounted and enabled. */
   autofocus?: boolean;
+  /**
+   * `id` of the visible label. The group takes it as its name and box N is
+   * named "<label> Digit N". Without it the group is "Verification code" and
+   * box N "Digit N".
+   */
+  "aria-labelledby"?: string;
+  /** `id`s of the lines that describe the code (its error, a hint), set on every box. */
+  "aria-describedby"?: string;
 }
 
 const LENGTH = 6;
 const INDICES = Array.from({ length: LENGTH });
 
-const OtpInput: Component<OtpInputProps> = (props) => {
-  const [local] = splitProps(props, ["value", "onChange", "status", "disabled", "autofocus"]);
-  const inputs: HTMLInputElement[] = [];
-  const [focusedIndex, setFocusedIndex] = createSignal(-1);
+const onlyDigits = (text: string) => text.replace(/\D/g, "");
 
-  const digits = () => local.value.split("");
+/**
+ * Six one-digit boxes for a verification code.
+ *
+ * - **Width.** The group fills its column. From a 328px column up the row is
+ *   six 48px squares 8px apart from the left edge. Narrower, the gaps close to
+ *   4px first, then the boxes shrink: 40px wide (Musubi's touch floor) at a
+ *   260px column, and the row still fits a 212px one. Height stays 48px.
+ * - **Value.** A digit string with no gaps, shown from box 1. Focus that lands
+ *   past the first empty box moves to it, and those boxes are out of the Tab
+ *   order. Typing over a digit replaces it. Backspace, Delete or a cut on a
+ *   digit removes it and the later digits move one box left; Backspace on the
+ *   empty box removes the digit before it. A paste, or any insert of more than
+ *   one digit (an autofill, a password manager), becomes the whole value.
+ * - **Focus.** `autofocus`, and a `status` that turns to `error`, focus box 1
+ *   one task later, and only if it is enabled then: callers disable the boxes
+ *   while busy and re-enable them in the same synchronous run, and inside a
+ *   Kobalte dialog the dialog's own first-focus runs first.
+ * - **Error.** While `status` is `error` every box is `aria-invalid`. The
+ *   message is the caller's, wired through `aria-describedby`; it must be a
+ *   live region, or it is read only when the refocus lands on box 1.
+ */
+const OtpInput: Component<OtpInputProps> = (props) => {
+  const [local] = splitProps(props, [
+    "value",
+    "onChange",
+    "status",
+    "disabled",
+    "autofocus",
+    "aria-labelledby",
+    "aria-describedby",
+  ]);
+  const inputs: HTMLInputElement[] = [];
+  const boxId = createUniqueId();
+
   const status = () => local.status ?? "idle";
+  /** The box focus may rest on last: the first empty one, or box 6 when all hold a digit. */
+  const lastReachable = () => Math.min(local.value.length, LENGTH - 1);
+
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  function focusFirstSoon() {
+    clearTimeout(pending);
+    pending = setTimeout(() => {
+      pending = undefined;
+      const first = inputs[0];
+      if (first?.isConnected && !first.disabled) first.focus();
+    }, 0);
+  }
+  onCleanup(() => clearTimeout(pending));
 
   onMount(() => {
-    if (local.autofocus) inputs[0]?.focus();
+    if (local.autofocus) focusFirstSoon();
   });
 
-  // When status changes to error, focus the first input so user can retry
   createEffect(() => {
-    if (status() === "error") inputs[0]?.focus();
+    if (status() === "error") focusFirstSoon();
   });
 
   function focusIndex(i: number) {
     if (i >= 0 && i < LENGTH) inputs[i]?.focus();
   }
 
-  function handleInput(index: number, e: InputEvent) {
-    const target = e.target as HTMLInputElement;
-    const char = target.value.replace(/\D/g, "").slice(-1);
-    if (!char) return;
-
-    const current = digits();
-    current[index] = char;
-    const next = current.join("").slice(0, LENGTH);
+  /**
+   * Hand `next` to the caller, then set the edited box's own text from it: the
+   * caller's update rewrites only the boxes whose digit changed, and the edited
+   * box may hold text the value never had ("33", "a").
+   */
+  function commit(next: string, edited: number, focusAt: number) {
     local.onChange(next);
+    const box = inputs[edited];
+    if (box) box.value = next[edited] ?? "";
+    focusIndex(focusAt);
+  }
 
-    if (index < LENGTH - 1) {
-      focusIndex(index + 1);
+  function fill(edited: number, digits: string) {
+    const next = digits.slice(0, LENGTH);
+    commit(next, edited, Math.min(next.length, LENGTH - 1));
+  }
+
+  function removeAt(index: number) {
+    const current = local.value;
+    if (index >= current.length) return;
+    commit(current.slice(0, index) + current.slice(index + 1), index, index);
+  }
+
+  function handleInput(index: number, e: InputEvent) {
+    const box = e.currentTarget as HTMLInputElement;
+    const removing = e.inputType?.startsWith("delete") ?? false;
+    // Typing and a keyboard's suggestion carry the inserted text in `data`; an
+    // autofill or a script that sets the value carries none (null, or "" from
+    // some engines), so read the box.
+    const incoming = removing ? "" : onlyDigits(e.data || box.value);
+    if (incoming.length > 1) return fill(index, incoming);
+    if (incoming.length === 1) {
+      const current = local.value;
+      const at = Math.min(index, current.length);
+      const next = current.slice(0, at) + incoming + current.slice(at + 1);
+      return commit(next, index, Math.min(at + 1, LENGTH - 1));
     }
+    if ((removing || box.value === "") && index < local.value.length) return removeAt(index);
+    box.value = local.value[index] ?? "";
   }
 
   function handleKeyDown(index: number, e: KeyboardEvent) {
     if (e.key === "Backspace") {
       e.preventDefault();
-      const current = digits();
-      if (current[index]) {
-        current[index] = "";
-        local.onChange(current.join(""));
-      } else if (index > 0) {
-        current[index - 1] = "";
-        local.onChange(current.join(""));
-        focusIndex(index - 1);
-      }
+      const current = local.value;
+      if (index < current.length) return removeAt(index);
+      const previous = Math.min(index, current.length) - 1;
+      if (previous >= 0) commit(current.slice(0, previous), index, previous);
+    } else if (e.key === "Delete") {
+      e.preventDefault();
+      removeAt(index);
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       focusIndex(index - 1);
@@ -76,55 +158,77 @@ const OtpInput: Component<OtpInputProps> = (props) => {
     }
   }
 
-  function handlePaste(e: ClipboardEvent) {
+  function handlePaste(index: number, e: ClipboardEvent) {
     e.preventDefault();
-    const pasted = (e.clipboardData?.getData("text") ?? "").replace(/\D/g, "").slice(0, LENGTH);
-    if (!pasted) return;
-    local.onChange(pasted);
-    focusIndex(Math.min(pasted.length, LENGTH - 1));
+    const pasted = onlyDigits(e.clipboardData?.getData("text") ?? "");
+    if (pasted) fill(index, pasted);
   }
 
-  function borderClass(index: number) {
+  function handleFocus(index: number) {
+    const reachable = lastReachable();
+    if (index > reachable) focusIndex(reachable);
+  }
+
+  function borderClass() {
     const s = status();
     // Contract tokens, not palette. A `border-red-500` is fixed sRGB: it does
     // not move when the theme flips, and it is the one colour on this control
     // that has to read as an error on whatever ground the host paints.
     if (s === "error") return "base:border-ui-danger";
     if (s === "accepted") return "base:border-ui-success";
-    if (s === "verifying" && focusedIndex() === index)
-      return "base:border-ui-focus base:ring-1 base:ring-ui-focus";
-    if (s === "verifying") return "base:border-ui-hairline";
-    // idle
-    if (focusedIndex() === index) return "base:border-ui-ink base:ring-1 base:ring-ui-ink";
-    return "base:border-ui-hairline";
+    // The box's fill is the ground's, so the edge alone shows where it is: ink
+    // at 55%, the ink fill's edge, which holds 3:1 on a light and a dark ground.
+    return "base:border-ui-ink/55";
   }
 
+  const label = () => local["aria-labelledby"];
+
   return (
-    <div class="base:flex base:gap-2" role="group" aria-label="Verification code">
+    // A fieldset is a group without a role attribute. Its browser box (margin,
+    // border, padding, `min-inline-size: min-content`) is cleared, so it lays
+    // out as a plain block. The gap is 8px from a 328px column up and closes
+    // to 4px by 308px, while the boxes stay 48px: a percentage gap resolves
+    // against the column, and 20% - 57.6px is 8px at 328px and 4px at 308px.
+    <fieldset
+      class="base:m-0 base:flex base:w-full base:min-w-0 base:gap-[clamp(4px,20%_-_57.6px,8px)] base:border-0 base:p-0"
+      aria-label={label() ? undefined : "Verification code"}
+      aria-labelledby={label()}
+    >
       <For each={INDICES}>
         {(_, i) => (
           <input
             ref={(el) => (inputs[i()] = el)}
+            id={label() ? `${boxId}-${i() + 1}` : undefined}
             type="text"
             inputmode="numeric"
             autocomplete={i() === 0 ? "one-time-code" : "off"}
-            maxLength={1}
             disabled={local.disabled || status() === "verifying" || status() === "accepted"}
-            value={digits()[i()] ?? ""}
+            value={local.value[i()] ?? ""}
+            tabIndex={i() > lastReachable() ? -1 : undefined}
             onInput={(e) => handleInput(i(), e)}
             onKeyDown={(e) => handleKeyDown(i(), e)}
-            onPaste={handlePaste}
-            onFocus={() => setFocusedIndex(i())}
-            onBlur={() => setFocusedIndex(-1)}
+            onPaste={(e) => handlePaste(i(), e)}
+            onFocus={() => handleFocus(i())}
+            // Labelled, a box names itself after the label: "<label> Digit N".
+            // Its own id in the list stands for its `aria-label`, not its value.
             aria-label={`Digit ${i() + 1}`}
+            aria-labelledby={label() ? `${label()} ${boxId}-${i() + 1}` : undefined}
+            aria-describedby={local["aria-describedby"]}
+            aria-invalid={status() === "error" ? "true" : undefined}
             class={clsx(
-              "base:h-12 base:w-12 base:rounded-ui-md base:border-2 base:bg-ui-ground base:text-center base:text-ui-md base:font-medium base:text-ui-ink base:outline-none base:transition-colors base:disabled:cursor-not-allowed base:disabled:opacity-70",
-              borderClass(i()),
+              // Focus is the ground-fill text field's ring (a unit test holds
+              // the two together), plus an outline that only a contrast theme
+              // paints, since the theme drops the ring's box shadow. Only
+              // colours fade, on the contract's fast step, so both land at
+              // once. Disabled boxes dim to 70%, not the text fields' 50%: a
+              // code being verified stays readable at 4.5:1.
+              "base:h-12 base:max-w-12 base:min-w-0 base:flex-1 base:rounded-ui-field base:border-2 base:bg-ui-ground base:text-center base:text-ui-md base:font-medium base:text-ui-ink base:ring-offset-ui-ground base:transition-[color,background-color,border-color] base:duration-[var(--dur-fast,var(--ui-dur-fast))] base:ease-[var(--ease-out,var(--ui-ease-out))] base:focus-visible:outline-hidden base:focus-visible:ring-2 base:focus-visible:ring-ui-focus base:focus-visible:ring-offset-2 base:disabled:cursor-not-allowed base:disabled:opacity-70",
+              borderClass(),
             )}
           />
         )}
       </For>
-    </div>
+    </fieldset>
   );
 };
 

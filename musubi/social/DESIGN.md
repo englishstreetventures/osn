@@ -76,6 +76,8 @@ row chevron (`OrganisationsPage.tsx`).
   edge, `currentColor`. Its fill is the ground's, so the edge alone shows where
   it is, and `--input`, the edge `@shared/ui`'s `Input` draws, sits under the
   3:1 a control's boundary needs (§The contrast contract).
+- `@shared/ui`'s `OtpInput` draws an empty box's edge in ink at 55%, which
+  holds 3:1 against the box's fill and the sheet around it in both themes.
 - A class that names a colour (`border-border`, `border-input`,
   `border-foreground`) wins over both, since utilities outrank the base layer.
 
@@ -227,12 +229,12 @@ Where the app does not follow this yet — known breaks include:
 
 - **8px** (`--radius`, `rounded-lg`/`rounded-md`) — nav items, list rows
   (`/authorize`'s bordered profile rows among them), dropdown triggers, small
-  controls; text fields (`@shared/ui`'s `Input`, `Textarea` and `Select`,
-  through the contract's `--ui-radius-field`, which Musubi maps to
-  `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s
-  Popover and menu panels and `OtpInput`'s boxes; and the rail search's
-  results panel (`GlobalSearch`), a floating panel drawn as the menus are:
-  `rounded-md`, `bg-popover`, `shadow-md`.
+  controls; text fields (`@shared/ui`'s `Input`, `Textarea` and `Select`, and
+  `OtpInput`'s boxes, through the contract's `--ui-radius-field`, which Musubi
+  maps to `--radius-md`); through `--ui-radius-md`, `@shared/ui`'s Popover and
+  menu panels; and the rail search's results panel (`GlobalSearch`), a
+  floating panel drawn as the menus are: `rounded-md`, `bg-popover`,
+  `shadow-md`.
 - **16px** (`rounded-card`; the contract's `--ui-radius-lg`) — card surfaces
   (`@shared/ui`'s `Card`: Settings' sections, Discover's suggestions, the
   organisations list's rows, `/authorize`'s scope rows and its dead-end and
@@ -504,6 +506,12 @@ in a `.ts`, `.tsx` or `.css` file, and an `@media`, `@custom-variant` or
   search is `md`, 36px. One exception: `/search`'s field keeps `h-11`, 44px
   at every width. `Input`'s `touch` size, the only one that tall, steps from
   46px to 44px at 640px, a width this file's one breakpoint does not use.
+- **Code boxes** = `OtpInput`'s six boxes share their column and are 40px wide
+  at a 260px column, so a screen that hosts one gives the row at least 260px
+  on a phone (drop an inner card's padding below `md` rather than squeeze the
+  boxes). Where the app does not follow this yet: at a 320px viewport,
+  `TotpView`'s enrolment step in Settings and `/authorize` give the row less
+  (#2041).
 - **Toasts** = top-center below `md`, one spacing step under the top bar
   (`--topbar-h` plus the notch inset), clear of the keyboard and the tab bar;
   bottom-right at `md+`.
