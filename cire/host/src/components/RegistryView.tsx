@@ -49,9 +49,13 @@ import {
 } from "../lib/registry-store";
 import { sameButOrder } from "../lib/sortable-rows";
 import { haptic } from "../lib/touch-feedback";
+import { deleteWithUndo, isPendingDelete, isReturning, returned } from "../lib/undo-delete";
 import { LinkPill } from "./LinkPill";
 import RegistryImageField from "./RegistryImageField";
 import ReorderControls from "./ReorderControls";
+
+/** A gift's name in `undo-delete`. */
+const giftKey = (itemId: string) => `gift:${itemId}`;
 
 const RECORD_CLASS = `${cardClass({ padding: "sm" })} gap-2`;
 const CASH_CLASS = `${cardClass({ padding: "sm" })} gap-1`;
@@ -366,7 +370,9 @@ export default function RegistryView(props: RegistryViewProps) {
       throw new Error("unauthorised");
     }
     if (!res.ok) throw new Error(`Failed to load registry (${res.status})`);
-    return (await res.json()) as RegistrySnapshot;
+    const snap = (await res.json()) as RegistrySnapshot;
+    // A gift waiting on its undo toast is still on the server; it stays off screen.
+    return { ...snap, items: snap.items.filter((it) => !isPendingDelete(giftKey(it.id))) };
   };
 
   onMount(() => {
@@ -710,18 +716,39 @@ export default function RegistryView(props: RegistryViewProps) {
   };
 
   // ── Delete item ───────────────────────────────────────────────────────────
-  const deleteItem = async (item: RegistryItem) => {
-    patchSnap((s) => ({ ...s, items: s.items.filter((x) => x.id !== item.id) }));
-    haptic("commit");
-    try {
-      const res = await authFetch(itemUrl(item.id), { method: "DELETE" });
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`delete ${res.status}`);
-    } catch {
-      haptic("reject");
-      setError("Couldn't remove that gift.");
-      void reload();
-    }
+  /**
+   * Undo puts back the gift as the list holds it now, since the row's own
+   * object can lag a move; the `DELETE`, which also reaps an orphaned picture,
+   * goes only once the toast has gone (`deleteWithUndo`). Until then `load`
+   * leaves the gift out of any read, so a reload meanwhile does not bring it
+   * back.
+   */
+  const deleteItem = (item: RegistryItem) => {
+    const kept = peekCachedRegistry(props.weddingId)?.items.find((x) => x.id === item.id) ?? item;
+    const drop = () => patchSnap((s) => ({ ...s, items: s.items.filter((x) => x.id !== item.id) }));
+    deleteWithUndo({
+      key: giftKey(item.id),
+      message: `Removed “${item.title}”`,
+      restored: `Restored “${item.title}”`,
+      hide: drop,
+      restore: () =>
+        patchSnap((s) =>
+          s.items.some((x) => x.id === item.id) ? s : { ...s, items: [...s.items, kept] },
+        ),
+      commit: async ({ keepalive }) => {
+        try {
+          const res = await authFetch(itemUrl(item.id), { method: "DELETE", keepalive });
+          if (res.status === 401) return redirectToLogin();
+          if (!res.ok) throw new Error(`delete ${res.status}`);
+          // A read that does not filter (the settings tab's) may have carried it back.
+          drop();
+        } catch {
+          haptic("reject");
+          setError("Couldn't remove that gift.");
+          void reload();
+        }
+      },
+    });
   };
 
   // ── Reorder ───────────────────────────────────────────────────────────────
@@ -1259,6 +1286,10 @@ export default function RegistryView(props: RegistryViewProps) {
                                   sortable.isActiveDraggable(),
                                 "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                   dndState.dragging() && !sortable.isActiveDraggable(),
+                                "row-return": isReturning(giftKey(item.id)),
+                              }}
+                              onAnimationEnd={(e) => {
+                                if (e.target === e.currentTarget) returned(giftKey(item.id));
                               }}
                             >
                               <div class="flex flex-wrap items-center gap-3">

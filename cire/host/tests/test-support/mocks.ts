@@ -42,13 +42,20 @@ export function rpAuthSolidMock() {
   };
 }
 
-/** Factory for `vi.mock("@shared/toast", ...)`. */
+/**
+ * Factory for `vi.mock("@shared/toast", ...)`.
+ *
+ * Its queue is always empty, so an undo toast (`lib/undo-delete.ts`) has no
+ * life to wait out and a one-click delete is sent at once. The undo window
+ * itself is tested against the real toast in the browser tier.
+ */
 export function toastMock() {
   return {
     toast: {
       success: (m: string) => toastSuccess(m),
       error: (m: string) => toastError(m),
     },
+    toasts: () => [],
   };
 }
 

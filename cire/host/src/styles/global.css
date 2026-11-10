@@ -288,6 +288,29 @@
   --toast-accent-error: var(--error);
   --toast-accent-warn: var(--warn);
   --toast-accent-info: var(--text-muted);
+  /* A toast arrives on the slow rung, so the move can be felt (DESIGN.md §4). */
+  --toast-enter-duration: var(--dur-slow);
+}
+
+/* ── Undo after a one-click delete (`lib/undo-delete.ts`) ───────────────────
+ * The undo toast holds a live Undo, so it leaves at once: a fade would keep a
+ * button that can still be pressed in a box that is going away. A row Undo
+ * puts back fades in where it stood, on opacity alone, since a transform would
+ * move the box a drag measures. Under reduced motion the base layer's switch
+ * runs the fade and the toast's arrival at once.
+ */
+.undo-toast.ui-toast--leaving {
+  display: none;
+}
+
+@keyframes row-return {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility row-return {
+  animation: row-return var(--dur-slow) var(--ease-out);
 }
 
 /* Every design token is an *alias* onto the ramp above, never a literal value.

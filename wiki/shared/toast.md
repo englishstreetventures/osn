@@ -11,6 +11,7 @@ related:
   - "[[component-lab]]"
   - "[[cire-registry]]"
   - "[[cire-upgrades]]"
+  - "[[cire-checklist-tasks]]"
 last-reviewed: 2026-11-11
 ---
 # Toasts — `@shared/toast` and the `--toast-*` contract
@@ -73,6 +74,23 @@ link drawn with `@cire/ui`'s `proseLinkClass()`, the portal's one look for a
 link inside a sentence ([[cire-upgrades]]). Because it is the only notice of
 that refund, it waits until no modal dialog is open before it is raised (the
 warning below).
+
+An undo toast is the other case: its life *is* the time in which its action
+means anything, so it keeps a dwell and no close button. The cire portal raises
+one for each one-click delete — a checklist task, a budget line, a gift
+(`cire/host/src/lib/undo-delete.ts`) — with `duration: 5000`,
+`class: "undo-toast"` and an **Undo** action. The row leaves the list at once,
+and the delete is sent only once that toast has left the queue without Undo:
+the helper watches `toasts()` rather than running a timer of its own, so the
+store's clock, with its hover and focus pauses, is the undo window, and a toast
+beyond the `Toaster`'s `limit` still runs out on time. A page left with one up
+sends its delete on `pagehide`, with `keepalive`. Undo puts the same row back,
+since nothing has left the server, and raises a second toast so the restore is
+announced in a live region of its own. A toast holding a live Undo leaves at
+once: the portal's stylesheet makes `.undo-toast.ui-toast--leaving`
+`display: none`. Where the stack grows from the bottom edge (`column-reverse`),
+the oldest toast sits nearest it. See [[cire-checklist-tasks]] for what holds
+the task reads back meanwhile.
 
 Three behaviours worth knowing, all of them bugs first:
 
@@ -253,7 +271,7 @@ Current mounts:
 | App | Position | Notes |
 |---|---|---|
 | `@cire/invites` | `top-center` | Invite page, per design pack: `Z_CLASS.TOAST` + `topLayer`, 4s dwell; the RSVP sheet's sticky bar owns the bottom edge. Gift page (`GiftRegistryPage`): `Z_CLASS.TOAST`, no `topLayer`, since its only modals are the consent dialogs, which make the page inert while open |
-| `@cire/host`, `@cire/vendor` | `bottom-right` | `topLayer` — both apps' dialogs are `@shared/ui` `Modal`s |
+| `@cire/host`, `@cire/vendor` | `bottom-right` | `topLayer` — the host's dialogs are `@shared/ui` `Modal`s, and the vendor portal, which opens none yet, sets it for any it will. The host maps `--toast-enter-duration` to its `--dur-slow` rung (`cire/host/DESIGN.md` §4); the vendor portal keeps the 160ms default |
 | `@musubi/social` | responsive | `top-center` on mobile with a `top` offset clearing the 3rem bar + `env(safe-area-inset-top)`. No `topLayer`: its dialogs are Kobalte's, which are not top-layer |
 | `@pulse/web` | `bottom-right` | As musubi — Kobalte dialogs, no `topLayer` |
 
@@ -261,7 +279,11 @@ Current mounts:
 
 Unit: mock `@shared/toast`. Two shared factories exist —
 `cire/host/tests/test-support/mocks.ts` (`toastMock()`) and
-`pulse/web/tests/helpers/toast.ts` — see `[[testing-patterns]]`.
+`pulse/web/tests/helpers/toast.ts` — see `[[testing-patterns]]`. The host's
+factory answers an empty `toasts()`, so an undo toast there has no life and
+its delete is sent at once; the window itself is held against the real store
+by `cire/host/tests/lib/undo-delete.browser.test.tsx` and the three
+`*.undo.browser.test.tsx` suites in `cire/host/tests/components/`.
 
 **The DOM contract, which is easy to break.**
 `cire/invites/tests/designs/InvitePage.browser.test.tsx` finds a toast with

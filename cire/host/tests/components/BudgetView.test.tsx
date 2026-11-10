@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
+import { resetToasts } from "@shared/toast";
 import "@testing-library/jest-dom/vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import BudgetView from "../../src/components/BudgetView";
@@ -28,6 +29,9 @@ const snap = (over: Partial<BudgetSnapshot>): BudgetSnapshot => ({
 });
 
 afterEach(() => {
+  // A delete waits on its undo toast: end every toast here, so it settles
+  // against this test's mocks and not a later test's.
+  resetToasts();
   cleanup();
 });
 

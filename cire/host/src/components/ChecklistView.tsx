@@ -49,6 +49,7 @@ import {
   viewerHostIdOf,
 } from "../lib/tasks-store";
 import { haptic } from "../lib/touch-feedback";
+import { deleteWithUndo, isReturning, returned } from "../lib/undo-delete";
 import { normaliseWeddingRole } from "../lib/wedding-roles";
 import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";
@@ -371,27 +372,46 @@ export default function ChecklistView(props: ChecklistViewProps) {
     }
   };
 
-  const deleteTask = async (task: TaskRow) => {
+  /**
+   * Undo puts back the task as the list holds it now, since the row's own
+   * object can lag an order or holder change; the `DELETE` goes only once the
+   * toast has gone (`deleteWithUndo`). The delete is one of the portal's task
+   * writes from the ✕ until then, so no read of the tasks — here, on the
+   * Overview or the run sheet — can bring the task back meanwhile.
+   */
+  const deleteTask = (task: TaskRow) => {
+    const kept = peekCachedTasks(props.weddingId)?.find((t) => t.id === task.id) ?? task;
     const done = beginTaskWrite(props.weddingId);
-    patchTasks((rows) => rows.filter((t) => t.id !== task.id));
-    haptic("commit");
-    try {
-      const res = await authFetch(
-        apiUrl(weddingPath(props.weddingId, `/tasks/${encodeURIComponent(task.id)}`)),
-        {
-          method: "DELETE",
-        },
-      );
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error(`delete ${res.status}`);
-    } catch {
-      done();
-      haptic("reject");
-      setError("Couldn't delete that task.");
-      void reload();
-    } finally {
-      done();
-    }
+    const drop = () => patchTasks((rows) => rows.filter((t) => t.id !== task.id));
+    deleteWithUndo({
+      key: `task:${task.id}`,
+      message: `Deleted “${task.title}”`,
+      restored: `Restored “${task.title}”`,
+      hide: drop,
+      restore: () => {
+        patchTasks((rows) => (rows.some((t) => t.id === task.id) ? rows : [...rows, kept]));
+        done();
+      },
+      commit: async ({ keepalive }) => {
+        try {
+          const res = await authFetch(
+            apiUrl(weddingPath(props.weddingId, `/tasks/${encodeURIComponent(task.id)}`)),
+            { method: "DELETE", keepalive },
+          );
+          if (res.status === 401) return redirectToLogin();
+          if (!res.ok) throw new Error(`delete ${res.status}`);
+          // A write's whole answer may have carried the task back meanwhile.
+          drop();
+        } catch {
+          done();
+          haptic("reject");
+          setError("Couldn't delete that task.");
+          void reload();
+        } finally {
+          done();
+        }
+      },
+    });
   };
 
   /**
@@ -579,6 +599,11 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                           sortable.isActiveDraggable(),
                                         "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                           dndState.dragging() && !sortable.isActiveDraggable(),
+                                        "row-return": isReturning(`task:${task.id}`),
+                                      }}
+                                      onAnimationEnd={(e) => {
+                                        if (e.target === e.currentTarget)
+                                          returned(`task:${task.id}`);
                                       }}
                                     >
                                       <Show when={props.canEdit}>
