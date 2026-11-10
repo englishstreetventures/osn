@@ -1,6 +1,7 @@
 /**
  * How `CardTitle` draws when no app sets its title weight, held exactly: every
- * computed style `CardTitle` carries that a plain `<h3>` beside it does not.
+ * computed style `CardTitle` carries that a plain `<h3>` beside it does not,
+ * less the `*-color` keys that only repeat its `color`.
  *
  * No app maps the title weight, so this is how Musubi, the metrics dashboard
  * and the lab draw a card title, and how any app that adds one will. It
@@ -38,13 +39,21 @@ function readStyle(element: Element, names: Iterable<string> = []): Map<string, 
   return out;
 }
 
-/** Every property whose value in `ours` differs from `theirs`, with ours. */
+/**
+ * Every property whose value in `ours` differs from `theirs`, with ours, less
+ * any `*-color` key that only repeats `ours`'s `color`. Chromium derives those
+ * from `currentColor` (the borders, outline, caret, text decoration and
+ * more), and which of them it lists moves with the browser's version, not
+ * with `CardTitle`; `color` itself stays and holds the ink.
+ */
 function differences(ours: Map<string, string>, theirs: Map<string, string>) {
+  const ink = ours.get("color");
   const out: Record<string, string> = {};
   const names = [...new Set([...ours.keys(), ...theirs.keys()])];
   names.sort();
   for (const name of names) {
     const value = ours.get(name) ?? "";
+    if (name !== "color" && name.endsWith("-color") && value === ink) continue;
     if (value !== (theirs.get(name) ?? "")) out[name] = value;
   }
   return out;
