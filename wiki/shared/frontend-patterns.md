@@ -25,7 +25,7 @@ packages:
   - "@pulse/web"
   - "@shared/ui"
   - "@musubi/social"
-last-reviewed: 2026-11-09
+last-reviewed: 2026-11-10
 ---
 
 # Frontend Patterns
@@ -86,6 +86,8 @@ An app imports these from `@osn/auth-ui/*` and injects clients from `@osn/client
 Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded in `App.tsx` to reduce the initial bundle. Components with heavy dependencies (like `MapPreview` with Leaflet at ~150KB) dynamic-import their dependencies inside `onMount` so pages that don't need them never load the chunk.
 
 **A lazy shell needs a frame, and the frame is not a `Suspense` fallback.** A lazy component with no `Suspense` above it renders nothing until its chunk lands, so a page beside a lazy rail paints first and then jumps sideways. `@musubi/social` draws a frame of the shell's box instead (`Reserved` in its `App.tsx`): it calls the lazy component's `preload()` and the shell dialogs' `load()`, shows the frame until both resolve (so no Sign in shows before its dialog can open), and only then renders the component, which by then holds the module and renders at once. A `Suspense` fallback would work on the cold load and then come back on every refetch: the shell reads `createResource` values, and a resource read in flight outside a transition raises the nearest `Suspense` count. A rejection from either is handled in the same place — the frame stays and says to reload — so a missing chunk never reaches an error boundary or blanks the app. `lazy` keeps no failed load, so the next `preload()` (the other shell's, after a crossing) fetches the chunk again. `musubi/social/DESIGN.md` §Layout has the frame's look.
+
+**A view that may sit under someone else's `Suspense` reads its resource's `state` first.** A component that calls `resource()` while the read is out, inside any tracking scope (a `Show`'s `when`, a memo, JSX), raises the nearest `Suspense` above it, which may be the host page's: Musubi's Settings wraps its lazy Security section in one, so a list read in `@osn/auth-ui`'s `PasskeysView` swapped the whole tab for Settings' fallback, and the view's own placeholder never showed. `resource.latest` is no way out before the first read lands: until then it is the same read (solid-js 1.9, `dist/solid.js`, the `latest` getter). So such a view reads `resource.state` (and `.loading`, `.error`, which never suspend) and touches the value only once a read has landed, through `.latest`: `state === "ready" || state === "refreshing" ? resource.latest : undefined` keeps a landed list on screen through a refetch, `state === "ready"` hides it. That also never throws a failed read. `@osn/auth-ui`'s settings panels and Musubi's `ConnectedAppsSection` read this way (`osn/auth-ui/DESIGN.md` §6).
 
 On a cold desktop load of `/discover` with the rail's chunk held back 400ms, the page's layout shift goes from 0.167 to 0 (phone: 0.058 to 0).
 

@@ -1,0 +1,11 @@
+---
+"@osn/auth-ui": minor
+"@musubi/social": patch
+"@tools/lab": patch
+---
+
+Every one-time code is typed into `OtpInput`'s boxes, tied to its error line, and every loading placeholder is `Skeleton`.
+
+- `@osn/auth-ui`: `StepUpDialog`'s two code steps and `ChangeEmailForm`'s code are a row of `OtpInput` boxes under a span label, in place of a single `Input`; each code step puts focus in box 1 as it opens. Every row of code boxes (`Register`, `RecoveryLoginForm`'s two, `TotpView`, `StepUpDialog`'s two, `ChangeEmailForm`) names its group by its label (`aria-labelledby`; `Register`'s keeps "Verification code") and its error line by `aria-describedby`, on every box. The boxes are marked invalid, with the danger edge, only for a `400` or `422` refusal other than the verification check, so a wait or an outage ties the line without calling the code wrong. After such a refusal sent with Enter, `Register` puts focus back in box 1 when it is nowhere else. `PasskeysView`, `SessionsView`, `TotpView` and `RecoveryCodesView` show `Skeleton` while they load, in a region marked `aria-busy`, in place of "Loading…" and a hand-drawn pulse; each reads its resource's `state` before its value, so it never joins a host's `Suspense` boundary or throws a failed read. `TotpView`'s enrolment step drops its border and padding below `md`, so the code row takes the panel's whole column on a phone.
+- `@musubi/social`: Connections, Discover, Organisations, an organisation's head and members, Connected apps, and the fallbacks of Settings' Security and Connected apps tabs and `/authorize`'s sign-in frame draw `Skeleton` in place of "Loading…" lines and `bg-muted/50 animate-pulse` blocks, each in a region marked `aria-busy`. Connected apps says a failed list in its own line instead of throwing to the page's error boundary, and keeps its rows on screen while it reads them again after a revoke. The Settings Security tab shows each panel's own placeholder rather than its fallback for the whole tab. `DESIGN.md` gains the loading rule and the code boxes' widths at 320px, and no longer lists `Badge`, which Musubi does not draw; the token-contract browser test drops its `Badge` case.
+- `@tools/lab`: `SkeletonGrounds` drops the half-strength placeholder Musubi drew by hand.

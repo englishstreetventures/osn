@@ -133,8 +133,9 @@ osn/auth-ui/src/
 ├── SignIn.tsx              ← Button, Input, Label
 ├── Register.tsx            ← Button, InfoPopover, Input, Label, OtpInput, UsernameInput
 ├── CreateProfileForm.tsx   ← UsernameInput
-├── PasskeysView.tsx  StepUpDialog.tsx  TotpView.tsx  SessionsView.tsx
-├── RecoveryCodesView.tsx   RecoveryLoginForm.tsx     ChangeEmailForm.tsx
+├── StepUpDialog.tsx  RecoveryLoginForm.tsx  ChangeEmailForm.tsx  ← OtpInput
+├── TotpView.tsx            ← OtpInput, Skeleton
+├── PasskeysView.tsx  SessionsView.tsx  RecoveryCodesView.tsx  ← Skeleton
 └── ProfileOnboarding.tsx   ProfileSwitcher.tsx  SecurityEventsBanner.tsx  TurnstileWidget.tsx
 
 cire/ui/src/
@@ -1117,7 +1118,7 @@ import { buttonVariants } from "@shared/ui/ui/button";
 Every size, the link inside a sentence, the `busy` wait and keyboard focus
 are in [[#Button — a link inside a sentence, and a wait]].
 
-**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse, musubi and the lab draw ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
+**`Badge`'s weight.** The label reads the contract's title weight through `font-ui-title`, so an app sets it once with `--ui-weight-title`, for every shared part that reads it, rather than per badge with a class. Where no app maps it the weight is 600, which is what pulse and the lab draw (Musubi draws no `Badge`) ([[design-tokens]], §The tokens). The `eyebrow` treatment sets size, case and tracking and leaves the weight alone. A badge is a label, not a control: it carries no focus classes, so a caller never inherits a ring drawn on `focus` with the outline removed, which §Focus above rules out. `shared/ui/tests/badge.browser.test.tsx` checks 600 unmapped and 500 under a wrapper that sets the token, for every variant in both treatments; `shared/ui/tests/badge-default.browser.test.tsx` holds every computed style of the unmapped badge as a snapshot, which a change that moves pulse's badges must rewrite in the open.
 
 ### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 
@@ -1211,8 +1212,11 @@ import { Input } from "@shared/ui/ui/input";
 `<OtpInput value onChange status disabled autofocus aria-labelledby aria-describedby>`
 takes a six-digit code, one digit per box, in
 [otp-input.tsx](../../shared/ui/src/ui/otp-input.tsx). `@osn/auth-ui` is its
-only caller: sign-up (`Register`), recovery sign-in (`RecoveryLoginForm`) and
-authenticator enrolment (`TotpView`).
+only caller, for every one-time code it asks for: sign-up (`Register`),
+recovery sign-in (`RecoveryLoginForm`), authenticator enrolment (`TotpView`),
+step-up (`StepUpDialog`) and an email change (`ChangeEmailForm`). Each ties its
+error line to the boxes and passes `error` only for a refused code
+(`osn/auth-ui/DESIGN.md` §7).
 
 | Prop | What it does |
 |---|---|
@@ -1350,9 +1354,8 @@ at full strength, with no edge. Not `--ui-surface`: Musubi maps that to
 because the pulse halves it: a half-strength `bg-muted/50` would reach about
 `#fcfcfc` on white at the pulse's low point. In Musubi's dark theme the well
 (`--muted`, `#2b2b2b`) sits close to a card (`--card`, `#242424`), so a
-skeleton inside a card is faint there; the lab's `SkeletonGrounds` shows it,
-beside the half-strength well Musubi's call sites draw by hand. A placeholder
-is `aria-hidden` and has no contrast floor to meet.
+skeleton inside a card is faint there; the lab's `SkeletonGrounds` shows it.
+A placeholder is `aria-hidden` and has no contrast floor to meet.
 
 **Contrast themes.** A forced-colours theme repaints every background as
 `Canvas`, the page's own colour, which would erase the block. So under
@@ -1409,8 +1412,8 @@ one. The two share the prop `standsFor` and four of its words. `field`, `card`
 and `pill` take the same corner in both. `row` does not: cire's stands in for a
 row of a table, inside `Table`'s frame, and takes that frame's
 `rounded-ui-sm`; this one's stands in for a list row drawn as a block of its
-own, as Musubi's connections and members lists draw theirs, and takes
-`rounded-ui-md`. The defaults differ too: cire's is `card`, this one's is
+own, as Musubi's connections and members lists and `@osn/auth-ui`'s settings
+panels draw theirs, and takes `rounded-ui-md`. The defaults differ too: cire's is `card`, this one's is
 `row`. So `<Skeleton standsFor="row">` and a bare `<Skeleton>` draw different
 corners in the two packages.
 

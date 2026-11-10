@@ -111,7 +111,7 @@ paints `ui-danger` through the contract (§7).
 | Meta lines (dates, "(synced)") | `text-xs` | the list rows, the banner |
 | Field hints | `Field`'s hint, `text-ui-xs` in the secondary ink | `Register`'s date of birth |
 | Names in a row | `font-medium` | `PasskeysView`, `TotpView`, `SessionsView`, `SecurityEventsBanner` |
-| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key; the code fields in `ChangeEmailForm` and `StepUpDialog` are `Input` with `face="code"`, the contract's mono face and wide tracking |
+| Codes | `font-mono` | `RecoveryCodesView`'s list, `TotpView`'s setup key. Every one-time code is typed into `OtpInput`'s boxes, at the contract's `text-ui-md` |
 
 The `@shared/ui` parts inside the views (Button, Field, Input, Label,
 OtpInput, Card and Dialog titles) take the contract steps.
@@ -127,9 +127,14 @@ As built:
   plain label (`labelTreatment="plain"`), 6px above the control. The two
   labels `Field` does not draw sit 6px above their controls too: `Register`'s
   Email, a bare `Label` beside its "i", and the span over a row of code boxes
-  (`RecoveryLoginForm`, `TotpView`), which takes the plain label's classes
-  from `labelVariants()` (`@shared/ui/ui/label`) because six boxes have no one
-  id for a `<label for>` (#2041). `TotpView`'s "Or enter this setup key by
+  (`RecoveryLoginForm`, `TotpView`, `StepUpDialog`, `ChangeEmailForm`), which
+  takes the plain label's classes from `labelVariants()`
+  (`@shared/ui/ui/label`) because six boxes have no one id for a
+  `<label for>`. The span carries an id from `createUniqueId()`, and the boxes
+  name their group by it (`aria-labelledby`), so box N reads "<label> Digit
+  N". `Register`'s code step has no label over its boxes: its sentence "We
+  sent a 6-digit code to …" leads the step, and the group keeps `OtpInput`'s
+  own name, "Verification code". `TotpView`'s "Or enter this setup key by
   hand" is the same span over its key.
   The primary Button spans the column; a standalone link under it sits centred
   (§5).
@@ -139,12 +144,16 @@ As built:
   an `outline` Button at the default size in `SessionsView`); then the list,
   each row a bordered `rounded-md` box with a name, a meta line and `outline`
   `sm` actions. `RecoveryCodesView` draws no heading; its host gives it one.
+  `TotpView`'s enrolment step is a bordered `rounded-md` `p-4` box at `md`
+  and up, and drops the border and padding below `md`, so its code boxes
+  take the panel's whole column on a phone (`musubi/social/DESIGN.md`
+  §Responsive layout).
   The rows' `border` names no colour, so the host decides it: Musubi's base
   rule draws the hairline, `--border`.
 - **`ChangeEmailForm`** is the same `flex-col gap-3` column: its heading, then
-  one phase at a time. The email and code phases are each a `Field` over a
-  full-width Button; the step-up phase is `StepUpDialog`'s panel, and
-  the last a single line.
+  one phase at a time. The email phase is a `Field` over a full-width Button,
+  the code phase a labelled row of code boxes over one; the step-up phase is
+  `StepUpDialog`'s panel, and the last a single line.
 - **The banner** (`SecurityEventsBanner`) is one bordered box with the warn
   border and wash: each event as a headline and a meta line, a footer line,
   and Acknowledge (`outline`, `sm`) at the right.
@@ -167,13 +176,13 @@ besides the default:
 | `SignIn` | Button, Field, Input, Notice | `ghost`, `secondary`, `link` |
 | `Register` | Button, Field, InfoPopover, Input, Label, Notice, OtpInput, UsernameInput | `ghost`, `link` |
 | `RecoveryLoginForm` | Button, Field, Input, Notice, OtpInput | `outline`, `ghost` |
-| `StepUpDialog` | Button, Field, Input, Notice | `outline`, `ghost` |
-| `PasskeysView` | Button, Input, Notice | `outline`, `ghost` |
-| `TotpView` | Button, Field, Input, Notice, OtpInput, QrCode | `outline`, `ghost` |
-| `RecoveryCodesView` | Button, Checkbox, Dialog, Notice | `outline`, `ghost` |
-| `SessionsView` | Button, Notice | `outline` |
+| `StepUpDialog` | Button, Notice, OtpInput | `outline`, `ghost` |
+| `PasskeysView` | Button, Input, Notice, Skeleton | `outline`, `ghost` |
+| `TotpView` | Button, Field, Input, Notice, OtpInput, QrCode, Skeleton | `outline`, `ghost` |
+| `RecoveryCodesView` | Button, Checkbox, Dialog, Notice, Skeleton | `outline`, `ghost` |
+| `SessionsView` | Button, Notice, Skeleton | `outline` |
 | `SecurityEventsBanner` | Button, Notice | `outline` |
-| `ChangeEmailForm` | Button, Field, Input, Notice | — |
+| `ChangeEmailForm` | Button, Field, Input, Notice, OtpInput | — |
 | `CreateProfileForm` | Button, Field, Input, Notice, UsernameInput | `ghost` |
 | `ProfileOnboarding` | Button, Card, Dialog | `ghost` |
 | `ProfileSwitcher` | Avatar, Button, Dialog, Notice, Popover | `ghost`, `ghostDanger`, `destructive` |
@@ -258,15 +267,31 @@ own.
 
 **`StepUpDialog`** — §8.
 
+**A first load.** Each Settings panel shows `@shared/ui`'s `Skeleton` in place
+of what it loads, never a "Loading…" line: one row's block for `PasskeysView`
+and `SessionsView` (every account has a passkey and a session), one for
+`TotpView`'s set-up row, a line's for `RecoveryCodesView`'s count. The region
+that holds the block and what replaces it carries `aria-busy` while the read
+is out: the list's place in `PasskeysView` and `SessionsView`, the count's in
+`RecoveryCodesView`, the status row's in `TotpView` (drawn only while it
+holds something, so an account with no app set up gets no empty slot). A panel reads its resource's `state` before its value
+and the value only once a read has landed, never by calling it, so it never
+joins a host's `Suspense` boundary (a loading resource read in a component
+raises its nearest boundary; Musubi's Settings would show its own fallback
+for the whole tab) and never throws a failed read. On a read again,
+`PasskeysView`, `SessionsView` and `RecoveryCodesView` keep what they showed;
+`TotpView` shows the block again, since the status it reads again is the one
+an enrolment or a removal has just changed.
+
 **`PasskeysView`** — heading "Passkeys" with "Add passkey". States: loading
-("Loading…"); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
+(one row's placeholder); failed to load ("Your passkeys didn't load.", §7); the list, each row the passkey's name ("Synced passkey" or
 "Device passkey" when unnamed, "(synced)" when backed up), "Added … · Last
 used …", Rename and Delete; a row being renamed (a field, Save, Cancel); a
 step-up in progress, which disables every row's actions. Under the list, a
 "Signing in somewhere new?" disclosure.
 
 **`TotpView`** — heading "Authenticator app", then "A six-digit code from an
-app on your phone. …". States: loading; failed to load ("Your authenticator
+app on your phone. …". States: loading (a row's placeholder); failed to load ("Your authenticator
 app didn't load.", §7); none set up ("Add an authenticator
 app" in the header); set up (the app's name, "Added … · Last used …",
 Remove); setting up ("Scan this with your authenticator app", the QR code,
@@ -274,8 +299,8 @@ Remove); setting up ("Scan this with your authenticator app", the QR code,
 the app", Confirm ("Checking…"), Cancel); a step-up in progress.
 
 **`RecoveryCodesView`** — the intro "Recovery codes let you sign in if you
-lose every device with your passkey. …". States: first load (a placeholder
-line, and the button reads "Checking…"); status unread ("Couldn't check
+lose every device with your passkey. …". States: first load (a line's
+placeholder, and the button reads "Checking…"); status unread ("Couldn't check
 whether you have recovery codes."); no codes ("You don't have any recovery
 codes yet. …"); codes held ("{active} of {total} codes unused · created
 {date}"); the button "Generate recovery codes" or "Generate new codes"
@@ -291,15 +316,15 @@ event (by kind, with a general line for a kind it does not know) and its time
 and device, a footer line, Acknowledge, then a step-up.
 
 **`SessionsView`** — heading "Active sessions" with "Sign out everywhere else".
-States: loading; failed to load ("Your sessions didn't load.", §7); the list,
+States: loading (one row's placeholder); failed to load ("Your sessions didn't load.", §7); the list,
 each row the device ("Unknown device" when
 unnamed, "(this device)" on the current one), "Created … · Last used …",
 Revoke (disabled on the current one).
 
 **`ChangeEmailForm`** — heading "Change email". Phases: new email ("New email",
 "Send verification code" ("Sending…")); code ("We sent a 6-digit code to
-{email}. Enter it below to continue.", "Code", "Confirm identity & change
-email" ("Checking…")); step-up, on
+{email}. Enter it below to continue.", "Code" and the code boxes, "Confirm
+identity & change email" ("Checking…")); step-up, on
 the first Confirm, after which the change completes; done ("Your email is now
 {email}.").
 
@@ -363,8 +388,8 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   under-13 line). Fields tied this way: `SignIn`'s identifier; `Register`'s
   email and date of birth; `RecoveryLoginForm`'s handle or email and recovery
   code, its email address, and its authenticator step's handle or email;
-  `StepUpDialog`'s two code fields; `PasskeysView`'s rename field; both of
-  `ChangeEmailForm`'s fields; `CreateProfileForm`'s handle.
+  `PasskeysView`'s rename field; `ChangeEmailForm`'s email; `CreateProfileForm`'s
+  handle; and every row of code boxes (below).
 - **Above the action it follows** when no field owns it: `Register`'s send and
   enrolment, `RecoveryLoginForm`'s recovery-code, send and enrolment steps,
   `RecoveryCodesView`'s generate, `CreateProfileForm`'s submit, and the
@@ -377,8 +402,14 @@ and is announced again. Never inside a `<p>` or a `<label>`: `Notice` is a
   in light, under the 4.5:1 text floor (`musubi/social/DESIGN.md` §Status
   colours).
 - **Under the code boxes** for a refused code in `Register`,
-  `RecoveryLoginForm` and `TotpView`: announced, but not yet tied — `OtpInput`
-  takes no `aria-describedby` until englishstreetventures/osn#2041.
+  `RecoveryLoginForm` (both code steps), `TotpView`, `StepUpDialog` (both code
+  steps) and `ChangeEmailForm`, tied to the row the same way: the line's id
+  goes to `OtpInput`'s `aria-describedby`, which sets it on every box. The
+  boxes' `aria-invalid` comes from `OtpInput`'s `status`: each view passes
+  `error` only when the line's `FieldError` is `invalid`, so a wait or an
+  outage ties the line without marking the code or painting the boxes' edge
+  red. `RecoveryLoginForm`'s authenticator line is tied to its handle or email
+  as well, since either may be what was refused.
 
 **How the tie meets `Field`.** Each field sits in a `Field`, which mints its id
 and draws its label and any hint; the view passes it no `errors`. The control's
@@ -453,10 +484,12 @@ host a short-lived token through `onToken`.
 - **States.** Choosing a factor ("Use passkey" ("Waiting for your passkey…"),
   "Email me a code" ("Sending…")); waiting for the passkey with `passkeyOnly`
   (the line "Waiting for your passkey…" in place of the button, then "Try
-  again" after an error); entering an emailed code ("Code", Confirm
-  ("Checking…")); entering an authenticator code ("Code from your
-  authenticator app", Confirm ("Checking…")). Cancel is `disabled` while any of
-  these calls runs (§6).
+  again" after an error); entering an emailed code ("Code" and its code
+  boxes, Confirm ("Checking…")); entering an authenticator code ("Code from
+  your authenticator app" and its code boxes, Confirm ("Checking…")). Each code
+  step puts focus in its first box as it opens. Confirm is not disabled for a
+  short code: it answers "Enter the 6-digit code.", marked invalid. Cancel is
+  `disabled` while any of these calls runs (§6).
 - **Who opens it.** `PasskeysView` (`passkey_register` to add,
   `passkey_delete` to rename or delete), `TotpView` (`totp_enroll`,
   `totp_disable`), `RecoveryCodesView` (`recovery_generate`, "to generate
@@ -483,6 +516,16 @@ the "Signing in somewhere new?" summary in `PasskeysView` (#2045).
 `ProfileSwitcher`'s rows fade their colours with `transition-ui-colors`, the
 host's utility (`musubi/social/src/App.css`), which leaves the outline out, so
 their focus mark lands at once.
+
+**Code boxes.** Every row of code boxes takes `OtpInput`'s `autofocus`, so focus
+is in box 1 as its step opens, and a refused code (`status` `error`) puts it
+back there. A refusal that says nothing about the code leaves focus where it
+was: on the busy button that sent it, which kept focus through the wait. Only
+`Register`'s code step is a form, where Enter in a box sends the code and
+focus drops to the page when the boxes disable for the check; after such a
+refusal it puts focus back in box 1, and only when focus is nowhere else.
+`ChangeEmailForm` does not yet: a refusal that is not about the code, after
+the step-up, leaves focus on the page (#2056).
 
 ## 10. Words
 
@@ -527,7 +570,9 @@ As built:
   that run the real views are the end-to-end flows
   `tools/e2e/tests/flows/musubi-passkey.flow.ts` and
   `tools/e2e/tests/flows/musubi-register-retry.flow.ts`. `musubi-passkey`
-  checks the error lines in Chromium: a wrong emailed code at sign-up reads
+  checks the error lines in Chromium: a sign-up code refused with a `429`
+  leaves focus on Verify email when a click sent it, and puts it back in box 1
+  when Enter in a box sent it; a wrong emailed code at sign-up reads
   the code sentence; a rate-limited sign-in reads the wait sentence, with
   "Lost your passkey?" inside the line, as the identifier field's accessible
   description, and with no toast. It also reads the shared parts the views
@@ -543,9 +588,14 @@ As built:
   keeping focus, at 50% opacity, with one 20px orb, shot under reduced motion;
   on `/authorize` before signing in to Pulse (`authorizeSignInSurfaces`),
   "Create one" with no padding and one line tall, underlined 2px under, in its sentence's size and
-  weight; and on the authenticator setup (`totpSetupSurfaces`), the spans
-  over the setup key and the code boxes in the plain label's look, 6px above
-  them. It holds Register's send, verify and enrol calls, the step-up's
+  weight; with `GET /passkeys` held on Settings → Security
+  (`securityLoadingSurfaces`), the passkey list's own `Skeleton` in a busy
+  region, not Settings' fallback: the sunk well, an 8px corner, the pulse,
+  still under reduced motion; and on the authenticator setup
+  (`totpSetupSurfaces`), the spans over the setup key and the code boxes in
+  the plain label's look, 6px above them, the boxes a group named "Code from
+  the app" with box 1 focused after the step-up, and the row's width and each
+  box's at 320 and 390px, shot at 320. It holds Register's send, verify and enrol calls, the step-up's
   passkey begin and the authenticator's confirm (`busyButtonHeld`): "Sending…",
   "Verifying…", "Setting up…", "Waiting for your passkey…" and "Checking…"
   each busy, not disabled, with focus kept, and Cancel (and "← Use a different
@@ -568,6 +618,15 @@ As built:
   thrown error's `message` and check it never reaches the screen, check a
   `429` reads the wait sentence, and check the line is an alert, tied to its
   field where it has one, with no error toast (`tests/helpers/errors.ts`).
+  Each row of code boxes is found as a group named by its label
+  (`tests/helpers/code.ts`), and a `400` and a `429` for each code check the
+  line is in every box's `aria-describedby`, with every box `aria-invalid` for
+  the `400` alone. `StepUpDialog.test.tsx` checks focus lands in box 1 as each
+  code step opens.
+- **Loading in the package tests.** `PasskeysView`, `TotpView` and
+  `RecoveryCodesView` mounted under a `Suspense` whose fallback is the host's
+  show their own placeholder, never the host's, while a read is out, and
+  `RecoveryCodesView` keeps its count through the read after Done.
 
 ## 12. Motion
 
