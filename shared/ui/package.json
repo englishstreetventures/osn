@@ -40,6 +40,7 @@
     "./ui/qr-code": "./src/ui/qr-code.tsx",
     "./ui/radio-group": "./src/ui/radio-group.tsx",
     "./ui/select": "./src/ui/select.tsx",
+    "./ui/skeleton": "./src/ui/skeleton.tsx",
     "./ui/stat": "./src/ui/stat.tsx",
     "./ui/switch": "./src/ui/switch.tsx",
     "./ui/table": "./src/ui/table.tsx",

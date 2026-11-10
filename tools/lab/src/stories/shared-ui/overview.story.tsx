@@ -30,6 +30,7 @@ import { OtpInput } from "@shared/ui/ui/otp-input";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Select } from "@shared/ui/ui/select";
+import { Skeleton } from "@shared/ui/ui/skeleton";
 import { Stat } from "@shared/ui/ui/stat";
 import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
@@ -214,6 +215,16 @@ export const Everything = () => {
       <Entry name="Orb" from="@shared/ui/ui/orb">
         <Orb size={64} />
         <Orb size={20} />
+      </Entry>
+
+      <Entry name="Skeleton" from="@shared/ui/ui/skeleton">
+        <div class="flex w-full max-w-md items-center gap-3">
+          <Skeleton standsFor="pill" width={10} height={10} />
+          <div class="flex min-w-0 flex-1 flex-col gap-2">
+            <Skeleton standsFor="line" width={40} height={4} />
+            <Skeleton standsFor="line" width={24} height={3} />
+          </div>
+        </div>
       </Entry>
 
       <Entry name="EmptyState" from="@shared/ui/ui/empty-state">
