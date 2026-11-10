@@ -763,8 +763,11 @@ test("musubi-passkey", async ({ page, context, flow }) => {
     await expect(page.getByText("Pulse", { exact: true })).toBeVisible();
   });
   const pulseConnection = `${ORIGINS.osnApi}/oidc/connections/${PULSE_OIDC.clientId}`;
+  const appsList = `${ORIGINS.osnApi}/oidc/connections`;
   const revokeHeld = holdMethod("DELETE");
+  const rereadHeld = holdMethod("GET");
   await page.route(pulseConnection, revokeHeld.handler);
+  await page.route(appsList, rereadHeld.handler);
   try {
     await onPhone(page, async () => {
       await phoneTall(flow, page.getByRole("button", { name: "Revoke" }), "revoke");
@@ -775,10 +778,31 @@ test("musubi-passkey", async ({ page, context, flow }) => {
       const revoking = page.getByRole("button", { name: "Revoking…" });
       await busyButtonHeld(flow, revoking, "Revoking…", "revoke busy");
       await phoneTall(flow, revoking, "revoke busy");
+      // The DELETE lands and the list is read again: the row stays, its
+      // Revoke still busy, and no placeholder takes its place.
+      await flow.step("revoke Pulse: the row stays while the list is read again", async () => {
+        const reread = page.waitForRequest(
+          (request) => request.url() === appsList && request.method() === "GET",
+        );
+        revokeHeld.release();
+        await reread;
+        await expect(revoking).toBeVisible();
+      });
+      flow.check(
+        "revoke Pulse: no placeholder while the list is read again",
+        0,
+        await page
+          .getByText(/^Apps you have signed in to/)
+          .locator("..")
+          .locator('div[aria-hidden="true"]')
+          .count(),
+      );
     });
   } finally {
     revokeHeld.release();
+    rereadHeld.release();
     await page.unroute(pulseConnection, revokeHeld.handler);
+    await page.unroute(appsList, rereadHeld.handler);
   }
   await flow.step("revoke Pulse", async () => {
     await expect(

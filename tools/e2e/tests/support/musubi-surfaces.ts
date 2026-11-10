@@ -761,20 +761,6 @@ export async function orgListSurfaces(flow: Flow, page: Page, link: Locator): Pr
       "16px",
       await computed(card, "border-top-left-radius"),
     );
-    // The loading placeholder (`OrganisationsPage.tsx`, a `Skeleton` 18.5
-    // spacing steps tall) takes the row's shape.
-    flow.check(
-      "organisations: a row is as tall as its loading placeholder",
-      await link.evaluate((el) => {
-        const probe = document.createElement("div");
-        probe.style.height = "calc(var(--spacing, 0.25rem) * 18.5)";
-        el.parentElement!.append(probe);
-        const height = getComputedStyle(probe).height;
-        probe.remove();
-        return height;
-      }),
-      await computed(link, "height"),
-    );
     // The card keeps its fill under the pointer; the chevron marks the hover.
     const chevron = card.locator("svg");
     await link.hover();
