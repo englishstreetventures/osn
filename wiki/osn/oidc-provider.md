@@ -54,13 +54,8 @@ sequenceDiagram
     IdP-->>B: 302 to the consent screen (?request=oar_…&reason=…)
     B->>IdP: GET /authorize/context?request=oar_…
     IdP-->>B: client, scopes, the account's profiles
-    alt signed in
-      B->>IdP: POST /authorize/decision {requestId, profileId, approved}
-      IdP-->>B: {redirectTo: …?code=cod_…&state=…}
-    else signed out, and declining
-      B->>IdP: POST /authorize/decline {requestId}
-      IdP-->>B: {redirectTo: …?error=access_denied&state=…}
-    end
+    B->>IdP: POST /authorize/decision {requestId, profileId, approved}
+    IdP-->>B: {redirectTo: …?code=cod_…&state=…}
   else already signed in and linked
     IdP-->>B: 302 straight back with ?code=cod_…&state=…
   end
