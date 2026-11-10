@@ -1580,8 +1580,9 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
    * Reads the parked request back for the browser that parked it, and for no
    * other. The binding cookie's secret must hash to the stored `bindingHash`,
    * compared in constant time; every parked request carries one, so there is
-   * no unbound path. Reads only: a forged attempt leaves the real browser's
-   * flow alive.
+   * no unbound path. Claims nothing, so a forged attempt leaves the real
+   * browser's flow alive; the only write is the tidy-up of an entry already
+   * past its expiry, which `loadAuthorizeRequest` makes on any read.
    */
   const loadBoundRequest = (
     requestId: string,
