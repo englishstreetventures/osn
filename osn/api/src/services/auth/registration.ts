@@ -8,7 +8,7 @@ import { accounts, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, driverErrorText } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
 
@@ -38,7 +38,12 @@ import {
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import { storeCall } from "./store-call";
-import type { EmailLinkChallenge, PendingRegistration, PendingSignUp } from "./stores";
+import type {
+  EmailLinkChallenge,
+  EmailLinkClaim,
+  PendingRegistration,
+  PendingSignUp,
+} from "./stores";
 import type { TokensModule } from "./tokens";
 import type { ProfileWithEmail, SessionMeta } from "./types";
 
@@ -435,18 +440,79 @@ export function createRegistrationModule(
     }).pipe(withAuthRegister("resend"));
 
   /**
+   * Inserts the account and default profile a claim names, with the sign-up
+   * it parked. True when they are in place after the call: inserted now, or
+   * already committed by an earlier try for the same claim. False when a
+   * UNIQUE index refused them for someone else's account. Any other failure
+   * is a DatabaseError. On D1 the two inserts commit together; bun:sqlite,
+   * local only, runs them one after the other.
+   */
+  const insertClaimed = (
+    claim: Pick<EmailLinkClaim, "accountId" | "profileId">,
+    signUp: PendingSignUp,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const ts = now();
+      return yield* Effect.tryPromise({
+        try: async () => {
+          try {
+            await commitBatch(db, [
+              db.insert(accounts).values({
+                id: claim.accountId,
+                email: signUp.email,
+                passkeyUserId: crypto.randomUUID(),
+                maxProfiles: 5,
+                createdAt: ts,
+                updatedAt: ts,
+              }),
+              db.insert(users).values({
+                id: claim.profileId,
+                accountId: claim.accountId,
+                handle: signUp.handle,
+                displayName: signUp.displayName,
+                isDefault: true,
+                createdAt: ts,
+                updatedAt: ts,
+              }),
+            ]);
+            return true;
+          } catch (e) {
+            if (!UNIQUE_CONSTRAINT_ERROR.test(driverErrorText(e))) throw e;
+            // The claim's ids are random and fixed when it was made, so a
+            // profile under them is this request's own, from an earlier try.
+            const own = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(and(eq(users.id, claim.profileId), eq(users.accountId, claim.accountId)))
+              .limit(1);
+            return own.length > 0;
+          }
+        },
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+    });
+
+  /**
    * Creates the account for a confirmed request and signs in the caller — the
-   * tab that holds the claim secret. The claim takes the request first, so of
-   * two polls at once exactly one gets here.
+   * tab that holds the claim secret — or finishes a request an earlier poll
+   * claimed and could not finish.
    *
-   *  - The pending entry must still name this request and hold an address; a
-   *    taken address's never does.
+   *  - The first claim needs the pending entry to still name this request and
+   *    hold an address; a taken address's never does. It fixes the account
+   *    and profile ids every later try uses. Of two polls at once one claims
+   *    it, and the other answers `expired`, as does a poll that finds the
+   *    request held by another poll.
    *  - Insert relies on the DB-level UNIQUE constraints on email/handle as the
-   *    source of truth. A uniqueness violation (the handle went to someone
-   *    else while the person waited) fails as a conflict, and the pending
-   *    entry goes, so the person can begin again with another handle. Any
-   *    other failure puts the request back and keeps the pending entry, so the
-   *    next poll can try again.
+   *    source of truth. A clash with rows an earlier try for this claim
+   *    committed goes on to the session. A clash with someone else's account
+   *    (the handle went to someone else while the person waited) ends the
+   *    request and frees the pending entry, and fails as a conflict, so the
+   *    person can begin again with another handle.
+   *  - The session is answered only once this poll has spent the request, so
+   *    of all the polls that ever hold it exactly one delivers. Any failure
+   *    before that keeps the claim and lets go of it, so the next poll takes
+   *    over at once and finishes on the same account.
    *  - The pending entry is removed after the answer: the account exists
    *    whatever happens to that call, and an entry left behind expires.
    */
@@ -456,59 +522,50 @@ export function createRegistrationModule(
     sessionMeta?: SessionMeta,
   ): Effect.Effect<RegistrationStatus, AuthError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
+      const signUp = link.signUp;
       const pending = yield* storeCall(stores.pendingRegistrations, "get", () =>
         stores.pendingRegistrations.get(link.subject),
       );
-      if (pending?.requestId !== requestId || !pending.email) {
-        return { status: "expired" } as const;
-      }
-      const claimed = yield* links.claim(requestId, link);
+      const parkedHere = pending?.requestId === requestId;
+      // A claimed request passed this check when it was claimed; its pending
+      // entry going since does not stop it finishing.
+      const parked = link.status === "claimed" || (parkedHere && pending.email !== "");
+      if (!signUp?.email || !parked) return { status: "expired" } as const;
+      const claimed = yield* links.claim(requestId, link, {
+        accountId: genId("acc_"),
+        profileId: genId("usr_"),
+      });
       if (!claimed) return { status: "expired" } as const;
+      const { accountId, profileId } = claimed.claim;
 
-      const { db } = yield* Db;
-      const accountId = genId("acc_");
-      const id = genId("usr_");
-      const ts = now();
+      const finished = yield* Effect.gen(function* () {
+        if (!(yield* insertClaimed(claimed.claim, signUp))) {
+          yield* links.spend(requestId, claimed);
+          return { kind: "conflict" } as const;
+        }
+        const issued = yield* issueTokens(
+          profileId,
+          accountId,
+          signUp.email,
+          signUp.handle,
+          signUp.displayName,
+          undefined,
+          sessionMeta,
+        );
+        if (!(yield* links.spend(requestId, claimed))) return { kind: "lost" } as const;
+        return { kind: "complete", issued } as const;
+      }).pipe(Effect.tapError(() => links.letGo(requestId, claimed).pipe(Effect.ignore)));
 
-      const inserted = yield* Effect.tryPromise({
-        try: async () => {
-          try {
-            await commitBatch(db, [
-              db.insert(accounts).values({
-                id: accountId,
-                email: pending.email,
-                passkeyUserId: crypto.randomUUID(),
-                maxProfiles: 5,
-                createdAt: ts,
-                updatedAt: ts,
-              }),
-              db.insert(users).values({
-                id,
-                accountId,
-                handle: pending.handle,
-                displayName: pending.displayName,
-                isDefault: true,
-                createdAt: ts,
-                updatedAt: ts,
-              }),
-            ]);
-            return { ok: true as const };
-          } catch (e) {
-            if (UNIQUE_CONSTRAINT_ERROR.test(driverErrorText(e))) {
-              return { ok: false as const };
-            }
-            throw e;
-          }
-        },
-        catch: (cause) => new DatabaseError({ cause }),
-      }).pipe(Effect.tapError(() => links.unclaim(requestId, link).pipe(Effect.ignore)));
+      // Another poll took the request over and delivers it.
+      if (finished.kind === "lost") return { status: "expired" } as const;
 
-      const tidy = forkBackground(
-        spendEntry(stores.pendingRegistrations, link.subject, pending).pipe(Effect.ignore),
-      );
+      if (parkedHere) {
+        yield* forkBackground(
+          spendEntry(stores.pendingRegistrations, link.subject, pending).pipe(Effect.ignore),
+        );
+      }
 
-      if (!inserted.ok) {
-        yield* tidy;
+      if (finished.kind === "conflict") {
         return yield* Effect.fail(
           new AuthError({
             message: "Email or handle already registered",
@@ -517,27 +574,15 @@ export function createRegistrationModule(
         );
       }
 
-      yield* tidy;
-
-      const issued = yield* issueTokens(
-        id,
-        accountId,
-        pending.email,
-        pending.handle,
-        pending.displayName,
-        undefined,
-        sessionMeta,
-      );
-
       return {
         status: "complete",
-        profileId: id,
-        handle: pending.handle,
-        email: pending.email,
-        displayName: pending.displayName,
-        accessToken: issued.accessToken,
-        refreshToken: issued.refreshToken,
-        expiresIn: issued.expiresIn,
+        profileId,
+        handle: signUp.handle,
+        email: signUp.email,
+        displayName: signUp.displayName,
+        accessToken: finished.issued.accessToken,
+        refreshToken: finished.issued.refreshToken,
+        expiresIn: finished.issued.expiresIn,
       } as const;
     }).pipe(withAuthRegister("complete"));
 
@@ -547,8 +592,9 @@ export function createRegistrationModule(
    * so a reloaded tab can show it again without keeping it, then creates the
    * account and answers `complete` with a session, once. `expired` for every refusal:
    * an unknown or expired request, a wrong claim secret, or a poll that lost
-   * the claim to another. `conflict` when the handle was taken while the
-   * person waited.
+   * the claim to another or found another holding it. `conflict` when the
+   * handle was taken while the person waited. A poll that fails after the
+   * claim leaves the request claimed, and the next one finishes it.
    *
    * The UI then drives `/passkey/register/*` with the returned access token to
    * enrol the first passkey, and refuses to dismiss until it does;

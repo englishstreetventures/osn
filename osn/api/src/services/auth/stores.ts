@@ -170,14 +170,37 @@ export interface EmailLinkChallenge {
   /** `serverMac.pairingDigest(requestId, pairing number)`. */
   pairingHash: string;
   /**
-   * `confirmed` once a right link secret and pick were posted; the claim reads
-   * it. `declined` once the holder of a link said they did not ask: the request
-   * is over, and the entry stays only so a repeated decline gets the same
-   * answer.
+   * `confirmed` once a right link secret and pick were posted; the tab's poll
+   * claims it from there. `claimed` once that poll has taken it to finish the
+   * flow: `claim` says with what, and the entry stays until a poll has
+   * delivered the result, so a finish that failed part way is finished by the
+   * next poll. Nothing but the poll that finishes it ends a claimed request.
+   * `declined` once the holder of a link said they did not ask: the request is
+   * over, and the entry stays only so a repeated decline gets the same answer.
    */
-  status: "pending" | "confirmed" | "declined";
+  status: "pending" | "confirmed" | "claimed" | "declined";
+  /** Set exactly when `status` is `claimed`. */
+  claim?: EmailLinkClaim;
   /** Milliseconds. */
   expiresAt: number;
+}
+
+/**
+ * What a claimed request's flow finishes with, chosen once, when the claim is
+ * made, so every try writes the same rows and a try after a fault finds what
+ * an earlier one committed.
+ */
+export interface EmailLinkClaim {
+  /** The account the flow creates or signs in to. */
+  accountId: string;
+  /** The profile the session is for. */
+  profileId: string;
+  /**
+   * Milliseconds. While it is ahead, one poll is finishing the request and
+   * every other poll is refused. A poll whose finish failed sets it to 0, so
+   * the next poll takes over at once.
+   */
+  heldUntil: number;
 }
 
 // In-memory bounds (pending registrations, pending CDL, login challenges)

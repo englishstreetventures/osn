@@ -39,6 +39,15 @@ export const REGISTRATION_SENDS_PER_ADDRESS_WINDOW_MS = 60 * 60 * 1000;
 export const EMAIL_LINK_PAIRING_CANDIDATES = 5;
 
 /**
+ * How long one poll holds a claimed emailed-link request while it finishes
+ * the flow, in milliseconds. Every other poll of the request is refused until
+ * the hold passes or its poll lets go. Far longer than a finish takes; short
+ * enough that a poll which died holding the request is taken over by the
+ * tab's next poll after a failure, which comes ten seconds later.
+ */
+export const EMAIL_LINK_CLAIM_HOLD_MS = 5_000;
+
+/**
  * Wrong picks on sign-up links to one address, per window, before no more
  * sign-up links go to it until the window passes. A decline counts nothing.
  * Keyed on the probe key of the address exactly as typed, lowercased; begin

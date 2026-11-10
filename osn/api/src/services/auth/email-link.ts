@@ -21,8 +21,15 @@
  *   mints a session, and no answer names the address or which candidate is
  *   right.
  * - The tab that began holds the claim secret and polls with it; once the
- *   request is confirmed, the flow claims it there and finishes. The device
- *   that opened the link and the device that gets the result can differ.
+ *   request is confirmed, the poll claims it and the flow finishes. The
+ *   device that opened the link and the device that gets the result can
+ *   differ.
+ * - A claim records what the flow finishes with (the account and profile)
+ *   and stays on the request until a poll has delivered the result, so a
+ *   finish that failed part way is finished by the next poll, on the same
+ *   rows. Nothing else ends a claimed request: a decline, a wrong pick, wrong
+ *   secrets and a retire leave it as it is, and its finish does not need the
+ *   flow's pending entry.
  *
  * Every refusal answers alike: an unknown request, a wrong secret, a spent or
  * expired one, and another flow's request all read as `expired`. Wrong link
@@ -43,12 +50,17 @@ import type { CeremonyStore } from "../../lib/ceremony-store";
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
 import { withEmailLinkConfirm } from "../../metrics";
 import { claimEntry, guessEntry } from "./attempts";
-import { EMAIL_LINK_MAX_SENDS, EMAIL_LINK_PAIRING_CANDIDATES, MAX_OTP_ATTEMPTS } from "./constants";
+import {
+  EMAIL_LINK_CLAIM_HOLD_MS,
+  EMAIL_LINK_MAX_SENDS,
+  EMAIL_LINK_PAIRING_CANDIDATES,
+  MAX_OTP_ATTEMPTS,
+} from "./constants";
 import type { AuthContext } from "./context";
 import type { CoordinationError } from "./errors";
 import { frontendOrigin, genId } from "./helpers";
 import { storeCall } from "./store-call";
-import type { EmailLinkChallenge, EmailLinkFlow, PendingSignUp } from "./stores";
+import type { EmailLinkChallenge, EmailLinkClaim, EmailLinkFlow, PendingSignUp } from "./stores";
 
 /** The request-id prefix of each flow. The confirm page reads the flow off it. */
 export const EMAIL_LINK_ID_PREFIX = {
@@ -116,7 +128,14 @@ export type EmailLinkPoll =
       readonly pairingCode?: string;
     }
   | { readonly state: "expired" }
+  /** Confirmed, or claimed by a poll; `claim` decides which poll may finish it. */
   | { readonly state: "confirmed"; readonly entry: EmailLinkChallenge };
+
+/** A request one poll holds to finish: claimed, with what it finishes with. */
+export type ClaimedEmailLink = EmailLinkChallenge & {
+  readonly status: "claimed";
+  readonly claim: EmailLinkClaim;
+};
 
 /** What a Resend may do. */
 export type EmailLinkResend =
@@ -146,6 +165,23 @@ interface StrikeCounter {
   readonly store: RecoveryLockoutStore;
   readonly key: string;
 }
+
+const STATUSES: ReadonlySet<string> = new Set<EmailLinkChallenge["status"]>([
+  "pending",
+  "confirmed",
+  "claimed",
+  "declined",
+]);
+
+/** Whether `claim` is a whole claim record, as {@link EmailLinkClaim} describes. */
+const isClaim = (claim: EmailLinkClaim | undefined): claim is EmailLinkClaim =>
+  typeof claim === "object" &&
+  claim !== null &&
+  typeof claim.accountId === "string" &&
+  claim.accountId.length > 0 &&
+  typeof claim.profileId === "string" &&
+  claim.profileId.length > 0 &&
+  typeof claim.heldUntil === "number";
 
 /** A uniform index below `n` (`n` ≤ 256), from `crypto.getRandomValues`. */
 const randomIndex = (n: number): number => {
@@ -194,12 +230,17 @@ export function createEmailLinkModule(ctx: AuthContext) {
   const remainingMs = (entry: EmailLinkChallenge): number =>
     Math.max(1, entry.expiresAt - Date.now());
 
-  /** An entry this module wrote, live: any other shape or a past expiry is refused. */
+  /**
+   * An entry this module wrote, live: any other shape — a status no write
+   * gives, a claimed entry without its claim — or a past expiry is refused.
+   */
   const usable = (entry: EmailLinkChallenge | null): entry is EmailLinkChallenge =>
     entry !== null &&
     entry.v === 1 &&
     typeof entry.pairingHash === "string" &&
     entry.pairingHash.length > 0 &&
+    STATUSES.has(entry.status) &&
+    (entry.status !== "claimed" || isClaim(entry.claim)) &&
     Date.now() <= entry.expiresAt;
 
   const read = (requestId: string) => storeCall(links, "get", () => links.get(requestId));
@@ -249,17 +290,20 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * deletes whatever entry still holds the request; a delete the store failed
    * is tried once more. The caller's answer does not wait on either: it is
    * `expired` whatever this manages, and a request whose delete failed twice
-   * is left to expire.
+   * is left to expire, its pending entry freed all the same. A claimed
+   * request, read first or on the re-read, is left as it is, its pending
+   * entry with it: the poll that holds it finishes it.
    *
    * Answers whether this call ended the request: true when one of its deletes
    * removed the entry, or when the store did not answer the last one tried;
-   * false when another write had already removed it.
+   * false when another write had already removed it, or it is claimed.
    */
   const end = (requestId: string, entry: EmailLinkChallenge) =>
     Effect.gen(function* () {
       let current: EmailLinkChallenge | null = entry;
       let ended = false;
       for (let attempt = 0; attempt < 2 && current; attempt++) {
+        if (current.status === "claimed") return false;
         const from: EmailLinkChallenge = current;
         const removed = yield* storeCall(links, "consume", () =>
           links.consume(requestId, from),
@@ -351,9 +395,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * secret is answered from one read and counts nothing, so a reload, or a
    * scanner that runs the page's script, spends nothing. A wrong secret is
    * counted as a wrong confirm is, and the one that reaches the cap wipes the
-   * request. A confirmed request answers `confirmed` and offers no list, so a
-   * page reloaded after its confirm cannot be made to pick again; a declined
-   * one is over, and answers `expired`.
+   * request (never a claimed one). A confirmed or claimed request answers
+   * `confirmed` and offers no list, so a page reloaded after its confirm cannot
+   * be made to pick again; a declined one is over, and answers `expired`.
    */
   const candidates = (
     requestId: string,
@@ -364,7 +408,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
       const entry = yield* read(requestId);
       if (!usable(entry)) return { status: "expired" } as const;
       if (holdsLink(entry, linkSecret)) {
-        if (entry.status === "confirmed") return { status: "confirmed" } as const;
+        if (entry.status === "confirmed" || entry.status === "claimed") {
+          return { status: "confirmed" } as const;
+        }
         if (entry.status === "declined") return { status: "expired" } as const;
         return { status: "ready", pairingCandidates: candidatesOf(requestId) } as const;
       }
@@ -388,13 +434,14 @@ export function createEmailLinkModule(ctx: AuthContext) {
    * decline is answered the same way; nothing can confirm, claim or resend it
    * after. The flow's pending entry is freed at once. A write that lost to
    * another (a Resend, a confirm) is tried once more on what the store now
-   * holds; a request gone meanwhile (claimed, wiped) is refused.
+   * holds; a request claimed or gone meanwhile (finished, wiped) is refused.
    */
   const decline = (requestId: string, entry: EmailLinkChallenge) =>
     Effect.gen(function* () {
       let current: EmailLinkChallenge | null = entry;
       for (let attempt = 0; attempt < 2 && usable(current); attempt++) {
         if (current.status === "declined") return REPEAT_DECLINE;
+        if (current.status === "claimed") return REFUSED;
         const from: EmailLinkChallenge = current;
         const won = yield* storeCall(links, "swap", () =>
           links.swap(requestId, from, { ...from, status: "declined" }, remainingMs(from)),
@@ -414,12 +461,13 @@ export function createEmailLinkModule(ctx: AuthContext) {
   /**
    * Confirms request `requestId` for the holder of its link who picked the
    * waiting screen's number. Answers `confirmed` — again for a request already
-   * confirmed, so a confirm whose answer was lost reads as done when retried —
-   * and `expired` for every refusal. A wrong pick ends the request at once, on
-   * a confirmed request too, and counts a strike against the flow's subject
-   * when it is the call that ended the request.
+   * confirmed or claimed, so a confirm whose answer was lost reads as done when
+   * retried — and `expired` for every refusal. A wrong pick ends the request
+   * at once, on a confirmed request too, and counts a strike against the
+   * flow's subject when it is the call that ended the request.
    * A decline (`none`) ends it too, counts nothing, and answers `declined`,
-   * again when repeated.
+   * again when repeated. A claimed request is past both: a wrong pick and a
+   * decline on it are refused, and end nothing.
    */
   const confirm = (
     requestId: string,
@@ -433,8 +481,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       const { entry, standing } = guessed;
       if (!holdsLink(entry, input.linkSecret)) {
         if (standing !== "last") return REFUSED;
-        yield* end(requestId, entry);
-        return WIPED;
+        return (yield* end(requestId, entry)) ? WIPED : REFUSED;
       }
       const declining = input.pairingPick === EMAIL_LINK_DECLINE;
       // A declined request is over: its decline can be repeated, nothing else.
@@ -460,7 +507,7 @@ export function createEmailLinkModule(ctx: AuthContext) {
       let current: EmailLinkChallenge | null = entry;
       for (let attempt = 0; attempt < 2 && usable(current); attempt++) {
         if (current.status === "declined") return REFUSED;
-        if (current.status === "confirmed") return REPEAT;
+        if (current.status === "confirmed" || current.status === "claimed") return REPEAT;
         const from: EmailLinkChallenge = current;
         const won = yield* storeCall(links, "swap", () =>
           links.swap(requestId, from, { ...from, status: "confirmed" }, remainingMs(from)),
@@ -487,24 +534,69 @@ export function createEmailLinkModule(ctx: AuthContext) {
     Effect.gen(function* () {
       const entry = yield* held(flow, requestId, claimSecret);
       if (!entry || entry.status === "declined") return { state: "expired" } as const;
-      if (entry.status === "confirmed") return { state: "confirmed", entry } as const;
+      if (entry.status === "confirmed" || entry.status === "claimed") {
+        return { state: "confirmed", entry } as const;
+      }
       return { state: "pending", pairingCode: pairingOf(requestId, entry) } as const;
     });
 
   /**
-   * Takes the confirmed `entry` for the one caller that finishes the flow:
-   * true for exactly one caller, and only while `entry` is still the live one.
+   * Takes the request a poll read (`entry`) for that poll to finish, holding
+   * it for `EMAIL_LINK_CLAIM_HOLD_MS`. A confirmed request is claimed with
+   * `ids`, which every later try then uses; a claimed one whose hold has
+   * passed, or was let go, is taken over with the ids it already holds. One
+   * swap naming the whole value read, so of several polls at once exactly one
+   * gets it. Null for every other poll, and for a request held by another
+   * poll, or in any other state. It keeps the request's own expiry.
    */
-  const claim = (requestId: string, entry: EmailLinkChallenge) =>
-    claimEntry(links, requestId, entry);
+  const claim = (
+    requestId: string,
+    entry: EmailLinkChallenge,
+    ids: Pick<EmailLinkClaim, "accountId" | "profileId">,
+  ): Effect.Effect<ClaimedEmailLink | null, CoordinationError> =>
+    Effect.gen(function* () {
+      const now = Date.now();
+      const heldUntil = now + EMAIL_LINK_CLAIM_HOLD_MS;
+      let next: ClaimedEmailLink;
+      if (entry.status === "confirmed") {
+        next = { ...entry, status: "claimed", claim: { ...ids, heldUntil } };
+      } else if (
+        entry.status === "claimed" &&
+        isClaim(entry.claim) &&
+        entry.claim.heldUntil <= now
+      ) {
+        next = { ...entry, status: "claimed", claim: { ...entry.claim, heldUntil } };
+      } else {
+        return null;
+      }
+      const won = yield* storeCall(links, "swap", () =>
+        links.swap(requestId, entry, next, remainingMs(entry)),
+      );
+      return won ? next : null;
+    });
 
   /**
-   * Puts back a claimed `entry` whose flow could not finish for a reason that
-   * may pass (a database fault), so the next poll can try again. It keeps the
-   * request's own expiry.
+   * Lets go of a request this poll holds (`claimed`) but could not finish, so
+   * the next poll takes it over at once rather than when the hold passes. The
+   * claim and its ids stay. A no-op once anything else has written the entry.
    */
-  const unclaim = (requestId: string, entry: EmailLinkChallenge) =>
-    storeCall(links, "swap", () => links.swap(requestId, null, entry, remainingMs(entry)));
+  const letGo = (requestId: string, claimed: ClaimedEmailLink) =>
+    storeCall(links, "swap", () =>
+      links.swap(
+        requestId,
+        claimed,
+        { ...claimed, claim: { ...claimed.claim, heldUntil: 0 } },
+        remainingMs(claimed),
+      ),
+    );
+
+  /**
+   * Ends a request this poll holds (`claimed`) once its flow is done with it:
+   * delivered, or refused for good. True only while `claimed` is still the
+   * live entry, so of all the polls that ever held the request, one delivers.
+   */
+  const spend = (requestId: string, claimed: ClaimedEmailLink) =>
+    claimEntry(links, requestId, claimed);
 
   /**
    * One more link for the request, for the tab that holds its claim secret.
@@ -521,7 +613,9 @@ export function createEmailLinkModule(ctx: AuthContext) {
       // Two tries: a confirm or another Resend can land between the read and
       // the write.
       for (let attempt = 0; attempt < 2 && current; attempt++) {
-        if (current.status === "confirmed") return { state: "confirmed" } as const;
+        if (current.status === "confirmed" || current.status === "claimed") {
+          return { state: "confirmed" } as const;
+        }
         if (current.status === "declined") return { state: "expired" } as const;
         if (current.mailSecretHashes.length >= EMAIL_LINK_MAX_SENDS) {
           return { state: "limit" } as const;
@@ -551,7 +645,8 @@ export function createEmailLinkModule(ctx: AuthContext) {
 
   /**
    * Ends the request for the tab that holds its claim secret, and frees the
-   * flow's pending entry for it. False, and nothing touched, without a match.
+   * flow's pending entry for it. Answers whether it ended the request; without
+   * a match, or for a claimed request, it answers false and touches nothing.
    */
   const retire = (
     flow: EmailLinkFlow,
@@ -561,11 +656,10 @@ export function createEmailLinkModule(ctx: AuthContext) {
     Effect.gen(function* () {
       const entry = yield* held(flow, requestId, claimSecret);
       if (!entry) return false;
-      yield* end(requestId, entry);
-      return true;
+      return yield* end(requestId, entry);
     });
 
-  return { open, candidates, confirm, poll, claim, unclaim, resend, retire };
+  return { open, candidates, confirm, poll, claim, letGo, spend, resend, retire };
 }
 
 export type EmailLinkModule = ReturnType<typeof createEmailLinkModule>;

@@ -468,6 +468,14 @@ describe("sign-up through the emailed link", () => {
       expect(
         yield* Effect.promise(() => stores.pendingRegistrations.get("toctou@example.com")),
       ).toBeNull();
+      // The request is over, and the account that took the handle is untouched.
+      expect(yield* settle(svc.registrationStatus(begun.requestId, begun.claimSecret))).toEqual({
+        status: "expired",
+      });
+      expect(yield* svc.findProfileByEmail("toctou@example.com")).toBeNull();
+      expect((yield* svc.findProfileByHandle("toctouuser"))?.email).toBe(
+        "someone-else@example.com",
+      );
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), email.layer)));
   });
 
@@ -478,7 +486,7 @@ describe("sign-up through the emailed link", () => {
   // constraint-worded message that does not contain "UNIQUE". It refuses the
   // first statement, as D1 refuses the whole batch: bun:sqlite runs the two
   // inserts one after the other, with no batch to undo the first. The request
-  // is put back, so the next poll can try again and finish.
+  // stays claimed, and the next poll inserts with the same ids and finishes.
   it.effect(
     "a database fault after the claim answers DatabaseError, and the next poll finishes",
     () => {
