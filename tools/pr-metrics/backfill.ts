@@ -69,20 +69,34 @@ interface PullRequest {
 /** The repository `backfill` reads when `--repo` is not given. */
 const DEFAULT_REPO = "englishstreetventures/osn";
 
+/** A record window with no bounds: the only pull request on its branch name. */
+const OPEN_WINDOW = { after: null, until: null };
+
 /**
  * Whether the card on disk is the one for pull request `number` on `branch`:
- * it names that pull request, or it names none and is this branch's. `retro`
- * commits a branch's card before its first push, when the pull request has no
- * number yet, so a card that names none is still that pull request's record.
+ * it names that pull request, or it names none, is this branch's, and was
+ * written inside this pull request's record window. `retro` commits a branch's
+ * card before its first push, when the pull request has no number yet, so a
+ * card that names none is that pull request's record. On a branch name several
+ * pull requests used, the window says which one: a card written after an
+ * earlier pull request merged belongs to a later one.
  */
 function isOwnCard(
-  disk: { pr?: Partial<Pick<Card["pr"], "number" | "branch">> } | null,
+  disk: { pr?: Partial<Pick<Card["pr"], "number" | "branch" | "generated_at">> } | null,
   number: number | null,
   branch: string,
+  window: { after: string | null; until: string | null } = OPEN_WINDOW,
 ): boolean {
   const owner = disk?.pr?.number;
+  if (owner === number) return true;
+  if (owner !== null || disk?.pr?.branch !== branch) return false;
+  if (window.after === null && window.until === null) return true;
 
-  return owner === number || (owner === null && disk?.pr?.branch === branch);
+  const written = Date.parse(disk.pr.generated_at ?? "");
+  const after = window.after === null ? Number.NEGATIVE_INFINITY : Date.parse(window.after);
+  const until = window.until === null ? Number.POSITIVE_INFINITY : Date.parse(window.until);
+
+  return !Number.isNaN(written) && written > after && written <= until;
 }
 
 /**
@@ -117,14 +131,21 @@ function isOwnCard(
  *   public card must not keep those, so the rebuilt card is written instead.
  *
  * The disk card counts as this pull request's by {@link isOwnCard}, so the
- * card `retro` wrote before the pull request had a number keeps its rating too.
+ * card `retro` wrote before the pull request had a number keeps its rating too;
+ * `window` is this pull request's record window on its branch name.
  */
-export function keepRating(onDisk: unknown, next: Card, selection: IssueSelection): Card | null {
+export function keepRating(
+  onDisk: unknown,
+  next: Card,
+  selection: IssueSelection,
+  window: { after: string | null; until: string | null } = OPEN_WINDOW,
+): Card | null {
   if (onDisk === null || typeof onDisk !== "object") return next;
 
   const disk = onDisk as Partial<Pick<Card, "pr" | "issue" | "complexity">>;
   const old = disk.complexity;
-  if (!isOwnCard(disk, next.pr.number, next.pr.branch) || old === null || typeof old !== "object") {
+  const own = isOwnCard(disk, next.pr.number, next.pr.branch, window);
+  if (!own || old === null || typeof old !== "object") {
     return next;
   }
 
@@ -655,7 +676,7 @@ if (import.meta.main) {
       parseNumstat(numstatFromApi(changed), counts.get(pull.number) ?? 0),
       {
         review:
-          onDisk !== null && isOwnCard(onDisk, pull.number, branch)
+          onDisk !== null && isOwnCard(onDisk, pull.number, branch, window)
             ? (onDisk.review ?? null)
             : null,
         branch: pull.headRefName,
@@ -674,7 +695,7 @@ if (import.meta.main) {
       },
     );
 
-    const card = keepRating(onDisk, built, selection);
+    const card = keepRating(onDisk, built, selection, window);
     if (card !== null && card !== built) {
       process.stderr.write(
         `  ⚠️  #${pull.number}: keeping the rating already on disk (${card.complexity.method} ${card.complexity.declared}) over this run's (${built.complexity.method} ${built.complexity.declared}).\n`,
@@ -703,6 +724,20 @@ if (import.meta.main) {
     if (owner !== null) {
       process.stderr.write(
         `  ⚠️  ${file} is the card for #${owner} — skipping #${pull.number} rather than writing over it.\n`,
+      );
+      heldBack.push(pull.number);
+      continue;
+    }
+
+    // A card that names no pull request, on this branch, written outside this
+    // pull request's window, is a later pull request's, written before its push.
+    const laterCard =
+      onDisk?.pr?.number === null &&
+      onDisk.pr.branch === branch &&
+      !isOwnCard(onDisk, pull.number, branch, window);
+    if (laterCard) {
+      process.stderr.write(
+        `  ⚠️  ${file} holds a card written after #${pull.number} merged, for a later pull request on \`${branch}\` — skipping #${pull.number} rather than writing over it.\n`,
       );
       heldBack.push(pull.number);
       continue;
