@@ -646,6 +646,33 @@ describe("a poll whose finish fails after the claim", () => {
     expect(again.headers.getSetCookie()).toEqual([]);
     expect(await again.json()).toEqual({ status: "expired" });
   });
+
+  it("a retry after a later recovery stamped the account is refused, and spends the request", async () => {
+    const h = harness();
+    const profile = await h.seed("rl-later@example.com", "rllater");
+    const r = await begun(h, "rl-later@example.com", 1);
+    await confirm(h, r.requestId, r.link.linkSecret, r.pairingCode, 9);
+
+    h.sqlite.run(`
+      CREATE TRIGGER refuse_sessions BEFORE INSERT ON sessions
+      BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed: sessions'); END;
+    `);
+    const failed = await recoveryStatusThroughRoutes(h.app, r.requestId, r.claimSecret, from(1));
+    expect(failed.status).toBe(500);
+    h.sqlite.run("DROP TRIGGER refuse_sessions");
+
+    // Another recovery lands before the retry, as a recovery code's does.
+    h.sqlite.run("UPDATE accounts SET last_recovered_at = last_recovered_at + 60 WHERE id = ?", [
+      profile.accountId,
+    ]);
+
+    const retried = await recoveryStatusThroughRoutes(h.app, r.requestId, r.claimSecret, from(1));
+    expect(retried.headers.getSetCookie()).toEqual([]);
+    expect(await retried.json()).toEqual({ status: "expired" });
+    expect(h.recorded().filter((m) => m.template === "recovery-used")).toHaveLength(1);
+    const again = await recoveryStatusThroughRoutes(h.app, r.requestId, r.claimSecret, from(1));
+    expect(await again.json()).toEqual({ status: "expired" });
+  });
 });
 
 describe("a request belongs to its own flow", () => {

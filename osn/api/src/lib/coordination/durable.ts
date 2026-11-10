@@ -333,8 +333,8 @@ export function createDurableCoordination(
       recoveryLockout,
       onError,
     ),
-    // Email recovery's counter: wrong link secrets and wrong picks on an
-    // account's recovery links. Its own store, so failing one recovery factor
+    // Email recovery's counter: wrong numbers typed on an account's recovery
+    // links. Its own store, so failing one recovery factor
     // never locks the owner out of another.
     recoveryOtpLockoutStore: createDurableLockoutStore(
       ns,

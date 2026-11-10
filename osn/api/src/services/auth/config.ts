@@ -158,8 +158,8 @@ export interface AuthConfig {
    */
   totpLockoutStore?: RecoveryLockoutStore;
   /**
-   * Per-account lockout for email recovery: wrong link secrets and wrong picks
-   * on the account's recovery links. Its own instance rather than a share of
+   * Per-account lockout for email recovery: wrong numbers typed on the
+   * account's recovery links. Its own instance rather than a share of
    * {@link recoveryLockoutStore}: an attacker grinding 64-bit recovery codes
    * must not deny the owner the email path, nor the reverse — the whole point
    * of a second recovery factor is that it is independent of the first.

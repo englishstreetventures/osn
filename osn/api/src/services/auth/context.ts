@@ -101,7 +101,7 @@ export function createAuthContext(config: AuthConfig) {
     );
   // Per-account recovery-code lockout counter.
   const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
-  // Per-account lockout for email recovery: wrong link secrets and wrong picks.
+  // Per-account lockout for email recovery: wrong numbers typed on its links.
   // Its own counter, so failing one recovery factor never locks the owner out
   // of another.
   const recoveryOtpLockoutStore =

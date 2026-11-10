@@ -446,17 +446,17 @@ export function createRecoveryFactorsModule(
       );
     }).pipe(Effect.withSpan("auth.recovery.email_status"));
 
-  /** Whether the account holds the `account_recovered` row `eventId`. */
-  const hasRecoveryRow = (
+  /** When the account's `account_recovered` row `eventId` was written, or null for none. */
+  const recoveryRowAt = (
     accountId: string,
     eventId: string,
-  ): Effect.Effect<boolean, DatabaseError, Db> =>
+  ): Effect.Effect<number | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: securityEvents.id })
+            .select({ createdAt: securityEvents.createdAt })
             .from(securityEvents)
             .where(
               and(
@@ -468,7 +468,7 @@ export function createRecoveryFactorsModule(
             .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return rows.length > 0;
+      return rows[0]?.createdAt ?? null;
     });
 
   /**
@@ -487,12 +487,14 @@ export function createRecoveryFactorsModule(
    * a session nobody can see was created.
    *
    * `eventId`, from an emailed link's claim, names the `account_recovered` row
-   * this recovery writes. A try that finds the cooldown running and that row
-   * already written is the same recovery, committed by an earlier try whose
-   * session never went out: it skips the batch and goes on from the committed
-   * instant, so its disown link names that recovery. It sets a disown token
-   * and sends the notice again, since the earlier try may have failed before
-   * either.
+   * this recovery writes. A try that finds the cooldown running, that row
+   * already written, and the account's last recovery still the instant that
+   * row records is the same recovery, committed by an earlier try whose
+   * session never went out: it skips the batch and goes on from that instant,
+   * so its disown link names that recovery. It sets a disown token and sends
+   * the notice again, since the earlier try may have failed before either.
+   * Once any later recovery has stamped the account, the try is refused like
+   * a second recovery.
    */
   const completeRecoveryFactor = (
     profile: ProfileWithEmail,
@@ -531,13 +533,16 @@ export function createRecoveryFactorsModule(
         previousRecovery !== null &&
         Date.now() - previousRecovery * 1000 < RECOVERY_COOLDOWN_MS
       ) {
-        // Read only on a claimed link's retry, past the link and its number,
-        // so this read is no oracle either.
-        if (eventId === undefined || !(yield* hasRecoveryRow(profile.accountId, eventId))) {
+        // Read only for a confirmed and claimed email link that meets the
+        // cooldown, past the link and its number, so this read is no oracle
+        // either.
+        const ownAt =
+          eventId === undefined ? null : yield* recoveryRowAt(profile.accountId, eventId);
+        if (ownAt === null || ownAt !== previousRecovery) {
           metricRecoveryCooldown("second_recovery_refused");
           return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
         }
-        recoveredAt = previousRecovery;
+        recoveredAt = ownAt;
       } else {
         const securityEventRow: typeof securityEvents.$inferInsert = {
           id: eventId ?? genId("sev_"),

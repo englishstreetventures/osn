@@ -152,9 +152,10 @@ There is no `GET` on any of them: mail scanners open links before people do.
   earlier try committed (a batch whose answer was lost) goes on to the
   session; a clash with someone else's account answers `conflict`, ends the
   request and frees the address. For recovery, a poll that meets the
-  cooldown and finds the claim's own audit row goes on to the session from
-  the committed recovery, and sends the notice with a disown link again; any
-  other cooldown refusal ends the request. Of all the polls that ever hold a
+  cooldown, finds the claim's own audit row, and finds the account's last
+  recovery still at that row's instant goes on to the session from that
+  recovery, and sends the notice with a disown link again; any other cooldown
+  refusal, a later recovery included, ends the request. Of all the polls that ever hold a
   request, one delivers its session; a slower one that lost the request
   answers `expired`, and the session row it wrote is never handed out.
 - **Nothing else ends a claimed request.** A decline and a wrong pick answer
