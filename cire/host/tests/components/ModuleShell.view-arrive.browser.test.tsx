@@ -16,12 +16,17 @@ import "../../src/styles/global.css";
  *   view in from below 1 to 1 and never back down, while the view bar stays the
  *   thing painted at its own centre and the view's head row stays at or below
  *   the bar's foot;
+ * - a module change to a view with no `Suspense` (Guests to Budget) fades the
+ *   new view in the same way;
  * - a view taking over from its `Suspense` fallback fades in too;
+ * - the run sheet, whose own root swaps its loading row for the day, shows the
+ *   day at once: only the view the change mounted fades;
  * - under reduced motion the new view's first frame is already at 1;
  * - the invite builder, kept mounted across its views, does not fade when the
  *   first change of the session is one of its own sub-tabs;
- * - the guests editor's save bar, portalled to `<body>`, is outside the faded
- *   box and drawn at full opacity while the view around its fields fades.
+ * - the guests and events editors' save bars, portalled to `<body>`, are
+ *   outside the faded box and drawn at full opacity while the view around
+ *   their fields fades.
  *
  * Artifacts: a filmstrip of a sub-tab press at 390 and 1280, light and dark,
  * in `e2e-artifacts/cire-host/view-arrive/` at the repository root: the
@@ -83,6 +88,7 @@ vi.mock("../../src/components/SeatingView", async () => {
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
+import { __resetRunSheetCache } from "../../src/lib/run-sheet-store";
 import { EVENTS_300, GUESTS_300, HOUSEHOLDS_300, RSVPS_300 } from "../test-support/guests-300";
 import {
   type PageOptions,
@@ -99,6 +105,10 @@ const FULL: PageRoutes = {
   events: EVENTS_300,
   households: HOUSEHOLDS_300,
 };
+
+/** A run sheet with nothing timed: the view draws its empty day. */
+const EMPTY_RUN_SHEET = { scope: "full", viewerHostId: null, items: [], people: [] };
+const EMPTY_DAY = "Nothing is timed for the day yet.";
 
 /** Every invite section empty: the builder's own fixture. */
 const EMPTY_CUSTOMISATION = {
@@ -134,6 +144,7 @@ afterEach(async () => {
   __resetGuestsCache();
   __resetEventsCache();
   __resetHouseholdsCache();
+  __resetRunSheetCache();
   window.scrollTo(0, 0);
   document.documentElement.style.removeProperty("--motion-scale");
   delete document.documentElement.dataset.theme;
@@ -170,6 +181,15 @@ const arrivals = () => document.querySelector<HTMLElement>(".view-arrive")!;
 /** The panel's first child, or `null` before the panel is drawn. */
 const firstView = () => document.querySelector(".view-arrive")?.firstElementChild ?? null;
 const opacity = (el: Element) => Number.parseFloat(getComputedStyle(el).opacity);
+/** How opaque `el` is drawn inside the panel: its opacity times every
+ *  ancestor's, up to the view the panel holds. */
+function shown(el: Element): number {
+  let product = 1;
+  for (let node: Element | null = el; node && node !== arrivals(); node = node.parentElement) {
+    product *= opacity(node);
+  }
+  return product;
+}
 
 /** Wait until a Guests tab has drawn its list. */
 async function loaded(sub: "list" | "rsvps" | "edit") {
@@ -241,6 +261,48 @@ function sampleFrames() {
   };
 }
 
+/** Wait until the events list is drawn: every event's row. */
+async function eventsListed() {
+  await vi.waitFor(
+    () => expect(arrivals().textContent).toContain("Sangeet night and welcome dinner"),
+    { timeout: 10_000 },
+  );
+  await frames();
+}
+
+/** Wait until the events editor has its rows: its actions stay invisible until then. */
+async function eventsEditing() {
+  await vi.waitFor(
+    () => {
+      const add = within(arrivals()).getByRole("button", { name: "Add event" });
+      expect(getComputedStyle(add).visibility).toBe("visible");
+    },
+    { timeout: 10_000 },
+  );
+  await eventsListed();
+}
+
+/** The two editors whose save bars portal to `<body>`, and how each is made dirty. */
+const EDITORS = [
+  {
+    module: "guests",
+    listed: () => loaded("list"),
+    editing: () => loaded("edit"),
+    dirty: async () => {
+      const field = arrivals().querySelector<HTMLInputElement>(
+        "[data-edit-card] input:not([type=checkbox], [type=radio])",
+      )!;
+      await userEvent.type(field, "x");
+    },
+  },
+  {
+    module: "events",
+    listed: eventsListed,
+    editing: eventsEditing,
+    dirty: () => userEvent.click(within(arrivals()).getByRole("button", { name: "Add event" })),
+  },
+] as const;
+
 /** The frames from the first one that draws `view`, until it has no running transition. */
 async function framesOf(sampler: ReturnType<typeof sampleFrames>, view: () => Element | null) {
   await vi.waitFor(
@@ -307,6 +369,26 @@ describe("a view arriving in the module panel", () => {
     );
   });
 
+  it("fades the new view in on a module change to a view with no Suspense", async () => {
+    await page.viewport(1280, 800);
+    const shell = render({ module: "guests", sub: "list" });
+    await loaded("list");
+    const before = arrivals().firstElementChild;
+    const sampler = sampleFrames();
+    shell.setModule("budget");
+    const seen = await framesOf(sampler, () => {
+      const el = arrivals().firstElementChild;
+      return el === before ? null : el;
+    });
+    expectPass(
+      "module: below full opacity on the new view's first frame",
+      seen.length > 0 && seen[0]!.opacity < 1,
+      seen.map((f) => f.opacity.toFixed(3)).join(" "),
+    );
+    expectPass("module: at full opacity by the end", seen.at(-1)?.opacity === 1);
+    expectPass("module: never falls back on the way", rising(seen));
+  });
+
   it("fades a view in as it takes over from its Suspense fallback", async () => {
     await page.viewport(1280, 800);
     const shell = render({ module: "guests", sub: "list" });
@@ -332,6 +414,55 @@ describe("a view arriving in the module panel", () => {
     );
     expectPass("suspense: at full opacity by the end", seen.at(-1)?.opacity === 1);
     expectPass("suspense: never falls back on the way", rising(seen));
+  });
+
+  it("shows the run sheet's day at once when it replaces the view's own loading row", async () => {
+    await page.viewport(1280, 800);
+    const shell = render({ module: "guests", sub: "list" });
+    await loaded("list");
+    // The run sheet's read, held until the view is up and showing its own
+    // loading row.
+    const routed = authFetch.getMockImplementation()!;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    authFetch.mockImplementation(async (input: unknown) => {
+      if (!String(input).includes("/run-sheet")) return routed(input);
+      await held;
+      return new Response(JSON.stringify(EMPTY_RUN_SHEET), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    shell.setModule("run-sheet");
+    await vi.waitFor(
+      () => {
+        expect(authFetch.mock.calls.some(([url]) => String(url).includes("/run-sheet"))).toBe(true);
+        expect(arrivals().getAnimations({ subtree: true })).toHaveLength(0);
+      },
+      { timeout: 10_000 },
+    );
+    const seen: number[] = [];
+    let running = true;
+    const read = () => {
+      if (!running) return;
+      const day = screen.queryByText(EMPTY_DAY);
+      if (day) seen.push(shown(day));
+      requestAnimationFrame(read);
+    };
+    requestAnimationFrame(read);
+    release();
+    await vi.waitFor(() => expect(screen.queryByText(EMPTY_DAY)).not.toBeNull(), {
+      timeout: 10_000,
+    });
+    await frames(12);
+    running = false;
+    expectPass(
+      "run sheet: the day replaces the view's own loading row at full opacity",
+      seen.length >= 10 && seen.every((o) => o === 1),
+      seen.join(" "),
+    );
   });
 
   it("puts the new view at full opacity on its first frame under reduced motion", async () => {
@@ -373,38 +504,38 @@ describe("a view arriving in the module panel", () => {
     );
   });
 
-  it("keeps the guests editor's save bar out of the fade", async () => {
-    await page.viewport(1280, 800);
-    render({ module: "guests", sub: "list" });
-    await loaded("list");
-    // Slowed, so the fade is still running when the editor has its fields.
-    document.documentElement.style.setProperty("--motion-scale", "40");
-    await userEvent.click(within(viewBar()).getByRole("tab", { name: "Edit" }));
-    await loaded("edit");
-    const view = arrivals().firstElementChild!;
-    const field = arrivals().querySelector<HTMLInputElement>(
-      "[data-edit-card] input:not([type=checkbox], [type=radio])",
-    )!;
-    await userEvent.type(field, "x");
-    const bar = await vi.waitFor(() => {
-      const el = screen.getByText("You have unsaved changes.").closest<HTMLElement>(".fixed");
-      expect(el).not.toBeNull();
-      return el!;
+  for (const editor of EDITORS) {
+    it(`keeps the ${editor.module} editor's save bar out of the fade`, async () => {
+      await page.viewport(1280, 800);
+      render({ module: editor.module, sub: "list" });
+      await editor.listed();
+      // Slowed, so the fade is still running when the editor has its fields.
+      document.documentElement.style.setProperty("--motion-scale", "40");
+      await userEvent.click(within(viewBar()).getByRole("tab", { name: "Edit" }));
+      await editor.editing();
+      const view = arrivals().firstElementChild!;
+      await editor.dirty();
+      const bar = await vi.waitFor(() => {
+        const el = screen.getByText(/unsaved changes|before saving/).closest<HTMLElement>(".fixed");
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      const name = `save bar (${editor.module})`;
+      expectPass(
+        `${name}: the view around the fields is still fading`,
+        opacity(view) < 1,
+        String(opacity(view)),
+      );
+      expectPass(`${name}: outside the faded box`, !arrivals().contains(bar));
+      const chain: number[] = [];
+      for (let el: Element | null = bar; el; el = el.parentElement) chain.push(opacity(el));
+      expectPass(
+        `${name}: drawn at full opacity, and so is everything around it`,
+        chain.every((o) => o === 1),
+        chain.join(" "),
+      );
     });
-    expectPass(
-      "save bar: the view around the fields is still fading",
-      opacity(view) < 1,
-      String(opacity(view)),
-    );
-    expectPass("save bar: outside the faded box", !arrivals().contains(bar));
-    const chain: number[] = [];
-    for (let el: Element | null = bar; el; el = el.parentElement) chain.push(opacity(el));
-    expectPass(
-      "save bar: drawn at full opacity, and so is everything around it",
-      chain.every((o) => o === 1),
-      chain.join(" "),
-    );
-  });
+  }
 });
 
 // ── The pictures ─────────────────────────────────────────────────────────────

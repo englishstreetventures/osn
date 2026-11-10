@@ -738,7 +738,9 @@ export default function ModuleShell(props: ModuleShellProps) {
                 differs depending on whether the frame is currently clipped.
                 `view-arrive` fades in each child it gains once `data-swapped`
                 is set: a view a change of module or sub-tab mounts, and a view
-                taking over from its `Suspense` fallback. */}
+                taking over from its `Suspense` fallback. Each view is one
+                element here, so the states a view swaps inside itself arrive
+                at once. */}
               <div
                 ref={panelSize.content}
                 class="view-arrive flow-root"
@@ -791,15 +793,20 @@ export default function ModuleShell(props: ModuleShellProps) {
                 {/* ── Run sheet: the day, read-only for every role ─────────────── */}
                 <Show when={module() === "run-sheet"}>
                   <Suspense fallback={<PanelLoading />}>
-                    <RunSheetView
-                      weddingId={props.weddingId}
-                      tier={props.tier}
-                      callerRole={props.callerRole}
-                      canEdit={props.canEdit}
-                      onOpenChecklist={
-                        props.canEdit ? () => props.onModule("checklist") : undefined
-                      }
-                    />
+                    {/* The run sheet's root is a `Switch`. This one element holds
+                      its states — loading, failure, the day — so they swap
+                      inside the view, at once, and only the view fades in. */}
+                    <div>
+                      <RunSheetView
+                        weddingId={props.weddingId}
+                        tier={props.tier}
+                        callerRole={props.callerRole}
+                        canEdit={props.canEdit}
+                        onOpenChecklist={
+                          props.canEdit ? () => props.onModule("checklist") : undefined
+                        }
+                      />
+                    </div>
                   </Suspense>
                 </Show>
 
