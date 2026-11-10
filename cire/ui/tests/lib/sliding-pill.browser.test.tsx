@@ -102,6 +102,13 @@ async function film(ms: number): Promise<Box[]> {
 /** Long enough for any move on the slowed clock to finish. */
 const RUN = 1900;
 
+/**
+ * The fewest pixels the glass's width may change by and still show an
+ * overshoot: at 8px, layout's 1/64px rounding is a share of 0.002, under the
+ * size test's bound, and the glide's 3% is 0.24px, over it.
+ */
+const MIN_SIZE_CHANGE = 8;
+
 /** Waits out the first placement, which never slides. */
 async function placed() {
   await frame();
@@ -132,6 +139,16 @@ describe("the glass's place", () => {
   }
 });
 
+/**
+ * How far the glass's width went outside the range it moves across, as a
+ * share of that range: a ratio, so the runner's fonts cannot shrink an
+ * overshoot under a fixed tolerance.
+ */
+function sizeOvershoot(frames: Box[], low: number, high: number): number {
+  const widths = frames.map((f) => f.width);
+  return Math.max(Math.max(...widths) - high, low - Math.min(...widths)) / (high - low);
+}
+
 describe("the glass's size", () => {
   // From the narrowest choice to the widest and back: growing it must never
   // pass the wider tab, and shrinking it must never pass the narrower.
@@ -147,13 +164,13 @@ describe("the glass's size", () => {
       tab(to).click();
       const frames = await film(RUN);
       const end = boxOf(tab(to));
-      expect(end.width).not.toBe(start.width);
       const [low, high] = [Math.min(start.width, end.width), Math.max(start.width, end.width)];
-      for (const f of frames) {
-        expect(f.width).toBeGreaterThanOrEqual(low - 0.5);
-        expect(f.width).toBeLessThanOrEqual(high + 0.5);
-        expect(Math.abs(f.height - end.height)).toBeLessThan(0.5);
-      }
+      // A fixture whose tabs are nearly one width could not show the fault.
+      expect(high - low).toBeGreaterThan(MIN_SIZE_CHANGE);
+      // Ease-out never passes its target. The old spring went 8% past here
+      // and the glide would go 3%, on any runner's fonts.
+      expect(sizeOvershoot(frames, low, high)).toBeLessThan(0.005);
+      for (const f of frames) expect(Math.abs(f.height - end.height)).toBeLessThan(0.5);
     });
   }
 });
