@@ -118,7 +118,7 @@ function motionScale(): number {
   const scale = Number.parseFloat(
     getComputedStyle(document.documentElement).getPropertyValue("--motion-scale"),
   );
-  return Number.isFinite(scale) && scale >= 0 ? scale : 1;
+  return Number.isFinite(scale) ? scale : 1;
 }
 
 /** When an animation ends, delay included, in ms from its start. */
