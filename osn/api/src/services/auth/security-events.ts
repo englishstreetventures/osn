@@ -1,7 +1,8 @@
 /**
  * Security-event audit surface: the unacknowledged-events banner feed, the
  * step-up-gated acknowledge paths, and the shared best-effort email
- * notification used by the passkey / cross-device flows.
+ * notification used by the passkey, TOTP, cross-device, recovery-factor and
+ * email-change flows.
  */
 
 import { accounts, securityEvents } from "@osn/db/schema";
@@ -23,9 +24,9 @@ import type { SecurityEventSummary } from "./types";
 
 /**
  * The templates {@link SecurityEventsModule.notifySecurityEventByAccountId}
- * will send. A closed list rather than `EmailTemplate`, so this helper can
- * never be pointed at an OTP template and mail a code to an account it looked
- * up itself.
+ * and {@link SecurityEventsModule.notifySecurityEventTo} will send. A closed
+ * list rather than `EmailTemplate`, so neither helper can ever be pointed at
+ * an OTP template and mail a code.
  */
 type SecurityNoticeTemplate =
   | "passkey-added"
@@ -33,7 +34,8 @@ type SecurityNoticeTemplate =
   | "totp-enrolled"
   | "totp-disabled"
   | "cross-device-login"
-  | "recovery-used";
+  | "recovery-used"
+  | "email-changed";
 
 export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModule) {
   const { config, recoveryGenerateAllowedAmr } = ctx;
@@ -44,8 +46,8 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
    * Intended for the Settings banner — acknowledged rows are kept for audit
    * but are filtered out of the surface.
    *
-   * P-I1: explicit projection so adding an internal column later (e.g. a
-   * JSON context blob) doesn't silently grow the wire payload.
+   * Explicit projection, so adding an internal column later (e.g. a JSON
+   * context blob) doesn't silently grow the wire payload.
    */
   const listUnacknowledgedSecurityEvents = (
     accountId: string,
@@ -87,12 +89,12 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
   /**
    * Marks a single security event as acknowledged.
    *
-   * S-M1: step-up gated. Without step-up, an XSS that sniffed the access
+   * Step-up gated. Without step-up, an XSS that sniffed the access
    * token could GET the list and POST ack on every id before the user ever
    * saw the banner — the banner is the defence against the very scenario
    * that compromised the access token, so it can't be dismissible by that
-   * same token. Allowed amr defaults to `["webauthn", "otp"]`, matching the
-   * `/recovery/generate` gate.
+   * same token. The allowed amr set is `recoveryGenerateAllowedAmr`, the
+   * `/recovery/generate` gate's.
    *
    * Idempotent on the row side — acking a row that's already acknowledged,
    * or a row that doesn't exist on the caller's account, returns
@@ -156,7 +158,7 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
    * the UX path the banner uses; `acknowledgeSecurityEvent` remains for API
    * clients that want per-row control.
    *
-   * S-M1: step-up gated on the same amr set as `/recovery/generate`.
+   * Step-up gated on the same amr set as `/recovery/generate`.
    */
   const acknowledgeAllSecurityEvents = (
     accountId: string,
@@ -202,37 +204,18 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
     }).pipe(Effect.withSpan("auth.security_event.ack_all"));
 
   /**
-   * Best-effort "a security-relevant thing happened on your account" email,
-   * shared by the passkey add / remove and cross-device-login flows. Fetches
-   * the account's email and dispatches the given template — the body is a
-   * boilerplate "it was you or investigate" framing; codes and identifying
-   * material are never included. Callers fork this as a daemon with a
-   * timeout so mailer health never gates the user-visible operation.
+   * Sends `template` to `recipient` and counts the outcome. The body is a
+   * boilerplate "it was you or investigate" framing; codes are never
+   * included. A send failure becomes `notify_dispatch_failed`, with the
+   * provider's response (which may echo the recipient) left out.
    */
-  const notifySecurityEventByAccountId = <T extends SecurityNoticeTemplate>(
-    accountId: string,
+  const dispatch = <T extends SecurityNoticeTemplate>(
+    recipient: string,
     kind: SecurityEventKind,
     template: T,
-    /**
-     * The template's own data, less the instance name, which this helper adds
-     * from `config`. Every notice but one is boilerplate and passes `{}`;
-     * `recovery-used` carries the "this wasn't me" URL, which is the whole
-     * reason this parameter exists. Typed against the template so a caller
-     * cannot pass the wrong bag or forget a required one.
-     */
     data: Omit<EmailTemplateData<T>, "instanceName">,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<void, AuthError, EmailService> =>
     Effect.gen(function* () {
-      const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
-        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const recipient = rows[0]?.email;
-      if (!recipient) {
-        metricSecurityEventNotified(kind, "skipped");
-        return;
-      }
       const email = yield* EmailService;
       const start = Date.now();
       // `SendEmailInput` is a discriminated union over `template`, and TypeScript
@@ -260,13 +243,62 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
           }),
         ),
       );
+    });
+
+  /**
+   * Best-effort "a security-relevant thing happened on your account" email,
+   * shared by the passkey add / remove, TOTP, cross-device-login and
+   * recovery-factor flows. Fetches the account's email and dispatches the
+   * given template. Callers fork this as a daemon with a timeout so mailer
+   * health never gates the user-visible operation.
+   */
+  const notifySecurityEventByAccountId = <T extends SecurityNoticeTemplate>(
+    accountId: string,
+    kind: SecurityEventKind,
+    template: T,
+    /**
+     * The template's own data, less the instance name, which this helper adds
+     * from `config`. Most notices are boilerplate and pass `{}`;
+     * `recovery-used` carries the "this wasn't me" URL. Typed against the
+     * template so a caller cannot pass the wrong bag or forget a required one.
+     */
+    data: Omit<EmailTemplateData<T>, "instanceName">,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const recipient = rows[0]?.email;
+      if (!recipient) {
+        metricSecurityEventNotified(kind, "skipped");
+        return;
+      }
+      yield* dispatch(recipient, kind, template, data);
     }).pipe(Effect.withSpan("auth.security_event.notify", { attributes: { kind } }));
+
+  /**
+   * The same notice, sent to an address the caller names instead of the one
+   * the account holds now: for the email-change notice, whose recipient is
+   * the address the change replaced. Forked like its sibling.
+   */
+  const notifySecurityEventTo = <T extends SecurityNoticeTemplate>(
+    recipient: string,
+    kind: SecurityEventKind,
+    template: T,
+    data: Omit<EmailTemplateData<T>, "instanceName">,
+  ): Effect.Effect<void, AuthError, EmailService> =>
+    dispatch(recipient, kind, template, data).pipe(
+      Effect.withSpan("auth.security_event.notify", { attributes: { kind } }),
+    );
 
   return {
     listUnacknowledgedSecurityEvents,
     acknowledgeSecurityEvent,
     acknowledgeAllSecurityEvents,
     notifySecurityEventByAccountId,
+    notifySecurityEventTo,
   };
 }
 

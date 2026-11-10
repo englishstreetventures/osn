@@ -51,6 +51,48 @@ describe("renderTemplate", () => {
     }
   });
 
+  // The notice goes to the address the change replaced, so the new address in
+  // it is masked: whoever reads the old inbox learns its first letter and its
+  // domain, not the address. The subject is logged by the log transport, so it
+  // names no part of the address at all.
+  it("email-changed masks the new address and keeps it out of the subject", () => {
+    const out = renderTemplate("email-changed", {
+      newEmail: "alice@example.com",
+      instanceName: "Musubi",
+    });
+    expect(out.text).toContain("a•••@example.com");
+    expect(out.html).toContain("a&bull;&bull;&bull;@example.com");
+    for (const part of [out.subject, out.text, out.html]) {
+      expect(part).not.toContain("alice");
+    }
+    expect(out.subject).not.toContain("@");
+    expect(out.subject).not.toContain("example.com");
+  });
+
+  // `EmailSchema` refuses whitespace and a second `@` and nothing else, so the
+  // domain may carry markup.
+  it("email-changed escapes markup in the new address's domain", () => {
+    const out = renderTemplate("email-changed", {
+      newEmail: "x@<img/src=y>.com",
+      instanceName: "Musubi",
+    });
+    expect(out.html).toContain("&lt;img/src=y&gt;.com");
+    expect(out.html).not.toContain("<img");
+  });
+
+  // A bidi override or a zero-width character would reorder or hide part of
+  // the address the recipient reads.
+  it("email-changed drops control and format characters from the new address", () => {
+    const out = renderTemplate("email-changed", {
+      newEmail: "‮ab@exa​mple.com",
+      instanceName: "Musubi",
+    });
+    for (const part of [out.subject, out.text, out.html]) {
+      expect(part).not.toMatch(/[‮​]/);
+    }
+    expect(out.text).toContain("a•••@example.com");
+  });
+
   it("HTML-escapes template data (defence in depth)", () => {
     // OTP templates happen to accept digits-only in practice, but the
     // escape path should hold if template data ever carries markup.
@@ -101,6 +143,7 @@ describe("renderTemplate", () => {
     "passkey-added": { instanceName: "Musubi" },
     "passkey-removed": { instanceName: "Musubi" },
     "cross-device-login": { instanceName: "Musubi" },
+    "email-changed": { newEmail: "alice@example.com", instanceName: "Musubi" },
     "registry-gift-summary": {
       weddingName: "Ama & Jonah",
       finalEventOn: "2025-05-10",
@@ -185,6 +228,7 @@ describe("account emails name the instance passed in", () => {
     "totp-enrolled": { instanceName },
     "totp-disabled": { instanceName },
     "cross-device-login": { instanceName },
+    "email-changed": { newEmail: "alice@example.com", instanceName },
   } satisfies { [K in AccountEmailTemplate]: EmailTemplateData<K> };
 
   for (const template of Object.keys(accountEmails) as AccountEmailTemplate[]) {

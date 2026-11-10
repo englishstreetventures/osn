@@ -136,6 +136,18 @@ describe("email change on D1", () => {
       .from(accounts)
       .where(eq(accounts.id, profile.accountId));
     expect(account?.email).toBe("ec-d1-b@example.com");
+    // The security event rides in the same batch, guarded on the batch's own
+    // change: the refused commit writes none.
+    const events = await db
+      .select({ id: securityEvents.id })
+      .from(securityEvents)
+      .where(
+        and(
+          eq(securityEvents.accountId, profile.accountId),
+          eq(securityEvents.kind, "email_changed"),
+        ),
+      );
+    expect(events).toHaveLength(1);
   });
 });
 

@@ -24,14 +24,15 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-11-05
+last-reviewed: 2026-11-11
 ---
 
 # Email Transport
 
 OSN's transactional-email surface. Dispatches OTP codes (registration,
-step-up, email-change) and security-event notifications
-(recovery-code generate/consume, passkey added/removed) to users. No
+step-up, email-change) and security-event notifications (recovery codes,
+passkeys, TOTP, cross-device sign-in, account recovery, email change) to
+users. No
 marketing mail, no product updates — only auth-critical transactional
 email.
 
@@ -83,9 +84,10 @@ yield* email.send({
 These are the account emails osn-api sends. Each names the identity instance
 it comes from, and takes that name as `instanceName` in its data: osn-api fills
 it from `AuthConfig.instanceName`, set in `osn/api/src/build-deps.ts`, and
-`@shared/email` names no product of its own. The security notices go through
-`notifySecurityEventByAccountId`, which adds `instanceName` itself, so their
-callers pass only the rest of the data.
+`@shared/email` names no product of its own. Most security notices go through
+`notifySecurityEventByAccountId`, which mails the account's current address, or
+`notifySecurityEventTo`, which mails an address its caller names. Both add
+`instanceName` themselves, so their callers pass only the rest of the data.
 
 | Template                 | Data shape                          | Call site |
 |--------------------------|-------------------------------------|-----------|
@@ -101,6 +103,7 @@ callers pass only the rest of the data.
 | `totp-enrolled`          | `{ instanceName }`                  | `completeTotpEnrollment` |
 | `totp-disabled`          | `{ instanceName }`                  | `disableTotp` |
 | `cross-device-login`     | `{ instanceName }`                  | `notifyCrossDeviceLoginByAccountId` |
+| `email-changed`          | `{ newEmail, instanceName }` — the renderer masks the address (`a•••@example.com`) and keeps it out of the subject | `completeEmailChange`, through `notifySecurityEventTo`, to the address the change replaced |
 
 cire-api sends from the same catalogue:
 

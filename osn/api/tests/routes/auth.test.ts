@@ -2368,6 +2368,50 @@ describe("auth routes", () => {
       expect(json.email).toBe("ec-route-next@example.com");
     });
 
+    it("a completed change lists an email_changed event naming the device that made it", async () => {
+      const { app: freshApp, accessToken, captured } = await setupWithStepUp();
+      await freshApp.handle(
+        new Request("http://localhost/account/email/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ new_email: "ec-route-event@example.com" }),
+        }),
+      );
+      const beginOtp = captured.last!;
+      const stepUpToken = await mintStepUpToken(freshApp, accessToken, captured, "email_change");
+
+      const completeRes = await settledHandle(
+        freshApp,
+        new Request("http://localhost/account/email/complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:128.0) Gecko/20100101 Firefox/128.0",
+          },
+          body: JSON.stringify({ code: beginOtp, step_up_token: stepUpToken }),
+        }),
+      );
+      expect(completeRes.status).toBe(200);
+
+      const listRes = await freshApp.handle(
+        new Request("http://localhost/account/security-events", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      expect(listRes.status).toBe(200);
+      const { events } = (await listRes.json()) as {
+        events: Array<{ kind: string; uaLabel: string | null }>;
+      };
+      const changed = events.filter((e) => e.kind === "email_changed");
+      expect(changed).toHaveLength(1);
+      expect(changed[0]!.uaLabel).toBe("Firefox on macOS");
+    });
+
     it("POST /account/email/complete fails without a step-up token", async () => {
       const { app: freshApp, accessToken, captured } = await setupWithStepUp();
       await freshApp.handle(

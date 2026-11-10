@@ -10,7 +10,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-11-06
+last-reviewed: 2026-11-11
 ---
 
 # Data Map (Article 30 Records of Processing)
@@ -36,7 +36,7 @@ the compliance checklist.
 
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
-| `accounts.email` | Login identifier; OTP destination for step-up + email change | Art. 6(1)(b) — contract | While account active + 30 d soft-delete tombstone | `@osn/api` only; **Resend** for outbound mail (processor; Cloudflare Email Service is a legacy fallback) | [[identity-model]], [[email]] |
+| `accounts.email` | Login identifier; OTP destination for step-up + email change; security notices. An address an email change replaces gets one more mail, the change notice, which names the new address masked (first character and domain) | Art. 6(1)(b) — contract; the notice to a replaced address, Art. 6(1)(f) — legitimate interest in preventing account takeover | While account active + 30 d soft-delete tombstone | `@osn/api` only; **Resend** for outbound mail (processor; Cloudflare Email Service is a legacy fallback) | [[identity-model]], [[email]] |
 | `accounts.passkeyUserId` | WebAuthn `user.id` opaque to prevent cross-profile correlation | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `accounts.maxProfiles` | Per-account profile cap | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `accounts.last_recovered_at` | Security — timestamp of the most recent account recovery, opening a 72-hour window in which an emailed code cannot change the account email and a second factor-recovery is refused | Art. 6(1)(f) — legitimate interest in preventing account takeover | While account active; cleared by an accepted `POST /recovery/disown` of the recovery that wrote it | `@osn/api` only | [[recovery-codes]], [[step-up]] |

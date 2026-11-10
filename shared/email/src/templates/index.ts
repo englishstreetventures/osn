@@ -39,9 +39,11 @@ import {
   type RsvpDigestChangeKind,
 } from "./rsvp-digest";
 import {
+  type EmailChangedData,
   type InstanceNameData,
   type RecoveryUsedData,
   renderCrossDeviceLogin,
+  renderEmailChanged,
   renderPasskeyAdded,
   renderPasskeyRemoved,
   renderRecoveryConsumed,
@@ -81,6 +83,7 @@ export type EmailTemplate =
   | "totp-enrolled"
   | "totp-disabled"
   | "cross-device-login"
+  | "email-changed"
   | "r2-reconcile-alert"
   | "registry-gift-summary"
   | "rsvp-change-digest"
@@ -105,7 +108,8 @@ export type AccountEmailTemplate =
   | "passkey-removed"
   | "totp-enrolled"
   | "totp-disabled"
-  | "cross-device-login";
+  | "cross-device-login"
+  | "email-changed";
 
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
@@ -124,6 +128,7 @@ export interface EmailTemplateDataMap {
   "totp-enrolled": InstanceNameData;
   "totp-disabled": InstanceNameData;
   "cross-device-login": InstanceNameData;
+  "email-changed": EmailChangedData;
   "r2-reconcile-alert": R2ReconcileAlertData;
   "registry-gift-summary": RegistryGiftSummaryData;
   "rsvp-change-digest": RsvpChangeDigestData;
@@ -188,6 +193,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderTotpDisabled(data as EmailTemplateData<"totp-disabled">);
     case "cross-device-login":
       return renderCrossDeviceLogin(data as EmailTemplateData<"cross-device-login">);
+    case "email-changed":
+      return renderEmailChanged(data as EmailTemplateData<"email-changed">);
     case "r2-reconcile-alert":
       return renderR2ReconcileAlert(data as EmailTemplateData<"r2-reconcile-alert">);
     case "registry-gift-summary":
@@ -226,6 +233,7 @@ export {
   renderTotpEnrolled,
   renderTotpDisabled,
   renderCrossDeviceLogin,
+  renderEmailChanged,
   renderR2ReconcileAlert,
   renderRegistryGiftSummary,
   renderRsvpChangeDigest,
@@ -236,6 +244,7 @@ export {
 };
 
 export type {
+  EmailChangedData,
   EnquiryNewData,
   InstanceNameData,
   OtpData,

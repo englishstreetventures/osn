@@ -6,7 +6,7 @@ import type { AuthRouteContext } from "./context";
 import { errorResponse } from "./response-schemas";
 
 export function createEmailChangeRoutes(ctx: AuthRouteContext) {
-  const { auth, run, handleError, rateLimit, socketIpOf, rl, cookieConfig } = ctx;
+  const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl, cookieConfig } = ctx;
   return (
     new Elysia()
       // -------------------------------------------------------------------------
@@ -15,7 +15,9 @@ export function createEmailChangeRoutes(ctx: AuthRouteContext) {
       // `POST /account/email/begin` sends an OTP to the NEW email address.
       // `POST /account/email/complete` swaps the account's email on a matching
       //   OTP + a valid step-up token (passkey or OTP amr). All other sessions
-      //   are revoked atomically in the same transaction as the email update.
+      //   are revoked atomically in the same transaction as the email update,
+      //   which also records an `email_changed` security event naming this
+      //   request's device; the address replaced gets a notice afterwards.
       // -------------------------------------------------------------------------
       .post(
         "/account/email/begin",
@@ -95,6 +97,7 @@ export function createEmailChangeRoutes(ctx: AuthRouteContext) {
                 body.code,
                 body.step_up_token,
                 currentHash,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
             return { email: result.email };

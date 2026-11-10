@@ -323,7 +323,11 @@ export type SecurityEventKind =
   | "account_deletion_completed"
   | "app_deletion_scheduled"
   | "app_deletion_cancelled"
-  | "app_deletion_completed";
+  | "app_deletion_completed"
+  // The account's email address was changed. Written in the same batch as the
+  // change and only when that change is on record; the notice goes to the
+  // address the change replaced.
+  | "email_changed";
 
 /** Apps a user can opt in/out of independently (Phase 1 surfaces). */
 export type AppEnrollmentApp = "pulse" | "zap";

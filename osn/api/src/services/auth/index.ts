@@ -57,7 +57,7 @@ export function createAuthService(config: AuthConfig) {
   const passkeys = createPasskeysModule(ctx, profiles, tokens, sessions, stepUp, securityEvents);
   const passkeyManagement = createPasskeyManagementModule(ctx, sessions, securityEvents);
   const recovery = createRecoveryModule(ctx, profiles, tokens);
-  const emailChange = createEmailChangeModule(ctx, stepUp);
+  const emailChange = createEmailChangeModule(ctx, stepUp, securityEvents);
   const crossDevice = createCrossDeviceModule(ctx, profiles, tokens, securityEvents);
   const oidc = createOidcModule(ctx, profiles);
   const totp = createTotpModule(ctx, securityEvents, stepUp);
