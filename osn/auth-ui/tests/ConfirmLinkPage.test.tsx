@@ -31,6 +31,9 @@ const EXPIRED_HEADING = "This link no longer works";
 const EXPIRED_BODY =
   "It has expired or was already used. If you confirmed it already, go back to where you started and carry on. If not, go back and ask for a new link.";
 
+const STEP_UP_EXPIRED_WARNING =
+  "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions.";
+
 type OnConfirm = (pick: string | null) => Promise<ConfirmOutcome>;
 
 function candidate(number: string): HTMLButtonElement {
@@ -74,6 +77,27 @@ function announcer(container: HTMLElement): HTMLOutputElement {
   const output = container.querySelector("output");
   if (!output) throw new Error("no <output> in the page");
   return output;
+}
+
+/** Every attribute in the document whose value holds `value`, as `TAG[name]`. */
+function attributesHolding(value: string): string[] {
+  const hits: string[] = [];
+  for (const element of document.querySelectorAll("*")) {
+    for (const attribute of element.attributes) {
+      if (attribute.value.includes(value)) hits.push(`${element.tagName}[${attribute.name}]`);
+    }
+  }
+  return hits;
+}
+
+/** Each number's button as markup with its digits blanked: what tells one from another. */
+function candidateShapes(): string[] {
+  return candidates().map((button) => {
+    const copy = button.cloneNode(true) as HTMLElement;
+    const digits = copy.querySelector("[translate='no']");
+    if (digits) digits.textContent = "#";
+    return copy.outerHTML;
+  });
 }
 
 function deferred<T>() {
@@ -194,6 +218,31 @@ describe("ConfirmLinkPage — the numbers", () => {
     expect(line?.querySelector("[translate='no']")?.textContent).toBe("1956");
   });
 
+  it("draws every number the same way, so only its digits tell one from another", () => {
+    page(() => new Promise(() => {}));
+
+    expect(candidateShapes()).toHaveLength(3);
+    expect(new Set(candidateShapes()).size).toBe(1);
+    fireEvent.click(candidate("0730"));
+    expect(new Set(candidateShapes()).size).toBe(1);
+  });
+
+  it("puts no number, and not the number picked, in an attribute, the title or the URL", async () => {
+    const href = window.location.href;
+    page(vi.fn<OnConfirm>().mockRejectedValueOnce(new Error("down")));
+
+    fireEvent.click(candidate("1956"));
+    await settle();
+
+    expect(paragraph("You picked 1956.")).not.toBeNull();
+    for (const number of CANDIDATES) {
+      expect(attributesHolding(number)).toEqual([]);
+      expect(document.title).not.toContain(number);
+      expect(window.location.href).not.toContain(number);
+    }
+    expect(window.location.href).toBe(href);
+  });
+
   it.each([
     ["no numbers", []],
     ["two numbers", ["12", "34"]],
@@ -245,7 +294,7 @@ describe("ConfirmLinkPage — what each answer shows", () => {
   });
 
   it("never says a pick was wrong, in any state", async () => {
-    const WRONG = /wrong|incorrect|match|mistake|didn't pick|not the number/i;
+    const WRONG = /wrong|incorrect|match|mistake|invalid|didn't pick|not the number/i;
     const answers: (ConfirmOutcome | "throws")[] = ["throws", "expired", "confirmed"];
     for (const answer of answers) {
       const pending = deferred<ConfirmOutcome>();
@@ -278,11 +327,10 @@ describe("ConfirmLinkPage — what each answer shows", () => {
     expect(container.textContent).not.toContain("Failed to fetch");
     expect(paragraph("You picked 1956.")).not.toBeNull();
     for (const button of candidates()) expect(button.disabled).toBe(true);
-    expect(decline().disabled).toBe(true);
+    expect(decline().disabled).toBe(false);
     expect(tryAgain().disabled).toBe(false);
 
     fireEvent.click(candidate("4821"));
-    fireEvent.click(decline());
     expect(onConfirm).toHaveBeenCalledTimes(1);
 
     fireEvent.click(tryAgain());
@@ -293,6 +341,24 @@ describe("ConfirmLinkPage — what each answer shows", () => {
     retry.resolve("confirmed");
     await settle();
     expect(heading().textContent).toBe("Confirmed");
+  });
+
+  it("sends the same number on every Try again, and never another", async () => {
+    const onConfirm = vi
+      .fn<OnConfirm>()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockRejectedValueOnce(new Error("down"))
+      .mockReturnValueOnce(new Promise(() => {}));
+    page(onConfirm);
+
+    fireEvent.click(candidate("0730"));
+    await settle();
+    fireEvent.click(tryAgain());
+    await settle();
+    fireEvent.click(tryAgain());
+    await settle();
+
+    expect(onConfirm.mock.calls).toEqual([["0730"], ["0730"], ["0730"]]);
   });
 
   it("treats an onConfirm that throws before returning a promise as an error", async () => {
@@ -426,6 +492,32 @@ describe("ConfirmLinkPage — I didn't ask for this", () => {
     expect(tryAgain().disabled).toBe(false);
   });
 
+  it("stays on offer after a thrown pick, and sends no number as a new attempt", async () => {
+    const declined = deferred<ConfirmOutcome>();
+    const onConfirm = vi
+      .fn<OnConfirm>()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockReturnValueOnce(declined.promise);
+    const { container } = page(onConfirm);
+
+    fireEvent.click(candidate("1956"));
+    await settle();
+    expect(decline().disabled).toBe(false);
+
+    fireEvent.click(decline());
+    fireEvent.click(decline());
+    expect(onConfirm.mock.calls).toEqual([["1956"], [null]]);
+    expect(paragraph("Cancelling…")).not.toBeNull();
+    expect(container.textContent).not.toContain("You picked");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    for (const button of candidates()) expect(button.disabled).toBe(true);
+    expect(decline().disabled).toBe(true);
+
+    declined.resolve("declined");
+    await settle();
+    expect(heading().textContent).toBe("Cancelled");
+  });
+
   it("turns a thrown decline into its own line, and a Try again that sends no number again", async () => {
     const retry = deferred<ConfirmOutcome>();
     const onConfirm = vi
@@ -440,7 +532,7 @@ describe("ConfirmLinkPage — I didn't ask for this", () => {
     expect(shown("We couldn't cancel this just now.")).toHaveLength(1);
     expect(announcer(container).textContent).toBe("We couldn't cancel this just now.");
     expect(shown(ERROR_LINE)).toHaveLength(0);
-    expect(decline().disabled).toBe(true);
+    expect(decline().disabled).toBe(false);
 
     fireEvent.click(tryAgain());
     expect(onConfirm).toHaveBeenCalledTimes(2);
@@ -690,7 +782,7 @@ describe("ConfirmLinkPage — typing the number", () => {
     expect(field().disabled).toBe(true);
     expect(field().value).toBe("4821");
     expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
-    expect(decline().disabled).toBe(true);
+    expect(decline().disabled).toBe(false);
 
     fireEvent.click(tryAgain());
     expect(onConfirm).toHaveBeenCalledTimes(2);
@@ -700,6 +792,111 @@ describe("ConfirmLinkPage — typing the number", () => {
     expect(heading().textContent).toBe(EXPIRED_HEADING);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
+
+  it("lets the person decline after a thrown error, sending no number as a new attempt", async () => {
+    const declined = deferred<ConfirmOutcome>();
+    const onConfirm = vi
+      .fn<OnConfirm>()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockReturnValueOnce(declined.promise);
+    const { container } = typed(onConfirm);
+
+    enter("4821");
+    fireEvent.click(confirmButton());
+    await settle();
+    expect(decline().disabled).toBe(false);
+
+    fireEvent.click(decline());
+    expect(onConfirm.mock.calls).toEqual([["4821"], [null]]);
+    expect(paragraph("Cancelling…")).not.toBeNull();
+    expect(container.textContent).not.toContain("You typed");
+    expect(decline().disabled).toBe(true);
+
+    declined.resolve("declined");
+    await settle();
+    expect(heading().textContent).toBe("Cancelled");
+  });
+
+  it("sends once when Enter is followed by a Confirm click", () => {
+    const onConfirm = vi.fn<OnConfirm>(() => new Promise(() => {}));
+    typed(onConfirm);
+
+    enter("4821");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    fireEvent.click(confirmButton());
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith("4821");
+  });
+
+  it("blocks the decline while a typed confirm runs, and still says it is slow", async () => {
+    const onConfirm = vi.fn<OnConfirm>(() => new Promise(() => {}));
+    const { container } = typed(onConfirm);
+
+    enter("4821");
+    fireEvent.click(confirmButton());
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(decline().disabled).toBe(true);
+    fireEvent.click(decline());
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(paragraph("You typed 4821. Confirming…")).not.toBeNull();
+    expect(paragraph(SLOW_LINE)).not.toBeNull();
+    expect(announcer(container).textContent).toBe(SLOW_LINE);
+  });
+
+  it("never marks the field invalid, whatever is typed or answered", async () => {
+    const onConfirm = vi.fn<OnConfirm>().mockRejectedValueOnce(new Error("down"));
+    typed(onConfirm);
+    const marked = () => document.querySelectorAll("[aria-invalid], [aria-errormessage]");
+
+    expect(marked()).toHaveLength(0);
+    enter("12a");
+    expect(marked()).toHaveLength(0);
+    enter("4821");
+    fireEvent.click(confirmButton());
+    expect(marked()).toHaveLength(0);
+    await settle();
+    expect(shown(ERROR_LINE)).toHaveLength(1);
+    expect(marked()).toHaveLength(0);
+  });
+
+  it("puts the entry in no attribute, the title or the URL", async () => {
+    const href = window.location.href;
+    typed(vi.fn<OnConfirm>().mockRejectedValueOnce(new Error("down")));
+
+    enter("905172");
+    expect(attributesHolding("905172")).toEqual([]);
+    fireEvent.click(confirmButton());
+    await settle();
+
+    expect(paragraph("You typed 905172.")).not.toBeNull();
+    expect(attributesHolding("905172")).toEqual([]);
+    expect(document.title).not.toContain("905172");
+    expect(window.location.href).toBe(href);
+  });
+
+  it.each(["confirmed", "expired"] as const)(
+    "opens on %s with no field, no decline and no call",
+    async (opening) => {
+      const onConfirm = vi.fn<OnConfirm>();
+      render(() => (
+        <ConfirmLinkPage
+          purpose="recovery"
+          typeNumber
+          initialOutcome={opening}
+          onConfirm={onConfirm}
+        />
+      ));
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(heading().textContent).toBe(opening === "confirmed" ? "Confirmed" : EXPIRED_HEADING);
+      expect(screen.queryByLabelText(TYPE_LINE)).toBeNull();
+      expect(document.querySelector("input")).toBeNull();
+      expect(screen.queryAllByRole("button")).toHaveLength(0);
+      expect(onConfirm).not.toHaveBeenCalled();
+    },
+  );
 
   it("asks for digits the way a phone and a translator understand", () => {
     typed(() => new Promise(() => {}));
@@ -766,6 +963,45 @@ describe("ConfirmLinkPage — the words for each flow", () => {
       ).not.toBeNull();
     },
   );
+
+  it.each([
+    ["sign-up", undefined],
+    ["recovery", undefined],
+    ["step-up", STEP_UP_EXPIRED_WARNING],
+    ["email-change", undefined],
+  ] as const)(
+    "%s's expired page keeps the flow's own warning, if it has one",
+    async (purpose, warning) => {
+      const { container } = page(() => Promise.resolve<ConfirmOutcome>("expired"), { purpose });
+
+      fireEvent.click(candidate("4821"));
+      await settle();
+
+      expect(heading().textContent).toBe(EXPIRED_HEADING);
+      const lines = [...heading().parentElement!.querySelectorAll("p")].map((p) => p.textContent);
+      expect(lines).toEqual(warning ? [EXPIRED_BODY, warning] : [EXPIRED_BODY]);
+      expect(announcer(container).textContent).toBe(
+        warning
+          ? `${EXPIRED_HEADING}. ${EXPIRED_BODY} ${warning}`
+          : `${EXPIRED_HEADING}. ${EXPIRED_BODY}`,
+      );
+    },
+  );
+
+  it("keeps step-up's warning on the expired page however it is reached", () => {
+    render(() => (
+      <>
+        <ConfirmLinkPage
+          purpose="step-up"
+          initialOutcome="expired"
+          onConfirm={vi.fn<OnConfirm>()}
+        />
+        <ConfirmLinkPage purpose="step-up" candidates={["12"]} onConfirm={vi.fn<OnConfirm>()} />
+      </>
+    ));
+
+    expect(screen.getAllByText(STEP_UP_EXPIRED_WARNING)).toHaveLength(2);
+  });
 
   it("says 'this address' when it is given none", () => {
     render(() => (
@@ -984,6 +1220,46 @@ describe("ConfirmLinkPage — around the page", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("never touches the address bar or the history, in either mode", async () => {
+    const href = window.location.href;
+    const length = window.history.length;
+    const push = vi.spyOn(window.history, "pushState");
+    const replace = vi.spyOn(window.history, "replaceState");
+    const onConfirm = vi
+      .fn<OnConfirm>()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValueOnce("confirmed")
+      .mockRejectedValueOnce(new Error("down"))
+      .mockResolvedValueOnce("declined");
+    render(() => (
+      <ConfirmLinkPage
+        purpose="sign-up"
+        candidates={[...CANDIDATES]}
+        onConfirm={onConfirm}
+        onContinue={() => {}}
+      />
+    ));
+    fireEvent.click(candidate("4821"));
+    await settle();
+    fireEvent.click(tryAgain());
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    cleanup();
+
+    render(() => <ConfirmLinkPage purpose="recovery" typeNumber onConfirm={onConfirm} />);
+    fireEvent.input(screen.getByRole("textbox"), { target: { value: "4821" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await settle();
+    fireEvent.click(decline());
+    await settle();
+
+    expect(heading().textContent).toBe("Cancelled");
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    expect(window.location.href).toBe(href);
+    expect(window.history.length).toBe(length);
+  });
+
   it("writes nothing to the console across a whole run, an unmount mid-confirm included", async () => {
     const spies = (["log", "info", "warn", "error", "debug"] as const).map((method) =>
       vi.spyOn(console, method).mockImplementation(() => {}),
@@ -1011,6 +1287,29 @@ describe("ConfirmLinkPage — around the page", () => {
     late.resolve("confirmed");
     await settle();
 
+    const typedLate = deferred<ConfirmOutcome>();
+    const typedConfirm = vi
+      .fn<OnConfirm>()
+      .mockRejectedValueOnce(new Error("down"))
+      .mockRejectedValueOnce(new Error("down"))
+      .mockReturnValueOnce(typedLate.promise);
+    const typedRun = render(() => (
+      <ConfirmLinkPage purpose="step-up" typeNumber onConfirm={typedConfirm} />
+    ));
+    const entry = screen.getByRole("textbox");
+    fireEvent.input(entry, { target: { value: "12a" } });
+    fireEvent.input(entry, { target: { value: "4821" } });
+    fireEvent.keyDown(entry, { key: "Enter" });
+    await settle();
+    fireEvent.click(tryAgain());
+    await settle();
+    fireEvent.click(decline());
+    await vi.advanceTimersByTimeAsync(12_000);
+    typedRun.unmount();
+    typedLate.resolve("declined");
+    await settle();
+
+    expect(typedConfirm.mock.calls).toEqual([["4821"], ["4821"], [null]]);
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
 });

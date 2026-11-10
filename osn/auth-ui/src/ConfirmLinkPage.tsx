@@ -69,8 +69,10 @@ interface ConfirmLinkPageCommonProps {
 /**
  * The numbers the person picks from, one of them the number the waiting
  * screen shows: three to five, all different, each one to six digits, 0-9
- * (`isPairingCode`), already shuffled by the host. The page draws them in
- * this order, exactly as written, and does not know which one is right. Any
+ * (`isPairingCode`). The host passes the list exactly as osn-api sends it,
+ * sorted ascending; the waiting screen's number is drawn uniformly from it, so
+ * its place in the list says nothing about which is right. The page draws them
+ * in this order, exactly as written, and does not know which one is right. Any
  * other list draws the expired page, with nothing to pick. Read them with the
  * link's secret; never log or store them.
  */
@@ -140,6 +142,19 @@ const IF_NOT_ASKED = {
   "email-change": "If you didn't, choose “I didn't ask for this” below.",
 } as const satisfies Record<ConfirmLinkPurpose, string>;
 
+/**
+ * What the expired page adds for a flow whose unasked link is itself a warning:
+ * an unasked step-up means someone else may be signed in, whatever became of
+ * the link.
+ */
+const EXPIRED_WARNING = {
+  "sign-up": undefined,
+  recovery: undefined,
+  "step-up":
+    "If you didn't ask for this link, someone else may be signed in to your account, so sign out your other sessions.",
+  "email-change": undefined,
+} as const satisfies Record<ConfirmLinkPurpose, string | undefined>;
+
 const DECLINED_BODY = {
   "sign-up": "Nothing was confirmed. You can close this page.",
   recovery: "Nothing was confirmed. You can close this page.",
@@ -186,13 +201,15 @@ function offerable(candidates: Candidates | undefined): boolean {
  *   Tapping a number is the confirm: it sends that number, and every choice
  *   disables itself at once, so one tap is one call.
  * - **The person picks the number the waiting screen shows.** The numbers are
- *   drawn in the host's order, as written, in tabular figures and kept from
+ *   drawn in the order given, as written, in tabular figures and kept from
  *   page translation. The page does not know which is right, and a list it
  *   cannot offer draws the expired page rather than a broken pick.
  * - **Or says they did not ask.** "I didn't ask for this" sends `null`, with no
- *   second step, and a `declined` answer shows "Cancelled".
+ *   second step, and a `declined` answer shows "Cancelled". It stays on offer
+ *   after an error, as a new attempt of its own.
  * - **It says who gets what.** Each flow's sentence says what confirming lets
- *   the device that asked do, and what to do if you did not ask.
+ *   the device that asked do, and what to do if you did not ask. Step-up's
+ *   expired page keeps its warning to sign out the other sessions.
  * - **The answers.** A number can be `confirmed`, a decline `declined`, and
  *   either `expired`; anything thrown, or any answer that does not fit what
  *   was sent, is an error. Try again sends the same number, or the same
@@ -359,20 +376,26 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
         return `Confirmed. ${confirmedSentence()}`;
       case "declined":
         return `${DECLINED_HEADING}. ${DECLINED_BODY[props.purpose]}`;
-      case "expired":
-        return `${EXPIRED_HEADING}. ${EXPIRED_BODY}`;
+      case "expired": {
+        const warning = EXPIRED_WARNING[props.purpose];
+        const said = `${EXPIRED_HEADING}. ${EXPIRED_BODY}`;
+        return warning ? `${said} ${warning}` : said;
+      }
     }
   };
 
   const asking = () => view() === "ready" || view() === "confirming" || view() === "error";
 
+  // Open after an error too: a person who did not ask must still be able to
+  // say so when the last call failed. It sends `null` as a new attempt; Try
+  // again repeats the last one.
   const declineButton = () => (
     <Button
       type="button"
       variant="ghost"
       size="sm"
       class="w-full max-md:h-11"
-      disabled={view() !== "ready"}
+      disabled={view() !== "ready" && view() !== "error"}
       onClick={() => void send(null)}
     >
       {DECLINE_LABEL}
@@ -407,6 +430,11 @@ export function ConfirmLinkPage(props: ConfirmLinkPageProps) {
             </Match>
             <Match when={view() === "expired"}>
               <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{EXPIRED_BODY}</p>
+              <Show when={EXPIRED_WARNING[props.purpose]}>
+                {(warning) => (
+                  <p class="text-ui-sm text-ui-ink-secondary leading-ui-snug">{warning()}</p>
+                )}
+              </Show>
             </Match>
           </Switch>
         </div>
