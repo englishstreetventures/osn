@@ -959,7 +959,9 @@ function PaymentPanel(props: {
               disabled={!props.canEdit}
               onChange={() => props.canEdit && props.onTogglePaid(props.item, p)}
             />
-            <span class="text-text flex-1">
+            {/* `wrap-anywhere`: a label may be one 80-character word, such as a
+                pasted link, and the panel clips what runs past its edge. */}
+            <span class="text-text min-w-0 flex-1 wrap-anywhere">
               {p.label} · {fmtMinor(p.amountMinor, props.currency)}
               <Show when={p.dueAt}>
                 <span class="text-text-muted"> · due {p.dueAt}</span>

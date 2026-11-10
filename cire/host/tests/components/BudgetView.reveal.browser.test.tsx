@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, page } from "vitest/browser";
 
@@ -15,7 +15,11 @@ import "../../src/styles/global.css";
  *   open and closed through `aria-expanded`;
  * - a closed panel adds no height to its line, though its wrapper stays in it;
  * - every control in an open panel keeps its whole focus ring inside the
- *   `Reveal`'s clip;
+ *   `Reveal`'s clip, at a desk and on a phone;
+ * - an open line keeps the spacing of the row it replaced: 8px in from its top
+ *   and bottom, 12px from its sides, 8px between its parts, and a payment's ✕
+ *   under the line's ✕;
+ * - a long unbroken payment label or event name wraps inside the clip;
  * - with reduced motion asked for, the panel opens at full height at once.
  *
  * happy-dom computes no layout and runs no transitions, so none of this is
@@ -75,6 +79,39 @@ const SNAPSHOT = {
     { id: "evt_reception", name: "Reception" },
   ],
   rsvpsClosed: false,
+};
+
+/** A label or event name of the longest a budget takes (80 characters), with
+ *  no space in it to break at. */
+const LONG_WORD = "Benachrichtigungseinstellungen".repeat(3).slice(0, 80);
+
+/** The first line priced per head, so its line carries the per-head summary and
+ *  its panel "Use a fixed amount"; a second payment and an event, each named by
+ *  one long word. */
+const PER_HEAD = {
+  ...SNAPSHOT,
+  items: [
+    {
+      ...item("hall", "Reception venue", 0),
+      estimateMinor: null,
+      unitPriceMinor: 15_000,
+      headcount: { expected: 80, confirmed: 40 },
+    },
+    item("chapel", "Ceremony venue", 1),
+  ],
+  payments: [
+    ...SNAPSHOT.payments,
+    {
+      id: "pay_2",
+      budgetItemId: "hall",
+      label: LONG_WORD,
+      amountMinor: 100_000,
+      dueAt: null,
+      paidAt: null,
+      createdAt: 3,
+    },
+  ],
+  events: [...SNAPSHOT.events, { id: "evt_long", name: LONG_WORD }],
 };
 
 const json = (body: unknown) =>
@@ -146,6 +183,42 @@ async function mount() {
   // fetched, and no row is rebuilt while a test samples it.
   await settle();
   expect(authFetch).not.toHaveBeenCalled();
+}
+
+/** Mounts {@link PER_HEAD}. A per-head line has the view refetch its figures
+ *  on open, so this waits for that answer and the rebuild it brings before
+ *  anything is measured. */
+async function mountPerHead() {
+  authFetch.mockImplementation(() => Promise.resolve(json(PER_HEAD)));
+  setCachedBudget("wed_1", PER_HEAD);
+  render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+  await screen.findByText("Ceremony venue");
+  await vi.waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+  await settle();
+}
+
+/** Opens both of the first line's panels with reduced motion asked for, so
+ *  each lands at full height at once, and returns the line's parts. */
+async function openBothPanels() {
+  await commands.emulateMedia({ reducedMotion: "reduce" });
+  await mountPerHead();
+  screen.getAllByRole("button", { name: "per head" })[0]!.click();
+  screen.getAllByRole("button", { name: "payments (2)" })[0]!.click();
+  await settle();
+  const li = line("Reception venue");
+  const [perHead, payments] = reveals(li);
+  return { li, perHead: perHead!, payments: payments! };
+}
+
+const rect = (el: Element) => el.getBoundingClientRect();
+
+/** Where a flex row's own items start and end, not its padding. */
+function itemsBox(row: Element): { top: number; bottom: number } {
+  const boxes = [...row.children].map(rect);
+  return {
+    top: Math.min(...boxes.map((b) => b.top)),
+    bottom: Math.max(...boxes.map((b) => b.bottom)),
+  };
 }
 
 beforeEach(async () => {
@@ -238,34 +311,116 @@ describe("BudgetView line panels, as they open", () => {
     }
   });
 
-  it("keeps every control's focus ring inside the panel's clip", async () => {
-    await mount();
-    const root = getComputedStyle(document.documentElement);
-    const ring =
-      parseFloat(root.getPropertyValue("--focus-ring-width")) +
-      parseFloat(root.getPropertyValue("--focus-ring-offset"));
-    expect(ring).toBe(4);
-    const hall = line("Reception venue");
-    const below = line("Ceremony venue");
-    for (const [name, index] of [
-      ["payments (1)", 1],
-      ["per head", 0],
-    ] as const) {
-      const reveal = reveals(hall)[index]!;
-      await sampleOpening(screen.getAllByRole("button", { name })[0]!, reveal, below);
-      const clip = (reveal.firstElementChild as HTMLElement).getBoundingClientRect();
-      const controls = [
-        ...reveal.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href]"),
-      ].filter((el) => el.getClientRects().length > 0);
-      expect(controls.length, `${name}: controls`).toBeGreaterThan(2);
-      for (const el of controls) {
-        const box = el.getBoundingClientRect();
-        const what = `${name}: ${el.getAttribute("aria-label") ?? el.textContent?.trim() ?? el.tagName}`;
-        expect(box.top - ring, `${what} top`).toBeGreaterThanOrEqual(clip.top - 0.5);
-        expect(box.bottom + ring, `${what} bottom`).toBeLessThanOrEqual(clip.bottom + 0.5);
-        expect(box.left - ring, `${what} left`).toBeGreaterThanOrEqual(clip.left - 0.5);
-        expect(box.right + ring, `${what} right`).toBeLessThanOrEqual(clip.right + 0.5);
+  for (const [width, height] of [
+    [1280, 800],
+    [390, 844],
+  ] as const) {
+    // A per-head line with "Only these events" chosen, so the panel holds
+    // every control it can draw: the event boxes and "Use a fixed amount" too.
+    // At 390px the forms wrap, which changes which control meets an edge.
+    it(`keeps every control's focus ring inside the panel's clip at ${width}px`, async () => {
+      await page.viewport(width, height);
+      const root = getComputedStyle(document.documentElement);
+      const ring =
+        parseFloat(root.getPropertyValue("--focus-ring-width")) +
+        parseFloat(root.getPropertyValue("--focus-ring-offset"));
+      expect(ring).toBe(4);
+      const panels = await openBothPanels();
+      screen.getByLabelText("Only these events").click();
+      await settle();
+      expect(screen.getByRole("checkbox", { name: "Reception" }).checkVisibility()).toBe(true);
+      expect(screen.getByRole("button", { name: "Use a fixed amount" }).checkVisibility()).toBe(
+        true,
+      );
+      for (const [name, reveal] of [
+        ["per head", panels.perHead],
+        ["payments", panels.payments],
+      ] as const) {
+        const clip = rect(reveal.firstElementChild!);
+        const controls = [
+          ...reveal.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href]"),
+        ].filter((el) => el.getClientRects().length > 0);
+        expect(controls.length, `${name}: controls`).toBeGreaterThan(2);
+        for (const el of controls) {
+          const box = rect(el);
+          const what = `${name}: ${el.getAttribute("aria-label") ?? el.textContent?.trim() ?? el.tagName}`;
+          expect(box.top - ring, `${what} top`).toBeGreaterThanOrEqual(clip.top - 0.5);
+          expect(box.bottom + ring, `${what} bottom`).toBeLessThanOrEqual(clip.bottom + 0.5);
+          expect(box.left - ring, `${what} left`).toBeGreaterThanOrEqual(clip.left - 0.5);
+          expect(box.right + ring, `${what} right`).toBeLessThanOrEqual(clip.right + 0.5);
+        }
       }
+    });
+
+    // DESIGN.md §4: the line reads 8px in from its top and bottom and 12px from
+    // its sides, with 8px between its parts, as the `px-3 py-2` row with
+    // `gap-2` it replaced did. Each gap is between what the parts draw, not
+    // between their padded boxes.
+    it(`spaces an open line's parts 8px apart at ${width}px`, async () => {
+      await page.viewport(width, height);
+      const { li, perHead, payments } = await openBothPanels();
+      const style = getComputedStyle(li);
+      const inner = {
+        top: rect(li).top + parseFloat(style.borderTopWidth),
+        bottom: rect(li).bottom - parseFloat(style.borderBottomWidth),
+        left: rect(li).left + parseFloat(style.borderLeftWidth),
+      };
+      const header = itemsBox(li.firstElementChild!);
+      const summary = rect(screen.getByTestId("per-head-summary"));
+      const perHeadForm = rect(screen.getByTestId("per-head-panel"));
+      const paymentList = rect(
+        screen.getByLabelText("Payment label").closest("form")!.parentElement!,
+      );
+      expect(perHead.contains(screen.getByTestId("per-head-panel"))).toBe(true);
+      expect(payments.contains(screen.getByLabelText("Payment label"))).toBe(true);
+
+      expect(header.top - inner.top, "line top to header").toBeCloseTo(8, 0);
+      expect(summary.top - header.bottom, "header to per-head summary").toBeCloseTo(8, 0);
+      expect(perHeadForm.top - summary.bottom, "summary to per-head panel").toBeCloseTo(8, 0);
+      expect(paymentList.top - perHeadForm.bottom, "per-head panel to payments").toBeCloseTo(8, 0);
+      expect(inner.bottom - paymentList.bottom, "payments to line bottom").toBeCloseTo(8, 0);
+      expect(
+        rect(li.firstElementChild!.firstElementChild!).left - inner.left,
+        "line left to its first control",
+      ).toBeCloseTo(12, 0);
+    });
+  }
+
+  // At a desk the header is one row, so its ✕ ends it: a payment's ✕ sits in
+  // the same column, 12px in from the line's right edge.
+  it("lines a payment's ✕ up under the line's ✕ at 1280px", async () => {
+    const { li } = await openBothPanels();
+    const inner = rect(li).right - parseFloat(getComputedStyle(li).borderRightWidth);
+    const lineCross = rect(within(li).getByRole("button", { name: "Delete item" }));
+    expect(inner - lineCross.right, "line ✕ to the line's right edge").toBeCloseTo(12, 0);
+    for (const cross of within(li).getAllByRole("button", { name: "Delete payment" })) {
+      expect(Math.abs(rect(cross).right - lineCross.right)).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  // A payment label or an event name may be one 80-character word. It wraps
+  // inside the panel instead of running under the panel's clip.
+  it("wraps a long unbroken payment label and event name inside the panel at 390px", async () => {
+    await page.viewport(390, 844);
+    const { perHead, payments } = await openBothPanels();
+    screen.getByLabelText("Only these events").click();
+    await settle();
+
+    const paymentRow = screen
+      .getByRole("checkbox", { name: `${LONG_WORD} paid` })
+      .closest("[data-payment]")!;
+    const paymentText = [...paymentRow.querySelectorAll<HTMLElement>("span")].find((s) =>
+      s.textContent?.startsWith(LONG_WORD),
+    )!;
+    const eventText = screen.getByText(LONG_WORD).parentElement!;
+    for (const [what, text, reveal] of [
+      ["payment label", paymentText, payments],
+      ["event name", eventText, perHead],
+    ] as const) {
+      expect(text.scrollWidth, `${what} runs past its box`).toBeLessThanOrEqual(text.clientWidth);
+      expect(rect(text).right, `${what} past the clip`).toBeLessThanOrEqual(
+        rect(reveal.firstElementChild!).right + 0.5,
+      );
     }
   });
 

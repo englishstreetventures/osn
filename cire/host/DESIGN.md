@@ -719,8 +719,15 @@ change to `Reveal`, not to a call site. `Reveal` clips what it holds, so a
 control at a panel's edge needs 4px of room inside it for the focus ring: each
 part of a budget line carries 4px above, below and to its right, and the
 line's padding is 4px less, so every gap still measures 8px and a closed panel
-adds nothing. `BudgetView.reveal.browser.test.tsx` samples the opening frame by
-frame and measures the room.
+adds nothing. The clip would also cut text that runs past the edge, so a
+payment's label and an event's name inside a panel wrap anywhere
+(`wrap-anywhere`): either can be one 80-character word. A control inside the
+panel that closes it — Cancel, Save, "Use a fixed amount" — hands focus back to
+the toggle that opened it, and a payment's ✕ hands it to the next payment's
+box, or to "Payment label" when none follows, so focus never falls to the page.
+`BudgetView.reveal.browser.test.tsx` samples the opening frame by frame and
+measures the room, the spacing and the wrapping; `BudgetView.test.tsx` holds
+the focus.
 
 **A toggled box that is not in the top layer fades out in CSS alone.**
 `transition-behavior: allow-discrete` holds `display` until an opacity fade has
