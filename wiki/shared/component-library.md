@@ -1290,8 +1290,10 @@ narrow boxes as short as they are wide.
 The digit is `text-ui-md` (1.05rem unless the app maps `--ui-text-md`). iOS
 zooms a focused field set under 16px, so an app that maps `md` below 16px
 raises its form controls to 16px on a phone. Musubi maps 14px, its title step,
-and its mobile input rule sets every `input` to 16px below 768px, as it does
-for `Input` ([[social]]).
+and its mobile input rule sets every `input`, `select` and `textarea` to 16px
+below 768px, as it does for `Input`
+([DESIGN.md](../../musubi/social/DESIGN.md) §Typography, Mobile input
+exception).
 
 The corner is the contract's `field` radius, the one `Input`, `Textarea` and
 `Select` take, so the boxes round like the text fields beside them. An empty

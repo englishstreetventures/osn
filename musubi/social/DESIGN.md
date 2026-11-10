@@ -169,7 +169,7 @@ rule draws it on an element that does not name it (§Borders).
   | Utility | Size / line-height | Role |
   | --- | --- | --- |
   | `text-display` | 24 / 30 | page titles (`h1`) in the shell, large avatar initials, a number the person carries to another screen (`CheckEmailView`'s, and the numbers `ConfirmLinkPage` offers to pick from, in tabular figures; larger than the heading above them on purpose) |
-  | `text-title`   | 14 / 20 | person & org names, section headers, card and dialog titles, default Button labels; the `h1` of a bare route whose page is one card (`/authorize`, the emailed-link confirm page) |
+  | `text-title`   | 14 / 20 | person & org names, section headers, default Button labels; card and dialog titles at the size and 500, on their own leading (Dialog and card titles, below); the `h1` of a bare route whose page is one card (`/authorize`, the emailed-link confirm page) |
   | `text-body`    | 13 / 18 | nav, tabs, `size="sm"` Button labels, body copy, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, helper text |
 
@@ -187,12 +187,12 @@ rule draws it on an element that does not name it (§Borders).
   as a name. The rail's account trigger is shell chrome and keeps its own
   size.
 - **Dialog and card titles** — `@shared/ui`'s `DialogTitle` and `CardTitle`
-  are `text-title` at 500. Both set their size with `--ui-text-md` and their
-  weight with `--ui-weight-title`, which the contract block in `App.css` maps
-  to `--text-title` and 500 (§Token contract); a call site sets neither, and
-  `shadcn/no-restyle` refuses a type class on either. The title's leading is
-  not part of the step: `DialogTitle` inherits the body's 18px, and
-  `CardTitle` keeps the shared part's `leading-none`.
+  are `text-title`'s 14px at 500. Both set their size with `--ui-text-md` and
+  their weight with `--ui-weight-title`, which the contract block in `App.css`
+  maps to `--text-title` and 500 (§Token contract); a call site sets neither,
+  and `shadcn/no-restyle` refuses a type class on either. `--ui-text-md`
+  carries the size and not the step's 20px leading: `DialogTitle` inherits the
+  body's 18px, and `CardTitle` keeps the shared part's `leading-none`, 14px.
 - **Consent marks** — `/authorize`'s "Verified by Musubi" and its "Third-party
   app" chip (§Chips) are `text-meta` at 500, so neither reads quieter than the
   other.
@@ -294,10 +294,12 @@ and the rail's results panel, `SearchResultRows.tsx`), and `/authorize`'s
   light.
 - **Not small caps.** The rail's "Social" tag is the only small-caps label,
   and a chip's word reads as written.
-- **Never `@shared/ui`'s `Badge`.** Every variant fills the pill, and its
-  default fill is the accent, which in Musubi is ink: a black pill holding a
-  white word, the look of a primary Button. A word that names a role is the
-  outline chip above.
+- **Never `@shared/ui`'s `Badge`.** Three of its four variants fill the pill,
+  the default with the accent, which in Musubi is ink: a black pill holding a
+  white word, the look of a primary Button. `outline` fills nothing, but sets
+  its word in full ink at 13px (`--ui-text-sm`) and the title weight, 500,
+  where a chip's word is secondary ink at 12px and 400. A word that names a
+  role is the outline chip above.
 - **Weight.** A chip's word is 400, except "Third-party app": a trust mark
   beside a name the app chose for itself, it keeps 500, the weight of the
   consent screen's other mark (§Typography, Consent marks). The weight comes

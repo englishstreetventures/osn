@@ -1,5 +1,5 @@
 ---
-title: Design tokens — the contract every shared component reads
+title: Design tokens — @shared/design-tokens and the ui-* contract
 tags:
   - architecture
   - design-system

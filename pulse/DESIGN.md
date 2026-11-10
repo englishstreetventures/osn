@@ -350,6 +350,11 @@ These rules govern `pulse/web`. The landing site's motion is in
   state, and it stops under `prefers-reduced-motion: reduce`, holding a still
   frame (`onboarding.css` and `explore/explore.css` hold the rule).
 - **Every keyframe and every infinite animation has a reduced-motion rule.**
+- **Overlays grow and shrink.** Pulse maps no scale token, so `@shared/ui`'s
+  Dialog, Popover and menus open from the contract's 0.96 and close to 0.98
+  (`wiki/shared/design-tokens.md` §Motion), and under reduced motion show and
+  hide at once. The menus are the shared default look: a menu's separator is a
+  1px `--ui-hairline` fill with no border.
 
 Where the app does not follow this yet: these controls fade their focus mark
 with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
@@ -358,6 +363,9 @@ with the colour: `FilterChip.tsx`, `ShareEventButton.tsx`,
 `tools/e2e/tests/support/pulse-explore.ts` holds the explore header to these
 rules: what its tab and search box fade, and its two loops stopping under
 reduced motion.
+`tools/e2e/tests/support/pulse-menus.ts` holds both avatar menus' separators
+at 390 and 1440px in both schemes, and holds those menus and "More filters"
+opening from 0.96.
 
 ## Future
 

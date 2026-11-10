@@ -799,16 +799,18 @@ As built:
 The package has no motion of its own. A view takes its host's: in Musubi, colour
 and opacity transitions only (`musubi/social/DESIGN.md` §Motion). The host's
 `transition-ui-colors` utility fades colours and leaves the outline out, so a
-control's focus mark lands at once (§9). A view draws two animations, both
-from `@shared/ui` parts: a busy button's `Orb`, and `Skeleton`, the loading
+control's focus mark lands at once (§9). A view draws four motions, all from
+`@shared/ui` parts: a busy button's `Orb`; `Skeleton`, the loading
 placeholder in `PasskeysView`, `TotpView`, `SessionsView` and
-`RecoveryCodesView`, which pulses in opacity. Both stand still under reduced
-motion. What a skeleton stands for, a refused code's line and a step that
-replaces another arrive at once, with no fade (`musubi/social/DESIGN.md`
-§Motion).
-`ProfileOnboarding`, `ProfileSwitcher` and `RecoveryCodesView` open
-`@shared/ui`'s `Dialog`, which in Musubi fades with no scale as it opens and
-closes: the host maps both scale tokens to 1 (`musubi/social/DESIGN.md`
-§Motion). A view never moves a panel, a field or an error across the screen, and never loads an
+`RecoveryCodesView`, which pulses in opacity; the open and close of `Dialog`,
+in `ProfileOnboarding` and `RecoveryCodesView`; and the open and close of a
+popover, `Register`'s `InfoPopover` beside the email field. The last two fade
+with no scale in Musubi, which maps both scale tokens to 1
+(`musubi/social/DESIGN.md` §Motion). The `Orb` and `Skeleton` stand still
+under reduced motion, and the overlays show and hide at once. What a skeleton
+stands for, a refused code's line and a step that replaces another arrive at
+once, with no fade (`musubi/social/DESIGN.md` §Motion). `ProfileSwitcher`
+opens a `Dialog` and a `Popover` too, but no host draws it. A view never moves
+a panel, a field or an error across the screen, and never loads an
 animation library. A motion a view needs that the host does not have goes into
 the host's `DESIGN.md` first.
