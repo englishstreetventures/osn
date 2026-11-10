@@ -160,10 +160,13 @@ declares as `--font-weight-ui-title: var(--ui-weight-title, 600)` in its
 `@theme inline` block. Tailwind tells it apart from the `font-ui-*` families by
 the key: `--font-weight-*` builds a weight utility, `--font-*` a family. The
 fallback is 600, Tailwind's `font-semibold`, so an app that maps nothing sets
-those parts semibold. `@shared/ui`'s `Badge` reads it
-([[component-library]], §Variant components). No app maps it: pulse and the lab
-draw a badge at 600, and Musubi draws none. `shared/ui/tests/badge-default.browser.test.tsx`
-holds the unmapped badge's whole computed style, and pulse's
+those parts semibold. `@shared/ui`'s `Badge` and `DialogTitle` read it
+([[component-library]], §Variant components and §Kobalte components). No app
+maps it: pulse and the lab draw a badge at 600 and Musubi draws none, and
+pulse, Musubi and the lab all draw a dialog title at 600.
+`shared/ui/tests/badge-default.browser.test.tsx` and
+`shared/ui/tests/dialog-default.browser.test.tsx` hold the unmapped badge's and
+title's whole computed style, and pulse's
 `tests/styles/token-contract.browser.test.tsx` holds 600 under pulse's own
 stylesheet.
 
@@ -222,6 +225,20 @@ it arrives and 1% as it leaves. `Modal`'s sheet rises from below the edge
 instead. Musubi's dialogs, most of the sheet's callers, move to a fade with
 no scale in englishstreetventures/osn#2040; pulse's share dialog keeps the
 scale.
+
+**A fade with no scale is the two scale tokens at 1.** An app whose overlays
+should fade without moving sets `--ui-scale-enter` and `--ui-scale-exit` to 1
+on its root. Every Kobalte overlay — `Dialog` as card and as sheet, `Popover`,
+both `DropdownMenu` looks and `Tooltip` — then changes only its opacity, since
+`zoom-in` and `zoom-out` read those tokens and nothing else in the keyframes
+moves a panel. `--ui-scale-exit` at 1 also stops `Modal`'s exit scale; its rise
+and sink (`--ui-distance-enter`, `--ui-distance-exit`) stay. No component takes
+a prop for it: a prop would give a panel's scale a second home, and leave the
+menus and popovers of the same app zooming. A held frame's computed
+`transform` is the identity matrix rather than `none`, because the shared
+keyframes always declare one. `overlay-motion.browser.test.tsx` holds the fade
+for all five overlays against a control that scales, and the lab's
+`DialogFadeOnly` story shows it ([[component-lab]]).
 
 The overlays reach them through four utilities in `tokens.css`, not by
 reading the tokens in their own classes. `animate-in` runs `--ui-dur-fast` and

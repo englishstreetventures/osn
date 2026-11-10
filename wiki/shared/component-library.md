@@ -1164,6 +1164,20 @@ Key behaviours you get by default:
 - **Tooltip** — hover only, panel hidden from assistive technology; §`Tooltip` above says why
 - **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
 
+**`DialogTitle`'s weight is the contract's title weight.** It reads
+`--ui-weight-title` through `font-ui-title`, which falls back to 600, so an app
+that maps nothing keeps the semibold title it always had, and an app whose
+house style stops at 500 maps the token once ([[design-tokens#The tokens]]).
+No call site sets it with a class: `shadcn/no-restyle` refuses typography on
+`DialogTitle` ([[#What a call site may set, and what it may not]]).
+`shared/ui/tests/dialog-default.browser.test.tsx` holds what pulse draws today —
+the unmapped title's whole computed style as a snapshot written before the title
+read the token, and the panel entering from 0.96 over 120ms and leaving to 0.98
+over 80ms — so a `-u` that rewrites it changes pulse and needs the owner's
+approval. `dialog.browser.test.tsx` checks the title follows the token set on an
+ancestor. Overlays that fade without scaling are an app's choice too, made with
+the two scale tokens rather than a prop ([[design-tokens#Motion]]).
+
 ### Checkbox and RadioGroup — native, in two boxes
 
 `Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.
