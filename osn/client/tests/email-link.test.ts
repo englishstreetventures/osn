@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createEmailLinkClient, emailLinkPurpose } from "../src/email-link";
+import { createEmailLinkClient, EmailLinkError, emailLinkPurpose } from "../src/email-link";
 
 /**
  * The confirm page's calls. What each answer maps to is the page's contract:
@@ -76,16 +76,16 @@ describe("confirm", () => {
 
   it("throws on a rate limit, a server error or no answer", async () => {
     for (const status of [429, 500, 503]) {
-      stub(() => json({ error: "x" }, status));
+      stub(() => json({ error: "rate_limited" }, status));
       // oxlint-disable-next-line no-await-in-loop -- one stub at a time
-      await expect(client.confirm(requestId, { linkSecret, pick: "47" })).rejects.toThrow(
-        `Request failed: ${status}`,
-      );
+      const err = await client.confirm(requestId, { linkSecret, pick: "47" }).catch((e) => e);
+      expect(err).toBeInstanceOf(EmailLinkError);
+      expect(err).toMatchObject({ status, code: "rate_limited" });
     }
     stub(() => Promise.reject(new TypeError("Failed to fetch")));
-    await expect(client.confirm(requestId, { linkSecret, pick: "47" })).rejects.toThrow(
-      "Failed to fetch",
-    );
+    const err = await client.confirm(requestId, { linkSecret, pick: "47" }).catch((e) => e);
+    expect(err).toBeInstanceOf(EmailLinkError);
+    expect(err).toMatchObject({ status: 0 });
   });
 });
 
@@ -112,14 +112,16 @@ describe("candidates", () => {
 
   it("throws on a rate limit, a server error or no answer", async () => {
     for (const status of [429, 500]) {
-      stub(() => json({ error: "x" }, status));
+      stub(() => json({ error: "rate_limited" }, status));
       // oxlint-disable-next-line no-await-in-loop -- one stub at a time
-      await expect(client.candidates(requestId, linkSecret)).rejects.toThrow(
-        `Request failed: ${status}`,
-      );
+      const err = await client.candidates(requestId, linkSecret).catch((e) => e);
+      expect(err).toBeInstanceOf(EmailLinkError);
+      expect(err).toMatchObject({ status, code: "rate_limited" });
     }
     stub(() => Promise.reject(new TypeError("Failed to fetch")));
-    await expect(client.candidates(requestId, linkSecret)).rejects.toThrow("Failed to fetch");
+    const err = await client.candidates(requestId, linkSecret).catch((e) => e);
+    expect(err).toBeInstanceOf(EmailLinkError);
+    expect(err).toMatchObject({ status: 0 });
   });
 });
 

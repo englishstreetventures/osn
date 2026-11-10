@@ -6,8 +6,13 @@
  * Each call answers the way the confirm page needs: every refusal (an unknown
  * request, a wrong secret, a spent or expired one, a wrong pick, a refused
  * decline) is `expired`, which ends the page; only a rate limit, a server
- * error or no answer throws, which offers Try again.
+ * error or no usable answer throws, which offers Try again. What it throws is
+ * an `EmailLinkError` with the response's status (`0` when none arrived) and
+ * the server's code, which `describeAuthError` reads.
  */
+import { OsnApiError } from "./api-error";
+import { reach, responseError } from "./auth-fetch";
+import { safeJson } from "./response-body";
 
 /** The flows whose links this client confirms, as the confirm page names them. */
 export type EmailLinkPurpose = "sign-up";
@@ -30,9 +35,9 @@ export function emailLinkPurpose(requestId: string): EmailLinkPurpose | null {
   return prefix !== undefined && isLinkPrefix(prefix) ? PURPOSE_BY_PREFIX[prefix] : null;
 }
 
-export class EmailLinkError extends Error {
-  constructor(message: string) {
-    super(message);
+export class EmailLinkError extends OsnApiError {
+  constructor(message: string, status: number, code?: string) {
+    super(message, status, code);
     this.name = "EmailLinkError";
   }
 }
@@ -83,18 +88,23 @@ interface LinkAnswer {
 export function createEmailLinkClient(config: EmailLinkClientConfig): EmailLinkClient {
   const base = config.issuerUrl.replace(/\/$/, "");
 
-  /** POSTs `body`; null for a refusal, the JSON body otherwise; throws on a transient. */
+  /**
+   * POSTs `body`; null for a refusal, the JSON body otherwise. Throws on a
+   * rate limit, a server error, no answer, or a success whose body is not JSON.
+   */
   async function post(path: string, body: unknown): Promise<LinkAnswer | null> {
-    const res = await fetch(`${base}${path}`, {
+    const res = await reach(EmailLinkError, `${base}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (res.status === 429 || res.status >= 500) {
-      throw new EmailLinkError(`Request failed: ${res.status}`);
+      throw responseError(EmailLinkError, res, await safeJson(res));
     }
     if (!res.ok) return null;
-    return (await res.json()) as LinkAnswer;
+    const answer = await safeJson<LinkAnswer>(res);
+    if (answer === null) throw responseError(EmailLinkError, res, answer);
+    return answer;
   }
 
   return {

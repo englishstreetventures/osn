@@ -188,7 +188,10 @@ describe("createRegistrationClient", () => {
         await expect(client.registrationStatus(ids)).rejects.toBeInstanceOf(RegistrationError);
       }
       stubFetch(() => Promise.reject(new TypeError("Failed to fetch")));
-      await expect(client.registrationStatus(ids)).rejects.toThrow("Failed to fetch");
+      await expect(client.registrationStatus(ids)).rejects.toMatchObject({
+        name: "RegistrationError",
+        status: 0,
+      });
     });
 
     /**
