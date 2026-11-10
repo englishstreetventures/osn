@@ -14,12 +14,19 @@ import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 
-import { accounts, oauthClients, organisationMembers, organisations, users } from "@osn/db/schema";
+import {
+  accounts,
+  oauthClients,
+  organisationMembers,
+  organisations,
+  passkeys,
+  users,
+} from "@osn/db/schema";
 import { applySchema as applyOsnSchema } from "@osn/db/testing";
 import { applySchema as applyPulseSchema } from "@pulse/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { CIRE_OIDC, CLOCK_T0, MUSUBI_ORG, PULSE_OIDC, THIRD_PARTY_OIDC } from "./config";
+import { CIRE_OIDC, CLOCK_T0, MUSUBI_ORG, PULSE_OIDC, RECOVERY_PERSON, THIRD_PARTY_OIDC } from "./config";
 
 function freshDatabase(path: string): Database {
   if (existsSync(path)) {
@@ -66,8 +73,8 @@ function thirdPartyClient() {
 
 /**
  * osn-api: the schema, Pulse and cire registered as first-party OIDC clients,
- * one third-party client, and `MUSUBI_ORG`'s member profile with the
- * organisation it owns.
+ * one third-party client, `MUSUBI_ORG`'s member profile with the organisation
+ * it owns, and `RECOVERY_PERSON` with the passkey they have lost.
  */
 export function seedOsn(path: string): void {
   const sqlite = freshDatabase(path);
@@ -124,6 +131,40 @@ export function seedOsn(path: string): void {
           profileId: member.profileId,
           role: "admin",
           createdAt: at,
+        })
+        .run();
+
+      const recover = RECOVERY_PERSON;
+      db.insert(accounts)
+        .values({
+          id: recover.accountId,
+          email: recover.email,
+          passkeyUserId: recover.passkeyUserId,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      db.insert(users)
+        .values({
+          id: recover.profileId,
+          accountId: recover.accountId,
+          handle: recover.handle,
+          displayName: recover.name,
+          isDefault: true,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      // Inert: no authenticator in the run holds its private key.
+      db.insert(passkeys)
+        .values({
+          id: recover.lostPasskey.id,
+          accountId: recover.accountId,
+          credentialId: recover.lostPasskey.credentialId,
+          publicKey: "AAAA",
+          counter: 0,
+          createdAt: at,
+          provenanceAmr: "webauthn",
         })
         .run();
     })();

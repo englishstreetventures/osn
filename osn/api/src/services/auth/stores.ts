@@ -34,7 +34,6 @@ export interface CeremonyStores {
   pendingRegistrations: CeremonyStore<PendingRegistration>;
   stepUpPasskeyChallenges: CeremonyStore<ChallengeEntry>;
   stepUpOtp: CeremonyStore<StepUpOtpEntry>;
-  pendingRecoveryOtp: CeremonyStore<PendingRecoveryOtp>;
   pendingTotpEnrollments: CeremonyStore<PendingTotpEnrollment>;
   pendingEmailChanges: CeremonyStore<PendingEmailChange>;
   crossDeviceRequests: CeremonyStore<CrossDeviceRequest>;
@@ -138,7 +137,7 @@ export interface PendingRegistration {
 export type PendingSignUp = Omit<PendingRegistration, "requestId" | "expiresAt">;
 
 /** The flows that prove an address with an emailed link. */
-export type EmailLinkFlow = "registration";
+export type EmailLinkFlow = "registration" | "recovery";
 
 /**
  * One emailed-link request, keyed by its request id. The link carries the
@@ -154,8 +153,9 @@ export interface EmailLinkChallenge {
   v: 1;
   flow: EmailLinkFlow;
   /**
-   * The key of the flow's own pending entry: for registration, the address or
-   * its probe key. Never returned by any route.
+   * What the request is about, never returned by any route. Registration: the
+   * key of its pending entry, the address or its probe key. Recovery: the
+   * account id, or the typed address's probe key when it names no account.
    */
   subject: string;
   /**
@@ -164,6 +164,13 @@ export interface EmailLinkChallenge {
    * here, on a Resend, once the address is free. No birthdate.
    */
   signUp?: PendingSignUp;
+  /**
+   * A keyed digest the flow's claim checks again before it finishes, when the
+   * flow sets one. Recovery binds the request to the address the link went
+   * to (`serverMac.probeKey`), so a request begun before the account's email
+   * changed cannot be claimed after.
+   */
+  bound?: string;
   /** The hash of every link sent for the request, newest last. */
   mailSecretHashes: string[];
   claimSecretHash: string;
@@ -237,24 +244,6 @@ export interface CrossDeviceRequest {
 // a login OTP cannot be replayed to authorise a sensitive action, and vice
 // versa. Structure matches OtpEntry but without profileId (accountId is the key).
 export interface StepUpOtpEntry {
-  codeHash: string;
-  expiresAt: number;
-}
-
-/**
- * The 6-digit code emailed by `POST /login/recovery/email/begin`, keyed by
- * accountId and awaiting `POST /login/recovery/email/complete`.
- *
- * Structurally identical to {@link StepUpOtpEntry} and deliberately a separate
- * store rather than a share of it: a step-up code authorises an action for
- * somebody already signed in, while this one hands out a session to somebody who
- * is not. Sharing the key space would let either be presented where the other
- * was minted.
- *
- * Never in D1. A pending recovery code is not a credential — it is a ten-minute
- * ceremony — and the durable store is not where ten-minute state belongs.
- */
-export interface PendingRecoveryOtp {
   codeHash: string;
   expiresAt: number;
 }
@@ -434,10 +423,6 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       observer,
     ),
     stepUpOtp: createInMemoryCeremonyStore<StepUpOtpEntry>("step_up_otp", observer),
-    pendingRecoveryOtp: createInMemoryCeremonyStore<PendingRecoveryOtp>(
-      "pending_recovery_otp",
-      observer,
-    ),
     pendingTotpEnrollments: createInMemoryCeremonyStore<PendingTotpEnrollment>(
       "pending_totp_enroll",
       observer,

@@ -1,6 +1,7 @@
 import { it, expect, describe } from "@effect/vitest";
 import { recoveryCodes } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import type { CoordinationNamespace } from "@shared/coordination";
 import { makeLogEmailLive } from "@shared/email";
 import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
@@ -8,8 +9,8 @@ import { beforeAll } from "vitest";
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { RECOVERY_LOCKOUT_THRESHOLD } from "../../src/lib/recovery-lockout-store";
 import { createAuthService } from "../../src/services/auth";
-import { RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createCapturingTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
@@ -30,16 +31,59 @@ beforeAll(async () => {
   base = await makeTestAuthConfig();
 });
 
-function harness() {
+/** The stores a recovery link's send reads, after the answer. */
+const SEND_LIMIT_STORES = [
+  "auth.recovery_link_address_cap",
+  "auth.recovery_resend_cap",
+  "auth.recovery_link_ceiling",
+  "recovery_otp_lockout",
+];
+
+/**
+ * `ns` with every call to a send-limit store waiting until `release()`, so
+ * the calls a begin or a Resend makes before it answers can be told apart from
+ * the ones its forked send makes after. A request that waited on one of them
+ * would never answer.
+ */
+function holdingSendLimits(ns: CoordinationNamespace) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const wrapped: CoordinationNamespace = {
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      if (!SEND_LIMIT_STORES.some((store) => name.startsWith(`${store}:`))) return stub;
+      const later =
+        <A extends unknown[], R>(run: (...args: A) => Promise<R>) =>
+        (...args: A) =>
+          gate.then(() => run(...args));
+      return {
+        ...stub,
+        increment: later(stub.increment.bind(stub)),
+        count: later(stub.count.bind(stub)),
+        read: later(stub.read.bind(stub)),
+        write: later(stub.write.bind(stub)),
+        remove: later(stub.remove.bind(stub)),
+      };
+    },
+  };
+  return { ns: wrapped, release };
+}
+
+function harness(options: { holdSendLimits?: boolean } = {}) {
   const fake = createFakeNamespace();
-  const bundle = createDurableCoordination(fake.ns, () => {});
+  const limits = holdingSendLimits(fake.ns);
+  const bundle = createDurableCoordination(options.holdSendLimits ? limits.ns : fake.ns, () => {});
   const email = makeLogEmailLive();
   const auth = createAuthService({
     ...base,
     ceremonyStores: bundle.ceremonyStores,
     recoveryLockoutStore: bundle.recoveryLockoutStore,
     recoveryOtpLockoutStore: bundle.recoveryOtpLockoutStore,
-    recoveryEmailBeginCap: bundle.recoveryEmailBeginCap,
+    recoveryLinkAddressCap: bundle.recoveryLinkAddressCap,
+    recoveryResendCap: bundle.recoveryResendCap,
+    recoveryLinkCeiling: bundle.recoveryLinkCeiling,
     totpLockoutStore: bundle.totpLockoutStore,
   });
   const database = createCapturingTestLayer();
@@ -59,124 +103,103 @@ function harness() {
         statements: database.captured.slice(fromStatement).map((statement) => statement.sql),
       };
     });
-  const codes = () =>
-    email.recorded().flatMap((sent) => sent.text.match(/code is: (\d{6})/)?.[1] ?? []);
-  /** The `n`th recovery code mailed; the send runs in the background. */
-  const nthCode = (n: number) =>
+  /** Lets the held send-limit calls go, and waits for `count` of them to land. */
+  const sendLimitCalls = (count: number) =>
     Effect.gen(function* () {
-      for (let i = 0; i < 200; i++) {
-        if (codes().length > n) return codes()[n]!;
-        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 5)));
-      }
-      throw new Error("no code captured");
+      limits.release();
+      const landed = () =>
+        fake.calls.filter((call) => SEND_LIMIT_STORES.includes(call.store)).length;
+      for (let i = 0; i < 200 && landed() < count; i++) yield* Effect.sleep("5 millis");
+      yield* Effect.sleep("20 millis");
+      return landed();
     });
-  return { fake, auth, layer, record, nthCode };
+  return { fake, auth, layer, record, sendLimitCalls, recorded: () => email.recorded() };
 }
 
-const BEGIN = ["auth.recovery_email_begin_cap.increment", "pending_recovery_otp.write"];
-
-// The first two run side by side, started in this order.
-const COMPLETE_REFUSED = [
-  "recovery_otp_lockout.count",
-  "pending_recovery_otp.guess",
-  "recovery_otp_lockout.increment",
-];
+const meta = { ip: "198.51.100.7", uaLabel: null };
 
 describe("POST /login/recovery/email/begin", () => {
-  it.live("makes the same calls whether it sends, is capped, or names nobody", () => {
+  it.live(
+    "makes the same calls before it answers whether or not the address has an account",
+    () => {
+      const h = harness({ holdSendLimits: true });
+      return Effect.gen(function* () {
+        yield* h.auth.registerProfile("seq-sent@example.com", "seqsent");
+
+        // The send's limits are held: a begin that waited on any of them would
+        // never answer.
+        const sent = yield* h.record(h.auth.beginEmailRecovery("seq-sent@example.com", meta));
+        const nobody = yield* h.record(h.auth.beginEmailRecovery("seq-nobody@example.com", meta));
+
+        expect(sent.ops).toEqual(["email_link.write"]);
+        expect(nobody).toEqual(sent);
+
+        // After the answer, only the account's send reads its limits: the
+        // lockout, the address cap and the ceiling. A first link spends no
+        // Resend.
+        expect(yield* h.sendLimitCalls(3)).toBe(3);
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+
+  it.live("fails alike for a real account and for nobody while every store call fails", () => {
     const h = harness();
     return Effect.gen(function* () {
-      yield* h.auth.registerProfile("seq-sent@example.com", "seqsent");
-      yield* h.auth.registerProfile("seq-cap@example.com", "seqcap");
-      for (let i = 0; i < RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX; i++) {
-        yield* h.auth.beginEmailRecovery("seq-cap@example.com");
-      }
-
-      const sent = yield* h.record(h.auth.beginEmailRecovery("seq-sent@example.com"));
-      const capped = yield* h.record(h.auth.beginEmailRecovery("seq-cap@example.com"));
-      const nobody = yield* h.record(h.auth.beginEmailRecovery("seq-nobody@example.com"));
-
-      expect(sent.ops).toEqual(BEGIN);
-      expect(capped).toEqual(sent);
-      expect(nobody).toEqual(sent);
+      yield* h.auth.registerProfile("seq-bdown@example.com", "seqbdown");
+      h.fake.failWhen(() => true);
+      const real = yield* h.record(h.auth.beginEmailRecovery("seq-bdown@example.com", meta));
+      const nobody = yield* h.record(h.auth.beginEmailRecovery("seq-bgone@example.com", meta));
+      expect(real.ops.length).toBeGreaterThan(0);
+      expect(nobody).toEqual(real);
     }).pipe(Effect.provide(h.layer));
   });
 });
 
-describe("POST /login/recovery/email/complete", () => {
-  it.live("makes the same calls on every refusal, whoever the identifier names", () => {
-    const h = harness();
+describe("POST /login/recovery/email/:requestId/resend and /status", () => {
+  it.live("make the same calls and statements whether or not the address has an account", () => {
+    const h = harness({ holdSendLimits: true });
     return Effect.gen(function* () {
-      // A code pending, answered wrongly.
-      yield* h.auth.registerProfile("seq-wrong@example.com", "seqwrong");
-      yield* h.auth.beginEmailRecovery("seq-wrong@example.com");
-      yield* h.nthCode(0);
-      const wrong = yield* h.record(
-        h.auth.completeEmailRecovery("seq-wrong@example.com", "000000"),
-      );
+      yield* h.auth.registerProfile("seq-rs@example.com", "seqrs");
+      const known = yield* h.auth.beginEmailRecovery("seq-rs@example.com", meta);
+      const nobody = yield* h.auth.beginEmailRecovery("seq-rsnobody@example.com", meta);
 
-      // A real account with nothing pending.
-      yield* h.auth.registerProfile("seq-empty@example.com", "seqempty");
-      const empty = yield* h.record(
-        h.auth.completeEmailRecovery("seq-empty@example.com", "000000"),
+      const knownResend = yield* h.record(
+        h.auth.resendEmailRecovery(known.requestId, known.claimSecret, meta),
       );
-
-      // A locked account: five wrong codes against one pending entry.
-      yield* h.auth.registerProfile("seq-lock@example.com", "seqlock");
-      yield* h.auth.beginEmailRecovery("seq-lock@example.com");
-      yield* h.nthCode(1);
-      for (let i = 0; i < 5; i++) {
-        yield* Effect.result(h.auth.completeEmailRecovery("seq-lock@example.com", "000000"));
-      }
-      const locked = yield* h.record(
-        h.auth.completeEmailRecovery("seq-lock@example.com", "000000"),
+      const nobodyResend = yield* h.record(
+        h.auth.resendEmailRecovery(nobody.requestId, nobody.claimSecret, meta),
       );
+      expect(knownResend.ops.length).toBeGreaterThan(0);
+      expect(nobodyResend).toEqual(knownResend);
 
-      // An identifier that names no account.
-      const nobody = yield* h.record(
-        h.auth.completeEmailRecovery("seq-nobody@example.com", "000000"),
+      const knownPoll = yield* h.record(
+        h.auth.emailRecoveryStatus(known.requestId, known.claimSecret),
       );
-
-      expect(wrong.ops).toEqual(COMPLETE_REFUSED);
-      expect(empty).toEqual(wrong);
-      expect(locked).toEqual(wrong);
-      expect(nobody).toEqual(wrong);
+      const nobodyPoll = yield* h.record(
+        h.auth.emailRecoveryStatus(nobody.requestId, nobody.claimSecret),
+      );
+      expect(knownPoll.ops).toEqual(["email_link.read"]);
+      expect(nobodyPoll).toEqual(knownPoll);
     }).pipe(Effect.provide(h.layer));
   });
+});
 
-  it.live("a right code makes the same calls as a wrong one until the code is compared", () => {
+describe("POST /email-link/:requestId/confirm on a recovery request", () => {
+  it.live("a wrong secret makes the same calls whether or not the address has an account", () => {
     const h = harness();
     return Effect.gen(function* () {
-      yield* h.auth.registerProfile("seq-right@example.com", "seqright");
-      yield* h.auth.beginEmailRecovery("seq-right@example.com");
-      const code = yield* h.nthCode(0);
-      const right = yield* h.record(h.auth.completeEmailRecovery("seq-right@example.com", code));
-      expect(right.ops.slice(0, 2)).toEqual(COMPLETE_REFUSED.slice(0, 2));
+      yield* h.auth.registerProfile("seq-cf@example.com", "seqcf");
+      const known = yield* settle(h.auth.beginEmailRecovery("seq-cf@example.com", meta));
+      const nobody = yield* settle(h.auth.beginEmailRecovery("seq-cfnobody@example.com", meta));
+      const wrong = { linkSecret: "0".repeat(64), pairingPick: known.pairingCode };
+
+      const real = yield* h.record(h.auth.confirmEmailLink(known.requestId, wrong));
+      const none = yield* h.record(h.auth.confirmEmailLink(nobody.requestId, wrong));
+      // The guess on the request, and nothing on the account.
+      expect(real.ops).toEqual(["email_link.guess"]);
+      expect(none).toEqual(real);
     }).pipe(Effect.provide(h.layer));
   });
-
-  it.live(
-    "makes the same calls for a real account and for nobody while every store call fails",
-    () => {
-      const h = harness();
-      return Effect.gen(function* () {
-        yield* h.auth.registerProfile("seq-down@example.com", "seqdown");
-        yield* h.auth.beginEmailRecovery("seq-down@example.com");
-        yield* h.nthCode(0);
-        h.fake.failWhen(() => true);
-
-        const real = yield* h.record(
-          h.auth.completeEmailRecovery("seq-down@example.com", "000000"),
-        );
-        const nobody = yield* h.record(
-          h.auth.completeEmailRecovery("seq-gone@example.com", "000000"),
-        );
-
-        expect(real.ops.length).toBeGreaterThan(0);
-        expect(nobody).toEqual(real);
-      }).pipe(Effect.provide(h.layer));
-    },
-  );
 });
 
 describe("POST /login/recovery/totp/complete", () => {

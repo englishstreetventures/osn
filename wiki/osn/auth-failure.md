@@ -32,7 +32,7 @@ Primary login is **passkey-only**. OTP and magic link are step-up / verification
 |---|---|
 | Register | `POST /register/{begin,complete}` → mandatory `POST /passkey/register/{begin,complete}` |
 | Login (passkey) | `POST /login/passkey/{begin,complete}` (identifier-bound or discoverable) |
-| Login (recovery) | `POST /login/recovery/complete` (a recovery code); `POST /login/recovery/email/{begin,complete}` and `POST /login/recovery/totp/complete`, which mint a restricted session whose one permitted action is enrolling a passkey |
+| Login (recovery) | `POST /login/recovery/complete` (a recovery code); `POST /login/recovery/email/begin`, `…/:requestId/{status,resend}` (an emailed link, confirmed through `POST /email-link/:requestId/confirm`) and `POST /login/recovery/totp/complete`, which mint a restricted session whose one permitted action is enrolling a passkey |
 | Refresh | `POST /token` (HttpOnly cookie only — body fallback removed) |
 | Step-up | `POST /step-up/{passkey,otp}/{begin,complete}`, `POST /step-up/totp/complete` |
 | Authenticator app | `POST /totp/enroll/{begin,complete}`, `DELETE /totp`, `GET /totp/status` |
@@ -71,6 +71,14 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 | `400 invalid_request` for valid-looking code | Code already consumed, or wrong identifier | Codes are single-use. Check `recovery_codes.used_at`. The failure surface is uniform by design |
 | `429` after a few attempts | 5/hour/IP cap (recoveryComplete) | Wait the window or unblock at the proxy |
 | Login succeeds but other devices stay signed in | Expected | Recovery login revokes all sessions in the same transaction (`security_invalidation{trigger=recovery_code_consume}`) — only the new session survives |
+
+### Email recovery
+
+| Symptom | Likely cause | Action |
+|---|---|---|
+| "Check your email", and no recovery link arrives | The address has no account (begin answers every address alike); the send failed; or a limit held the link back: 3 links a day for the account from this client address, 3 Resends a day for the account, 20 links a day for the account in all (`osn.auth.email_link.sends{flow="recovery", result="capped"}`), or the account's email recovery is locked (five wrong numbers in 15 minutes, `osn.auth.recovery.lockout{result="locked"}`) | Check the address is the one on the account. For a send failure, as for sign-up below. A cap or the lockout passes with its window; the recovery code and the authenticator app are the other ways in |
+| The link's page says "This link no longer works" after a number was typed | A wrong number (it ends the request), the request expired (10 minutes), or the account's email recovery is locked | Ask for a new link from the tab that began, and type the number that tab shows |
+| The link was confirmed but the tab that began never moves on | The tab was closed (its wait goes with its `sessionStorage`), the account's email changed since the link was sent, or the account was recovered in the last 72 hours (the cooldown answers the poll `expired`) | Reload the same tab to resume; otherwise begin again. See [[account-recovery-factors]] §D for the cooldown |
 
 ## 3. Registration
 

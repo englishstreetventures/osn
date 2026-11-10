@@ -27,7 +27,10 @@ export class SecurityEventsError extends OsnApiError {
 }
 
 /** Keep in sync with SecurityEventKind in @shared/observability/metrics. */
-export type SecurityEventKind = "recovery_code_generate" | "recovery_code_consume";
+export type SecurityEventKind =
+  | "recovery_code_generate"
+  | "recovery_code_consume"
+  | "recovery_link_declined";
 
 export interface SecurityEventSummary {
   id: string;

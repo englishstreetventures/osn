@@ -12,6 +12,7 @@ import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settledHandle } from "../helpers/background";
 import { createTestLayer } from "../helpers/db";
+import { beginRecoveryThroughRoutes, recoveryStatusThroughRoutes } from "../helpers/recovery-link";
 // Route factory wrapped to trust XFF + default a loopback IP under
 // `app.handle(...)`. See `../helpers/routes` for the rationale.
 import {
@@ -539,6 +540,54 @@ describe("auth routes", () => {
       expect(confirmed.status).toBe(200);
       expect(confirmed.headers.getSetCookie()).toEqual([]);
       expect(await confirmed.json()).toEqual({ status: "confirmed" });
+    });
+
+    it("/login/recovery/email/complete returns 404 — no emailed code exchanges for a session", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/login/recovery/email/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: "anyone@example.com", code: "000000" }),
+        }),
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("a recovery link's confirm mints no session; its claim yields only the restricted session", async () => {
+      // An emailed recovery link verifies the mailbox and signs no one in: the
+      // device that opens it gets nothing, and the tab that began gets a
+      // session whose audience every ordinary verifier refuses.
+      const capture = buildEmailCapture(layer);
+      const linkApp = createAuthRoutes(config, capture.layer);
+      const auth = createAuthService(config);
+      await Effect.runPromise(
+        auth
+          .registerProfile("link-recover@example.com", "linkrecover")
+          .pipe(Effect.provide(capture.layer)),
+      );
+      const { body: begun } = await beginRecoveryThroughRoutes(linkApp, "link-recover@example.com");
+      const link = latestLinkTo(capture.recorded(), "link-recover@example.com")!;
+
+      const confirmed = await confirmThroughRoutes(
+        linkApp,
+        link.requestId,
+        link.linkSecret,
+        begun.pairingCode,
+      );
+      expect(confirmed.headers.getSetCookie()).toEqual([]);
+      expect(await confirmed.json()).toEqual({ status: "confirmed" });
+
+      const claimed = await recoveryStatusThroughRoutes(
+        linkApp,
+        begun.requestId,
+        begun.claimSecret,
+      );
+      expect(claimed.status).toBe(201);
+      const body = (await claimed.json()) as { session: { access_token: string } };
+      const aud = JSON.parse(
+        Buffer.from(body.session.access_token.split(".")[1]!, "base64url").toString(),
+      ) as { aud: string };
+      expect(aud.aud).toBe("osn-recovery");
     });
   });
 

@@ -23,17 +23,21 @@ const FAILED_HEADING = "We couldn't open this link just now";
  * app shell, no `AuthProvider` — with the product's name above the card, so a
  * person who arrived from their mail knows which site this is.
  *
- * `index.tsx` has already taken the link's secret off the address bar. This
- * page reads the candidates with it, then hands `ConfirmLinkPage` the list,
- * in the ascending order osn-api sends, and the confirm call. The confirm step requires the number shown on the
- * waiting screen, so the person picks it here, or says they did not ask. A
+ * `index.tsx` has already taken the link's secret off the address bar. The
+ * confirm step requires the number shown on the waiting screen. For sign-up
+ * this page reads the candidates with the secret and hands `ConfirmLinkPage`
+ * the list, in the ascending order osn-api sends, and the confirm call; the
+ * person picks the number among them. A
  * read that finds the request already confirmed, or refuses it, opens the
- * page on that answer instead, with nothing to pick. So does a link whose id
- * names no flow: every dead link is `ConfirmLinkPage`'s expired card.
+ * page on that answer instead, with nothing to pick. For recovery there is no
+ * list: the person types the number (`typeNumber`), and the confirm call's
+ * answer is the page's only read. Either way they may say they did not ask.
+ * A link whose id names no flow, or that has no secret, opens on
+ * `ConfirmLinkPage`'s expired card: every dead link is that card.
  *
- * Confirming never signs this browser in: the tab that began the sign-up holds
- * the claim secret and finishes there, on this device or another. So the page
- * offers no Continue; it sends the person back to where they began.
+ * Confirming never signs this browser in: the tab that began holds the claim
+ * secret and finishes there, on this device or another. So the page offers no
+ * Continue; it sends the person back to where they began.
  *
  * Every card on the route is `@shared/ui`'s `Card`: `ConfirmLinkPage`'s, and
  * the page's own card for a read that failed, whose line is the copy map's
@@ -45,11 +49,13 @@ export function VerifyEmailLinkPage() {
   const params = useParams<{ requestId: string }>();
   const requestId = () => params.requestId ?? "";
   const purpose = () => emailLinkPurpose(requestId());
+  // Where the number is typed, there is nothing to read before the confirm.
+  const typed = () => purpose() === "recovery";
 
   // One read, after the page mounts; never a confirm. A link with no secret
   // (opened again after a reload, or cut short) is a dead link here.
   const [read, { refetch }] = createResource(
-    () => (purpose() ? requestId() : null),
+    () => (purpose() && !typed() ? requestId() : null),
     async (id) => {
       const secret = emailLinkSecret(id);
       if (!secret) return { status: "expired" as const };
@@ -100,6 +106,12 @@ export function VerifyEmailLinkPage() {
       <Switch>
         <Match when={!purpose()}>
           <ConfirmLinkPage purpose="sign-up" initialOutcome="expired" onConfirm={confirm} />
+        </Match>
+        <Match when={typed() && !emailLinkSecret(requestId())}>
+          <ConfirmLinkPage purpose="recovery" initialOutcome="expired" onConfirm={confirm} />
+        </Match>
+        <Match when={typed()}>
+          <ConfirmLinkPage purpose="recovery" typeNumber onConfirm={confirm} />
         </Match>
         <Match when={read.error}>
           <Card padding="lg" class="flex flex-col gap-6">

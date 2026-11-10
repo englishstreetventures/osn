@@ -145,11 +145,18 @@ describe("createRecoveryClient", () => {
   });
 
   describe("emailRecoveryBegin", () => {
-    it("POSTs the identifier and resolves on the uniform 202", async () => {
-      const { calls } = stubFetch(() => jsonResponse({ status: "accepted" }, { status: 202 }));
-      await expect(
-        client.emailRecoveryBegin({ identifier: "alice@example.com" }),
-      ).resolves.toBeUndefined();
+    const begun = {
+      requestId: "recovery_0123456789ab",
+      claimSecret: "c".repeat(64),
+      pairingCode: "42",
+      expiresAt: 1_800_000_000,
+    };
+
+    it("POSTs the identifier and resolves with the request on the uniform 202", async () => {
+      const { calls } = stubFetch(() => jsonResponse(begun, { status: 202 }));
+      await expect(client.emailRecoveryBegin({ identifier: "alice@example.com" })).resolves.toEqual(
+        begun,
+      );
 
       expect(calls[0]!.url).toBe("https://osn.example.com/login/recovery/email/begin");
       expect(calls[0]!.init?.method).toBe("POST");
@@ -164,22 +171,10 @@ describe("createRecoveryClient", () => {
       });
     });
 
-    it("forwards a Turnstile token when the surface renders a widget", async () => {
-      const { calls } = stubFetch(() => jsonResponse({ status: "accepted" }, { status: 202 }));
-      await client.emailRecoveryBegin({
-        identifier: "alice@example.com",
-        turnstileToken: "tok",
-      });
-      expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({
-        identifier: "alice@example.com",
-        turnstileToken: "tok",
-      });
-    });
-
     it("throws RecoveryError on non-2xx", async () => {
       // 202 is the only success. A 400 is a refusal the server owes a reason
       // for — a handle where an address was required, a failed bot check — and
-      // must not be swallowed as "accepted".
+      // must not be swallowed as a request.
       stubFetch(() => jsonResponse({ error: "turnstile_failed" }, { status: 400 }));
       await expect(
         client.emailRecoveryBegin({ identifier: "alice@example.com" }),
@@ -196,12 +191,62 @@ describe("createRecoveryClient", () => {
     });
   });
 
-  /**
-   * The two completers share `completeFactorLogin`, so every case is asserted
-   * on both. A divergence means one of them has stopped going through it — and
-   * the shared helper is where `credentials: "include"` and the
-   * session-and-profile guard live.
-   */
+  describe("emailRecoveryStatus", () => {
+    const input = { requestId: "recovery_0123456789ab", claimSecret: "c".repeat(64) };
+
+    it("ends the wait only on a refusal, never on a transient", async () => {
+      for (const status of [400, 404, 422]) {
+        stubFetch(() => jsonResponse({ error: "invalid_request" }, { status }));
+        // oxlint-disable-next-line no-await-in-loop -- one status after the other
+        await expect(client.emailRecoveryStatus(input)).resolves.toEqual({ status: "expired" });
+      }
+      stubFetch(() => jsonResponse({ status: "expired" }));
+      await expect(client.emailRecoveryStatus(input)).resolves.toEqual({ status: "expired" });
+      for (const status of [429, 500, 503]) {
+        stubFetch(() => jsonResponse({ error: "x" }, { status }));
+        // oxlint-disable-next-line no-await-in-loop -- one status after the other
+        await expect(client.emailRecoveryStatus(input)).rejects.toBeInstanceOf(RecoveryError);
+      }
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.reject(new TypeError("network"))),
+      );
+      await expect(client.emailRecoveryStatus(input)).rejects.toThrow("network");
+    });
+
+    it("passes the number through, and parses the restricted session with its cookie", async () => {
+      stubFetch(() => jsonResponse({ status: "pending", pairingCode: "42" }));
+      await expect(client.emailRecoveryStatus(input)).resolves.toEqual({
+        status: "pending",
+        pairingCode: "42",
+      });
+
+      const { calls } = stubFetch(() =>
+        jsonResponse(
+          { status: "complete", session: sampleSessionPayload, profile: sampleProfile },
+          { status: 201 },
+        ),
+      );
+      const done = (await client.emailRecoveryStatus(input)) as {
+        status: string;
+        profile: unknown;
+        session: { accessToken: string };
+      };
+      expect(done.status).toBe("complete");
+      expect(done.profile).toEqual(sampleProfile);
+      expect(done.session.accessToken).toBe("acc_abc");
+      expect(calls[0]!.url).toBe(
+        "https://osn.example.com/login/recovery/email/recovery_0123456789ab/status",
+      );
+      // The completing answer sets the refresh cookie.
+      expect(calls[0]!.init?.credentials).toBe("include");
+      expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({
+        claimSecret: input.claimSecret,
+      });
+    });
+  });
+
+  /** The authenticator-code completer: a restricted session, or a refusal. */
   function completerCases(
     path: string,
     call: (input: { identifier: string; code: string }) => Promise<unknown>,
@@ -221,7 +266,7 @@ describe("createRecoveryClient", () => {
 
       expect(calls[0]!.url).toBe(`https://osn.example.com${path}`);
       expect(calls[0]!.init?.method).toBe("POST");
-      // These two routes set the refresh cookie. See the note in
+      // This route sets the refresh cookie. See the note in
       // `emailRecoveryBegin` above.
       expect(calls[0]!.init?.credentials).toBe("include");
       expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({
@@ -251,12 +296,6 @@ describe("createRecoveryClient", () => {
       ).rejects.toBeInstanceOf(RecoveryError);
     });
   }
-
-  describe("emailRecoveryComplete", () => {
-    completerCases("/login/recovery/email/complete", (input) =>
-      client.emailRecoveryComplete(input),
-    );
-  });
 
   describe("totpRecoveryComplete", () => {
     completerCases("/login/recovery/totp/complete", (input) => client.totpRecoveryComplete(input));

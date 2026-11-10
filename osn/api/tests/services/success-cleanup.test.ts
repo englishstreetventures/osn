@@ -23,9 +23,8 @@ import { latestLinkTo } from "../helpers/registration";
  * lockout counter — runs in the background, registered with the request's
  * `waitUntil`, so the caller never waits a round trip for it. Each case holds
  * that one call until the answer is in, which an awaited cleanup would never
- * reach, then lets it go and checks it landed. A recovery code or an emailed
- * recovery code whose counter read 0 on the way in has nothing to clear, so it
- * makes no call at all. A TOTP check counts its own attempt before it compares
+ * reach, then lets it go and checks it landed. A recovery code whose counter
+ * read 0 on the way in has nothing to clear, so it makes no call at all. A TOTP check counts its own attempt before it compares
  * the code, so a right code always clears the count.
  *
  * The later cases hold one call — a cleanup, a claim, a capped guess's delete
@@ -110,14 +109,6 @@ function harness(
     }
     throw new Error("no code mailed");
   };
-  /** The newest six-digit code, once a send has landed: some sends run after the answer. */
-  const mailedCode = Effect.gen(function* () {
-    for (let i = 0; i < 200; i++) {
-      if (email.recorded().some((sent) => /code is: \d{6}/.test(sent.text))) return code();
-      yield* Effect.sleep("5 millis");
-    }
-    throw new Error("no code mailed");
-  });
   /** Waits until `op`, or one of several, has reached the store since call `from`. */
   const landed = (op: string | readonly string[], from = 0) =>
     Effect.gen(function* () {
@@ -150,7 +141,6 @@ function harness(
     ops,
     code,
     recorded,
-    mailedCode,
     landed,
     holdingAtLeast,
     settledWithout,
@@ -268,19 +258,6 @@ describe("a lockout with no failures on record", () => {
       expect(yield* h.settledWithout("recovery_lockout.remove", from)).toBe(true);
     }).pipe(Effect.provide(h.layer));
   });
-
-  it.live("emailed recovery code sign-in makes no reset call", () => {
-    const h = harness();
-    return Effect.gen(function* () {
-      yield* h.auth.registerProfile("clean-er0@example.com", "cleaner0");
-      yield* h.auth.beginEmailRecovery("clean-er0@example.com");
-      const code = yield* h.mailedCode;
-      const from = h.ops().length;
-      yield* h.auth.completeEmailRecovery("clean-er0@example.com", code);
-      expect(h.ops(from)).toContain("recovery_otp_lockout.count");
-      expect(yield* h.settledWithout("recovery_otp_lockout.remove", from)).toBe(true);
-    }).pipe(Effect.provide(h.layer));
-  });
 });
 
 /**
@@ -378,35 +355,6 @@ describe("a cleanup leaves what another request wrote", () => {
       ).toEqual({ status: "open", failures: 1 });
     }).pipe(Effect.provide(h.layer));
   });
-
-  it.live(
-    "emailed recovery code: a wrong code counted while the reset is in flight keeps its failure",
-    () => {
-      const h = harness(
-        (store, op) =>
-          (store === "pending_recovery_otp" || store === "recovery_otp_lockout") && op === "remove",
-      );
-      return Effect.gen(function* () {
-        const profile = yield* h.auth.registerProfile("keep-er@example.com", "keeper");
-        yield* h.auth.beginEmailRecovery("keep-er@example.com");
-        const code = yield* h.mailedCode;
-        yield* Effect.flip(h.auth.completeEmailRecovery("keep-er@example.com", wrongFor(code)));
-
-        // The right code's claim and reset are both held; a wrong code guesses
-        // against the still-live entry and counts its failure on the account.
-        const right = yield* Effect.forkChild(
-          h.auth.completeEmailRecovery("keep-er@example.com", code),
-        );
-        yield* h.holdingAtLeast(2);
-        yield* Effect.flip(h.auth.completeEmailRecovery("keep-er@example.com", wrongFor(code)));
-        h.release();
-        yield* Fiber.join(right);
-        expect(
-          yield* Effect.promise(() => h.bundle.recoveryOtpLockoutStore.status(profile.accountId)),
-        ).toEqual({ status: "open", failures: 1 });
-      }).pipe(Effect.provide(h.layer));
-    },
-  );
 });
 
 /** The tag of the error `result` failed with, or `"ok"`. */
@@ -526,28 +474,6 @@ describe("a claim or a capped guess's delete takes only the entry the guess read
         null,
       );
       expect(done.enrolled).toBe(true);
-    }).pipe(Effect.provide(h.layer));
-  });
-
-  it.live("emailed recovery code: a begin while the right code's claim is in flight", () => {
-    // No failure is on record, so the right code makes no reset: the one held
-    // call is its claim.
-    const h = harness((store, op) => store === "pending_recovery_otp" && op === "remove");
-    return Effect.gen(function* () {
-      yield* h.auth.registerProfile("claim-er@example.com", "claimer");
-      yield* settle(h.auth.beginEmailRecovery("claim-er@example.com"));
-      const old = yield* Effect.forkChild(
-        Effect.result(h.auth.completeEmailRecovery("claim-er@example.com", h.code())),
-      );
-      yield* h.holdingAtLeast(1);
-
-      yield* settle(h.auth.beginEmailRecovery("claim-er@example.com"));
-      const code = h.code();
-      h.release();
-      expect(outcome(yield* Fiber.join(old))).toBe("AuthError");
-
-      const done = yield* h.auth.completeEmailRecovery("claim-er@example.com", code);
-      expect(done.session.accessToken).toMatch(/^eyJ/);
     }).pipe(Effect.provide(h.layer));
   });
 

@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 # Recovery Codes
 
@@ -28,7 +28,7 @@ credential itself is [[totp]].
 | Path | Endpoint | Ends in |
 |---|---|---|
 | Recovery code | `POST /login/recovery/complete` | an **ordinary** session |
-| Emailed code | `POST /login/recovery/email/{begin,complete}` | a **restricted** recovery session |
+| Emailed link | `POST /login/recovery/email/begin`, then the tab's poll `…/:requestId/status` once the link is confirmed ([[email-links]]) | a **restricted** recovery session |
 | Authenticator app | `POST /login/recovery/totp/complete` | a **restricted** recovery session |
 
 The split matters. A recovery code is a 64-bit secret the user was handed once
@@ -312,7 +312,7 @@ Redaction deny-list adds `recoveryCode`, `recovery_code`, `recoveryCodes`, `reco
 
 - **Threshold / window:** 5 failed attempts → 15-minute lockout (`RECOVERY_LOCKOUT_THRESHOLD` / `RECOVERY_LOCKOUT_MS` in `osn/api/src/lib/recovery-lockout-store.ts`).
 - **Both "wrong code" and "already-used code" count** as failures.
-- **Every refusal costs the same.** An identifier that names nobody, a locked account, a counter that cannot be read, and a wrong code all make the lockout lookup, the conditional consume (`UPDATE … RETURNING`), the classification `SELECT` and the failure record: two coordination-store calls and two `recovery_codes` statements of the same shape. The branches that must not touch the account's codes or counter run the statements against a fresh sentinel account id that matches no row, and the store calls at the caller's probe key ([[account-recovery-factors]] §"The oracle moves to `complete`"). All answer the **same generic `Invalid request`**, so a locked account is indistinguishable from a wrong code or from no account.
+- **Every refusal costs the same.** An identifier that names nobody, a locked account, a counter that cannot be read, and a wrong code all make the lockout lookup, the conditional consume (`UPDATE … RETURNING`), the classification `SELECT` and the failure record: two coordination-store calls and two `recovery_codes` statements of the same shape. The branches that must not touch the account's codes or counter run the statements against a fresh sentinel account id that matches no row, and the store calls at the caller's probe key ([[account-recovery-factors]] §"Every branch costs the same"). All answer the **same generic `Invalid request`**, so a locked account is indistinguishable from a wrong code or from no account.
 - **Audit + reset:** crossing the threshold writes a `recovery_code_lockout` security-event row (surfaced in the in-app banner) after the refusal has answered, so the answer does not wait on an insert only a real account makes, and emits `osn.auth.recovery.lockout{result}`. A successful consume takes back the failures the lookup on the way in counted, after it answers, when there are any (`result="reset"`); with none counted there is nothing to clear and no call. A failure recorded after that lookup, before or after the answer, stands and expires with its window.
 - **Store:** a `RecoveryLockoutStore` (`osn/api/src/lib/recovery-lockout-store.ts`) — in memory on the Bun dev server; on a deployed Worker a counter on the coordination store (`recovery_lockout`), one object per account, each failure one atomic `increment` in a 15-minute window ([[coordination-store]]). **Fails closed**: a counter that cannot be read or written answers `"unknown"`, and the consume refuses with the same generic `Invalid request` without touching the code and writes no security event; a failed count records `osn.auth.recovery.lockout{result="unavailable"}`.
 

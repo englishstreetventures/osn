@@ -105,9 +105,19 @@ function slots(bundle: CoordinationStores): Slot[] {
     OSN_RATE_LIMITS.emailChangeBeginCap,
   );
   add(
-    "recoveryEmailBeginCap",
-    (k) => bundle.recoveryEmailBeginCap.check(k),
-    OSN_RATE_LIMITS.recoveryEmailBeginCap,
+    "recoveryLinkAddressCap",
+    (k) => bundle.recoveryLinkAddressCap.check(k),
+    OSN_RATE_LIMITS.recoveryLinkAddressCap,
+  );
+  add(
+    "recoveryResendCap",
+    (k) => bundle.recoveryResendCap.check(k),
+    OSN_RATE_LIMITS.recoveryResendCap,
+  );
+  add(
+    "recoveryLinkCeiling",
+    (k) => bundle.recoveryLinkCeiling.check(k),
+    OSN_RATE_LIMITS.recoveryLinkCeiling,
   );
   add(
     "registrationSendCap",

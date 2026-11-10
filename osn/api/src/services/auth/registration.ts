@@ -381,7 +381,7 @@ export function createRegistrationModule(
         : { email: normalisedEmail, handle, displayName: displayName ?? null };
       // The request carries the sign-up too, so a begin that finds the
       // address held can park it on a Resend once the address is free.
-      const opened = yield* links.open("registration", key, ttlMs, signUp);
+      const opened = yield* links.open("registration", key, ttlMs, { signUp });
       const parked: PendingRegistration = {
         ...signUp,
         requestId: opened.requestId,

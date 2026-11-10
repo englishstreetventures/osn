@@ -20,7 +20,7 @@ related:
 packages:
   - "@shared/coordination"
   - "@osn/api"
-last-reviewed: 2026-11-10
+last-reviewed: 2026-11-11
 ---
 # Coordination store
 
@@ -29,10 +29,10 @@ osn-api keeps its short-lived shared state in one Durable Object class,
 `COORDINATION`. Every isolate of the deployed Worker sees the same state:
 
 - the rate limiters no native binding carries: the hour-window auth limiters, the per-account export limiter, the per-IP deletion and restore limiters, and the per-account caps (on the Bun dev server, every limiter);
-- the ceremony entries: identified passkey challenges, pending registrations and their emailed-link requests ([[email-links]]), emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens. A tab waiting on a sign-up link polls its request at 2, 5, 9.5, 16.25 and 26.25 seconds, then every 10: about 62 polls over the link's ten minutes. Each poll is one Worker request and one store read, and the browser adds at most one CORS preflight per ten minutes (`maxAge: 600` in `osn/api/src/app.ts`). Each time the person comes back to the tab adds about four store calls;
+- the ceremony entries: identified passkey challenges, pending registrations and the emailed-link requests of sign-up and recovery ([[email-links]]), emailed step-up codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens. A tab waiting on a sign-up or recovery link polls its request at 2, 5, 9.5, 16.25 and 26.25 seconds, then every 10: about 62 polls over the link's ten minutes. Each poll is one Worker request and one store read, and the browser adds at most one CORS preflight per ten minutes (`maxAge: 600` in `osn/api/src/app.ts`). Each time the person comes back to the tab adds about four store calls;
 - each code ceremony's guess count, kept on its entry;
 - the step-up token ids already used, and the discoverable passkey challenges already used, by nonce;
-- the three per-account lockout counters (recovery code, emailed recovery code, TOTP), and the count of wrong picks on sign-up links per address ([[email-links]]);
+- the three per-account lockout counters (recovery code, emailed recovery link, TOTP), and the count of wrong picks on sign-up links per address ([[email-links]]);
 - the health probe's round trip.
 
 Three things are not in it. Sessions and the record of rotated-out session
@@ -117,10 +117,10 @@ await client.claim(jti, ttlMs); // calls the object named "step_up_jti:<jti>"
 
 osn-api's namespaces form a closed union, `CoordinationStoreName`, in
 [`osn/api/src/lib/coordination/names.ts`](../../osn/api/src/lib/coordination/names.ts):
-twelve ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
+eleven ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
 `step_up_challenge`, `step_up_otp`, `pending_email_change`, `cross_device`,
-`pending_totp_enroll`, `pending_recovery_otp`, `recovery_disown`,
-`oidc_authorize_request`, `email_link`); the four lockouts (`recovery_lockout`,
+`pending_totp_enroll`, `recovery_disown`, `oidc_authorize_request`,
+`email_link`); the four lockouts (`recovery_lockout`,
 `recovery_otp_lockout`, `totp_lockout`, `registration_link_lockout`); `step_up_jti`;
 `passkey_challenge_claim`; `health_probe`; and one per limiter, named in the budget table
 in `osn/api/src/routes/auth/limiters.ts` (`auth.<endpoint>` for the auth
@@ -159,7 +159,7 @@ Every consumer fails closed. The mapping lives in
 | Step-up token guard | `claim` | The token is refused as "could not be verified", and is not counted as a replay |
 | Discoverable passkey challenge claims | `claim` | The same 503 |
 | Lockouts, `status` / `recordFailure` | `count` / `increment` | Answers `"unknown"`. Every caller refuses with its generic error and writes no security event; a failure that could not be counted shows as `result="unavailable"` on the factor's lockout metric |
-| Lockouts, `reset` | `remove({ hits })`, taking back the failures the success read, so a failure recorded after that read stands: for a recovery code or an emailed code, only when the lookup on the way in counted a failure; for TOTP, on every success, since the attempt itself was counted. On the recovery-code and TOTP routes it runs after the answer. Should the window end between the read and the reset, up to that many of the next window's failures go instead | Swallowed; the counter expires with its window |
+| Lockouts, `reset` | `remove({ hits })`, taking back the failures the success read, so a failure recorded after that read stands: for a recovery code, only when the lookup on the way in counted a failure; for TOTP, on every success, since the attempt itself was counted. On the recovery-code and TOTP routes it runs after the answer. Should the window end between the read and the reset, up to that many of the next window's failures go instead | Swallowed; the counter expires with its window |
 | Health probe | `write`, `read`, `remove` | `GET /health/coordination` answers 503 |
 
 A ceremony value that does not parse as JSON reads as absent, which sends the
@@ -175,8 +175,8 @@ mints is a wrong token, answered with that route's uniform 202.
 ## Refusals cost the same, and single use is atomic
 
 - **Guesses are counted atomically.** Every code-checking ceremony — step-up
-  OTP, the emailed recovery code, TOTP enrolment, email change — and an emailed
-  link's confirm ([[email-links]]) reads its entry and counts the guess on it in
+  OTP, TOTP enrolment, email change — and an emailed link's confirm, sign-up's
+  and recovery's ([[email-links]]), reads its entry and counts the guess on it in
   one `guess` before it compares the code or the link's secret, so guesses sent
   at once each take their own number and no guess can read the entry and count
   from a stale number. `begin`'s `write` starts the count at 0. A
@@ -203,8 +203,8 @@ mints is a wrong token, answered with that route's uniform 202.
 - **Refusal paths make the same store calls whatever the identifier.** The
   unauthenticated routes that take an identifier pad a branch that names no
   account with the same operations, on the same store, at the caller's probe
-  key: recovery by code, by emailed code and by TOTP
-  ([[account-recovery-factors]], "The oracle moves to `complete`";
+  key: recovery by code, by emailed link and by TOTP
+  ([[account-recovery-factors]], "Every branch costs the same";
   [[recovery-codes]]), passkey sign-in `begin` (one `write`) and registration
   `begin` (a `write` of the link request under a fresh request id, then one
   `swap` from nothing, which also keeps a pending sign-up from being replaced
@@ -317,7 +317,7 @@ dev sign-in stops until the reset. The ceilings and how to watch them are in
 |---|---|
 | `osn.coordination.store.operations{store, op, result}` | One count per call an object answers or fails, retries included. `store` is a `CoordinationStoreName`, `op` one of the nine calls, `result` `ok` or `error` |
 | `osn.auth.ceremony_store.operations{namespace, op, backend}` | One count per ceremony `set`, `get`, `delete` (a `consume` counts as one), `guess`, `take` or `swap`; `backend` is `memory` or `durable_object` |
-| `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable", scope}` | A refusal because the store could not update a lockout counter or, for the emailed recovery code, read one |
+| `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable", scope}` | A refusal because the store could not update a lockout counter or, for a recovery code or a recovery link's right number, read one |
 | Log `coordination store call failed` | One line per failed call, after any retry, with `store`, `op`, `durationMs`, `retried` and `kind` |
 
 No attribute or log field carries a key, an IP, an account id or a stored value.

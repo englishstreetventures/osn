@@ -469,7 +469,7 @@ describe("SignIn component", () => {
       // offers only the recovery code, because the other two mint a session
       // whose one permitted action is a ceremony this browser cannot run.
       await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
-      expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Email me a link/i })).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
       await waitFor(() => {
         expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();

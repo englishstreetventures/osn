@@ -52,7 +52,8 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 | Recovery code | Lost-device fallback (`POST /login/recovery/complete`) |
 | Step-up passkey ceremony | Sudo gate for sensitive endpoints — see [[step-up]] |
 | Step-up OTP (to verified email) | Step-up fallback factor — see [[step-up]] |
-| Emailed link (to the address being signed up) | Proves the address at sign-up; confirms it and signs nobody in — see [[email-links]] |
+| Emailed link (to the address being signed up, or on the account) | Proves the address at sign-up, and the mailbox in email recovery; confirms it and signs nobody in — the tab that began gets the result — see [[email-links]] |
+| Authenticator code (TOTP) | Step-up factor, and a recovery factor — see [[totp]] |
 
 ### Public route surface
 
@@ -60,10 +61,12 @@ Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OT
 |---|---|
 | `POST /register/begin` | Opens a sign-up and mails its link; answers the request id, claim secret and pairing number |
 | `POST /register/:requestId/{status,resend}` | The tab that began polls (the poll that finds the link confirmed makes the account and issues access + session cookie), or asks for another link |
-| `POST /email-link/:requestId/{candidates,confirm}` | The link's page: the numbers to pick from, then the confirm. Never a session |
+| `POST /email-link/:requestId/{candidates,confirm}` | The link's page: the numbers to pick from (sign-up), then the confirm with the number picked or typed. Never a session |
 | `POST /passkey/register/{begin,complete}` | Bind a passkey (mandatory at signup; step-up gated thereafter) |
 | `POST /login/passkey/{begin,complete}` | Identifier-bound or discoverable WebAuthn login |
 | `POST /login/recovery/complete` | Recovery-code login |
+| `POST /login/recovery/email/begin`, `…/:requestId/{status,resend}` | Email recovery: mails a link; the tab that began polls, and gets a restricted session (passkey enrolment only) once the link is confirmed — see [[account-recovery-factors]] |
+| `POST /login/recovery/totp/complete` | Authenticator recovery: a restricted session |
 | `POST /token` | Refresh-grant rotation (refresh token read **only** from HttpOnly cookie); an optional `profile_id` names the profile to mint for ([[identity-model#Session load on mount — durable refresh across reloads]]) |
 | `POST /logout` | Server-side session destruction |
 | `POST /step-up/{passkey,otp}/{begin,complete}` | Mint a single-use sudo token |

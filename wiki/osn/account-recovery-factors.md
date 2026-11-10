@@ -7,6 +7,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[identity-model]]"
+  - "[[email-links]]"
 last-reviewed: 2026-11-11
 ---
 
@@ -54,10 +55,13 @@ TOTP is not a login factor.
 
 `POST /login/recovery/email/begin` takes an **email identifier only** (not a
 handle — a handle is public and this endpoint sends mail) and always returns
-the same 202. Where it resolves, a code goes to the address on file.
+the same 202 shape: a request id, a claim secret and a pairing number. Where it
+resolves, a link goes to the address on file ([[email-links]]); whoever opens
+it types the number on the tab's screen, and that only confirms.
 
-`POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete`
-exchange the factor for a **restricted recovery session**.
+`POST /login/recovery/email/:requestId/status` — polled by the tab holding the
+claim secret — and `POST /login/recovery/totp/complete` exchange the factor for
+a **restricted recovery session**. The device that opened the link gets none.
 
 The restriction is a **distinct token audience**, not a flag:
 
@@ -98,7 +102,7 @@ The restriction is a **distinct token audience**, not a flag:
   `refreshHeldSession` — a `/token` grant returning a fresh token set without
   adopting it. Rotation cannot extend the deadline, so this renews the token and
   never the window. See [[passkey-primary]].
-- `/login/recovery/email/complete` sets the session cookie exactly as
+- The email status poll's completing answer sets the session cookie exactly as
   `/login/recovery/complete` does, or `completePasskeyRegistration`'s
   other-session sweep cannot resolve the caller and returns `session_stale`.
 - **The cookie is also a way out, and it is closed.** Setting that cookie is
@@ -121,8 +125,8 @@ The restriction is a **distinct token audience**, not a flag:
 **The enrolment gate.** `beginPasskeyRegistration` refuses without a
 `passkey_register` step-up whenever the account has ≥1 passkey — which is the
 *common* recovery case, since losing a phone does not delete its passkey row.
-A recovery-audience token therefore **bypasses that step-up**: the email OTP or
-TOTP code that minted the session already was a ceremony, at an AMR strength
+A recovery-audience token therefore **bypasses that step-up**: the emailed link
+or TOTP code that minted the session already was a ceremony, at an AMR strength
 `passkeyRegisterAllowedAmr` accepts. The alternative — letting a
 restricted session mint step-up tokens — would let it reach
 `/recovery/generate`, `DELETE /account`, `GET /account/export` and
@@ -137,7 +141,9 @@ alone: no route can mint a session whose factor the gate would have refused, an
 operator narrowing the allow-list withdraws the bypass from sessions already
 issued, and a restricted row with no recorded factor admits nothing. Whichever
 route ends a recovery therefore has to name the factor it verified — that
-argument is how the endpoints in §B connect to this gate.
+argument is how the endpoints in §B connect to this gate. The emailed link
+names `otp`: a one-time secret sent to the mailbox, the factor class the
+emailed code was.
 
 ### C. Recovery is loud — most of which already exists
 
@@ -370,9 +376,9 @@ reclaims it — its own loan is a candidate where an earlier recovery's is not.
 | `@shared/crypto` | New `totp.ts` on its **own subpath export** (`./totp`, like `./timing-safe`) so it does not drag `@osn/db` in through the barrel. Base32 gen/encode/decode, RFC 6238 over WebCrypto HMAC-SHA1, ±1 step drift, constant-time compare. No new npm dependency, so no 3-day soak. |
 | `@osn/db` | `totpCredentials` (`secretCiphertext`, `iv`, `keyVersion`, `confirmedAt`, `lastUsedAt`). `sessions.restrictedUntil`. `passkeys.enrolledViaRecoveryAt`. `accounts.lastRecoveredAt`. Migrations number sequentially from `0007_`. |
 | `@osn/api` | TOTP service + step-up-gated routes; the `osn-recovery` audience and its rotation carry-forward; email + TOTP recovery routes; provenance cooldown; new limiters; new security-event kinds. |
-| `@shared/email` | `totp-enrolled`, `totp-disabled`, `otp-recovery`, `recovery-used`. |
-| `@osn/client` | `TotpClient`; `RecoveryClient.emailRecoveryBegin/Complete`, `totpRecoveryComplete`. Ships **with its API phase**, not in a trailing PR. |
-| `@osn/auth-ui` / `@musubi/social` | `<TotpView>` in Settings → Security; TOTP factor in `<StepUpDialog>`; "email me a code" on `<RecoveryLoginForm>`. |
+| `@shared/email` | `totp-enrolled`, `totp-disabled`, `link-recovery`, `recovery-used`. |
+| `@osn/client` | `TotpClient`; `RecoveryClient.emailRecoveryBegin/Status/Resend`, `totpRecoveryComplete`. Ships **with its API phase**, not in a trailing PR. |
+| `@osn/auth-ui` / `@musubi/social` | `<TotpView>` in Settings → Security; TOTP factor in `<StepUpDialog>`; "Email me a link" on `<RecoveryLoginForm>`, and the number typed on Musubi's `/verify` page. |
 
 ### TOTP secrets at rest
 
@@ -433,48 +439,46 @@ account's own address, so an unthrottled endpoint floods the victim's inbox.
 
 - Dispatch the send **detached with a timeout**, the pattern `notifyRecovery`
   already uses, so both branches return at probe cost.
-- Add a **per-resolved-account cap** (3 per 24 h) through the existing
-  `AccountCapLimiter` family, keyed on `accountId` — never on the submitted
-  identifier — and still answering 202 when exceeded. Per-IP limits alone are
-  defeated by a rotating fleet, which this issuer already sees.
+- Cap the links, keyed on the **resolved** account — never on the submitted
+  identifier — and still answer 202 when a cap holds a link back. None of the
+  caps lets a stranger who types the owner's address stop the owner's next
+  link, and together they bound what one mailbox is sent: 3 links a day per
+  account and client address, 3 Resends a day per account (a begin's first
+  link never counts), and 20 links a day per account in all. Per-IP limits
+  alone are defeated by a rotating fleet, which this issuer already sees.
+  [[email-links]] §Recovery has the table.
 - Extend the turnstile endpoint literal union and gate `begin`.
-- Complete side: 6-digit code, existing `MAX_OTP_ATTEMPTS` per entry, per-account
-  lockout reusing the `recovery-lockout-store.ts` shape.
+- Confirm side: the shared link challenge — `MAX_OTP_ATTEMPTS` wrong secrets
+  end a request; a wrong typed number ends it and counts on the per-account
+  lockout (`recovery-lockout-store.ts` shape, five in 15 minutes).
 
-#### The oracle moves to `complete` unless every branch costs the same
+#### Every branch costs the same
 
-Closing it at `begin` and leaving `complete` alone does not close it. `begin`
-answers 202 for an address that names nobody and *parks a code* for one that
-does, so the attack is two calls: `begin` for a candidate address, then
-`complete` with a wrong code, timed. Every store these routes touch is a
-Durable Object call in each tier but `local` ([[coordination-store]]), so the
-calls a branch makes are readable with a stopwatch — and left to cost what they
-happen to cost, `/login/recovery/email/complete` would have a branch table like
-this:
+A uniform body is not enough if the branches cost different amounts: every
+store these routes touch is a Durable Object call in each tier but `local`
+([[coordination-store]]), so the calls a branch makes are readable with a
+stopwatch. So each route makes the **same calls on every branch**, whether or
+not the identifier names an account, and a branch that would make fewer pads
+to the *costliest* real branch rather than the cheapest — padding down leaves
+the same difference upside down.
 
-| Branch | Store calls, unequalised |
-|---|---|
-| identifier resolves to nothing | 0 |
-| account locked out | 2 |
-| no code pending | 2 |
-| wrong code, live pending entry | 3 |
+- Email `begin` makes one database query and one store write (the request) on
+  every branch. The link's send, and every limit it reads, runs after the
+  answer, and only for an account.
+- The email status poll makes one store read. Resend makes the request's read
+  and write and one database query, by a key that names no account where the
+  address has none. A wrong link secret at the shared confirm makes one
+  `guess` on every request.
+- `/login/recovery/totp/complete` pays what `checkTotpCode` pays — the
+  configuration check, the attempt count and the `totp_credentials` query side
+  by side, then the dummy-key verification; the attempt is counted before the
+  code is compared ([[totp]]).
+- Recovery-code sign-in (`/login/recovery/complete`, [[recovery-codes]]) makes
+  the lockout lookup and the failure record, and the same two
+  `recovery_codes` statements, on every refusal.
 
-Three calls means a real unlocked account; none means no such account. So each
-route makes the **same store calls on every refusal**, padded to the
-*costliest* real branch rather than the cheapest — padding down is the same
-oracle upside down. `begin` makes two on all three branches: the cap check and
-the entry write, which starts the code's guess count. `/login/recovery/email/complete`
-makes three on every refusal, in two hops: the lockout lookup and the guess
-(the entry read and its count, one `guess` call) side by side, then the
-failure record. `/login/recovery/totp/complete` pays what `checkTotpCode`
-pays — the configuration check, the attempt count and the `totp_credentials`
-query side by side, then the dummy-key verification; the attempt is counted
-before the code is compared ([[totp]]).
-Recovery-code sign-in (`/login/recovery/complete`, [[recovery-codes]]) does the
-same: every refusal makes the lockout lookup and the failure record, and the
-same two `recovery_codes` statements. On both code routes the audit row a
-threshold-crossing failure writes is written after the answer, so no refusal
-waits on an insert only a real account can make.
+An audit row only a real account can cause — a lockout crossing, a declined
+recovery link — is written after the answer, so no answer waits on it.
 
 Two rules the padding follows:
 
@@ -507,8 +511,9 @@ Wall-clock assertions would be flaky in CI and would pin nothing against an
 in-memory store, so the guard is a **call-sequence** test: a recording namespace
 logs each call as `<store>.<op>` with the name of the object it reached, and
 every refusal must make the same calls, in the same order, on objects whose
-names have the same length. See `osn/api/tests/services/recovery-op-sequence.test.ts`
-and `osn/api/tests/routes/recovery-email.test.ts`.
+names have the same length. See `osn/api/tests/services/recovery-op-sequence.test.ts`,
+`osn/api/tests/routes/recovery-totp.test.ts` and
+`osn/api/tests/routes/recovery-link.test.ts`.
 
 ## Sequencing — six issues, strictly in order
 

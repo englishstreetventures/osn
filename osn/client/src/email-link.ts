@@ -15,11 +15,12 @@ import { reach, responseError } from "./auth-fetch";
 import { safeJson } from "./response-body";
 
 /** The flows whose links this client confirms, as the confirm page names them. */
-export type EmailLinkPurpose = "sign-up";
+export type EmailLinkPurpose = "sign-up" | "recovery";
 
 /** Request-id prefixes, one per flow, as osn-api mints them. */
 const PURPOSE_BY_PREFIX = {
   signup: "sign-up",
+  recovery: "recovery",
 } as const satisfies Record<string, EmailLinkPurpose>;
 
 type LinkPrefix = keyof typeof PURPOSE_BY_PREFIX;

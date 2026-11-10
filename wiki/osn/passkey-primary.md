@@ -76,7 +76,7 @@ UI surface (`@osn/auth-ui`):
   false, shows a "passkey or security key required" screen that still lets
   the user enter a recovery code.
 - `<RecoveryLoginForm>` — the factor chooser behind that link: a recovery code,
-  an emailed code, or an authenticator code. Only the first mints an ordinary
+  an emailed link, or an authenticator code. Only the first mints an ordinary
   session; see [[#What the recovery screen does with a restricted session]].
 - `<Register>` — WebAuthn-gated. The flow stops at the start if the
   environment lacks WebAuthn support, and completion stays blocked until
@@ -259,8 +259,10 @@ the recovery would technically hold an account backed by recovery codes
 alone. Because `deletePasskey` refuses
 to leave 0 passkeys, that state is unreachable in normal operation.
 
-`POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete`
-mint a **restricted** recovery session instead.
+The email recovery status poll (`POST /login/recovery/email/:requestId/status`,
+by the tab holding the claim secret, once the emailed link is confirmed) and
+`POST /login/recovery/totp/complete` mint a **restricted** recovery session
+instead.
 See [[recovery-codes#The three ways back in]] and [[account-recovery-factors]] §B.
 
 All three stamp `accounts.last_recovered_at`, which opens a 72-hour window in
@@ -329,10 +331,12 @@ paths behave differently in four ways, each forced by the restriction:
 > token arrives with less than the refresh lead on it, the screen stops
 > granting and waits it out — the timed-out screen and the row's death coincide.
 
-> [!important] An emailed code that yields a session is not the OTP login this page removed
+> [!important] An emailed link that leads to a session is not the OTP login this page removed
 > The resemblance is real and worth stating plainly, because "we deleted OTP
-> login" and "we added an emailed six-digit code that signs you in" sound like a
-> contradiction. What separates them is not the ceremony but what it buys.
+> login" and "we added an emailed link that gets you back in" sound like a
+> contradiction. What separates them is not the ceremony but what it buys. The
+> link only verifies the mailbox — the device that opens it gets nothing — and
+> the session it leads to goes to the tab that began, and is restricted.
 >
 > OTP **primary login** minted an `osn-access` session: every route in osn-api
 > and every downstream service that verifies over JWKS. Its removal is why the
@@ -345,7 +349,7 @@ paths behave differently in four ways, each forced by the restriction:
 > passkey and nothing else, and enrolling one is what lifts the restriction.
 >
 > So the sign-in path's phishing resistance is unchanged: there is still no
-> ceremony that turns an emailed code into an ordinary session. The bounded
+> ceremony that turns an emailed link or code into an ordinary session. The bounded
 > union `AuthMethod` in `@shared/observability` is pinned by a test that exists
 > to keep it that way, and the pin now carries this argument rather than a bare
 > list of members.

@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // this file tests the wrapper's open/close logic, not the forms themselves.
 // The Register stand-in exposes a button that fires `onSuccess`, which is how
 // the real component signals "account created and passkey enrolled".
+const pendingRecovery = vi.hoisted(() => ({ value: false }));
+
 vi.mock("@osn/auth-ui/SignIn", () => ({
+  hasPendingRecovery: () => pendingRecovery.value,
   SignIn: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="signin">
       <span data-testid="signin-product-name">{props.productName}</span>
@@ -95,6 +98,7 @@ function renderDialogs(
 afterEach(() => {
   cleanup();
   pendingSignUp.value = false;
+  pendingRecovery.value = false;
 });
 
 describe("<AuthDialogs /> — close-on-session invariant", () => {
