@@ -19,6 +19,9 @@ import "../../src/App.css";
  * `test-support/` does not resolve in the browser project.
  */
 
+// The passkey's name; one case sets it to the longest name the field takes.
+const fixture = vi.hoisted(() => ({ label: "Work laptop" }));
+
 vi.mock("@osn/auth-ui/ProfileOnboarding", () => ({ ProfileOnboarding: () => null }));
 vi.mock("../../src/lib/authClients", () => ({
   registrationClient: { checkHandle: () => Promise.resolve({ available: true }) },
@@ -28,7 +31,7 @@ vi.mock("../../src/lib/authClients", () => ({
         passkeys: [
           {
             id: "pk_aaaaaaaaaaaa",
-            label: "Work laptop",
+            label: fixture.label,
             aaguid: null,
             transports: null,
             backupEligible: false,
@@ -120,6 +123,7 @@ beforeAll(async () => {
 afterEach(() => {
   cleanup();
   document.documentElement.classList.remove("dark");
+  fixture.label = "Work laptop";
 });
 
 /**
@@ -157,5 +161,33 @@ describe("the step-up's code row in Settings → Security", () => {
     // The dialog's 16px each side, inside the card's column.
     expect(row.getBoundingClientRect().width).toBeCloseTo(contentWidth(settingsCard(row)) - 32, 1);
     await page.screenshot({ path: `${SHOTS}/step-up-code-1440-${theme}.png` });
+  });
+});
+
+describe("a passkey row in Settings → Security", () => {
+  it("wraps a 64-character name and keeps Rename and Delete inside the card at 320px", async () => {
+    // The rename field's longest name, with no space to break at.
+    fixture.label = "x".repeat(64);
+    await page.viewport(320, 2400);
+    const history = createMemoryHistory();
+    history.set({ value: "/settings#security" });
+    render(() => (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mocked AuthContext
+      <AuthContext.Provider value={authValue() as any}>
+        <MemoryRouter history={history}>
+          <Route path="/settings" component={SettingsPage} />
+        </MemoryRouter>
+      </AuthContext.Provider>
+    ));
+    const rename = await waitFor(() => screen.getByRole("button", { name: "Rename" }));
+    const card = settingsCard(rename);
+    const inner =
+      card.getBoundingClientRect().right - parseFloat(getComputedStyle(card).paddingRight);
+    for (const name of ["Rename", "Delete"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(inner + 0.5);
+    }
+    expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+    await page.screenshot({ path: `${SHOTS}/passkey-long-name-320.png` });
   });
 });

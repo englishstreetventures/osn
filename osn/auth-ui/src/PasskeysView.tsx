@@ -247,12 +247,14 @@ export function PasskeysView(props: PasskeysViewProps) {
             <ul class="flex flex-col gap-2">
               <For each={rows()}>
                 {(p: PasskeySummary) => (
-                  <li class="flex items-center justify-between rounded-md border p-3">
-                    <div class="flex flex-col gap-0.5">
+                  <li class="flex items-center justify-between gap-3 rounded-md border p-3">
+                    {/* The text gives way, so a long name wraps and the row's
+                        actions stay inside the card on a phone. */}
+                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
                       <Show
                         when={editingId() === p.id}
                         fallback={
-                          <span class="font-medium">
+                          <span class="font-medium wrap-break-word">
                             {friendlyLabel(p)}
                             <Show when={p.backupEligible}>
                               <span class="text-muted-foreground ml-2 text-xs">(synced)</span>

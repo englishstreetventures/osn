@@ -167,9 +167,10 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
     }
   });
 
-  // Read `status.latest` rather than `status()` so the button label
-  // doesn't join the resource's Suspense boundary and blank the whole panel
-  // on every refetch.
+  // Read only once the first status read has landed: the button label checks
+  // `firstLoad()` first, and `requestGenerate` waits on `locked()`. From then
+  // on `status.latest` keeps the last count through a refetch, where
+  // `status()` would join the host's Suspense boundary and blank the panel.
   const hasCodes = () => {
     const s = status.latest;
     return s != null && s.total > 0;
