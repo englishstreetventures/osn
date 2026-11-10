@@ -51,6 +51,9 @@ export function ToastItem(props: { toast: ToastModel; class?: string }) {
       role={props.toast.tone === "error" ? "alert" : "status"}
       aria-live={props.toast.politeness ?? (props.toast.tone === "error" ? "assertive" : "polite")}
       data-tone={props.toast.tone}
+      // The id `toast()` returned, so the caller can find the toast it raised —
+      // to move focus to its action, say.
+      data-toast-id={props.toast.id}
       // Pause while the pointer is on it or focus is inside — a toast that
       // expires mid-sentence is a toast nobody finished reading.
       onMouseEnter={() => pause(props.toast.id)}
@@ -76,6 +79,7 @@ export function ToastItem(props: { toast: ToastModel; class?: string }) {
           <button
             type="button"
             class="ui-toast__action"
+            aria-label={action().ariaLabel}
             onClick={() => {
               action().onClick();
               dismiss(props.toast.id);
